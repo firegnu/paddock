@@ -42,7 +42,7 @@ paddock 是用 GPUI 重做 Saddle 界面的独立桌面应用：原生窗口里�
 - 每件活先在 `docs/任务/` 写任务文件（做成什么、范围、怎么算做完），给用户看过再动手（用户 10-05 对第三阶段那一批另有安排：不逐件等回复，一次做完后一并汇报，见 DESIGN §12）。验收照抄用户原话，不补验收点；主控觉得该加的，列出来问用户。调研和设计文档里的“建议”不是用户的验收条件。
 - 每件活一个分支，worktree 放 `../paddock-worktrees/<分支>`，编译目录用 `.target/<分支>`（见上文“独立编译目录”）。
 - 合并前按影响面自查：至少跑 `cargo test --all-targets` 和 `cargo clippy --all-targets -- -D warnings`，在任务文件末尾写「完成记录」：做了什么、验证了什么、拿主意的地方、没做的事。
-- 合并：本地合并进 main。现在没有远程仓库；以后用户配置了 `origin`，就在合并后推送。不自行创建远程仓库。
+- 合并：本地合并进 main，合并后推送到 `origin`（`github.com/firegnu/paddock`，public，用户 10-05 建）。仓库是公开的：推送前确认没有密钥、截图和私人数据进入提交。
 - 收尾记号：一件活合并完、worktree、分支和它的编译子目录清干净之后，在 main 上补一条空提交（`git commit --allow-empty`），首行写「收尾: 」加一句话说明这件活。只记真正落地的活。
 - 收尾之后更新 `HANDOFF.md`：现在在哪、下一步、悬着什么。设计和理由进 `docs/DESIGN.md`，别写进交接文件。
 - 需要真实 agent 实测时，照“不要干扰用户正在用的 agent”一条，自己开 `paddock/test-<名字>`（`--label role=test`），用完 `corral stop`。

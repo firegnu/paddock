@@ -9,6 +9,7 @@
   - 第三阶段这一批：P3-1 至 P3-10（设置与 About 独立窗口、关闭 shell 确认、新建/停止 agent、Attention、Go to Agent、终端查找、窗格放大、布局保存与恢复、Diagnostics）。
   - 147 项测试通过。
 - `~/Applications/paddock.app` 是第三阶段这一批的版本。重新打包安装：在 `app/` 下 `cargo build --release`，再 `cargo run --release --example bundle -- --install`（编译目录见 AGENTS.md）。
+- 远程仓库：`origin` = `github.com/firegnu/paddock`（public，10-05 建）。合并后推送；推送前查隐私（gitleaks、trufflehog）。
 - 主控 `paddock/main` 自己实现，不再委派（AGENTS.md「开发方式」）。
 - 用户 10-05 定下迁移的整体安排（DESIGN §2、§3“步骤”；原话见 `docs/背景与决策记录.md` §6g、§6h）：
   - 全局只能一份的运行时（corral、遥测、Drover）移到 paddock，不再两边各留一份。
@@ -31,7 +32,7 @@
 - 键盘、点击、拖动缩放、系统提示框、菜单与快捷键，以及真实 corral 的新建/停止，都还没经用户实际操作。
 - 从程序坞菜单“退出”或注销时由系统直接结束，不问未保存的设置和运行中的 shell（GPUI 没有提供拦截）。
 - 拖动分隔线调整分屏大小没做。
-- `docs/DESIGN.md` §7 其余待定：GPUI 依赖渠道、pre-1.0 是否接受、gpui-component 与首期是否只做 macOS、许可与发布（含 Clawd 是否随分发）。
+- `docs/DESIGN.md` §7 其余待定：GPUI 依赖渠道、pre-1.0 是否接受、gpui-component 与首期是否只做 macOS、许可（还没有许可证文件）与发布；Clawd 已定随公开仓库发布。
 - 原型发现的缺口（DESIGN §5）由 paddock 在自己的代码里解决，按需排期。
 - Saddle 仓库里还留着 `t76-gpui-prototype`、`t76-gpui-research` 两个分支及 worktree；Saddle Tasks 里 T76 的状态。都由 Saddle 主控处理。
 - Xcode 缺 Metal 工具链组件，目前靠 `runtime_shaders`；是否安装待用户决定。

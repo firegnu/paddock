@@ -123,7 +123,7 @@ paddock 与 Saddle 在代码上完全分开：用到的 Saddle 代码迁入 padd
 4. ~~迁移路线~~：已定为全部用 GPUI 重做（10-05）。仍待定：是否引入 gpui-component；首期是否只做 macOS。
 5. ~~插件界面~~：已定走“乙”（10-05，§3“插件”）；界面协议的具体设计待写，先给用户看。
 6. ~~paddock 与 Saddle TUI 同时运行时 Drover 的持有权~~：已定由 paddock 持有（§3 第 8 步，全部切换后）。布局文件各用各的（§12 P3-9）。
-7. 许可（paddock 和 Saddle 都还没有）、应用名与标识、签名公证，以及何时建远程仓库。单独分发时还要考虑：Clawd 是 Claude Code 的吉祥物形象，自用没问题，分发是否带它待定；猫和卡皮巴拉是 Saddle 原创。
+7. 许可（paddock 和 Saddle 都还没有）、应用名与标识、签名公证，以及何时建远程仓库。Clawd 是 Claude Code 的吉祥物形象：用户 10-05 选定公开仓库照原样带着它（“照原样公开”）；猫和卡皮巴拉是 Saddle 原创。远程仓库已建（10-05，`github.com/firegnu/paddock`，public）；许可证仍待定（没有许可证文件，即保留所有权利）。
 8. paddock 的任务是否纳入 Saddle 的 Tasks（Drover）管理。
 9. corral 切换的具体做法：已定只留 paddock 一份、Saddle 改用它（§3 第 2 步）。已在运行的 agent 由启动它的那份 corral 常驻进程管理；切换 `~/.local/bin/corral` 时借 Saddle 已有的 `corral upgrade`/`recover` 交接平滑接管，细节在第 2 步的任务里定，切换时用户在场。
 10. ~~`saddle ctl` 是否迁移~~：要迁（用户 10-05），做成 `paddock ctl`，排在切换之后第一件（§3 第 5 步）；用户的工作方式在切换时用不到它。
