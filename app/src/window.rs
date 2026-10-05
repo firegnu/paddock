@@ -130,6 +130,9 @@ const TEXT: f32 = 12.0;
 /// The title bar's height at the base interface size: the traffic lights' row, which holds the
 /// tabs. It grows with larger interface sizes, never shrinks below this.
 pub const TITLE_BAR: f32 = 40.0;
+/// The title bar with the pet shown: room for it at twice its pixel size, standing on the
+/// terminal's top edge.
+pub const PET_TITLE_BAR: f32 = 48.0;
 /// Room the traffic lights take from the window's left edge, for when the sidebar is narrower.
 const LIGHTS: f32 = 84.0;
 /// What the dimmed panes are covered with: the terminal's background, this opaque.
@@ -141,8 +144,9 @@ pub fn traffic_lights(height: f32) -> Point<Pixels> {
     point(px(14.0), px(((height - 14.0) / 2.0).max(0.0)))
 }
 
-fn title_bar_height(ui: &UiFont) -> f32 {
-    TITLE_BAR.max(ui.scale(TITLE_BAR))
+fn title_bar_height(ui: &UiFont, pet: bool) -> f32 {
+    let base = if pet { PET_TITLE_BAR } else { TITLE_BAR };
+    base.max(ui.scale(base))
 }
 
 /// What a pane shows, as far as its tab and its header name it.
@@ -1129,7 +1133,7 @@ impl PaddockWindow {
             .flex_shrink_0()
             .flex()
             .items_center()
-            .h(px(title_bar_height(&ui)))
+            .h(px(title_bar_height(&ui, self.pet.is_some())))
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|this, event: &MouseDownEvent, window, _| {
@@ -1497,7 +1501,9 @@ impl PaddockWindow {
             .id("attention-list")
             .absolute()
             // Under the sidebar's header, below the title bar.
-            .top(px(title_bar_height(&ui) + ui.scale(44.0)))
+            .top(px(
+                title_bar_height(&ui, self.pet.is_some()) + ui.scale(44.0)
+            ))
             .left(px(GAP))
             .w(px(400.0))
             .max_h(px(520.0))
@@ -1744,7 +1750,7 @@ impl PaddockWindow {
             .flex()
             .items_start()
             .justify_center()
-            .pt(px(title_bar_height(&ui) + 30.0))
+            .pt(px(title_bar_height(&ui, self.pet.is_some()) + 30.0))
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|this, _, window, cx| this.close_popup(window, cx)),
@@ -1948,7 +1954,7 @@ impl Render for PaddockWindow {
         }
         let ui = UiFont::get(cx);
         // Larger interface sizes make the title bar taller; the traffic lights stay centred on it.
-        let height = title_bar_height(&ui);
+        let height = title_bar_height(&ui, self.pet.is_some());
         if self.lights != Some(height) {
             self.lights = Some(height);
             window.set_traffic_light_position(traffic_lights(height));
@@ -2168,17 +2174,21 @@ mod tests {
     fn traffic_lights_centre_on_the_title_bar() {
         assert_eq!(traffic_lights(40.0), point(px(14.0), px(13.0)));
         assert_eq!(traffic_lights(54.0), point(px(14.0), px(20.0)));
-        assert_eq!(title_bar_height(&UiFont::default()), TITLE_BAR);
+        assert_eq!(title_bar_height(&UiFont::default(), false), TITLE_BAR);
+        // The pet walks at twice its pixel size on the terminal's top edge: the bar makes room.
+        assert_eq!(title_bar_height(&UiFont::default(), true), PET_TITLE_BAR);
         let large = UiFont {
             family: None,
             size: 18.0,
         };
-        assert!(title_bar_height(&large) > TITLE_BAR);
+        assert!(title_bar_height(&large, false) > TITLE_BAR);
+        assert!(title_bar_height(&large, true) > PET_TITLE_BAR);
         let small = UiFont {
             family: None,
             size: 11.0,
         };
-        assert_eq!(title_bar_height(&small), TITLE_BAR);
+        assert_eq!(title_bar_height(&small, false), TITLE_BAR);
+        assert_eq!(title_bar_height(&small, true), PET_TITLE_BAR);
     }
 
     #[test]

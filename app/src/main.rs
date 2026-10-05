@@ -193,8 +193,13 @@ fn main() -> Result<()> {
                     titlebar: Some(TitlebarOptions {
                         title: Some("paddock".into()),
                         appears_transparent: true,
+                        // Where the first frame puts them; the window keeps them centred after.
                         traffic_light_position: Some(paddock::window::traffic_lights(
-                            paddock::window::TITLE_BAR,
+                            if config.mascot_enabled {
+                                paddock::window::PET_TITLE_BAR
+                            } else {
+                                paddock::window::TITLE_BAR
+                            },
                         )),
                     }),
                     // The window drags itself from the empty parts of its title bar.

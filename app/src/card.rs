@@ -73,6 +73,20 @@ pub fn short_time(value: Option<f64>) -> String {
     }
 }
 
+/// How long ago, in words, for the details.
+fn ago(seconds: f64) -> String {
+    let s = seconds.max(0.0);
+    if s < 60.0 {
+        "刚刚".into()
+    } else if s < 3600.0 {
+        format!("{} 分钟前", (s / 60.0) as u64)
+    } else if s < 86400.0 {
+        format!("{} 小时前", (s / 3600.0) as u64)
+    } else {
+        format!("{} 天前", (s / 86400.0) as u64)
+    }
+}
+
 /// How the second line is coloured.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tone {
@@ -240,6 +254,7 @@ fn details(
     status: Status,
     git: Option<&Option<Summary>>,
     home: Option<&str>,
+    now: f64,
 ) -> Vec<Detail> {
     let row = |label, value: String| Detail {
         label,
@@ -285,7 +300,14 @@ fn details(
             "agent" => "agent",
             other => other,
         };
-        rows.push(row("上次输入", who.to_owned()));
+        let when = a.last_input_at.map(|at| ago(now - at));
+        rows.push(row(
+            "上次输入",
+            match when {
+                Some(when) => format!("{who}，{when}"),
+                None => who.to_owned(),
+            },
+        ));
     }
     if let Some(instance) = &a.instance {
         rows.push(Detail {
@@ -415,7 +437,7 @@ fn card(
         brand: a.kind.as_deref().map(brand),
         time: short_time(origin.map(|v| now - v)),
         second: second(a, status, title, place),
-        details: details(a, &look, status, git, home),
+        details: details(a, &look, status, git, home, now),
         look,
         short,
         instance: a.instance.clone(),
@@ -659,6 +681,7 @@ mod tests {
             instance: Some("b18cda32ce36".into()),
             attached: 1,
             last_input_source: Some("human".into()),
+            last_input_at: Some(100.0 - 150.0),
             last_tool: Some("Bash".into()),
             labels,
             ..agent("p/a", "working")
@@ -684,7 +707,7 @@ mod tests {
                 ),
                 ("模型", "opus · high".into()),
                 ("接入", "1 个窗口".into()),
-                ("上次输入", "你".into()),
+                ("上次输入", "你，2 分钟前".into()),
                 ("实例", "b18cda32ce36".into()),
             ]
         );
@@ -730,6 +753,14 @@ mod tests {
             assert_eq!((look.color)(&dune), color, "{status:?}");
             assert_eq!(look.breathing, status == Status::Working, "{status:?}");
         }
+    }
+
+    #[test]
+    fn input_ages_read_as_words() {
+        assert_eq!(ago(20.0), "刚刚");
+        assert_eq!(ago(150.0), "2 分钟前");
+        assert_eq!(ago(2.5 * 3600.0), "2 小时前");
+        assert_eq!(ago(3.0 * 86400.0), "3 天前");
     }
 
     #[test]

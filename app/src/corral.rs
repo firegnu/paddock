@@ -31,6 +31,8 @@ pub struct Agent {
     pub idle_for: Option<f64>,
     pub attached: usize,
     pub last_input_source: Option<String>,
+    /// When the last input arrived, from `corral status`.
+    pub last_input_at: Option<f64>,
     pub title: Option<String>,
     pub started: Option<f64>,
     pub error: Option<String>,
