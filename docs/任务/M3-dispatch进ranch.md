@@ -75,7 +75,7 @@
 
 2026-10-05，paddock/main。
 
-- **Saddle 侧**（saddle/main 做，用户转达已部署、已重启）：删掉整个插件系统、遥测、`saddle agent`；运行版本 `dedf26a`；`before-cut` 标签打在 `c21674a` 并已推送。只读核对：`saddle plugin`、`saddle telemetry`、`saddle agent` 都已报“unknown argument”，旧插件进程已无；`~/.local/bin/corral` 仍指向 ranch。Saddle 检出目录里还留着 `plugins/`、`examples/*-plugin/` 下未被 git 管的编译产物（dist、target），不在仓库里，由用户或 Saddle 主控决定是否清。
+- **Saddle 侧**（saddle/main 做，用户转达已部署、已重启）：删掉整个插件系统、遥测、`saddle agent`；运行版本 `dedf26a`；`before-cut` 标签打在 `c21674a` 并已推送。只读核对：`saddle plugin`、`saddle telemetry`、`saddle agent` 都已报“unknown argument”，旧插件进程已无；`~/.local/bin/corral` 仍指向 ranch。Saddle 检出目录里 `plugins/`、`examples/*-plugin/` 下未被 git 管的编译产物，用户 10-05 批准后已删（约 108 MB）；`~/.local/share/saddle/versions/` 下除正在用的 `dedf26a` 外的 19 个旧目录也经批准删掉。
 - **核对 Saddle 与 ranch 配合**：`saddle ctl open` 让 Saddle 开测试 agent `paddock/test-m3`（`/bin/cat`），由 ranch 的 corral 管、Saddle 已接入；关掉标签页、stop，Saddle 回到原样。
 - **切换**（用户在场并逐项批准）：
   - `~/.local/bin/ranch` → `~/.local/share/ranch/versions/d771c10/bin/ranch`。
