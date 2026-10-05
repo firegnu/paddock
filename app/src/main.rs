@@ -160,6 +160,9 @@ fn main() -> Result<()> {
         cx.on_action(|_: &menu::Quit, cx| windows::quit(cx));
         cx.on_action(|_: &menu::OpenSettings, cx| windows::open_settings(cx));
         cx.on_action(|_: &menu::About, cx| windows::open_about(cx));
+        cx.on_action(|_: &menu::NewAgent, cx| {
+            windows::open_new_agent(paddock::new_agent::Place::Current, cx)
+        });
         cx.set_menus(menu::menus(false, false));
         let main = cx
             .open_window(

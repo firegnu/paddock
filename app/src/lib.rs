@@ -17,6 +17,8 @@ pub mod keys;
 pub mod launch;
 pub mod layout;
 pub mod menu;
+pub mod new_agent;
+pub mod new_agent_view;
 pub mod palette;
 pub mod pet;
 pub mod preset;

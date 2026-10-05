@@ -27,6 +27,10 @@ pub enum SidebarEvent {
     },
     /// Open a shell.
     NewShell,
+    /// Open the New Agent window.
+    NewAgent,
+    /// Stop the active pane's agent, after asking.
+    Stop,
     /// The agents corral still lists, for panes to let go of one that disappeared.
     Alive(Vec<String>),
 }
@@ -131,6 +135,8 @@ pub struct Sidebar {
     /// The active pane's agent, and every agent open in this window.
     selected: Option<String>,
     here: Vec<String>,
+    /// The result of the last start or stop, and whether it is a problem.
+    note: Option<(String, bool)>,
 }
 
 impl EventEmitter<SidebarEvent> for Sidebar {}
@@ -164,6 +170,7 @@ impl Sidebar {
             git: git::Poller::start("git".into(), GIT_REFRESH),
             selected: None,
             here: Vec::new(),
+            note: None,
         }
     }
 
@@ -186,6 +193,22 @@ impl Sidebar {
             self.here = here;
             cx.notify();
         }
+    }
+
+    /// A line above the footer about the last start or stop.
+    pub fn note(&mut self, text: String, problem: bool, cx: &mut Context<Self>) {
+        self.note = Some((text, problem));
+        cx.notify();
+    }
+
+    /// Lists the agents again now rather than at the next interval.
+    pub fn refresh(&self) {
+        self.poller.refresh();
+    }
+
+    /// The agents' directories, sorted and without repeats.
+    pub fn projects(&self) -> Vec<String> {
+        self.listing.cwds()
     }
 
     /// Whether the list is folded, and sorted by name, for the View menu's ticks.
@@ -424,10 +447,39 @@ impl Render for Sidebar {
             )
             .child(div().flex_1())
             .child(
-                chip(&theme, "new-shell", "＋", "New shell", None, false).on_click(
+                chip(&theme, "new-agent", "＋", "Agent", None, false).on_click(
+                    cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(SidebarEvent::NewAgent)),
+                ),
+            )
+            .child(
+                chip(&theme, "new-shell", "＋", "Shell", None, false).on_click(
                     cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(SidebarEvent::NewShell)),
                 ),
-            );
+            )
+            .child(if self.selected.is_some() {
+                chip(&theme, "stop", "■", "Stop", None, false)
+                    .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(SidebarEvent::Stop)))
+            } else {
+                // Stop acts on the active pane's agent; there is none.
+                chip(&theme, "stop", "■", "Stop", None, false)
+                    .opacity(0.4)
+                    .cursor_default()
+            });
+        let note = self.note.as_ref().map(|(text, problem)| {
+            div()
+                .flex_shrink_0()
+                .px(px(PAD + 2.0))
+                .py(px(5.0))
+                .border_t_1()
+                .border_color(fg(|t| t.agents_rule))
+                .text_size(px(DETAIL_SIZE))
+                .text_color(if *problem {
+                    fg(|t| t.agents_red)
+                } else {
+                    fg(|t| t.muted)
+                })
+                .child(text.clone())
+        });
 
         div()
             .flex_shrink_0()
@@ -440,6 +492,7 @@ impl Render for Sidebar {
             .border_color(fg(|t| t.agents_rule))
             .child(header)
             .child(list)
+            .children(note)
             .child(footer)
     }
 }

@@ -90,3 +90,60 @@ esac
     assert_eq!(effort("d/start"), Some(Effort::High)); // no status call while starting
     assert!(agents.iter().all(|a| a.error.is_none()));
 }
+
+#[test]
+fn start_reads_the_started_name_and_stop_runs_the_public_command() {
+    use paddock::new_agent::{Form, Place, Started, start, stop};
+    let temp = common::tempdir();
+    let log = temp.path().join("calls");
+    let program = common::script(
+        temp.path(),
+        "corral",
+        &format!(
+            r##"#!/bin/sh
+printf '%s\n' "$*" >> '{log}'
+case "$1" in
+  start) echo '{{"ok":true,"name":"demo/main","instance":"0123456789ab"}}' ;;
+  stop) echo '{{"ok":true}}' ;;
+  *) echo '{{"ok":false,"error":"unexpected_command"}}'; exit 1 ;;
+esac
+"##,
+            log = log.display()
+        ),
+    );
+    let form = Form::new("/tmp/demo".into(), Place::Current);
+    let started = start(&program, &form.args().unwrap()).unwrap();
+    assert_eq!(
+        started,
+        Started {
+            name: "demo/main".into(),
+            instance: Some("0123456789ab".into())
+        }
+    );
+    stop(&program, "demo/main").unwrap();
+    let calls = std::fs::read_to_string(&log).unwrap();
+    assert_eq!(
+        calls,
+        "start demo/main --cwd /tmp/demo --label role=controller -- codex --yolo\nstop demo/main\n"
+    );
+}
+
+#[test]
+fn a_start_without_a_name_or_a_failed_stop_is_an_error() {
+    use paddock::new_agent::{start, stop};
+    let temp = common::tempdir();
+    let program = common::script(
+        temp.path(),
+        "corral",
+        r##"#!/bin/sh
+case "$1" in
+  start) echo '{"ok":true}' ;;
+  *) echo '{"ok":false,"error":"not_found"}'; exit 2 ;;
+esac
+"##,
+    );
+    let error = start(&program, &["start".into(), "x/main".into()]).unwrap_err();
+    assert!(error.to_string().contains("no name"), "{error}");
+    let error = stop(&program, "x/main").unwrap_err();
+    assert!(error.to_string().contains("not_found"), "{error}");
+}

@@ -204,6 +204,11 @@ impl TerminalView {
         &self.subject
     }
 
+    /// A shell's directory.
+    pub fn cwd(&self) -> Option<&str> {
+        self.subject.strip_prefix("shell · ")
+    }
+
     /// The agent the pane shows or is attaching to.
     pub fn target(&self) -> Option<&str> {
         self.viewer.target()

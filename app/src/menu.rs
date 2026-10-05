@@ -37,6 +37,10 @@ actions!(
         Cancel,
         /// Closes the Settings or About window (⌘W there).
         CloseWindow,
+        NewAgent,
+        StopAgent,
+        /// Create in the New Agent window.
+        CreateAgent,
     ]
 );
 
@@ -72,6 +76,13 @@ pub fn bindings() -> Vec<KeyBinding> {
         KeyBinding::new("cmd-s", SaveSettings, Some(crate::settings_view::CONTEXT)),
         KeyBinding::new("cmd-w", CloseWindow, Some(crate::settings_view::CONTEXT)),
         KeyBinding::new("cmd-w", CloseWindow, Some(crate::about::CONTEXT)),
+        KeyBinding::new("cmd-shift-n", NewAgent, None),
+        KeyBinding::new(
+            "cmd-enter",
+            CreateAgent,
+            Some(crate::new_agent_view::CONTEXT),
+        ),
+        KeyBinding::new("cmd-w", CloseWindow, Some(crate::new_agent_view::CONTEXT)),
     ]
 }
 
@@ -106,6 +117,10 @@ pub fn menus(fold: bool, by_name: bool) -> Vec<Menu> {
         Menu::new("View").items([
             MenuItem::action("Fold Agents", ToggleFold).checked(fold),
             MenuItem::action("Sort Agents by Name", ToggleSortByName).checked(by_name),
+        ]),
+        Menu::new("Agent").items([
+            MenuItem::action("New Agent…", NewAgent),
+            MenuItem::action("Stop Agent…", StopAgent),
         ]),
         Menu::new("Window").items([
             MenuItem::action("Minimize", Minimize),
@@ -172,6 +187,8 @@ mod tests {
             ("cmd-,", "paddock::OpenSettings"),
             ("cmd-s", "paddock::SaveSettings"),
             ("cmd-w", "paddock::CloseWindow"),
+            ("cmd-shift-n", "paddock::NewAgent"),
+            ("cmd-enter", "paddock::CreateAgent"),
         ] {
             assert!(
                 shortcuts.iter().any(|(k, a, _)| k == keys && *a == action),
@@ -195,7 +212,10 @@ mod tests {
             .iter()
             .map(|m| m.name.to_string())
             .collect();
-        assert_eq!(names, ["paddock", "Shell", "Edit", "View", "Window"]);
+        assert_eq!(
+            names,
+            ["paddock", "Shell", "Edit", "View", "Agent", "Window"]
+        );
         let view = |fold, by_name| -> Vec<bool> {
             menus(fold, by_name)[3]
                 .items

@@ -25,6 +25,7 @@ anyhow = "1"
 # The config file and corral's JSON output.
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["float_roundtrip"] }
+shell-words = "1"
 # Saving settings without losing the config file's comments, and the text field's cursor
 # movement (both already in the lock through toml and GPUI).
 toml_edit = "0.25"
