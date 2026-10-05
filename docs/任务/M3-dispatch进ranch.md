@@ -70,3 +70,16 @@
 - **第二节**：需求已用 `corral send` 交给 `saddle/main`（10-05），等它删插件、放掉技能归属、改 AGENTS.md、部署。
 - **范围扩大**（用户 10-05，见背景记录 §6l）：Saddle 再砍掉整个插件系统和遥测，对应测试改或删，数据留在磁盘上。补充用 `corral send --after saddle/main` 挂上，在它这一轮结束后送达。本任务第三节（链接 ranch、装技能、核对路由）不变；核对时加上 Saddle 照常可用（Agents 面板、终端、设置、布局恢复、`saddle ctl`）。
 - **标签**（用户 10-05 同意）：请 saddle/main 在删除前的 `c21674a` 打带说明的标签 `before-cut` 并推送，被删功能的代码以后可从它取回。同样用 `corral send --after` 挂上。
+
+## 完成记录
+
+2026-10-05，paddock/main。
+
+- **Saddle 侧**（saddle/main 做，用户转达已部署、已重启）：删掉整个插件系统、遥测、`saddle agent`；运行版本 `dedf26a`；`before-cut` 标签打在 `c21674a` 并已推送。只读核对：`saddle plugin`、`saddle telemetry`、`saddle agent` 都已报“unknown argument”，旧插件进程已无；`~/.local/bin/corral` 仍指向 ranch。Saddle 检出目录里还留着 `plugins/`、`examples/*-plugin/` 下未被 git 管的编译产物（dist、target），不在仓库里，由用户或 Saddle 主控决定是否清。
+- **核对 Saddle 与 ranch 配合**：`saddle ctl open` 让 Saddle 开测试 agent `paddock/test-m3`（`/bin/cat`），由 ranch 的 corral 管、Saddle 已接入；关掉标签页、stop，Saddle 回到原样。
+- **切换**（用户在场并逐项批准）：
+  - `~/.local/bin/ranch` → `~/.local/share/ranch/versions/d771c10/bin/ranch`。
+  - 先给用户看新旧技能差别（已装的是 `before-cut` 版），批准后 `ranch dispatch install-skills --yes`：两处 `SKILL.md`、`README.md` 覆盖，模板相同未动；批准后删掉两处旧的 `遥测操作.md`；再 dry-run 全部 same、无提示。
+  - 批准后发一次真实路由请求（合成摘要，不含私人数据）：退出码 0，轻档、不要交叉审查、影响面看得见。
+- **拿主意的地方**：路由里只为采集加的“解析后超 16 MiB 失败”检查保留，保证同样的回复结果不变；安装技能遇到不属于技能的文件只提示不删，旧文件由用户批准后手动删。
+- **没做的事**：`TYPESAFE_API_KEY` 的来源未改（主控从登录 shell 环境取，与原来一样）；paddock.app 侧栏未截图核对。

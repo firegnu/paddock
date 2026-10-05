@@ -22,7 +22,7 @@
 
 1. 用户体验第三阶段这一批，反馈问题（截图已给用户看过）。
 2. **M2 已完成**（`docs/任务/M2-ranch与corral.md`）：corral 在 ranch，`~/.local/bin/corral` 指向 ranch，Saddle 已剥离并改用它，现有会话已升级。
-3. 用户定：dispatch 不带遥测剥离到 ranch，之后转回 paddock 开发；遥测、Drover、整个插件系统砍掉（Saddle 删代码和对应测试，数据留在磁盘上）。正在做 M3（`docs/任务/M3-dispatch进ranch.md`）：ranch 部分已完成。用户又定砍掉 Saddle 的遥测、Drover、整个插件系统（paddock 路线同样拿掉），补充已交 saddle/main；等它删完并部署，再在用户在场时链接 `~/.local/bin/ranch`、装技能、核对。
+3. 用户定：dispatch 不带遥测剥离到 ranch，之后转回 paddock 开发；遥测、Drover、整个插件系统砍掉（Saddle 删代码和对应测试，数据留在磁盘上）。**M3 已完成**（`docs/任务/M3-dispatch进ranch.md`）：dispatch 在 ranch（`ranch dispatch route`、技能由 `ranch dispatch install-skills` 装）；Saddle 已砍掉插件系统和遥测（被删代码可从 Saddle 标签 `before-cut` 取回，数据留在磁盘上）。两个前端同一起跑线，接下来转回 paddock 开发。
 4. M3 做完后转回 paddock 开发：`paddock ctl` 等。遥测查看页、插件界面、Drover 已取消（用户 10-05）。
 
 ## 悬着
