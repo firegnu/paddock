@@ -18,8 +18,10 @@ use crate::{
     new_agent::{self, Place, Started},
     new_agent_view::Seed,
     pet::PetView,
+    popover::{self, Tone},
     search::{self, Lead, Mode, Target},
-    sidebar::{Sidebar, SidebarEvent, status_dot},
+    settings::{Conflict, Draft, Saved},
+    sidebar::{self, Sidebar, SidebarEvent, status_dot},
     text_input::{self, Changed, TextInput},
     theme::Theme,
     view::{Launch, Options, TerminalView, hsla},
@@ -27,10 +29,10 @@ use crate::{
     windows,
 };
 use gpui::{
-    AnyElement, BoxShadow, ClickEvent, Context, Div, ElementId, Entity, ExternalPaths, FocusHandle,
-    Focusable, FontWeight, HighlightStyle, Hsla, MouseButton, MouseDownEvent, MouseMoveEvent,
-    Pixels, Point, PromptLevel, Render, ScrollHandle, SharedString, Stateful, StyledText, Task,
-    Window, div, point, prelude::*, px,
+    AnyElement, BoxShadow, ClickEvent, Context, Div, DragMoveEvent, ElementId, Entity,
+    ExternalPaths, FocusHandle, Focusable, FontWeight, HighlightStyle, Hsla, MouseButton,
+    MouseDownEvent, MouseMoveEvent, Pixels, Point, PromptLevel, Render, ScrollHandle, SharedString,
+    Stateful, StyledText, Task, Window, div, point, prelude::*, px,
 };
 use std::{collections::HashMap, rc::Rc, time::Duration};
 
@@ -51,7 +53,12 @@ enum Popup {
     Attention,
     /// The command palette.
     Palette,
+    /// The sidebar's menu of actions, over its button.
+    Actions,
 }
+
+/// What dragging the divider carries: nothing, only that it is the divider.
+struct SidebarDrag;
 
 /// The command palette while it is open.
 struct Palette {
@@ -160,6 +167,10 @@ pub const TITLE_BAR: f32 = 40.0;
 pub const PET_TITLE_BAR: f32 = 48.0;
 /// Room the traffic lights take from the window's left edge, for when the sidebar is narrower.
 const LIGHTS: f32 = 84.0;
+/// The line between the sidebar and the panes, and the room on each side of it the mouse can
+/// take it by.
+const DIVIDER: f32 = 1.0;
+const GRIP: f32 = 3.0;
 /// What the dimmed panes are covered with: the terminal's background, this opaque.
 const DIM: f32 = 0.42;
 
@@ -278,8 +289,8 @@ pub struct PaddockWindow {
     tabs: ScrollHandle,
     /// The pet in the tab strip's spare room, unless turned off.
     pet: Option<Entity<PetView>>,
-    /// The View menu ticks last set: folded, sorted by name.
-    menu_state: Option<(bool, bool)>,
+    /// The View menu as last set: folded, sorted by name, sidebar collapsed.
+    menu_state: Option<(bool, bool, bool)>,
     /// The pet as configured: shown, and which.
     pet_setting: (bool, crate::pet::Pet),
     /// A close or quit question is showing.
@@ -292,8 +303,12 @@ pub struct PaddockWindow {
     config_from_file: bool,
     /// The command palette while it is open.
     palette: Option<Palette>,
-    /// The sidebar's width, which the title bar leaves empty before the tabs.
+    /// The sidebar's width when expanded, which the title bar leaves empty before the tabs.
     sidebar_width: f32,
+    /// The sidebar is collapsed to its strip; saved with the layout.
+    collapsed: bool,
+    /// The divider is being dragged: the width and the mouse's x when it was pressed.
+    resizing: Option<(f32, f32)>,
     /// A press on the title bar's empty part: moving now drags the window.
     dragging: bool,
     /// The title bar height the traffic lights were last centred on.
@@ -320,6 +335,10 @@ impl PaddockWindow {
             cx.new(|cx| Sidebar::new(theme, width, mono, corral, refresh, cx))
         };
         cx.subscribe_in(&sidebar, window, Self::on_sidebar).detach();
+        let collapsed = saved
+            .as_ref()
+            .is_some_and(|layout| layout.sidebar_collapsed);
+        sidebar.update(cx, |sidebar, cx| sidebar.set_collapsed(collapsed, cx));
         let shown = match &options.launch {
             Launch::Empty => Shown::Empty,
             Launch::Agent { name } => Shown::Agent(name.clone()),
@@ -353,6 +372,8 @@ impl PaddockWindow {
             attention_index: 0,
             palette: None,
             sidebar_width: config.sidebar_width,
+            collapsed,
+            resizing: None,
             dragging: false,
             lights: None,
             store,
@@ -458,8 +479,121 @@ impl PaddockWindow {
 
     /// Saves the layout when it changed since the last save.
     pub fn save_layout(&mut self, cx: &gpui::App) {
-        let layout = Layout::of(&self.workspace, |pane| self.content(pane, cx));
+        let layout = Layout {
+            sidebar_collapsed: self.collapsed,
+            ..Layout::of(&self.workspace, |pane| self.content(pane, cx))
+        };
         self.store.save(&layout);
+    }
+
+    /// ⌘B, and the sidebar's own buttons: collapse it to the strip or expand it again.
+    fn toggle_sidebar(&mut self, cx: &mut Context<Self>) {
+        self.collapsed = !self.collapsed;
+        if self.popup == Some(Popup::Actions) {
+            self.popup = None;
+        }
+        let collapsed = self.collapsed;
+        self.sidebar
+            .update(cx, |sidebar, cx| sidebar.set_collapsed(collapsed, cx));
+        self.save_layout(cx);
+        cx.notify();
+    }
+
+    /// How wide the sidebar is drawn now: its width, or the strip's.
+    fn sidebar_shown(&self, ui: &UiFont) -> f32 {
+        if self.collapsed {
+            ui.scale(sidebar::RAIL)
+        } else {
+            self.sidebar_width
+        }
+    }
+
+    /// Where the divider is taken by: a few points either side of the line, which lights up under
+    /// the mouse and while dragged.
+    fn grip(&self, cx: &mut Context<Self>) -> Stateful<Div> {
+        let bright = self.fg(|t| t.agents_border);
+        let bar = div()
+            .absolute()
+            .top_0()
+            .bottom_0()
+            .left(px(GRIP - 1.0))
+            .w(px(DIVIDER + 2.0))
+            .when(self.resizing.is_some(), |bar| bar.bg(bright))
+            .group_hover("divider", move |style| style.bg(bright));
+        div()
+            .id("divider")
+            .group("divider")
+            .absolute()
+            .top_0()
+            .bottom_0()
+            .left(px(self.sidebar_width - GRIP))
+            .w(px(GRIP + DIVIDER + GRIP))
+            .cursor_col_resize()
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, event: &MouseDownEvent, _, cx| {
+                    this.resizing = Some((this.sidebar_width, f32::from(event.position.x)));
+                    cx.notify();
+                }),
+            )
+            .on_drag(SidebarDrag, |_, _, _, cx| cx.new(|_| gpui::EmptyView))
+            .child(bar)
+    }
+
+    /// The divider moved: the sidebar follows at once.
+    fn resize_sidebar(&mut self, x: f32, cx: &mut Context<Self>) {
+        let Some((width, from)) = self.resizing else {
+            return;
+        };
+        let width = sidebar::resize(width, from, x);
+        if width != self.sidebar_width {
+            self.sidebar_width = width;
+            let theme = self.theme.clone();
+            self.sidebar
+                .update(cx, |sidebar, cx| sidebar.restyle(theme, width, cx));
+            cx.notify();
+        }
+    }
+
+    /// The divider was let go: the width goes into the config file as `sidebar_width`, through
+    /// the same draft Settings saves with, so the rest of the file stays as it was.
+    fn finish_resize(&mut self, cx: &mut Context<Self>) {
+        let Some((from, _)) = self.resizing.take() else {
+            return;
+        };
+        cx.notify();
+        if from == self.sidebar_width {
+            return;
+        }
+        let path = crate::config::default_path();
+        let width = self.sidebar_width;
+        let result = (|| -> anyhow::Result<()> {
+            let disk = match std::fs::read_to_string(&path) {
+                Ok(text) => Some(text),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+                Err(error) => return Err(error.into()),
+            };
+            let mut draft = Draft::new(disk.clone())?;
+            draft.set("sidebar_width", &width.to_string());
+            match draft.save(disk.as_deref())? {
+                Ok(Saved::Written { text, .. }) => {
+                    if let Some(dir) = path.parent() {
+                        std::fs::create_dir_all(dir)?;
+                    }
+                    let temporary = path.with_extension("toml.saving");
+                    std::fs::write(&temporary, text)?;
+                    std::fs::rename(&temporary, &path)?;
+                    Ok(())
+                }
+                Ok(Saved::Unchanged) => Ok(()),
+                Err(Conflict) => anyhow::bail!("the config file changed while it was read"),
+            }
+        })();
+        if let Err(error) = result {
+            self.sidebar.update(cx, |sidebar, cx| {
+                sidebar.note(format!("Sidebar width not saved: {error:#}"), true, cx)
+            });
+        }
     }
 
     fn view(
@@ -535,11 +669,17 @@ impl PaddockWindow {
             SidebarEvent::Attach { name, metadata } => {
                 self.show_agent(name, metadata.clone(), window, cx)
             }
-            SidebarEvent::NewShell => self.new_shell(window, cx),
             // After this update: opening the window reads this one.
             SidebarEvent::NewAgent => cx.defer(|cx| windows::open_new_agent(Place::Current, cx)),
-            SidebarEvent::Stop => self.stop_agent(window, cx),
             SidebarEvent::Attention => self.toggle_attention(cx),
+            SidebarEvent::Actions => {
+                self.popup = match self.popup {
+                    Some(Popup::Actions) => None,
+                    _ => Some(Popup::Actions),
+                };
+                cx.notify();
+            }
+            SidebarEvent::ToggleCollapse => self.toggle_sidebar(cx),
             SidebarEvent::Alive(names) => {
                 let names: Vec<&str> = names.iter().map(String::as_str).collect();
                 for view in self.panes.values() {
@@ -807,7 +947,7 @@ impl PaddockWindow {
         let direction = match popup {
             Popup::NewTab => None,
             Popup::Split(Some(direction)) => Some(direction),
-            Popup::Split(None) | Popup::Attention | Popup::Palette => return,
+            Popup::Split(None) | Popup::Attention | Popup::Palette | Popup::Actions => return,
         };
         if let Choice::Agent(name) = &choice
             && let Some(old) = self.workspace.find(name)
@@ -1170,7 +1310,7 @@ impl PaddockWindow {
             .child(
                 div()
                     .flex_shrink_0()
-                    .w(px(self.sidebar_width.max(LIGHTS)))
+                    .w(px((self.sidebar_shown(&ui) + DIVIDER).max(LIGHTS)))
                     .h_full(),
             )
             .child(
@@ -1581,11 +1721,15 @@ impl PaddockWindow {
         let card = div()
             .id("attention-list")
             .absolute()
-            // Under the sidebar's header, below the title bar.
-            .top(px(
-                title_bar_height(&ui, self.pet.is_some()) + ui.scale(44.0)
-            ))
-            .left(px(GAP))
+            // Under the sidebar's header, below the title bar; beside the strip's bell when the
+            // sidebar is collapsed.
+            .top(px(title_bar_height(&ui, self.pet.is_some())
+                + ui.scale(if self.collapsed { 40.0 } else { 44.0 })))
+            .left(px(if self.collapsed {
+                self.sidebar_shown(&ui) + GAP
+            } else {
+                GAP
+            }))
             .w(px(400.0))
             .max_h(px(520.0))
             .overflow_y_scroll()
@@ -1636,6 +1780,136 @@ impl PaddockWindow {
                 }),
             )
             .child(card)
+    }
+
+    /// The sidebar's menu of actions, opening upward from its button: new agent and shell, the
+    /// list's order and folding, stopping the active pane's agent, and Settings. Choosing closes
+    /// it, as do Esc and a click outside.
+    fn actions_menu(&self, cx: &mut Context<Self>) -> Stateful<Div> {
+        let ui = UiFont::get(cx);
+        let theme = &*self.theme;
+        let (fold, by_name) = self.sidebar.read(cx).view_state();
+        let (stop, can_stop) = sidebar::stop_item(self.workspace.active_agent());
+        let keys = |action: &dyn gpui::Action| popover::keys(theme, &ui, &menu::keys(action));
+        let sort = |this: &mut Self, by_name: bool, window: &mut Window, cx: &mut Context<Self>| {
+            this.close_popup(window, cx);
+            this.sidebar.update(cx, |s, cx| s.set_sort(by_name, cx));
+        };
+        let mut stop = popover::row(
+            theme,
+            &ui,
+            "menu-stop",
+            Icon::Stop,
+            stop,
+            if can_stop { Tone::Danger } else { Tone::Off },
+        );
+        if can_stop {
+            stop = stop.on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                this.close_popup(window, cx);
+                this.stop_agent(window, cx);
+            }));
+        }
+        let (left, bottom) = sidebar::menu_anchor(self.collapsed, &ui);
+        let panel = popover::panel(theme, &ui)
+            .id("actions-menu")
+            .absolute()
+            .left(left)
+            .bottom(bottom)
+            .w(ui.px(252.0))
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .child(
+                popover::row(
+                    theme,
+                    &ui,
+                    "menu-new-agent",
+                    Icon::NewAgent,
+                    "New Agent…",
+                    Tone::Plain,
+                )
+                .child(keys(&menu::NewAgent))
+                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                    this.close_popup(window, cx);
+                    cx.defer(|cx| windows::open_new_agent(Place::Current, cx));
+                })),
+            )
+            .child(
+                popover::row(
+                    theme,
+                    &ui,
+                    "menu-new-shell",
+                    Icon::NewShell,
+                    "New Shell",
+                    Tone::Plain,
+                )
+                .child(keys(&menu::NewShell))
+                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                    this.close_popup(window, cx);
+                    this.new_shell(window, cx);
+                })),
+            )
+            .child(popover::rule(theme, &ui))
+            .child(
+                popover::line(theme, &ui, Icon::Sort, "Sort", false).child(
+                    popover::choices(theme, &ui)
+                        .child(
+                            popover::choice(theme, &ui, "sort-status", "Status", !by_name)
+                                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                                    sort(this, false, window, cx)
+                                })),
+                        )
+                        .child(
+                            popover::choice(theme, &ui, "sort-name", "Name", by_name).on_click(
+                                cx.listener(move |this, _: &ClickEvent, window, cx| {
+                                    sort(this, true, window, cx)
+                                }),
+                            ),
+                        ),
+                ),
+            )
+            .child(
+                popover::row(
+                    theme,
+                    &ui,
+                    "menu-fold",
+                    Icon::Fold,
+                    "Fold Agents",
+                    Tone::Plain,
+                )
+                .child(popover::tick(theme, &ui, fold))
+                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                    this.close_popup(window, cx);
+                    this.sidebar.update(cx, |s, cx| s.toggle_fold(cx));
+                })),
+            )
+            .child(popover::rule(theme, &ui))
+            .child(stop)
+            .child(popover::rule(theme, &ui))
+            .child(
+                popover::row(
+                    theme,
+                    &ui,
+                    "menu-settings",
+                    Icon::Gear,
+                    "Settings…",
+                    Tone::Plain,
+                )
+                .child(keys(&menu::OpenSettings))
+                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                    this.close_popup(window, cx);
+                    cx.defer(windows::open_settings);
+                })),
+            );
+        // A click outside closes it; nothing is dimmed, as for a menu.
+        div()
+            .id("actions-backdrop")
+            .absolute()
+            .inset_0()
+            .occlude()
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _, window, cx| this.close_popup(window, cx)),
+            )
+            .child(panel)
     }
 
     /// ⌘P (`query` empty) or ⌘⇧P (`>`): the command palette over the window, its field focused.
@@ -2240,7 +2514,7 @@ impl PaddockWindow {
             Popup::NewTab => "Open in a new tab".to_owned(),
             Popup::Split(None) => "Split: which side?".to_owned(),
             Popup::Split(Some(direction)) => format!("Split {}", side(direction)),
-            Popup::Attention | Popup::Palette => String::new(),
+            Popup::Attention | Popup::Palette | Popup::Actions => String::new(),
         };
         let mut body = div().flex().flex_col().gap(px(2.0));
         if popup == Popup::Split(None) {
@@ -2421,12 +2695,17 @@ fn side(direction: Direction) -> &'static str {
 impl Render for PaddockWindow {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.fill(window, cx);
-        // The View menu ticks follow the sidebar.
-        let view_state = self.sidebar.read(cx).view_state();
+        // The View menu follows the sidebar.
+        let (fold, by_name) = self.sidebar.read(cx).view_state();
+        let view_state = (fold, by_name, self.collapsed);
         if self.menu_state != Some(view_state) {
             self.menu_state = Some(view_state);
-            cx.set_menus(menu::menus(view_state.0, view_state.1));
+            cx.set_menus(menu::menus(fold, by_name, self.collapsed));
         }
+        // The menu button stays lit while its menu is open.
+        let menu_open = self.popup == Some(Popup::Actions);
+        self.sidebar
+            .update(cx, |sidebar, cx| sidebar.set_menu_open(menu_open, cx));
         let ui = UiFont::get(cx);
         // Larger interface sizes make the title bar taller; the traffic lights stay centred on it.
         let height = title_bar_height(&ui, self.pet.is_some());
@@ -2451,14 +2730,19 @@ impl Render for PaddockWindow {
             .flex()
             .bg(hsla(self.theme.terminal().background, 1.0))
             .child(self.node(&root, shown, &agents, cx));
+        let rule = self.fg(|t| t.agents_rule).opacity(0.7);
         let body = div()
+            .relative()
             .flex_1()
             .min_h(px(0.0))
             .flex()
             .flex_row()
             .child(self.sidebar.clone())
-            .child(content);
+            .child(div().flex_shrink_0().w(px(DIVIDER)).h_full().bg(rule))
+            .child(content)
+            .when(!self.collapsed, |body| body.child(self.grip(cx)));
         let dialog = match self.popup {
+            Some(Popup::Actions) => Some(self.actions_menu(cx)),
             Some(Popup::Attention) => Some(self.attention_panel(cx)),
             Some(Popup::Palette) => self
                 .palette
@@ -2530,6 +2814,18 @@ impl Render for PaddockWindow {
                 this.sidebar.update(cx, |s, cx| s.toggle_sort(cx));
                 cx.notify();
             }))
+            .on_action(cx.listener(|this, _: &menu::ToggleSidebar, _, cx| this.toggle_sidebar(cx)))
+            // Dragging the divider: followed wherever the mouse goes, and let go anywhere.
+            .on_drag_move(
+                cx.listener(|this, event: &DragMoveEvent<SidebarDrag>, _, cx| {
+                    this.resize_sidebar(f32::from(event.event.position.x), cx)
+                }),
+            )
+            .capture_any_mouse_up(cx.listener(|this, _, _, cx| this.finish_resize(cx)))
+            .on_mouse_up_out(
+                MouseButton::Left,
+                cx.listener(|this, _, _, cx| this.finish_resize(cx)),
+            )
             .on_action(cx.listener(|_, _: &menu::Minimize, window, _| window.minimize_window()))
             .on_action(cx.listener(|_, _: &menu::Zoom, window, _| window.zoom_window()))
             .on_action(
@@ -2556,6 +2852,18 @@ impl Render for PaddockWindow {
             .child(self.title_bar(&agents, now, cx))
             .child(body)
             .children(dialog)
+            // While the divider is dragged the cursor keeps its shape, and nothing under it
+            // reacts.
+            .when(self.resizing.is_some(), |root| {
+                root.child(
+                    div()
+                        .id("resizing")
+                        .absolute()
+                        .inset_0()
+                        .occlude()
+                        .cursor_col_resize(),
+                )
+            })
     }
 }
 

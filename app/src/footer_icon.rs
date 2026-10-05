@@ -38,6 +38,16 @@ pub enum Icon {
     Command,
     /// A window with its title bar: a card's mark for an agent open in this window.
     Here,
+    /// Three sliders: the sidebar's button for its menu of actions.
+    Actions,
+    /// A wheel with spokes: Settings in that menu.
+    Gear,
+    /// A tick: a menu item that is on.
+    Check,
+    /// A panel with its side bar and an arrow into it: collapse the sidebar.
+    Collapse,
+    /// The same panel with the arrow out: expand it again.
+    Expand,
 }
 
 /// `icon` in `color`, `SIZE` points square times `scale` (the interface size over the base).
@@ -221,6 +231,62 @@ fn shapes(icon: Icon, bounds: Bounds<Pixels>, scale: f32) -> Vec<PathBuilder> {
             bar.move_to(at(1.5, 5.25));
             bar.line_to(at(12.5, 5.25));
             vec![frame, bar]
+        }
+        Icon::Actions => {
+            let mut paths = Vec::new();
+            for (y, knob) in [(3.5, 4.5), (7.0, 9.5), (10.5, 6.0)] {
+                let mut rail = stroke();
+                rail.move_to(at(1.5, y));
+                rail.line_to(at(knob - 1.5, y));
+                rail.move_to(at(knob + 1.5, y));
+                rail.line_to(at(12.5, y));
+                let mut ring = stroke();
+                circle(&mut ring, at(knob, y), 1.5 * scale);
+                paths.extend([rail, ring]);
+            }
+            paths
+        }
+        Icon::Gear => {
+            let mut hub = stroke();
+            circle(&mut hub, at(7.0, 7.0), 2.0 * scale);
+            let mut spokes = stroke();
+            for ((x0, y0), (x1, y1)) in [
+                ((7.0, 1.2), (7.0, 2.8)),
+                ((7.0, 11.2), (7.0, 12.8)),
+                ((1.2, 7.0), (2.8, 7.0)),
+                ((11.2, 7.0), (12.8, 7.0)),
+                ((2.9, 2.9), (4.0, 4.0)),
+                ((10.0, 10.0), (11.1, 11.1)),
+                ((2.9, 11.1), (4.0, 10.0)),
+                ((10.0, 4.0), (11.1, 2.9)),
+            ] {
+                spokes.move_to(at(x0, y0));
+                spokes.line_to(at(x1, y1));
+            }
+            vec![hub, spokes]
+        }
+        Icon::Check => {
+            let mut tick = stroke();
+            tick.move_to(at(3.0, 7.5));
+            tick.line_to(at(5.75, 10.25));
+            tick.line_to(at(11.0, 4.0));
+            vec![tick]
+        }
+        Icon::Collapse | Icon::Expand => {
+            let mut frame = stroke();
+            rounded_rect(&mut frame, at(1.0, 2.0), at(13.0, 12.0), 2.0 * scale);
+            let mut side = stroke();
+            side.move_to(at(5.0, 2.0));
+            side.line_to(at(5.0, 12.0));
+            let (tip, back) = match icon {
+                Icon::Collapse => (8.0, 9.5),
+                _ => (9.5, 8.0),
+            };
+            let mut arrow = stroke();
+            arrow.move_to(at(back, 5.5));
+            arrow.line_to(at(tip, 7.0));
+            arrow.line_to(at(back, 8.5));
+            vec![frame, side, arrow]
         }
     }
 }

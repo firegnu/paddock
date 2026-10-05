@@ -56,6 +56,10 @@ pub struct Layout {
     pub version: u32,
     pub active_tab: usize,
     pub tabs: Vec<SavedTab>,
+    /// The sidebar is collapsed to its narrow strip; files from before it was saved open it
+    /// expanded.
+    #[serde(default)]
+    pub sidebar_collapsed: bool,
 }
 
 impl SavedNode {
@@ -123,7 +127,7 @@ impl Layout {
         Ok(())
     }
 
-    /// The workspace's layout; `content` says what a pane shows in full.
+    /// The workspace's layout, with the sidebar expanded; `content` says what a pane shows in full.
     pub fn of(workspace: &Workspace, content: impl Fn(PaneId) -> Content) -> Layout {
         fn node(tree: &Node, places: &HashMap<PaneId, usize>) -> SavedNode {
             match tree {
@@ -161,6 +165,7 @@ impl Layout {
             version: VERSION,
             active_tab: workspace.active_tab,
             tabs,
+            sidebar_collapsed: false,
         }
     }
 
@@ -389,6 +394,29 @@ mod tests {
         let mut restored = restored;
         let new = restored.new_tab(Shown::Empty);
         assert!(contents.iter().all(|(id, _)| *id != new));
+    }
+
+    #[test]
+    fn the_collapsed_sidebar_is_saved_and_older_files_open_it_expanded() {
+        let (_, layout) = sample();
+        assert!(!layout.sidebar_collapsed);
+        let dir = std::env::temp_dir().join(format!("paddock-layout-test-{}", std::process::id()));
+        let path = dir.join("layout.json");
+        let (mut store, _) = Store::open(Some(path.clone()));
+        store.save(&Layout {
+            sidebar_collapsed: true,
+            ..layout.clone()
+        });
+        let (_, back) = Store::open(Some(path.clone()));
+        assert!(back.unwrap().sidebar_collapsed);
+        // A file written before the sidebar could collapse has no such field.
+        let mut old = serde_json::to_value(&layout).unwrap();
+        old.as_object_mut().unwrap().remove("sidebar_collapsed");
+        fs::write(&path, serde_json::to_vec(&old).unwrap()).unwrap();
+        let (store, back) = Store::open(Some(path));
+        assert!(store.problem().is_none());
+        assert_eq!(back, Some(layout));
+        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
