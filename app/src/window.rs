@@ -19,7 +19,7 @@ use crate::{
     new_agent_view::Seed,
     pet::PetView,
     search::{self, Lead, Mode, Target},
-    sidebar::{Sidebar, SidebarEvent},
+    sidebar::{Sidebar, SidebarEvent, status_dot},
     text_input::{self, Changed, TextInput},
     theme::Theme,
     view::{Launch, Options, TerminalView, hsla},
@@ -27,10 +27,10 @@ use crate::{
     windows,
 };
 use gpui::{
-    Animation, AnimationExt, AnyElement, BoxShadow, ClickEvent, Context, Div, ElementId, Entity,
-    ExternalPaths, FocusHandle, Focusable, FontWeight, HighlightStyle, Hsla, MouseButton,
-    MouseDownEvent, MouseMoveEvent, Pixels, Point, PromptLevel, Render, ScrollHandle, SharedString,
-    Stateful, StyledText, Task, Window, div, ease_in_out, point, prelude::*, px,
+    AnyElement, BoxShadow, ClickEvent, Context, Div, ElementId, Entity, ExternalPaths, FocusHandle,
+    Focusable, FontWeight, HighlightStyle, Hsla, MouseButton, MouseDownEvent, MouseMoveEvent,
+    Pixels, Point, PromptLevel, Render, ScrollHandle, SharedString, Stateful, StyledText, Task,
+    Window, div, point, prelude::*, px,
 };
 use std::{collections::HashMap, rc::Rc, time::Duration};
 
@@ -2391,40 +2391,6 @@ fn dot(shown: &Shown, agents: &[Agent], now: f64) -> Pick {
         Shown::Shell => |t| t.muted,
         Shown::Empty => |t| t.agents_faint,
     }
-}
-
-/// A palette row's status dot; a working agent's breathes, as on its card in the sidebar.
-fn status_dot(color: Hsla, breathing: bool, ui: &UiFont) -> AnyElement {
-    let dot = div()
-        .flex_shrink_0()
-        .size(ui.px(8.0))
-        .rounded_full()
-        .bg(color);
-    if !breathing {
-        return dot.into_any_element();
-    }
-    let reach = ui.scale(4.0);
-    dot.with_animation(
-        "breath",
-        Animation::new(Duration::from_millis(1600))
-            .repeat_synced()
-            .with_max_fps(30.0),
-        move |dot, delta| {
-            let out = ease_in_out(if delta < 0.5 {
-                delta * 2.0
-            } else {
-                (1.0 - delta) * 2.0
-            });
-            dot.shadow(vec![BoxShadow {
-                color: color.opacity(0.55 * (1.0 - out)),
-                offset: point(px(0.0), px(0.0)),
-                blur_radius: px(0.0),
-                spread_radius: px(reach * out),
-                inset: false,
-            }])
-        },
-    )
-    .into_any_element()
 }
 
 /// Seconds since the epoch, as the agent statuses count them.

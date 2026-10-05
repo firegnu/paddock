@@ -933,7 +933,7 @@ impl RenderOnce for AgentCard {
             .flex()
             .items_center()
             .gap(ui.px(INDENT - DOT))
-            .child(dot(card.look, fg(card.look.color), &ui))
+            .child(status_dot(fg(card.look.color), card.look.breathing, &ui))
             .child(name)
             .children(program)
             .child(
@@ -1072,14 +1072,15 @@ fn tabular() -> FontFeatures {
     FontFeatures(Arc::new(vec![("tnum".into(), 1)]))
 }
 
-/// The status dot; a working agent's breathes, a ring widening as it fades, every 1.6 s.
-fn dot(look: card::Look, color: Hsla, ui: &UiFont) -> AnyElement {
+/// A status dot, here and in the command palette; a working agent's breathes, a ring widening
+/// as it fades, every 1.6 s.
+pub(crate) fn status_dot(color: Hsla, breathing: bool, ui: &UiFont) -> AnyElement {
     let dot = div()
         .flex_shrink_0()
         .size(ui.px(DOT))
         .rounded_full()
         .bg(color);
-    if !look.breathing {
+    if !breathing {
         return dot.into_any_element();
     }
     let reach = ui.scale(4.0);
