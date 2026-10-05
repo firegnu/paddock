@@ -92,6 +92,7 @@ paddock 与 Saddle 在代码上完全分开：用到的 Saddle 代码迁入 padd
 6. paddock 与 Saddle TUI 同时运行时，Drover 持有权和布局文件的规则。
 7. 许可（paddock 和 Saddle 都还没有）、应用名与标识、签名公证，以及何时建远程仓库。
 8. paddock 的任务是否纳入 Saddle 的 Tasks（Drover）管理。
+9. 本机从 Saddle 切到 paddock 时 corral 怎么切换：Saddle 仍安装时，系统路径可继续指向 Saddle 的 corral，paddock 用完整路径调用自带的一份；卸掉 Saddle 时系统路径改指 paddock 的 corral。已在运行的 agent 由启动它的那份 corral 常驻进程管理，切换不影响它们；平滑接管可参考 Saddle 的 `corral upgrade`/`recover` 设计。到时再定。
 
 ## 8. 主题
 
