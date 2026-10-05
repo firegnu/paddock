@@ -52,7 +52,7 @@ B="$CARGO_TARGET_DIR/release/paddock"
 
 ```toml
 theme = "tide"          # dune | tide | lagoon；不写等于 dune
-sidebar_width = 240     # 侧栏宽度，单位 pt；默认 240
+sidebar_width = 380     # 侧栏宽度，单位 pt；默认 380（Agents 面板信息较多，窄于 320 时“哪家”只显示图标、状态只显示动画）
 font = "Geist Mono"
 font_fallbacks = ["Sarasa Mono SC", "Maple Mono NF CN"]
 font_size = 14.5
