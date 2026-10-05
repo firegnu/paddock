@@ -6,7 +6,7 @@
 
 用 GPUI 重做 Saddle 界面的独立桌面应用：在原生窗口里查看 corral agent、运行真实交互终端，不再依赖外层终端程序。终端体验以 Zed 内置终端为参照（用户已认可该水平）。
 
-paddock 与 Saddle 在代码上完全分开：用到的 Saddle 代码迁入 paddock 自己维护，不再依赖 Saddle 的库；Saddle 的界面逐步用 GPUI 重做。Saddle 本身（含 TUI、插件、Drover、遥测、`saddle ctl`）继续独立开发和使用，不因 paddock 改变。
+paddock 与 Saddle 在代码上完全分开：用到的 Saddle 代码迁入 paddock 自己维护，不再依赖 Saddle 的库；Saddle 的界面逐步用 GPUI 重做。Saddle 本身（含 TUI、插件、`saddle ctl`）继续独立开发和使用，不因 paddock 改变。全局只能有一份的运行时（corral、遥测、Drover 的数据核心）分四步移到 paddock，之后 Saddle 改用 paddock 的那一份（§3）。
 
 ## 2. 已定决定
 
@@ -22,6 +22,7 @@ paddock 与 Saddle 在代码上完全分开：用到的 Saddle 代码迁入 padd
 | 第一阶段范围：一个窗口、左侧 Agents 列表、右侧一个终端窗格，加主题系统 | 用户 10-05：“第一阶段范围就按你的建议”。细节见 §9 |
 | **代码与 Saddle 完全分开**：用到的 Saddle 代码迁入 paddock 自己维护，不再依赖 Saddle 的库；所有界面用 GPUI 重做 | 用户 10-05：“paddock和saddle是完全分开的，或者paddock要把用的saddle的文件都迁移过来，所有saddle的界面都用gpui重做”，“按这个方向调整”。细节见 §3、§10 |
 | **paddock 要能单独分发**（别人不装 Saddle 也能用）：分发前把 corral 运行时及所需插件迁入 paddock、随 paddock 打包 | 用户 10-05：“要”（问：将来是否要让 paddock 能单独分发）。细节见 §3、§6 |
+| **全局只能一份的运行时归 paddock**：corral、遥测、Drover 的数据核心移到 paddock 维护，Saddle 改用 paddock 的；不再两边各留一份。分四步：第三阶段这一批 → corral → 遥测 → Drover 与插件界面 | 用户 10-05：“saddle现在的corral或者drover这种全局只能有一个的。移到paddock中，之后saddle使用paddock的”，“分四步走”。细节见 §3 |
 
 ## 3. 与 Saddle 的关系
 
@@ -35,19 +36,27 @@ paddock 与 Saddle 在代码上完全分开：用到的 Saddle 代码迁入 padd
   | 遥测命令（`saddle telemetry …`）、Drover 的公开命令 | Saddle | 需要时照公开命令调用 |
 
 - **运行时要求**：机器上要有 `corral` 命令。开发阶段用 Saddle 安装的 `corral`（`~/.local/share/saddle/versions/…/bin/corral`）；paddock 不需要 Saddle TUI 在运行。
-- **单独分发**（用户 10-05 定）：paddock 要能不装 Saddle 单独使用。分发前，把 Saddle 的 corral 运行时（`crates/corral-core`，约 7300 行）迁入 paddock 自己维护、随 paddock 打包，做法同 §10；dispatch、Drover 等插件按需迁入或用 GPUI 原生重做。
-- **corral 兼容规矩**：同一台机器可能同时装 paddock 和 Saddle，两份 corral 管同一个 `~/.corral`。两边必须保持 `corral` 命令、JSON 输出和 `~/.corral` 登记格式兼容；任何一边要改这些，都要两边一起改（Saddle 侧走 Saddle 的流程）。corral 已有协议版本号（`proto`，不匹配的 agent 标为 `incompatible`），不兼容时能被发现。
+- **单独分发**（用户 10-05 定）：paddock 要能不装 Saddle 单独使用，所需的运行时随 paddock 打包（见下一条）。
+- **全局只能一份的运行时归 paddock**（用户 10-05 定，原话见 `docs/背景与决策记录.md` §6g）：corral、遥测、Drover 的数据核心每台机器、每个用户只能有一份数据和一个主人。它们移到 paddock 维护，Saddle 改用 paddock 的那一份；不再两边各留一份、靠规矩保持兼容。
+  - **边界**：Saddle 只通过命令或进程用 paddock 的东西（PATH 上的 `corral`、遥测命令、将来 Drover 的接口），不引用 paddock 的 Rust 包；两边的依赖照旧互不进入（§4）。
+  - **Saddle 侧的改动**（不再打包安装 corral、Updates 页、遥测查看页改调用 paddock 的命令等）写成需求交给用户/Saddle 主控，在 Saddle 自己的流程里做；paddock 不改 Saddle 仓库。
+  - **四步**（用户 10-05：“分四步走”）：
+    1. 第三阶段这一批（§12），与搬迁无关。
+    2. **corral**：Saddle 的 `crates/corral-core`（约 8200 行）是独立包、不依赖 Saddle 其他代码，Saddle 程序本身只通过命令行调用 `corral`，所以搬完 Saddle 的代码不用改，只改安装。先与 Saddle 主控约定冻结点（corral 仍在 Saddle 里活跃开发），之后 corral 只在 paddock 里改。迁入方式同 §10，命令、JSON 输出和 `~/.corral` 登记格式不变。切换 `~/.local/bin/corral` 会影响所有正在运行的 agent，借 corral 已有的 upgrade/recover 交接，在用户在场时做（§7 第 9 条）。
+    3. **遥测**：存储代码在 `saddle` 程序里（`saddle telemetry`、`saddle agent`），技能和 Drover 写死调用 `saddle telemetry`。paddock 提供用法兼容的命令，数据库格式（含版本号和升级规则）不变；技能、Drover 和 Saddle 的遥测查看页改为调用 paddock 的。
+    4. **Drover 与插件界面**：Drover 是插件，界面由 ratatui 画、经 Saddle 的插件 SDK（带 ratatui、crossterm）显示，没有独立的命令或常驻进程；照搬会让 ratatui 回到 paddock，还要替 Saddle 维护 TUI 插件。打算把任务数据和派发这部分核心搬进 paddock 并提供命令或常驻进程接口，paddock 用 GPUI 原生做 Tasks，Saddle 通过接口操作；与插件界面做法（§7 第 5 条）一起设计，先给用户看方案。
+- **搬迁完成前的兼容规矩**：在 corral 等完成上面的切换之前，正式的一份仍在 Saddle，paddock 照公开命令调用，不改它们的格式。
 - **不改 Saddle**：不修改 Saddle 仓库。原先打算请 Saddle 新增的接口（§5 的缺口）改由 paddock 在自己的代码里解决；只有公开约定本身要变时，才写成需求交给用户/Saddle 主控。
-- **Drover 并存**：Drover 每个用户只允许一个插件进程持有数据：paddock 与 Saddle TUI 同时运行并都启用 Drover 时会冲突，规则待定（§7）。
+- **Drover 并存**：Drover 每个用户只允许一个插件进程持有数据：搬迁（上面第 4 步）之前，paddock 与 Saddle TUI 同时运行并都启用 Drover 会冲突；搬迁后由 paddock 的 Drover 核心持有数据，两边界面都经它的接口。
 - **插件**（Saddle `df1c727` 的插件系统设计）：
   - 插件是独立程序（目录里有 `plugin.toml` 和可执行文件），宿主启动它、按插件协议通信；插件自己用 ratatui 画字符画面，以结构化格子数据发给宿主显示。业务数据归插件自己管，宿主不碰。插件按公开约定对待，paddock 不改协议。
   - 各插件的数据：Drover 有（`~/.drover/projects`、各项目的 `queue.md`、`tasks.state` 等），且每个用户的数据只允许一个 Drover 进程持有，第二个直接启动失败；Drover 记遥测要通过宿主调用 `saddle telemetry`，没有宿主路径时退回不记遥测、直接 `corral send`。Diff 读 git，dispatch 一问一答，都没有共享数据。
   - 做法（建议，未批准，见 §7 第 5 条）：先由 paddock 做插件宿主（字符面兼容层），运行同一批插件程序，插件不移植、数据只有一个主人；paddock 用自己的插件登记（如 `~/.config/paddock/plugins.toml`），不读 Saddle 的。某个插件确实需要原生界面时再单独考虑：把它的逻辑搬进 paddock 会与原插件争同一份数据，让插件只提供数据则要扩展插件协议（归 Saddle，走 Saddle 的流程）。
-  - 单独分发时，需要的插件程序随 paddock 打包（插件本是独立 Cargo 包，迁入方式同 §10）；两份插件对同一份数据（如 `~/.drover`）的格式要保持兼容，规矩同上面的 corral。
+  - 有共享数据的插件（Drover）按上面第 4 步办；没有共享数据的（Diff、dispatch）单独分发时按需随 paddock 打包（插件本是独立 Cargo 包，迁入方式同 §10）。
 - **遥测**（Saddle `df1c727` 的 `docs/遥测使用.md`，用户 10-05 要求核查）：
   - 数据在 `~/.local/state/saddle/telemetry/`（SQLite `telemetry.sqlite3`，带格式版本号，现为 2；正文在 `blobs/`），默认关闭。写入方首次写入会把旧格式自动升级。
   - 使用者：`saddle telemetry` 命令、`saddle agent`、Drover（经宿主程序 `SADDLE_HOST_BIN` 调用前两者）、corral-dispatch 技能、Saddle TUI 的 Settings 总开关和遥测查看页。
-  - 与 corral 同类：数据只有一份。开发阶段 paddock 不碰数据库，只调用已安装的 `saddle telemetry` 命令（JSON 输入输出）；单独分发前作为单独任务迁入存储代码，并提供与 `saddle telemetry`、`saddle agent` 用法兼容的命令，否则技能和 Drover 的记录会失效。两份代码对同一个数据库的格式（含版本号和升级规则）要保持兼容，规矩同 corral。
+  - 与 corral 同类：数据只有一份。搬迁（上面第 3 步）之前 paddock 不碰数据库，只调用已安装的 `saddle telemetry` 命令（JSON 输入输出）；搬迁时提供与 `saddle telemetry`、`saddle agent` 用法兼容的命令，否则技能和 Drover 的记录会失效。
 - **许可**：Saddle 仓库目前没有许可证文件。代码属于用户本人，迁入没有问题；paddock 公开发布前，需要先为两边定好许可（§7）。
 
 ## 4. 依赖与工具链隔离
@@ -88,7 +97,7 @@ paddock 与 Saddle 在代码上完全分开：用到的 Saddle 代码迁入 padd
   1. 迁移：去掉 `saddle` 依赖，行为不变（M0，已完成）；再去掉 `ratatui`、`crossterm`（M1，已完成）。
   2. 第二阶段（已定，见 §11）：Agents 面板按 Saddle 做全、标签页和分屏、宠物、菜单栏和 `.app` 打包；外观不比 Saddle 差。
   3. 第三阶段：插件（先 Drover）、Attention、新建 agent、Settings 页、历史搜索、布局保存等。
-  4. 单独分发之前：迁入 corral 运行时和所需插件，打包（`.app`、签名公证等见 §7）。
+  4. 全局只能一份的运行时移到 paddock（已定，§3）：第三阶段这一批之后依次是 corral、遥测、Drover 与插件界面；单独分发的打包（签名公证等）见 §7。
 - **插件界面怎么做待定**（§7）：在 GPUI 里原生重做，或先做“字符面兼容层”按插件协议显示插件自己画的字符画面。
 
 ## 7. 待定问题
@@ -98,10 +107,10 @@ paddock 与 Saddle 在代码上完全分开：用到的 Saddle 代码迁入 padd
 3. pre-1.0 的 GPUI 是否符合“只用成熟、活跃维护的库”；是否接受工具链跟随最新稳定版 Rust。
 4. ~~迁移路线~~：已定为全部用 GPUI 重做（10-05）。仍待定：是否引入 gpui-component；首期是否只做 macOS。
 5. 插件界面：原生重做，还是先做字符面兼容层（§6）。
-6. paddock 与 Saddle TUI 同时运行时，Drover 持有权和布局文件的规则。
+6. ~~paddock 与 Saddle TUI 同时运行时 Drover 的持有权~~：已定由 paddock 持有（§3 第 4 步）。布局文件各用各的（§12 P3-9）。
 7. 许可（paddock 和 Saddle 都还没有）、应用名与标识、签名公证，以及何时建远程仓库。单独分发时还要考虑：Clawd 是 Claude Code 的吉祥物形象，自用没问题，分发是否带它待定；猫和卡皮巴拉是 Saddle 原创。
 8. paddock 的任务是否纳入 Saddle 的 Tasks（Drover）管理。
-9. 本机从 Saddle 切到 paddock 时 corral 怎么切换：Saddle 仍安装时，系统路径可继续指向 Saddle 的 corral，paddock 用完整路径调用自带的一份；卸掉 Saddle 时系统路径改指 paddock 的 corral。已在运行的 agent 由启动它的那份 corral 常驻进程管理，切换不影响它们；平滑接管可参考 Saddle 的 `corral upgrade`/`recover` 设计。到时再定。
+9. corral 切换的具体做法：已定只留 paddock 一份、Saddle 改用它（§3 第 2 步）。已在运行的 agent 由启动它的那份 corral 常驻进程管理；切换 `~/.local/bin/corral` 时借 Saddle 已有的 `corral upgrade`/`recover` 交接平滑接管，细节在第 2 步的任务里定，切换时用户在场。
 
 ## 8. 主题
 
@@ -166,13 +175,39 @@ paddock 与 Saddle 在代码上完全分开：用到的 Saddle 代码迁入 padd
 
 ## 12. 第三阶段（进行中）
 
-用户 10-05 定下（原话见 `docs/背景与决策记录.md` §6e）：继续把 Saddle 的组件搬过来；不涉及 corral、遥测、Drover 这类共享运行时的，都可以做。
+用户 10-05 定下（原话见 `docs/背景与决策记录.md` §6e、§6f、§6g）：继续把 Saddle 的组件搬过来；不涉及 corral 运行时、遥测、Drover 这类共享运行时绑定的，一次做完，不必每件等用户回复。
 
-- **顺序**：
-  1. Settings 设置页（General、Colors、Advanced；保存时保留配置文件的注释）。遥测总开关会写遥测数据库，这次不放。 **已完成（10-05，用户认可）**：窗口内面板，⌘, 打开；配置新增 `refresh_ms`、`corral`。
-  2. 新建、停止 agent（调用公开的 `corral start`、`corral stop`；动手前再与用户确认）。
-  3. Attention 提醒。
-  4. 搜索。
-  5. 回看历史时搜索。
-  6. 布局保存与恢复。
-- **之后（第四阶段）**：插件宿主与 Tasks（先 Drover）、遥测查看页；届时再定插件界面做法（§7 第 5 条）。
+### 窗口与对话框按 macOS 做
+
+用户 10-05：不必复刻 TUI 的 Esc 关闭，GPUI 有窗口。TUI 只有一块屏幕，设置页、表单只能盖在上面、按 Esc 退出；paddock 改用 macOS 的做法：
+
+- **独立窗口**：设置、新建 agent、About 各是一个单独的窗口，用红点或 ⌘W 关闭；已开着时再次打开就提到最前。
+- **系统提示框**：需要确认的事（停止 agent、关闭运行中的 shell、关掉有未保存改动的设置窗口）用系统原生提示框（GPUI `window.prompt`），不自己画弹层。
+- **系统选文件夹对话框**：选目录时用（GPUI `prompt_for_paths`）。
+- **仍可按 Esc 收起的**：性质上是菜单或浮动面板的东西——新标签、分屏时弹出的选择，Attention 列表，跳转搜索，终端里的查找栏。点外面同样收起。
+
+### 范围与顺序
+
+每件照例写任务文件、单独分支、自查后合并；用户 10-05 改为不逐件等回复，全部做完后一并汇报截图，并重新安装 `~/Applications/paddock.app`。
+
+1. **P3-1 Settings** **已完成（10-05，用户认可）**：配置新增 `refresh_ms`、`corral`。
+2. **P3-2 设置与 About 改为独立窗口**：⌘, 打开设置窗口。保留草稿和 Save（用户 10-05 选定）：有未保存的改动时关窗，弹系统提示框 Save / Don't Save / Cancel；Save 失败（写错的值、文件被外部改过）时窗口不关，留在原处显示原因。退出程序时同样先问。About 改为小窗口。
+3. **P3-3 关闭运行中的 shell 先确认**（Saddle 有，paddock 还没有）：关窗格、关标签页、关主窗口、退出时，若会结束运行中的 shell，弹系统提示框列出这些 shell，Cancel 什么都不关；agent 窗格只是断开，不问。
+4. **P3-4 新建、停止 agent**：只调用公开的 `corral start`、`corral stop`（用户 10-05 同意算在这一批）。
+   - 新建窗口照 Saddle 的信息：项目目录（从现有 agent 的工作目录里选，或用系统选文件夹对话框）、名字（自动建议，可改）、Claude 或 Codex、第一条消息（可选）、在哪里打开（当前窗格、新标签页、四个分屏方向）；Advanced 里是完整命令和将要执行的调用预览。失败时窗口不关、填的内容保留。
+   - 停止：选中 agent 后菜单或侧栏按钮，系统提示框确认后调用 `corral stop`。
+   - 开发测试只用假 corral；实测只开 `paddock/test-*`，用完停掉。
+5. **P3-5 Attention**：等待中、出错的 agent 和有新回复（未看过的一轮结束）的 agent 列成一张清单；侧栏头部显示数量，点开是浮动列表，点一行就打开该 agent，不替它回答。插件来源随 §3 第 4 步再做。
+6. **P3-6 跳转搜索**：按项目或名字过滤 agent，回车打开（已在某个窗格里就跳过去）；也能搜到设置的各页。浮动面板。
+7. **P3-7 终端里查找**：⌘F 在当前窗格顶部打开查找栏，在回看历史里搜索，⌘G / ⇧⌘G 下一处、上一处；照 Saddle 的历史查找逻辑迁入。
+8. **P3-8 窗格放大**：有多个窗格时把当前窗格临时铺满终端区，再按一次还原（Saddle 的 Zoom / Restore）。
+9. **P3-9 布局保存与恢复**：退出时把标签页、分屏和每个窗格的内容（shell 及其目录、agent 名字）存进 paddock 自己的状态文件，下次启动恢复；shell 在原目录重新开，agent 重新接入，已不存在的 agent 显示说明。不读写 Saddle 的布局文件。
+10. **P3-10 Diagnostics**（用户 10-05 加入）：设置窗口里的只读一页，显示 paddock 用的命令（corral、git、登录 shell）及其解析到的路径，最近一次读 agent 列表、读配置、保存和恢复布局的结果；打开该页或点 Refresh 时检查，只在内存里保留最近一次结果。
+
+菜单新增 **Agent**：New Agent…（⇧⌘N）、Stop Agent…、Go to Agent…（⌘P）、Attention…（⇧⌘A）。Edit 加 Find…（⌘F）、Find Next（⌘G）、Find Previous（⇧⌘G）。View 加 Zoom Pane（⇧⌘↩）。快捷键都照 macOS 常见约定，和终端里程序常用的 Ctrl 键不冲突。
+
+### 这一批不做
+
+- 插件宿主与 Tasks（先 Drover）、遥测查看页和设置里的遥测开关：随 §3 的第 3、4 步做，届时再定插件界面做法（§7 第 5 条）。
+- Saddle 的 `saddle ctl` 控制接口（agent 用它开窗格）：它是给 agent 和技能用的公开约定，paddock 要不要提供同类接口待定，不在这一批。
+- Saddle 设置里的 Plugins 页（等插件宿主）、Updates 页（Saddle 的检查的是 Saddle 和 corral 的安装记录；paddock 自己的更新检查以后另定）。
