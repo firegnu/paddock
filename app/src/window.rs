@@ -9,6 +9,7 @@ use crate::{
     config::Config,
     corral::{Agent, Role},
     diagnostics::{Report, Startup},
+    find,
     fonts::UiFont,
     footer_icon::{self, Icon},
     layout::{Axis, Direction, Node, PaneId, Placement, Shown, Workspace},
@@ -17,7 +18,7 @@ use crate::{
     new_agent::{self, Place, Started},
     new_agent_view::Seed,
     pet::PetView,
-    search,
+    search::{self, Lead, Mode, Target},
     sidebar::{Sidebar, SidebarEvent},
     text_input::{self, Changed, TextInput},
     theme::Theme,
@@ -26,11 +27,12 @@ use crate::{
     windows,
 };
 use gpui::{
-    AnyElement, ClickEvent, Context, Div, ElementId, Entity, FocusHandle, Focusable, FontWeight,
-    Hsla, MouseButton, MouseDownEvent, MouseMoveEvent, Pixels, Point, PromptLevel, Render,
-    ScrollHandle, SharedString, Stateful, Task, Window, div, point, prelude::*, px,
+    Animation, AnimationExt, AnyElement, BoxShadow, ClickEvent, Context, Div, ElementId, Entity,
+    FocusHandle, Focusable, FontWeight, HighlightStyle, Hsla, MouseButton, MouseDownEvent,
+    MouseMoveEvent, Pixels, Point, PromptLevel, Render, ScrollHandle, SharedString, Stateful,
+    StyledText, Task, Window, div, ease_in_out, point, prelude::*, px,
 };
-use std::{collections::HashMap, rc::Rc};
+use std::{collections::HashMap, rc::Rc, time::Duration};
 
 /// What "New shell" and the `Shell` choice start.
 pub struct NewShell {
@@ -47,9 +49,32 @@ enum Popup {
     Split(Option<Direction>),
     /// The Attention list.
     Attention,
-    /// Go to Agent.
-    Search,
+    /// The command palette.
+    Palette,
 }
+
+/// The command palette while it is open.
+struct Palette {
+    input: Entity<TextInput>,
+    /// The selected row, counting every group's rows in order.
+    index: usize,
+    list: ScrollHandle,
+    /// The menu bar's commands.
+    commands: Vec<search::Row>,
+    /// What the last text search found, and the one waiting for typing to pause.
+    text: Option<TextResults>,
+    searching: Option<Task<()>>,
+}
+
+/// A text search's matches in the open panes, newest first, for the text it looked for.
+struct TextResults {
+    needle: String,
+    /// The panes with matches, the active one first: its matches, and whether it has more.
+    panes: Vec<(PaneId, Vec<find::Hit>, bool)>,
+}
+
+/// How long typing pauses before the palette searches the panes' text.
+const PAUSE: Duration = Duration::from_millis(120);
 
 /// A close waiting on an answer, by a pane in it, so it still finds its target if the layout
 /// changes meanwhile.
@@ -265,9 +290,8 @@ pub struct PaddockWindow {
     store: Store,
     /// The config came from its file at startup, rather than defaults.
     config_from_file: bool,
-    /// The Go to Agent box while it is open, and its selected row.
-    search: Option<Entity<TextInput>>,
-    search_index: usize,
+    /// The command palette while it is open.
+    palette: Option<Palette>,
     /// The sidebar's width, which the title bar leaves empty before the tabs.
     sidebar_width: f32,
     /// A press on the title bar's empty part: moving now drags the window.
@@ -327,8 +351,7 @@ impl PaddockWindow {
             pet_setting: (config.mascot_enabled, config.mascot),
             asking: false,
             attention_index: 0,
-            search: None,
-            search_index: 0,
+            palette: None,
             sidebar_width: config.sidebar_width,
             dragging: false,
             lights: None,
@@ -784,7 +807,7 @@ impl PaddockWindow {
         let direction = match popup {
             Popup::NewTab => None,
             Popup::Split(Some(direction)) => Some(direction),
-            Popup::Split(None) | Popup::Attention | Popup::Search => return,
+            Popup::Split(None) | Popup::Attention | Popup::Palette => return,
         };
         if let Choice::Agent(name) = &choice
             && let Some(old) = self.workspace.find(name)
@@ -982,17 +1005,7 @@ impl PaddockWindow {
     /// A pane's status dot: an agent's status colour as the sidebar shows it, a neutral one for
     /// a shell, a faint one for an empty pane or an agent no longer listed.
     fn dot(&self, pane: PaneId, agents: &[Agent], now: f64) -> Hsla {
-        match self.workspace.shown(pane) {
-            Shown::Agent(name) => match agents.iter().find(|a| &a.name == name) {
-                Some(agent) => {
-                    let status = Panel::default().status(agent, now);
-                    self.fg(card::look(status).color)
-                }
-                None => self.fg(|t| t.agents_faint),
-            },
-            Shown::Shell => self.fg(|t| t.muted),
-            Shown::Empty => self.fg(|t| t.agents_faint),
-        }
+        self.fg(dot(self.workspace.shown(pane), agents, now))
     }
 
     fn fg(&self, pick: Pick) -> Hsla {
@@ -1180,8 +1193,72 @@ impl PaddockWindow {
                             .h_full()
                             .ml(px(GAP))
                             .children(self.pet.clone()),
-                    ),
+                    )
+                    .child(self.search_button(cx)),
             )
+    }
+
+    /// The way into the command palette, always at the title bar's right end: the tabs narrow
+    /// before it does.
+    fn search_button(&self, cx: &mut Context<Self>) -> Stateful<Div> {
+        let ui = UiFont::get(cx);
+        let highlight = self.highlight();
+        div()
+            .id("search")
+            .flex_shrink_0()
+            .w(ui.px(220.0))
+            .h(ui.px(28.0))
+            .flex()
+            .items_center()
+            .gap(ui.px(8.0))
+            .pl(ui.px(10.0))
+            .pr(ui.px(6.0))
+            .rounded(px(7.0))
+            .border_1()
+            .border_color(hsla(self.theme.fg(|t| t.agents_rule), 0.6))
+            .bg(highlight.opacity(0.5))
+            .hover(move |style| style.bg(highlight))
+            .text_size(ui.px(12.5))
+            .text_color(self.fg(|t| t.agents_dim))
+            .cursor_pointer()
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .child(footer_icon::icon(
+                Icon::Search,
+                self.fg(|t| t.agents_dim),
+                ui.scale(13.0 / footer_icon::SIZE),
+            ))
+            .child(div().flex_1().child("Search"))
+            .child(self.keycaps(&menu::keys(&menu::Search), &ui, 18.0))
+            .on_click(
+                cx.listener(|this, _: &ClickEvent, window, cx| this.toggle_palette("", window, cx)),
+            )
+    }
+
+    /// A shortcut's keys, each on a small cap `height` points tall.
+    fn keycaps(&self, keys: &[String], ui: &UiFont, height: f32) -> Div {
+        let (pad, radius) = if height < 20.0 {
+            (4.0, 4.0)
+        } else {
+            (5.0, 5.0)
+        };
+        div()
+            .flex_shrink_0()
+            .flex()
+            .gap(px(2.0))
+            .children(keys.iter().map(|key| {
+                div()
+                    .min_w(ui.px(height - 2.0))
+                    .h(ui.px(height))
+                    .px(ui.px(pad))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded(px(radius))
+                    .bg(self.highlight())
+                    .text_size(ui.px(11.5))
+                    .text_color(self.fg(|t| t.muted))
+                    .child(key.clone())
+            }))
     }
 
     /// `shown` is how many panes are on screen, for dimming all but the active one.
@@ -1557,10 +1634,18 @@ impl PaddockWindow {
             .child(card)
     }
 
-    /// Go to Agent: a search box over the window, focused.
-    fn open_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.popup == Some(Popup::Search) {
-            self.close_popup(window, cx);
+    /// ⌘P (`query` empty) or ⌘⇧P (`>`): the command palette over the window, its field focused.
+    /// The same shortcut again closes it; the other one switches to its mode.
+    fn toggle_palette(&mut self, query: &str, window: &mut Window, cx: &mut Context<Self>) {
+        if self.popup == Some(Popup::Palette)
+            && let Some(palette) = &self.palette
+        {
+            let commands = search::mode(palette.input.read(cx).text()).0 == Mode::Commands;
+            if commands == query.starts_with('>') {
+                self.close_popup(window, cx);
+            } else {
+                self.set_palette_query(query, window, cx);
+            }
             return;
         }
         let colors = text_input::Colors {
@@ -1569,193 +1654,567 @@ impl PaddockWindow {
             cursor: self.fg(|t| t.focus),
             selection: hsla(self.theme.fg(|t| t.focus), 0.3),
         };
-        let input = cx
-            .new(|cx| TextInput::new("", "Agent name or project, or a Settings page", colors, cx));
-        cx.subscribe(&input, |this, _, _: &Changed, cx| {
-            this.search_index = 0;
-            cx.notify();
-        })
-        .detach();
+        let placeholder = "Search agents, tabs, settings and commands";
+        let input = cx.new(|cx| TextInput::new(query.to_owned(), placeholder, colors, cx));
+        cx.subscribe(&input, |this, _, _: &Changed, cx| this.palette_typed(cx))
+            .detach();
         let focus = input.read(cx).focus_handle(cx);
         window.focus(&focus, cx);
-        self.search = Some(input);
-        self.search_index = 0;
-        self.popup = Some(Popup::Search);
+        self.palette = Some(Palette {
+            input,
+            index: 0,
+            list: ScrollHandle::new(),
+            commands: search::commands(&menu::commands()),
+            text: None,
+            searching: None,
+        });
+        self.popup = Some(Popup::Palette);
         cx.notify();
     }
 
-    fn search_entries(&self, cx: &Context<Self>) -> Vec<search::Entry> {
-        let query = self
-            .search
-            .as_ref()
-            .map(|input| input.read(cx).text().to_owned())
-            .unwrap_or_default();
-        search::entries(&self.sidebar.read(cx).agents(), &query)
-    }
-
-    /// Closes the open chooser or list and gives the keys back to the active pane.
-    fn close_popup(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.popup = None;
-        self.search = None;
-        self.focus_active(window, cx);
-    }
-
-    /// ↑↓ in the Attention or Go to Agent list.
-    fn move_selection(&mut self, step: isize, cx: &mut Context<Self>) {
-        let (count, index) = match self.popup {
-            Some(Popup::Attention) => (
-                self.sidebar.read(cx).attention().len(),
-                &mut self.attention_index,
-            ),
-            Some(Popup::Search) => {
-                let count = self.search_entries(cx).len();
-                (count, &mut self.search_index)
-            }
-            _ => return,
+    /// `> Commands` and `/ Search text` under the list, or the other shortcut: the field starts
+    /// again from `query`.
+    fn set_palette_query(&mut self, query: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(palette) = &self.palette else {
+            return;
         };
-        if count > 0 {
-            let moved = ((*index).min(count - 1) as isize + step).clamp(0, count as isize - 1);
-            *index = moved as usize;
+        let input = palette.input.clone();
+        input.update(cx, |input, cx| input.set_text(query.to_owned(), cx));
+        let focus = input.read(cx).focus_handle(cx);
+        window.focus(&focus, cx);
+        self.palette_typed(cx);
+    }
+
+    /// The query changed: the first row selected again, and after `/` a new search of the open
+    /// panes once typing pauses, off the UI thread.
+    fn palette_typed(&mut self, cx: &mut Context<Self>) {
+        let screens: Vec<_> = self
+            .text_panes()
+            .into_iter()
+            .filter_map(|pane| Some((pane, self.panes.get(&pane)?.read(cx).screen()?)))
+            .collect();
+        let Some(palette) = &mut self.palette else {
+            return;
+        };
+        palette.index = 0;
+        palette.list.set_offset(point(px(0.0), px(0.0)));
+        let query = palette.input.read(cx).text().to_owned();
+        let (mode, needle) = search::mode(&query);
+        if mode != Mode::Text || needle.is_empty() {
+            palette.text = None;
+            palette.searching = None;
             cx.notify();
+            return;
+        }
+        let needle = needle.to_owned();
+        palette.searching = Some(cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(PAUSE).await;
+            let looked = needle.clone();
+            let panes = cx
+                .background_spawn(async move {
+                    screens
+                        .into_iter()
+                        .map(|(pane, screen)| {
+                            let screen = screen.lock().unwrap();
+                            let (hits, more) = find::hits(&screen.term, &looked, search::PER_PANE);
+                            (pane, hits, more)
+                        })
+                        .filter(|(_, hits, _)| !hits.is_empty())
+                        .collect()
+                })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                if let Some(palette) = &mut this.palette {
+                    palette.text = Some(TextResults { needle, panes });
+                    cx.notify();
+                }
+            });
+        }));
+        cx.notify();
+    }
+
+    /// The panes a text search looks through: every one in the window, the active one first.
+    fn text_panes(&self) -> Vec<PaneId> {
+        let active = self.workspace.active_pane();
+        let mut panes = vec![active];
+        panes.extend(
+            self.workspace
+                .tabs
+                .iter()
+                .flat_map(|tab| tab.panes())
+                .filter(|pane| *pane != active),
+        );
+        panes
+    }
+
+    /// A pane as the text search's group names it: an agent in full, anything else as its tab.
+    fn pane_label(&self, pane: PaneId, cx: &Context<Self>) -> String {
+        match self.subject(pane, cx) {
+            Subject::Agent(name) => name,
+            subject => tab_title(&subject, &[]),
         }
     }
 
-    /// ⏎ in the Attention or Go to Agent list.
+    /// The tabs, as the palette lists them: dot, title and count, number and agents, shortcut.
+    fn tab_rows(&self, agents: &[Agent], now: f64, cx: &Context<Self>) -> Vec<search::Row> {
+        let open = self.workspace.agents();
+        let count = self.workspace.tabs.len();
+        let tabs = self.workspace.tabs.iter().enumerate();
+        tabs.map(|(index, tab)| {
+            let panes = tab.panes();
+            let mut title = tab_title(&self.subject(tab.active, cx), &open);
+            if let Some(more) = more_panes(panes.len()) {
+                title = format!("{title} {more}");
+            }
+            let names: Vec<String> = panes
+                .iter()
+                .filter_map(|pane| match self.workspace.shown(*pane) {
+                    Shown::Agent(name) => Some(name.clone()),
+                    _ => None,
+                })
+                .collect();
+            let keys = search::tab_shortcut(index, count)
+                .and_then(menu::tab)
+                .map(|action| menu::keys(action.as_ref()))
+                .unwrap_or_default();
+            search::Row {
+                target: Target::Tab(index),
+                lead: Lead::Dot {
+                    color: dot(self.workspace.shown(tab.active), agents, now),
+                    breathing: false,
+                },
+                title,
+                detail: search::tab_detail(index, &names),
+                keys,
+                hit: None,
+            }
+        })
+        .collect()
+    }
+
+    /// The palette's groups for what is typed, its mode, and what the list says when it is empty.
+    fn palette_groups(
+        &self,
+        palette: &Palette,
+        cx: &Context<Self>,
+    ) -> (Mode, Vec<search::Group>, Option<String>) {
+        let query = palette.input.read(cx).text().to_owned();
+        let (mode, needle) = search::mode(&query);
+        match mode {
+            Mode::Everything => {
+                let agents = self.sidebar.read(cx).agents();
+                let now = now();
+                let home = std::env::var("HOME").ok();
+                let groups = search::everything(
+                    &search::agents(&agents, now, home.as_deref()),
+                    &self.tab_rows(&agents, now, cx),
+                    &search::settings(),
+                    &palette.commands,
+                    needle,
+                );
+                let empty = search::empty(&groups, needle);
+                (mode, groups, empty)
+            }
+            Mode::Commands => {
+                let groups = search::only_commands(&palette.commands, needle);
+                let empty = search::empty(&groups, needle);
+                (mode, groups, empty)
+            }
+            // The last search's results until the next one is done, saying what they are for.
+            Mode::Text => {
+                let Some(text) = &palette.text else {
+                    return (mode, Vec::new(), None);
+                };
+                let groups: Vec<_> = text
+                    .panes
+                    .iter()
+                    .filter(|(pane, ..)| self.panes.contains_key(pane))
+                    .filter_map(|(pane, hits, more)| {
+                        let rows = hits.iter().enumerate();
+                        let rows = rows
+                            .map(|(index, hit)| {
+                                search::line(*pane, index, &hit.line, hit.range.clone())
+                            })
+                            .collect();
+                        search::pane(&self.pane_label(*pane, cx), rows, *more)
+                    })
+                    .collect();
+                let empty = search::empty(&groups, &text.needle);
+                (mode, groups, empty)
+            }
+        }
+    }
+
+    /// Opens a palette row: the agent where it is or by the layout rules, the tab, Settings at the
+    /// page, the command as its menu item runs it, or the match in its pane.
+    fn run_palette_row(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(palette) = &self.palette else {
+            return;
+        };
+        let (_, groups, _) = self.palette_groups(palette, cx);
+        let Some((_, row)) = search::selected(&groups, index) else {
+            return;
+        };
+        let target = row.target.clone();
+        let found = match &target {
+            Target::Match { pane, index } => palette.text.as_ref().and_then(|text| {
+                let (_, hits, _) = text.panes.iter().find(|(p, ..)| p == pane)?;
+                Some((text.needle.clone(), hits.get(*index)?.clone()))
+            }),
+            _ => None,
+        };
+        self.close_popup(window, cx);
+        match target {
+            Target::Agent(name) => {
+                let metadata = self.sidebar.read(cx).metadata(&name);
+                self.show_agent(&name, metadata, window, cx);
+            }
+            Target::Tab(index) => self.select_tab(index, window, cx),
+            // After this update: opening Settings reads this window.
+            Target::Settings(page) => cx.defer(move |cx| windows::open_settings_at(page, cx)),
+            // From the focused pane, as a click on the menu item goes.
+            Target::Command(name) => {
+                let command = menu::commands()
+                    .into_iter()
+                    .find(|command| command.action.name() == name);
+                if let Some(command) = command {
+                    window.dispatch_action(command.action, cx);
+                }
+            }
+            Target::Match { pane, .. } => {
+                if let (Some((needle, hit)), Some(view)) = (found, self.panes.get(&pane).cloned()) {
+                    self.focus_pane(pane, window, cx);
+                    view.update(cx, |view, cx| view.show_match(&needle, &hit, window, cx));
+                }
+            }
+        }
+    }
+
+    /// Closes the open chooser, list or palette and gives the keys back to the active pane.
+    fn close_popup(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.popup = None;
+        self.palette = None;
+        self.focus_active(window, cx);
+    }
+
+    /// ↑↓ in the Attention list or the palette.
+    fn move_selection(&mut self, step: isize, cx: &mut Context<Self>) {
+        match self.popup {
+            Some(Popup::Attention) => {
+                let count = self.sidebar.read(cx).attention().len();
+                self.attention_index = search::step(self.attention_index, count, step);
+            }
+            Some(Popup::Palette) => {
+                let Some(palette) = &self.palette else {
+                    return;
+                };
+                let (_, groups, _) = self.palette_groups(palette, cx);
+                let index = search::step(palette.index, search::count(&groups), step);
+                let child = search::child(&groups, index);
+                if let Some(palette) = &mut self.palette {
+                    palette.index = index;
+                    palette.list.scroll_to_item(child);
+                }
+            }
+            _ => return,
+        }
+        cx.notify();
+    }
+
+    /// ⏎ in the Attention list or the palette.
     fn open_selected(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         match self.popup {
             Some(Popup::Attention) => {
                 let index = self.attention_index;
                 self.open_attention(index, window, cx)
             }
-            Some(Popup::Search) => {
-                let index = self.search_index;
-                self.open_search_entry(index, window, cx)
+            Some(Popup::Palette) => {
+                if let Some(index) = self.palette.as_ref().map(|palette| palette.index) {
+                    self.run_palette_row(index, window, cx)
+                }
             }
             _ => {}
         }
     }
 
-    /// Opens a Go to Agent entry: the agent where it is or by the layout rules, or Settings at
-    /// that page.
-    fn open_search_entry(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(entry) = self.search_entries(cx).into_iter().nth(index) else {
-            return;
-        };
-        self.close_popup(window, cx);
-        match entry.target {
-            search::Target::Agent(name) => {
-                let metadata = self.sidebar.read(cx).metadata(&name);
-                self.show_agent(&name, metadata, window, cx);
-            }
-            // After this update: opening Settings reads this window.
-            search::Target::Settings(page) => {
-                cx.defer(move |cx| windows::open_settings_at(page, cx))
-            }
-        }
-    }
-
-    /// The Go to Agent box and its matches, at the top of the window.
-    fn search_panel(&self, cx: &mut Context<Self>) -> Stateful<Div> {
+    /// The command palette, under the title bar over the dimmed window: the field, the rows in
+    /// their groups, and the hints.
+    fn palette_panel(
+        &self,
+        palette: &Palette,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> Stateful<Div> {
         let ui = UiFont::get(cx);
-        let entries = self.search_entries(cx);
-        let selected = self.search_index.min(entries.len().saturating_sub(1));
+        let (mode, groups, empty) = self.palette_groups(palette, cx);
+        let selected = search::selected(&groups, palette.index).map(|(index, _)| index);
+        // Nothing to list yet (only `/` typed): the field sits on the hints.
+        let listed = !groups.is_empty() || empty.is_some();
         let highlight = self.highlight();
-        let mut list = div().flex().flex_col().gap(px(2.0));
-        if entries.is_empty() {
-            list = list.child(
-                div()
-                    .px(px(10.0))
-                    .py(px(8.0))
-                    .text_color(self.fg(|t| t.agents_dim))
-                    .child("No agent or page matches."),
-            );
-        }
-        for (index, entry) in entries.iter().enumerate() {
-            let settings = matches!(entry.target, search::Target::Settings(_));
-            let mut row = div()
-                .id(("search-entry", index))
-                .flex()
-                .items_center()
-                .gap(px(10.0))
-                .px(px(10.0))
-                .py(px(5.0))
-                .rounded(px(6.0))
-                .cursor_pointer()
-                .hover(move |style| style.bg(highlight))
-                .child(
-                    div()
-                        .w(px(14.0))
-                        .flex_shrink_0()
-                        .text_color(self.fg(|t| t.agents_accent))
-                        .child(if settings { "⚙" } else { "›" }),
-                )
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w(px(0.0))
-                        .overflow_hidden()
-                        .whitespace_nowrap()
-                        .text_ellipsis()
-                        .text_color(self.fg(|t| t.agents_text))
-                        .child(entry.label.clone()),
-                )
-                .child(
-                    div()
-                        .flex_shrink_0()
-                        .text_size(ui.px(TEXT - 1.0))
-                        .text_color(self.fg(|t| t.agents_dim))
-                        .child(entry.detail.clone()),
-                )
-                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                    this.open_search_entry(index, window, cx)
-                }));
-            if index == selected {
-                row = row.bg(highlight);
-            }
-            list = list.child(row);
-        }
-        let card = div()
-            .id("search")
-            .w(px(520.0))
-            .max_h(px(460.0))
+        let rule = hsla(self.theme.fg(|t| t.agents_rule), 0.6);
+        let top = title_bar_height(&ui, self.pet.is_some()) + ui.scale(44.0);
+        // The list takes what the window has under the field and the hints, up to 470 points.
+        let room = f32::from(window.viewport_size().height) - top - ui.scale(48.0 + 34.0 + 24.0);
+        let mut list = div()
+            .id("palette-list")
             .flex()
             .flex_col()
-            .gap(px(6.0))
-            .p(px(8.0))
-            .rounded(px(10.0))
-            .border_1()
-            .border_color(self.fg(|t| t.focus))
-            .bg(hsla(self.theme.bg(|t| t.agents_bg), 1.0))
-            .shadow_lg()
-            .text_size(ui.px(TEXT + 1.0))
-            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-            .child(
+            .max_h(px(ui.scale(470.0).min(room).max(ui.scale(68.0))))
+            .overflow_y_scroll()
+            .track_scroll(&palette.list)
+            .px(ui.px(6.0))
+            .pt(ui.px(6.0))
+            .pb(ui.px(8.0));
+        if let Some(empty) = empty {
+            list = list.child(
                 div()
-                    .h(ui.px(30.0))
-                    .px(px(10.0))
+                    .flex()
+                    .justify_center()
+                    .px(ui.px(16.0))
+                    .py(ui.px(28.0))
+                    .text_size(ui.px(13.0))
+                    .text_color(self.fg(|t| t.agents_dim))
+                    .child(empty),
+            );
+        }
+        let mut index = 0;
+        for group in groups {
+            list = list.child(
+                div()
+                    .flex()
+                    .gap(ui.px(6.0))
+                    .px(ui.px(10.0))
+                    .pt(ui.px(10.0))
+                    .pb(ui.px(4.0))
+                    .text_size(ui.px(10.5))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(self.fg(|t| t.agents_dimmer))
+                    .child(group.label)
+                    .child(
+                        div()
+                            .text_color(self.fg(|t| t.agents_border))
+                            .child(group.note),
+                    ),
+            );
+            for row in group.rows {
+                list = list.child(self.palette_row(row, index, selected == Some(index), &ui, cx));
+                index += 1;
+            }
+        }
+        let field = div()
+            .flex_shrink_0()
+            .h(ui.px(48.0))
+            .flex()
+            .items_center()
+            .gap(ui.px(10.0))
+            .pl(ui.px(16.0))
+            .pr(ui.px(14.0))
+            .border_b_1()
+            .border_color(rule)
+            .child(footer_icon::icon(
+                Icon::Search,
+                self.fg(|t| t.agents_dim),
+                ui.scale(15.0 / footer_icon::SIZE),
+            ))
+            .children(mode.chip().map(|chip| {
+                div()
+                    .flex_shrink_0()
+                    .h(ui.px(22.0))
+                    .px(ui.px(8.0))
                     .flex()
                     .items_center()
                     .rounded(px(6.0))
-                    .border_1()
-                    .border_color(self.fg(|t| t.agents_rule))
-                    .bg(hsla(self.theme.terminal().background, 1.0))
-                    .children(self.search.clone()),
+                    .bg(highlight)
+                    .text_size(ui.px(11.5))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(self.fg(|t| t.agents_branch))
+                    .whitespace_nowrap()
+                    .child(chip)
+            }))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w(px(0.0))
+                    .text_size(ui.px(15.0))
+                    .child(palette.input.clone()),
             )
-            .child(div().id("search-list").overflow_y_scroll().child(list));
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .text_size(ui.px(11.5))
+                    .text_color(self.fg(|t| t.agents_border))
+                    .child("esc"),
+            );
+        let key = |key: &'static str| div().text_color(self.fg(|t| t.muted)).child(key);
+        let hint = |keys: &'static str, label: &'static str| {
+            div().flex().gap(ui.px(4.0)).child(key(keys)).child(label)
+        };
+        let text = self.fg(|t| t.agents_text);
+        let switch = |id: &'static str, keys: &'static str, label: &'static str| {
+            hint(keys, label)
+                .id(id)
+                .cursor_pointer()
+                .hover(move |style| style.text_color(text))
+                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                    this.set_palette_query(keys, window, cx)
+                }))
+        };
+        let footer = div()
+            .flex_shrink_0()
+            .h(ui.px(34.0))
+            .flex()
+            .items_center()
+            .gap(ui.px(16.0))
+            .px(ui.px(16.0))
+            .when(listed, |footer| footer.border_t_1().border_color(rule))
+            .text_size(ui.px(11.5))
+            .text_color(self.fg(|t| t.agents_dimmer))
+            .child(hint("↑↓", "Select"))
+            .child(hint("↵", mode.enter()))
+            .child(div().flex_1())
+            .child(switch("palette-commands", ">", "Commands"))
+            .child(switch("palette-text", "/", "Search text"));
+        let card = div()
+            .id("palette")
+            .key_context(menu::PALETTE)
+            .w_full()
+            .max_w(ui.px(600.0))
+            .flex()
+            .flex_col()
+            .rounded(px(12.0))
+            .border_1()
+            .border_color(self.fg(|t| t.agents_rule))
+            .bg(hsla(self.theme.bg(|t| t.agents_bg), 1.0))
+            .shadow(vec![BoxShadow {
+                color: gpui::black().opacity(0.5),
+                offset: point(px(0.0), px(24.0)),
+                blur_radius: px(60.0),
+                spread_radius: px(0.0),
+                inset: false,
+            }])
+            .text_color(text)
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .child(field)
+            .when(listed, |card| card.child(list))
+            .child(footer);
+        // Only the palette takes clicks while it is open; a click outside closes it.
         div()
-            .id("search-backdrop")
+            .id("palette-backdrop")
             .absolute()
             .inset_0()
             .occlude()
             .flex()
-            .items_start()
-            .justify_center()
-            .pt(px(title_bar_height(&ui, self.pet.is_some()) + 30.0))
+            .flex_col()
+            .items_center()
+            .pt(px(top))
+            .px(ui.px(16.0))
+            .bg(gpui::black().opacity(0.35))
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|this, _, window, cx| this.close_popup(window, cx)),
             )
             .child(card)
+    }
+
+    /// A palette row: dot or icon, title and detail (or a line of text, its match marked), and
+    /// the shortcut; the selected one on the selection's ground, the others on it faintly when
+    /// hovered.
+    fn palette_row(
+        &self,
+        row: search::Row,
+        index: usize,
+        selected: bool,
+        ui: &UiFont,
+        cx: &mut Context<Self>,
+    ) -> Stateful<Div> {
+        let highlight = self.highlight();
+        let scale = ui.scale(1.0);
+        let lead = match row.lead {
+            Lead::Dot { color, breathing } => Some(status_dot(self.fg(color), breathing, ui)),
+            Lead::Settings => Some(
+                footer_icon::icon(Icon::Settings, self.fg(|t| t.agents_dim), scale)
+                    .into_any_element(),
+            ),
+            Lead::Command => Some(
+                footer_icon::icon(Icon::Command, self.fg(|t| t.agents_dim), scale)
+                    .into_any_element(),
+            ),
+            Lead::Nothing => None,
+        };
+        let body = match row.hit {
+            Some(hit) => div()
+                .flex_1()
+                .min_w(px(0.0))
+                .overflow_hidden()
+                .whitespace_nowrap()
+                .text_ellipsis()
+                .font(mono_font(&self.template))
+                .text_size(ui.px(12.5))
+                .text_color(self.fg(|t| t.agents_branch))
+                .child(StyledText::new(row.title).with_highlights([(
+                    hit,
+                    HighlightStyle {
+                        color: Some(self.fg(|t| t.agents_text)),
+                        background_color: Some(hsla(self.theme.fg(|t| t.agents_accent), 0.28)),
+                        ..Default::default()
+                    },
+                )])),
+            None => div()
+                .flex_1()
+                .min_w(px(0.0))
+                .flex()
+                .items_baseline()
+                .gap(ui.px(8.0))
+                .overflow_hidden()
+                .whitespace_nowrap()
+                .child(
+                    div()
+                        .flex_shrink_0()
+                        .text_size(ui.px(13.0))
+                        .text_color(self.fg(|t| t.agents_text))
+                        .child(row.title),
+                )
+                .child(
+                    div()
+                        .min_w(px(0.0))
+                        .overflow_hidden()
+                        .text_ellipsis()
+                        .text_size(ui.px(12.0))
+                        .text_color(self.fg(|t| t.agents_dimmer))
+                        .child(row.detail),
+                ),
+        };
+        div()
+            .id(("palette-row", index))
+            .flex_shrink_0()
+            .min_h(ui.px(34.0))
+            .flex()
+            .items_center()
+            .gap(ui.px(10.0))
+            .px(ui.px(10.0))
+            .py(ui.px(5.0))
+            .rounded(px(7.0))
+            .cursor_pointer()
+            .map(|row| {
+                if selected {
+                    row.bg(highlight)
+                } else {
+                    row.hover(move |style| style.bg(highlight.opacity(0.5)))
+                }
+            })
+            .children(lead.map(|lead| {
+                div()
+                    .flex_shrink_0()
+                    .w(ui.px(16.0))
+                    .flex()
+                    .justify_center()
+                    .child(lead)
+            }))
+            .child(body)
+            .child(self.keycaps(&row.keys, ui, 20.0))
+            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                this.run_palette_row(index, window, cx)
+            }))
     }
 
     fn dialog(&self, popup: Popup, cx: &mut Context<Self>) -> Stateful<Div> {
@@ -1777,7 +2236,7 @@ impl PaddockWindow {
             Popup::NewTab => "Open in a new tab".to_owned(),
             Popup::Split(None) => "Split: which side?".to_owned(),
             Popup::Split(Some(direction)) => format!("Split {}", side(direction)),
-            Popup::Attention | Popup::Search => String::new(),
+            Popup::Attention | Popup::Palette => String::new(),
         };
         let mut body = div().flex().flex_col().gap(px(2.0));
         if popup == Popup::Split(None) {
@@ -1918,6 +2377,52 @@ impl PaddockWindow {
     }
 }
 
+/// The status dot's colour for what a pane shows.
+fn dot(shown: &Shown, agents: &[Agent], now: f64) -> Pick {
+    match shown {
+        Shown::Agent(name) => match agents.iter().find(|a| &a.name == name) {
+            Some(agent) => card::look(Panel::default().status(agent, now)).color,
+            None => |t| t.agents_faint,
+        },
+        Shown::Shell => |t| t.muted,
+        Shown::Empty => |t| t.agents_faint,
+    }
+}
+
+/// A palette row's status dot; a working agent's breathes, as on its card in the sidebar.
+fn status_dot(color: Hsla, breathing: bool, ui: &UiFont) -> AnyElement {
+    let dot = div()
+        .flex_shrink_0()
+        .size(ui.px(8.0))
+        .rounded_full()
+        .bg(color);
+    if !breathing {
+        return dot.into_any_element();
+    }
+    let reach = ui.scale(4.0);
+    dot.with_animation(
+        "breath",
+        Animation::new(Duration::from_millis(1600))
+            .repeat_synced()
+            .with_max_fps(30.0),
+        move |dot, delta| {
+            let out = ease_in_out(if delta < 0.5 {
+                delta * 2.0
+            } else {
+                (1.0 - delta) * 2.0
+            });
+            dot.shadow(vec![BoxShadow {
+                color: color.opacity(0.55 * (1.0 - out)),
+                offset: point(px(0.0), px(0.0)),
+                blur_radius: px(0.0),
+                spread_radius: px(reach * out),
+                inset: false,
+            }])
+        },
+    )
+    .into_any_element()
+}
+
 /// Seconds since the epoch, as the agent statuses count them.
 fn now() -> f64 {
     std::time::SystemTime::now()
@@ -1983,11 +2488,15 @@ impl Render for PaddockWindow {
             .flex_row()
             .child(self.sidebar.clone())
             .child(content);
-        let dialog = self.popup.map(|popup| match popup {
-            Popup::Attention => self.attention_panel(cx),
-            Popup::Search => self.search_panel(cx),
-            popup => self.dialog(popup, cx),
-        });
+        let dialog = match self.popup {
+            Some(Popup::Attention) => Some(self.attention_panel(cx)),
+            Some(Popup::Palette) => self
+                .palette
+                .as_ref()
+                .map(|palette| self.palette_panel(palette, window, cx)),
+            Some(popup) => Some(self.dialog(popup, cx)),
+            None => None,
+        };
         ui.apply(div())
             .relative()
             .size_full()
@@ -2025,8 +2534,13 @@ impl Render for PaddockWindow {
                 cx.listener(|this, _: &menu::ShowAttention, _, cx| this.toggle_attention(cx)),
             )
             .on_action(
-                cx.listener(|this, _: &menu::GoToAgent, window, cx| this.open_search(window, cx)),
+                cx.listener(|this, _: &menu::Search, window, cx| {
+                    this.toggle_palette("", window, cx)
+                }),
             )
+            .on_action(cx.listener(|this, _: &menu::CommandPalette, window, cx| {
+                this.toggle_palette(">", window, cx)
+            }))
             .on_action(cx.listener(|this, _: &menu::SelectNext, _, cx| this.move_selection(1, cx)))
             .on_action(
                 cx.listener(|this, _: &menu::SelectPrevious, _, cx| this.move_selection(-1, cx)),

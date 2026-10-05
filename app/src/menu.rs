@@ -1,5 +1,5 @@
 //! The menu bar, its actions and their keyboard shortcuts, in the usual macOS places.
-use gpui::{KeyBinding, Menu, MenuItem, SystemMenuType, actions};
+use gpui::{Action, KeyBinding, Menu, MenuItem, SystemMenuType, actions};
 
 actions!(
     paddock,
@@ -50,9 +50,11 @@ actions!(
         CreateAgent,
         /// Open or close the Attention list.
         ShowAttention,
-        /// Go to an agent or a Settings page by typing.
-        GoToAgent,
-        /// Move in the Attention or Go to Agent list, and open the selected entry.
+        /// Open or close the command palette: agents, tabs, Settings pages and commands by typing.
+        Search,
+        /// Open or close the command palette at the commands (`>`).
+        CommandPalette,
+        /// Move in the Attention list or the command palette, and open the selected entry.
         SelectNext,
         SelectPrevious,
         OpenSelected,
@@ -64,6 +66,9 @@ pub const FIND: &str = "PaddockFind";
 
 /// The key context of the window while a dialog is open, so Esc reaches the terminal otherwise.
 pub const DIALOG: &str = "PaddockDialog";
+
+/// The key context of the command palette: Tab moves in its list rather than out of it.
+pub const PALETTE: &str = "PaddockPalette";
 
 /// The shortcuts. Everything else typed goes to the terminal.
 pub fn bindings() -> Vec<KeyBinding> {
@@ -96,7 +101,8 @@ pub fn bindings() -> Vec<KeyBinding> {
         KeyBinding::new("cmd-w", CloseWindow, Some(crate::about::CONTEXT)),
         KeyBinding::new("cmd-shift-n", NewAgent, None),
         KeyBinding::new("cmd-shift-a", ShowAttention, None),
-        KeyBinding::new("cmd-p", GoToAgent, None),
+        KeyBinding::new("cmd-p", Search, None),
+        KeyBinding::new("cmd-shift-p", CommandPalette, None),
         KeyBinding::new("cmd-shift-enter", ZoomPane, None),
         KeyBinding::new("cmd-f", Find, None),
         KeyBinding::new("cmd-g", FindNext, None),
@@ -107,6 +113,8 @@ pub fn bindings() -> Vec<KeyBinding> {
         KeyBinding::new("down", SelectNext, Some(DIALOG)),
         KeyBinding::new("up", SelectPrevious, Some(DIALOG)),
         KeyBinding::new("enter", OpenSelected, Some(DIALOG)),
+        KeyBinding::new("tab", SelectNext, Some(PALETTE)),
+        KeyBinding::new("shift-tab", SelectPrevious, Some(PALETTE)),
         KeyBinding::new(
             "cmd-enter",
             CreateAgent,
@@ -158,7 +166,8 @@ pub fn menus(fold: bool, by_name: bool) -> Vec<Menu> {
             MenuItem::action("New Agent…", NewAgent),
             MenuItem::action("Stop Agent…", StopAgent),
             MenuItem::separator(),
-            MenuItem::action("Go to Agent…", GoToAgent),
+            MenuItem::action("Search…", Search),
+            MenuItem::action("Command Palette…", CommandPalette),
             MenuItem::action("Attention…", ShowAttention),
         ]),
         Menu::new("Window").items([
@@ -179,6 +188,98 @@ pub fn menus(fold: bool, by_name: bool) -> Vec<Menu> {
             MenuItem::action("Tab 9", Tab9),
         ]),
     ]
+}
+
+/// A menu bar command as the command palette lists it.
+pub struct Command {
+    pub title: String,
+    /// What the menu item runs.
+    pub action: Box<dyn Action>,
+    /// Its shortcut as keycaps; none without one.
+    pub keys: Vec<String>,
+}
+
+/// Every command in the menu bar, the app menu's last, but the two that open the palette. Out of
+/// their menu, `Find…`, `Attention…` and `Zoom` say what they act on.
+pub fn commands() -> Vec<Command> {
+    let mut menus = menus(false, false);
+    menus.rotate_left(1);
+    menus
+        .into_iter()
+        .flat_map(|menu| menu.items)
+        .filter_map(|item| match item {
+            MenuItem::Action { name, action, .. } => Some((name, action)),
+            _ => None,
+        })
+        .filter(|(_, action)| !action.partial_eq(&Search) && !action.partial_eq(&CommandPalette))
+        .map(|(name, action)| {
+            let title = match name.as_ref() {
+                "Find…" => "Find in Terminal",
+                "Attention…" => "Show Attention",
+                "Zoom" => "Zoom Window",
+                name => name,
+            };
+            Command {
+                title: title.to_owned(),
+                keys: keys(action.as_ref()),
+                action,
+            }
+        })
+        .collect()
+}
+
+/// The keys of `action`'s shortcut outside dialogs and fields, as keycaps: `⌘ ⇧ D`.
+pub fn keys(action: &dyn Action) -> Vec<String> {
+    let Some(binding) = bindings()
+        .into_iter()
+        .find(|binding| binding.predicate().is_none() && binding.action().partial_eq(action))
+    else {
+        return Vec::new();
+    };
+    let mut caps = Vec::new();
+    for keystroke in binding.keystrokes() {
+        let keystroke = keystroke.inner();
+        let held = &keystroke.modifiers;
+        for (down, cap) in [
+            (held.control, "⌃"),
+            (held.alt, "⌥"),
+            (held.platform, "⌘"),
+            (held.shift, "⇧"),
+        ] {
+            if down {
+                caps.push(cap.to_owned());
+            }
+        }
+        caps.push(match keystroke.key.as_str() {
+            "enter" => "↵".to_owned(),
+            "escape" => "esc".to_owned(),
+            "up" => "↑".to_owned(),
+            "down" => "↓".to_owned(),
+            "left" => "←".to_owned(),
+            "right" => "→".to_owned(),
+            "tab" => "⇥".to_owned(),
+            "space" => "Space".to_owned(),
+            "backspace" => "⌫".to_owned(),
+            key => key.to_uppercase(),
+        });
+    }
+    caps
+}
+
+/// What ⌘`n` runs, for n from 1 to 9.
+pub fn tab(n: usize) -> Option<Box<dyn Action>> {
+    let tabs: [Box<dyn Action>; 9] = [
+        Box::new(Tab1),
+        Box::new(Tab2),
+        Box::new(Tab3),
+        Box::new(Tab4),
+        Box::new(Tab5),
+        Box::new(Tab6),
+        Box::new(Tab7),
+        Box::new(Tab8),
+        Box::new(Tab9),
+    ];
+    tabs.into_iter().nth(n.checked_sub(1)?)
 }
 
 #[cfg(test)]
@@ -229,7 +330,8 @@ mod tests {
             ("cmd-shift-n", "paddock::NewAgent"),
             ("cmd-enter", "paddock::CreateAgent"),
             ("cmd-shift-a", "paddock::ShowAttention"),
-            ("cmd-p", "paddock::GoToAgent"),
+            ("cmd-p", "paddock::Search"),
+            ("cmd-shift-p", "paddock::CommandPalette"),
             ("cmd-shift-enter", "paddock::ZoomPane"),
             ("cmd-f", "paddock::Find"),
             ("cmd-g", "paddock::FindNext"),
@@ -271,5 +373,83 @@ mod tests {
         // Fold, Sort, a separator and Zoom Pane, which is never ticked.
         assert_eq!(view(true, false), [true, false, false, false]);
         assert_eq!(view(false, true), [false, true, false, false]);
+    }
+
+    #[test]
+    fn the_palette_lists_every_menu_command_with_the_shortcut_it_has() {
+        let commands = commands();
+        let titles: Vec<&str> = commands.iter().map(|c| c.title.as_str()).collect();
+        let in_menus = menus(false, false)
+            .iter()
+            .flat_map(|menu| &menu.items)
+            .filter(|item| matches!(item, MenuItem::Action { .. }))
+            .count();
+        // All but Search… and Command Palette…, which open the palette itself.
+        assert_eq!(commands.len(), in_menus - 2);
+        assert!(!titles.contains(&"Search…") && !titles.contains(&"Command Palette…"));
+        // The app menu comes last.
+        assert_eq!(titles.first(), Some(&"New Tab…"));
+        assert_eq!(titles.last(), Some(&"Quit paddock"));
+        for title in [
+            "New Agent…",
+            "New Shell",
+            "Split Right…",
+            "Split Down…",
+            "Split Left…",
+            "Split Up…",
+            "Close Pane",
+            "Close Tab",
+            "Zoom Pane",
+            "Stop Agent…",
+            "Show Attention",
+            "Find in Terminal",
+            "Settings…",
+            "Fold Agents",
+            "Sort Agents by Name",
+            "Next Tab",
+            "Previous Tab",
+            "About paddock",
+            "Zoom Window",
+        ] {
+            assert!(titles.contains(&title), "{title} missing from {titles:?}");
+        }
+        let keys_of = |title: &str| -> Vec<String> {
+            commands
+                .iter()
+                .find(|c| c.title == title)
+                .unwrap()
+                .keys
+                .clone()
+        };
+        assert_eq!(keys_of("New Agent…"), ["⌘", "⇧", "N"]);
+        assert_eq!(keys_of("Split Right…"), ["⌘", "D"]);
+        assert_eq!(keys_of("Split Down…"), ["⌘", "⇧", "D"]);
+        assert_eq!(keys_of("Zoom Pane"), ["⌘", "⇧", "↵"]);
+        assert_eq!(keys_of("Show Attention"), ["⌘", "⇧", "A"]);
+        assert_eq!(keys_of("Find in Terminal"), ["⌘", "F"]);
+        assert_eq!(keys_of("Settings…"), ["⌘", ","]);
+        assert_eq!(keys_of("Next Tab"), ["⌘", "⇧", "]"]);
+        assert!(keys_of("Stop Agent…").is_empty());
+        assert!(keys_of("Split Left…").is_empty());
+        // Each command runs the menu item's action, and every shortcut outside dialogs that runs a
+        // menu command shows on it.
+        for binding in bindings().iter().filter(|b| b.predicate().is_none()) {
+            if let Some(command) = commands
+                .iter()
+                .find(|c| c.action.partial_eq(binding.action()))
+            {
+                assert!(!command.keys.is_empty(), "{} shows no keys", command.title);
+            }
+        }
+        assert_eq!(keys(&Search), ["⌘", "P"]);
+        assert_eq!(keys(&CommandPalette), ["⌘", "⇧", "P"]);
+    }
+
+    #[test]
+    fn tab_shortcuts_go_from_one_to_nine() {
+        assert_eq!(keys(tab(1).unwrap().as_ref()), ["⌘", "1"]);
+        assert_eq!(keys(tab(9).unwrap().as_ref()), ["⌘", "9"]);
+        assert!(tab(0).is_none());
+        assert!(tab(10).is_none());
     }
 }
