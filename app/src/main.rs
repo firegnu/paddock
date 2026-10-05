@@ -62,7 +62,7 @@ fn main() -> Result<()> {
     }
     let mut args = std::env::args().skip(1);
     let mut attach = None;
-    let mut corral = "corral".to_owned();
+    let mut corral = None;
     let mut cwd = None;
     let mut font_family = None;
     let mut fallbacks = Vec::new();
@@ -75,7 +75,7 @@ fn main() -> Result<()> {
         let mut value = || args.next().with_context(|| format!("{arg} needs a value"));
         match arg.as_str() {
             "--attach" => attach = Some(value()?),
-            "--corral" => corral = value()?,
+            "--corral" => corral = Some(value()?),
             "--cwd" => cwd = Some(value()?),
             "--font" => font_family = Some(value()?),
             "--fallback" => fallbacks.push(value()?),
@@ -140,7 +140,7 @@ fn main() -> Result<()> {
     config.apply_font_overrides(font_family, fallbacks, font_size, line_height)?;
     let options = Options {
         launch,
-        corral,
+        corral: corral.unwrap_or_else(|| config.corral.clone()),
         font_family: config.font.clone(),
         fallbacks: config.font_fallbacks.clone(),
         font_size: config.font_size,
@@ -156,6 +156,7 @@ fn main() -> Result<()> {
         };
         cx.on_window_closed(|cx, _| cx.quit()).detach();
         cx.bind_keys(menu::bindings());
+        cx.bind_keys(paddock::text_input::bindings());
         cx.on_action(|_: &menu::Quit, cx| cx.quit());
         cx.set_menus(menu::menus(false, false));
         cx.open_window(

@@ -31,8 +31,6 @@ pub enum SidebarEvent {
     Alive(Vec<String>),
 }
 
-/// How often corral is asked, as Saddle's default `refresh_ms`.
-const REFRESH: Duration = Duration::from_secs(1);
 /// How often the agents' worktrees are summarised, as in Saddle.
 const GIT_REFRESH: Duration = Duration::from_secs(5);
 
@@ -143,6 +141,7 @@ impl Sidebar {
         width: f32,
         mono: Font,
         corral: String,
+        refresh: Duration,
         cx: &mut Context<Self>,
     ) -> Self {
         cx.spawn(async move |this, cx| {
@@ -161,11 +160,18 @@ impl Sidebar {
             width,
             mono,
             listing: Listing::default(),
-            poller: Poller::start(Client { program: corral }, REFRESH),
+            poller: Poller::start(Client { program: corral }, refresh),
             git: git::Poller::start("git".into(), GIT_REFRESH),
             selected: None,
             here: Vec::new(),
         }
+    }
+
+    /// New colours or width from Settings, at once.
+    pub fn restyle(&mut self, theme: Rc<Theme>, width: f32, cx: &mut Context<Self>) {
+        self.theme = theme;
+        self.width = width;
+        cx.notify();
     }
 
     /// What the window shows: the active pane's agent and every agent open in it.

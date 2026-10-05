@@ -25,6 +25,10 @@ anyhow = "1"
 # The config file and corral's JSON output.
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["float_roundtrip"] }
+# Saving settings without losing the config file's comments, and the text field's cursor
+# movement (both already in the lock through toml and GPUI).
+toml_edit = "0.25"
+unicode-segmentation = "1"
 # Display widths for the Agents panel's monospace lines (already in the lock through GPUI).
 unicode-width = "0.2"
 toml = "1"

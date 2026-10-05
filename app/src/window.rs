@@ -7,6 +7,7 @@ use crate::{
     layout::{Axis, Direction, Node, PaneId, Placement, Shown, Workspace},
     menu,
     pet::PetView,
+    settings_view::{SettingsEvent, SettingsView},
     sidebar::{Sidebar, SidebarEvent},
     theme::Theme,
     view::{Launch, Options, TerminalView, hsla},
@@ -63,6 +64,10 @@ pub struct PaddockWindow {
     pet: Option<Entity<PetView>>,
     /// The View menu ticks last set: folded, sorted by name.
     menu_state: Option<(bool, bool)>,
+    /// The pet as configured: shown, and which.
+    pet_setting: (bool, crate::pet::Pet),
+    /// The Settings panel, while it is open.
+    settings: Option<Entity<SettingsView>>,
 }
 
 impl PaddockWindow {
@@ -83,7 +88,8 @@ impl PaddockWindow {
         let sidebar = {
             let theme = theme.clone();
             let (width, corral) = (config.sidebar_width, options.corral.clone());
-            cx.new(|cx| Sidebar::new(theme, width, mono, corral, cx))
+            let refresh = std::time::Duration::from_millis(config.refresh_ms);
+            cx.new(|cx| Sidebar::new(theme, width, mono, corral, refresh, cx))
         };
         cx.subscribe_in(&sidebar, window, Self::on_sidebar).detach();
         let shown = match &options.launch {
@@ -108,6 +114,8 @@ impl PaddockWindow {
                 .mascot_enabled
                 .then(|| cx.new(|cx| PetView::new(config.mascot, cx))),
             menu_state: None,
+            pet_setting: (config.mascot_enabled, config.mascot),
+            settings: None,
         };
         let view = this.view(options.launch, window, cx);
         this.panes.insert(first, view);
@@ -195,6 +203,58 @@ impl PaddockWindow {
                 }
             }
         }
+    }
+
+    fn open_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.settings.is_some() {
+            return;
+        }
+        let theme = self.theme.clone();
+        let view = cx.new(|cx| SettingsView::new(theme, crate::config::default_path(), cx));
+        cx.subscribe_in(&view, window, Self::on_settings).detach();
+        let focus = view.read(cx).focus_handle(cx);
+        window.focus(&focus, cx);
+        self.settings = Some(view);
+        cx.notify();
+    }
+
+    fn on_settings(
+        &mut self,
+        _: &Entity<SettingsView>,
+        event: &SettingsEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match event {
+            SettingsEvent::Saved { config, .. } => self.apply(config, cx),
+            SettingsEvent::Closed => {
+                self.settings = None;
+                self.focus_active(window, cx);
+            }
+        }
+    }
+
+    /// What Settings saved that takes effect at once: colours, sidebar width and the pet. The rest
+    /// (fonts, refresh interval, corral command) waits for a restart.
+    fn apply(&mut self, config: &Config, cx: &mut Context<Self>) {
+        if let Ok(theme) = Theme::from_config(config) {
+            let theme = Rc::new(theme);
+            self.theme = theme.clone();
+            let width = config.sidebar_width;
+            let sidebar_theme = theme.clone();
+            self.sidebar
+                .update(cx, |sidebar, cx| sidebar.restyle(sidebar_theme, width, cx));
+            for view in self.panes.values() {
+                let theme = theme.clone();
+                view.update(cx, |view, cx| view.set_theme(theme, cx));
+            }
+        }
+        let pet = (config.mascot_enabled, config.mascot);
+        if pet != self.pet_setting {
+            self.pet_setting = pet;
+            self.pet = pet.0.then(|| cx.new(|cx| PetView::new(pet.1, cx)));
+        }
+        cx.notify();
     }
 
     /// A shell: in the active pane when it is empty, else in a new tab.
@@ -819,6 +879,9 @@ impl Render for PaddockWindow {
             .flex_row()
             .bg(hsla(self.theme.bg(|t| t.agents_bg), 1.0))
             .when(self.popup.is_some(), |root| root.key_context(menu::DIALOG))
+            .on_action(cx.listener(|this, _: &menu::OpenSettings, window, cx| {
+                this.open_settings(window, cx)
+            }))
             .on_action(
                 cx.listener(|this, _: &menu::About, _, cx| this.open_popup(Popup::About, cx)),
             )
@@ -879,5 +942,6 @@ impl Render for PaddockWindow {
             .child(self.sidebar.clone())
             .child(main)
             .children(dialog)
+            .children(self.settings.clone())
     }
 }

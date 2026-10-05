@@ -36,6 +36,10 @@ cargo run --release --manifest-path "$M" --example bundle -- --install
 
 从 Finder、Launchpad 或程序坞启动时，paddock 会向登录 shell 取一次 `PATH`（找得到 `corral`、`git` 和 shell 里的程序），新 shell 开在主目录。
 
+## 设置页
+
+菜单 paddock → Settings…（⌘,）打开，分 General、Colors、Advanced 三页（照 Saddle 的 Settings）。改动先是草稿，Save（⌘S）才写入配置文件，Cancel（Esc）放弃；每项可 Default 恢复默认。换主题会载入该主题的全部颜色并清掉颜色覆盖，之后改的颜色标 `custom`。保存只改动过的键，保留注释和其他内容；配置文件在别处被改过时不写，可选 Keep my edits 或 Discard my edits。主题、颜色、侧栏宽度、宠物保存后立即生效；字体、刷新间隔、corral 命令标 Restart required，重启后生效。
+
 ## 菜单与快捷键
 
 | 菜单 | 项 |
@@ -82,6 +86,8 @@ font_size = 14.5
 line_height = 1.3
 mascot = "cat"          # 宠物：clawd | cat | capybara；默认 clawd
 mascot_enabled = true   # 关掉宠物写 false；默认 true
+refresh_ms = 1000       # 多久问一次 corral，毫秒；默认 1000
+corral = "corral"       # corral 程序；命令行 --corral 可临时覆盖
 
 [colors]                # 可选：覆盖单个颜色，其余跟随主题
 focus = "yellow"

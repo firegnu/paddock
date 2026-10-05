@@ -193,6 +193,12 @@ impl TerminalView {
         }
     }
 
+    /// New colours from Settings, at once.
+    pub fn set_theme(&mut self, theme: Rc<theme::Theme>, cx: &mut Context<Self>) {
+        self.theme = theme;
+        cx.notify();
+    }
+
     /// What the pane is connected to, for the title bar: `shell · <cwd>`, the agent, or the command.
     pub fn subject(&self) -> &str {
         &self.subject

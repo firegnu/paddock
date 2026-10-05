@@ -24,6 +24,10 @@ pub struct Config {
     pub mascot_enabled: bool,
     /// Which pet: `clawd`, `cat` or `capybara`.
     pub mascot: crate::pet::Pet,
+    /// How often corral is asked about the agents, in milliseconds.
+    pub refresh_ms: u64,
+    /// The corral program; `--corral` overrides it for one run.
+    pub corral: String,
 }
 
 impl Default for Config {
@@ -45,6 +49,8 @@ impl Default for Config {
             line_height: 1.3,
             mascot_enabled: true,
             mascot: crate::pet::Pet::Clawd,
+            refresh_ms: 1000,
+            corral: "corral".into(),
         }
     }
 }
@@ -57,6 +63,14 @@ impl Config {
             "sidebar_width must be positive"
         );
         config.validate_fonts()?;
+        ensure!(
+            config.refresh_ms > 0,
+            "refresh_ms must be a positive number of milliseconds"
+        );
+        ensure!(
+            !config.corral.trim().is_empty(),
+            "corral must name a program"
+        );
         Ok(config)
     }
 
@@ -159,6 +173,28 @@ line_height = 1.4
                     "{key} = {value}: {error:#}"
                 );
             }
+        }
+    }
+
+    #[test]
+    fn refresh_and_corral_are_read_and_checked() {
+        let config = Config::default();
+        assert_eq!(
+            (config.refresh_ms, config.corral.as_str()),
+            (1000, "corral")
+        );
+        let config = Config::parse("refresh_ms = 2500\ncorral = \"/opt/bin/corral\"").unwrap();
+        assert_eq!(
+            (config.refresh_ms, config.corral.as_str()),
+            (2500, "/opt/bin/corral")
+        );
+        for bad in [
+            "refresh_ms = 0",
+            "refresh_ms = -5",
+            "refresh_ms = 1.5",
+            "corral = \" \"",
+        ] {
+            assert!(Config::parse(bad).is_err(), "{bad}");
         }
     }
 
