@@ -12,6 +12,7 @@ pub mod grid;
 pub mod ime;
 pub mod input;
 pub mod keys;
+pub mod layout;
 pub mod palette;
 pub mod preset;
 pub mod pty;

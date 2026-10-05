@@ -33,8 +33,14 @@ use gpui::{
 };
 use std::{cell::RefCell, ops::Range, path::PathBuf, rc::Rc, time::Duration, time::Instant};
 
+/// Shown in a pane with nothing in it.
+const EMPTY_NOTE: &str = "Choose an agent on the left, or open one here with + or Split.";
+
 /// What runs in the pane.
+#[derive(Clone)]
 pub enum Launch {
+    /// Nothing yet: a hint until an agent or shell is opened here.
+    Empty,
     /// The user's shell, as Saddle starts plain terminals.
     Shell { program: String, cwd: String },
     /// `corral attach NAME` through Saddle's viewer.
@@ -46,6 +52,7 @@ pub enum Launch {
     },
 }
 
+#[derive(Clone)]
 pub struct Options {
     pub launch: Launch,
     /// The `corral` program the pane attaches with.
@@ -113,6 +120,10 @@ impl TerminalView {
         let mut direct = None;
         let mut note = String::new();
         let (label, subject) = match options.launch {
+            Launch::Empty => {
+                viewer.note = EMPTY_NOTE.into();
+                ("empty".to_owned(), String::new())
+            }
             Launch::Shell { program, cwd } => {
                 viewer.start_shell(Shell {
                     program: program.clone(),
@@ -220,6 +231,29 @@ impl TerminalView {
             exit_code: None,
             env: Vec::new(),
         });
+        cx.notify();
+    }
+
+    /// A shell runs here, or is about to.
+    pub fn shell_live(&self) -> bool {
+        self.queued_shell.is_some() || self.viewer.shell_live()
+    }
+
+    /// Ends what runs here, off the UI thread, and leaves the pane empty: closing a pane or tab,
+    /// or moving its agent elsewhere. An attached agent is only let go; it keeps running.
+    pub fn close(&mut self, cx: &mut Context<Self>) {
+        self.retire_direct();
+        self.queued_shell = None;
+        if let Err(error) = self.viewer.close() {
+            self.note = format!("{error:#}");
+        }
+        if let Some(session) = self.viewer.session.take() {
+            std::thread::spawn(move || drop(session));
+        }
+        self.viewer.shell = None;
+        self.viewer.note = EMPTY_NOTE.into();
+        self.label = "empty".into();
+        self.subject.clear();
         cx.notify();
     }
 
@@ -588,9 +622,14 @@ impl TerminalView {
             note: (!self.note.is_empty()).then(|| self.note.clone()),
         };
         let Some(session) = self.session() else {
-            frame.note = Some(self.viewer.note.clone())
-                .filter(|n| !n.is_empty())
-                .or(frame.note);
+            // Without a session, the viewer's own message comes first: a hint or why the last one
+            // ended, in the muted colour unless it failed.
+            if !self.viewer.note.is_empty() {
+                frame.note = Some(self.viewer.note.clone());
+                if self.viewer.state() != "failed" {
+                    frame.note_color = self.theme.fg(|t| t.muted);
+                }
+            }
             return frame;
         };
         let screen = session.screen.lock().unwrap();
@@ -890,7 +929,8 @@ impl Frame {
 
 impl Render for TerminalView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        if !self.title.is_empty() {
+        // With several panes, the window is titled after the one with the keyboard.
+        if !self.title.is_empty() && self.focus.is_focused(window) {
             window.set_window_title(&self.title);
         }
         let entity = cx.entity();

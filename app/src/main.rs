@@ -3,9 +3,9 @@ use anyhow::{Context as _, Result, bail};
 use gpui::{App, AppContext as _, Bounds, WindowBounds, WindowOptions, point, px, size};
 use paddock::{
     config::{self, Config},
-    sidebar::NewShell,
     theme::Theme,
     view::{Launch, Options},
+    window::NewShell,
     window::PaddockWindow,
 };
 

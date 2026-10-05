@@ -268,11 +268,13 @@ pub struct Card {
     pub short: String,
     pub status: Status,
     pub look: Look,
-    /// Shown in this window's pane.
+    /// Open in one of this window's panes.
     pub here: bool,
+    /// Shown in the active pane: highlighted, and kept expanded when the list folds.
+    pub selected: bool,
     /// Finished a turn this window hasn't shown yet.
     pub unread: bool,
-    /// Every line, not just the first: unfolded, or the one shown here.
+    /// Every line, not just the first: unfolded, or the selected one.
     pub expanded: bool,
     pub brand: Option<Brand>,
     pub effort: Option<Effort>,
@@ -299,12 +301,13 @@ pub enum Line {
     Agent(Box<Card>),
 }
 
-/// The panel's lines. `here` is the agent this window shows; `columns` is the room for the
-/// detail lines, in monospace cells.
+/// The panel's lines. `selected` is the active pane's agent and `here` every agent open in this
+/// window; `columns` is the room for the detail lines, in monospace cells.
 pub fn lines(
     panel: &Panel,
     error: Option<&str>,
-    here: Option<&str>,
+    selected: Option<&str>,
+    here: &[String],
     columns: usize,
     now: f64,
 ) -> Vec<Line> {
@@ -327,24 +330,27 @@ pub fn lines(
             previous = Some(prefix);
         }
         lines.push(Line::Agent(Box::new(card(
-            panel, a, prefix, here, folded, columns, now,
+            panel, a, prefix, selected, here, folded, columns, now,
         ))));
     }
     lines
 }
 
+#[allow(clippy::too_many_arguments)]
 fn card(
     panel: &Panel,
     a: &Agent,
     prefix: &str,
-    here: Option<&str>,
+    selected: Option<&str>,
+    here: &[String],
     folded: bool,
     columns: usize,
     now: f64,
 ) -> Card {
     let status = panel.status(a, now);
     let short = a.name.strip_prefix(prefix).unwrap_or(&a.name).to_owned();
-    let is_here = here == Some(a.name.as_str());
+    let is_here = here.contains(&a.name);
+    let is_selected = selected == Some(a.name.as_str());
     let origin = match status {
         Status::Working | Status::Stalled if a.state.as_deref() == Some("working") => {
             a.turn_started
@@ -372,8 +378,9 @@ fn card(
         look: look(status, now),
         status,
         here: is_here,
+        selected: is_selected,
         unread: !is_here && panel.unread.contains(&a.name),
-        expanded: !folded || is_here,
+        expanded: !folded || is_selected,
         brand: a.kind.as_deref().map(brand),
         effort: a.effort(),
         activity: activity(a, status, &time),
@@ -431,7 +438,7 @@ mod tests {
             None,
             100.0,
         );
-        let lines = lines(&panel, None, None, 40, 100.0);
+        let lines = lines(&panel, None, None, &[], 40, 100.0);
         let groups: Vec<_> = lines
             .iter()
             .filter_map(|line| match line {
@@ -460,7 +467,7 @@ mod tests {
         };
         let mut panel = Panel::default();
         panel.absorb(vec![working, idle], None, 100.0);
-        let lines = lines(&panel, None, None, 40, 100.0);
+        let lines = lines(&panel, None, None, &[], 40, 100.0);
         let cards = cards(&lines);
         let (a, b) = (cards[0], cards[1]);
         // A title that only repeats the group is not shown.
@@ -490,7 +497,7 @@ mod tests {
         };
         let mut panel = Panel::default();
         panel.absorb(vec![waiting, broken], None, 100.0);
-        let lines = lines(&panel, None, None, 40, 100.0);
+        let lines = lines(&panel, None, None, &[], 40, 100.0);
         let labels: Vec<Vec<_>> = cards(&lines)
             .iter()
             .map(|c| c.activity.iter().map(|a| a.label).collect())
@@ -507,7 +514,7 @@ mod tests {
             100.0,
         );
         assert!(panel.folded(), "more than five agents fold by default");
-        let lines = lines(&panel, None, Some("p/3"), 40, 100.0);
+        let lines = lines(&panel, None, Some("p/3"), &[], 40, 100.0);
         let expanded: Vec<_> = cards(&lines)
             .iter()
             .filter(|c| c.expanded)
@@ -515,7 +522,7 @@ mod tests {
             .collect();
         assert_eq!(expanded, ["p/3"]);
         panel.toggle_fold();
-        let lines = super::lines(&panel, None, Some("p/3"), 40, 100.0);
+        let lines = super::lines(&panel, None, Some("p/3"), &[], 40, 100.0);
         assert!(cards(&lines).iter().all(|c| c.expanded));
     }
 
@@ -532,7 +539,7 @@ mod tests {
             100.0,
         );
         let names = |panel: &Panel| -> Vec<String> {
-            cards(&lines(panel, None, None, 40, 100.0))
+            cards(&lines(panel, None, None, &[], 40, 100.0))
                 .iter()
                 .map(|c| c.short.clone())
                 .collect()
@@ -550,7 +557,7 @@ mod tests {
             ..agent("p/a", "idle")
         };
         panel.absorb(vec![a.clone(), agent("p/b", "idle")], None, 100.0);
-        let lines = lines(&panel, None, Some("p/a"), 40, 100.0);
+        let lines = lines(&panel, None, Some("p/a"), &["p/a".to_owned()], 40, 100.0);
         let card = cards(&lines)[0];
         assert!(card.here);
         assert_eq!(card.time, "10s");

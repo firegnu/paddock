@@ -1,22 +1,35 @@
 //! The Agents sidebar: `corral ls` and the agents' Git summaries through the pollers taken from
 //! Saddle, ordered and judged by its Agents panel model, shown as native cards (`card.rs` decides
-//! what each card says). Clicking a card attaches the terminal pane to that agent; the footer can
-//! sort, fold and open a shell instead.
+//! what each card says). Clicking a card asks the window to show that agent; the footer can sort,
+//! fold and open a shell instead.
 use crate::{
     agents::{Panel, Status},
     card::{self, Card, GitLine, Line, Pick},
-    corral::{Agent, Client, Poller},
+    corral::{Agent, Client, Poller, Role},
     git,
     theme::Theme,
-    view::{TerminalView, hsla},
+    view::hsla,
     viewer::AgentMetadata,
 };
 use anyhow::Result;
 use gpui::{
-    AnyElement, App, ClickEvent, Context, Div, ElementId, Entity, Focusable, Font, FontWeight,
-    Hsla, Render, RenderOnce, SharedString, Window, div, prelude::*, px,
+    AnyElement, App, ClickEvent, Context, Div, ElementId, EventEmitter, Font, FontWeight, Hsla,
+    Render, RenderOnce, SharedString, Window, div, prelude::*, px,
 };
 use std::{rc::Rc, time::Duration};
+
+/// What the sidebar asks of the window.
+pub enum SidebarEvent {
+    /// Show this agent: where it already is, or by the layout rules.
+    Attach {
+        name: String,
+        metadata: AgentMetadata,
+    },
+    /// Open a shell.
+    NewShell,
+    /// The agents corral still lists, for panes to let go of one that disappeared.
+    Alive(Vec<String>),
+}
 
 /// How often corral is asked, as Saddle's default `refresh_ms`.
 const REFRESH: Duration = Duration::from_secs(1);
@@ -31,12 +44,6 @@ const MONO_SIZE: f32 = 11.5;
 /// The card's left bar plus its inner padding, and the detail lines' indent under the name.
 const CARD_INSET: f32 = 2.0 + 10.0 + 8.0;
 const INDENT: f32 = 16.0;
-
-/// What "＋ New shell" starts.
-pub struct NewShell {
-    pub program: String,
-    pub cwd: String,
-}
 
 /// The list model: the last good `corral ls`, the last error if the latest read failed, and the
 /// Git summaries by directory.
@@ -90,8 +97,21 @@ impl Listing {
         cwds
     }
 
-    pub fn lines(&self, here: Option<&str>, columns: usize, now: f64) -> Vec<Line> {
-        card::lines(&self.panel, self.error.as_deref(), here, columns, now)
+    pub fn lines(
+        &self,
+        selected: Option<&str>,
+        here: &[String],
+        columns: usize,
+        now: f64,
+    ) -> Vec<Line> {
+        card::lines(
+            &self.panel,
+            self.error.as_deref(),
+            selected,
+            here,
+            columns,
+            now,
+        )
     }
 
     fn animating(&self, now: f64) -> bool {
@@ -110,9 +130,12 @@ pub struct Sidebar {
     listing: Listing,
     poller: Poller,
     git: git::Poller,
-    terminal: Entity<TerminalView>,
-    new_shell: NewShell,
+    /// The active pane's agent, and every agent open in this window.
+    selected: Option<String>,
+    here: Vec<String>,
 }
+
+impl EventEmitter<SidebarEvent> for Sidebar {}
 
 impl Sidebar {
     pub fn new(
@@ -120,8 +143,6 @@ impl Sidebar {
         width: f32,
         mono: Font,
         corral: String,
-        new_shell: NewShell,
-        terminal: Entity<TerminalView>,
         cx: &mut Context<Self>,
     ) -> Self {
         cx.spawn(async move |this, cx| {
@@ -142,20 +163,64 @@ impl Sidebar {
             listing: Listing::default(),
             poller: Poller::start(Client { program: corral }, REFRESH),
             git: git::Poller::start("git".into(), GIT_REFRESH),
-            terminal,
-            new_shell,
+            selected: None,
+            here: Vec::new(),
+        }
+    }
+
+    /// What the window shows: the active pane's agent and every agent open in it.
+    pub fn set_view(
+        &mut self,
+        selected: Option<String>,
+        here: Vec<String>,
+        cx: &mut Context<Self>,
+    ) {
+        if self.selected != selected || self.here != here {
+            self.selected = selected;
+            self.here = here;
+            cx.notify();
+        }
+    }
+
+    /// Every agent corral lists, by name.
+    pub fn agent_names(&self) -> Vec<String> {
+        let mut names: Vec<String> = self
+            .listing
+            .panel
+            .agents
+            .iter()
+            .map(|a| a.name.clone())
+            .collect();
+        names.sort();
+        names
+    }
+
+    /// The agent's public role label, for its pane's title.
+    pub fn role(&self, name: &str) -> Option<Role> {
+        self.listing
+            .panel
+            .agents
+            .iter()
+            .find(|a| a.name == name)
+            .and_then(Agent::role)
+    }
+
+    /// What attaching to `name` needs to check it is still the same agent.
+    pub fn metadata(&self, name: &str) -> AgentMetadata {
+        let agent = self.listing.panel.agents.iter().find(|a| a.name == name);
+        AgentMetadata {
+            cwd: agent.and_then(|a| a.cwd.clone()),
+            instance: agent.and_then(|a| a.instance.clone()),
         }
     }
 
     fn poll(&mut self, cx: &mut Context<Self>) {
         let now = now();
-        let here = self.terminal.read(cx).target().map(str::to_owned);
         let mut changed = false;
         for update in self.poller.updates.try_iter().collect::<Vec<_>>() {
             changed = true;
-            if let Some(alive) = self.listing.absorb(update, here.as_deref(), now) {
-                let alive: Vec<&str> = alive.iter().map(String::as_str).collect();
-                self.terminal.update(cx, |t, _| t.disappeared(&alive));
+            if let Some(alive) = self.listing.absorb(update, self.selected.as_deref(), now) {
+                cx.emit(SidebarEvent::Alive(alive));
             }
         }
         if changed {
@@ -171,28 +236,14 @@ impl Sidebar {
         }
     }
 
-    fn attach(&mut self, card: &Card, window: &mut Window, cx: &mut Context<Self>) {
-        let name = card.name.clone();
-        let metadata = AgentMetadata {
-            cwd: card.cwd.clone(),
-            instance: card.instance.clone(),
-        };
-        self.terminal
-            .update(cx, |t, cx| t.attach(name, metadata, cx));
-        self.focus_terminal(window, cx);
-    }
-
-    fn start_shell(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let (program, cwd) = (self.new_shell.program.clone(), self.new_shell.cwd.clone());
-        self.terminal
-            .update(cx, |t, cx| t.start_shell(program, cwd, cx));
-        self.focus_terminal(window, cx);
-    }
-
-    fn focus_terminal(&self, window: &mut Window, cx: &mut Context<Self>) {
-        let focus = self.terminal.read(cx).focus_handle(cx);
-        window.focus(&focus, cx);
-        cx.notify();
+    fn attach(&mut self, card: &Card, cx: &mut Context<Self>) {
+        cx.emit(SidebarEvent::Attach {
+            name: card.name.clone(),
+            metadata: AgentMetadata {
+                cwd: card.cwd.clone(),
+                instance: card.instance.clone(),
+            },
+        });
     }
 
     /// Monospace cells that fit a detail line.
@@ -209,11 +260,13 @@ impl Render for Sidebar {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = self.theme.clone();
         let fg = |pick: Pick| hsla(theme.fg(pick), 1.0);
-        let here = self.terminal.read(cx).target().map(str::to_owned);
         let now = now();
-        let lines = self
-            .listing
-            .lines(here.as_deref(), self.columns(window), now);
+        let lines = self.listing.lines(
+            self.selected.as_deref(),
+            &self.here,
+            self.columns(window),
+            now,
+        );
         let agents = lines
             .iter()
             .filter(|line| matches!(line, Line::Agent(_)))
@@ -298,9 +351,7 @@ impl Render for Sidebar {
                 Line::Agent(card) => {
                     let on_click = {
                         let card = card.clone();
-                        cx.listener(move |this, _: &ClickEvent, window, cx| {
-                            this.attach(&card, window, cx)
-                        })
+                        cx.listener(move |this, _: &ClickEvent, _, cx| this.attach(&card, cx))
                     };
                     AgentCard {
                         card: *card,
@@ -353,7 +404,7 @@ impl Render for Sidebar {
             .child(div().flex_1())
             .child(
                 chip(&theme, "new-shell", "＋", "New shell", None, false).on_click(
-                    cx.listener(|this, _: &ClickEvent, window, cx| this.start_shell(window, cx)),
+                    cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(SidebarEvent::NewShell)),
                 ),
             );
 
@@ -545,12 +596,12 @@ impl RenderOnce for AgentCard {
             .py(px(if card.expanded { 6.0 } else { 3.0 }))
             .rounded(px(6.0))
             .border_l_2()
-            .border_color(fg(if card.here {
+            .border_color(fg(if card.selected {
                 |t| t.agents_accent
             } else {
                 |t| t.agents_faint
             }))
-            .when(card.here, |card| card.bg(selected))
+            .when(card.selected, |card| card.bg(selected))
             .hover(move |style| style.bg(selected.opacity(0.6)))
             .cursor_pointer()
             .on_click(self.on_click)
@@ -638,7 +689,7 @@ fn details(theme: &Theme, mono: &Font, card: &Card, state_color: Hsla) -> Vec<An
             .child(card.path.clone())
             .into_any_element(),
     );
-    let meta: Pick = if card.here {
+    let meta: Pick = if card.selected {
         |t| t.agents_text
     } else {
         |t| t.agents_dimmer
@@ -817,7 +868,7 @@ mod tests {
                 "paddock/dev-theme"
             ]
         );
-        let lines = listing.lines(None, 40, 1000.0);
+        let lines = listing.lines(None, &[], 40, 1000.0);
         // Groups in name order, the ungrouped first; within a group, those needing a person first.
         assert_eq!(
             shown(&lines),
@@ -854,11 +905,11 @@ mod tests {
     fn status_refreshes_with_each_listing() {
         let mut listing = Listing::default();
         listing.absorb(Ok(vec![agent("p/a", "working")]), None, 1000.0);
-        assert_eq!(shown(&listing.lines(None, 40, 1000.0))[1], "a working");
+        assert_eq!(shown(&listing.lines(None, &[], 40, 1000.0))[1], "a working");
         listing.absorb(Ok(vec![agent("p/a", "idle")]), None, 1001.0);
-        assert_eq!(shown(&listing.lines(None, 40, 1001.0))[1], "a idle");
+        assert_eq!(shown(&listing.lines(None, &[], 40, 1001.0))[1], "a idle");
         listing.absorb(Ok(vec![]), None, 1002.0);
-        assert!(listing.lines(None, 40, 1002.0).is_empty());
+        assert!(listing.lines(None, &[], 40, 1002.0).is_empty());
     }
 
     #[test]
@@ -887,7 +938,7 @@ mod tests {
         quiet.last_output = Some(0.0);
         listing.absorb(Ok(vec![broken, quiet]), None, 1000.0);
         assert_eq!(
-            shown(&listing.lines(None, 40, 1000.0)),
+            shown(&listing.lines(None, &[], 40, 1000.0)),
             ["# p/ (2)", "broken error", "quiet stalled"]
         );
     }
@@ -929,7 +980,7 @@ mod tests {
                 .absorb(first_update(failing), None, 1001.0)
                 .is_none()
         );
-        let lines = shown(&listing.lines(None, 40, 1001.0));
+        let lines = shown(&listing.lines(None, &[], 40, 1001.0));
         assert!(lines[0].starts_with("! corral: "), "{lines:?}");
         assert!(lines[0].contains("daemon unreachable"), "{lines:?}");
         assert_eq!(lines[1..], ["# p/ (1)", "a idle"]);
@@ -939,7 +990,7 @@ mod tests {
                 .absorb(first_update(garbage), None, 1002.0)
                 .is_none()
         );
-        let lines = shown(&listing.lines(None, 40, 1002.0));
+        let lines = shown(&listing.lines(None, &[], 40, 1002.0));
         assert!(lines[0].contains("invalid JSON"), "{lines:?}");
 
         let missing = dir.join("no-such-corral").display().to_string();
@@ -948,12 +999,12 @@ mod tests {
                 .absorb(first_update(missing), None, 1003.0)
                 .is_none()
         );
-        assert!(shown(&listing.lines(None, 40, 1003.0))[0].starts_with("! corral: "));
+        assert!(shown(&listing.lines(None, &[], 40, 1003.0))[0].starts_with("! corral: "));
 
         // The next good listing clears the error.
         listing.absorb(Ok(vec![agent("p/a", "working")]), None, 1004.0);
         assert_eq!(
-            shown(&listing.lines(None, 40, 1004.0)),
+            shown(&listing.lines(None, &[], 40, 1004.0)),
             ["# p/ (1)", "a working"]
         );
         std::fs::remove_dir_all(&dir).unwrap();
@@ -976,7 +1027,7 @@ esac"#,
         let mut listing = Listing::default();
         let alive = listing.absorb(first_update(program), None, 1000.0).unwrap();
         assert_eq!(alive, ["p/a"]);
-        let lines = listing.lines(None, 40, 1000.0);
+        let lines = listing.lines(None, &[], 40, 1000.0);
         assert_eq!(shown(&lines), ["# p/ (1)", "a working"]);
         let Line::Agent(card) = &lines[1] else {
             panic!()
