@@ -86,3 +86,12 @@
   - palette 开着时，文字搜索结果不随新输出自动刷新（再打一个字才重新搜）。跳转时如果那一处已经不在原位（历史满了在滚动，或窗格换了会话），退到最新的一处。
   - 呼吸圆点在 window.rs 里另写了一份，和 sidebar.rs 的 `dot` 重复；sidebar 那个改成公开后可以合并，这轮 sidebar.rs 不能动，留给以后。
   - 没去掉终端查找栏和它的快捷键；没改 card.rs、sidebar.rs；没加依赖，没改 Cargo.lock，没加主题颜色键。
+
+## 主控审查
+
+2026-10-06，paddock/main。可以合并，已合并（与 P5-8、P5-9 一起集成）。
+- 范围符合约定：没碰 `card.rs`、`sidebar.rs`；`view.rs` 只在末尾新加一个 `impl` 块；`find.rs` 只把“选中并滚到可见”抽成函数供 palette 复用，原行为不变；`footer_icon.rs` 只加图标；`Cargo.lock` 未变。
+- 删掉的两个旧 Go to Agent 测试由 `agents_by_name_or_project_ignoring_case`、`settings_pages_and_commands_follow_the_agents_and_tabs` 接替，断言照旧。主控重跑：176 项测试、clippy 通过。
+- 对方的取舍，主控认可：菜单项 “Search…”“Command Palette…”、命令名 “Zoom Window”；压暗和阴影用黑色加透明度（与现有选择框一致，不算主题颜色）；文字搜索活动窗格在前、每窗格最多 20 处、停 120ms 后在后台搜；跳到命中后焦点在查找栏。
+- 集成（主控做）：palette 和侧栏各有一份一样的呼吸圆点，合成 `sidebar::status_dot`；去掉因此不用的引用。DESIGN §13 补记 P5-3 定下的三项。
+- 没做、记为建议改：palette 开着时文字搜索结果不随新输出刷新；要跳的那一处已经滚走时退到最新一处。键盘、鼠标、输入法留给用户试。
