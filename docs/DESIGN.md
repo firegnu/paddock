@@ -169,7 +169,7 @@ paddock 与 Saddle 在代码上完全分开：用到的 Saddle 代码迁入 padd
 用户 10-05 定下（原话见 `docs/背景与决策记录.md` §6e）：继续把 Saddle 的组件搬过来；不涉及 corral、遥测、Drover 这类共享运行时的，都可以做。
 
 - **顺序**：
-  1. Settings 设置页（General、Colors、Advanced；保存时保留配置文件的注释）。遥测总开关会写遥测数据库，这次不放。
+  1. Settings 设置页（General、Colors、Advanced；保存时保留配置文件的注释）。遥测总开关会写遥测数据库，这次不放。 **已完成（10-05，用户认可）**：窗口内面板，⌘, 打开；配置新增 `refresh_ms`、`corral`。
   2. 新建、停止 agent（调用公开的 `corral start`、`corral stop`；动手前再与用户确认）。
   3. Attention 提醒。
   4. 搜索。
