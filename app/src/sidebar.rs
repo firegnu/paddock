@@ -5,7 +5,7 @@
 use crate::{
     agents::{Panel, Status},
     attention,
-    card::{self, Card, Click, Line, Pick, Tone},
+    card::{self, Card, Click, Face, Ink, Line, Pick, Second, Tone},
     corral::{Agent, Client, Poller, Role},
     fonts::UiFont,
     footer_icon::{self, Icon},
@@ -17,8 +17,8 @@ use crate::{
 use anyhow::Result;
 use gpui::{
     Animation, AnimationExt, AnyElement, App, BoxShadow, ClickEvent, Context, Div, ElementId,
-    EventEmitter, Font, FontFeatures, FontWeight, Hsla, Pixels, Render, RenderOnce, SharedString,
-    TextRun, Window, div, ease_in_out, point, prelude::*, px, relative,
+    EventEmitter, Font, FontFeatures, FontWeight, HighlightStyle, Hsla, Pixels, Render, RenderOnce,
+    SharedString, StyledText, TextRun, Window, div, ease_in_out, point, prelude::*, px, relative,
 };
 use std::{rc::Rc, sync::Arc, time::Duration};
 
@@ -54,8 +54,18 @@ const DOT: f32 = 8.0;
 const INDENT: f32 = 16.0;
 /// Room kept before the age.
 const TIME_PAD: f32 = 4.0;
-/// The details' label column, four characters wide.
-const LABEL_WIDTH: f32 = 48.0;
+/// Between a detail's label column and its value.
+const LABEL_GAP: f32 = 14.0;
+/// The most of a card's width the working tool takes before it is cut.
+const TOOL_SHARE: f32 = 0.3;
+/// The share of a card's width a name keeps before the effort, then the tool, give way.
+const NAME_SHARE: f32 = 0.4;
+/// The marks after the name: the gap before each, the unread dot and its hover box, and the
+/// open-here icon.
+const MARK_GAP: f32 = 5.0;
+const UNREAD: f32 = 6.0;
+const UNREAD_BOX: f32 = 10.0;
+const HERE_BOX: f32 = 12.0;
 // The type scale (DESIGN §13).
 const TITLE_SIZE: f32 = 15.0;
 const NAME_SIZE: f32 = 13.0;
@@ -132,16 +142,16 @@ impl Listing {
     pub fn lines(
         &self,
         selected: Option<&str>,
+        here: &[String],
         home: Option<&str>,
-        fits: &dyn Fn(&str) -> bool,
         now: f64,
     ) -> Vec<Line> {
         card::lines(
             &self.panel,
             self.error.as_deref(),
             selected,
+            here,
             home,
-            fits,
             now,
         )
     }
@@ -164,6 +174,8 @@ pub struct Sidebar {
     git: git::Poller,
     /// The active pane's agent.
     selected: Option<String>,
+    /// Every agent open in this window's panes.
+    here: Vec<String>,
     /// Written `~` in directories.
     home: Option<String>,
     /// The result of the last start or stop, and whether it is a problem.
@@ -200,6 +212,7 @@ impl Sidebar {
             poller: Poller::start(Client { program: corral }, refresh),
             git: git::Poller::start("git".into(), GIT_REFRESH),
             selected: None,
+            here: Vec::new(),
             home: std::env::var("HOME").ok(),
             note: None,
         }
@@ -218,16 +231,16 @@ impl Sidebar {
         cx.notify();
     }
 
-    /// What the window shows: the active pane's agent, and every agent open in it, which the
-    /// cards no longer mark.
+    /// What the window shows: the active pane's agent, and every agent open in it.
     pub fn set_view(
         &mut self,
         selected: Option<String>,
-        _here: Vec<String>,
+        here: Vec<String>,
         cx: &mut Context<Self>,
     ) {
-        if self.selected != selected {
+        if self.selected != selected || self.here != here {
             self.selected = selected;
+            self.here = here;
             cx.notify();
         }
     }
@@ -401,19 +414,16 @@ impl Render for Sidebar {
         let theme = self.theme.clone();
         let fg = |pick: Pick| hsla(theme.fg(pick), 1.0);
         let now = now();
+        let mut label_width = 0.0f32;
         let lines = {
             // Measured in the interface font: GPUI's own ellipsis misjudges text that shares a
-            // row, so the card's lines are cut here to the room the card has.
+            // row, so every line of a card is cut here to the room it has, and never wraps.
             let family = ui.family.clone().unwrap_or_else(|| ".SystemUIFont".into());
             let text = window.text_system();
-            let width = |line: &str, size: f32, weight: FontWeight, features: &FontFeatures| {
+            let measure = |line: &str, size: f32, font: Font| {
                 let run = TextRun {
                     len: line.len(),
-                    font: Font {
-                        weight,
-                        features: features.clone(),
-                        ..gpui::font(family.clone())
-                    },
+                    font,
                     color: Hsla::default(),
                     background_color: None,
                     underline: None,
@@ -425,32 +435,88 @@ impl Render for Sidebar {
                         .width,
                 )
             };
+            let width = |line: &str, size: f32, weight: FontWeight, features: &FontFeatures| {
+                let font = Font {
+                    weight,
+                    features: features.clone(),
+                    ..gpui::font(family.clone())
+                };
+                measure(line, size, font)
+            };
             let plain = FontFeatures::default();
             let card_width = self.width - 2.0 * PAD - 2.0 * CARD_X;
             let gap = ui.scale(INDENT - DOT);
-            let fits = |line: &str| {
-                width(line, SECOND_SIZE, FontWeight::NORMAL, &plain)
-                    <= card_width - ui.scale(INDENT)
-            };
-            let mut lines =
-                self.listing
-                    .lines(self.selected.as_deref(), self.home.as_deref(), &fits, now);
+            let room = card_width - ui.scale(INDENT);
+            let fits = |line: &str| width(line, SECOND_SIZE, FontWeight::NORMAL, &plain) <= room;
+            let mut lines = self.listing.lines(
+                self.selected.as_deref(),
+                &self.here,
+                self.home.as_deref(),
+                now,
+            );
+            for line in &lines {
+                let Line::Agent(card) = line else { continue };
+                for detail in card.details.iter().filter(|_| card.expanded) {
+                    label_width =
+                        label_width.max(width(detail.label, NOTE_SIZE, FontWeight::NORMAL, &plain));
+                }
+            }
+            let value_room = room - label_width - ui.scale(LABEL_GAP);
             for line in &mut lines {
                 let Line::Agent(card) = line else { continue };
-                // The name gives way first: the program and the age always show.
-                let mut room = card_width
-                    - ui.scale(DOT)
-                    - gap
-                    - gap
-                    - TIME_PAD
-                    - width(&card.time, NOTE_SIZE, FontWeight::NORMAL, &tabular());
-                if let Some(brand) = &card.brand {
-                    room -= gap + width(&brand.kind, KIND_SIZE, FontWeight::NORMAL, &plain);
+                // The tool takes at most a share of the line, so the name keeps some room.
+                if let Some(tool) = &card.tool {
+                    card.tool = Some(card::elide(tool, &|tool| {
+                        width(tool, NOTE_SIZE, FontWeight::NORMAL, &plain)
+                            <= card_width * TOOL_SHARE
+                    }));
                 }
+                // The room the first line leaves the name.
+                let name_room = |card: &Card| {
+                    let mut room = card_width
+                        - ui.scale(DOT)
+                        - gap
+                        - gap
+                        - TIME_PAD
+                        - width(&trailer(card).0, NOTE_SIZE, FontWeight::NORMAL, &tabular());
+                    if let Some((program, _, _)) = program(card) {
+                        room -= gap + width(&program, KIND_SIZE, FontWeight::NORMAL, &plain);
+                    }
+                    if card.unread {
+                        room -= ui.scale(MARK_GAP + UNREAD_BOX);
+                    }
+                    if card.here {
+                        room -= ui.scale(MARK_GAP + HERE_BOX);
+                    }
+                    room
+                };
+                // The effort and the tool give way before the name gets short; then the name is
+                // cut: the program and the age always show.
                 let weight = name_weight(card.selected);
+                let floor =
+                    width(&card.short, NAME_SIZE, weight, &plain).min(card_width * NAME_SHARE);
+                card::yield_to_name(card, &name_room, floor);
+                let room = name_room(card);
                 card.short = card::elide(&card.short, &|name| {
                     width(name, NAME_SIZE, weight, &plain) <= room
                 });
+                card.second = match &card.second {
+                    Second::Note(text, tone) => Second::Note(card::elide(text, &fits), *tone),
+                    Second::Place(place) => Second::Place(place.fit(&fits)),
+                };
+                for detail in card.details.iter_mut().filter(|_| card.expanded) {
+                    let fits = |value: &str| {
+                        let used = match detail.face {
+                            Face::Mono => measure(value, KIND_SIZE, self.mono.clone()),
+                            _ => width(value, NOTE_SIZE, FontWeight::NORMAL, &plain),
+                        };
+                        used <= value_room
+                    };
+                    detail.value = match detail.face {
+                        Face::Path => card::shorten(&detail.value, &fits),
+                        _ => card::elide(&detail.value, &fits),
+                    };
+                }
             }
             lines
         };
@@ -576,6 +642,7 @@ impl Render for Sidebar {
                         card: *card,
                         theme: theme.clone(),
                         mono: self.mono.clone(),
+                        label_width,
                         on_click: Box::new(on_click),
                     }
                     .into_any_element()
@@ -775,6 +842,8 @@ struct AgentCard {
     card: Card,
     theme: Rc<Theme>,
     mono: Font,
+    /// The details' label column, as wide as the widest label.
+    label_width: f32,
     on_click: OnClick,
 }
 
@@ -785,13 +854,49 @@ impl RenderOnce for AgentCard {
         let fg = |pick: Pick| hsla(theme.fg(pick), 1.0);
         let card = &self.card;
         let selected = hsla(theme.bg(|t| t.agent_selected), 1.0);
+        let tip = |text: &'static str| Tip {
+            text,
+            size: ui.px(NOTE_SIZE),
+            color: fg(|t| t.agents_text),
+            background: hsla(theme.bg(|t| t.agents_bg), 1.0),
+            border: fg(|t| t.agents_rule),
+        };
 
-        // The name comes already cut to its room (see `Sidebar::render`).
-        let first = div()
+        // Every text comes already cut to its room (see `Sidebar::render`).
+        let unread = card.unread.then(|| {
+            let tip = tip("Finished a turn you haven't seen");
+            div()
+                .id("unread")
+                .flex_shrink_0()
+                .size(ui.px(UNREAD_BOX))
+                .flex()
+                .items_center()
+                .justify_center()
+                .tooltip(move |_, cx| cx.new(|_| tip.clone()).into())
+                .child(
+                    div()
+                        .size(ui.px(UNREAD))
+                        .rounded_full()
+                        .bg(fg(|t| t.agents_accent)),
+                )
+        });
+        let here = card.here.then(|| {
+            let tip = tip("Open in this window");
+            div()
+                .id("here")
+                .flex_shrink_0()
+                .tooltip(move |_, cx| cx.new(|_| tip.clone()).into())
+                .child(footer_icon::icon(
+                    Icon::Here,
+                    fg(|t| t.agents_dimmer),
+                    ui.scale(HERE_BOX / footer_icon::SIZE),
+                ))
+        });
+        let name = div()
             .flex()
             .items_center()
-            .gap(ui.px(INDENT - DOT))
-            .child(dot(card.look, fg(card.look.color), &ui))
+            .min_w(px(0.0))
+            .gap(ui.px(MARK_GAP))
             .child(
                 div()
                     .min_w(px(0.0))
@@ -806,14 +911,31 @@ impl RenderOnce for AgentCard {
                     }))
                     .child(card.short.clone()),
             )
-            .children(card.brand.as_ref().map(|brand| {
-                div()
-                    .flex_shrink_0()
-                    .whitespace_nowrap()
-                    .text_size(ui.px(KIND_SIZE))
-                    .text_color(fg(brand.color).opacity(0.85))
-                    .child(brand.kind.clone())
-            }))
+            .children(unread)
+            .children(here);
+        let program = program(card).map(|(text, split, kind)| {
+            let dimmer = fg(|t| t.agents_dimmer);
+            let kind = kind.map_or(dimmer, |pick| fg(pick).opacity(0.85));
+            div()
+                .flex_shrink_0()
+                .whitespace_nowrap()
+                .text_size(ui.px(KIND_SIZE))
+                .child(styled(
+                    text,
+                    &[(0..split, kind), (split..usize::MAX, dimmer)],
+                ))
+        });
+        let (trailer_text, split) = trailer(card);
+        let age = card
+            .time_color
+            .map_or(fg(|t| t.agents_dimmer), |pick| fg(pick).opacity(0.8));
+        let first = div()
+            .flex()
+            .items_center()
+            .gap(ui.px(INDENT - DOT))
+            .child(dot(card.look, fg(card.look.color), &ui))
+            .child(name)
+            .children(program)
             .child(
                 div()
                     .flex_shrink_0()
@@ -822,13 +944,41 @@ impl RenderOnce for AgentCard {
                     .whitespace_nowrap()
                     .text_size(ui.px(NOTE_SIZE))
                     .font_features(tabular())
-                    .text_color(fg(|t| t.agents_dimmer))
-                    .child(card.time.clone()),
+                    .child(styled(
+                        trailer_text,
+                        &[
+                            (0..split, fg(|t| t.agents_dimmer)),
+                            (split..usize::MAX, age),
+                        ],
+                    )),
             );
-        let tone: Pick = match card.second.tone {
-            Tone::Quiet => |t| t.agents_dim,
-            Tone::Waiting => |t| t.agents_yellow,
-            Tone::Problem => |t| t.agents_red,
+
+        let (text, colors): (String, Vec<(std::ops::Range<usize>, Hsla)>) = match &card.second {
+            Second::Note(text, tone) => {
+                let color = fg(match tone {
+                    Tone::Quiet => |t| t.agents_dim,
+                    Tone::Waiting => |t| t.agents_yellow,
+                    Tone::Problem => |t| t.agents_red,
+                });
+                (text.clone(), vec![(0..text.len(), color)])
+            }
+            Second::Place(place) => {
+                let mut text = String::new();
+                let mut colors = Vec::new();
+                for (piece, ink) in place.spans() {
+                    let color = match ink {
+                        Ink::Dim => fg(|t| t.agents_dim),
+                        Ink::Dimmer => fg(|t| t.agents_dimmer),
+                        Ink::Branch => fg(|t| t.agents_branch).opacity(0.8),
+                        Ink::Added => fg(|t| t.agents_green).opacity(0.9),
+                        Ink::Deleted => fg(|t| t.agents_red).opacity(0.9),
+                        Ink::Ahead => fg(|t| t.agents_yellow).opacity(0.9),
+                    };
+                    colors.push((text.len()..text.len() + piece.len(), color));
+                    text += &piece;
+                }
+                (text, colors)
+            }
         };
         let second = div()
             .mt(px(3.0))
@@ -836,10 +986,8 @@ impl RenderOnce for AgentCard {
             .min_w(px(0.0))
             .overflow_hidden()
             .whitespace_nowrap()
-            .text_ellipsis()
             .text_size(ui.px(SECOND_SIZE))
-            .text_color(fg(tone))
-            .child(card.second.text.clone());
+            .child(styled(text, &colors));
 
         div()
             .id(ElementId::Name(SharedString::from(card.name.clone())))
@@ -858,8 +1006,55 @@ impl RenderOnce for AgentCard {
             .child(first)
             .child(second)
             .when(card.expanded, |body| {
-                body.child(details(theme, &self.mono, &ui, card))
+                body.child(details(theme, &self.mono, &ui, self.label_width, card))
             })
+    }
+}
+
+/// `text` with each range in its colour; ranges may run past the end.
+fn styled(text: String, colors: &[(std::ops::Range<usize>, Hsla)]) -> StyledText {
+    let len = text.len();
+    let highlights: Vec<_> = colors
+        .iter()
+        .map(|(range, color)| (range.start.min(len)..range.end.min(len), *color))
+        .filter(|(range, _)| !range.is_empty())
+        .map(|(range, color)| {
+            (
+                range,
+                HighlightStyle {
+                    color: Some(color),
+                    ..HighlightStyle::default()
+                },
+            )
+        })
+        .collect();
+    StyledText::new(text).with_highlights(highlights)
+}
+
+/// The program and the effort after it, `claude · high`, where the program ends, and its colour;
+/// `None` when there is neither.
+fn program(card: &Card) -> Option<(String, usize, Option<Pick>)> {
+    match (&card.brand, &card.effort) {
+        (Some(brand), Some(effort)) => Some((
+            format!("{} · {effort}", brand.kind),
+            brand.kind.len(),
+            Some(brand.color),
+        )),
+        (Some(brand), None) => Some((brand.kind.clone(), brand.kind.len(), Some(brand.color))),
+        (None, Some(effort)) => Some((effort.clone(), 0, None)),
+        (None, None) => None,
+    }
+}
+
+/// The tool a working agent uses, then its age, `Bash · 2m`, and where the age starts.
+fn trailer(card: &Card) -> (String, usize) {
+    match &card.tool {
+        Some(tool) => {
+            let lead = format!("{tool} · ");
+            let at = lead.len();
+            (lead + &card.time, at)
+        }
+        None => (card.time.clone(), 0),
     }
 }
 
@@ -911,8 +1106,8 @@ fn dot(look: card::Look, color: Hsla, ui: &UiFont) -> AnyElement {
     .into_any_element()
 }
 
-/// The open details: labels and values in two columns under a faint rule.
-fn details(theme: &Theme, mono: &Font, ui: &UiFont, card: &Card) -> Div {
+/// The open details: labels and values in two columns under a faint rule, each on one line.
+fn details(theme: &Theme, mono: &Font, ui: &UiFont, label_width: f32, card: &Card) -> Div {
     let fg = |pick: Pick| hsla(theme.fg(pick), 1.0);
     div()
         .mt(px(10.0))
@@ -928,11 +1123,12 @@ fn details(theme: &Theme, mono: &Font, ui: &UiFont, card: &Card) -> Div {
         .children(card.details.iter().map(|detail| {
             div()
                 .flex()
-                .gap(px(14.0))
+                .gap(ui.px(LABEL_GAP))
                 .child(
                     div()
                         .flex_shrink_0()
-                        .w(ui.px(LABEL_WIDTH))
+                        .w(px(label_width))
+                        .whitespace_nowrap()
                         .text_color(fg(|t| t.agents_dimmer))
                         .child(detail.label),
                 )
@@ -940,8 +1136,10 @@ fn details(theme: &Theme, mono: &Font, ui: &UiFont, card: &Card) -> Div {
                     div()
                         .flex_1()
                         .min_w(px(0.0))
+                        .overflow_hidden()
+                        .whitespace_nowrap()
                         .text_color(fg(|t| t.agents_branch))
-                        .when(detail.mono, |value| {
+                        .when(detail.face == Face::Mono, |value| {
                             value.font(mono.clone()).text_size(ui.px(KIND_SIZE))
                         })
                         .child(detail.value.clone()),
@@ -967,10 +1165,6 @@ mod tests {
             instance: Some(format!("i-{name}")),
             ..Agent::default()
         }
-    }
-
-    fn roomy(_: &str) -> bool {
-        true
     }
 
     fn shown(lines: &[Line]) -> Vec<String> {
@@ -1007,7 +1201,7 @@ mod tests {
                 "paddock/dev-theme"
             ]
         );
-        let lines = listing.lines(None, None, &roomy, 1000.0);
+        let lines = listing.lines(None, &[], None, 1000.0);
         // Groups in name order, the ungrouped first; within a group, those needing a person first.
         assert_eq!(
             shown(&lines),
@@ -1045,16 +1239,13 @@ mod tests {
         let mut listing = Listing::default();
         listing.absorb(Ok(vec![agent("p/a", "working")]), None, 1000.0);
         assert_eq!(
-            shown(&listing.lines(None, None, &roomy, 1000.0))[1],
+            shown(&listing.lines(None, &[], None, 1000.0))[1],
             "a Working"
         );
         listing.absorb(Ok(vec![agent("p/a", "idle")]), None, 1001.0);
-        assert_eq!(
-            shown(&listing.lines(None, None, &roomy, 1001.0))[1],
-            "a Idle"
-        );
+        assert_eq!(shown(&listing.lines(None, &[], None, 1001.0))[1], "a Idle");
         listing.absorb(Ok(vec![]), None, 1002.0);
-        assert!(listing.lines(None, None, &roomy, 1002.0).is_empty());
+        assert!(listing.lines(None, &[], None, 1002.0).is_empty());
     }
 
     #[test]
@@ -1067,7 +1258,7 @@ mod tests {
         quiet.last_output = Some(0.0);
         listing.absorb(Ok(vec![broken, quiet]), None, 1000.0);
         assert_eq!(
-            shown(&listing.lines(None, None, &roomy, 1000.0)),
+            shown(&listing.lines(None, &[], None, 1000.0)),
             ["# p/ (2)", "broken Error", "quiet Stalled"]
         );
     }
@@ -1109,7 +1300,7 @@ mod tests {
                 .absorb(first_update(failing), None, 1001.0)
                 .is_none()
         );
-        let lines = shown(&listing.lines(None, None, &roomy, 1001.0));
+        let lines = shown(&listing.lines(None, &[], None, 1001.0));
         assert!(lines[0].starts_with("! corral: "), "{lines:?}");
         assert!(lines[0].contains("daemon unreachable"), "{lines:?}");
         assert_eq!(lines[1..], ["# p/ (1)", "a Idle"]);
@@ -1119,7 +1310,7 @@ mod tests {
                 .absorb(first_update(garbage), None, 1002.0)
                 .is_none()
         );
-        let lines = shown(&listing.lines(None, None, &roomy, 1002.0));
+        let lines = shown(&listing.lines(None, &[], None, 1002.0));
         assert!(lines[0].contains("invalid JSON"), "{lines:?}");
 
         let missing = dir.join("no-such-corral").display().to_string();
@@ -1128,12 +1319,12 @@ mod tests {
                 .absorb(first_update(missing), None, 1003.0)
                 .is_none()
         );
-        assert!(shown(&listing.lines(None, None, &roomy, 1003.0))[0].starts_with("! corral: "));
+        assert!(shown(&listing.lines(None, &[], None, 1003.0))[0].starts_with("! corral: "));
 
         // The next good listing clears the error.
         listing.absorb(Ok(vec![agent("p/a", "working")]), None, 1004.0);
         assert_eq!(
-            shown(&listing.lines(None, None, &roomy, 1004.0)),
+            shown(&listing.lines(None, &[], None, 1004.0)),
             ["# p/ (1)", "a Working"]
         );
         std::fs::remove_dir_all(&dir).unwrap();
@@ -1156,7 +1347,7 @@ esac"#,
         let mut listing = Listing::default();
         let alive = listing.absorb(first_update(program), None, 1000.0).unwrap();
         assert_eq!(alive, ["p/a"]);
-        let lines = listing.lines(None, None, &roomy, 1000.0);
+        let lines = listing.lines(None, &[], None, 1000.0);
         assert_eq!(shown(&lines), ["# p/ (1)", "a Working"]);
         let Line::Agent(card) = &lines[1] else {
             panic!()
@@ -1164,7 +1355,16 @@ esac"#,
         assert_eq!(card.cwd.as_deref(), Some("/tmp/a"));
         assert_eq!(card.instance.as_deref(), Some("i1"));
         // Before the first Git round the second line is only the directory.
-        assert_eq!(card.second.text, "/tmp/a");
+        assert_eq!(
+            card.second,
+            card::Second::Place(card::Place {
+                dir: "/tmp/a".into(),
+                branch: None,
+                changes: None,
+                untracked: 0,
+                ahead: 0,
+            })
+        );
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

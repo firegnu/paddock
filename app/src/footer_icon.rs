@@ -30,6 +30,8 @@ pub enum Icon {
     Restore,
     /// A bell: the sidebar header's Attention badge.
     Bell,
+    /// A window with its title bar: a card's mark for an agent open in this window.
+    Here,
 }
 
 /// `icon` in `color`, `SIZE` points square times `scale` (the interface size over the base).
@@ -174,6 +176,14 @@ fn shapes(icon: Icon, bounds: Bounds<Pixels>, scale: f32) -> Vec<PathBuilder> {
             clapper.move_to(at(5.75, 12.0));
             clapper.line_to(at(8.25, 12.0));
             vec![bell, clapper]
+        }
+        Icon::Here => {
+            let mut frame = stroke();
+            rounded_rect(&mut frame, at(1.5, 2.5), at(12.5, 11.5), 2.0 * scale);
+            let mut bar = stroke();
+            bar.move_to(at(1.5, 5.25));
+            bar.line_to(at(12.5, 5.25));
+            vec![frame, bar]
         }
     }
 }
