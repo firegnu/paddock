@@ -142,6 +142,29 @@ impl Workspace {
         (workspace, pane)
     }
 
+    /// A workspace from saved tabs: each tab's tree and active pane, what every pane shows, and
+    /// the highest pane ID used, so new panes get fresh ones.
+    pub fn from_parts(
+        tabs: Vec<(Node, PaneId)>,
+        active_tab: usize,
+        shown: HashMap<PaneId, Shown>,
+        last: PaneId,
+    ) -> Self {
+        Workspace {
+            tabs: tabs
+                .into_iter()
+                .map(|(root, active)| Tab {
+                    root,
+                    active,
+                    zoomed: None,
+                })
+                .collect(),
+            active_tab,
+            shown,
+            next: last,
+        }
+    }
+
     fn pane(&mut self, shown: Shown) -> PaneId {
         self.next += 1;
         self.shown.insert(self.next, shown);

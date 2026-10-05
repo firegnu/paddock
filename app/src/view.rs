@@ -222,6 +222,11 @@ impl TerminalView {
         self.subject.strip_prefix("shell · ")
     }
 
+    /// The directory and instance the pane attached to its agent with.
+    pub fn agent_metadata(&self) -> AgentMetadata {
+        self.viewer.target_metadata().clone()
+    }
+
     /// The agent the pane shows or is attaching to.
     pub fn target(&self) -> Option<&str> {
         self.viewer.target()

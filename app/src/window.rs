@@ -6,6 +6,7 @@ use crate::{
     config::Config,
     corral::Role,
     layout::{Axis, Direction, Node, PaneId, Placement, Shown, Workspace},
+    layout_state::{Content, Layout, Store},
     menu,
     new_agent::{self, Place, Started},
     new_agent_view::Seed,
@@ -143,6 +144,8 @@ pub struct PaddockWindow {
     asking: bool,
     /// The selected row of the Attention list.
     attention_index: usize,
+    /// Where the layout is saved.
+    store: Store,
     /// The Go to Agent box while it is open, and its selected row.
     search: Option<Entity<TextInput>>,
     search_index: usize,
@@ -154,6 +157,8 @@ impl PaddockWindow {
         theme: Theme,
         options: Options,
         new_shell: NewShell,
+        // Where the layout is saved, and the saved layout to open.
+        (store, saved): (Store, Option<Layout>),
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -175,7 +180,13 @@ impl PaddockWindow {
             Launch::Agent { name } => Shown::Agent(name.clone()),
             Launch::Shell { .. } | Launch::Command { .. } => Shown::Shell,
         };
-        let (workspace, first) = Workspace::new(shown);
+        let (workspace, restored) = match &saved {
+            Some(layout) => {
+                let (workspace, contents) = layout.workspace();
+                (workspace, Some(contents))
+            }
+            None => (Workspace::new(shown).0, None),
+        };
         let mut this = Self {
             theme,
             sidebar,
@@ -197,11 +208,92 @@ impl PaddockWindow {
             attention_index: 0,
             search: None,
             search_index: 0,
+            store,
         };
-        let view = this.view(options.launch, window, cx);
-        this.panes.insert(first, view);
+        match restored {
+            Some(contents) => this.restore(contents, window, cx),
+            None => {
+                let first = this.workspace.active_pane();
+                let view = this.view(options.launch, window, cx);
+                this.panes.insert(first, view);
+            }
+        }
+        if let Some(problem) = this.store.problem() {
+            this.sidebar
+                .update(cx, |sidebar, cx| sidebar.note(problem, true, cx));
+        }
         this.sync(cx);
         this
+    }
+
+    /// Opens the saved panes: shells start afresh in their directories, agents attach again
+    /// (saying so when they are gone or were restarted), empty panes stay empty.
+    fn restore(
+        &mut self,
+        contents: Vec<(PaneId, Content)>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        for (pane, content) in contents {
+            let launch = match &content {
+                Content::Shell { cwd } => Launch::Shell {
+                    program: self.new_shell.program.clone(),
+                    cwd: cwd.clone(),
+                },
+                Content::Empty | Content::Agent { .. } => Launch::Empty,
+            };
+            let view = self.view(launch, window, cx);
+            self.panes.insert(pane, view);
+            if let Content::Agent {
+                name,
+                cwd,
+                instance,
+            } = content
+            {
+                let metadata = AgentMetadata { cwd, instance };
+                self.attach(pane, &name, metadata, cx);
+            }
+        }
+        self.focus_active(window, cx);
+    }
+
+    /// What a pane shows, in full, for the saved layout.
+    fn content(&self, pane: PaneId, cx: &gpui::App) -> Content {
+        match self.workspace.shown(pane) {
+            Shown::Empty => Content::Empty,
+            Shown::Shell => {
+                let cwd = self.panes.get(&pane).and_then(|view| view.read(cx).cwd());
+                let cwd = cwd
+                    .filter(|cwd| std::path::Path::new(cwd).is_absolute())
+                    .unwrap_or(&self.new_shell.cwd);
+                Content::Shell {
+                    cwd: cwd.to_owned(),
+                }
+            }
+            Shown::Agent(name) => {
+                let mut metadata = self
+                    .panes
+                    .get(&pane)
+                    .map(|view| view.read(cx).agent_metadata())
+                    .unwrap_or_default();
+                let listed = self.sidebar.read(cx).metadata(name);
+                metadata.cwd = metadata.cwd.or(listed.cwd);
+                metadata.instance = metadata.instance.or(listed.instance);
+                Content::Agent {
+                    name: name.clone(),
+                    cwd: metadata
+                        .cwd
+                        .filter(|cwd| std::path::Path::new(cwd).is_absolute()),
+                    instance: metadata.instance,
+                }
+            }
+        }
+    }
+
+    /// Saves the layout when it changed since the last save.
+    pub fn save_layout(&mut self, cx: &gpui::App) {
+        let layout = Layout::of(&self.workspace, |pane| self.content(pane, cx));
+        self.store.save(&layout);
     }
 
     fn view(
@@ -231,6 +323,7 @@ impl PaddockWindow {
         let here = self.workspace.agents();
         self.sidebar
             .update(cx, |sidebar, cx| sidebar.set_view(selected, here, cx));
+        self.save_layout(cx);
         cx.notify();
     }
 

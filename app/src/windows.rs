@@ -223,6 +223,9 @@ pub fn quit(cx: &mut App) {
         }
         cx.update(|cx| {
             if go {
+                if let Some(main) = main {
+                    let _ = main.update(cx, |view, _, cx| view.save_layout(cx));
+                }
                 cx.quit();
             } else {
                 cx.default_global::<Windows>().quitting = false;
