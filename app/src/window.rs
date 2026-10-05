@@ -18,7 +18,7 @@ use crate::{
     new_agent::{self, Place, Started},
     new_agent_view::Seed,
     pet::PetView,
-    popover::{self, Tone},
+    popover::{self, Hang, Placed, Tone},
     search::{self, Lead, Mode, Target},
     settings::{Conflict, Draft, Saved},
     sidebar::{self, Sidebar, SidebarEvent, status_dot},
@@ -29,12 +29,17 @@ use crate::{
     windows,
 };
 use gpui::{
-    AnyElement, BoxShadow, ClickEvent, Context, Div, DragMoveEvent, ElementId, Entity,
-    ExternalPaths, FocusHandle, Focusable, FontWeight, HighlightStyle, Hsla, MouseButton,
-    MouseDownEvent, MouseMoveEvent, Pixels, Point, PromptLevel, Render, ScrollHandle, SharedString,
-    Stateful, StyledText, Task, Window, div, point, prelude::*, px,
+    AnyElement, Bounds, BoxShadow, ClickEvent, Context, Div, DragMoveEvent, Entity, ExternalPaths,
+    FocusHandle, Focusable, FontWeight, HighlightStyle, Hsla, MouseButton, MouseDownEvent,
+    MouseMoveEvent, Pixels, Point, PromptLevel, Render, ScrollHandle, SharedString, Stateful,
+    StyledText, Task, Window, canvas, div, point, prelude::*, px, relative,
 };
-use std::{collections::HashMap, rc::Rc, time::Duration};
+use std::{
+    cell::RefCell,
+    collections::HashMap,
+    rc::Rc,
+    time::{Duration, Instant},
+};
 
 /// What "New shell" and the `Shell` choice start.
 pub struct NewShell {
@@ -42,13 +47,13 @@ pub struct NewShell {
     pub cwd: String,
 }
 
-/// The small chooser behind `+` and `Split ▾`.
-#[derive(Clone, Copy, PartialEq)]
+/// The small panel open over the window.
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum Popup {
-    /// Choose what the new tab shows.
+    /// Choose what the new tab shows, from the `+`.
     NewTab,
-    /// First the direction, then what the new pane shows.
-    Split(Option<Direction>),
+    /// Choose the side and what the new pane shows in one go, from the pane's split button.
+    Split(Direction),
     /// The Attention list.
     Attention,
     /// The command palette.
@@ -149,16 +154,112 @@ pub fn close_question(shells: &[String], agents: usize, quit: bool) -> Option<Qu
 }
 
 /// Something to open in a new tab or pane.
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq)]
 enum Choice {
     Shell,
+    /// The New Agent window, to start one there.
+    NewAgent,
     Agent(String),
 }
+
+/// The new tab and split panels while open: the field the new tab panel filters its agents with,
+/// and the selected row.
+#[derive(Default)]
+struct Chooser {
+    input: Option<Entity<TextInput>>,
+    index: usize,
+    list: ScrollHandle,
+}
+
+/// The child of the chooser's list that shows row `index`: after the first heading, and in the
+/// new tab panel after the agents' heading too.
+fn chooser_child(new_tab: bool, index: usize) -> usize {
+    if new_tab && index >= 2 {
+        index + 2
+    } else {
+        index + 1
+    }
+}
+
+/// What a panel can hang from, as last drawn.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+enum Spot {
+    /// The title bar's `+`.
+    NewTab,
+    Pane(PaneId),
+}
+
+/// Every word of `query` in the agent's full name (its project, then its own), ignoring case.
+fn agent_matches(name: &str, query: &str) -> bool {
+    let name = name.to_lowercase();
+    query
+        .split_whitespace()
+        .all(|word| name.contains(&word.to_lowercase()))
+}
+
+/// The new tab and split panels' rows: Shell and Agent… always, then the agents (`names`, sorted)
+/// that match what is typed.
+fn choices(names: &[String], query: &str) -> Vec<Choice> {
+    let agents = names
+        .iter()
+        .filter(|name| agent_matches(name, query))
+        .map(|name| Choice::Agent(name.clone()));
+    [Choice::Shell, Choice::NewAgent]
+        .into_iter()
+        .chain(agents)
+        .collect()
+}
+
+/// The row selected as the list changes: Shell before anything is typed, then the first agent
+/// that matches, as that is what typing looks for.
+fn first_choice(query: &str, choices: &[Choice]) -> usize {
+    if query.trim().is_empty() {
+        return 0;
+    }
+    choices
+        .iter()
+        .position(|choice| matches!(choice, Choice::Agent(_)))
+        .unwrap_or(0)
+}
+
+/// How the split panel was asked for.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum SplitAsk {
+    /// The pane's split button.
+    Button,
+    /// A shortcut or menu item for that side.
+    Side(Direction),
+}
+
+/// The popup after asking for the split panel while `open` is: the button opens it on Right; a
+/// side's shortcut opens it on that side, switches an open one to it, and closes it when it is
+/// already there.
+fn split_popup(open: Option<Popup>, ask: SplitAsk) -> Option<Popup> {
+    match ask {
+        SplitAsk::Button => Some(Popup::Split(Direction::Right)),
+        SplitAsk::Side(direction) if open == Some(Popup::Split(direction)) => None,
+        SplitAsk::Side(direction) => Some(Popup::Split(direction)),
+    }
+}
+
+/// The split panel's heading over what to open, for the side chosen.
+fn open_where(direction: Direction) -> &'static str {
+    match direction {
+        Direction::Left => "OPEN ON THE LEFT",
+        Direction::Right => "OPEN ON THE RIGHT",
+        Direction::Up => "OPEN ABOVE",
+        Direction::Down => "OPEN BELOW",
+    }
+}
+
+/// How long a tab's × takes to fade in or out.
+const FADE: Duration = Duration::from_millis(150);
+/// A tab's × at its brightest.
+const CLOSE_SHOWN: f32 = 0.75;
 
 type Pick = fn(&crate::preset::Theme) -> crate::preset::Color;
 
 const GAP: f32 = 6.0;
-const TEXT: f32 = 12.0;
 /// The title bar's height at the base interface size: the traffic lights' row, which holds the
 /// tabs. It grows with larger interface sizes, never shrinks below this.
 pub const TITLE_BAR: f32 = 40.0;
@@ -173,6 +274,18 @@ const DIVIDER: f32 = 1.0;
 const GRIP: f32 = 3.0;
 /// What the dimmed panes are covered with: the terminal's background, this opaque.
 const DIM: f32 = 0.42;
+/// A split pane's header buttons, and the room after the last; the split panel of a pane without
+/// a header hangs this far in from its right edge.
+const PANE_BUTTON: f32 = 28.0;
+const PANE_HEADER_END: f32 = 4.0;
+const CORNER: f32 = 6.0;
+/// Where the sidebar draws the Attention bell, for the list to hang from it: in the strip, this
+/// far under the title bar; in the header, this far in from the right edge (not scaled) and then
+/// the collapse button and the gap before it; a digit of its count about this wide.
+const RAIL_BELL: f32 = 40.0;
+const BELL_END: f32 = 10.0;
+const BELL_AFTER: f32 = 30.0;
+const DIGIT: f32 = 7.0;
 
 /// Where the traffic lights go in a title bar `height` points tall: in from the left edge, and
 /// centred on the row (AppKit's buttons are 14 points tall).
@@ -297,6 +410,14 @@ pub struct PaddockWindow {
     asking: bool,
     /// The selected row of the Attention list.
     attention_index: usize,
+    /// The new tab or split panel's field and selected row.
+    chooser: Chooser,
+    /// Where the `+` and the panes were last drawn, for the panels that hang from them.
+    spots: Rc<RefCell<HashMap<Spot, Bounds<Pixels>>>>,
+    /// The tab under the mouse and since when, and the one it last left and when: their ×
+    /// fades in and out.
+    tab_hover: Option<(usize, Instant)>,
+    tab_left: Option<(usize, Instant)>,
     /// Where the layout is saved.
     store: Store,
     /// The config came from its file at startup, rather than defaults.
@@ -370,6 +491,10 @@ impl PaddockWindow {
             pet_setting: (config.mascot_enabled, config.mascot),
             asking: false,
             attention_index: 0,
+            chooser: Chooser::default(),
+            spots: Rc::default(),
+            tab_hover: None,
+            tab_left: None,
             palette: None,
             sidebar_width: config.sidebar_width,
             collapsed,
@@ -671,7 +796,7 @@ impl PaddockWindow {
             }
             // After this update: opening the window reads this one.
             SidebarEvent::NewAgent => cx.defer(|cx| windows::open_new_agent(Place::Current, cx)),
-            SidebarEvent::Attention => self.toggle_attention(cx),
+            SidebarEvent::Attention => self.toggle_attention(window, cx),
             SidebarEvent::Actions => {
                 self.popup = match self.popup {
                     Some(Popup::Actions) => None,
@@ -874,9 +999,91 @@ impl PaddockWindow {
         self.focus_active(window, cx);
     }
 
-    fn open_popup(&mut self, popup: Popup, cx: &mut Context<Self>) {
-        self.popup = Some(popup);
+    /// ⌘T and the `+`: the new tab panel, its field taking the keys; again, closed.
+    fn toggle_new_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.popup == Some(Popup::NewTab) {
+            self.close_popup(window, cx);
+            return;
+        }
+        let colors = text_input::Colors {
+            text: self.fg(|t| t.agents_text),
+            placeholder: self.fg(|t| t.agents_dimmer),
+            cursor: self.fg(|t| t.focus),
+            selection: hsla(self.theme.fg(|t| t.focus), 0.3),
+        };
+        let input = cx.new(|cx| TextInput::new("", "Open in a new tab…", colors, cx));
+        cx.subscribe(&input, |this, input, _: &Changed, cx| {
+            let query = input.read(cx).text().to_owned();
+            let rows = choices(&this.sidebar.read(cx).agent_names(), &query);
+            this.chooser.index = first_choice(&query, &rows);
+            cx.notify();
+        })
+        .detach();
+        let focus = input.read(cx).focus_handle(cx);
+        window.focus(&focus, cx);
+        self.palette = None;
+        self.chooser = Chooser {
+            input: Some(input),
+            ..Chooser::default()
+        };
+        self.popup = Some(Popup::NewTab);
         cx.notify();
+    }
+
+    /// The split button, ⌘D and the other sides' shortcuts: the split panel on the side asked
+    /// for (see [`split_popup`]), hanging from the active pane.
+    fn ask_split(&mut self, ask: SplitAsk, window: &mut Window, cx: &mut Context<Self>) {
+        let popup = split_popup(self.popup, ask);
+        if popup.is_none() {
+            self.close_popup(window, cx);
+            return;
+        }
+        if !matches!(self.popup, Some(Popup::Split(_))) {
+            // Another panel's field gives the keys back.
+            if self.chooser.input.is_some() || self.palette.is_some() {
+                self.focus_active(window, cx);
+            }
+            self.palette = None;
+            self.chooser = Chooser::default();
+        }
+        self.popup = popup;
+        cx.notify();
+    }
+
+    /// The text typed in the new tab panel's field; nothing for the split panel.
+    fn chooser_query(&self, cx: &gpui::App) -> String {
+        match &self.chooser.input {
+            Some(input) => input.read(cx).text().to_owned(),
+            None => String::new(),
+        }
+    }
+
+    /// The open new tab or split panel's rows.
+    fn chooser_rows(&self, cx: &gpui::App) -> Vec<Choice> {
+        choices(
+            &self.sidebar.read(cx).agent_names(),
+            &self.chooser_query(cx),
+        )
+    }
+
+    /// An empty layer over its parent that notes where the parent is drawn, for a panel to hang
+    /// from; an open panel follows when it moves.
+    fn spot(&self, spot: Spot) -> impl IntoElement {
+        let spots = self.spots.clone();
+        let open = matches!(self.popup, Some(Popup::NewTab | Popup::Split(_)));
+        canvas(
+            move |bounds, window, _| {
+                let moved = spots.borrow_mut().insert(spot, bounds) != Some(bounds);
+                if moved && open {
+                    window.request_animation_frame();
+                }
+            },
+            |_, _, _, _| {},
+        )
+        .absolute()
+        .top_0()
+        .left_0()
+        .size_full()
     }
 
     /// The tab after or before the active one, going round.
@@ -939,15 +1146,25 @@ impl PaddockWindow {
         self.panes[&pane].update(cx, |v, cx| v.attach(name, metadata, cx));
     }
 
-    /// A choice from the `+` or `Split ▾` dialog. An agent already open elsewhere moves here.
+    /// A choice from the new tab or split panel. An agent already open elsewhere moves here.
     fn choose(&mut self, choice: Choice, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(popup) = self.popup.take() else {
-            return;
+        let direction = match self.popup {
+            Some(Popup::NewTab) => None,
+            Some(Popup::Split(direction)) => Some(direction),
+            Some(Popup::Attention | Popup::Palette | Popup::Actions) | None => return,
         };
-        let direction = match popup {
-            Popup::NewTab => None,
-            Popup::Split(Some(direction)) => Some(direction),
-            Popup::Split(None) | Popup::Attention | Popup::Palette | Popup::Actions => return,
+        self.popup = None;
+        self.chooser = Chooser::default();
+        let (shown, launch) = match &choice {
+            Choice::Shell => (Shown::Shell, self.shell()),
+            Choice::Agent(name) => (Shown::Agent(name.clone()), Launch::Empty),
+            // After this update: opening the window reads this one.
+            Choice::NewAgent => {
+                let place = direction.map_or(Place::Tab, Place::Split);
+                self.focus_active(window, cx);
+                cx.defer(move |cx| windows::open_new_agent(place, cx));
+                return;
+            }
         };
         if let Choice::Agent(name) = &choice
             && let Some(old) = self.workspace.find(name)
@@ -955,17 +1172,9 @@ impl PaddockWindow {
             self.panes[&old].update(cx, |v, cx| v.close(cx));
             self.workspace.set_shown(old, Shown::Empty);
         }
-        let shown = match &choice {
-            Choice::Shell => Shown::Shell,
-            Choice::Agent(name) => Shown::Agent(name.clone()),
-        };
         let pane = match direction {
             None => self.workspace.new_tab(shown),
             Some(direction) => self.workspace.split(direction, shown),
-        };
-        let launch = match &choice {
-            Choice::Shell => self.shell(),
-            Choice::Agent(_) => Launch::Empty,
         };
         let view = self.view(launch, window, cx);
         self.panes.insert(pane, view);
@@ -1100,6 +1309,50 @@ impl PaddockWindow {
         self.focus_active(window, cx);
     }
 
+    /// The mouse came onto a tab or left it: its × fades in or out from where it is.
+    fn hover_tab(&mut self, index: usize, hovered: bool, cx: &mut Context<Self>) {
+        let now = Instant::now();
+        // Started as long ago as the fade would have taken to get this far.
+        let from = |this: &Self, tab: usize, rising: bool| {
+            let part = this.close_shown(tab, now) / CLOSE_SHOWN;
+            let part = if rising { part } else { 1.0 - part };
+            now.checked_sub(FADE.mul_f32(part)).unwrap_or(now)
+        };
+        if hovered {
+            if let Some((other, _)) = self.tab_hover
+                && other != index
+            {
+                self.tab_left = Some((other, from(self, other, false)));
+            }
+            self.tab_hover = Some((index, from(self, index, true)));
+        } else if self.tab_hover.is_some_and(|(tab, _)| tab == index) {
+            self.tab_left = Some((index, from(self, index, false)));
+            self.tab_hover = None;
+        }
+        cx.notify();
+    }
+
+    /// How far a tab's × has faded in at `now`.
+    fn close_shown(&self, index: usize, now: Instant) -> f32 {
+        let part = |since: Instant| {
+            (now.saturating_duration_since(since).as_secs_f32() / FADE.as_secs_f32()).min(1.0)
+        };
+        match (self.tab_hover, self.tab_left) {
+            (Some((tab, since)), _) if tab == index => CLOSE_SHOWN * part(since),
+            (_, Some((tab, since))) if tab == index => CLOSE_SHOWN * (1.0 - part(since)),
+            _ => 0.0,
+        }
+    }
+
+    /// A tab's × is still fading: draw again next frame.
+    fn fading(&self) -> bool {
+        let now = Instant::now();
+        [self.tab_hover, self.tab_left]
+            .into_iter()
+            .flatten()
+            .any(|(_, since)| now.saturating_duration_since(since) < FADE)
+    }
+
     fn select_tab(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
         self.workspace.select_tab(index);
         self.focus_active(window, cx);
@@ -1167,6 +1420,7 @@ impl PaddockWindow {
         let hovered = hsla(self.theme.bg(|t| t.agents_bg), 1.0).blend(highlight.opacity(0.6));
         let muted = self.theme.fg(|t| t.muted);
         let open = self.workspace.agents();
+        let shown_at = Instant::now();
         // A press on a tab or a button is theirs, not the start of a drag.
         let keep = |_: &MouseDownEvent, _: &mut Window, cx: &mut gpui::App| cx.stop_propagation();
         let mut tabs = div()
@@ -1181,9 +1435,9 @@ impl PaddockWindow {
             .track_scroll(&self.tabs);
         for (index, tab) in self.workspace.tabs.iter().enumerate() {
             let active = index == self.workspace.active_tab;
-            let group = SharedString::from(format!("tab-{index}"));
-            // The active tab keeps its × in line; the others show it on hover over the end of
-            // their title, so a narrow tab gives the title all its room.
+            // The active tab keeps its × in line; the others have it over the end of their
+            // title, so a narrow tab gives the title all its room. Either fades in only while
+            // the mouse is on the tab.
             let under = if active { highlight } else { hovered };
             let close = div()
                 .id(("close-tab", index))
@@ -1194,14 +1448,10 @@ impl PaddockWindow {
                 .size(ui.px(16.0))
                 .rounded(px(4.0))
                 .bg(under)
+                .opacity(self.close_shown(index, shown_at))
                 .hover(move |style| style.bg(under.blend(hsla(muted, 0.18))))
                 .when(!active, |close| {
-                    close
-                        .absolute()
-                        .top(ui.px(6.0))
-                        .right(ui.px(6.0))
-                        .invisible()
-                        .group_hover(group.clone(), |style| style.visible())
+                    close.absolute().top(ui.px(6.0)).right(ui.px(6.0))
                 })
                 .child(footer_icon::icon(
                     Icon::Close,
@@ -1214,7 +1464,6 @@ impl PaddockWindow {
                 }));
             let mut item = div()
                 .id(("tab", index))
-                .group(group)
                 .relative()
                 .max_w(ui.px(220.0))
                 .flex()
@@ -1226,6 +1475,9 @@ impl PaddockWindow {
                 .text_size(ui.px(12.5))
                 .cursor_pointer()
                 .on_mouse_down(MouseButton::Left, keep)
+                .on_hover(cx.listener(move |this, hovered: &bool, _, cx| {
+                    this.hover_tab(index, *hovered, cx)
+                }))
                 .child(
                     div()
                         .flex_shrink_0()
@@ -1265,8 +1517,11 @@ impl PaddockWindow {
                 move |this, _: &ClickEvent, window, cx| this.select_tab(index, window, cx),
             )));
         }
+        // Lit while its panel is open, which hangs from it.
+        let choosing = self.popup == Some(Popup::NewTab);
         let new_tab = div()
             .id("new-tab")
+            .relative()
             .flex_shrink_0()
             .flex()
             .items_center()
@@ -1274,13 +1529,22 @@ impl PaddockWindow {
             .size(ui.px(28.0))
             .rounded(px(6.0))
             .cursor_pointer()
+            .when(choosing, |button| button.bg(highlight))
             .hover(move |style| style.bg(highlight))
             .on_mouse_down(MouseButton::Left, keep)
-            .child(footer_icon::icon(Icon::Plus, self.fg(|t| t.muted), scale))
-            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                this.popup = Some(Popup::NewTab);
-                cx.notify();
-            }));
+            .child(footer_icon::icon(
+                Icon::Plus,
+                if choosing {
+                    self.fg(|t| t.agents_text)
+                } else {
+                    self.fg(|t| t.muted)
+                },
+                scale,
+            ))
+            .child(self.spot(Spot::NewTab))
+            .on_click(
+                cx.listener(|this, _: &ClickEvent, window, cx| this.toggle_new_tab(window, cx)),
+            );
         div()
             .id("title-bar")
             .flex_shrink_0()
@@ -1479,6 +1743,7 @@ impl PaddockWindow {
                     .px(px(side))
                     .child(self.panes[&pane].clone()),
             )
+            .child(self.spot(Spot::Pane(pane)))
             // A veil rather than a frame: it takes no clicks, so they reach the terminal.
             .when(dimmed(shown, active), |this| {
                 this.child(div().absolute().inset_0().bg(background.opacity(DIM)))
@@ -1512,7 +1777,8 @@ impl PaddockWindow {
             home.as_deref(),
         );
         let now = now();
-        let button = |id: &str, icon: Icon| {
+        let splitting = active && matches!(self.popup, Some(Popup::Split(_)));
+        let button = |id: &str, icon: Icon, lit: bool| {
             let group = SharedString::from(format!("{id}-{pane}"));
             div()
                 .id(SharedString::from(format!("{id}-{pane}")))
@@ -1530,8 +1796,17 @@ impl PaddockWindow {
                         .justify_center()
                         .size(ui.px(22.0))
                         .rounded(px(6.0))
+                        .when(lit, |button| button.bg(highlight))
                         .group_hover(group, move |style| style.bg(highlight))
-                        .child(footer_icon::icon(icon, self.fg(|t| t.muted), scale)),
+                        .child(footer_icon::icon(
+                            icon,
+                            if lit {
+                                self.fg(|t| t.agents_text)
+                            } else {
+                                self.fg(|t| t.muted)
+                            },
+                            scale,
+                        )),
                 )
         };
         let zoomed = self.workspace.zoomed().is_some();
@@ -1544,22 +1819,29 @@ impl PaddockWindow {
                     .invisible()
                     .group_hover(format!("pane-{pane}"), |style| style.visible())
             })
-            .child(button("split", Icon::Split).on_click(cx.listener(
-                |this, _: &ClickEvent, _, cx| {
-                    this.popup = Some(Popup::Split(None));
-                    cx.notify();
-                },
-            )))
+            // Lit while its panel is open, which hangs from it.
             .child(
-                button("zoom", if zoomed { Icon::Restore } else { Icon::Zoom }).on_click(
+                button("split", Icon::Split, splitting).on_click(cx.listener(
+                    |this, _: &ClickEvent, window, cx| this.ask_split(SplitAsk::Button, window, cx),
+                )),
+            )
+            .child(
+                button(
+                    "zoom",
+                    if zoomed { Icon::Restore } else { Icon::Zoom },
+                    false,
+                )
+                .on_click(
                     cx.listener(|this, _: &ClickEvent, window, cx| this.toggle_zoom(window, cx)),
                 ),
             )
-            .child(button("close-pane", Icon::Close).on_click(cx.listener(
-                move |this, _: &ClickEvent, window, cx| {
-                    this.request_close(Closing::Pane(pane), window, cx)
-                },
-            )));
+            .child(
+                button("close-pane", Icon::Close, false).on_click(cx.listener(
+                    move |this, _: &ClickEvent, window, cx| {
+                        this.request_close(Closing::Pane(pane), window, cx)
+                    },
+                )),
+            );
         div()
             .flex_shrink_0()
             .flex()
@@ -1611,10 +1893,15 @@ impl PaddockWindow {
             .child(buttons)
     }
 
-    fn toggle_attention(&mut self, cx: &mut Context<Self>) {
+    fn toggle_attention(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.popup == Some(Popup::Attention) {
             self.popup = None;
         } else {
+            // The new tab panel's field gives the keys back.
+            if self.chooser.input.is_some() {
+                self.chooser = Chooser::default();
+                self.focus_active(window, cx);
+            }
             self.popup = Some(Popup::Attention);
             self.attention_index = 0;
         }
@@ -1636,58 +1923,132 @@ impl PaddockWindow {
         self.show_agent(&name, metadata, window, cx);
     }
 
-    /// The Attention list, floating under the sidebar's header.
-    fn attention_panel(&self, cx: &mut Context<Self>) -> Stateful<Div> {
+    /// The Attention list, hanging from the bell: `Needs you` and how many, then each item with
+    /// its mark, name, project and age, why, and the start of its text.
+    fn attention_panel(&self, window: &Window, cx: &mut Context<Self>) -> Stateful<Div> {
         let ui = UiFont::get(cx);
+        let theme = &*self.theme;
         let items = self.sidebar.read(cx).attention();
+        let agents = self.sidebar.read(cx).agents();
+        let now = now();
         let selected = self.attention_index.min(items.len().saturating_sub(1));
-        let highlight = self.highlight();
-        let mut list = div().flex().flex_col().gap(px(2.0));
+        let placed = self.placed(Popup::Attention, 360.0, window, cx);
+        let lit = popover::lit(theme);
+        let dim = self.fg(|t| t.agents_dim);
+        let dimmer = self.fg(|t| t.agents_dimmer);
+        let header = div()
+            .flex_shrink_0()
+            .flex()
+            .items_baseline()
+            .gap(ui.px(8.0))
+            .px(ui.px(9.0))
+            .pt(ui.px(7.0))
+            .pb(ui.px(8.0))
+            .child(div().font_weight(FontWeight::SEMIBOLD).child("Needs you"))
+            .when(!items.is_empty(), |header| {
+                header.child(
+                    div()
+                        .text_size(ui.px(12.0))
+                        .text_color(dimmer)
+                        .child(items.len().to_string()),
+                )
+            })
+            .child(div().flex_1())
+            .child(
+                div()
+                    .text_size(ui.px(11.5))
+                    .text_color(dimmer.opacity(0.8))
+                    .child(menu::keys(&menu::ShowAttention).concat()),
+            );
+        let mut list = div()
+            .id("attention-rows")
+            .flex()
+            .flex_col()
+            .min_h(px(0.0))
+            .overflow_y_scroll();
         if items.is_empty() {
             list = list.child(
                 div()
-                    .px(px(10.0))
-                    .py(px(8.0))
-                    .text_color(self.fg(|t| t.agents_dim))
+                    .px(ui.px(9.0))
+                    .pb(ui.px(8.0))
+                    .text_size(ui.px(12.0))
+                    .text_color(dim)
                     .child("Nothing needs attention."),
             );
         }
         for (index, item) in items.iter().enumerate() {
-            let mark: Pick = match item.kind {
-                AttentionKind::Waiting => |t| t.agent_blocked,
-                AttentionKind::Error | AttentionKind::ReadFailed => |t| t.agent_error,
-                AttentionKind::Reply => |t| t.unread,
+            let mark = match item.kind {
+                AttentionKind::Waiting => self.fg(|t| t.agents_yellow),
+                AttentionKind::Error | AttentionKind::ReadFailed => self.fg(|t| t.agents_red),
+                AttentionKind::Reply => self.fg(|t| t.agents_accent),
             };
-            let mut detail = div()
+            let short = item
+                .label
+                .rsplit('/')
+                .next()
+                .unwrap_or(&item.label)
+                .to_owned();
+            let project = crate::agents::group(&item.label)
+                .trim_end_matches('/')
+                .to_owned();
+            // Since the agent came to this state, when corral says.
+            let age = item
+                .agent
+                .as_ref()
+                .and_then(|name| agents.iter().find(|a| &a.name == name))
+                .and_then(|agent| agent.state_started)
+                .map(|since| card::short_time(Some(now - since)));
+            let first = div()
                 .flex()
-                .gap(px(6.0))
-                .text_size(ui.px(TEXT - 1.0))
-                .child(div().text_color(self.fg(|t| t.muted)).child(item.reason()));
-            if !item.note.is_empty() {
-                detail = detail.child(
-                    div()
-                        .min_w(px(0.0))
-                        .overflow_hidden()
-                        .whitespace_nowrap()
-                        .text_ellipsis()
-                        .text_color(self.fg(|t| t.agents_dim))
-                        .child(item.note.clone()),
-                );
-            }
-            let mut row = div()
-                .id(("attention-item", index))
-                .flex()
-                .items_start()
-                .gap(px(8.0))
-                .px(px(10.0))
-                .py(px(6.0))
-                .rounded(px(6.0))
+                .items_baseline()
+                .gap(ui.px(6.0))
                 .child(
                     div()
-                        .w(px(12.0))
+                        .flex_shrink(1.0)
+                        .min_w(px(0.0))
+                        .overflow_hidden()
+                        .text_ellipsis()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child(short),
+                )
+                .when(!project.is_empty(), |line| {
+                    line.child(
+                        div()
+                            .flex_shrink_0()
+                            .text_size(ui.px(12.0))
+                            .text_color(dimmer)
+                            .child(project),
+                    )
+                })
+                .child(div().flex_1())
+                .children(age.map(|age| {
+                    div()
                         .flex_shrink_0()
+                        .text_size(ui.px(11.5))
+                        .text_color(dimmer)
+                        .child(age)
+                }));
+            let mut row = div()
+                .id(("attention-item", index))
+                .flex_shrink_0()
+                .flex()
+                .items_start()
+                .gap(ui.px(11.0))
+                .p(ui.px(9.0))
+                .rounded(ui.px(7.0))
+                .child(
+                    div()
+                        .flex_shrink_0()
+                        .mt(ui.px(1.0))
+                        .size(ui.px(20.0))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .rounded_full()
+                        .bg(mark.opacity(0.16))
+                        .text_color(mark)
+                        .text_size(ui.px(11.0))
                         .font_weight(FontWeight::BOLD)
-                        .text_color(self.fg(mark))
                         .child(item.mark()),
                 )
                 .child(
@@ -1696,75 +2057,51 @@ impl PaddockWindow {
                         .min_w(px(0.0))
                         .flex()
                         .flex_col()
-                        .gap(px(2.0))
+                        .gap(ui.px(2.0))
+                        .child(first)
                         .child(
                             div()
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .text_color(self.fg(|t| t.agents_text))
-                                .child(item.label.clone()),
+                                .text_size(ui.px(12.0))
+                                .text_color(mark)
+                                .child(item.reason()),
                         )
-                        .child(detail),
+                        .when(!item.note.is_empty(), |text| {
+                            text.child(
+                                div()
+                                    .min_w(px(0.0))
+                                    .overflow_hidden()
+                                    .text_ellipsis()
+                                    .text_size(ui.px(12.0))
+                                    .text_color(dim)
+                                    .child(item.note.clone()),
+                            )
+                        }),
                 );
             if index == selected {
-                row = row.bg(highlight);
+                row = row.bg(lit);
             }
             if item.agent.is_some() {
                 row = row
                     .cursor_pointer()
-                    .hover(move |style| style.bg(highlight))
+                    .hover(move |style| style.bg(lit.opacity(0.6)))
                     .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                         this.open_attention(index, window, cx)
                     }));
             }
             list = list.child(row);
         }
-        let card = div()
+        let panel = popover::panel(theme, &ui)
             .id("attention-list")
             .absolute()
-            // Under the sidebar's header, below the title bar; beside the strip's bell when the
-            // sidebar is collapsed.
-            .top(px(title_bar_height(&ui, self.pet.is_some())
-                + ui.scale(if self.collapsed { 40.0 } else { 44.0 })))
-            .left(px(if self.collapsed {
-                self.sidebar_shown(&ui) + GAP
-            } else {
-                GAP
-            }))
-            .w(px(400.0))
-            .max_h(px(520.0))
-            .overflow_y_scroll()
-            .flex()
-            .flex_col()
-            .gap(px(6.0))
-            .p(px(8.0))
-            .rounded(px(10.0))
-            .border_1()
-            .border_color(self.fg(|t| t.focus))
-            .bg(hsla(self.theme.bg(|t| t.agents_bg), 1.0))
-            .shadow_lg()
-            .text_size(ui.px(TEXT + 1.0))
+            .left(px(placed.left))
+            .w(px(placed.width))
+            .max_h(px(placed.max_height))
+            .map(|panel| match (placed.top, placed.bottom) {
+                (Some(top), _) => panel.top(px(top)),
+                (None, bottom) => panel.bottom(px(bottom.unwrap_or_default())),
+            })
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-            .child(
-                div()
-                    .flex()
-                    .items_baseline()
-                    .gap(px(8.0))
-                    .px(px(6.0))
-                    .pb(px(2.0))
-                    .child(
-                        div()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(self.fg(|t| t.agents_text))
-                            .child("Attention"),
-                    )
-                    .child(div().flex_1())
-                    .child(
-                        div()
-                            .text_size(ui.px(TEXT - 1.0))
-                            .text_color(self.fg(|t| t.agents_dim))
-                            .child("↑↓  ⏎ open  esc"),
-                    ),
-            )
+            .child(header)
             .child(list);
         // A click outside closes it; nothing is dimmed, as for a menu.
         div()
@@ -1774,12 +2111,9 @@ impl PaddockWindow {
             .occlude()
             .on_mouse_down(
                 MouseButton::Left,
-                cx.listener(|this, _, _, cx| {
-                    this.popup = None;
-                    cx.notify();
-                }),
+                cx.listener(|this, _, window, cx| this.close_popup(window, cx)),
             )
-            .child(card)
+            .child(panel)
     }
 
     /// The sidebar's menu of actions, opening upward from its button: new agent and shell, the
@@ -1946,6 +2280,7 @@ impl PaddockWindow {
             text: None,
             searching: None,
         });
+        self.chooser = Chooser::default();
         self.popup = Some(Popup::Palette);
         cx.notify();
     }
@@ -2172,12 +2507,20 @@ impl PaddockWindow {
     fn close_popup(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.popup = None;
         self.palette = None;
+        self.chooser = Chooser::default();
         self.focus_active(window, cx);
     }
 
-    /// ↑↓ in the Attention list or the palette.
+    /// ↑↓ in the new tab or split panel, the Attention list or the palette.
     fn move_selection(&mut self, step: isize, cx: &mut Context<Self>) {
         match self.popup {
+            Some(popup @ (Popup::NewTab | Popup::Split(_))) => {
+                let count = self.chooser_rows(cx).len();
+                let index = search::step(self.chooser.index, count, step);
+                self.chooser.index = index;
+                let child = chooser_child(popup == Popup::NewTab, index);
+                self.chooser.list.scroll_to_item(child);
+            }
             Some(Popup::Attention) => {
                 let count = self.sidebar.read(cx).attention().len();
                 self.attention_index = search::step(self.attention_index, count, step);
@@ -2199,9 +2542,14 @@ impl PaddockWindow {
         cx.notify();
     }
 
-    /// ⏎ in the Attention list or the palette.
+    /// ⏎ in the new tab or split panel, the Attention list or the palette.
     fn open_selected(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         match self.popup {
+            Some(Popup::NewTab | Popup::Split(_)) => {
+                let rows = self.chooser_rows(cx);
+                let index = self.chooser.index.min(rows.len() - 1);
+                self.choose(rows[index].clone(), window, cx)
+            }
             Some(Popup::Attention) => {
                 let index = self.attention_index;
                 self.open_attention(index, window, cx)
@@ -2495,163 +2843,376 @@ impl PaddockWindow {
             }))
     }
 
-    fn dialog(&self, popup: Popup, cx: &mut Context<Self>) -> Stateful<Div> {
+    /// Where a panel hangs: from the `+`; from the active pane's split button, or its top-right
+    /// corner when it has no header; from the Attention bell, under it in the sidebar's header or
+    /// beside the strip.
+    fn placed(&self, popup: Popup, width: f32, window: &Window, cx: &Context<Self>) -> Placed {
         let ui = UiFont::get(cx);
-        let highlight = self.highlight();
-        let row = |id: ElementId| {
-            div()
-                .id(id)
-                .flex()
-                .items_center()
-                .gap(px(8.0))
-                .px(px(10.0))
-                .py(px(5.0))
-                .rounded(px(6.0))
-                .cursor_pointer()
-                .hover(move |style| style.bg(highlight))
+        let s = ui.scale(1.0);
+        let title = title_bar_height(&ui, self.pet.is_some());
+        let side = self.sidebar_shown(&ui) + DIVIDER;
+        let viewport = window.viewport_size();
+        let rect = |x: f32, y: f32, w: f32, h: f32| Bounds {
+            origin: point(px(x), px(y)),
+            size: gpui::size(px(w), px(h)),
         };
-        let title = match popup {
-            Popup::NewTab => "Open in a new tab".to_owned(),
-            Popup::Split(None) => "Split: which side?".to_owned(),
-            Popup::Split(Some(direction)) => format!("Split {}", side(direction)),
-            Popup::Attention | Popup::Palette | Popup::Actions => String::new(),
-        };
-        let mut body = div().flex().flex_col().gap(px(2.0));
-        if popup == Popup::Split(None) {
-            let mut grid = div().flex().flex_wrap().gap(px(6.0));
-            for (direction, label) in [
-                (Direction::Left, "← Left"),
-                (Direction::Right, "→ Right"),
-                (Direction::Up, "↑ Up"),
-                (Direction::Down, "↓ Down"),
-            ] {
-                grid = grid.child(
-                    row(label.into())
-                        .w(px(128.0))
-                        .justify_center()
-                        .border_1()
-                        .border_color(self.fg(|t| t.agents_rule))
-                        .child(label)
-                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                            this.popup = Some(Popup::Split(Some(direction)));
-                            cx.notify();
-                        })),
-                );
-            }
-            body = body.child(grid);
-        } else {
-            body = body.child(
-                row("choice-shell".into())
-                    .child(
-                        div()
-                            .text_color(self.fg(|t| t.agents_accent))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child("＋"),
+        let spots = self.spots.borrow();
+        let (anchor, how) = match popup {
+            Popup::NewTab => (
+                // Not drawn yet: where the first tab starts.
+                spots
+                    .get(&Spot::NewTab)
+                    .copied()
+                    .unwrap_or_else(|| rect(side + 10.0, 0.0, 0.0, title)),
+                Hang::BelowLeft,
+            ),
+            Popup::Split(_) => {
+                let pane = spots
+                    .get(&Spot::Pane(self.workspace.active_pane()))
+                    .copied()
+                    .unwrap_or_else(|| {
+                        let width = f32::from(viewport.width) - side;
+                        rect(side, title, width, f32::from(viewport.height) - title)
+                    });
+                let (right, top) = (f32::from(pane.right()), f32::from(pane.top()));
+                let anchor = if header_shown(self.workspace.tab().panes().len()) {
+                    // The header's split button, first of its three at its right end.
+                    let button = PANE_BUTTON * s;
+                    rect(
+                        right - PANE_HEADER_END * s - 3.0 * button,
+                        top,
+                        button,
+                        button,
                     )
-                    .child("Shell")
-                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                        this.choose(Choice::Shell, window, cx)
-                    })),
-            );
-            body = body.child(
-                row("choice-new-agent".into())
-                    .child(
-                        div()
-                            .text_color(self.fg(|t| t.agents_accent))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child("＋"),
-                    )
-                    .child("New agent…")
-                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                        let place = match this.popup.take() {
-                            Some(Popup::Split(Some(direction))) => Place::Split(direction),
-                            _ => Place::Tab,
-                        };
-                        cx.notify();
-                        cx.defer(move |cx| windows::open_new_agent(place, cx));
-                    })),
-            );
-            let names = self.sidebar.read(cx).agent_names();
-            if names.is_empty() {
-                body = body.child(
-                    div()
-                        .px(px(10.0))
-                        .py(px(5.0))
-                        .text_color(self.fg(|t| t.agents_dim))
-                        .child("No agents to open here."),
-                );
+                } else {
+                    rect(right - CORNER * s, top + 2.0 * s, 0.0, 0.0)
+                };
+                (anchor, Hang::BelowRight)
             }
-            for name in names {
-                let open = self.workspace.find(&name).is_some();
-                let mut entry = row(ElementId::Name(name.clone().into()))
-                    .child(div().flex_1().min_w(px(0.0)).child(name.clone()));
-                if open {
-                    entry = entry.child(
-                        div()
-                            .text_size(ui.px(TEXT - 1.0))
-                            .text_color(self.fg(|t| t.connected))
-                            .child("Move here"),
-                    );
+            _ => {
+                let count = self.sidebar.read(cx).attention().len();
+                if self.collapsed {
+                    (
+                        rect(0.0, title + RAIL_BELL * s, side, 30.0 * s),
+                        Hang::Beside,
+                    )
+                } else {
+                    // The header's bell, before its collapse button at the right end: an icon,
+                    // and the count after it when there is one.
+                    let right = self.sidebar_width - BELL_END - BELL_AFTER * s;
+                    let digits = if count > 0 {
+                        5.0 + DIGIT * count.to_string().len() as f32
+                    } else {
+                        0.0
+                    };
+                    let width = (16.0 + footer_icon::SIZE + digits) * s;
+                    (
+                        rect(right - width, title + 8.0 * s, width, 28.0 * s),
+                        Hang::BelowLeft,
+                    )
                 }
-                body = body.child(entry.on_click(cx.listener(
-                    move |this, _: &ClickEvent, window, cx| {
-                        this.choose(Choice::Agent(name.clone()), window, cx)
-                    },
-                )));
             }
-        }
-        let card = div()
-            .id("dialog")
-            .w(px(300.0))
-            .max_h(px(480.0))
-            .overflow_y_scroll()
+        };
+        popover::hang(anchor, ui.scale(width), how, viewport, s)
+    }
+
+    /// The new tab panel (under the `+`: a field, then Shell and Agent…, then the agents that match)
+    /// or the split panel (under the pane's split button: the side, then the same rows). The
+    /// selected row is lit; Esc or a click outside closes it.
+    fn chooser_panel(
+        &self,
+        popup: Popup,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> Stateful<Div> {
+        let ui = UiFont::get(cx);
+        let s = ui.scale(1.0);
+        let theme = &*self.theme;
+        let side = match popup {
+            Popup::Split(direction) => Some(direction),
+            _ => None,
+        };
+        let placed = self.placed(
+            popup,
+            if side.is_some() { 316.0 } else { 340.0 },
+            window,
+            cx,
+        );
+        let query = self.chooser_query(cx);
+        let rows = self.chooser_rows(cx);
+        let selected = self.chooser.index.min(rows.len() - 1);
+        let agents = self.sidebar.read(cx).agents();
+        let none = agents.is_empty();
+        let now = now();
+        let accent = self.fg(|t| t.agents_accent);
+        let dimmer = self.fg(|t| t.agents_dimmer);
+        let keys = |action: &dyn gpui::Action| popover::keys(theme, &ui, &menu::keys(action));
+        let note = |text: String| {
+            div()
+                .flex_shrink_0()
+                .px(ui.px(9.0))
+                .py(ui.px(5.0))
+                .text_size(ui.px(12.0))
+                .text_color(self.fg(|t| t.agents_dim))
+                .child(text)
+        };
+        let mut list = div()
+            .id("chooser-list")
             .flex()
             .flex_col()
-            .gap(px(8.0))
-            .p(px(10.0))
-            .rounded(px(10.0))
-            .border_1()
-            .border_color(self.fg(|t| t.focus))
-            .bg(hsla(self.theme.bg(|t| t.agents_bg), 1.0))
-            .text_size(ui.px(TEXT + 1.0))
-            .text_color(self.fg(|t| t.agents_text))
-            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-            .child(
+            .min_h(px(0.0))
+            .overflow_y_scroll()
+            .track_scroll(&self.chooser.list)
+            .child(popover::heading(theme, &ui, side.map_or("NEW", open_where)));
+        for (index, choice) in rows.iter().enumerate() {
+            let lit = index == selected;
+            let id = ("chooser-row", index);
+            let row = match choice {
+                Choice::Shell => popover::lead_row(
+                    theme,
+                    &ui,
+                    id,
+                    footer_icon::icon(Icon::NewShell, accent, s),
+                    lit,
+                )
+                .child(div().flex_1().child("Shell"))
+                .when(side.is_none(), |row| row.child(keys(&menu::NewShell))),
+                Choice::NewAgent => popover::lead_row(
+                    theme,
+                    &ui,
+                    id,
+                    footer_icon::icon(Icon::NewAgent, accent, s),
+                    lit,
+                )
+                .child(div().flex_1().child("Agent…"))
+                .when(side.is_none(), |row| row.child(keys(&menu::NewAgent))),
+                Choice::Agent(name) => {
+                    let dot = div().size(ui.px(7.0)).rounded_full().bg(self.fg(dot(
+                        &Shown::Agent(name.clone()),
+                        &agents,
+                        now,
+                    )));
+                    let short = name.rsplit('/').next().unwrap_or(name).to_owned();
+                    let project = crate::agents::group(name).trim_end_matches('/').to_owned();
+                    popover::lead_row(theme, &ui, id, dot, lit)
+                        .child(
+                            div()
+                                .flex_shrink(1.0)
+                                .min_w(px(0.0))
+                                .overflow_hidden()
+                                .text_ellipsis()
+                                .child(short),
+                        )
+                        .when(!project.is_empty(), |row| {
+                            row.child(
+                                div()
+                                    .flex_shrink_0()
+                                    .text_size(ui.px(12.0))
+                                    .text_color(dimmer)
+                                    .child(project),
+                            )
+                        })
+                        .child(div().flex_1())
+                        .when(self.workspace.find(name).is_some(), |row| {
+                            row.child(
+                                div()
+                                    .flex_shrink_0()
+                                    .text_size(ui.px(12.0))
+                                    .text_color(dimmer)
+                                    .child("Move here"),
+                            )
+                        })
+                }
+            };
+            let choice = choice.clone();
+            list = list.child(row.on_click(cx.listener(
+                move |this, _: &ClickEvent, window, cx| this.choose(choice.clone(), window, cx),
+            )));
+            // The new tab panel names the agents' group; the split panel lists them straight on.
+            if index == 1 && side.is_none() {
+                list = list.child(popover::heading(theme, &ui, "AGENTS").pt(ui.px(10.0)));
+            }
+        }
+        if none {
+            list = list.child(note("No agents to open here.".into()));
+        } else if rows.len() == 2 {
+            list = list.child(note(format!("No agents match “{}”", query.trim())));
+        }
+        let mut panel = popover::panel(theme, &ui)
+            .id("chooser")
+            .absolute()
+            .left(px(placed.left))
+            .w(px(placed.width))
+            .max_h(px(placed.max_height))
+            .map(|panel| match (placed.top, placed.bottom) {
+                (Some(top), _) => panel.top(px(top)),
+                (None, bottom) => panel.bottom(px(bottom.unwrap_or_default())),
+            })
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation());
+        if let Some(input) = &self.chooser.input {
+            panel = panel.child(
                 div()
-                    .px(px(4.0))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .child(title),
-            )
-            .child(body)
-            .child(
-                div().flex().justify_end().child(
-                    row("cancel".into())
-                        .text_color(self.fg(|t| t.muted))
-                        .child("Cancel")
-                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                            this.popup = None;
-                            cx.notify();
-                        })),
-                ),
+                    .flex_shrink_0()
+                    .flex()
+                    .items_center()
+                    .gap(ui.px(8.0))
+                    .h(ui.px(34.0))
+                    .px(ui.px(10.0))
+                    .mb(ui.px(4.0))
+                    .border_b_1()
+                    .border_color(popover::edge_rule(theme))
+                    .child(footer_icon::icon(
+                        Icon::Search,
+                        dimmer,
+                        ui.scale(13.0 / footer_icon::SIZE),
+                    ))
+                    .child(div().flex_1().min_w(px(0.0)).child(input.clone())),
             );
-        // Only the dialog takes clicks while it is open; a click outside cancels it.
+        }
+        if let Some(direction) = side {
+            panel = panel
+                .child(popover::heading(theme, &ui, "SPLIT").pb(ui.px(6.0)))
+                .child(
+                    div()
+                        .flex_shrink_0()
+                        .flex()
+                        .gap(ui.px(6.0))
+                        .px(ui.px(4.0))
+                        .pb(ui.px(8.0))
+                        .children(
+                            [
+                                Direction::Left,
+                                Direction::Right,
+                                Direction::Up,
+                                Direction::Down,
+                            ]
+                            .into_iter()
+                            .map(|tile| self.split_tile(tile, tile == direction, &ui, cx)),
+                        ),
+                )
+                .child(popover::rule(theme, &ui));
+        }
+        panel = panel.child(list).when(side.is_none(), |panel| {
+            panel.child(popover::hints(
+                theme,
+                &ui,
+                &[("↑↓", "move"), ("↩", "open"), ("esc", "close")],
+            ))
+        });
+        // A click outside closes it; nothing is dimmed, as for a menu.
         div()
-            .id("dialog-backdrop")
+            .id("chooser-backdrop")
             .absolute()
             .inset_0()
             .occlude()
-            .flex()
-            .items_center()
-            .justify_center()
-            .bg(gpui::black().opacity(0.35))
             .on_mouse_down(
                 MouseButton::Left,
-                cx.listener(|this, _, _, cx| {
-                    this.popup = None;
-                    cx.notify();
-                }),
+                cx.listener(|this, _, window, cx| this.close_popup(window, cx)),
             )
-            .child(card)
+            .child(panel)
+    }
+
+    /// One of the split panel's four sides: a small frame with that half lit, its name and its
+    /// shortcut when it has one.
+    fn split_tile(
+        &self,
+        direction: Direction,
+        on: bool,
+        ui: &UiFont,
+        cx: &mut Context<Self>,
+    ) -> Stateful<Div> {
+        let (label, action): (&str, &dyn gpui::Action) = match direction {
+            Direction::Left => ("Left", &menu::SplitLeft),
+            Direction::Right => ("Right", &menu::SplitRight),
+            Direction::Up => ("Up", &menu::SplitUp),
+            Direction::Down => ("Down", &menu::SplitDown),
+        };
+        let lit = popover::lit(&self.theme);
+        let border = self.fg(|t| t.agents_border);
+        let dimmer = self.fg(|t| t.agents_dimmer);
+        let (edge, stroke, fill, text) = if on {
+            (
+                border,
+                self.fg(|t| t.agents_branch),
+                self.fg(|t| t.agents_accent).opacity(0.55),
+                self.fg(|t| t.agents_text),
+            )
+        } else {
+            (
+                popover::edge_rule(&self.theme),
+                dimmer,
+                dimmer.opacity(0.35),
+                self.fg(|t| t.agents_dim),
+            )
+        };
+        // The lit half, its outer corners rounded inside the frame's.
+        let half = div().absolute().bg(fill);
+        let radius = ui.px(3.0);
+        let half = match direction {
+            Direction::Left => half
+                .left_0()
+                .top_0()
+                .h_full()
+                .w(relative(0.5))
+                .rounded_l(radius),
+            Direction::Right => half
+                .right_0()
+                .top_0()
+                .h_full()
+                .w(relative(0.5))
+                .rounded_r(radius),
+            Direction::Up => half
+                .left_0()
+                .top_0()
+                .w_full()
+                .h(relative(0.5))
+                .rounded_t(radius),
+            Direction::Down => half
+                .left_0()
+                .bottom_0()
+                .w_full()
+                .h(relative(0.5))
+                .rounded_b(radius),
+        };
+        div()
+            .id(SharedString::from(format!("split-{label}")))
+            .flex_1()
+            .min_w(px(0.0))
+            .flex()
+            .flex_col()
+            .items_center()
+            .gap(ui.px(5.0))
+            .pt(ui.px(8.0))
+            .pb(ui.px(6.0))
+            .rounded(ui.px(8.0))
+            .border_1()
+            .border_color(edge)
+            .cursor_pointer()
+            .when(on, |tile| tile.bg(lit))
+            .hover(move |style| style.border_color(border))
+            .child(
+                div()
+                    .relative()
+                    .flex_shrink_0()
+                    .w(ui.px(34.0))
+                    .h(ui.px(24.0))
+                    .rounded(ui.px(4.0))
+                    .border_1()
+                    .border_color(stroke)
+                    .child(half),
+            )
+            .child(div().text_size(ui.px(11.5)).text_color(text).child(label))
+            .child(
+                div()
+                    .h(ui.px(12.0))
+                    .text_size(ui.px(10.5))
+                    .text_color(dimmer.opacity(0.8))
+                    .child(menu::keys(action).concat()),
+            )
+            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                this.popup = Some(Popup::Split(direction));
+                cx.notify();
+            }))
     }
 }
 
@@ -2683,18 +3244,12 @@ fn mono_font(options: &Options) -> gpui::Font {
     mono
 }
 
-fn side(direction: Direction) -> &'static str {
-    match direction {
-        Direction::Left => "left",
-        Direction::Right => "right",
-        Direction::Up => "up",
-        Direction::Down => "down",
-    }
-}
-
 impl Render for PaddockWindow {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.fill(window, cx);
+        if self.fading() {
+            window.request_animation_frame();
+        }
         // The View menu follows the sidebar.
         let (fold, by_name) = self.sidebar.read(cx).view_state();
         let view_state = (fold, by_name, self.collapsed);
@@ -2743,12 +3298,12 @@ impl Render for PaddockWindow {
             .when(!self.collapsed, |body| body.child(self.grip(cx)));
         let dialog = match self.popup {
             Some(Popup::Actions) => Some(self.actions_menu(cx)),
-            Some(Popup::Attention) => Some(self.attention_panel(cx)),
+            Some(Popup::Attention) => Some(self.attention_panel(window, cx)),
             Some(Popup::Palette) => self
                 .palette
                 .as_ref()
                 .map(|palette| self.palette_panel(palette, window, cx)),
-            Some(popup) => Some(self.dialog(popup, cx)),
+            Some(popup) => Some(self.chooser_panel(popup, window, cx)),
             None => None,
         };
         ui.apply(div())
@@ -2761,22 +3316,22 @@ impl Render for PaddockWindow {
             .bg(hsla(self.theme.bg(|t| t.agents_bg), 1.0))
             .when(self.popup.is_some(), |root| root.key_context(menu::DIALOG))
             .on_action(
-                cx.listener(|this, _: &menu::NewTab, _, cx| this.open_popup(Popup::NewTab, cx)),
+                cx.listener(|this, _: &menu::NewTab, window, cx| this.toggle_new_tab(window, cx)),
             )
             .on_action(
                 cx.listener(|this, _: &menu::NewShell, window, cx| this.new_shell(window, cx)),
             )
-            .on_action(cx.listener(|this, _: &menu::SplitRight, _, cx| {
-                this.open_popup(Popup::Split(Some(Direction::Right)), cx)
+            .on_action(cx.listener(|this, _: &menu::SplitRight, window, cx| {
+                this.ask_split(SplitAsk::Side(Direction::Right), window, cx)
             }))
-            .on_action(cx.listener(|this, _: &menu::SplitDown, _, cx| {
-                this.open_popup(Popup::Split(Some(Direction::Down)), cx)
+            .on_action(cx.listener(|this, _: &menu::SplitDown, window, cx| {
+                this.ask_split(SplitAsk::Side(Direction::Down), window, cx)
             }))
-            .on_action(cx.listener(|this, _: &menu::SplitLeft, _, cx| {
-                this.open_popup(Popup::Split(Some(Direction::Left)), cx)
+            .on_action(cx.listener(|this, _: &menu::SplitLeft, window, cx| {
+                this.ask_split(SplitAsk::Side(Direction::Left), window, cx)
             }))
-            .on_action(cx.listener(|this, _: &menu::SplitUp, _, cx| {
-                this.open_popup(Popup::Split(Some(Direction::Up)), cx)
+            .on_action(cx.listener(|this, _: &menu::SplitUp, window, cx| {
+                this.ask_split(SplitAsk::Side(Direction::Up), window, cx)
             }))
             .on_action(
                 cx.listener(|this, _: &menu::ClosePane, window, cx| this.close_pane(window, cx)),
@@ -2784,9 +3339,9 @@ impl Render for PaddockWindow {
             .on_action(
                 cx.listener(|this, _: &menu::StopAgent, window, cx| this.stop_agent(window, cx)),
             )
-            .on_action(
-                cx.listener(|this, _: &menu::ShowAttention, _, cx| this.toggle_attention(cx)),
-            )
+            .on_action(cx.listener(|this, _: &menu::ShowAttention, window, cx| {
+                this.toggle_attention(window, cx)
+            }))
             .on_action(
                 cx.listener(|this, _: &menu::Search, window, cx| {
                     this.toggle_palette("", window, cx)
@@ -3020,5 +3575,98 @@ mod tests {
             quit.detail
                 .contains("Agent views only detach; the agents keep running.")
         );
+    }
+
+    fn names() -> Vec<String> {
+        ["paddock/dev-fonts", "paddock/main", "ranch/test-m2", "solo"]
+            .map(String::from)
+            .to_vec()
+    }
+
+    fn agents_listed(rows: &[Choice]) -> Vec<&str> {
+        rows.iter()
+            .filter_map(|row| match row {
+                Choice::Agent(name) => Some(name.as_str()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn typing_in_the_new_tab_panel_narrows_the_agents_by_name_and_project() {
+        let names = names();
+        // Nothing typed: Shell and Agent… first, then every agent, Shell selected.
+        let all = choices(&names, "");
+        assert_eq!(all[..2], [Choice::Shell, Choice::NewAgent]);
+        assert_eq!(
+            agents_listed(&all),
+            names.iter().map(String::as_str).collect::<Vec<_>>()
+        );
+        assert_eq!(first_choice("", &all), 0);
+        // By the project, by the name, ignoring case, every word in any order.
+        assert_eq!(
+            agents_listed(&choices(&names, "PADDOCK")),
+            ["paddock/dev-fonts", "paddock/main"]
+        );
+        assert_eq!(agents_listed(&choices(&names, "m2")), ["ranch/test-m2"]);
+        assert_eq!(
+            agents_listed(&choices(&names, " main  paddock ")),
+            ["paddock/main"]
+        );
+        // Typing selects the first agent that matches; Shell and Agent… stay.
+        let typed = choices(&names, "fonts");
+        assert_eq!(typed[..2], [Choice::Shell, Choice::NewAgent]);
+        assert_eq!(first_choice("fonts", &typed), 2);
+        // Nothing matches: only Shell and Agent…, Shell selected.
+        let none = choices(&names, "zzz");
+        assert_eq!(none.len(), 2);
+        assert_eq!(first_choice("zzz", &none), 0);
+        // Blanks alone are nothing typed.
+        assert_eq!(first_choice("  ", &choices(&names, "  ")), 0);
+    }
+
+    #[test]
+    fn the_split_panel_opens_on_the_side_asked_for_and_says_where() {
+        use Direction::*;
+        // The split button opens it on Right; each side's shortcut on its own side.
+        assert_eq!(
+            split_popup(None, SplitAsk::Button),
+            Some(Popup::Split(Right))
+        );
+        for side in [Right, Down, Left, Up] {
+            assert_eq!(
+                split_popup(None, SplitAsk::Side(side)),
+                Some(Popup::Split(side))
+            );
+        }
+        // Open on another side, a shortcut switches it; on its own side, it closes it.
+        assert_eq!(
+            split_popup(Some(Popup::Split(Right)), SplitAsk::Side(Down)),
+            Some(Popup::Split(Down))
+        );
+        assert_eq!(
+            split_popup(Some(Popup::Split(Down)), SplitAsk::Side(Down)),
+            None
+        );
+        // From another panel, it takes over.
+        assert_eq!(
+            split_popup(Some(Popup::NewTab), SplitAsk::Side(Right)),
+            Some(Popup::Split(Right))
+        );
+        // The heading over what to open follows the side.
+        assert_eq!(open_where(Right), "OPEN ON THE RIGHT");
+        assert_eq!(open_where(Left), "OPEN ON THE LEFT");
+        assert_eq!(open_where(Up), "OPEN ABOVE");
+        assert_eq!(open_where(Down), "OPEN BELOW");
+    }
+
+    #[test]
+    fn the_keys_scroll_to_the_selected_row_past_the_headings() {
+        // New tab: NEW, Shell, Agent…, AGENTS, then the agents.
+        assert_eq!(chooser_child(true, 0), 1);
+        assert_eq!(chooser_child(true, 1), 2);
+        assert_eq!(chooser_child(true, 2), 4);
+        // Split: OPEN …, then every row.
+        assert_eq!(chooser_child(false, 2), 3);
     }
 }

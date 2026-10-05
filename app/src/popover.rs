@@ -1,7 +1,8 @@
 //! The look the window's small floating panels share: a panel a shade lighter than the sidebar
 //! with a faint edge and a soft shadow, rows of an icon, a label and a quiet shortcut that light
-//! up under the mouse, faint rules between groups, and an inline choice of two or three. Only the
-//! sidebar's menu uses it so far; the new tab, split and Attention panels are to follow.
+//! up under the mouse, faint rules between groups, and an inline choice of two or three; and where
+//! a panel hangs from the button that opened it. The sidebar's menu, the new tab and split panels
+//! and the Attention list use it.
 use crate::{
     fonts::UiFont,
     footer_icon::{self, Icon},
@@ -9,7 +10,8 @@ use crate::{
     view::hsla,
 };
 use gpui::{
-    BoxShadow, Div, ElementId, FontWeight, Hsla, SharedString, Stateful, div, point, prelude::*, px,
+    Bounds, BoxShadow, Div, ElementId, FontWeight, Hsla, Pixels, SharedString, Size, Stateful, div,
+    point, prelude::*, px,
 };
 
 /// Sizes, in points at the base interface size.
@@ -223,5 +225,266 @@ pub fn choice(
         option
             .text_color(colors.icon)
             .hover(move |style| style.bg(raised.opacity(0.5)))
+    }
+}
+
+/// Room a panel keeps from what opened it, and from the window's edges.
+const HANG_GAP: f32 = 6.0;
+const HANG_MARGIN: f32 = 8.0;
+/// Under this much room below what opened it, a panel opens upward when there is more room there.
+const HANG_LOW: f32 = 200.0;
+const HEADING: f32 = 10.5;
+const HINTS: f32 = 11.5;
+
+/// Where a panel hangs from what opened it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Hang {
+    /// Under it, left edges in line.
+    BelowLeft,
+    /// Under it, right edges in line.
+    BelowRight,
+    /// Beside it on the right, tops in line.
+    Beside,
+}
+
+/// A panel's place in the window, in points: its left edge and width, its top edge or (when it
+/// opens upward) how far its bottom edge sits above the window's, and the most it may be tall.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Placed {
+    pub left: f32,
+    pub width: f32,
+    pub top: Option<f32>,
+    pub bottom: Option<f32>,
+    pub max_height: f32,
+}
+
+/// Places a panel `width` points wide by `anchor`, what opened it, inside a window `window` big,
+/// at `scale` times the base interface size: it keeps a margin from every edge, narrowing in a
+/// narrow window, and is never taller than the room it has. Hung below something low in the
+/// window, it opens upward instead when there is more room there.
+pub fn hang(
+    anchor: Bounds<Pixels>,
+    width: f32,
+    hang: Hang,
+    window: Size<Pixels>,
+    scale: f32,
+) -> Placed {
+    let (gap, margin, low) = (HANG_GAP * scale, HANG_MARGIN * scale, HANG_LOW * scale);
+    let (x, y) = (f32::from(anchor.origin.x), f32::from(anchor.origin.y));
+    let (w, h) = (f32::from(anchor.size.width), f32::from(anchor.size.height));
+    let (room_x, room_y) = (f32::from(window.width), f32::from(window.height));
+    let width = width.min(room_x - 2.0 * margin).max(0.0);
+    let left = match hang {
+        Hang::BelowLeft => x,
+        Hang::BelowRight => x + w - width,
+        Hang::Beside => x + w + gap,
+    };
+    let left = left.min(room_x - margin - width).max(margin);
+    let below = |top: f32| Placed {
+        left,
+        width,
+        top: Some(top),
+        bottom: None,
+        max_height: (room_y - margin - top).max(0.0),
+    };
+    match hang {
+        Hang::Beside => below(y.min(room_y - margin - low).max(margin)),
+        Hang::BelowLeft | Hang::BelowRight => {
+            let top = y + h + gap;
+            let under = room_y - margin - top;
+            let over = y - gap - margin;
+            if under >= low || under >= over {
+                below(top)
+            } else {
+                Placed {
+                    left,
+                    width,
+                    top: None,
+                    bottom: Some(room_y - (y - gap)),
+                    max_height: over.max(0.0),
+                }
+            }
+        }
+    }
+}
+
+/// A group's name over its rows: small capitals, faint.
+pub fn heading(theme: &Theme, ui: &UiFont, text: impl Into<SharedString>) -> Div {
+    div()
+        .flex_shrink_0()
+        .px(ui.px(ROW_X))
+        .pt(ui.px(6.0))
+        .pb(ui.px(3.0))
+        .text_size(ui.px(HEADING))
+        .font_weight(FontWeight::SEMIBOLD)
+        .text_color(Colors::of(theme).keys)
+        .child(text.into())
+}
+
+/// A row led by `lead` (an icon in a colour of its own, a status dot), lit when `selected` and
+/// faintly under the mouse; the caller adds the rest.
+pub fn lead_row(
+    theme: &Theme,
+    ui: &UiFont,
+    id: impl Into<ElementId>,
+    lead: impl IntoElement,
+    selected: bool,
+) -> Stateful<Div> {
+    let hover = Colors::of(theme).hover;
+    div()
+        .id(id)
+        .group(ROW_GROUP)
+        .flex_shrink_0()
+        .flex()
+        .items_center()
+        .gap(ui.px(ROW_GAP))
+        .h(ui.px(ROW))
+        .px(ui.px(ROW_X))
+        .rounded(ui.px(ROW_RADIUS))
+        .cursor_pointer()
+        .map(|row| {
+            if selected {
+                row.bg(hover)
+            } else {
+                row.hover(move |style| style.bg(hover.opacity(0.6)))
+            }
+        })
+        .child(
+            div()
+                .flex_shrink_0()
+                .w(ui.px(footer_icon::SIZE))
+                .flex()
+                .justify_center()
+                .child(lead),
+        )
+}
+
+/// The ground of a row that is selected, or under the mouse.
+pub fn lit(theme: &Theme) -> Hsla {
+    Colors::of(theme).hover
+}
+
+/// The faint rule under a panel's field or over its hints, edge to edge.
+pub fn edge_rule(theme: &Theme) -> Hsla {
+    Colors::of(theme).rule
+}
+
+/// The keys a panel answers to, along its foot under a faint rule: `↑↓ move` and so on.
+pub fn hints(theme: &Theme, ui: &UiFont, hints: &[(&'static str, &'static str)]) -> Div {
+    let colors = Colors::of(theme);
+    div()
+        .flex_shrink_0()
+        .flex()
+        .gap(ui.px(14.0))
+        .mt(ui.px(4.0))
+        .px(ui.px(ROW_X))
+        .pt(ui.px(8.0))
+        .pb(ui.px(4.0))
+        .border_t_1()
+        .border_color(colors.rule)
+        .text_size(ui.px(HINTS))
+        .text_color(colors.keys.opacity(0.8))
+        .children(hints.iter().map(|(keys, what)| {
+            div()
+                .flex()
+                .gap(ui.px(4.0))
+                .child(keys.to_string())
+                .child(what.to_string())
+        }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gpui::{point, size};
+
+    fn at(x: f32, y: f32, w: f32, h: f32) -> Bounds<Pixels> {
+        Bounds {
+            origin: point(px(x), px(y)),
+            size: size(px(w), px(h)),
+        }
+    }
+
+    const WINDOW: (f32, f32) = (1280.0, 800.0);
+
+    fn place(anchor: Bounds<Pixels>, width: f32, how: Hang, window: (f32, f32)) -> Placed {
+        hang(anchor, width, how, size(px(window.0), px(window.1)), 1.0)
+    }
+
+    #[test]
+    fn panels_hang_under_what_opened_them() {
+        // The `+`: left edges in line, just under it, as tall as the window has room for.
+        let new_tab = place(at(400.0, 6.0, 28.0, 28.0), 340.0, Hang::BelowLeft, WINDOW);
+        assert_eq!(
+            new_tab,
+            Placed {
+                left: 400.0,
+                width: 340.0,
+                top: Some(40.0),
+                bottom: None,
+                max_height: 800.0 - 8.0 - 40.0,
+            }
+        );
+        // The split button: right edges in line.
+        let split = place(
+            at(1000.0, 40.0, 28.0, 28.0),
+            316.0,
+            Hang::BelowRight,
+            WINDOW,
+        );
+        assert_eq!((split.left, split.top), (1028.0 - 316.0, Some(74.0)));
+        // The strip's bell: beside the strip, tops in line.
+        let attention = place(at(0.0, 80.0, 52.0, 30.0), 360.0, Hang::Beside, WINDOW);
+        assert_eq!((attention.left, attention.top), (58.0, Some(80.0)));
+    }
+
+    #[test]
+    fn panels_stay_inside_the_window() {
+        let inside = |placed: Placed, window: (f32, f32)| {
+            let top = placed
+                .top
+                .unwrap_or_else(|| window.1 - placed.bottom.unwrap() - placed.max_height);
+            placed.left >= 8.0
+                && placed.left + placed.width <= window.0 - 8.0
+                && top >= 8.0
+                && top + placed.max_height <= window.1 - 8.0
+        };
+        // Near the right edge, a left-aligned panel moves left to keep its margin…
+        let placed = place(at(1200.0, 6.0, 28.0, 28.0), 340.0, Hang::BelowLeft, WINDOW);
+        assert_eq!(placed.left, 1280.0 - 8.0 - 340.0);
+        assert!(inside(placed, WINDOW));
+        // …and near the left edge a right-aligned one moves right.
+        let placed = place(at(20.0, 40.0, 28.0, 28.0), 316.0, Hang::BelowRight, WINDOW);
+        assert_eq!(placed.left, 8.0);
+        assert!(inside(placed, WINDOW));
+        // A window narrower than the panel narrows it.
+        let narrow = (300.0, 500.0);
+        let placed = place(at(100.0, 6.0, 28.0, 28.0), 340.0, Hang::BelowLeft, narrow);
+        assert_eq!((placed.left, placed.width), (8.0, 284.0));
+        assert!(inside(placed, narrow));
+        // Low in the window, it opens upward, no taller than the room above.
+        let placed = place(
+            at(1000.0, 700.0, 28.0, 28.0),
+            316.0,
+            Hang::BelowRight,
+            WINDOW,
+        );
+        assert_eq!(placed.top, None);
+        assert_eq!(placed.bottom, Some(800.0 - 694.0));
+        assert_eq!(placed.max_height, 694.0 - 8.0);
+        assert!(inside(placed, WINDOW));
+        // Beside something near the bottom, it rises to keep some room.
+        let placed = place(at(0.0, 760.0, 52.0, 30.0), 360.0, Hang::Beside, WINDOW);
+        assert_eq!(placed.top, Some(800.0 - 8.0 - 200.0));
+        assert!(inside(placed, WINDOW));
+        // Larger interface sizes keep larger margins.
+        let placed = hang(
+            at(1200.0, 6.0, 28.0, 28.0),
+            340.0,
+            Hang::BelowLeft,
+            size(px(1280.0), px(800.0)),
+            2.0,
+        );
+        assert_eq!(placed.left, 1280.0 - 16.0 - 340.0);
     }
 }
