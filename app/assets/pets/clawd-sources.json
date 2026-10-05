@@ -1,0 +1,217 @@
+[
+  {
+    "name": "walking",
+    "url": "https://claude.dev/shared/video/clawd-walking.json",
+    "sha256": "4ff6404404a9ad5aa12e85a8b4dc15c6e7b110444b495b79d6ff61a0f7230044",
+    "frames": 28,
+    "adaptation": "Hand-timed grid poses; original clip is a gesture reference, not a frame-for-frame conversion."
+  },
+  {
+    "name": "turning",
+    "url": "https://claude.dev/shared/video/acts/Clawd-Turning.json",
+    "sha256": "ab372520e2d4305f081cf5ace9cbf322283996c59714974604bcb4a19003d109",
+    "frames": 29,
+    "adaptation": "Hand-timed grid poses; original clip is a gesture reference, not a frame-for-frame conversion."
+  },
+  {
+    "name": "looking",
+    "url": "https://claude.dev/shared/video/clawd-looking.json",
+    "sha256": "2844f8478106985f50c43c316325ca161d5d3100a1eb6db4fea43f0768d57e01",
+    "frames": 42,
+    "adaptation": "Hand-timed grid poses; original clip is a gesture reference, not a frame-for-frame conversion."
+  },
+  {
+    "name": "waving",
+    "url": "https://claude.dev/shared/video/clawd-waving.json",
+    "sha256": "bf254d9670db5a869249ffb8682b0d805d364a6c9208fc1fde1cbebed687b9b0",
+    "frames": 17,
+    "adaptation": "Hand-timed grid poses; original clip is a gesture reference, not a frame-for-frame conversion."
+  },
+  {
+    "name": "thinking",
+    "url": "https://claude.dev/shared/video/acts/Clawd-Thinking.json",
+    "sha256": "446d0cd16f28422233f38e9ce2417791fddc29d9ca9ffea3154ea7a888092597",
+    "frames": 38,
+    "adaptation": "Hand-timed grid poses; original clip is a gesture reference, not a frame-for-frame conversion."
+  },
+  {
+    "name": "coffee",
+    "url": "https://claude.dev/shared/video/acts/Clawd-Coffee.json",
+    "sha256": "265f906fcdbb663a2b3afb0f2f71e30a8aae35b3cbec623d7a0eed8798cc1d0d",
+    "frames": 34,
+    "adaptation": "Hand-timed grid poses; original clip is a gesture reference, not a frame-for-frame conversion."
+  },
+  {
+    "name": "notebook",
+    "url": "https://claude.dev/shared/video/acts/Clawd-Notebook.json",
+    "sha256": "02e7bc52860cf77df0fb374d791f018309802008a425d84dcf9afbd289032184",
+    "frames": 81,
+    "adaptation": "Hand-timed grid poses; original clip is a gesture reference, not a frame-for-frame conversion."
+  },
+  {
+    "name": "headphones",
+    "url": "https://claude.dev/shared/video/acts/Clawd-Headphones.json",
+    "sha256": "1c1b993a556007f7841f5267be7b1bcd9184a8005d7641b96f2206d2f39d8bc4",
+    "frames": 74,
+    "adaptation": "Hand-timed grid poses; original clip is a gesture reference, not a frame-for-frame conversion."
+  },
+  {
+    "name": "watch",
+    "url": "https://claude.dev/shared/video/acts/Clawd-Watch.json",
+    "sha256": "572a3e0b603e642a12da85412ed332e42176c579b13fa7e573aa64667628ae05",
+    "frames": 87,
+    "adaptation": "Hand-timed grid poses; original clip is a gesture reference, not a frame-for-frame conversion."
+  },
+  {
+    "name": "snooze",
+    "url": "https://claude.dev/shared/video/acts/Clawd-Snooze.json",
+    "sha256": "10d6eac110c7f0694aecc36a2c32668fae6305a0ba47fca45c5d90133a684ef9",
+    "frames": 55,
+    "adaptation": "Hand-timed grid poses; original clip is a gesture reference, not a frame-for-frame conversion."
+  },
+  {
+    "name": "sunglasses",
+    "url": "https://claude.dev/shared/video/acts/Clawd-Sunglasses.json",
+    "sha256": "d34cb4046eb021f45fea80ed25578d85f46034b2aff4b7ad3608881ab4c1602f",
+    "frames": 52,
+    "adaptation": "Hand-timed grid poses; original clip is a gesture reference, not a frame-for-frame conversion."
+  },
+  {
+    "name": "pirate",
+    "origin": "Original costume and animation requested by the user; based on the existing Clawd character.",
+    "adaptation": "Original costume and grid animation designed for the user."
+  },
+  {
+    "name": "excited",
+    "url": "https://claude.dev/shared/video/acts/Clawd-Excited.json",
+    "sha256": "3139b34ce1268507169fea2704513475d0b1398b6e561041f43dd284b3b57447",
+    "frames": 23,
+    "adaptation": "Hand-timed grid poses; original clip is a gesture reference, not a frame-for-frame conversion."
+  },
+  {
+    "name": "phone",
+    "url": "https://claude.dev/shared/video/acts/Clawd-Phone.json",
+    "sha256": "463aef51abc99cbc01fd7f04efec3fa345b0eba205a134415deca8e6306c7818",
+    "frames": 89,
+    "adaptation": "Hand-timed grid poses; original clip is a gesture reference, not a frame-for-frame conversion."
+  },
+  {
+    "name": "laptop",
+    "url": "https://claude.dev/shared/video/acts/Clawd-Laptop.json",
+    "sha256": "0514f7df367ef9a16ff0524eabdd0a39483377bc07dba2f3cb82f357cb7417e4",
+    "frames": 43,
+    "adaptation": "Hand-timed grid poses; original clip is a gesture reference, not a frame-for-frame conversion."
+  },
+  {
+    "name": "rose",
+    "url": "https://claude.dev/shared/video/acts/Clawd-Rose.json",
+    "sha256": "44f2ccb30aa176ce72102c670a763f549fb54f5e368c88a47717fedf18e5a586",
+    "frames": 41,
+    "adaptation": "Hand-timed grid poses; original clip is a gesture reference, not a frame-for-frame conversion."
+  },
+  {
+    "name": "heart",
+    "url": "https://claude.dev/shared/video/acts/Clawd-Heart.json",
+    "sha256": "dbf98411d9327c659269b5728aca15874364e2395e7f33f4d1c19ce0bc1e8642",
+    "frames": 22,
+    "adaptation": "Hand-timed grid poses; original clip is a gesture reference, not a frame-for-frame conversion."
+  },
+  {
+    "name": "meditating",
+    "url": "https://claude.dev/shared/video/acts/Clawd-Meditating.json",
+    "sha256": "b1473753efc9e22f18e239371e59072010c000dc19fa54804cea45e8274e77f6",
+    "frames": 60,
+    "adaptation": "Hand-timed grid poses; original clip is a gesture reference, not a frame-for-frame conversion."
+  },
+  {
+    "name": "hulahoop",
+    "url": "https://claude.dev/shared/video/acts/Clawd-HulaHoop.json",
+    "sha256": "369bca364cb10240fd46b134d9e6634232fb7c49be079dc7425c0c2bb131e2a2",
+    "frames": 75,
+    "adaptation": "Hand-timed grid poses; original clip is a gesture reference, not a frame-for-frame conversion."
+  },
+  {
+    "name": "desktop",
+    "url": "https://claude.dev/shared/video/acts/Clawd-Desktop.json",
+    "sha256": "5e736e1acfa042169cd9e12047dd0e352b6f1d1815fe186457b031fdaf58455c",
+    "frames": 88,
+    "adaptation": "Hand-timed grid poses; original clip is a gesture reference, not a frame-for-frame conversion."
+  },
+  {
+    "name": "arcade",
+    "url": "https://claude.dev/shared/video/acts/Clawd-Arcade.json",
+    "sha256": "8b56d4f2dae0ec77421d4ebe9ccd1c9ec8890f26d4d64289cdf433507336a00e",
+    "frames": 49,
+    "adaptation": "Hand-timed grid poses; original clip is a gesture reference, not a frame-for-frame conversion."
+  },
+  {
+    "name": "bubble",
+    "url": "https://claude.dev/shared/video/acts/Clawd-Bubble.json",
+    "sha256": "129593d204b62f4d79e6dd640df87224b78d0727ba7a677dbb9d9482574dd4d6",
+    "frames": 100,
+    "adaptation": "Hand-timed grid poses; original clip is a gesture reference, not a frame-for-frame conversion."
+  },
+  {
+    "name": "spark",
+    "url": "https://claude.dev/shared/video/acts/Clawd-Spark.json",
+    "sha256": "48d30f3f83b9b59e6416ae778311236e89f1bfb134f46d0b1d95caf2b5c36052",
+    "frames": 73,
+    "adaptation": "Hand-timed grid poses; original clip is a gesture reference, not a frame-for-frame conversion."
+  },
+  {
+    "name": "lightbulb",
+    "url": "https://claude.dev/shared/video/acts/Clawd-Lightbulb.json",
+    "sha256": "548fb0a8520bf7e7ffdddf8e18e4cab1e053af2b9f9685cc2281bb4814de9c1c",
+    "frames": 50,
+    "adaptation": "Hand-timed grid poses; original clip is a gesture reference, not a frame-for-frame conversion."
+  },
+  {
+    "name": "watering",
+    "url": "https://claude.dev/shared/video/acts/Clawd-Watering.json",
+    "sha256": "ab03f851c9ab350030fa66ac67d43bf468bc2626ff4cf53f4e8791427771e694",
+    "frames": 137,
+    "adaptation": "Hand-timed grid poses; original clip is a gesture reference, not a frame-for-frame conversion."
+  },
+  {
+    "name": "berrypicking",
+    "url": "https://claude.dev/shared/video/acts/Clawd-BerryPicking.json",
+    "sha256": "e20eacb98055eae3221433a7d81b5229bdd3ad7de745c87910b4487da0123f69",
+    "frames": 142,
+    "adaptation": "Hand-timed grid poses; original clip is a gesture reference, not a frame-for-frame conversion."
+  },
+  {
+    "name": "blooming",
+    "url": "https://claude.dev/shared/video/acts/Clawd-Blooming.json",
+    "sha256": "fd3a2e3f03dd0da69e828811439095e13ca687c673cef68690b773463f671e8d",
+    "frames": 99,
+    "adaptation": "Hand-timed grid poses; original clip is a gesture reference, not a frame-for-frame conversion."
+  },
+  {
+    "name": "fishing",
+    "url": "https://claude.dev/shared/video/acts/Clawd-Fishing.json",
+    "sha256": "bbb4c497221a6ce2718c59849f51adb24b048e397c56b77cb8683804fdb1d56d",
+    "frames": 109,
+    "adaptation": "Hand-timed grid poses; original clip is a gesture reference, not a frame-for-frame conversion."
+  },
+  {
+    "name": "dancing",
+    "url": "https://claude.dev/shared/video/acts/Clawd-Dancing.json",
+    "sha256": "3a78c22ead8da91994111cacbbeca6fc8dd93b76f97de678a80b1030fe2c7591",
+    "frames": 40,
+    "adaptation": "Hand-timed grid poses; original clip is a gesture reference, not a frame-for-frame conversion."
+  },
+  {
+    "name": "dancinghappy",
+    "url": "https://claude.dev/shared/video/acts/Clawd-DancingHappy.json",
+    "sha256": "a677048ed573e18084020b3415a4db1e220f116ccc16bf0e2c1884b5aa9597a2",
+    "frames": 40,
+    "adaptation": "Hand-timed grid poses; original clip is a gesture reference, not a frame-for-frame conversion."
+  },
+  {
+    "name": "swaying",
+    "url": "https://claude.dev/shared/video/acts/Clawd-Swaying.json",
+    "sha256": "1a0d5d23aec67f91f4a36f4ef4b62ea248f63f223926d4d1a09858c0a8e7ee2e",
+    "frames": 49,
+    "adaptation": "Hand-timed grid poses; original clip is a gesture reference, not a frame-for-frame conversion."
+  }
+]
