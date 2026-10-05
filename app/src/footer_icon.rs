@@ -18,6 +18,16 @@ pub enum Icon {
     NewShell,
     /// A filled square.
     Stop,
+    /// The window's own: a cross, for closing a tab or a pane.
+    Close,
+    /// A plus: a new tab.
+    Plus,
+    /// A frame cut down the middle: split the pane.
+    Split,
+    /// Arrows to two corners: zoom the pane.
+    Zoom,
+    /// Arrows in from two corners: restore the zoomed pane.
+    Restore,
 }
 
 /// `icon` in `color`, `SIZE` points square times `scale` (the interface size over the base).
@@ -95,6 +105,58 @@ fn shapes(icon: Icon, bounds: Bounds<Pixels>, scale: f32) -> Vec<PathBuilder> {
             let mut square = PathBuilder::fill();
             rounded_rect(&mut square, at(3.0, 3.0), at(11.0, 11.0), 1.5 * scale);
             vec![square]
+        }
+        Icon::Close => {
+            let mut cross = stroke();
+            cross.move_to(at(3.5, 3.5));
+            cross.line_to(at(10.5, 10.5));
+            cross.move_to(at(10.5, 3.5));
+            cross.line_to(at(3.5, 10.5));
+            vec![cross]
+        }
+        Icon::Plus => {
+            let mut plus = stroke();
+            plus.move_to(at(7.0, 2.5));
+            plus.line_to(at(7.0, 11.5));
+            plus.move_to(at(2.5, 7.0));
+            plus.line_to(at(11.5, 7.0));
+            vec![plus]
+        }
+        Icon::Split => {
+            let mut frame = stroke();
+            rounded_rect(&mut frame, at(1.5, 2.0), at(12.5, 12.0), 2.0 * scale);
+            let mut seam = stroke();
+            seam.move_to(at(7.0, 2.0));
+            seam.line_to(at(7.0, 12.0));
+            vec![frame, seam]
+        }
+        Icon::Zoom => {
+            let mut arrows = stroke();
+            arrows.move_to(at(8.5, 2.5));
+            arrows.line_to(at(11.5, 2.5));
+            arrows.line_to(at(11.5, 5.5));
+            arrows.move_to(at(11.5, 2.5));
+            arrows.line_to(at(8.0, 6.0));
+            arrows.move_to(at(5.5, 11.5));
+            arrows.line_to(at(2.5, 11.5));
+            arrows.line_to(at(2.5, 8.5));
+            arrows.move_to(at(2.5, 11.5));
+            arrows.line_to(at(6.0, 8.0));
+            vec![arrows]
+        }
+        Icon::Restore => {
+            let mut arrows = stroke();
+            arrows.move_to(at(8.0, 3.0));
+            arrows.line_to(at(8.0, 6.0));
+            arrows.line_to(at(11.0, 6.0));
+            arrows.move_to(at(8.0, 6.0));
+            arrows.line_to(at(11.5, 2.5));
+            arrows.move_to(at(6.0, 11.0));
+            arrows.line_to(at(6.0, 8.0));
+            arrows.line_to(at(3.0, 8.0));
+            arrows.move_to(at(6.0, 8.0));
+            arrows.line_to(at(2.5, 11.5));
+            vec![arrows]
         }
     }
 }
