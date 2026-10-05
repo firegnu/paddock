@@ -27,7 +27,7 @@ impl Default for Config {
         Self {
             theme: None,
             colors: BTreeMap::new(),
-            sidebar_width: 240.0,
+            sidebar_width: 380.0,
             font: "Menlo".into(),
             // Common Nerd Font families for prompt icons; missing ones are skipped.
             font_fallbacks: [
@@ -161,7 +161,7 @@ line_height = 1.4
         let path = std::env::temp_dir().join("paddock-config-test-missing/config.toml");
         let config = Config::load(&path).unwrap();
         assert_eq!(config, Config::default());
-        assert_eq!(config.sidebar_width, 240.0);
+        assert_eq!(config.sidebar_width, 380.0);
         assert_eq!(config.theme, None);
         assert!(config.colors.is_empty());
         assert_eq!(config.font, "Menlo");

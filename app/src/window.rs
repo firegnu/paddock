@@ -26,6 +26,11 @@ impl PaddockWindow {
     ) -> Self {
         let theme = Rc::new(theme);
         let corral = options.corral.clone();
+        // The sidebar's technical lines use the terminal's font.
+        let mut mono = gpui::font(options.font_family.clone());
+        if !options.fallbacks.is_empty() {
+            mono.fallbacks = Some(gpui::FontFallbacks::from_fonts(options.fallbacks.clone()));
+        }
         let terminal = {
             let theme = theme.clone();
             cx.new(|cx| TerminalView::new(options, theme, window, cx))
@@ -33,7 +38,7 @@ impl PaddockWindow {
         let sidebar = {
             let (theme, terminal) = (theme.clone(), terminal.clone());
             let width = config.sidebar_width;
-            cx.new(|cx| Sidebar::new(theme, width, corral, new_shell, terminal, cx))
+            cx.new(|cx| Sidebar::new(theme, width, mono, corral, new_shell, terminal, cx))
         };
         Self {
             theme,

@@ -25,6 +25,8 @@ anyhow = "1"
 # The config file and corral's JSON output.
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["float_roundtrip"] }
+# Display widths for the Agents panel's monospace lines (already in the lock through GPUI).
+unicode-width = "0.2"
 toml = "1"
 # Only for printing the native window number, so test screenshots capture this window alone.
 raw-window-handle = "0.6"
