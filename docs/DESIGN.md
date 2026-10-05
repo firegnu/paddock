@@ -26,10 +26,11 @@ paddock 与 Saddle 在代码上完全分开：用到的 Saddle 代码迁入 padd
 | **dispatch 迁完就全部转到 paddock 开发**；Drover 在全部切换完成后才迁，在那之前不用任务流程，口头布置、主控拆分委派 | 用户 10-05：“等dispatch迁移进去之后，我就打算全部在paddock中开发我的项目了。saddle就会退出”；“drover在全部切换完成前，不会迁移，我暂时不会使用任务workflow。而是口头布置任务，主控拆任务委派。” |
 | **Saddle 不放弃，定位为保底版**（改了上一条的“Saddle 退出”）：不再给 Saddle 加新功能，只保证它和运行时对得上、不会坏；paddock 改 corral、遥测、dispatch 时优先兼容，不兼容时写需求给 Saddle 适配；Drover 迁走后 Saddle 没有任务界面，新插件、新功能只在 paddock 里有 | 用户 10-05：“saddle我暂时不放弃。遥测，dispatch也一样。”对保底版的定位：“我倒是同意这个”。细节见 §3 |
 | **运行时独立成库 ranch，Saddle 和 paddock 都只是前端**（方案 3；改了“归 paddock”）：corral、遥测、dispatch 及插件协议放进新建的 ranch 仓库，由 paddock 主控兼管；两个前端只调用 ranch 装好的命令。前期由 paddock 负责把 corral 做到 Saddle 和 paddock 都能用。先把 corral 从 Saddle 拉出去，直到 Saddle 能和新的 corral 一起工作，再转回 paddock 开发。ranch 建 GitHub 公开仓库，不加许可证 | 用户 10-05：“其实我还是想，两个版本都保留。我其实能够接受corral/dispatch独立出来一个。然后saddle和paddock都依赖这个repo。”“选方案3，新建仓库，paddock主控兼管，名字你来选一个合适的。paddock前期负责把corral做到saddle和paddock都能用的地步。”“先把corral从saddle中拉出去，直到saddle能够和新的corral一块工作（打到现在的状态），咱们再转过头开发paddock。”“ranch建公开远程仓库。不加许可证。”细节见 §3 |
-| **要有插件系统**；插件界面走“乙”：进程、命令、生命周期沿用 Saddle 的插件协议，界面由插件描述、paddock 用 GPUI 原生画 | 用户 10-05：“还是做插件系统吧。这是一个应用的必备。”“按乙”。细节见 §3 |
+| **要有插件系统**（已取消，见下面“砍掉遥测、Drover、插件系统”）；插件界面走“乙”：进程、命令、生命周期沿用 Saddle 的插件协议，界面由插件描述、paddock 用 GPUI 原生画 | 用户 10-05：“还是做插件系统吧。这是一个应用的必备。”“按乙”。细节见 §3 |
 | **不依赖 ratatui**（含插件 SDK 和仓库里维护的插件） | 用户 10-05：“不能依赖ratatui”。细节见 §4 |
 | **`saddle ctl` 也迁移**，做成 `paddock ctl` | 用户 10-05：“这个也要迁移。” 细节见 §3 第 5 步 |
 | **dispatch 剥离到 ranch（不带遥测），之后再开发 paddock；不要遥测和 Drover**：遥测、Drover 不迁，留在 Saddle 原样不动（不用即可），paddock 路线里的遥测查看页、Drover 暂不需要；插件 SDK 不迁；插件协议这一轮不迁（dispatch 做成 ranch 的命令，用不到它）。用户以后很可能只用 paddock | 用户 10-05：“我要等saddle中的都剥离完了，而且saddle运行和现在一样，再开发paddock”；“那就先不迁移插件sdk和drover。先把插件协议，dispatch以及遥测剥离过去”；看到 M3（遥测连同 dispatch）的规模后：“dispatch能拆出去吗？我现在都不想要遥测和drover了”；“dispatch我觉得要拆出去。这也算是基础功能。后期我极有可能只用paddock。因为tui维护起来还有ui什么的做起来太复杂了” |
+| **砍掉遥测、Drover、插件系统，Saddle 和 paddock 同一起跑线**：Saddle 删掉整个插件系统（宿主、SDK、协议、Drover、Diff、dispatch 插件、示例插件、Plugins 页、`ctl plugin`）和遥测（存储、查看页、开关、`saddle telemetry`、`saddle agent`），对应测试改或删；数据留在磁盘上不删。paddock 路线同样拿掉插件宿主、插件界面、遥测查看页、Drover，以后真需要再重新设计。两个前端都只剩 Agents 面板、终端、设置、ctl，底下用 ranch 的 corral 和 dispatch。`saddle ctl` 保留（去掉 plugin 子命令），`paddock ctl` 照旧 | 用户 10-05：“我想砍saddle的功能……遥测，drover还有插件系统的远吗都干掉。这样dispatch剥离出去之后，saddle和paddock就都处于一样的状态了……遥测和drover也只是我臆想出来的功能……绑定很深的遥测，sdk还有插件以及drover什么的，只是我觉得有用罢了。发不成产品反倒不合适。”作者建议四点（数据留着、paddock 路线也砍、Diff 随插件系统去掉、`saddle ctl` 保留），用户：“可以，四点都按你的建议”；“对应的测试也要改或者删” |
 | **Diff 插件不搬**；以后需要时在 paddock 里原生做（可能内置） | 用户 10-05：“diff插件我觉得不要搬了，diff是照顾tui而生的，现在没必要了，会开发更好的（可能会内置diff）。” |
 
 ## 3. 与 Saddle 的关系
@@ -57,9 +58,9 @@ paddock 与 Saddle 在代码上完全分开：用到的 Saddle 代码迁入 padd
     4. **插件协议与 dispatch 进 ranch；paddock 做插件宿主底层**：协议（Saddle `crates/plugin-protocol`）归 ranch；paddock 照搬宿主底层（见下文“插件”）。dispatch（Saddle 内置插件，约 1700 行，没有界面：`route` 路由命令用 `TYPESAFE_API_KEY` 请求外部模型服务，依赖精确固定的 `ureq` 3.4.2；并安装 corral-dispatch 技能）迁入 ranch，作为 Saddle 和 paddock 都能加载的插件：路由规则、请求格式、技能文件内容不变，只把技能里写的 `saddle …` 命令换成 ranch 的。技能目录同一时间只能放一个版本，从此归 ranch 安装和管理。
     - **切换**：第 4 步完成后，用户转到 paddock 开发；Saddle 留作保底版（用户 10-05，见下文“Saddle 保底”）。
     5. **`paddock ctl`**（用户 10-05：“这个也要迁移”）：Saddle 的 `saddle ctl` 让 agent 和脚本在运行中的界面里开 shell、显示或新建 agent、安排标签页和四向分屏、关闭显示，并查询结果。传输层（Saddle `src/control.rs`，418 行：每个实例一个私有 Unix 套接字，JSON 消息，有长度、超时和队列上限）和命令行客户端（`src/control_cli.rs`，253 行）照搬；界面端（`src/app_control.rs`，632 行）对着 paddock 的窗口和布局重写，复用 P3-4 的“新建 agent 再在指定位置打开”。paddock 用自己的运行目录（如 `$XDG_RUNTIME_DIR/paddock`）和自己的环境变量（如 `PADDOCK_INSTANCE`、`PADDOCK_PANE`，注入 paddock 开的 shell），不碰 Saddle 的；配套的技能（Saddle `skills/saddle/SKILL.md`）改写为 paddock 版。`ctl plugin`（调用插件方法）等插件系统完成后再跟上。
-    6. **遥测查看页**：Saddle `src/telemetry_view.rs`（约 3100 行，ratatui）用 GPUI 重做。
-    7. **插件界面（乙）**：先设计描述界面的协议给用户看，再做显示层、插件启动器、设置里的 Plugins 页。
-    8. **Drover**：全部切换完成后才迁（用户 10-05）；在那之前用户不用任务流程，口头布置任务、由主控拆分委派。它的界面用 ratatui 写，按“不依赖 ratatui”必须重写，成为新插件界面的第一个用户。数据核心怎么放未定，到这一步给用户看方案：A 整个仍是插件，移到 ranch 或 paddock 维护；B 拆出数据与派发核心、对外提供接口，界面原生；C 仍是插件但只提供数据、界面由 paddock 画。
+    6. ~~**遥测查看页**~~（已取消，用户 10-05 砍掉遥测）：Saddle `src/telemetry_view.rs`（约 3100 行，ratatui）用 GPUI 重做。
+    7. ~~**插件界面（乙）**~~（已取消，用户 10-05 砍掉插件系统）：先设计描述界面的协议给用户看，再做显示层、插件启动器、设置里的 Plugins 页。
+    8. ~~**Drover**~~（已取消，用户 10-05 砍掉 Drover）：全部切换完成后才迁（用户 10-05）；在那之前用户不用任务流程，口头布置任务、由主控拆分委派。它的界面用 ratatui 写，按“不依赖 ratatui”必须重写，成为新插件界面的第一个用户。数据核心怎么放未定，到这一步给用户看方案：A 整个仍是插件，移到 ranch 或 paddock 维护；B 拆出数据与派发核心、对外提供接口，界面原生；C 仍是插件但只提供数据、界面由 paddock 画。
 - **搬迁完成前的兼容规矩**：在遥测、dispatch 等完成搬迁之前（corral 已于 10-05 搬到 ranch），正式的一份仍在 Saddle，paddock 照公开命令调用，不改它们的格式。
 - **Saddle 保底**（用户 10-05）：Saddle（TUI）不放弃，留作退路（GPUI 仍是 pre-1.0；只有终端、经 SSH 的环境）。不再给它加新功能，只保证它和运行时对得上。
   - Saddle 和 paddock 用的是 ranch 装好的同一份运行时。Saddle 改完之前（它默认用自己打包的 corral，插件也是），会有新旧两份 corral 同时操作同一批 agent（`~/.corral` 共用），这段时间兼容要双向：ranch 的 corral 开的 agent，Saddle 那份能看、能接入、能停，反过来也一样。
@@ -67,7 +68,7 @@ paddock 与 Saddle 在代码上完全分开：用到的 Saddle 代码迁入 padd
   - 事先接受：Drover 迁走后 Saddle 没有任务界面；新插件、新功能只在 paddock 里有。
 - **不改 Saddle**：不修改 Saddle 仓库。原先打算请 Saddle 新增的接口（§5 的缺口）改由 paddock 在自己的代码里解决；只有公开约定本身要变时，才写成需求交给用户/Saddle 主控。
 - **Drover 并存**：Drover 每个用户只允许一个插件进程持有数据：在 paddock 迁入（上面第 8 步）之前，用户不使用它；迁入后由 paddock 持有数据。
-- **插件**（Saddle `df1c727` 的插件系统设计）：
+- **插件**（已取消：用户 10-05 砍掉插件系统，Saddle 也删掉；下面留作记录）（Saddle `df1c727` 的插件系统设计）：
   - 插件是独立程序（目录里有 `plugin.toml` 和可执行文件），宿主启动它、按插件协议通信；插件自己用 ratatui 画字符画面，以结构化格子数据发给宿主显示。业务数据归插件自己管，宿主不碰。（以上是 Saddle 的做法；paddock 沿用进程和生命周期部分，界面部分另定，见下。）
   - 各插件的数据：Drover 有（`~/.drover/projects`、各项目的 `queue.md`、`tasks.state` 等），且每个用户的数据只允许一个 Drover 进程持有，第二个直接启动失败；Drover 记遥测要通过宿主调用 `saddle telemetry`，没有宿主路径时退回不记遥测、直接 `corral send`。Diff 读 git，dispatch 一问一答，都没有共享数据。
   - **paddock 的做法**（用户 10-05 定：要有插件系统；界面走“乙”；不依赖 ratatui）：
@@ -122,7 +123,7 @@ paddock 与 Saddle 在代码上完全分开：用到的 Saddle 代码迁入 padd
   2. 第二阶段（已定，见 §11）：Agents 面板按 Saddle 做全、标签页和分屏、宠物、菜单栏和 `.app` 打包；外观不比 Saddle 差。
   3. 第三阶段：插件（先 Drover）、Attention、新建 agent、Settings 页、历史搜索、布局保存等。
   4. 全局只能一份的运行时移到独立仓库 ranch，并做插件系统（已定，§3“步骤”）：corral → 遥测的存储与命令 → 插件协议与 dispatch（进 ranch）、paddock 的插件宿主底层 → 切换到 paddock（Saddle 留作保底版）→ `paddock ctl` → 遥测查看页 → 插件界面 → Drover；单独分发的打包（签名公证等）见 §7。
-- **插件界面已定走“乙”**（§3）：插件描述界面，paddock 用 GPUI 原生画。
+- ~~**插件界面已定走“乙”**~~：插件系统已取消（用户 10-05）。
 
 ## 7. 待定问题
 
@@ -130,7 +131,7 @@ paddock 与 Saddle 在代码上完全分开：用到的 Saddle 代码迁入 padd
 2. 生产用 GPUI 依赖渠道：固定官方仓库提交，还是继续 `gpui-pre` 快照。
 3. pre-1.0 的 GPUI 是否符合“只用成熟、活跃维护的库”；是否接受工具链跟随最新稳定版 Rust。
 4. ~~迁移路线~~：已定为全部用 GPUI 重做（10-05）。仍待定：是否引入 gpui-component；首期是否只做 macOS。
-5. ~~插件界面~~：已定走“乙”（10-05，§3“插件”）；界面协议的具体设计待写，先给用户看。
+5. ~~插件界面~~：插件系统已取消（用户 10-05）。
 6. ~~paddock 与 Saddle TUI 同时运行时 Drover 的持有权~~：已定由 paddock 持有（§3 第 8 步，全部切换后）。布局文件各用各的（§12 P3-9）。
 7. 许可（paddock 和 Saddle 都还没有）、应用名与标识、签名公证，以及何时建远程仓库。Clawd 是 Claude Code 的吉祥物形象：用户 10-05 选定公开仓库照原样带着它（“照原样公开”）；猫和卡皮巴拉是 Saddle 原创。远程仓库已建（10-05，`github.com/firegnu/paddock`，public）；不加许可证（用户 10-05：“不加许可证。”），即保留所有权利。
 8. paddock 的任务是否纳入 Saddle 的 Tasks（Drover）管理。

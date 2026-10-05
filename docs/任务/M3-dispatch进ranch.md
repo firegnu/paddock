@@ -68,3 +68,4 @@
   - 测试夹具 `tls-key.pem` 与 ureq 3.4.2 发行包的 `testdata/key.pem` 逐字节相同，`.gitleaks.toml` 只放行这一个路径；gitleaks、trufflehog 查后推送（ranch `d771c10`）。
   - 版本目录 `~/.local/share/ranch/versions/d771c10/` 已生成，未链接。
 - **第二节**：需求已用 `corral send` 交给 `saddle/main`（10-05），等它删插件、放掉技能归属、改 AGENTS.md、部署。
+- **范围扩大**（用户 10-05，见背景记录 §6l）：Saddle 再砍掉整个插件系统和遥测，对应测试改或删，数据留在磁盘上。补充用 `corral send --after saddle/main` 挂上，在它这一轮结束后送达。本任务第三节（链接 ranch、装技能、核对路由）不变；核对时加上 Saddle 照常可用（Agents 面板、终端、设置、布局恢复、`saddle ctl`）。
