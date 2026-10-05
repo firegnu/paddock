@@ -14,7 +14,8 @@ use crate::{
 };
 use gpui::{
     AnyElement, ClickEvent, Context, Div, ElementId, Entity, FocusHandle, Focusable, FontWeight,
-    Hsla, MouseButton, Render, ScrollHandle, Stateful, Window, div, prelude::*, px,
+    Hsla, MouseButton, PromptLevel, Render, ScrollHandle, Stateful, Task, Window, div, prelude::*,
+    px,
 };
 use std::{collections::HashMap, rc::Rc};
 
@@ -31,6 +32,71 @@ enum Popup {
     NewTab,
     /// First the direction, then what the new pane shows.
     Split(Option<Direction>),
+}
+
+/// A close waiting on an answer, by a pane in it, so it still finds its target if the layout
+/// changes meanwhile.
+#[derive(Clone, Copy)]
+enum Closing {
+    Pane(PaneId),
+    /// The tab holding this pane.
+    Tab(PaneId),
+}
+
+/// The system prompt before live shells end.
+#[derive(Debug, PartialEq)]
+pub struct Question {
+    pub message: String,
+    pub detail: String,
+    pub confirm: &'static str,
+}
+
+impl Question {
+    /// Shows it; resolves to whether the confirming button was chosen.
+    fn ask(
+        &self,
+        window: &mut Window,
+        cx: &mut gpui::App,
+    ) -> impl std::future::Future<Output = bool> + use<> {
+        let answer = window.prompt(
+            PromptLevel::Warning,
+            &self.message,
+            Some(&self.detail),
+            &[self.confirm, "Cancel"],
+            cx,
+        );
+        async move { matches!(answer.await, Ok(0)) }
+    }
+}
+
+/// What to ask before closing ends `shells` (their titles) and detaches `agents` views, or quitting
+/// does: `None` when no live shell would end, so nothing needs asking. As in Saddle.
+pub fn close_question(shells: &[String], agents: usize, quit: bool) -> Option<Question> {
+    if shells.is_empty() {
+        return None;
+    }
+    let (them, it, button) = if shells.len() == 1 {
+        ("shell", "it", "End Shell")
+    } else {
+        ("shells", "them", "End Shells")
+    };
+    let message = if quit {
+        format!("Quit paddock and end the running {them}?")
+    } else {
+        format!("End the running {them}?")
+    };
+    let mut detail = shells.join("\n");
+    detail.push_str(&format!(
+        "\n\nWhat runs in {it} in the foreground ends too."
+    ));
+    if agents > 0 {
+        detail.push_str(" Agent views only detach; the agents keep running.");
+    }
+    Some(Question {
+        message,
+        detail,
+        confirm: if quit { "Quit" } else { button },
+    })
 }
 
 /// Something to open in a new tab or pane.
@@ -63,6 +129,8 @@ pub struct PaddockWindow {
     menu_state: Option<(bool, bool)>,
     /// The pet as configured: shown, and which.
     pet_setting: (bool, crate::pet::Pet),
+    /// A close or quit question is showing.
+    asking: bool,
 }
 
 impl PaddockWindow {
@@ -110,6 +178,7 @@ impl PaddockWindow {
                 .then(|| cx.new(|cx| PetView::new(config.mascot, cx))),
             menu_state: None,
             pet_setting: (config.mascot_enabled, config.mascot),
+            asking: false,
         };
         let view = this.view(options.launch, window, cx);
         this.panes.insert(first, view);
@@ -356,13 +425,112 @@ impl PaddockWindow {
     }
 
     fn close_pane(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let gone = self.workspace.close_pane(self.workspace.active_pane());
-        self.close(gone, window, cx);
+        let pane = self.workspace.active_pane();
+        self.request_close(Closing::Pane(pane), window, cx);
     }
 
     fn close_tab(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
-        let gone = self.workspace.close_tab(index);
+        if let Some(tab) = self.workspace.tabs.get(index) {
+            let pane = tab.active;
+            self.request_close(Closing::Tab(pane), window, cx);
+        }
+    }
+
+    /// The panes `closing` would close, as the layout is now.
+    fn closing_panes(&self, closing: Closing) -> Vec<PaneId> {
+        let (Closing::Pane(pane) | Closing::Tab(pane)) = closing;
+        let Some(tab) = self
+            .workspace
+            .tabs
+            .iter()
+            .find(|t| t.panes().contains(&pane))
+        else {
+            return Vec::new();
+        };
+        match closing {
+            Closing::Pane(_) => vec![pane],
+            Closing::Tab(_) => tab.panes(),
+        }
+    }
+
+    /// What to ask before closing `panes`: `None` when no live shell is among them.
+    fn question(&self, panes: &[PaneId], quit: bool, cx: &Context<Self>) -> Option<Question> {
+        let shells: Vec<String> = panes
+            .iter()
+            .filter(|pane| self.panes[pane].read(cx).shell_live())
+            .map(|pane| self.title(*pane, cx))
+            .collect();
+        let agents = panes
+            .iter()
+            .filter(|pane| matches!(self.workspace.shown(**pane), Shown::Agent(_)))
+            .count();
+        close_question(&shells, agents, quit)
+    }
+
+    /// Closes at once, or after End Shells when live shells would end. A pane gone meanwhile is
+    /// simply not closed.
+    fn request_close(&mut self, closing: Closing, window: &mut Window, cx: &mut Context<Self>) {
+        let panes = self.closing_panes(closing);
+        let Some(question) = self.question(&panes, false, cx) else {
+            self.finish_close(closing, window, cx);
+            return;
+        };
+        if self.asking {
+            return;
+        }
+        self.asking = true;
+        let answer = question.ask(window, cx);
+        cx.spawn_in(window, async move |this, cx| {
+            let end = answer.await;
+            let _ = this.update_in(cx, |this, window, cx| {
+                this.asking = false;
+                if end {
+                    this.finish_close(closing, window, cx);
+                }
+            });
+        })
+        .detach();
+    }
+
+    fn finish_close(&mut self, closing: Closing, window: &mut Window, cx: &mut Context<Self>) {
+        let gone = match closing {
+            Closing::Pane(pane) => self.workspace.close_pane(pane),
+            Closing::Tab(pane) => {
+                match self
+                    .workspace
+                    .tabs
+                    .iter()
+                    .position(|t| t.panes().contains(&pane))
+                {
+                    Some(index) => self.workspace.close_tab(index),
+                    None => Vec::new(),
+                }
+            }
+        };
         self.close(gone, window, cx);
+    }
+
+    /// Whether paddock may quit: yes without live shells, else as answered.
+    pub fn confirm_quit(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Task<bool> {
+        let panes: Vec<PaneId> = self
+            .workspace
+            .tabs
+            .iter()
+            .flat_map(|tab| tab.panes())
+            .collect();
+        let Some(question) = self.question(&panes, true, cx) else {
+            return Task::ready(true);
+        };
+        if self.asking {
+            return Task::ready(false);
+        }
+        self.asking = true;
+        let answer = question.ask(window, cx);
+        cx.spawn_in(window, async move |this, cx| {
+            let quit = answer.await;
+            let _ = this.update(cx, |this, _| this.asking = false);
+            quit
+        })
     }
 
     fn select_tab(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
@@ -889,5 +1057,49 @@ impl Render for PaddockWindow {
             .child(self.sidebar.clone())
             .child(main)
             .children(dialog)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_live_shells_make_closing_ask() {
+        assert_eq!(close_question(&[], 2, false), None);
+        assert_eq!(close_question(&[], 0, true), None);
+        let one = close_question(&["shell · /tmp".into()], 0, false).unwrap();
+        assert_eq!(one.message, "End the running shell?");
+        assert_eq!(one.confirm, "End Shell");
+        assert!(
+            one.detail
+                .contains("What runs in it in the foreground ends too.")
+        );
+        assert!(one.detail.starts_with("shell · /tmp\n\n"));
+        assert!(!one.detail.contains("Agent"));
+    }
+
+    #[test]
+    fn the_question_lists_every_shell_and_says_agents_only_detach() {
+        let shells = vec![
+            "shell · /tmp".to_owned(),
+            "shell · /Users/me/code".to_owned(),
+        ];
+        let quit = close_question(&shells, 1, true).unwrap();
+        assert_eq!(quit.message, "Quit paddock and end the running shells?");
+        assert_eq!(quit.confirm, "Quit");
+        assert!(quit.detail.contains("What runs in them"));
+        assert_eq!(
+            close_question(&shells, 0, false).unwrap().confirm,
+            "End Shells"
+        );
+        assert!(
+            quit.detail
+                .starts_with("shell · /tmp\nshell · /Users/me/code\n\n")
+        );
+        assert!(
+            quit.detail
+                .contains("Agent views only detach; the agents keep running.")
+        );
     }
 }

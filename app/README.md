@@ -50,7 +50,7 @@ cargo run --release --manifest-path "$M" --example bundle -- --install
 | View | Fold Agents、Sort Agents by Name（勾选跟随侧栏） |
 | Window | Minimize（⌘M）、Zoom、Next Tab（⇧⌘]）、Previous Tab（⇧⌘[）、Tab 1–9（⌘1…⌘9，⌘9 是最后一个） |
 
-新标签、分屏的选择框打开时 Esc 关闭。About paddock 是单独的小窗口，⌘W 关闭。其他按键都交给终端。
+关窗格、关标签页或退出时，会结束还活着的 shell 就先用系统提示框列出这些 shell，确认后才关；agent 窗格只是断开，agent 继续运行。新标签、分屏的选择框打开时 Esc 关闭。About paddock 是单独的小窗口，⌘W 关闭。其他按键都交给终端。
 
 ## 命令行选项
 

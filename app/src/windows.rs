@@ -137,21 +137,30 @@ pub fn open_about(cx: &mut App) {
     cx.default_global::<Windows>().about = handle.map(|(handle, _)| handle);
 }
 
-/// Quits, once a Settings window with unsaved edits has been saved or its edits dropped; its
-/// Cancel keeps paddock running.
+/// Quits, once a Settings window with unsaved edits has been saved or its edits dropped, and live
+/// shells may end; either Cancel keeps paddock running.
 pub fn quit(cx: &mut App) {
     let windows = cx.default_global::<Windows>();
     if windows.quitting {
         return;
     }
     windows.quitting = true;
-    let settings = windows.settings;
+    let (settings, main) = (windows.settings, windows.main);
     cx.spawn(async move |cx| {
         let mut go = true;
         if let Some(settings) = settings
             && let Ok(answer) = settings.update(cx, |view, window, cx| {
                 window.activate_window();
                 view.confirm_close(window, cx)
+            })
+        {
+            go = answer.await;
+        }
+        if go
+            && let Some(main) = main
+            && let Ok(answer) = main.update(cx, |view, window, cx| {
+                window.activate_window();
+                view.confirm_quit(window, cx)
             })
         {
             go = answer.await;
