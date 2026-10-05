@@ -43,10 +43,12 @@ actions!(
         CreateAgent,
         /// Open or close the Attention list.
         ShowAttention,
-        /// Move in the Attention list, and open the selected item.
-        AttentionNext,
-        AttentionPrevious,
-        AttentionOpen,
+        /// Go to an agent or a Settings page by typing.
+        GoToAgent,
+        /// Move in the Attention or Go to Agent list, and open the selected entry.
+        SelectNext,
+        SelectPrevious,
+        OpenSelected,
     ]
 );
 
@@ -84,9 +86,10 @@ pub fn bindings() -> Vec<KeyBinding> {
         KeyBinding::new("cmd-w", CloseWindow, Some(crate::about::CONTEXT)),
         KeyBinding::new("cmd-shift-n", NewAgent, None),
         KeyBinding::new("cmd-shift-a", ShowAttention, None),
-        KeyBinding::new("down", AttentionNext, Some(DIALOG)),
-        KeyBinding::new("up", AttentionPrevious, Some(DIALOG)),
-        KeyBinding::new("enter", AttentionOpen, Some(DIALOG)),
+        KeyBinding::new("cmd-p", GoToAgent, None),
+        KeyBinding::new("down", SelectNext, Some(DIALOG)),
+        KeyBinding::new("up", SelectPrevious, Some(DIALOG)),
+        KeyBinding::new("enter", OpenSelected, Some(DIALOG)),
         KeyBinding::new(
             "cmd-enter",
             CreateAgent,
@@ -132,6 +135,7 @@ pub fn menus(fold: bool, by_name: bool) -> Vec<Menu> {
             MenuItem::action("New Agent…", NewAgent),
             MenuItem::action("Stop Agent…", StopAgent),
             MenuItem::separator(),
+            MenuItem::action("Go to Agent…", GoToAgent),
             MenuItem::action("Attention…", ShowAttention),
         ]),
         Menu::new("Window").items([
@@ -202,6 +206,7 @@ mod tests {
             ("cmd-shift-n", "paddock::NewAgent"),
             ("cmd-enter", "paddock::CreateAgent"),
             ("cmd-shift-a", "paddock::ShowAttention"),
+            ("cmd-p", "paddock::GoToAgent"),
         ] {
             assert!(
                 shortcuts.iter().any(|(k, a, _)| k == keys && *a == action),

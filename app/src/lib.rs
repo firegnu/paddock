@@ -25,6 +25,7 @@ pub mod pet;
 pub mod preset;
 pub mod pty;
 pub mod rows;
+pub mod search;
 pub mod settings;
 pub mod settings_view;
 pub mod sidebar;
