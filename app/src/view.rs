@@ -7,7 +7,7 @@ use crate::{
     damage, glyphs,
     grid::{self, Metrics, Scroll},
     ime::Composition,
-    keys,
+    keys, menu,
     palette::{Rgb, Theme},
     rows::{self, Run, Span, Style},
     theme,
@@ -366,25 +366,24 @@ impl TerminalView {
         screen.term.selection_to_string().filter(|s| !s.is_empty())
     }
 
+    /// ⌘C: the selection, when there is one.
+    fn copy(&mut self, _: &menu::Copy, _: &mut Window, cx: &mut Context<Self>) {
+        if let Some(text) = self.selection_text() {
+            cx.write_to_clipboard(ClipboardItem::new_string(text));
+        }
+    }
+
+    /// ⌘V: the clipboard's text into the terminal.
+    fn paste_clipboard(&mut self, _: &menu::Paste, _: &mut Window, cx: &mut Context<Self>) {
+        if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
+            self.paste(&text, cx);
+        }
+    }
+
     fn key_down(&mut self, event: &KeyDownEvent, _: &mut Window, cx: &mut Context<Self>) {
         let keystroke = &event.keystroke;
+        // Command shortcuts are menu actions (`menu.rs`); none of them reach the terminal.
         if keystroke.modifiers.platform {
-            match keystroke.key.as_str() {
-                "c" => {
-                    if let Some(text) = self.selection_text() {
-                        cx.write_to_clipboard(ClipboardItem::new_string(text));
-                        cx.stop_propagation();
-                    }
-                }
-                "v" => {
-                    if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
-                        self.paste(&text, cx);
-                    }
-                    cx.stop_propagation();
-                }
-                "q" => cx.quit(),
-                _ => {}
-            }
             return;
         }
         let application_cursor = self.mode().contains(TermMode::APP_CURSOR);
@@ -944,6 +943,8 @@ impl Render for TerminalView {
             .track_focus(&self.focus)
             .key_context("Terminal")
             .on_key_down(cx.listener(Self::key_down))
+            .on_action(cx.listener(Self::copy))
+            .on_action(cx.listener(Self::paste_clipboard))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::mouse_down))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::mouse_up))
             .on_mouse_move(cx.listener(Self::mouse_move))

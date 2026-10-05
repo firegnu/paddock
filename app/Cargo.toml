@@ -31,3 +31,7 @@ toml = "1"
 # Only for printing the native window number, so test screenshots capture this window alone.
 raw-window-handle = "0.6"
 objc2 = "0.6"
+
+[dev-dependencies]
+# Only for `examples/bundle.rs`, writing the app icon (already in the lock through GPUI).
+png = "0.18"

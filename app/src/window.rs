@@ -5,6 +5,7 @@ use crate::{
     config::Config,
     corral::Role,
     layout::{Axis, Direction, Node, PaneId, Placement, Shown, Workspace},
+    menu,
     pet::PetView,
     sidebar::{Sidebar, SidebarEvent},
     theme::Theme,
@@ -30,6 +31,8 @@ enum Popup {
     NewTab,
     /// First the direction, then what the new pane shows.
     Split(Option<Direction>),
+    /// What paddock is.
+    About,
 }
 
 /// Something to open in a new tab or pane.
@@ -58,6 +61,8 @@ pub struct PaddockWindow {
     tabs: ScrollHandle,
     /// The pet in the tab strip's spare room, unless turned off.
     pet: Option<Entity<PetView>>,
+    /// The View menu ticks last set: folded, sorted by name.
+    menu_state: Option<(bool, bool)>,
 }
 
 impl PaddockWindow {
@@ -102,6 +107,7 @@ impl PaddockWindow {
             pet: config
                 .mascot_enabled
                 .then(|| cx.new(|cx| PetView::new(config.mascot, cx))),
+            menu_state: None,
         };
         let view = this.view(options.launch, window, cx);
         this.panes.insert(first, view);
@@ -181,26 +187,54 @@ impl PaddockWindow {
             SidebarEvent::Attach { name, metadata } => {
                 self.show_agent(name, metadata.clone(), window, cx)
             }
-            SidebarEvent::NewShell => {
-                let active = self.workspace.active_pane();
-                if self.workspace.shown(active) == &Shown::Empty {
-                    let NewShell { program, cwd } = &self.new_shell;
-                    let (program, cwd) = (program.clone(), cwd.clone());
-                    self.panes[&active].update(cx, |v, cx| v.start_shell(program, cwd, cx));
-                    self.workspace.set_shown(active, Shown::Shell);
-                } else {
-                    let pane = self.workspace.new_tab(Shown::Shell);
-                    let view = self.view(self.shell(), window, cx);
-                    self.panes.insert(pane, view);
-                }
-                self.focus_active(window, cx);
-            }
+            SidebarEvent::NewShell => self.new_shell(window, cx),
             SidebarEvent::Alive(names) => {
                 let names: Vec<&str> = names.iter().map(String::as_str).collect();
                 for view in self.panes.values() {
                     view.update(cx, |v, _| v.disappeared(&names));
                 }
             }
+        }
+    }
+
+    /// A shell: in the active pane when it is empty, else in a new tab.
+    fn new_shell(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let active = self.workspace.active_pane();
+        if self.workspace.shown(active) == &Shown::Empty {
+            let NewShell { program, cwd } = &self.new_shell;
+            let (program, cwd) = (program.clone(), cwd.clone());
+            self.panes[&active].update(cx, |v, cx| v.start_shell(program, cwd, cx));
+            self.workspace.set_shown(active, Shown::Shell);
+        } else {
+            let pane = self.workspace.new_tab(Shown::Shell);
+            let view = self.view(self.shell(), window, cx);
+            self.panes.insert(pane, view);
+        }
+        self.focus_active(window, cx);
+    }
+
+    fn open_popup(&mut self, popup: Popup, cx: &mut Context<Self>) {
+        self.popup = Some(popup);
+        cx.notify();
+    }
+
+    /// The tab after or before the active one, going round.
+    fn cycle_tab(&mut self, forward: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let count = self.workspace.tabs.len();
+        let index = if forward {
+            (self.workspace.active_tab + 1) % count
+        } else {
+            (self.workspace.active_tab + count - 1) % count
+        };
+        self.select_tab(index, window, cx);
+    }
+
+    /// ⌘1…⌘8 go to that tab if there is one; ⌘9 to the last, as in other macOS apps.
+    fn nth_tab(&mut self, n: usize, window: &mut Window, cx: &mut Context<Self>) {
+        let count = self.workspace.tabs.len();
+        let index = if n == 9 { count - 1 } else { n - 1 };
+        if index < count {
+            self.select_tab(index, window, cx);
         }
     }
 
@@ -252,7 +286,7 @@ impl PaddockWindow {
         let direction = match popup {
             Popup::NewTab => None,
             Popup::Split(Some(direction)) => Some(direction),
-            Popup::Split(None) => return,
+            Popup::Split(None) | Popup::About => return,
         };
         if let Choice::Agent(name) = &choice
             && let Some(old) = self.workspace.find(name)
@@ -604,9 +638,26 @@ impl PaddockWindow {
             Popup::NewTab => "Open in a new tab".to_owned(),
             Popup::Split(None) => "Split: which side?".to_owned(),
             Popup::Split(Some(direction)) => format!("Split {}", side(direction)),
+            Popup::About => "paddock".to_owned(),
         };
         let mut body = div().flex().flex_col().gap(px(2.0));
-        if popup == Popup::Split(None) {
+        if popup == Popup::About {
+            body = body
+                .px(px(4.0))
+                .gap(px(6.0))
+                .text_size(px(TEXT))
+                .child(format!("Version {}", env!("CARGO_PKG_VERSION")))
+                .child(
+                    div()
+                        .text_color(self.fg(|t| t.muted))
+                        .child("A desktop home for corral agents, built with GPUI."),
+                )
+                .child(div().text_color(self.fg(|t| t.agents_dim)).child(
+                    "Terminal and agent code, themes and pets come from Saddle. \
+                     Clawd is Claude Code's mascot, from Anthropic; the cat and the \
+                     capybara are Saddle originals.",
+                ));
+        } else if popup == Popup::Split(None) {
             let mut grid = div().flex().flex_wrap().gap(px(6.0));
             for (direction, label) in [
                 (Direction::Left, "← Left"),
@@ -738,6 +789,12 @@ fn side(direction: Direction) -> &'static str {
 impl Render for PaddockWindow {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.fill(window, cx);
+        // The View menu ticks follow the sidebar.
+        let view_state = self.sidebar.read(cx).view_state();
+        if self.menu_state != Some(view_state) {
+            self.menu_state = Some(view_state);
+            cx.set_menus(menu::menus(view_state.0, view_state.1));
+        }
         let root = self.workspace.tab().root.clone();
         let content = div()
             .flex_1()
@@ -761,6 +818,64 @@ impl Render for PaddockWindow {
             .flex()
             .flex_row()
             .bg(hsla(self.theme.bg(|t| t.agents_bg), 1.0))
+            .when(self.popup.is_some(), |root| root.key_context(menu::DIALOG))
+            .on_action(
+                cx.listener(|this, _: &menu::About, _, cx| this.open_popup(Popup::About, cx)),
+            )
+            .on_action(
+                cx.listener(|this, _: &menu::NewTab, _, cx| this.open_popup(Popup::NewTab, cx)),
+            )
+            .on_action(
+                cx.listener(|this, _: &menu::NewShell, window, cx| this.new_shell(window, cx)),
+            )
+            .on_action(cx.listener(|this, _: &menu::SplitRight, _, cx| {
+                this.open_popup(Popup::Split(Some(Direction::Right)), cx)
+            }))
+            .on_action(cx.listener(|this, _: &menu::SplitDown, _, cx| {
+                this.open_popup(Popup::Split(Some(Direction::Down)), cx)
+            }))
+            .on_action(cx.listener(|this, _: &menu::SplitLeft, _, cx| {
+                this.open_popup(Popup::Split(Some(Direction::Left)), cx)
+            }))
+            .on_action(cx.listener(|this, _: &menu::SplitUp, _, cx| {
+                this.open_popup(Popup::Split(Some(Direction::Up)), cx)
+            }))
+            .on_action(
+                cx.listener(|this, _: &menu::ClosePane, window, cx| this.close_pane(window, cx)),
+            )
+            .on_action(cx.listener(|this, _: &menu::CloseTab, window, cx| {
+                let index = this.workspace.active_tab;
+                this.close_tab(index, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &menu::ToggleFold, _, cx| {
+                this.sidebar.update(cx, |s, cx| s.toggle_fold(cx));
+                cx.notify();
+            }))
+            .on_action(cx.listener(|this, _: &menu::ToggleSortByName, _, cx| {
+                this.sidebar.update(cx, |s, cx| s.toggle_sort(cx));
+                cx.notify();
+            }))
+            .on_action(cx.listener(|_, _: &menu::Minimize, window, _| window.minimize_window()))
+            .on_action(cx.listener(|_, _: &menu::Zoom, window, _| window.zoom_window()))
+            .on_action(
+                cx.listener(|this, _: &menu::NextTab, window, cx| this.cycle_tab(true, window, cx)),
+            )
+            .on_action(cx.listener(|this, _: &menu::PreviousTab, window, cx| {
+                this.cycle_tab(false, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &menu::Tab1, w, cx| this.nth_tab(1, w, cx)))
+            .on_action(cx.listener(|this, _: &menu::Tab2, w, cx| this.nth_tab(2, w, cx)))
+            .on_action(cx.listener(|this, _: &menu::Tab3, w, cx| this.nth_tab(3, w, cx)))
+            .on_action(cx.listener(|this, _: &menu::Tab4, w, cx| this.nth_tab(4, w, cx)))
+            .on_action(cx.listener(|this, _: &menu::Tab5, w, cx| this.nth_tab(5, w, cx)))
+            .on_action(cx.listener(|this, _: &menu::Tab6, w, cx| this.nth_tab(6, w, cx)))
+            .on_action(cx.listener(|this, _: &menu::Tab7, w, cx| this.nth_tab(7, w, cx)))
+            .on_action(cx.listener(|this, _: &menu::Tab8, w, cx| this.nth_tab(8, w, cx)))
+            .on_action(cx.listener(|this, _: &menu::Tab9, w, cx| this.nth_tab(9, w, cx)))
+            .on_action(cx.listener(|this, _: &menu::Cancel, _, cx| {
+                this.popup = None;
+                cx.notify();
+            }))
             .child(self.sidebar.clone())
             .child(main)
             .children(dialog)
