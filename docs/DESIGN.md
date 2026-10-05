@@ -103,6 +103,8 @@ Saddle 本身（含 TUI、插件、Drover、遥测、`saddle ctl`）继续独立
 - **Saddle 的 Terminal 主题**（全部跟随外层终端）在 paddock 里没有对应物：不提供，或另作处理，实现时给方案。
 - **配置**：paddock 自己的配置文件，写法照 Saddle：`theme = "…"` 选预置主题，`[colors]` 覆盖单个颜色，最终颜色＝预置＋覆盖。不读写 Saddle 的配置文件。
 - **第一阶段**只用配置文件，改完重启生效；不做设置页。
+- **调色板**（用户 10-05 看截图后批准）：Dune 取 Gruvbox dark，Tide 取 Nord，Lagoon 取 Everforest dark（均 MIT，出处写在 `app/src/theme.rs`）；除 0 号外 15 色在底色上对比度 ≥3:1。终端配色的 `[colors]` 键为 `terminal_*`，见 `app/README.md`。
+- **terminal 主题**：不提供，写了报错。
 
 ## 9. 第一阶段
 
