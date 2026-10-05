@@ -4195,6 +4195,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "paddock"
+version = "0.0.0"
+dependencies = [
+ "alacritty_terminal",
+ "anyhow",
+ "crossterm",
+ "gpui-pre",
+ "gpui-pre-platform",
+ "objc2 0.6.4",
+ "ratatui",
+ "raw-window-handle",
+ "saddle",
+ "serde",
+ "toml 1.1.6+spec-1.1.0",
+]
+
+[[package]]
 name = "palette"
 version = "0.7.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5368,21 +5385,6 @@ dependencies = [
  "serde_json",
  "sha2",
  "ureq",
-]
-
-[[package]]
-name = "saddle-gpui-terminal-prototype"
-version = "0.0.0"
-dependencies = [
- "alacritty_terminal",
- "anyhow",
- "crossterm",
- "gpui-pre",
- "gpui-pre-platform",
- "objc2 0.6.4",
- "ratatui",
- "raw-window-handle",
- "saddle",
 ]
 
 [[package]]

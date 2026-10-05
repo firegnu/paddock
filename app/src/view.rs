@@ -10,6 +10,7 @@ use crate::{
     keys,
     palette::{Rgb, Theme},
     rows::{self, Run, Span, Style},
+    theme,
 };
 use alacritty_terminal::{
     grid::{Dimensions, Scroll as ViewScroll},
@@ -60,6 +61,7 @@ pub struct TerminalView {
     /// Set only for `Launch::Command`; the viewer stays idle then.
     direct: Option<Session>,
     label: String,
+    subject: String,
     focus: FocusHandle,
     font: Font,
     font_size: Pixels,
@@ -67,7 +69,7 @@ pub struct TerminalView {
     metrics: Option<Metrics>,
     size: Size,
     origin: Point<Pixels>,
-    theme: Theme,
+    theme: Rc<theme::Theme>,
     ime: Composition,
     scroll: Scroll,
     /// A left press that started a selection, or one reported to the program.
@@ -96,7 +98,12 @@ struct Stats {
 }
 
 impl TerminalView {
-    pub fn new(options: Options, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        options: Options,
+        theme: Rc<theme::Theme>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let size = Size { rows: 24, cols: 80 };
         let mut viewer = Viewer::new(match &options.launch {
             Launch::Agent { corral, .. } => corral.clone(),
@@ -104,7 +111,7 @@ impl TerminalView {
         });
         let mut direct = None;
         let mut note = String::new();
-        let label = match options.launch {
+        let (label, subject) = match options.launch {
             Launch::Shell { program, cwd } => {
                 viewer.start_shell(Shell {
                     program: program.clone(),
@@ -113,20 +120,21 @@ impl TerminalView {
                     exit_code: None,
                     env: Vec::new(),
                 });
-                format!("{program} · {cwd}")
+                (format!("{program} · {cwd}"), format!("shell · {cwd}"))
             }
             Launch::Agent { name, .. } => {
                 if let Err(error) = viewer.select_agent(name.clone(), AgentMetadata::default()) {
                     note = format!("{error:#}");
                 }
-                format!("corral attach {name}")
+                (format!("corral attach {name}"), name)
             }
             Launch::Command { argv, cwd } => {
                 match Session::spawn(&argv, cwd.as_deref(), size) {
                     Ok(session) => direct = Some(session),
                     Err(error) => note = format!("{error:#}"),
                 }
-                argv.join(" ")
+                let command = argv.join(" ");
+                (command.clone(), command)
             }
         };
         let focus = cx.focus_handle();
@@ -151,6 +159,7 @@ impl TerminalView {
             viewer,
             direct,
             label,
+            subject,
             focus,
             font,
             font_size: px(options.font_size),
@@ -158,11 +167,7 @@ impl TerminalView {
             metrics: None,
             size,
             origin: Point::default(),
-            theme: Theme {
-                foreground: (220, 220, 220),
-                background: (24, 24, 27),
-                cursor: (220, 220, 220),
-            },
+            theme,
             ime: Composition::default(),
             scroll: Scroll::default(),
             pressed: None,
@@ -173,6 +178,11 @@ impl TerminalView {
                 .stats
                 .then(|| Rc::new(RefCell::new(Stats::default()))),
         }
+    }
+
+    /// What the pane is connected to, for the title bar: `shell · <cwd>`, the agent, or the command.
+    pub fn subject(&self) -> &str {
+        &self.subject
     }
 
     fn session(&self) -> Option<&Session> {
@@ -511,7 +521,8 @@ impl TerminalView {
         let mut frame = Frame {
             metrics,
             origin: bounds.origin,
-            theme: self.theme,
+            theme: *self.theme.terminal(),
+            note_color: self.theme.fg(|t| t.danger),
             font: self.font.clone(),
             font_size: self.font_size,
             rows: Vec::new(),
@@ -528,7 +539,7 @@ impl TerminalView {
         };
         let screen = session.screen.lock().unwrap();
         let term = &screen.term;
-        let theme = self.theme;
+        let theme = *self.theme.terminal();
         let offset = term.grid().display_offset() as i32;
         let selection = term.selection.as_ref().and_then(|s| s.to_range(term));
         let rows = size.rows.min(term.screen_lines() as u16);
@@ -590,6 +601,7 @@ pub struct Frame {
     metrics: Metrics,
     origin: Point<Pixels>,
     theme: Theme,
+    note_color: Rgb,
     font: Font,
     font_size: Pixels,
     rows: Vec<(Vec<Span>, Vec<Run>)>,
@@ -599,7 +611,7 @@ pub struct Frame {
     note: Option<String>,
 }
 
-fn hsla((r, g, b): Rgb, alpha: f32) -> Hsla {
+pub fn hsla((r, g, b): Rgb, alpha: f32) -> Hsla {
     Rgba {
         r: f32::from(r) / 255.0,
         g: f32::from(g) / 255.0,
@@ -759,7 +771,7 @@ impl Frame {
         self.paint_cursor(window, cx);
         if let Some(note) = &self.note {
             let style = Style {
-                fg: (230, 120, 120),
+                fg: self.note_color,
                 ..Style::default()
             };
             let shaped = self.shape(note, &style, style.fg, None, window);
@@ -831,7 +843,7 @@ impl Render for TerminalView {
         let stats = self.stats.clone();
         div()
             .size_full()
-            .bg(hsla(self.theme.background, 1.0))
+            .bg(hsla(self.theme.terminal().background, 1.0))
             .p(px(6.0))
             .track_focus(&self.focus)
             .key_context("Terminal")

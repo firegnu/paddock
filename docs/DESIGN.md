@@ -53,7 +53,7 @@ Saddle 本身（含 TUI、插件、Drover、遥测、`saddle ctl`）继续独立
 
 ## 5. 原型结论（2026-10-05）
 
-详见 `prototypes/gpui-terminal/README.md`。
+详见 `docs/原型实测记录.md`。
 
 - **已验证**：
   - 合成样例渲染：中英混排、表情、表格与框线对齐、样式、颜色。
