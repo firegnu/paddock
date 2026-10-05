@@ -17,6 +17,9 @@ Saddle 本身（含 TUI、插件、Drover、遥测、`saddle ctl`）继续独立
 | 先做只有一个窗口、一个终端窗格的原型，在隔离环境开发 | 用户 10-05 批准 |
 | 独立仓库 paddock，原型搬入，上下文写进本仓库 | 用户 10-05 决定 |
 | paddock 与 Saddle 互不影响，尤其是 Rust 依赖 | 用户：“即使合并到主分支，也要隔离起来，不能两边互相影响。尤其是所使用的rust库。” |
+| 原型体验通过 | 用户 10-05：“我觉得是过了” |
+| 要有主题系统，像 Saddle 那样：预置主题＋用户覆盖 | 用户 10-05：“起码有一套theme系统，就像saddle那样。”细节见 §8 |
+| 第一阶段范围：一个窗口、左侧 Agents 列表、右侧一个终端窗格，加主题系统 | 用户 10-05：“第一阶段范围就按你的建议”。细节见 §9 |
 
 ## 3. 与 Saddle 的边界
 
@@ -63,7 +66,7 @@ Saddle 本身（含 TUI、插件、Drover、遥测、`saddle ctl`）继续独立
   1. 没有“有新输出”的通知，原型每 8 ms 轮询。
   2. 网格读取与默认配色绑定 ratatui，原型各写了一份。
   3. 输入编码函数参数是 crossterm/ratatui 类型。
-  4. `Session::spawn` 不能控制环境变量。
+  4. `Session::spawn` 不能控制环境变量。用户体验时实际遇到：从 Claude Code 会话里启动原型，窗格中的 Claude Code 继承了 `CLAUDECODE`、`CLAUDE_CODE_CHILD_SESSION`、`CLAUDE_CODE_MESSAGING_*` 等变量，会话记录被关闭。原型只清理 corral 和 Saddle 的六个身份变量（`CORRAL_NAME`、`CORRAL_INSTANCE`、`CORRAL_EVENTS`、`SADDLE_INSTANCE`、`SADDLE_PANE`、`SADDLE_REVISION`）。
   5. 写入通道容量 64，可能在极大粘贴时返回 busy。
 - **GPUI 方面的发现**：
   - 单独排版的宽字符上自带删除线不显示，原型自己画。
@@ -82,7 +85,7 @@ Saddle 本身（含 TUI、插件、Drover、遥测、`saddle ctl`）继续独立
 
 ## 7. 待定问题
 
-1. 原型体验是否达到要求，是否继续。
+1. ~~原型体验是否达到要求~~：已通过（10-05）；第一阶段范围已定（§9），之后做到哪一步仍待定。
 2. 生产用 GPUI 依赖渠道：固定官方仓库提交，还是继续 `gpui-pre` 快照。
 3. pre-1.0 的 GPUI 是否符合“只用成熟、活跃维护的库”；是否接受工具链跟随最新稳定版 Rust。
 4. 迁移路线（§6）；是否引入 gpui-component；首期是否只做 macOS。
@@ -90,3 +93,22 @@ Saddle 本身（含 TUI、插件、Drover、遥测、`saddle ctl`）继续独立
 6. paddock 与 Saddle TUI 同时运行时，Drover 持有权和布局文件的规则。
 7. 许可、应用名与标识、签名公证，以及何时建远程仓库。
 8. paddock 的任务是否纳入 Saddle 的 Tasks（Drover）管理。
+
+## 8. 主题
+
+用户 10-05 定下（原话和选项见 `docs/背景与决策记录.md` §6）：
+
+- **预置主题沿用 Saddle**：Dune、Tide、Lagoon 的界面色从所引用 Saddle 提交的公开接口读取（`saddle::theme::Preset`、`Theme`、`parse_color`），不复制色值；升级 Saddle 引用时一并检查主题变化。
+- **每套主题自带终端调色板**：16 个基本色，以及终端默认字色、底色、光标、选区。Saddle 的这些颜色由外层终端决定，paddock 没有外层终端，所以要自己定。Saddle 主题里的 `Reset`/默认值也要在 paddock 里换成具体颜色。调色板由实现者出方案，截图给用户批准。
+- **Saddle 的 Terminal 主题**（全部跟随外层终端）在 paddock 里没有对应物：不提供，或另作处理，实现时给方案。
+- **配置**：paddock 自己的配置文件，写法照 Saddle：`theme = "…"` 选预置主题，`[colors]` 覆盖单个颜色，最终颜色＝预置＋覆盖。不读写 Saddle 的配置文件。
+- **第一阶段**只用配置文件，改完重启生效；不做设置页。
+
+## 9. 第一阶段
+
+用户 10-05 批准（原话见 `docs/背景与决策记录.md` §6）：
+
+- 一个窗口：左侧 Agents 列表，右侧一个终端窗格。
+- 点哪个 agent 就接入哪个（`corral attach`），也能开普通 shell。
+- §8 的主题系统。
+- 不做：分屏、标签、插件页面、Drover、布局保存、设置页。
