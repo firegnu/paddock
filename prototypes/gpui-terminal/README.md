@@ -1,0 +1,157 @@
+# T76 GPUI 单窗格终端原型
+
+一个 GPUI 窗口、一个真实终端窗格，接 Saddle 现有的 PTY 会话、终端内核和输入编码。用来回答“GPUI 里自己画的终端能不能达到 Zed 内置终端的体验”，是可丢弃的原型，不是桌面版的起点。任务书见 [T76 终端原型](../../docs/任务/T76-GPUI终端原型.md)，背景见 [T76 方案](../../docs/调研/T76-GPUI桌面化详细方案.md) §4.1、§7、§14（两份都是从 Saddle 仓库复制过来的参考副本）。
+
+来历：原型在 Saddle 仓库的 `t76-gpui-prototype` 分支开发（提交 2c59e17），2026-10-05 按用户决定搬到 paddock 仓库；搬迁时只把对 Saddle 的路径依赖改成按提交号引用，代码、测试和样例不变。下文的实测记录是在 Saddle worktree 里完成的，搬迁后重新跑了测试、clippy 和一次样例渲染，结果一致。
+
+不做：侧栏、分屏、插件页面、布局保存、打包签名。没有改 Saddle 仓库的任何代码。
+
+## 依赖与来源
+
+| 依赖 | 版本 | 说明 |
+| --- | --- | --- |
+| `gpui-pre`、`gpui-pre-platform` | `=0.3.8` | crates.io 上的第三方每周快照，描述为 zed@279fe07 的 GPUI；2026-10-05 发布，发布者 huacnlee（gpui-component 维护者），Apache-2.0。依赖时改名为 `gpui`、`gpui_platform`。 |
+| `gpui_platform` 特性 | `font-kit`、`runtime_shaders` | 见下文“为什么用 runtime_shaders” |
+| `saddle` | git 依赖，`rev = "df1c727"` | Saddle 公开仓库的固定提交，未修改；与原型实测时的代码相同 |
+| `alacritty_terminal` / `crossterm` / `ratatui` | 0.26 / 0.29 / 0.30 | 与 Saddle 相同版本，只为让 Saddle 公开函数的参数类型对上 |
+| `raw-window-handle` / `objc2` | 0.6 / 0.6 | 只用于在测试时打印窗口编号（见“截图”） |
+
+- 独立的 `[workspace]` 和 `Cargo.lock`。锁文件最初以 Saddle 根 `Cargo.lock` 为起点生成，Saddle 已有直接依赖的版本与 Saddle 一致，只新增了 GPUI 带来的依赖；改为 git 依赖时只变了 Saddle 自身 5 个包的来源。
+- 工具链：本机默认的 stable `rustc 1.96.0`，能编过；没有设置独立工具链，也没改机器配置。
+- 实现只用 GPUI 公开接口和本目录代码；没有复制 Zed 的 GPL 应用层代码（`terminal`、`terminal_view`）。只读过 GPUI 自身（Apache-2.0）的源码来确认接口和按键、输入法的分发流程。
+
+### 为什么用 runtime_shaders
+
+本机 Xcode 27.0 没装 Metal 工具链组件，GPUI 默认在编译期调 `metal` 编译着色器，会失败：
+
+```
+error: cannot execute tool 'metal' due to missing Metal Toolchain; use: xcodebuild -downloadComponent MetalToolchain
+```
+
+安装这个组件属于系统安装，按任务书没有做。`runtime_shaders` 让 GPUI 在程序启动时编译着色器，不需要该组件，gpui-component 也是这样配置的。代价是每次启动要编译一次着色器；实测从启动到窗口出现都在 3 秒内，没有单独计时。正式采用前可以再决定是否装组件、改回编译期编译。
+
+## 构建与运行
+
+所有命令在任意目录执行，使用共享编译目录：
+
+```sh
+export CARGO_TARGET_DIR="$HOME/Developer/personal_projs/paddock-worktrees/.target"
+M=/Users/firegnu/Developer/personal_projs/paddock/prototypes/gpui-terminal/Cargo.toml
+
+cargo build --release --manifest-path "$M"
+cargo test --manifest-path "$M"
+cargo clippy --manifest-path "$M" --all-targets -- -D warnings
+
+B="$CARGO_TARGET_DIR/release/gpui-terminal"
+"$B" --cwd ~/Developer/personal_projs/saddle          # 交互 shell（$SHELL -i）
+"$B" --attach saddle/test-t76-you                      # 接入一个已有 corral agent
+"$B" -- /bin/sh -c 'cat samples/render.ans; sleep 600' # 任意程序（在本目录下执行）
+"$B" --help
+```
+
+选项：`--font FAMILY`（默认 Menlo）、`--fallback FAMILY`（可重复；默认依次尝试 Symbols Nerd Font Mono、FiraCode Nerd Font Mono、FiraCode Nerd Font，用来补提示符里的 Nerd Font 图标，没装的会被跳过）、`--size PX`（默认 14）、`--line-height 倍数`（默认 1.3）、`--bounds X,Y,W,H`（窗口位置和大小，单位 pt）、`--stats`（每秒向 stderr 打印帧数和取网格/绘制耗时）。
+
+`--attach` 和 Saddle 一样运行公开的 `corral attach NAME`。关闭窗口只断开接入，agent 继续运行。
+
+`samples/render.ans` 是合成的显示样例（带 ANSI 转义的纯文本），覆盖中英混排、表情、表格、圆角框、粗线框、方块和象限字符、16/256/真彩色、粗体、斜体、下划线、删除线、暗淡、反显。
+
+### 截图
+
+设置 `GPUI_TERM_WINDOW_ID=1` 时，程序启动后向 stderr 打印 `window-id: N`，可用 `screencapture -x -o -l N out.png` 只截这个窗口，不会拍到屏幕上的其他窗口。注意 GPUI 在窗口被完全遮挡时会暂停绘制，此时截到的是遮挡前的画面；窗口重新可见后会画出最新内容。
+
+## 操作方式
+
+| 操作 | 行为 |
+| --- | --- |
+| 打字、中文输入法 | 普通字符和输入法组字都走 GPUI 的平台文本输入接口：组字中的文字带下划线画在光标处，候选框跟随光标；上屏后才把 UTF-8 写入终端 |
+| Enter、Tab、Esc、Backspace、方向键、Home/End、PgUp/PgDn、F1–F12、Ctrl 组合键 | 转成 crossterm 按键后交给 Saddle 的 `input::encode_key`，字节与现有 TUI 一致；Shift+Enter 为 `CSI 13;2u` |
+| Option + 字母 | 保留 macOS 默认，打出 Option 字符（如 ∂）；Option + 方向键等命名键按 Alt 编码 |
+| ⌘C | 有选区时复制选区 |
+| ⌘V | 粘贴；程序开了 bracketed paste 时加括号标记，否则把换行转成回车 |
+| ⌘Q / 关闭窗口 | 退出程序；shell 随之结束，corral agent 继续运行 |
+| 鼠标左键拖动 | 选择文字；双击选词、三击选行。程序开了鼠标上报（如 Claude Code）时按键、拖动、松开交给程序；按住 Shift 可强制本地选择 |
+| 滚轮/触控板 | 程序开了鼠标上报时交给程序；备用屏幕且开了 alternate scroll 时发方向键；否则滚动回看历史。任何输入都会回到底部 |
+| 改变窗口大小 | 按格子重新计算行列并调整 PTY 尺寸 |
+
+## 结构
+
+| 文件 | 作用 | 测试 |
+| --- | --- | --- |
+| `src/keys.rs` | GPUI 按键 → crossterm 按键 → Saddle `encode_key`；普通文字交给输入法 | 有 |
+| `src/grid.rs` | 像素与格子换算、滚轮累计 | 有 |
+| `src/glyphs.rs` | 制表线（细/粗/圆角按直角）和方块、象限、阴影字符按格子画成矩形 | 有 |
+| `src/palette.rs` | 颜色解析：程序设置的调色板优先，其次 xterm 默认 256 色（与 Saddle `terminal.rs` 应答颜色查询的值相同） | 有 |
+| `src/rows.rs` | 从解析后的网格读一行，拆成背景段和文字段（宽字符、画出来的字符单独放） | 有，含用 Saddle `Screen` 解析的用例 |
+| `src/ime.rs` | 输入法组字状态与 UTF-16 范围 | 有 |
+| `src/damage.rs` | 用 alacritty 的变更标记判断是否需要重绘（排除不动的光标） | 有，用 Saddle `Screen` |
+| `src/view.rs` | 窗口内的终端窗格：取网格、绘制、事件与输入法接线 | 无（绘制与接线，靠实际运行检查） |
+| `src/main.rs` | 参数、窗口、启动时清理继承的身份变量 | 无 |
+
+## 复用结果
+
+| Saddle 模块 | 用法 | 结果 |
+| --- | --- | --- |
+| `pty::Session` | 原样使用：启动、写入、调整尺寸、退出检测、关闭时回收 | 可直接复用 |
+| `viewer::Viewer` | 原样使用：`start_shell`、`select_agent`（`corral attach`）、每 8 ms 一次 `tick(size)` | 可直接复用 |
+| `terminal::Screen` | 经 `Session` 使用其解析、尺寸调整、终端查询应答；`term` 字段直接读取 | 可复用；它的 `render` 绑定 ratatui，没用 |
+| `input::encode_key` / `encode_mouse` / `encode_paste` | 经适配层调用 | 可复用，但参数是 crossterm/ratatui 类型，桌面端需要依赖这两个库或改成中性类型 |
+| `history` | 没用。原型直接用 alacritty 的 `scroll_display` 和 `Selection` 做滚动回看和拖选复制 | Saddle 的历史模式（搜索、`n`/`N`）没有移植 |
+
+不改 Saddle 源码就能接上，没有遇到必须改 Saddle 才能继续的阻塞。发现的缺口：
+
+1. **没有“有新输出”的通知。** `Session` 在自己的线程里解析输出，不通知界面。原型每 8 ms 轮询一次，用 alacritty 的变更标记判断是否重绘；该标记总包含光标格，要排除“光标没动”的情况。正式实现最好在 Saddle 侧提供通知。
+2. **网格读取和配色绑在 ratatui 上。** `Screen::render` 只能写 ratatui 的缓冲区，默认调色板是私有函数，原型里各写了一份（`rows::read`、`palette`）。
+3. **输入编码函数的参数是 crossterm/ratatui 类型**（见上表）。
+4. **`Session::spawn` 不能控制环境变量。** 从 agent 里启动原型时，`CORRAL_NAME`、`CORRAL_INSTANCE` 等会被直接运行的程序继承；`spawn_shell` 只对 shell 清理五个变量。原型在启动时清理自身环境（同样五个，另加 `CORRAL_EVENTS`）。Saddle 现有 TUI 的 `corral attach` 路径同样会继承，这里只记录，没有改。
+5. **写入通道有界。** `Session::send` 用容量 64 的通道 `try_send`，极大粘贴或极快输入可能返回“busy”。本轮没有触发，也没专门测。
+6. PTY 和终端尺寸应答里的像素宽高填的是 0；只影响依赖像素尺寸的图片协议，而 alacritty 内核本来就不支持图片协议。
+
+## 实测记录
+
+环境：2026-10-05，macOS 27.0.1（arm64），Xcode 27.0，rustc 1.96.0，release 构建。截图只截原型窗口，留在本机临时目录，未入库。
+
+| 项目 | 方法 | 结果 |
+| --- | --- | --- |
+| 构建 | 首次 debug 全量（含一次着色器失败重试） | 约 8 分钟；之后增量 1–30 秒；release 二进制 9.2 MB |
+| 自动检查 | `cargo test`、`cargo clippy --all-targets -D warnings` | 31 项通过，clippy 无警告（`block v0.1.6` 为上游依赖的未来兼容提示） |
+| 合成样例渲染 | `samples/render.ans` | 通过：中英混排、表情、粗体、斜体、下划线、删除线、暗淡、反显、代码配色、16/256/真彩色、方块和象限字符均正确 |
+| 对齐 | 同上，表格、圆角框、粗线框、`\|中\|文\|` 对照 | 通过；圆角按直角画（设计取舍，保证和直线对接） |
+| 删除线 | 英文和中文 | GPUI 自带的删除线在单独排版的宽字符上不显示，原型改为按格子自己画，通过 |
+| Nerd Font 图标 | 提示符私有区图标 | Menlo 下显示为方框；加后备字体（本机装有 FiraCode Nerd Font）后通过 |
+| 尺寸协商 | 窗口 1000×640、600×300 下运行 `stty size` | 117×34、69×16，与像素换算一致；`TERM=xterm-256color`、`COLORTERM=truecolor` |
+| 交互 shell | 默认启动 `zsh -i` | 提示符正常；关闭窗口后 shell 结束 |
+| 身份变量 | 在窗格里打印 `CORRAL_NAME`、`CORRAL_EVENTS` | 已清空 |
+| 真实 Claude Code | 自建 `saddle/test-t76-claude`，原型 `--attach`，用 `corral send` 发中英混排、表格、表情、代码块请求和一个 40 行列表 | 通过：Claude Code 界面、回复中的表格和列表对齐正确；接入时 `attached` 为 1，关闭窗口后为 0，同一实例继续运行；测试结束后已 `corral stop` |
+| 大量输出 | `seq 1 3000000`；100 万行中英混排加表情 | 原型内 2.92 秒、0.90 秒；对照“裸 PTY 转发到 /dev/null”4.08 秒、1.22 秒（多一层转发，不严格可比，只说明原型不拖慢输出）。输出期间约 100–120 帧/秒，单帧绘制平均 < 0.3 ms，取网格最长 16.6 ms（与解析线程争锁） |
+| 窗口遮挡 | 窗口被其他窗口挡住时观察 | GPUI 暂停绘制；重新可见后画出最新内容 |
+| 系统信息工具图标 | 交互 shell 里的 fastfetch 类工具 | 它沿父进程链找到 Ghostty，发了 Kitty 图片协议，alacritty 内核不支持，显示为乱码。从程序坞启动时不会这样；Saddle 现有 TUI 窗格同样不支持该协议 |
+
+### 没有亲自操作、留给用户体验的
+
+我没有往原型窗口里输入过任何按键：用脚本模拟系统按键可能把字打进你正在用的其他窗口，所以没做。因此下面各项都**没有经过实际操作验证**，自动测试只覆盖了按键映射、组字状态和编码字节：
+
+- **键盘直接输入**：英文、数字、标点在窗口里打字是否正常写入。
+- **中文输入法组字**：用真实输入法打拼音，组字中的显示、候选框位置、空格/回车上屏、Esc 取消、组字时的退格。这与“字符直接写入”是两条不同路径，后者也未实测。
+- Enter、Shift+Enter、Ctrl-C、方向键、Tab 在 Claude Code 里的实际效果。
+- ⌘C 复制、⌘V 粘贴（含多行和中文）。
+- 鼠标拖选、双击、三击；在 Claude Code 里点击。
+- 滚轮/触控板滚动的方向和速度、回看后输入回到底部。
+- 拖动改变窗口大小时的重排（只验证了启动尺寸）。
+- 失焦时光标变空心、Option 键行为。
+- 与 Zed 内置终端并排对比的主观手感。
+
+## 已知不足
+
+- 光标不闪烁；没有粗体变亮色、超链接、OSC 标题、焦点上报、Kitty 键盘/图片协议。
+- 鼠标上报只处理左键和滚轮，右键、中键没接。
+- 圆角按直角画；双线、虚线、斜线仍用字体字形，可能有缝。
+- 配色固定为深色，没接 Saddle 的主题；字号、行高只能从命令行设，没有快捷键。
+- 回看历史没有 Saddle 历史模式的搜索；输出滚动时选区不跟随调整。
+- Option 键固定为 macOS 字符，没有“当作 Meta”的开关。
+
+## 建议的体验步骤
+
+1. 按上面的命令构建 release。
+2. `"$B" --cwd ~/Developer/personal_projs/saddle` 打开 shell，先打几行英文命令，再切中文输入法输入几句中文。
+3. 在窗格里直接运行 `claude`，发你在 Zed 里用过的那句测试语，并排对比 Zed 内置终端：显示、打字手感、中文输入、滚动、复制、窗口缩放、大量输出时是否卡顿。
+4. 如要测 `--attach`，用你自己开的测试 agent，不要接正在工作的 agent。

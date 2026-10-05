@@ -1,0 +1,30 @@
+# Throwaway T76 prototype: one GPUI window with one live terminal pane.
+# Its own workspace and lock; Saddle is consumed only as a pinned library.
+[workspace]
+
+[package]
+name = "saddle-gpui-terminal-prototype"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.96"
+publish = false
+
+[[bin]]
+name = "gpui-terminal"
+path = "src/main.rs"
+
+[dependencies]
+# The Saddle library, pinned to the commit the prototype was tested against.
+# Bump the rev deliberately (see AGENTS.md), never switch to a path dependency.
+saddle = { git = "https://github.com/firegnu/saddle.git", rev = "df1c727" }
+# Pinned gpui-pre snapshot of zed@279fe07 (see README.md for the source).
+gpui = { package = "gpui-pre", version = "=0.3.8" }
+gpui_platform = { package = "gpui-pre-platform", version = "=0.3.8", features = ["font-kit", "runtime_shaders"] }
+# Same versions Saddle uses, so its public types line up.
+alacritty_terminal = "0.26"
+crossterm = "0.29"
+ratatui = "0.30"
+anyhow = "1"
+# Only for printing the native window number, so test screenshots capture this window alone.
+raw-window-handle = "0.6"
+objc2 = "0.6"
