@@ -1258,3 +1258,35 @@ impl EntityInputHandler for TerminalView {
         None
     }
 }
+
+/// For the command palette's text search (`search.rs`), which looks through every open pane.
+impl TerminalView {
+    /// The screen the pane draws, to search off the UI thread; none without a session.
+    pub fn screen(&self) -> Option<std::sync::Arc<std::sync::Mutex<crate::terminal::Screen>>> {
+        self.session().map(|session| session.screen.clone())
+    }
+
+    /// A match chosen in the palette, selected and scrolled into view, with the find bar open on
+    /// `query` so ⌘G and ⌘⇧G go on from it.
+    pub fn show_match(
+        &mut self,
+        query: &str,
+        hit: &crate::find::Hit,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.open_find(&menu::Find, window, cx);
+        if let Some(bar) = &self.find {
+            let query = query.to_owned();
+            bar.input.update(cx, |input, cx| input.set_text(query, cx));
+        }
+        let found = match self.session() {
+            Some(session) => find::reveal(&mut session.screen.lock().unwrap().term, query, hit),
+            None => false,
+        };
+        if let Some(bar) = &mut self.find {
+            bar.missed = !found;
+        }
+        cx.notify();
+    }
+}

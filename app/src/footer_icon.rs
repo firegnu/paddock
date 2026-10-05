@@ -30,6 +30,12 @@ pub enum Icon {
     Restore,
     /// A bell: the sidebar header's Attention badge.
     Bell,
+    /// A magnifier: the title bar's Search and the command palette's field.
+    Search,
+    /// Two sliders: a Settings page in the command palette.
+    Settings,
+    /// A chevron: a command in the command palette.
+    Command,
 }
 
 /// `icon` in `color`, `SIZE` points square times `scale` (the interface size over the base).
@@ -175,7 +181,47 @@ fn shapes(icon: Icon, bounds: Bounds<Pixels>, scale: f32) -> Vec<PathBuilder> {
             clapper.line_to(at(8.25, 12.0));
             vec![bell, clapper]
         }
+        Icon::Search => {
+            let mut lens = stroke();
+            circle(&mut lens, at(6.0, 6.0), 4.25 * scale);
+            let mut handle = stroke();
+            handle.move_to(at(9.25, 9.25));
+            handle.line_to(at(12.5, 12.5));
+            vec![lens, handle]
+        }
+        Icon::Settings => {
+            let mut rails = stroke();
+            rails.move_to(at(1.5, 4.5));
+            rails.line_to(at(7.25, 4.5));
+            rails.move_to(at(10.75, 4.5));
+            rails.line_to(at(12.5, 4.5));
+            rails.move_to(at(1.5, 9.5));
+            rails.line_to(at(3.25, 9.5));
+            rails.move_to(at(6.75, 9.5));
+            rails.line_to(at(12.5, 9.5));
+            let mut upper = stroke();
+            circle(&mut upper, at(9.0, 4.5), 1.75 * scale);
+            let mut lower = stroke();
+            circle(&mut lower, at(5.0, 9.5), 1.75 * scale);
+            vec![rails, upper, lower]
+        }
+        Icon::Command => {
+            let mut chevron = stroke();
+            chevron.move_to(at(5.5, 3.5));
+            chevron.line_to(at(9.0, 7.0));
+            chevron.line_to(at(5.5, 10.5));
+            vec![chevron]
+        }
     }
+}
+
+/// A closed circle round `centre` of radius `r`.
+fn circle(path: &mut PathBuilder, centre: Point<Pixels>, r: f32) {
+    let (r, radii) = (px(r), point(px(r), px(r)));
+    path.move_to(point(centre.x + r, centre.y));
+    path.arc_to(radii, px(0.0), false, true, point(centre.x - r, centre.y));
+    path.arc_to(radii, px(0.0), false, true, point(centre.x + r, centre.y));
+    path.close();
 }
 
 /// A closed rectangle from `min` to `max` with corners of radius `r`.
