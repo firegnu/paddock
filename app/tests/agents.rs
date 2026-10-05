@@ -195,3 +195,27 @@ fn initially_empty_list_stays_expanded_when_agents_arrive() {
     );
     assert!(!panel.folded());
 }
+
+/// paddock has no list cursor: the agent first in the list keeps its new reply until it is shown
+/// in the active pane.
+#[test]
+fn without_a_cursor_only_the_shown_agent_counts_as_read() {
+    let mut panel = Panel::default();
+    panel.absorb(
+        vec![agent("p/a", "working"), agent("p/b", "idle")],
+        None,
+        100.0,
+    );
+    panel.absorb(
+        vec![agent("p/a", "idle"), agent("p/b", "idle")],
+        None,
+        101.0,
+    );
+    assert!(panel.unread.contains("p/a"));
+    panel.absorb(
+        vec![agent("p/a", "idle"), agent("p/b", "idle")],
+        Some("p/a"),
+        102.0,
+    );
+    assert!(!panel.unread.contains("p/a"));
+}

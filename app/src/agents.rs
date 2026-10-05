@@ -1,5 +1,6 @@
 //! The Agents list model: ordering, grouping, status and the Git summaries by directory. From
-//! Saddle `src/agents.rs` at commit `df1c727`, unchanged.
+//! Saddle `src/agents.rs` at commit `df1c727`. Changed for paddock, which has no list cursor: being
+//! selected no longer counts as read; only the agent shown in the active pane does.
 use crate::corral::Agent;
 use std::collections::{HashMap, HashSet};
 
@@ -55,10 +56,10 @@ impl Panel {
             .iter()
             .any(|a| Some(&a.name) == self.selected.as_ref())
         {
+            // A selection made for the list, not by looking: it leaves new replies unread.
+            let unread = self.unread.clone();
             self.select(self.ordered(now).first().map(|a| a.name.clone()));
-        }
-        if let Some(name) = &self.selected {
-            self.unread.remove(name);
+            self.unread = unread;
         }
         if let Some(name) = showing {
             self.unread.remove(name);

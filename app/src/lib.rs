@@ -2,6 +2,7 @@
 //! so they can be tested without a window.
 pub mod about;
 pub mod agents;
+pub mod attention;
 pub mod card;
 pub mod command;
 pub mod config;
