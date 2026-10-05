@@ -1,8 +1,39 @@
 //! Saddle's interface colours for the Dune, Tide and Lagoon presets, and how a configured colour is
 //! written. From Saddle `src/theme.rs` at commit `df1c727`, kept apart from Saddle since then
 //! (DESIGN §8). Not taken: the Terminal preset (paddock has no outer terminal), the 256-colour
-//! fallback, `[colors]` deserialisation, and the ratatui block and layout helpers.
-use ratatui::style::Color;
+//! fallback, `[colors]` deserialisation, and the ratatui block and layout helpers. Since M1 colours
+//! are paddock's own `Color` below instead of ratatui's, with the same values.
+
+/// A configured interface colour: the terminal's default, one of the 16 basic colours, an entry of
+/// the 256-colour palette, or RGB.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Color {
+    #[default]
+    Reset,
+    Black,
+    Red,
+    Green,
+    Yellow,
+    Blue,
+    Magenta,
+    Cyan,
+    Gray,
+    DarkGray,
+    LightRed,
+    LightGreen,
+    LightYellow,
+    LightBlue,
+    LightMagenta,
+    LightCyan,
+    White,
+    Rgb(u8, u8, u8),
+    Indexed(u8),
+}
+impl From<(u8, u8, u8)> for Color {
+    fn from((r, g, b): (u8, u8, u8)) -> Self {
+        Color::Rgb(r, g, b)
+    }
+}
 
 pub const BG: Color = Color::Reset;
 pub const OVERLAY: Color = Color::Reset;

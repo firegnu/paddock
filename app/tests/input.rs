@@ -1,5 +1,6 @@
 //! From Saddle `tests/input.rs` at commit `df1c727`, without the tests of the TUI focus routing.
-use crossterm::event::{KeyCode as K, KeyEvent, KeyModifiers as M};
+//! Since M1 the events are paddock's own types; the expected bytes are unchanged.
+use paddock::input::{KeyCode as K, KeyEvent, Modifiers as M};
 fn key(code: K, modifiers: M) -> KeyEvent {
     KeyEvent::new(code, modifiers)
 }
@@ -21,10 +22,10 @@ fn terminal_keys_preserve_utf8_control_alt_and_cursor_modes() {
 #[test]
 fn mouse_coordinates_are_local_and_paste_obeys_inner_terminal_mode() {
     use alacritty_terminal::term::TermMode as T;
-    use crossterm::event::{MouseButton as B, MouseEvent, MouseEventKind as E};
-    use paddock::input::{encode_mouse, encode_paste};
-    use ratatui::layout::Rect;
-    let area = Rect::new(53, 1, 66, 38);
+    use paddock::input::{
+        Area, MouseButton as B, MouseEvent, MouseEventKind as E, encode_mouse, encode_paste,
+    };
+    let area = Area::new(53, 1, 66, 38);
     let event = MouseEvent {
         kind: E::Down(B::Left),
         column: 55,

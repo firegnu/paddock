@@ -1,15 +1,128 @@
 //! Key, mouse and paste encoding for the terminal. From Saddle `src/input.rs` at commit `df1c727`,
-//! without the TUI's focus routing (`Focus`, `Route`).
-use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+//! without the TUI's focus routing (`Focus`, `Route`). Since M1 the events are paddock's own types
+//! below instead of crossterm's (and the pane area instead of ratatui's `Rect`); the bytes are
+//! unchanged.
+
+/// A key the terminal encodes itself; plain text comes through the platform text input instead.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum KeyCode {
+    Char(char),
+    Enter,
+    Tab,
+    BackTab,
+    Backspace,
+    Esc,
+    Up,
+    Down,
+    Left,
+    Right,
+    Home,
+    End,
+    PageUp,
+    PageDown,
+    Insert,
+    Delete,
+    F(u8),
+}
+
+/// The modifiers the terminal encodings know about.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Modifiers {
+    pub shift: bool,
+    pub alt: bool,
+    pub control: bool,
+}
+impl Modifiers {
+    pub const NONE: Self = Self {
+        shift: false,
+        alt: false,
+        control: false,
+    };
+    pub const SHIFT: Self = Self {
+        shift: true,
+        ..Self::NONE
+    };
+    pub const ALT: Self = Self {
+        alt: true,
+        ..Self::NONE
+    };
+    pub const CONTROL: Self = Self {
+        control: true,
+        ..Self::NONE
+    };
+}
+
+/// A key press.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct KeyEvent {
+    pub code: KeyCode,
+    pub modifiers: Modifiers,
+}
+impl KeyEvent {
+    pub fn new(code: KeyCode, modifiers: Modifiers) -> Self {
+        Self { code, modifiers }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MouseButton {
+    Left,
+    Middle,
+    Right,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MouseEventKind {
+    Down(MouseButton),
+    Up(MouseButton),
+    Drag(MouseButton),
+    Moved,
+    ScrollUp,
+    ScrollDown,
+    ScrollLeft,
+    ScrollRight,
+}
+
+/// A mouse event at a cell, in the same coordinates as the `Area` it is encoded against.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MouseEvent {
+    pub kind: MouseEventKind,
+    pub column: u16,
+    pub row: u16,
+    pub modifiers: Modifiers,
+}
+
+/// The cells the terminal occupies; mouse positions are reported relative to its corner.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Area {
+    pub x: u16,
+    pub y: u16,
+    pub width: u16,
+    pub height: u16,
+}
+impl Area {
+    pub fn new(x: u16, y: u16, width: u16, height: u16) -> Self {
+        Self {
+            x,
+            y,
+            width,
+            height,
+        }
+    }
+    fn contains(&self, column: u16, row: u16) -> bool {
+        column >= self.x
+            && row >= self.y
+            && u32::from(column) < u32::from(self.x) + u32::from(self.width)
+            && u32::from(row) < u32::from(self.y) + u32::from(self.height)
+    }
+}
 
 pub fn encode_key(key: KeyEvent, application_cursor: bool) -> Vec<u8> {
-    if key.kind == KeyEventKind::Release {
-        return Vec::new();
-    }
-    let modifiers = key.modifiers;
-    let shift = modifiers.contains(KeyModifiers::SHIFT);
-    let alt = modifiers.contains(KeyModifiers::ALT);
-    let ctrl = modifiers.contains(KeyModifiers::CONTROL);
+    let Modifiers {
+        shift,
+        alt,
+        control: ctrl,
+    } = key.modifiers;
     let parameter = 1 + u8::from(shift) + 2 * u8::from(alt) + 4 * u8::from(ctrl);
     if key.code == KeyCode::Enter && (shift || ctrl) {
         return format!("\x1b[13;{parameter}u").into_bytes();
@@ -66,13 +179,13 @@ pub fn encode_key(key: KeyEvent, application_cursor: bool) -> Vec<u8> {
 }
 
 pub fn encode_mouse(
-    event: crossterm::event::MouseEvent,
-    area: ratatui::layout::Rect,
+    event: MouseEvent,
+    area: Area,
     mode: alacritty_terminal::term::TermMode,
 ) -> Vec<u8> {
     use alacritty_terminal::term::TermMode as T;
-    use crossterm::event::{MouseButton as B, MouseEventKind as E};
-    if !area.contains((event.column, event.row).into()) || !mode.intersects(T::MOUSE_MODE) {
+    use {MouseButton as B, MouseEventKind as E};
+    if !area.contains(event.column, event.row) || !mode.intersects(T::MOUSE_MODE) {
         return Vec::new();
     }
     let (mut code, release) = match event.kind {
@@ -106,13 +219,13 @@ pub fn encode_mouse(
     if release && !mode.contains(T::SGR_MOUSE) {
         code = 3;
     }
-    if event.modifiers.contains(KeyModifiers::SHIFT) {
+    if event.modifiers.shift {
         code += 4;
     }
-    if event.modifiers.contains(KeyModifiers::ALT) {
+    if event.modifiers.alt {
         code += 8;
     }
-    if event.modifiers.contains(KeyModifiers::CONTROL) {
+    if event.modifiers.control {
         code += 16;
     }
     let x = u32::from(event.column - area.x + 1);

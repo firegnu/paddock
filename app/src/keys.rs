@@ -1,7 +1,7 @@
 //! Which key presses the terminal encodes itself. Plain printable text is left to the platform
-//! text input (and so to the input method); everything else is converted to the crossterm event
-//! Saddle's existing `input::encode_key` already understands.
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+//! text input (and so to the input method); everything else is converted to the key event
+//! `input::encode_key` understands.
+use crate::input::{KeyCode, KeyEvent, Modifiers};
 use gpui::Keystroke;
 
 pub fn key_event(keystroke: &Keystroke) -> Option<KeyEvent> {
@@ -9,10 +9,11 @@ pub fn key_event(keystroke: &Keystroke) -> Option<KeyEvent> {
     if m.platform {
         return None;
     }
-    let mut modifiers = KeyModifiers::NONE;
-    modifiers.set(KeyModifiers::SHIFT, m.shift);
-    modifiers.set(KeyModifiers::ALT, m.alt);
-    modifiers.set(KeyModifiers::CONTROL, m.control);
+    let mut modifiers = Modifiers {
+        shift: m.shift,
+        alt: m.alt,
+        control: m.control,
+    };
     let code = match keystroke.key.as_str() {
         "enter" => KeyCode::Enter,
         "tab" if m.shift => KeyCode::BackTab,
@@ -43,7 +44,7 @@ pub fn key_event(keystroke: &Keystroke) -> Option<KeyEvent> {
         }
     };
     if code == KeyCode::BackTab {
-        modifiers.remove(KeyModifiers::SHIFT);
+        modifiers.shift = false;
     }
     Some(KeyEvent::new(code, modifiers))
 }

@@ -1,6 +1,6 @@
 # paddock：设计
 
-状态：第一阶段完成；迁移第一步 M0 已完成，不再依赖 Saddle 的库（2026-10-05）。本文记录已定决定、与 Saddle 的关系和待定问题；完整调研见 `docs/调研/T76-GPUI桌面化详细方案.md`（Saddle 原文的副本，作依据，不随本文更新）。来历和用户原话见 `docs/背景与决策记录.md`。
+状态：第一阶段完成；迁移 M0、M1 已完成，不再依赖 Saddle 的库，也不再用 ratatui、crossterm（2026-10-05）。本文记录已定决定、与 Saddle 的关系和待定问题；完整调研见 `docs/调研/T76-GPUI桌面化详细方案.md`（Saddle 原文的副本，作依据，不随本文更新）。来历和用户原话见 `docs/背景与决策记录.md`。
 
 ## 1. 是什么
 
@@ -44,7 +44,7 @@ paddock 与 Saddle 在代码上完全分开：用到的 Saddle 代码迁入 padd
 ## 4. 依赖与工具链隔离
 
 - 每个 Cargo 清单有自己的 `[workspace]` 和 `Cargo.lock`。
-- 不再有 `saddle` 依赖（M0；锁文件因此少了 32 个包，其余版本未变）。`alacritty_terminal`、`portable-pty` 等库的版本由 paddock 自己决定，不再要求与 Saddle 一致；升级照常作为单独任务。`ratatui`、`crossterm` 只因迁入代码的接口类型而存在，在迁移的第二步去掉（§10）。
+- 不再有 `saddle` 依赖（M0；锁文件因此少了 32 个包，其余版本未变）。`alacritty_terminal`、`portable-pty` 等库的版本由 paddock 自己决定，不再要求与 Saddle 一致；升级照常作为单独任务。`ratatui`、`crossterm` 已在 M1 去掉（锁文件又少了 68 个包），按键、鼠标、颜色改用 paddock 自己的类型。
 - 编译目录：`$HOME/Developer/personal_projs/paddock-worktrees/.target/<子目录>`，不与 Saddle 共用；每个工作目录一个子目录（主仓库 `main`、任务 worktree 用分支名、审查用 `review`），避免并行 worktree 互相覆盖同名包的产物（用户 10-05 同意）。
 - GPUI：`gpui-pre =0.3.8` / `gpui-pre-platform =0.3.8`（zed@279fe07 的第三方快照，发布者 huacnlee，Apache-2.0），特性 `font-kit`、`runtime_shaders`。所有 `gpui-pre-*` 一起精确固定、一起升级。
 - `runtime_shaders`：本机 Xcode 27 缺 Metal 工具链组件；安装属于系统安装，未做，改为运行时编译着色器。
@@ -63,8 +63,8 @@ paddock 与 Saddle 在代码上完全分开：用到的 Saddle 代码迁入 padd
   - 用户实际体验：在 Claude Code 里中文输入和显示正常（10-05）。
 - **原型发现的缺口**（原打算请 Saddle 新增接口；迁移后由 paddock 在自己的代码里解决，按需排期）：
   1. 没有“有新输出”的通知，原型每 8 ms 轮询。
-  2. 网格读取与默认配色绑定 ratatui，原型各写了一份。
-  3. 输入编码函数参数是 crossterm/ratatui 类型。
+  2. ~~网格读取与默认配色绑定 ratatui~~：paddock 只用自己的 `rows`、`palette`；M0 未迁 Saddle 的 ratatui 绘制部分。
+  3. ~~输入编码函数参数是 crossterm/ratatui 类型~~：M1 已换成 paddock 自己的类型。
   4. `Session::spawn` 不能控制环境变量。用户体验时实际遇到：从 Claude Code 会话里启动原型，窗格中的 Claude Code 继承了 `CLAUDECODE`、`CLAUDE_CODE_CHILD_SESSION`、`CLAUDE_CODE_MESSAGING_*` 等变量，会话记录被关闭。T1 起 paddock 启动时按名单清理 17 个身份变量。
   5. 写入通道容量 64，可能在极大粘贴时返回 busy。
   6. 程序向终端查询颜色时，应答的是 xterm 默认值，不是 paddock 主题的调色板。
@@ -76,7 +76,7 @@ paddock 与 Saddle 在代码上完全分开：用到的 Saddle 代码迁入 padd
 
 - **已定**：所有界面用 GPUI 重做（§2）。先做迁移（§10），再逐步补界面。
 - **建议的顺序（未批准）**：
-  1. 迁移：去掉 `saddle` 依赖，行为不变（M0，已完成）；再去掉 `ratatui`、`crossterm`（M1）。
+  1. 迁移：去掉 `saddle` 依赖，行为不变（M0，已完成）；再去掉 `ratatui`、`crossterm`（M1，已完成）。
   2. 第二阶段，补日常离不开的：标签页和分屏（同时解决切换时 shell 被结束）、Agents 面板补齐信息、菜单栏和 `.app` 打包。
   3. 第三阶段：插件（先 Drover）、Attention、新建 agent、Settings 页、历史搜索、布局保存等。
   4. 单独分发之前：迁入 corral 运行时和所需插件，打包（`.app`、签名公证等见 §7）。
@@ -142,3 +142,4 @@ paddock 与 Saddle 在代码上完全分开：用到的 Saddle 代码迁入 padd
   - 分两步（用户 10-05 定）：第一步只迁移，`ratatui`、`crossterm` 类型照原样保留；第二步单独任务，换成 paddock 自己的类型，去掉这两个依赖。
 - **之后**：AGENTS.md 中“只通过 git 依赖按固定提交号引用 Saddle”“升级 Saddle 引用”“与 Saddle 交换类型的库同版本”等规矩已在 M0 改写为 §3 的关系。
 - **M0 结果**（10-05）：迁入 `pty`、`terminal`、`viewer`、`input`、`corral`（含 `command::run`）、`agents`、`preset`（原 `theme`）；Saddle 对应测试迁入 `app/tests/`，原 Python 假程序改为 shell 脚本。`agents::Panel` 中只服务 TUI 键盘操作的字段和方法暂时保留（`absorb` 依赖它们、迁入的测试覆盖它们），留待界面重做时再清理。
+- **M1 结果**（10-05）：`input.rs` 定义 paddock 自己的按键、修饰键、鼠标事件和区域类型，`preset.rs` 定义自己的 `Color`，取值与原类型一致；删去 `ratatui`、`crossterm`，锁文件少了 68 个包，无新增。编码测试只改输入的构造写法，期望字节未改。
