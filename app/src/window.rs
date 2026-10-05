@@ -10,7 +10,9 @@ use crate::{
     new_agent::{self, Place, Started},
     new_agent_view::Seed,
     pet::PetView,
+    search,
     sidebar::{Sidebar, SidebarEvent},
+    text_input::{self, Changed, TextInput},
     theme::Theme,
     view::{Launch, Options, TerminalView, hsla},
     viewer::AgentMetadata,
@@ -38,6 +40,8 @@ enum Popup {
     Split(Option<Direction>),
     /// The Attention list.
     Attention,
+    /// Go to Agent.
+    Search,
 }
 
 /// A close waiting on an answer, by a pane in it, so it still finds its target if the layout
@@ -139,6 +143,9 @@ pub struct PaddockWindow {
     asking: bool,
     /// The selected row of the Attention list.
     attention_index: usize,
+    /// The Go to Agent box while it is open, and its selected row.
+    search: Option<Entity<TextInput>>,
+    search_index: usize,
 }
 
 impl PaddockWindow {
@@ -188,6 +195,8 @@ impl PaddockWindow {
             pet_setting: (config.mascot_enabled, config.mascot),
             asking: false,
             attention_index: 0,
+            search: None,
+            search_index: 0,
         };
         let view = this.view(options.launch, window, cx);
         this.panes.insert(first, view);
@@ -509,7 +518,7 @@ impl PaddockWindow {
         let direction = match popup {
             Popup::NewTab => None,
             Popup::Split(Some(direction)) => Some(direction),
-            Popup::Split(None) | Popup::Attention => return,
+            Popup::Split(None) | Popup::Attention | Popup::Search => return,
         };
         if let Choice::Agent(name) = &choice
             && let Some(old) = self.workspace.find(name)
@@ -952,19 +961,6 @@ impl PaddockWindow {
         cx.notify();
     }
 
-    fn move_attention(&mut self, step: isize, cx: &mut Context<Self>) {
-        if self.popup != Some(Popup::Attention) {
-            return;
-        }
-        let count = self.sidebar.read(cx).attention().len();
-        if count > 0 {
-            let index =
-                (self.attention_index.min(count - 1) as isize + step).clamp(0, count as isize - 1);
-            self.attention_index = index as usize;
-            cx.notify();
-        }
-    }
-
     /// Opens an Attention item's agent, where it is or by the layout rules; a failed read has
     /// nothing to open.
     fn open_attention(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
@@ -1118,6 +1114,206 @@ impl PaddockWindow {
             .child(card)
     }
 
+    /// Go to Agent: a search box over the window, focused.
+    fn open_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.popup == Some(Popup::Search) {
+            self.close_popup(window, cx);
+            return;
+        }
+        let colors = text_input::Colors {
+            text: self.fg(|t| t.agents_text),
+            placeholder: self.fg(|t| t.agents_dimmer),
+            cursor: self.fg(|t| t.focus),
+            selection: hsla(self.theme.fg(|t| t.focus), 0.3),
+        };
+        let input = cx
+            .new(|cx| TextInput::new("", "Agent name or project, or a Settings page", colors, cx));
+        cx.subscribe(&input, |this, _, _: &Changed, cx| {
+            this.search_index = 0;
+            cx.notify();
+        })
+        .detach();
+        let focus = input.read(cx).focus_handle(cx);
+        window.focus(&focus, cx);
+        self.search = Some(input);
+        self.search_index = 0;
+        self.popup = Some(Popup::Search);
+        cx.notify();
+    }
+
+    fn search_entries(&self, cx: &Context<Self>) -> Vec<search::Entry> {
+        let query = self
+            .search
+            .as_ref()
+            .map(|input| input.read(cx).text().to_owned())
+            .unwrap_or_default();
+        search::entries(&self.sidebar.read(cx).agents(), &query)
+    }
+
+    /// Closes the open chooser or list and gives the keys back to the active pane.
+    fn close_popup(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.popup = None;
+        self.search = None;
+        self.focus_active(window, cx);
+    }
+
+    /// ↑↓ in the Attention or Go to Agent list.
+    fn move_selection(&mut self, step: isize, cx: &mut Context<Self>) {
+        let (count, index) = match self.popup {
+            Some(Popup::Attention) => (
+                self.sidebar.read(cx).attention().len(),
+                &mut self.attention_index,
+            ),
+            Some(Popup::Search) => {
+                let count = self.search_entries(cx).len();
+                (count, &mut self.search_index)
+            }
+            _ => return,
+        };
+        if count > 0 {
+            let moved = ((*index).min(count - 1) as isize + step).clamp(0, count as isize - 1);
+            *index = moved as usize;
+            cx.notify();
+        }
+    }
+
+    /// ⏎ in the Attention or Go to Agent list.
+    fn open_selected(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        match self.popup {
+            Some(Popup::Attention) => {
+                let index = self.attention_index;
+                self.open_attention(index, window, cx)
+            }
+            Some(Popup::Search) => {
+                let index = self.search_index;
+                self.open_search_entry(index, window, cx)
+            }
+            _ => {}
+        }
+    }
+
+    /// Opens a Go to Agent entry: the agent where it is or by the layout rules, or Settings at
+    /// that page.
+    fn open_search_entry(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(entry) = self.search_entries(cx).into_iter().nth(index) else {
+            return;
+        };
+        self.close_popup(window, cx);
+        match entry.target {
+            search::Target::Agent(name) => {
+                let metadata = self.sidebar.read(cx).metadata(&name);
+                self.show_agent(&name, metadata, window, cx);
+            }
+            // After this update: opening Settings reads this window.
+            search::Target::Settings(page) => {
+                cx.defer(move |cx| windows::open_settings_at(page, cx))
+            }
+        }
+    }
+
+    /// The Go to Agent box and its matches, at the top of the window.
+    fn search_panel(&self, cx: &mut Context<Self>) -> Stateful<Div> {
+        let entries = self.search_entries(cx);
+        let selected = self.search_index.min(entries.len().saturating_sub(1));
+        let highlight = self.highlight();
+        let mut list = div().flex().flex_col().gap(px(2.0));
+        if entries.is_empty() {
+            list = list.child(
+                div()
+                    .px(px(10.0))
+                    .py(px(8.0))
+                    .text_color(self.fg(|t| t.agents_dim))
+                    .child("No agent or page matches."),
+            );
+        }
+        for (index, entry) in entries.iter().enumerate() {
+            let settings = matches!(entry.target, search::Target::Settings(_));
+            let mut row = div()
+                .id(("search-entry", index))
+                .flex()
+                .items_center()
+                .gap(px(10.0))
+                .px(px(10.0))
+                .py(px(5.0))
+                .rounded(px(6.0))
+                .cursor_pointer()
+                .hover(move |style| style.bg(highlight))
+                .child(
+                    div()
+                        .w(px(14.0))
+                        .flex_shrink_0()
+                        .text_color(self.fg(|t| t.agents_accent))
+                        .child(if settings { "⚙" } else { "›" }),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w(px(0.0))
+                        .overflow_hidden()
+                        .whitespace_nowrap()
+                        .text_ellipsis()
+                        .text_color(self.fg(|t| t.agents_text))
+                        .child(entry.label.clone()),
+                )
+                .child(
+                    div()
+                        .flex_shrink_0()
+                        .text_size(px(TEXT - 1.0))
+                        .text_color(self.fg(|t| t.agents_dim))
+                        .child(entry.detail.clone()),
+                )
+                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                    this.open_search_entry(index, window, cx)
+                }));
+            if index == selected {
+                row = row.bg(highlight);
+            }
+            list = list.child(row);
+        }
+        let card = div()
+            .id("search")
+            .w(px(520.0))
+            .max_h(px(460.0))
+            .flex()
+            .flex_col()
+            .gap(px(6.0))
+            .p(px(8.0))
+            .rounded(px(10.0))
+            .border_1()
+            .border_color(self.fg(|t| t.focus))
+            .bg(hsla(self.theme.bg(|t| t.agents_bg), 1.0))
+            .shadow_lg()
+            .text_size(px(TEXT + 1.0))
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .child(
+                div()
+                    .h(px(30.0))
+                    .px(px(10.0))
+                    .flex()
+                    .items_center()
+                    .rounded(px(6.0))
+                    .border_1()
+                    .border_color(self.fg(|t| t.agents_rule))
+                    .bg(hsla(self.theme.terminal().background, 1.0))
+                    .children(self.search.clone()),
+            )
+            .child(div().id("search-list").overflow_y_scroll().child(list));
+        div()
+            .id("search-backdrop")
+            .absolute()
+            .inset_0()
+            .occlude()
+            .flex()
+            .items_start()
+            .justify_center()
+            .pt(px(70.0))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _, window, cx| this.close_popup(window, cx)),
+            )
+            .child(card)
+    }
+
     fn dialog(&self, popup: Popup, cx: &mut Context<Self>) -> Stateful<Div> {
         let highlight = self.highlight();
         let row = |id: ElementId| {
@@ -1136,7 +1332,7 @@ impl PaddockWindow {
             Popup::NewTab => "Open in a new tab".to_owned(),
             Popup::Split(None) => "Split: which side?".to_owned(),
             Popup::Split(Some(direction)) => format!("Split {}", side(direction)),
-            Popup::Attention => String::new(),
+            Popup::Attention | Popup::Search => String::new(),
         };
         let mut body = div().flex().flex_col().gap(px(2.0));
         if popup == Popup::Split(None) {
@@ -1313,6 +1509,7 @@ impl Render for PaddockWindow {
             .child(content);
         let dialog = self.popup.map(|popup| match popup {
             Popup::Attention => self.attention_panel(cx),
+            Popup::Search => self.search_panel(cx),
             popup => self.dialog(popup, cx),
         });
         div()
@@ -1350,14 +1547,14 @@ impl Render for PaddockWindow {
                 cx.listener(|this, _: &menu::ShowAttention, _, cx| this.toggle_attention(cx)),
             )
             .on_action(
-                cx.listener(|this, _: &menu::AttentionNext, _, cx| this.move_attention(1, cx)),
+                cx.listener(|this, _: &menu::GoToAgent, window, cx| this.open_search(window, cx)),
             )
+            .on_action(cx.listener(|this, _: &menu::SelectNext, _, cx| this.move_selection(1, cx)))
             .on_action(
-                cx.listener(|this, _: &menu::AttentionPrevious, _, cx| this.move_attention(-1, cx)),
+                cx.listener(|this, _: &menu::SelectPrevious, _, cx| this.move_selection(-1, cx)),
             )
-            .on_action(cx.listener(|this, _: &menu::AttentionOpen, window, cx| {
-                let index = this.attention_index;
-                this.open_attention(index, window, cx)
+            .on_action(cx.listener(|this, _: &menu::OpenSelected, window, cx| {
+                this.open_selected(window, cx)
             }))
             .on_action(cx.listener(|this, _: &menu::CloseTab, window, cx| {
                 let index = this.workspace.active_tab;
@@ -1388,10 +1585,9 @@ impl Render for PaddockWindow {
             .on_action(cx.listener(|this, _: &menu::Tab7, w, cx| this.nth_tab(7, w, cx)))
             .on_action(cx.listener(|this, _: &menu::Tab8, w, cx| this.nth_tab(8, w, cx)))
             .on_action(cx.listener(|this, _: &menu::Tab9, w, cx| this.nth_tab(9, w, cx)))
-            .on_action(cx.listener(|this, _: &menu::Cancel, _, cx| {
-                this.popup = None;
-                cx.notify();
-            }))
+            .on_action(
+                cx.listener(|this, _: &menu::Cancel, window, cx| this.close_popup(window, cx)),
+            )
             .child(self.sidebar.clone())
             .child(main)
             .children(dialog)

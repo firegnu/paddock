@@ -271,6 +271,12 @@ impl SettingsView {
         self.refresh_inputs(cx);
     }
 
+    /// Shows `page`, as when Go to Agent picked it.
+    pub fn show_page(&mut self, page: Page, cx: &mut Context<Self>) {
+        self.page = page;
+        cx.notify();
+    }
+
     /// Drops the draft; the window stays open.
     fn revert(&mut self, cx: &mut Context<Self>) {
         let result = read(&self.path)

@@ -261,6 +261,11 @@ impl Sidebar {
             .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(SidebarEvent::Attention)))
     }
 
+    /// The agents as corral last listed them.
+    pub fn agents(&self) -> Vec<Agent> {
+        self.listing.panel.agents.clone()
+    }
+
     /// What needs looking at now, for the Attention list.
     pub fn attention(&self) -> Vec<attention::Item> {
         attention::items(&self.listing.panel, self.listing.error.as_deref(), now())

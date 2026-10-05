@@ -171,6 +171,14 @@ pub fn open_new_agent(place: Place, cx: &mut App) {
     cx.default_global::<Windows>().new_agent = Some(handle);
 }
 
+/// The Settings window, at `page`.
+pub fn open_settings_at(page: crate::settings::Page, cx: &mut App) {
+    open_settings(cx);
+    if let Some(settings) = cx.default_global::<Windows>().settings {
+        let _ = settings.update(cx, |view, _, cx| view.show_page(page, cx));
+    }
+}
+
 pub fn open_about(cx: &mut App) {
     let windows = cx.default_global::<Windows>();
     let (existing, main) = (windows.about, windows.main);
