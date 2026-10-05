@@ -69,3 +69,4 @@
   - 版本目录 `~/.local/share/ranch/versions/d771c10/` 已生成，未链接。
 - **第二节**：需求已用 `corral send` 交给 `saddle/main`（10-05），等它删插件、放掉技能归属、改 AGENTS.md、部署。
 - **范围扩大**（用户 10-05，见背景记录 §6l）：Saddle 再砍掉整个插件系统和遥测，对应测试改或删，数据留在磁盘上。补充用 `corral send --after saddle/main` 挂上，在它这一轮结束后送达。本任务第三节（链接 ranch、装技能、核对路由）不变；核对时加上 Saddle 照常可用（Agents 面板、终端、设置、布局恢复、`saddle ctl`）。
+- **标签**（用户 10-05 同意）：请 saddle/main 在删除前的 `c21674a` 打带说明的标签 `before-cut` 并推送，被删功能的代码以后可从它取回。同样用 `corral send --after` 挂上。
