@@ -1,14 +1,21 @@
-//! paddock, the GPUI desktop front end for Saddle. The pure pieces live here so they can be tested
-//! without a window.
+//! paddock, a GPUI desktop app for corral agents and Saddle's interface. The pure pieces live here
+//! so they can be tested without a window.
+pub mod agents;
 pub mod config;
+pub mod corral;
 pub mod damage;
 pub mod glyphs;
 pub mod grid;
 pub mod ime;
+pub mod input;
 pub mod keys;
 pub mod palette;
+pub mod preset;
+pub mod pty;
 pub mod rows;
 pub mod sidebar;
+pub mod terminal;
 pub mod theme;
 pub mod view;
+pub mod viewer;
 pub mod window;

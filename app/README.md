@@ -13,7 +13,7 @@ cargo test --manifest-path "$M" --all-targets
 cargo clippy --manifest-path "$M" --all-targets -- -D warnings
 ```
 
-独立的 `[workspace]` 和 `Cargo.lock`；Saddle 按固定提交号引用，`gpui-pre-*` 精确固定（见 `AGENTS.md`）。GPUI 用 `runtime_shaders` 在启动时编译着色器，不需要 Xcode 的 Metal 工具链。
+独立的 `[workspace]` 和 `Cargo.lock`；不依赖 Saddle 的库，用到的 Saddle 代码已迁入 `src/`（文件开头注明来自 Saddle 哪个文件），`gpui-pre-*` 精确固定（见 `AGENTS.md`）。GPUI 用 `runtime_shaders` 在启动时编译着色器，不需要 Xcode 的 Metal 工具链。
 
 ## 运行
 
@@ -76,7 +76,7 @@ terminal_blue = "#7aa2f7"
 
 ### 主题
 
-三套预置主题沿用 Saddle：界面颜色取自所引用 Saddle 提交的 Dune、Tide、Lagoon。终端窗格的配色由 paddock 自带：
+三套预置主题沿用 Saddle：界面颜色取自 Saddle 提交 `df1c727` 的 Dune、Tide、Lagoon，已复制进 `src/preset.rs` 独立维护。终端窗格的配色由 paddock 自带：
 
 | 主题 | 终端 16 色的来源 |
 | --- | --- |
@@ -93,7 +93,7 @@ Saddle 的 `terminal` 主题（全部跟随外层终端）在 paddock 里没有�
 最终颜色＝预置主题＋`[colors]` 里写的项。
 
 - 可写的键：
-  - Saddle 的 41 个界面颜色，键名与 Saddle 相同（`bg`、`text`、`border`、`muted`、`focus`、`agents_bg`、`agents_text` …，完整列表见 Saddle `src/theme.rs` 的 `named_mut`）。
+  - Saddle 的 41 个界面颜色，键名与 Saddle 相同（`bg`、`text`、`border`、`muted`、`focus`、`agents_bg`、`agents_text` …，完整列表见 `src/preset.rs` 的 `named_mut`）。
   - 终端配色 20 个：
 
     | 键 | 含义 |

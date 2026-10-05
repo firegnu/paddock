@@ -2,6 +2,11 @@
 //! panel, one row per agent. Clicking a row attaches the terminal pane to that agent; the footer
 //! opens a shell instead.
 use crate::{
+    agents::{Panel, Status, group},
+    corral::{Agent, Client, Poller},
+    viewer::AgentMetadata,
+};
+use crate::{
     theme::Theme,
     view::{TerminalView, hsla},
 };
@@ -11,11 +16,6 @@ use gpui::{
     Window, div, prelude::*, px,
 };
 use ratatui::style::Color;
-use saddle::{
-    agents::{Panel, Status, group},
-    corral::{Agent, Client, Poller},
-    viewer::AgentMetadata,
-};
 use std::{rc::Rc, time::Duration};
 
 /// How often corral is asked, as Saddle's default `refresh_ms`.
@@ -28,7 +28,7 @@ pub struct NewShell {
 }
 
 /// A Saddle interface colour, as `Theme::fg/bg` take it.
-type Pick = fn(&saddle::theme::Theme) -> Color;
+type Pick = fn(&crate::preset::Theme) -> Color;
 
 /// The state label and its colour, as Saddle's Agents panel shows them.
 pub fn look(status: Status) -> (&'static str, Pick) {
@@ -416,7 +416,7 @@ mod tests {
 
     #[test]
     fn statuses_use_the_agents_panel_colours() {
-        let dune = saddle::theme::Preset::Dune.theme();
+        let dune = crate::preset::Preset::Dune.theme();
         let expected: [(Status, &str, Color); 8] = [
             (Status::Waiting, "waiting", dune.agents_yellow),
             (Status::Error, "error", dune.agents_red),

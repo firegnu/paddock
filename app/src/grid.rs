@@ -1,5 +1,5 @@
 //! Pixel geometry of the character grid.
-use saddle::terminal::Size;
+use crate::terminal::Size;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Metrics {

@@ -50,7 +50,7 @@ pub fn key_event(keystroke: &Keystroke) -> Option<KeyEvent> {
 
 /// The bytes for a key press, or `None` when the platform text input should handle it.
 pub fn key_bytes(keystroke: &Keystroke, application_cursor: bool) -> Option<Vec<u8>> {
-    key_event(keystroke).map(|event| saddle::input::encode_key(event, application_cursor))
+    key_event(keystroke).map(|event| crate::input::encode_key(event, application_cursor))
 }
 
 #[cfg(test)]

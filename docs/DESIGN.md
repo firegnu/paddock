@@ -1,6 +1,6 @@
 # paddock：设计
 
-状态：第一阶段完成，准备迁移（2026-10-05）。本文记录已定决定、与 Saddle 的关系和待定问题；完整调研见 `docs/调研/T76-GPUI桌面化详细方案.md`（Saddle 原文的副本，作依据，不随本文更新）。来历和用户原话见 `docs/背景与决策记录.md`。
+状态：第一阶段完成；迁移第一步 M0 已完成，不再依赖 Saddle 的库（2026-10-05）。本文记录已定决定、与 Saddle 的关系和待定问题；完整调研见 `docs/调研/T76-GPUI桌面化详细方案.md`（Saddle 原文的副本，作依据，不随本文更新）。来历和用户原话见 `docs/背景与决策记录.md`。
 
 ## 1. 是什么
 
@@ -24,7 +24,7 @@ paddock 与 Saddle 在代码上完全分开：用到的 Saddle 代码迁入 padd
 
 ## 3. 与 Saddle 的关系
 
-- **代码**：paddock 不依赖 Saddle 的库（迁移完成前的过渡见 §10）。迁入的代码在 paddock 里自己维护，文件开头注明来源（Saddle 提交 `df1c727` 的哪个文件）。之后两边各自演化：Saddle 的修复不会自动进入 paddock，需要时作为 paddock 的任务手动移植。
+- **代码**：paddock 不依赖 Saddle 的库（M0 起，见 §10）。迁入的代码在 paddock 里自己维护，文件开头注明来源（Saddle 提交 `df1c727` 的哪个文件）。之后两边各自演化：Saddle 的修复不会自动进入 paddock，需要时作为 paddock 的任务手动移植。
 - **只共享公开约定**：paddock 与 Saddle 生态只通过下面这些公开约定打交道，不读 Saddle 的内部状态和配置文件：
 
   | 约定 | 归属 | paddock 怎么用 |
@@ -41,7 +41,7 @@ paddock 与 Saddle 在代码上完全分开：用到的 Saddle 代码迁入 padd
 ## 4. 依赖与工具链隔离
 
 - 每个 Cargo 清单有自己的 `[workspace]` 和 `Cargo.lock`。
-- 迁移完成后不再有 `saddle` 依赖。`alacritty_terminal`、`portable-pty` 等库的版本由 paddock 自己决定，不再要求与 Saddle 一致；升级照常作为单独任务。`ratatui`、`crossterm` 只因迁入代码的接口类型而存在，在迁移的第二步去掉（§10）。
+- 不再有 `saddle` 依赖（M0；锁文件因此少了 32 个包，其余版本未变）。`alacritty_terminal`、`portable-pty` 等库的版本由 paddock 自己决定，不再要求与 Saddle 一致；升级照常作为单独任务。`ratatui`、`crossterm` 只因迁入代码的接口类型而存在，在迁移的第二步去掉（§10）。
 - 编译目录：`$HOME/Developer/personal_projs/paddock-worktrees/.target/<子目录>`，不与 Saddle 共用；每个工作目录一个子目录（主仓库 `main`、任务 worktree 用分支名、审查用 `review`），避免并行 worktree 互相覆盖同名包的产物（用户 10-05 同意）。
 - GPUI：`gpui-pre =0.3.8` / `gpui-pre-platform =0.3.8`（zed@279fe07 的第三方快照，发布者 huacnlee，Apache-2.0），特性 `font-kit`、`runtime_shaders`。所有 `gpui-pre-*` 一起精确固定、一起升级。
 - `runtime_shaders`：本机 Xcode 27 缺 Metal 工具链组件；安装属于系统安装，未做，改为运行时编译着色器。
@@ -73,7 +73,7 @@ paddock 与 Saddle 在代码上完全分开：用到的 Saddle 代码迁入 padd
 
 - **已定**：所有界面用 GPUI 重做（§2）。先做迁移（§10），再逐步补界面。
 - **建议的顺序（未批准）**：
-  1. 迁移：去掉 `saddle` 依赖，行为不变；再去掉 `ratatui`、`crossterm`。
+  1. 迁移：去掉 `saddle` 依赖，行为不变（M0，已完成）；再去掉 `ratatui`、`crossterm`（M1）。
   2. 第二阶段，补日常离不开的：标签页和分屏（同时解决切换时 shell 被结束）、Agents 面板补齐信息、菜单栏和 `.app` 打包。
   3. 第三阶段：插件（先 Drover）、Attention、新建 agent、Settings 页、历史搜索、布局保存等。
 - **插件界面怎么做待定**（§7）：在 GPUI 里原生重做，或先做“字符面兼容层”按插件协议显示插件自己画的字符画面。
@@ -135,4 +135,5 @@ paddock 与 Saddle 在代码上完全分开：用到的 Saddle 代码迁入 padd
   - 迁移本身不改行为，现有测试照样通过；Saddle 里对应模块的测试一并迁入。
   - 每个迁入文件开头注明来源文件和提交号。
   - 分两步（用户 10-05 定）：第一步只迁移，`ratatui`、`crossterm` 类型照原样保留；第二步单独任务，换成 paddock 自己的类型，去掉这两个依赖。
-- **之后**：AGENTS.md 中“只通过 git 依赖按固定提交号引用 Saddle”“升级 Saddle 引用”“与 Saddle 交换类型的库同版本”等规矩改写为 §3 的关系；迁移任务合并时一并修改。
+- **之后**：AGENTS.md 中“只通过 git 依赖按固定提交号引用 Saddle”“升级 Saddle 引用”“与 Saddle 交换类型的库同版本”等规矩已在 M0 改写为 §3 的关系。
+- **M0 结果**（10-05）：迁入 `pty`、`terminal`、`viewer`、`input`、`corral`（含 `command::run`）、`agents`、`preset`（原 `theme`）；Saddle 对应测试迁入 `app/tests/`，原 Python 假程序改为 shell 脚本。`agents::Panel` 中只服务 TUI 键盘操作的字段和方法暂时保留（`absorb` 依赖它们、迁入的测试覆盖它们），留待界面重做时再清理。

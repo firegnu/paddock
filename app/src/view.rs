@@ -12,6 +12,11 @@ use crate::{
     rows::{self, Run, Span, Style},
     theme,
 };
+use crate::{
+    pty::Session,
+    terminal::Size,
+    viewer::{AgentMetadata, Shell, Viewer},
+};
 use alacritty_terminal::{
     grid::{Dimensions, Scroll as ViewScroll},
     index::{Column, Line, Point as GridPoint, Side},
@@ -25,11 +30,6 @@ use gpui::{
     MouseMoveEvent, MouseUpEvent, Pixels, Point, Render, Rgba, ScrollDelta, ScrollWheelEvent,
     SharedString, TextAlign, TextRun, UTF16Selection, UnderlineStyle, Window, canvas, div, fill,
     point, prelude::*, px, size,
-};
-use saddle::{
-    pty::Session,
-    terminal::Size,
-    viewer::{AgentMetadata, Shell, Viewer},
 };
 use std::{cell::RefCell, ops::Range, path::PathBuf, rc::Rc, time::Duration, time::Instant};
 
@@ -324,7 +324,7 @@ impl TerminalView {
         } else {
             text.replace("\r\n", "\r").replace('\n', "\r")
         };
-        self.write(saddle::input::encode_paste(&text, bracketed), cx);
+        self.write(crate::input::encode_paste(&text, bracketed), cx);
     }
 
     fn selection_text(&self) -> Option<String> {
@@ -415,7 +415,7 @@ impl TerminalView {
             modifiers: mods,
         };
         let area = ratatui::layout::Rect::new(0, 0, self.size.cols, self.size.rows);
-        let bytes = saddle::input::encode_mouse(event, area, mode);
+        let bytes = crate::input::encode_mouse(event, area, mode);
         if let Some(session) = self.session()
             && !bytes.is_empty()
         {

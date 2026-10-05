@@ -14,19 +14,20 @@ name = "paddock"
 path = "src/main.rs"
 
 [dependencies]
-# The Saddle library, pinned to a tested commit.
-# Bump the rev deliberately (see AGENTS.md), never switch to a path dependency.
-saddle = { git = "https://github.com/firegnu/saddle.git", rev = "df1c727" }
 # Pinned gpui-pre snapshot of zed@279fe07 (see docs/原型实测记录.md for the source).
 gpui = { package = "gpui-pre", version = "=0.3.8" }
 gpui_platform = { package = "gpui-pre-platform", version = "=0.3.8", features = ["font-kit", "runtime_shaders"] }
-# Same versions Saddle uses, so its public types line up.
+# Terminal emulation and PTYs, for the code taken from Saddle (DESIGN §10).
 alacritty_terminal = "0.26"
+portable-pty = "0.9"
+libc = "0.2"
+# Only for the key/mouse encoding and colour types taken from Saddle; removed in M1.
 crossterm = "0.29"
 ratatui = "0.30"
 anyhow = "1"
-# The config file; same versions as Saddle's lock.
+# The config file and corral's JSON output.
 serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["float_roundtrip"] }
 toml = "1"
 # Only for printing the native window number, so test screenshots capture this window alone.
 raw-window-handle = "0.6"

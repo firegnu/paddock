@@ -36,3 +36,16 @@
 - 不去掉 `ratatui`、`crossterm`（留给 M1）。
 - 不顺手改迁入代码的行为、命名或结构，除了上面列的删减和必要的路径改动。
 - 不改 Saddle 仓库。
+
+## 完成记录
+
+2026-10-05，paddock/main。
+
+- **做了什么**：迁入 `pty.rs`、`terminal.rs`、`viewer.rs`、`input.rs`、`corral.rs`（并入 `command.rs` 的 `run`/`run_bounded`）、`agents.rs`、`preset.rs`（来自 `theme.rs`），每个文件开头注明来源和删减；调用处改为 `crate::…`；`app/Cargo.toml` 删去 `saddle`，直接依赖 `portable-pty`、`libc`、`serde_json`（版本与原锁文件一致）。锁文件只少了 32 个包（Saddle 及其 SQLite、TLS、HTTP 等依赖），没有新增或升级。AGENTS.md、DESIGN、两份 README 同步改写。
+- **验证了什么**：`cargo test --all-targets` 共 72 项通过（原 53 项、Saddle 文件内的 viewer 测试 1 项、迁入的集成测试 18 项）；`cargo clippy --all-targets -- -D warnings` 无警告；`cargo fmt --check` 通过。进程类测试（pty、viewer、corral）连续跑 15 遍无失败。release 构建启动一次，只截本窗口：侧栏列出 agent、shell、Dune 主题和配置文件里的字体都正常；截图已删除。
+- **拿主意的地方**：
+  - Saddle 测试里的 Python 假程序改成 shell 脚本（pty 的原始模式、SIGWINCH、SIGINT，作业控制下的前台进程组；viewer 的假 corral）。`tempfile` 换成测试里的小工具，免得锁文件多出包。
+  - viewer 的第一个测试原本在第二行事件写入后立刻断言 `showing`；shell 假程序启动比 Python 快，偶尔赶在 viewer 发布新会话之前写入，因此循环改为同时等 `showing`，两条断言不变。
+  - `agents::Panel` 中只服务 TUI 键盘操作的字段和方法暂时保留：`absorb` 依赖它们，迁入的测试也覆盖它们；留待界面重做时清理。
+  - Saddle `Preset` 去掉 Terminal 后，`theme = "terminal"` 的专门报错改为在 paddock 的 `preset()` 里先判断，报错文字不变。
+- **没做的事**：未去掉 `ratatui`、`crossterm`（M1）；未迁 Saddle 的焦点路由、渲染、历史模式、Git 摘要及其测试。

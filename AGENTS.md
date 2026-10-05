@@ -1,12 +1,12 @@
 # paddock
 
-paddock 是 Saddle 的 GPUI 桌面前端，目前处在原型阶段：一个 GPUI 窗口里的真实交互终端，终端体验以 Zed 内置终端为参照。它从 Saddle 仓库独立出来，按固定提交号引用 Saddle 的库；Saddle 本身（含 TUI）继续独立开发和使用，两边不能互相影响，尤其是所用的 Rust 库。
+paddock 是用 GPUI 重做 Saddle 界面的独立桌面应用：原生窗口里查看 corral agent、运行真实交互终端，终端体验以 Zed 内置终端为参照。它和 Saddle 在代码上完全分开：用到的 Saddle 代码已迁入本仓库自己维护（来源 Saddle 提交 `df1c727`），不依赖 Saddle 的库；Saddle 本身（含 TUI）继续独立开发和使用，两边不能互相影响，尤其是所用的 Rust 库。
 
 设计和当前决定以 `docs/DESIGN.md` 为准。实现中要改设计，先改那份文档，并在提交说明里写清楚。
 
 ## 先读
 
-- `docs/DESIGN.md`：权威设计。§2 已定决定，§3 与 Saddle 的边界，§4 依赖隔离，§7 待定问题。
+- `docs/DESIGN.md`：权威设计。§2 已定决定，§3 与 Saddle 的关系，§4 依赖隔离，§7 待定问题。
 - `docs/背景与决策记录.md`：用户原话、为什么独立成仓库、哪些还没批准（不要把建议当成已批准）。
 - `HANDOFF.md`：现在在哪、下一步做什么、悬着什么。
 - `docs/原型实测记录.md`：原型的运行方式、复用结果、缺口和实测记录。
@@ -15,16 +15,16 @@ paddock 是 Saddle 的 GPUI 桌面前端，目前处在原型阶段：一个 GPU
 ## 规矩
 
 - **语言与依赖**：Rust stable；只用成熟、活跃维护的库。GPUI 本身仍是 pre-1.0，是否算“成熟”由用户裁定，见 DESIGN §7。实现、测试和辅助工具都不用 Python（沿用用户在 Saddle 的要求），工具用 Rust 或纯数据文件。
-- **与 Saddle 隔离（最重要）**：
-  - 只通过 git 依赖按固定提交号引用 Saddle（`saddle = { git = "https://github.com/firegnu/saddle.git", rev = "…" }`）。提交的代码里不用路径依赖。
+- **与 Saddle 分开（最重要）**：
+  - 不依赖 Saddle 的库，不加 `saddle` 的 git 或路径依赖。迁入的代码（`app/src/` 中开头注明“From Saddle”的文件）在本仓库自己维护；Saddle 的修复不会自动进来，需要时作为单独任务手动移植，注明对应的 Saddle 提交。
+  - 和 Saddle 生态只通过公开约定打交道：`corral` 命令及其 JSON 输出、插件协议、遥测和 Drover 的公开命令（DESIGN §3）。不读 Saddle 的内部状态和配置文件。
   - 不修改 Saddle 仓库（包括它的 worktree、分支、Cargo 文件、文档和任务数据）。需要读 Saddle 时只读。
-  - 升级引用的 Saddle 提交是一件单独的任务：看清两个提交之间 Saddle 公开接口和依赖的变化，更新锁文件，跑全量检查。
-  - 需要 Saddle 提供新能力（例如“有新输出”的通知、带环境变量的启动接口）时，写成需求交给用户/Saddle 主控，在 Saddle 自己的流程里做；优先新增接口、不改旧接口，保持 Saddle TUI 行为不变。paddock 这边不自己改。
+  - 公开约定本身需要变化时，写成需求交给用户/Saddle 主控，在 Saddle 自己的流程里做；paddock 自己代码里能解决的，不找 Saddle。
   - paddock 的依赖、锁文件、编译目录、工具链要求都不能进入 Saddle。
-- **依赖固定**：`gpui-pre-*` 系列用 `=` 精确固定，所有 `gpui-pre-*` 包一起升级，升级是单独任务。与 Saddle 公开类型交换的库（如 `alacritty_terminal`）必须和所引用的 Saddle 提交用同一版本。
+- **依赖固定**：`gpui-pre-*` 系列用 `=` 精确固定，所有 `gpui-pre-*` 包一起升级，升级是单独任务。其余第三方库的版本由 paddock 自己决定，升级同样作为单独任务。
 - **不复制 Zed 的 GPL 代码**：Zed 的 `terminal`、`terminal_view`、`ui` 等应用层是 GPL-3.0-or-later，只能参考思路。GPUI 本身（Apache-2.0）可以读源码确认接口。外部参考先核对文件来源和许可，保留必要声明。
 - **系统安装**：不自行安装系统组件或工具链（例如 Xcode 的 Metal 工具链、新的 rustup 工具链），需要时先问用户。目前用 GPUI 的 `runtime_shaders` 绕开 Metal 工具链。
-- **Corral 只走公开命令**：和 Saddle 相同。agent 状态、接入都通过 `corral ls/status/attach/start/stop` 等公开命令或 Saddle 库里对它们的封装；不读 Corral 内部状态目录。
+- **Corral 只走公开命令**：和 Saddle 相同。agent 状态、接入都通过 `corral ls/status/attach/start/stop` 等公开命令（`app/src/corral.rs`）；不读 Corral 内部状态目录。
 - **不要干扰用户正在用的 agent**：`corral ls` 里现有的 agent 都是用户的。可以用 `corral ls/status/reply` 读；不要对它们 `corral stop`、`corral send`、`corral keys`，也不要用原型 attach 上去打字。需要真实 agent 实测时，自己开一个 `paddock/test-<名字>`（例如 `corral start paddock/test-a --cwd <临时目录> --label role=test -- claude`），用完 `corral stop`。
 - **不按名字批量杀进程**：不要用 `pkill -f paddock`、`pkill -f corral` 这类命令。停自己起的进程，用启动时记下的 PID。
 - **桌面窗口测试**：
