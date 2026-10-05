@@ -2,6 +2,7 @@
 //! tab's panes, each a terminal in a frame with its title and controls. `layout.rs` holds the
 //! rules; this file draws them and keeps one terminal view per pane.
 use crate::{
+    attention::Kind as AttentionKind,
     config::Config,
     corral::Role,
     layout::{Axis, Direction, Node, PaneId, Placement, Shown, Workspace},
@@ -35,6 +36,8 @@ enum Popup {
     NewTab,
     /// First the direction, then what the new pane shows.
     Split(Option<Direction>),
+    /// The Attention list.
+    Attention,
 }
 
 /// A close waiting on an answer, by a pane in it, so it still finds its target if the layout
@@ -134,6 +137,8 @@ pub struct PaddockWindow {
     pet_setting: (bool, crate::pet::Pet),
     /// A close or quit question is showing.
     asking: bool,
+    /// The selected row of the Attention list.
+    attention_index: usize,
 }
 
 impl PaddockWindow {
@@ -182,6 +187,7 @@ impl PaddockWindow {
             menu_state: None,
             pet_setting: (config.mascot_enabled, config.mascot),
             asking: false,
+            attention_index: 0,
         };
         let view = this.view(options.launch, window, cx);
         this.panes.insert(first, view);
@@ -265,6 +271,7 @@ impl PaddockWindow {
             // After this update: opening the window reads this one.
             SidebarEvent::NewAgent => cx.defer(|cx| windows::open_new_agent(Place::Current, cx)),
             SidebarEvent::Stop => self.stop_agent(window, cx),
+            SidebarEvent::Attention => self.toggle_attention(cx),
             SidebarEvent::Alive(names) => {
                 let names: Vec<&str> = names.iter().map(String::as_str).collect();
                 for view in self.panes.values() {
@@ -502,7 +509,7 @@ impl PaddockWindow {
         let direction = match popup {
             Popup::NewTab => None,
             Popup::Split(Some(direction)) => Some(direction),
-            Popup::Split(None) => return,
+            Popup::Split(None) | Popup::Attention => return,
         };
         if let Choice::Agent(name) = &choice
             && let Some(old) = self.workspace.find(name)
@@ -935,6 +942,182 @@ impl PaddockWindow {
             .into_any_element()
     }
 
+    fn toggle_attention(&mut self, cx: &mut Context<Self>) {
+        if self.popup == Some(Popup::Attention) {
+            self.popup = None;
+        } else {
+            self.popup = Some(Popup::Attention);
+            self.attention_index = 0;
+        }
+        cx.notify();
+    }
+
+    fn move_attention(&mut self, step: isize, cx: &mut Context<Self>) {
+        if self.popup != Some(Popup::Attention) {
+            return;
+        }
+        let count = self.sidebar.read(cx).attention().len();
+        if count > 0 {
+            let index =
+                (self.attention_index.min(count - 1) as isize + step).clamp(0, count as isize - 1);
+            self.attention_index = index as usize;
+            cx.notify();
+        }
+    }
+
+    /// Opens an Attention item's agent, where it is or by the layout rules; a failed read has
+    /// nothing to open.
+    fn open_attention(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        if self.popup != Some(Popup::Attention) {
+            return;
+        }
+        let items = self.sidebar.read(cx).attention();
+        let Some(name) = items.get(index).and_then(|item| item.agent.clone()) else {
+            return;
+        };
+        self.popup = None;
+        let metadata = self.sidebar.read(cx).metadata(&name);
+        self.show_agent(&name, metadata, window, cx);
+    }
+
+    /// The Attention list, floating under the sidebar's header.
+    fn attention_panel(&self, cx: &mut Context<Self>) -> Stateful<Div> {
+        let items = self.sidebar.read(cx).attention();
+        let selected = self.attention_index.min(items.len().saturating_sub(1));
+        let highlight = self.highlight();
+        let mut list = div().flex().flex_col().gap(px(2.0));
+        if items.is_empty() {
+            list = list.child(
+                div()
+                    .px(px(10.0))
+                    .py(px(8.0))
+                    .text_color(self.fg(|t| t.agents_dim))
+                    .child("Nothing needs attention."),
+            );
+        }
+        for (index, item) in items.iter().enumerate() {
+            let mark: Pick = match item.kind {
+                AttentionKind::Waiting => |t| t.agent_blocked,
+                AttentionKind::Error | AttentionKind::ReadFailed => |t| t.agent_error,
+                AttentionKind::Reply => |t| t.unread,
+            };
+            let mut detail = div()
+                .flex()
+                .gap(px(6.0))
+                .text_size(px(TEXT - 1.0))
+                .child(div().text_color(self.fg(|t| t.muted)).child(item.reason()));
+            if !item.note.is_empty() {
+                detail = detail.child(
+                    div()
+                        .min_w(px(0.0))
+                        .overflow_hidden()
+                        .whitespace_nowrap()
+                        .text_ellipsis()
+                        .text_color(self.fg(|t| t.agents_dim))
+                        .child(item.note.clone()),
+                );
+            }
+            let mut row = div()
+                .id(("attention-item", index))
+                .flex()
+                .items_start()
+                .gap(px(8.0))
+                .px(px(10.0))
+                .py(px(6.0))
+                .rounded(px(6.0))
+                .child(
+                    div()
+                        .w(px(12.0))
+                        .flex_shrink_0()
+                        .font_weight(FontWeight::BOLD)
+                        .text_color(self.fg(mark))
+                        .child(item.mark()),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w(px(0.0))
+                        .flex()
+                        .flex_col()
+                        .gap(px(2.0))
+                        .child(
+                            div()
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(self.fg(|t| t.agents_text))
+                                .child(item.label.clone()),
+                        )
+                        .child(detail),
+                );
+            if index == selected {
+                row = row.bg(highlight);
+            }
+            if item.agent.is_some() {
+                row = row
+                    .cursor_pointer()
+                    .hover(move |style| style.bg(highlight))
+                    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                        this.open_attention(index, window, cx)
+                    }));
+            }
+            list = list.child(row);
+        }
+        let card = div()
+            .id("attention-list")
+            .absolute()
+            .top(px(44.0))
+            .left(px(GAP))
+            .w(px(400.0))
+            .max_h(px(520.0))
+            .overflow_y_scroll()
+            .flex()
+            .flex_col()
+            .gap(px(6.0))
+            .p(px(8.0))
+            .rounded(px(10.0))
+            .border_1()
+            .border_color(self.fg(|t| t.focus))
+            .bg(hsla(self.theme.bg(|t| t.agents_bg), 1.0))
+            .shadow_lg()
+            .text_size(px(TEXT + 1.0))
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .child(
+                div()
+                    .flex()
+                    .items_baseline()
+                    .gap(px(8.0))
+                    .px(px(6.0))
+                    .pb(px(2.0))
+                    .child(
+                        div()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(self.fg(|t| t.agents_text))
+                            .child("Attention"),
+                    )
+                    .child(div().flex_1())
+                    .child(
+                        div()
+                            .text_size(px(TEXT - 1.0))
+                            .text_color(self.fg(|t| t.agents_dim))
+                            .child("↑↓  ⏎ open  esc"),
+                    ),
+            )
+            .child(list);
+        // A click outside closes it; nothing is dimmed, as for a menu.
+        div()
+            .id("attention-backdrop")
+            .absolute()
+            .inset_0()
+            .occlude()
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _, _, cx| {
+                    this.popup = None;
+                    cx.notify();
+                }),
+            )
+            .child(card)
+    }
+
     fn dialog(&self, popup: Popup, cx: &mut Context<Self>) -> Stateful<Div> {
         let highlight = self.highlight();
         let row = |id: ElementId| {
@@ -953,6 +1136,7 @@ impl PaddockWindow {
             Popup::NewTab => "Open in a new tab".to_owned(),
             Popup::Split(None) => "Split: which side?".to_owned(),
             Popup::Split(Some(direction)) => format!("Split {}", side(direction)),
+            Popup::Attention => String::new(),
         };
         let mut body = div().flex().flex_col().gap(px(2.0));
         if popup == Popup::Split(None) {
@@ -1127,7 +1311,10 @@ impl Render for PaddockWindow {
             .flex_col()
             .child(self.tab_strip(cx))
             .child(content);
-        let dialog = self.popup.map(|popup| self.dialog(popup, cx));
+        let dialog = self.popup.map(|popup| match popup {
+            Popup::Attention => self.attention_panel(cx),
+            popup => self.dialog(popup, cx),
+        });
         div()
             .relative()
             .size_full()
@@ -1159,6 +1346,19 @@ impl Render for PaddockWindow {
             .on_action(
                 cx.listener(|this, _: &menu::StopAgent, window, cx| this.stop_agent(window, cx)),
             )
+            .on_action(
+                cx.listener(|this, _: &menu::ShowAttention, _, cx| this.toggle_attention(cx)),
+            )
+            .on_action(
+                cx.listener(|this, _: &menu::AttentionNext, _, cx| this.move_attention(1, cx)),
+            )
+            .on_action(
+                cx.listener(|this, _: &menu::AttentionPrevious, _, cx| this.move_attention(-1, cx)),
+            )
+            .on_action(cx.listener(|this, _: &menu::AttentionOpen, window, cx| {
+                let index = this.attention_index;
+                this.open_attention(index, window, cx)
+            }))
             .on_action(cx.listener(|this, _: &menu::CloseTab, window, cx| {
                 let index = this.workspace.active_tab;
                 this.close_tab(index, window, cx)

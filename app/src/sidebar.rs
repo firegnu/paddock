@@ -4,6 +4,7 @@
 //! fold and open a shell instead.
 use crate::{
     agents::{Panel, Status},
+    attention,
     card::{self, Card, GitLine, Line, Pick},
     corral::{Agent, Client, Poller, Role},
     git,
@@ -31,6 +32,8 @@ pub enum SidebarEvent {
     NewAgent,
     /// Stop the active pane's agent, after asking.
     Stop,
+    /// Open or close the Attention list.
+    Attention,
     /// The agents corral still lists, for panes to let go of one that disappeared.
     Alive(Vec<String>),
 }
@@ -53,6 +56,8 @@ const INDENT: f32 = 16.0;
 pub struct Listing {
     panel: Panel,
     error: Option<String>,
+    /// corral has answered at least once, well or not.
+    loaded: bool,
 }
 
 impl Listing {
@@ -64,6 +69,7 @@ impl Listing {
         here: Option<&str>,
         now: f64,
     ) -> Option<Vec<String>> {
+        self.loaded = true;
         match update {
             Ok(agents) => {
                 self.error = None;
@@ -206,6 +212,60 @@ impl Sidebar {
         self.poller.refresh();
     }
 
+    /// `Attention · N` in the header: yellow when something needs a person, the unread colour for
+    /// replies only, faint at zero, `…` before corral first answers. A click opens the list.
+    fn attention_entry(&self, cx: &mut Context<Self>) -> gpui::Stateful<Div> {
+        let theme = &self.theme;
+        let fg = |pick: Pick| hsla(theme.fg(pick), 1.0);
+        let items = self.attention();
+        let color = if items.iter().any(attention::Item::needs) {
+            fg(|t| t.agents_yellow)
+        } else if !items.is_empty() {
+            fg(|t| t.unread)
+        } else {
+            fg(|t| t.agents_dimmer)
+        };
+        let count = if self.listing.loaded {
+            items.len().to_string()
+        } else {
+            "…".into()
+        };
+        let highlight = hsla(theme.bg(|t| t.agent_selected), 1.0);
+        div()
+            .id("attention")
+            .flex()
+            .items_baseline()
+            .gap(px(4.0))
+            .px(px(6.0))
+            .py(px(1.0))
+            .rounded(px(5.0))
+            .cursor_pointer()
+            .hover(move |style| style.bg(highlight))
+            .text_size(px(DETAIL_SIZE))
+            .child(
+                div()
+                    .text_color(if items.is_empty() {
+                        fg(|t| t.agents_dim)
+                    } else {
+                        color
+                    })
+                    .child("Attention"),
+            )
+            .child(div().text_color(fg(|t| t.agents_dim)).child("·"))
+            .child(
+                div()
+                    .font_weight(FontWeight::BOLD)
+                    .text_color(color)
+                    .child(count),
+            )
+            .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(SidebarEvent::Attention)))
+    }
+
+    /// What needs looking at now, for the Attention list.
+    pub fn attention(&self) -> Vec<attention::Item> {
+        attention::items(&self.listing.panel, self.listing.error.as_deref(), now())
+    }
+
     /// The agents' directories, sorted and without repeats.
     pub fn projects(&self) -> Vec<String> {
         self.listing.cwds()
@@ -342,7 +402,9 @@ impl Render for Sidebar {
                     .text_size(px(DETAIL_SIZE))
                     .text_color(fg(|t| t.agents_dim))
                     .child(agents.to_string()),
-            );
+            )
+            .child(div().flex_1())
+            .child(self.attention_entry(cx));
 
         let mut list = div()
             .id("agents")
