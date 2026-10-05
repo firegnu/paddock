@@ -48,3 +48,23 @@
 
 ## 做完
 在本文件末尾追加「## 完成记录」（在你的分支里提交）：做了什么、验证了什么、拿主意的地方、没做的事，各几句话。回复里只写这几样，加上有没有要主控决定的事。命令都在前台跑完，全部做完后，回复最后一行写 DONE。
+
+## 完成记录
+
+- **做了什么**：
+  - `new_agent_view.rs` 照 `NewAgent.dc.html` 重排：标签在左、右对齐（96pt 一列，随界面字号放大），控件在右，行距一致（14pt）；Agent（带种类颜色小圆点，取主题 `claude`/`codex`）、Role、Open in 都换成分段按钮（淡底框、选中段亮底）；Open in 三段 Current pane / New tab / Split，选 Split 时右边出现四个方向小图块（小方框亮起对应一半），六个放置选项都在；从别处点 Split 默认 Right，已在 Split 时保留原方向。前缀和名字中间淡色 `/`；Controller 时名字是变灰、不能改的 `main`。Advanced 可展开收起，箭头 150ms 转动（只在手动点过之后才转，打开窗口时不转）；里面 Command（等宽）和 First message。底部深色区块 `WILL RUN` 加等宽字体的 `preview` 完整命令，平时就显示（样稿如此，原先只在 Advanced 里）。右下 Cancel（无底色）和 Create ⌘↩（`agents_accent` 底）；启动中提示和出错提示在按钮左边。正在输入的框边线淡淡亮起，出问题的框标红（原有）。
+  - `about.rs` 照 `About.dc.html`：顶上 84pt 圆角方块的 app 图标，照 `icon.rs` 的算法画（站姿的猫裁到自身边界、圆角 0.225、整数倍像素、略低于中心），下面 paddock、Version、介绍、短线、来源小字，居中，文字和原来一样。
+  - `windows.rs` 只改这两个窗口的尺寸：New Agent 580×600、About 400×330，都乘界面字号比例（13 为 1），字号 18 时窗口跟着放大，不挤不出界。
+- **验证了什么**：`git diff --check`、`cargo fmt --check`；`app/` 下 `cargo test --all-targets`（库 154 项及集成测试）全部通过，`cargo clippy --all-targets -- -D warnings` 无警告（只有上游 `block v0.1.6` 的未来兼容提示）；`Cargo.lock` 没变。截图用临时 HOME、临时 `XDG_STATE_HOME`、假 corral（只回 `{"agents":[]}`）、`PADDOCK_NO_ACTIVATE=1`，只截自己的窗口，不入库：New Agent（Advanced 展开、Split → Right）和 About 各在 Dune 13、Dune 18、Tide 13、Lagoon 13 下一张，共 8 张。窗口在后面也画出了完整内容。为了不按键就能打开窗口并展开 Advanced，截图期间临时在 `main.rs` 和 `NewAgentView::new` 里加了按环境变量打开的代码，截完已删掉，不在提交里（沿用 P5-3 的做法）。
+- **拿主意的地方**：
+  - 输入框、分段框、WILL RUN 的深色底：三套预置主题里终端背景都等于 `agents_bg`，没有更深的主题色，所以用黑色加透明度（0.3／0.22）压暗面板色，和 `window.rs` 的遮罩、阴影同一做法；About 图标的阴影也用黑色加透明度。其余颜色都从主题取：标签 `agents_dim`，次要文字 `agents_branch`，更淡的 `agents_dimmer`，边线 `agents_rule`/`agents_border`，选中 `agent_selected`，强调 `agents_accent`。
+  - 目录候选（paddock 的目录和各 agent 的目录）样稿里没画，功能保留：放在 Project 框下面一行小号等宽字，安静样式（无边框，选中的亮底），路径太长时省略开头，留住项目名。
+  - Agent 两段按样稿 Claude 在前、Codex 在后；默认仍是 Codex（表单逻辑没动）。
+  - 名字旁原来的小字 “a controller is always main” 去掉了，样稿没有，变灰不能改的 `main` 已经说明。
+  - First message 仍是单行框，和其他框一样高：样稿画的是多行高框，但 `text_input.rs` 只支持单行，不在本件范围。
+  - WILL RUN 用一种颜色显示整条命令：样稿里名字和命令分了颜色，但 `preview` 只给一整串，要分色就得在视图里重新拆命令，没做。
+  - 字母间距（`WILL RUN` 的 letter-spacing）GPUI 不支持，没做。
+- **没做的事**：
+  - 窗口标题栏：样稿里标题栏和窗口内容同色、连成一片；现在这两个窗口用的是系统标题栏（深灰）。要做成样稿那样，得在 `windows.rs` 给这两个窗口开 `appears_transparent` 并自己画标题、留出红绿灯位置，超出“只改尺寸”的范围，**留给主控决定**。
+  - `new_agent.rs` 的 `Place::ALL` 和 `Place::label()` 视图不再用了（是 `pub` 项，不报警告）；按要求没动 `new_agent.rs`，要不要删由主控定。
+  - 键盘、鼠标都没实际操作过，留给用户试：各分段和方向图块的点击与悬停、Advanced 的箭头转动、输入框聚焦时的边线、Choose…、目录候选的点击、出错时的提示位置。没有真的点 Create。

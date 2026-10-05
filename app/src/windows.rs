@@ -147,7 +147,8 @@ pub fn open_new_agent(place: Place, cx: &mut App) {
     let Ok(seed) = main.read(cx).map(|main| main.seed(cx)) else {
         return;
     };
-    let options = options("New Agent", 640.0, 600.0, true, cx);
+    let ui = crate::fonts::UiFont::get(cx);
+    let options = options("New Agent", ui.scale(580.0), ui.scale(600.0), true, cx);
     let Some((handle, view)) = open(options, move |_, cx| NewAgentView::new(seed, place, cx), cx)
     else {
         return;
@@ -194,7 +195,8 @@ pub fn open_about(cx: &mut App) {
     let Some(theme) = main.and_then(|main| main.read(cx).ok().map(PaddockWindow::theme)) else {
         return;
     };
-    let options = options("About paddock", 380.0, 230.0, false, cx);
+    let ui = crate::fonts::UiFont::get(cx);
+    let options = options("About paddock", ui.scale(400.0), ui.scale(330.0), false, cx);
     let handle = open(options, |_, cx| AboutView::new(theme, cx), cx);
     cx.default_global::<Windows>().about = handle.map(|(handle, _)| handle);
 }
