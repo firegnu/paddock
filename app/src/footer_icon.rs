@@ -1,4 +1,4 @@
-//! The Agents sidebar footer's icons, drawn as lines rather than taken from a font, so all five
+//! The Agents sidebar's icons, drawn as lines rather than taken from a font, so they all
 //! share one size, one line weight and one centre whatever fonts the system has.
 use gpui::{Bounds, Hsla, IntoElement, PathBuilder, Pixels, Point, Styled, canvas, point, px};
 
@@ -18,6 +18,8 @@ pub enum Icon {
     NewShell,
     /// A filled square.
     Stop,
+    /// A bell: the sidebar header's Attention badge.
+    Bell,
 }
 
 /// `icon` in `color`, `SIZE` points square times `scale` (the interface size over the base).
@@ -95,6 +97,21 @@ fn shapes(icon: Icon, bounds: Bounds<Pixels>, scale: f32) -> Vec<PathBuilder> {
             let mut square = PathBuilder::fill();
             rounded_rect(&mut square, at(3.0, 3.0), at(11.0, 11.0), 1.5 * scale);
             vec![square]
+        }
+        Icon::Bell => {
+            let mut bell = stroke();
+            let r = px(3.5 * scale);
+            bell.move_to(at(3.5, 9.0));
+            bell.line_to(at(3.5, 6.0));
+            bell.arc_to(point(r, r), px(0.0), false, true, at(10.5, 6.0));
+            bell.line_to(at(10.5, 9.0));
+            bell.line_to(at(11.75, 10.25));
+            bell.line_to(at(2.25, 10.25));
+            bell.close();
+            let mut clapper = stroke();
+            clapper.move_to(at(5.75, 12.0));
+            clapper.line_to(at(8.25, 12.0));
+            vec![bell, clapper]
         }
     }
 }

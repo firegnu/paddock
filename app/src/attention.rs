@@ -36,6 +36,11 @@ impl Item {
         }
     }
 
+    /// An agent waiting for a person or in error: what the header's badge counts.
+    pub fn agent_needs(&self) -> bool {
+        matches!(self.kind, Kind::Waiting | Kind::Error)
+    }
+
     pub fn mark(&self) -> &'static str {
         match self.kind {
             Kind::Waiting => "?",
@@ -152,6 +157,13 @@ mod tests {
         );
         assert!(items[2].agent.is_none());
         assert!(items[0].needs() && !items[3].needs());
+        // The badge counts agents only: not the failed read, nor a reply to read.
+        let badge: Vec<_> = items
+            .iter()
+            .filter(|i| i.agent_needs())
+            .map(|i| i.label.as_str())
+            .collect();
+        assert_eq!(badge, ["p/ask", "p/broken"]);
         assert_eq!((items[0].mark(), items[3].mark()), ("?", "•"));
     }
 

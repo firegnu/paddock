@@ -1,6 +1,7 @@
 //! The Agents list model: ordering, grouping, status and the Git summaries by directory. From
 //! Saddle `src/agents.rs` at commit `df1c727`. Changed for paddock, which has no list cursor: being
-//! selected no longer counts as read; only the agent shown in the active pane does.
+//! selected no longer counts as read; only the agent shown in the active pane does. The list-wide
+//! fold became each agent's own details, opened from its card.
 use crate::corral::Agent;
 use std::collections::{HashMap, HashSet};
 
@@ -10,8 +11,8 @@ pub struct Panel {
     pub selected: Option<String>,
     /// `s` switches from the default status order to plain name order.
     pub by_name: bool,
-    /// Session fold choice; `None` waits for the first successful list.
-    pub fold: Option<bool>,
+    /// The agents whose details are open, by name.
+    pub expanded: HashSet<String>,
     pub show_reply: bool,
     pub reply_top: usize,
     pub top: usize,
@@ -26,7 +27,6 @@ pub struct Panel {
 }
 impl Panel {
     pub fn absorb(&mut self, agents: Vec<Agent>, showing: Option<&str>, now: f64) {
-        self.fold.get_or_insert(agents.len() > 5);
         for a in &agents {
             self.first_seen.entry(a.name.clone()).or_insert(now);
             if let Some(old) = self.agents.iter().find(|old| old.name == a.name) {
@@ -50,6 +50,8 @@ impl Panel {
                 }
             }
         }
+        self.expanded
+            .retain(|name| agents.iter().any(|a| &a.name == name));
         self.agents = agents;
         if !self
             .agents
@@ -82,13 +84,15 @@ impl Panel {
         }
     }
 
-    /// Folded lists show only the first row of unselected agents.
-    pub fn folded(&self) -> bool {
-        self.fold.unwrap_or(false)
+    /// Opens or closes one agent's details.
+    pub fn toggle_details(&mut self, name: &str) {
+        if !self.expanded.remove(name) {
+            self.expanded.insert(name.to_owned());
+        }
     }
-    pub fn toggle_fold(&mut self) {
-        self.fold = Some(!self.folded());
-        self.follow = true;
+    /// Closes every agent's details.
+    pub fn collapse_all(&mut self) {
+        self.expanded.clear();
     }
 
     pub fn select(&mut self, name: Option<String>) {

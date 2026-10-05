@@ -1,11 +1,11 @@
 //! The Agents sidebar: `corral ls` and the agents' Git summaries through the pollers taken from
-//! Saddle, ordered and judged by its Agents panel model, shown as native cards (`card.rs` decides
-//! what each card says). Clicking a card asks the window to show that agent; the footer can sort,
-//! fold and open a shell instead.
+//! Saddle, ordered and judged by its Agents panel model, shown as native two-line cards (`card.rs`
+//! decides what each card says). Clicking a card asks the window to show that agent, and clicking
+//! the one shown opens its details; the footer can sort, close the details and open a shell.
 use crate::{
     agents::{Panel, Status},
     attention,
-    card::{self, Card, GitLine, Line, Pick},
+    card::{self, Card, Click, Line, Pick, Tone},
     corral::{Agent, Client, Poller, Role},
     fonts::UiFont,
     footer_icon::{self, Icon},
@@ -16,10 +16,11 @@ use crate::{
 };
 use anyhow::Result;
 use gpui::{
-    AnyElement, App, ClickEvent, Context, Div, ElementId, EventEmitter, Font, FontWeight, Hsla,
-    Pixels, Render, RenderOnce, SharedString, Window, div, prelude::*, px,
+    Animation, AnimationExt, AnyElement, App, BoxShadow, ClickEvent, Context, Div, ElementId,
+    EventEmitter, Font, FontFeatures, FontWeight, Hsla, Pixels, Render, RenderOnce, SharedString,
+    TextRun, Window, div, ease_in_out, point, prelude::*, px, relative,
 };
-use std::{rc::Rc, time::Duration};
+use std::{rc::Rc, sync::Arc, time::Duration};
 
 /// What the sidebar asks of the window.
 pub enum SidebarEvent {
@@ -43,14 +44,25 @@ pub enum SidebarEvent {
 /// How often the agents' worktrees are summarised, as in Saddle.
 const GIT_REFRESH: Duration = Duration::from_secs(5);
 
-// Sizes, in points.
+// Sizes, in points at the base interface size.
+/// The list's side padding, and a card's own.
 const PAD: f32 = 10.0;
-const NAME_SIZE: f32 = 13.0;
-const DETAIL_SIZE: f32 = 12.0;
-const MONO_SIZE: f32 = 11.5;
-/// The card's left bar plus its inner padding, and the detail lines' indent under the name.
-const CARD_INSET: f32 = 2.0 + 10.0 + 8.0;
+const CARD_X: f32 = 10.0;
+const CARD_Y: f32 = 8.0;
+const DOT: f32 = 8.0;
+/// The second line and the details start under the name: the dot and the gap after it.
 const INDENT: f32 = 16.0;
+/// Room kept before the age.
+const TIME_PAD: f32 = 4.0;
+/// The details' label column, four characters wide.
+const LABEL_WIDTH: f32 = 48.0;
+// The type scale (DESIGN §13).
+const TITLE_SIZE: f32 = 15.0;
+const NAME_SIZE: f32 = 13.0;
+const SECOND_SIZE: f32 = 12.0;
+const NOTE_SIZE: f32 = 11.5;
+const KIND_SIZE: f32 = 11.0;
+const LABEL_SIZE: f32 = 10.5;
 
 /// The list model: the last good `corral ls`, the last error if the latest read failed, and the
 /// Git summaries by directory.
@@ -120,16 +132,16 @@ impl Listing {
     pub fn lines(
         &self,
         selected: Option<&str>,
-        here: &[String],
-        columns: usize,
+        home: Option<&str>,
+        fits: &dyn Fn(&str) -> bool,
         now: f64,
     ) -> Vec<Line> {
         card::lines(
             &self.panel,
             self.error.as_deref(),
             selected,
-            here,
-            columns,
+            home,
+            fits,
             now,
         )
     }
@@ -145,14 +157,15 @@ impl Listing {
 pub struct Sidebar {
     theme: Rc<Theme>,
     width: f32,
-    /// The terminal's font, for the panel's technical lines.
+    /// The terminal's font, for the instance id in the details.
     mono: Font,
     listing: Listing,
     poller: Poller,
     git: git::Poller,
-    /// The active pane's agent, and every agent open in this window.
+    /// The active pane's agent.
     selected: Option<String>,
-    here: Vec<String>,
+    /// Written `~` in directories.
+    home: Option<String>,
     /// The result of the last start or stop, and whether it is a problem.
     note: Option<(String, bool)>,
 }
@@ -187,7 +200,7 @@ impl Sidebar {
             poller: Poller::start(Client { program: corral }, refresh),
             git: git::Poller::start("git".into(), GIT_REFRESH),
             selected: None,
-            here: Vec::new(),
+            home: std::env::var("HOME").ok(),
             note: None,
         }
     }
@@ -199,22 +212,22 @@ impl Sidebar {
         cx.notify();
     }
 
-    /// A new terminal font from Settings, for the technical lines.
+    /// A new terminal font from Settings, for the instance id.
     pub fn set_mono(&mut self, mono: Font, cx: &mut Context<Self>) {
         self.mono = mono;
         cx.notify();
     }
 
-    /// What the window shows: the active pane's agent and every agent open in it.
+    /// What the window shows: the active pane's agent, and every agent open in it, which the
+    /// cards no longer mark.
     pub fn set_view(
         &mut self,
         selected: Option<String>,
-        here: Vec<String>,
+        _here: Vec<String>,
         cx: &mut Context<Self>,
     ) {
-        if self.selected != selected || self.here != here {
+        if self.selected != selected {
             self.selected = selected;
-            self.here = here;
             cx.notify();
         }
     }
@@ -230,54 +243,44 @@ impl Sidebar {
         self.poller.refresh();
     }
 
-    /// `Attention · N` in the header: yellow when something needs a person, the unread colour for
-    /// replies only, faint at zero, `…` before corral first answers. A click opens the list.
-    fn attention_entry(&self, cx: &mut Context<Self>) -> gpui::Stateful<Div> {
+    /// The header's badge: a bell and how many agents wait for a person or are in error, in amber;
+    /// none when no agent does. A click opens the Attention list.
+    fn badge(&self, cx: &mut Context<Self>) -> Option<gpui::Stateful<Div>> {
+        let count = self
+            .attention()
+            .iter()
+            .filter(|item| item.agent_needs())
+            .count();
+        if count == 0 {
+            return None;
+        }
         let ui = UiFont::get(cx);
-        let theme = &self.theme;
-        let fg = |pick: Pick| hsla(theme.fg(pick), 1.0);
-        let items = self.attention();
-        let color = if items.iter().any(attention::Item::needs) {
-            fg(|t| t.agents_yellow)
-        } else if !items.is_empty() {
-            fg(|t| t.unread)
-        } else {
-            fg(|t| t.agents_dimmer)
-        };
-        let count = if self.listing.loaded {
-            items.len().to_string()
-        } else {
-            "…".into()
-        };
-        let highlight = hsla(theme.bg(|t| t.agent_selected), 1.0);
-        div()
-            .id("attention")
+        let amber = hsla(self.theme.fg(|t| t.agents_yellow), 1.0);
+        let pill = div()
             .flex()
-            .items_baseline()
-            .gap(px(4.0))
-            .px(px(6.0))
-            .py(px(1.0))
-            .rounded(px(5.0))
-            .cursor_pointer()
-            .hover(move |style| style.bg(highlight))
-            .text_size(ui.px(DETAIL_SIZE))
-            .child(
-                div()
-                    .text_color(if items.is_empty() {
-                        fg(|t| t.agents_dim)
-                    } else {
-                        color
-                    })
-                    .child("Attention"),
-            )
-            .child(div().text_color(fg(|t| t.agents_dim)).child("·"))
-            .child(
-                div()
-                    .font_weight(FontWeight::BOLD)
-                    .text_color(color)
-                    .child(count),
-            )
-            .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(SidebarEvent::Attention)))
+            .items_center()
+            .gap(ui.px(5.0))
+            .h(ui.px(24.0))
+            .px(ui.px(8.0))
+            .rounded(ui.px(12.0))
+            .bg(amber.opacity(0.15))
+            .text_color(amber)
+            .text_size(ui.px(NOTE_SIZE))
+            .font_weight(FontWeight::SEMIBOLD)
+            .child(footer_icon::icon(Icon::Bell, amber, ui.scale(1.0)))
+            .child(count.to_string());
+        Some(
+            div()
+                .id("attention")
+                .flex_shrink_0()
+                .h(ui.px(28.0))
+                .flex()
+                .items_center()
+                .cursor_pointer()
+                .hover(move |style| style.opacity(0.85))
+                .child(pill)
+                .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(SidebarEvent::Attention))),
+        )
     }
 
     /// The latest `corral ls`: when, and how many agents or why it failed.
@@ -300,13 +303,17 @@ impl Sidebar {
         self.listing.cwds()
     }
 
-    /// Whether the list is folded, and sorted by name, for the View menu's ticks.
+    /// Whether every card is folded to two lines, and sorted by name, for the View menu's ticks.
     pub fn view_state(&self) -> (bool, bool) {
-        (self.listing.panel.folded(), self.listing.panel.by_name)
+        (
+            self.listing.panel.expanded.is_empty(),
+            self.listing.panel.by_name,
+        )
     }
 
+    /// Closes every card's details (View ▸ Fold Agents, and the footer).
     pub fn toggle_fold(&mut self, cx: &mut Context<Self>) {
-        self.listing.panel.toggle_fold();
+        self.listing.panel.collapse_all();
         cx.notify();
     }
 
@@ -363,31 +370,28 @@ impl Sidebar {
             changed = true;
             self.listing.absorb_git(batch);
         }
-        // Working agents' dots and spinners turn, and ages tick.
+        // Working agents' ages tick; their dots breathe by themselves.
         if changed || self.listing.animating(now) {
             cx.notify();
         }
     }
 
-    fn attach(&mut self, card: &Card, cx: &mut Context<Self>) {
-        cx.emit(SidebarEvent::Attach {
-            name: card.name.clone(),
-            metadata: AgentMetadata {
-                cwd: card.cwd.clone(),
-                instance: card.instance.clone(),
-            },
-        });
-    }
-
-    /// Monospace cells that fit a detail line.
-    fn columns(&self, ui: &UiFont, window: &Window) -> usize {
-        let text = window.text_system();
-        let cell = text
-            .advance(text.resolve_font(&self.mono), ui.px(MONO_SIZE), 'm')
-            .map_or(ui.scale(MONO_SIZE) * 0.6, |advance| {
-                f32::from(advance.width)
-            });
-        ((self.width - 2.0 * PAD - CARD_INSET - INDENT) / cell).max(8.0) as usize
+    /// A click on a card: show the agent, or, when it is already the one shown, open or close its
+    /// details.
+    fn click(&mut self, card: &Card, cx: &mut Context<Self>) {
+        match card::click(card) {
+            Click::Open => cx.emit(SidebarEvent::Attach {
+                name: card.name.clone(),
+                metadata: AgentMetadata {
+                    cwd: card.cwd.clone(),
+                    instance: card.instance.clone(),
+                },
+            }),
+            Click::Details => {
+                self.listing.panel.toggle_details(&card.name);
+                cx.notify();
+            }
+        }
     }
 }
 
@@ -397,46 +401,94 @@ impl Render for Sidebar {
         let theme = self.theme.clone();
         let fg = |pick: Pick| hsla(theme.fg(pick), 1.0);
         let now = now();
-        let lines = self.listing.lines(
-            self.selected.as_deref(),
-            &self.here,
-            self.columns(&ui, window),
-            now,
-        );
+        let lines = {
+            // Measured in the interface font: GPUI's own ellipsis misjudges text that shares a
+            // row, so the card's lines are cut here to the room the card has.
+            let family = ui.family.clone().unwrap_or_else(|| ".SystemUIFont".into());
+            let text = window.text_system();
+            let width = |line: &str, size: f32, weight: FontWeight, features: &FontFeatures| {
+                let run = TextRun {
+                    len: line.len(),
+                    font: Font {
+                        weight,
+                        features: features.clone(),
+                        ..gpui::font(family.clone())
+                    },
+                    color: Hsla::default(),
+                    background_color: None,
+                    underline: None,
+                    strikethrough: None,
+                };
+                let size = ui.px(size);
+                f32::from(
+                    text.shape_line(SharedString::from(line.to_owned()), size, &[run], None)
+                        .width,
+                )
+            };
+            let plain = FontFeatures::default();
+            let card_width = self.width - 2.0 * PAD - 2.0 * CARD_X;
+            let gap = ui.scale(INDENT - DOT);
+            let fits = |line: &str| {
+                width(line, SECOND_SIZE, FontWeight::NORMAL, &plain)
+                    <= card_width - ui.scale(INDENT)
+            };
+            let mut lines =
+                self.listing
+                    .lines(self.selected.as_deref(), self.home.as_deref(), &fits, now);
+            for line in &mut lines {
+                let Line::Agent(card) = line else { continue };
+                // The name gives way first: the program and the age always show.
+                let mut room = card_width
+                    - ui.scale(DOT)
+                    - gap
+                    - gap
+                    - TIME_PAD
+                    - width(&card.time, NOTE_SIZE, FontWeight::NORMAL, &tabular());
+                if let Some(brand) = &card.brand {
+                    room -= gap + width(&brand.kind, KIND_SIZE, FontWeight::NORMAL, &plain);
+                }
+                let weight = name_weight(card.selected);
+                card.short = card::elide(&card.short, &|name| {
+                    width(name, NAME_SIZE, weight, &plain) <= room
+                });
+            }
+            lines
+        };
         let agents = lines
             .iter()
             .filter(|line| matches!(line, Line::Agent(_)))
             .count();
-        let effort_column = lines
-            .iter()
-            .any(|line| matches!(line, Line::Agent(card) if card.effort.is_some()));
-        let compact = self.width < 320.0;
 
         let header = div()
             .flex_shrink_0()
             .flex()
-            .items_baseline()
-            .gap(px(6.0))
-            .px(px(PAD + 2.0))
-            .pt(px(10.0))
-            .pb(px(8.0))
-            .border_b_1()
-            .border_color(fg(|t| t.agents_rule))
+            .items_center()
+            .min_h(ui.px(44.0))
+            .pl(px(18.0))
+            .pr(px(14.0))
             .child(
                 div()
-                    .text_size(ui.px(NAME_SIZE + 1.0))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(fg(|t| t.agents_text))
-                    .child("Agents"),
-            )
-            .child(
-                div()
-                    .text_size(ui.px(DETAIL_SIZE))
-                    .text_color(fg(|t| t.agents_dim))
-                    .child(agents.to_string()),
+                    .flex()
+                    .items_baseline()
+                    .gap(ui.px(7.0))
+                    .child(
+                        div()
+                            .text_size(ui.px(TITLE_SIZE))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(fg(|t| t.agents_text))
+                            .child("Agents"),
+                    )
+                    .when(agents > 0, |title| {
+                        title.child(
+                            div()
+                                .text_size(ui.px(SECOND_SIZE))
+                                .text_color(fg(|t| t.agents_dimmer))
+                                .child(agents.to_string()),
+                        )
+                    }),
             )
             .child(div().flex_1())
-            .child(self.attention_entry(cx));
+            .children(self.badge(cx));
 
         let mut list = div()
             .id("agents")
@@ -447,57 +499,81 @@ impl Render for Sidebar {
             .flex_col()
             .gap(px(2.0))
             .px(px(PAD))
-            .pb(px(8.0));
-        let mut first_group = true;
-        for line in lines {
+            .pt(px(2.0))
+            .pb(px(10.0));
+        if agents == 0 && self.listing.loaded {
+            // Nothing listed: why, or how to start one, in the middle of the list.
+            let quiet = match lines.first() {
+                Some(Line::Error(text)) => quiet(&theme, &ui, "读不到 corral", text, None, None),
+                _ => quiet(
+                    &theme,
+                    &ui,
+                    "还没有 agent",
+                    "新建一个，在这里看它的状态和回复。",
+                    Some(Icon::NewAgent),
+                    Some(
+                        div()
+                            .id("empty-new-agent")
+                            .mt(px(4.0))
+                            .h(ui.px(30.0))
+                            .px(ui.px(14.0))
+                            .flex()
+                            .items_center()
+                            .rounded(px(8.0))
+                            .bg(fg(|t| t.agents_accent))
+                            .text_color(hsla(theme.bg(|t| t.agents_bg), 1.0))
+                            .text_size(ui.px(12.5))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .cursor_pointer()
+                            .hover(|style| style.opacity(0.9))
+                            .child("新建 agent")
+                            .on_click(cx.listener(|_, _: &ClickEvent, _, cx| {
+                                cx.emit(SidebarEvent::NewAgent)
+                            })),
+                    ),
+                ),
+            };
+            list = list.justify_center().child(quiet);
+        }
+        for line in lines.into_iter().filter(|_| agents > 0) {
             list = list.child(match line {
+                // The list corral last gave stays below this.
                 Line::Error(text) => div()
-                    .mt(px(8.0))
-                    .px(px(4.0))
-                    .text_size(ui.px(DETAIL_SIZE))
+                    .px(px(8.0))
+                    .pt(px(6.0))
+                    .text_size(ui.px(NOTE_SIZE))
                     .text_color(fg(|t| t.agents_red))
                     .child(text)
                     .into_any_element(),
-                Line::Group(title, count) => {
-                    let top = if first_group { 10.0 } else { 16.0 };
-                    first_group = false;
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap(px(8.0))
-                        .px(px(2.0))
-                        .pt(px(top))
-                        .pb(px(4.0))
-                        .child(
-                            div()
-                                .flex_shrink_0()
-                                .text_size(ui.px(DETAIL_SIZE))
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .text_color(fg(|t| t.agents_accent))
-                                .child(title),
-                        )
-                        .child(div().flex_1().h(px(1.0)).bg(fg(|t| t.agents_faint)))
-                        .child(
-                            div()
-                                .flex_shrink_0()
-                                .text_size(ui.px(DETAIL_SIZE - 1.0))
-                                .text_color(fg(|t| t.agents_dim))
-                                .child(count.to_string()),
-                        )
-                        .into_any_element()
-                }
+                Line::Group(title, count) => div()
+                    .flex()
+                    .items_baseline()
+                    .gap(ui.px(6.0))
+                    .px(px(8.0))
+                    .pt(px(14.0))
+                    .pb(px(6.0))
+                    .text_size(ui.px(LABEL_SIZE))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child(
+                        div()
+                            .text_color(fg(|t| t.agents_dimmer))
+                            .child(title.trim_end_matches('/').to_uppercase()),
+                    )
+                    .child(
+                        div()
+                            .text_color(fg(|t| t.agents_dimmer).opacity(0.6))
+                            .child(count.to_string()),
+                    )
+                    .into_any_element(),
                 Line::Agent(card) => {
                     let on_click = {
                         let card = card.clone();
-                        cx.listener(move |this, _: &ClickEvent, _, cx| this.attach(&card, cx))
+                        cx.listener(move |this, _: &ClickEvent, _, cx| this.click(&card, cx))
                     };
                     AgentCard {
                         card: *card,
                         theme: theme.clone(),
                         mono: self.mono.clone(),
-                        effort_column,
-                        compact,
-                        now,
                         on_click: Box::new(on_click),
                     }
                     .into_any_element()
@@ -505,17 +581,14 @@ impl Render for Sidebar {
             });
         }
 
-        let folded = self.listing.panel.folded();
         let by_name = self.listing.panel.by_name;
         let footer = div()
             .flex_shrink_0()
             .flex()
             .items_center()
             .gap(px(2.0))
-            .px(px(PAD - 2.0))
-            .py(px(5.0))
-            .border_t_1()
-            .border_color(fg(|t| t.agents_rule))
+            .px(px(PAD))
+            .py(px(6.0))
             .child(
                 chip(
                     &theme,
@@ -527,7 +600,6 @@ impl Render for Sidebar {
                     } else {
                         "Sort by status"
                     },
-                    false,
                 )
                 .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                     this.listing.panel.by_name = !this.listing.panel.by_name;
@@ -535,45 +607,39 @@ impl Render for Sidebar {
                 })),
             )
             .child(
-                chip(&theme, &ui, "fold", Icon::Fold, "Fold all", folded).on_click(cx.listener(
-                    |this, _: &ClickEvent, _, cx| {
-                        this.listing.panel.toggle_fold();
-                        cx.notify();
-                    },
-                )),
+                chip(&theme, &ui, "fold", Icon::Fold, "Close all details")
+                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.toggle_fold(cx))),
             )
             .child(div().flex_1())
             .child(
-                chip(&theme, &ui, "new-agent", Icon::NewAgent, "New agent", false).on_click(
+                chip(&theme, &ui, "new-agent", Icon::NewAgent, "New agent").on_click(
                     cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(SidebarEvent::NewAgent)),
                 ),
             )
             .child(
-                chip(&theme, &ui, "new-shell", Icon::NewShell, "New shell", false).on_click(
+                chip(&theme, &ui, "new-shell", Icon::NewShell, "New shell").on_click(
                     cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(SidebarEvent::NewShell)),
                 ),
             )
             .child(if self.selected.is_some() {
-                chip(&theme, &ui, "stop", Icon::Stop, "Stop", false)
+                chip(&theme, &ui, "stop", Icon::Stop, "Stop")
                     .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(SidebarEvent::Stop)))
             } else {
                 // Stop acts on the active pane's agent; there is none.
-                chip(&theme, &ui, "stop", Icon::Stop, "Stop", false)
+                chip(&theme, &ui, "stop", Icon::Stop, "Stop")
                     .opacity(0.4)
                     .cursor_default()
             });
         let note = self.note.as_ref().map(|(text, problem)| {
             div()
                 .flex_shrink_0()
-                .px(px(PAD + 2.0))
-                .py(px(5.0))
-                .border_t_1()
-                .border_color(fg(|t| t.agents_rule))
-                .text_size(ui.px(DETAIL_SIZE))
+                .px(px(18.0))
+                .pt(px(6.0))
+                .text_size(ui.px(NOTE_SIZE))
                 .text_color(if *problem {
                     fg(|t| t.agents_red)
                 } else {
-                    fg(|t| t.muted)
+                    fg(|t| t.agents_dim)
                 })
                 .child(text.clone())
         });
@@ -585,8 +651,8 @@ impl Render for Sidebar {
             .flex()
             .flex_col()
             .bg(hsla(theme.bg(|t| t.agents_bg), 1.0))
-            .border_r_1()
-            .border_color(fg(|t| t.agents_rule))
+            // Closer than GPUI's default, as in the design.
+            .line_height(relative(1.3))
             .child(header)
             .child(list)
             .children(note)
@@ -594,44 +660,82 @@ impl Render for Sidebar {
     }
 }
 
-/// A footer control: an icon, with what it does shown on hover. `on` marks a toggle that is in
-/// effect.
+/// The empty list's message: an icon, a title, a sentence and an action, centred and quiet.
+fn quiet(
+    theme: &Theme,
+    ui: &UiFont,
+    title: &'static str,
+    text: &str,
+    icon: Option<Icon>,
+    action: Option<gpui::Stateful<Div>>,
+) -> Div {
+    let fg = |pick: Pick| hsla(theme.fg(pick), 1.0);
+    div()
+        .flex()
+        .flex_col()
+        .items_center()
+        .gap(px(12.0))
+        .px(px(14.0))
+        .pb(px(40.0))
+        .text_center()
+        .children(icon.map(|icon| {
+            div()
+                .size(ui.px(36.0))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(px(10.0))
+                .bg(hsla(theme.bg(|t| t.agent_selected), 1.0))
+                .child(footer_icon::icon(
+                    icon,
+                    fg(|t| t.agents_dim),
+                    ui.scale(18.0 / footer_icon::SIZE),
+                ))
+        }))
+        .child(
+            div()
+                .text_size(ui.px(NAME_SIZE))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(fg(|t| t.agents_text))
+                .child(title),
+        )
+        .child(
+            div()
+                .text_size(ui.px(SECOND_SIZE))
+                .text_color(fg(|t| t.agents_dim))
+                .child(text.to_owned()),
+        )
+        .children(action)
+}
+
+/// A footer control: an icon, with what it does shown on hover.
 fn chip(
     theme: &Theme,
     ui: &UiFont,
     id: &'static str,
     icon: Icon,
     tip: &'static str,
-    on: bool,
 ) -> gpui::Stateful<Div> {
     let fg = |pick: Pick| hsla(theme.fg(pick), 1.0);
     let selected = hsla(theme.bg(|t| t.agent_selected), 1.0);
     let tip = Tip {
         text: tip,
-        size: ui.px(DETAIL_SIZE),
+        size: ui.px(NOTE_SIZE),
         color: fg(|t| t.agents_text),
         background: hsla(theme.bg(|t| t.agents_bg), 1.0),
         border: fg(|t| t.agents_rule),
     };
-    let mut chip = div()
+    div()
         .id(id)
+        .size(ui.px(28.0))
         .flex()
         .items_center()
         .justify_center()
-        .p(ui.px(5.0))
-        .rounded(px(5.0))
+        .rounded(px(6.0))
         .cursor_pointer()
         .hover(move |style| style.bg(selected))
         .tooltip(move |_, cx| cx.new(|_| tip.clone()).into())
-        .child(footer_icon::icon(
-            icon,
-            fg(|t| t.agents_text),
-            ui.scale(1.0),
-        ));
-    if on {
-        chip = chip.bg(selected);
-    }
-    chip
+        .child(footer_icon::icon(icon, fg(|t| t.agents_dim), ui.scale(1.0)))
 }
 
 /// A footer control's hover text.
@@ -649,7 +753,7 @@ impl Render for Tip {
         div()
             .px(px(7.0))
             .py(px(3.0))
-            .rounded(px(5.0))
+            .rounded(px(6.0))
             .border_1()
             .border_color(self.border)
             .bg(self.background)
@@ -662,16 +766,13 @@ impl Render for Tip {
 
 type OnClick = Box<dyn Fn(&ClickEvent, &mut Window, &mut App)>;
 
-/// One agent: a first line that always shows, and the details when expanded. Its own element, so
-/// the list never assumes a height.
+/// One agent: the status dot, name, program and age; the second line; the details when open. Its
+/// own element, so the list never assumes a height.
 #[derive(IntoElement)]
 struct AgentCard {
     card: Card,
     theme: Rc<Theme>,
     mono: Font,
-    effort_column: bool,
-    compact: bool,
-    now: f64,
     on_click: OnClick,
 }
 
@@ -681,343 +782,169 @@ impl RenderOnce for AgentCard {
         let theme = &self.theme;
         let fg = |pick: Pick| hsla(theme.fg(pick), 1.0);
         let card = &self.card;
-        let exited = card.status == Status::Exited;
-        let state_color = fg(card.look.color);
         let selected = hsla(theme.bg(|t| t.agent_selected), 1.0);
 
-        // First line: dot, name, program, effort, state and age, in columns shared by all cards.
-        let mut first = div()
+        // The name comes already cut to its room (see `Sidebar::render`).
+        let first = div()
             .flex()
             .items_center()
-            .gap(px(5.0))
-            .text_size(ui.px(NAME_SIZE))
+            .gap(ui.px(INDENT - DOT))
+            .child(dot(card.look, fg(card.look.color), &ui))
             .child(
                 div()
-                    .flex_shrink_0()
-                    .w(ui.px(INDENT - 6.0))
-                    .text_color(state_color)
-                    .child(card.look.dot),
-            )
-            .child(
-                div()
-                    .flex_1()
                     .min_w(px(0.0))
                     .overflow_hidden()
                     .whitespace_nowrap()
-                    .text_ellipsis()
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(fg(if exited {
-                        |t| t.agents_faint
+                    .text_size(ui.px(NAME_SIZE))
+                    .font_weight(name_weight(card.selected))
+                    .text_color(fg(if card.status == Status::Exited {
+                        |t| t.agents_dim
                     } else {
                         |t| t.agents_text
                     }))
                     .child(card.short.clone()),
-            );
-        let brand_width = if self.compact { 18.0 } else { 60.0 };
-        let brand = match &card.brand {
-            Some(brand) => {
-                let text = match (brand.mark, self.compact) {
-                    (Some(mark), true) => mark.to_owned(),
-                    (Some(mark), false) => format!("{mark} {}", brand.kind),
-                    (None, _) => brand.kind.clone(),
-                };
+            )
+            .children(card.brand.as_ref().map(|brand| {
                 div()
-                    .text_color(fg(brand.color))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .child(text)
-            }
-            None => div(),
+                    .flex_shrink_0()
+                    .whitespace_nowrap()
+                    .text_size(ui.px(KIND_SIZE))
+                    .text_color(fg(brand.color).opacity(0.85))
+                    .child(brand.kind.clone())
+            }))
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .ml_auto()
+                    .pl(px(TIME_PAD))
+                    .whitespace_nowrap()
+                    .text_size(ui.px(NOTE_SIZE))
+                    .font_features(tabular())
+                    .text_color(fg(|t| t.agents_dimmer))
+                    .child(card.time.clone()),
+            );
+        let tone: Pick = match card.second.tone {
+            Tone::Quiet => |t| t.agents_dim,
+            Tone::Waiting => |t| t.agents_yellow,
+            Tone::Problem => |t| t.agents_red,
         };
-        first = first.child(
-            brand
-                .flex_shrink_0()
-                .w(ui.px(brand_width))
-                .text_size(ui.px(DETAIL_SIZE))
-                .overflow_hidden()
-                .whitespace_nowrap(),
-        );
-        if self.effort_column {
-            first = first.child(effort_icon(theme, card.effort));
-        }
-        let mut state = div()
-            .flex_shrink_0()
-            .w(ui.px(if self.compact { 18.0 } else { 66.0 }))
-            .flex()
-            .gap(px(3.0))
-            .text_size(ui.px(DETAIL_SIZE))
-            .font_weight(FontWeight::SEMIBOLD)
+        let second = div()
+            .mt(px(3.0))
+            .pl(ui.px(INDENT))
+            .min_w(px(0.0))
+            .overflow_hidden()
             .whitespace_nowrap()
-            .overflow_hidden();
-        if card.status == Status::Working {
-            state = state.child(
-                div()
-                    .text_color(fg(|t| t.agents_purple))
-                    .child(card::spinner(self.now)),
-            );
-        }
-        if !self.compact {
-            state = state.child(div().text_color(state_color).child(card.look.label));
-        }
-        first = first.child(state);
-        let (mark, mark_color): (&str, Pick) = if card.here {
-            ("⦿ ", |t| t.agents_green)
-        } else if card.unread {
-            ("• ", |t| t.unread)
-        } else {
-            ("", |t| t.agents_text)
-        };
-        first = first.child(
-            div()
-                .flex_shrink_0()
-                .w(ui.px(42.0))
-                .flex()
-                .justify_end()
-                .font(self.mono.clone())
-                .text_size(ui.px(MONO_SIZE))
-                .child(div().text_color(fg(mark_color)).child(mark))
-                .child(
-                    div()
-                        .text_color(fg(card.time_color))
-                        .child(card.time.clone()),
-                ),
-        );
-
-        let mut body = div().flex().flex_col().gap(px(2.0)).w_full().child(first);
-        if card.expanded {
-            body = body.children(details(&self.theme, &self.mono, &ui, card, state_color));
-        }
+            .text_ellipsis()
+            .text_size(ui.px(SECOND_SIZE))
+            .text_color(fg(tone))
+            .child(card.second.text.clone());
 
         div()
             .id(ElementId::Name(SharedString::from(card.name.clone())))
             .flex()
+            .flex_col()
             .w_full()
-            .pl(px(10.0))
-            .pr(px(8.0))
-            .py(px(if card.expanded { 6.0 } else { 3.0 }))
-            .rounded(px(6.0))
-            .border_l_2()
-            .border_color(fg(if card.selected {
-                |t| t.agents_accent
-            } else {
-                |t| t.agents_faint
-            }))
+            .px(px(CARD_X))
+            .py(px(CARD_Y))
+            .rounded(px(8.0))
             .when(card.selected, |card| card.bg(selected))
-            .hover(move |style| style.bg(selected.opacity(0.6)))
+            .when(!card.selected, |card| {
+                card.hover(move |style| style.bg(selected.opacity(0.5)))
+            })
             .cursor_pointer()
             .on_click(self.on_click)
-            .child(body)
+            .child(first)
+            .child(second)
+            .when(card.expanded, |body| {
+                body.child(details(theme, &self.mono, &ui, card))
+            })
     }
 }
 
-/// The expanded lines: title, activity, Git, directory, then identity and connections.
-fn details(
-    theme: &Theme,
-    mono: &Font,
-    ui: &UiFont,
-    card: &Card,
-    state_color: Hsla,
-) -> Vec<AnyElement> {
-    let fg = |pick: Pick| hsla(theme.fg(pick), 1.0);
-    let line = || {
-        div()
-            .flex()
-            .items_center()
-            .gap(px(6.0))
-            .pl(px(INDENT))
-            .min_w(px(0.0))
-            .whitespace_nowrap()
-            .overflow_hidden()
-    };
-    let mono_line = || line().font(mono.clone()).text_size(ui.px(MONO_SIZE));
-    let mut lines = Vec::new();
-    if let Some(title) = &card.title {
-        lines.push(
-            line()
-                .text_size(ui.px(DETAIL_SIZE))
-                .text_color(fg(|t| t.agents_text))
-                .child(div().overflow_hidden().text_ellipsis().child(title.clone()))
-                .into_any_element(),
-        );
-    }
-    for activity in &card.activity {
-        let mut row = line()
-            .text_size(ui.px(DETAIL_SIZE))
-            .text_color(state_color)
-            .child(
-                div()
-                    .flex_shrink_0()
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .child(activity.label),
-            )
-            .child(
-                div()
-                    .min_w(px(0.0))
-                    .overflow_hidden()
-                    .text_ellipsis()
-                    .child(activity.text.clone()),
-            );
-        if let Some(duration) = &activity.duration {
-            row = row.child(
-                div()
-                    .flex_shrink_0()
-                    .text_color(fg(|t| t.agents_dim))
-                    .child(format!("· {duration}")),
-            );
-        }
-        lines.push(row.into_any_element());
-    }
-    if let Some(git) = &card.git {
-        let changes = || changes(theme, git);
-        let mut left = mono_line().child(git_left(theme, git));
-        match git {
-            GitLine::Known {
-                changes_below: false,
-                ..
-            } => {
-                left = left.child(div().flex_1()).child(changes());
-                lines.push(left.into_any_element());
-            }
-            GitLine::Known { .. } => {
-                lines.push(left.into_any_element());
-                lines.push(
-                    mono_line()
-                        .justify_end()
-                        .child(changes())
-                        .into_any_element(),
-                );
-            }
-            _ => lines.push(left.into_any_element()),
-        }
-    }
-    lines.push(
-        mono_line()
-            .text_color(fg(|t| t.agents_dim))
-            .child(card.path.clone())
-            .into_any_element(),
-    );
-    let meta: Pick = if card.selected {
-        |t| t.agents_text
+/// The name's weight: heavier on the card shown in the active pane.
+fn name_weight(selected: bool) -> FontWeight {
+    if selected {
+        FontWeight::SEMIBOLD
     } else {
-        |t| t.agents_dimmer
-    };
-    let instance: String = card
-        .instance
-        .as_deref()
-        .unwrap_or("—")
-        .chars()
-        .take(6)
-        .collect();
-    lines.push(
-        mono_line()
-            .gap(px(0.0))
-            .text_color(fg(meta))
-            .child(format!("{instance} · "))
-            .child(
-                div()
-                    .text_color(fg(if card.attached > 0 {
-                        |t| t.agents_green
-                    } else {
-                        meta
-                    }))
-                    .child(format!("ATT {}", card.attached)),
-            )
-            .child(format!(" · VIA {}", card.via))
-            .into_any_element(),
-    );
-    lines
+        FontWeight::MEDIUM
+    }
 }
 
-/// `⎇ branch ↑n base`, with the count yellow when HEAD is ahead of its base.
-fn git_left(theme: &Theme, git: &GitLine) -> Div {
+/// Digits of equal width, so ages line up.
+fn tabular() -> FontFeatures {
+    FontFeatures(Arc::new(vec![("tnum".into(), 1)]))
+}
+
+/// The status dot; a working agent's breathes, a ring widening as it fades, every 1.6 s.
+fn dot(look: card::Look, color: Hsla, ui: &UiFont) -> AnyElement {
+    let dot = div()
+        .flex_shrink_0()
+        .size(ui.px(DOT))
+        .rounded_full()
+        .bg(color);
+    if !look.breathing {
+        return dot.into_any_element();
+    }
+    let reach = ui.scale(4.0);
+    dot.with_animation(
+        "breath",
+        Animation::new(Duration::from_millis(1600))
+            .repeat_synced()
+            .with_max_fps(30.0),
+        move |dot, delta| {
+            let out = ease_in_out(if delta < 0.5 {
+                delta * 2.0
+            } else {
+                (1.0 - delta) * 2.0
+            });
+            dot.shadow(vec![BoxShadow {
+                color: color.opacity(0.55 * (1.0 - out)),
+                offset: point(px(0.0), px(0.0)),
+                blur_radius: px(0.0),
+                spread_radius: px(reach * out),
+                inset: false,
+            }])
+        },
+    )
+    .into_any_element()
+}
+
+/// The open details: labels and values in two columns under a faint rule.
+fn details(theme: &Theme, mono: &Font, ui: &UiFont, card: &Card) -> Div {
     let fg = |pick: Pick| hsla(theme.fg(pick), 1.0);
-    let dim = fg(|t| t.agents_dim);
-    let GitLine::Known { head, ahead, .. } = git else {
-        return div().text_color(dim).child(git.left_text());
-    };
-    let mut left = div()
+    div()
+        .mt(px(10.0))
+        .mb(px(2.0))
+        .ml(ui.px(INDENT))
+        .pt(px(10.0))
+        .border_t_1()
+        .border_color(fg(|t| t.agents_rule))
         .flex()
-        .gap(px(6.0))
-        .min_w(px(0.0))
-        .overflow_hidden()
-        .child(div().text_color(dim).child("⎇"));
-    if !head.is_empty() {
-        left = left.child(
+        .flex_col()
+        .gap(px(5.0))
+        .text_size(ui.px(NOTE_SIZE))
+        .children(card.details.iter().map(|detail| {
             div()
-                .min_w(px(0.0))
-                .overflow_hidden()
-                .text_ellipsis()
-                .text_color(fg(|t| t.agents_branch))
-                .child(head.clone()),
-        );
-    }
-    let (count, color): (String, Pick) = match ahead {
-        Some((n, _)) if *n > 0 => (format!("↑{n}"), |t| t.agents_yellow),
-        Some((n, _)) => (format!("↑{n}"), |t| t.agents_faint),
-        None => ("↑—".into(), |t| t.agents_faint),
-    };
-    left = left.child(div().flex_shrink_0().text_color(fg(color)).child(count));
-    if let Some((_, base)) = ahead {
-        left = left.child(div().flex_shrink_0().text_color(dim).child(base.clone()));
-    }
-    left
-}
-
-/// `+added -deleted [n binary] ?untracked`, green, red and dim.
-fn changes(theme: &Theme, git: &GitLine) -> Div {
-    let fg = |pick: Pick| hsla(theme.fg(pick), 1.0);
-    let dim = fg(|t| t.agents_dim);
-    let GitLine::Known {
-        changes, untracked, ..
-    } = git
-    else {
-        return div();
-    };
-    let mut row = div().flex_shrink_0().flex().gap(px(6.0));
-    match changes {
-        Some((added, deleted, binary)) => {
-            row = row
+                .flex()
+                .gap(px(14.0))
                 .child(
                     div()
-                        .text_color(fg(|t| t.agents_green))
-                        .child(format!("+{added}")),
+                        .flex_shrink_0()
+                        .w(ui.px(LABEL_WIDTH))
+                        .text_color(fg(|t| t.agents_dimmer))
+                        .child(detail.label),
                 )
                 .child(
                     div()
-                        .text_color(fg(|t| t.agents_red))
-                        .child(format!("-{deleted}")),
-                );
-            if *binary > 0 {
-                row = row.child(div().text_color(dim).child(format!("{binary} binary")));
-            }
-        }
-        None => row = row.child(div().text_color(dim).child("+— -—")),
-    }
-    let untracked = untracked.map_or("—".into(), |n| n.to_string());
-    row.child(div().text_color(dim).child(format!("?{untracked}")))
-}
-
-/// Three rising bars, lit by the delegated effort; empty space when there is no effort label.
-fn effort_icon(theme: &Theme, effort: Option<crate::corral::Effort>) -> Div {
-    let icon = div()
-        .flex_shrink_0()
-        .w(px(14.0))
-        .h(px(10.0))
-        .flex()
-        .items_end()
-        .gap(px(1.5));
-    let Some(effort) = effort else {
-        return icon;
-    };
-    let (lit, color) = card::effort(effort);
-    let lit_color = hsla(theme.fg(color), 1.0);
-    let unlit = hsla(theme.fg(|t| t.agents_faint), 1.0);
-    icon.children((0..3).map(|i| {
-        div()
-            .w(px(3.0))
-            .h(px(4.0 + 3.0 * i as f32))
-            .rounded(px(1.0))
-            .bg(if i < lit { lit_color } else { unlit })
-    }))
+                        .flex_1()
+                        .min_w(px(0.0))
+                        .text_color(fg(|t| t.agents_branch))
+                        .when(detail.mono, |value| {
+                            value.font(mono.clone()).text_size(ui.px(KIND_SIZE))
+                        })
+                        .child(detail.value.clone()),
+                )
+        }))
 }
 
 fn now() -> f64 {
@@ -1038,6 +965,10 @@ mod tests {
             instance: Some(format!("i-{name}")),
             ..Agent::default()
         }
+    }
+
+    fn roomy(_: &str) -> bool {
+        true
     }
 
     fn shown(lines: &[Line]) -> Vec<String> {
@@ -1074,19 +1005,19 @@ mod tests {
                 "paddock/dev-theme"
             ]
         );
-        let lines = listing.lines(None, &[], 40, 1000.0);
+        let lines = listing.lines(None, None, &roomy, 1000.0);
         // Groups in name order, the ungrouped first; within a group, those needing a person first.
         assert_eq!(
             shown(&lines),
             [
                 "# agents/ (1)",
-                "solo working",
+                "solo 工作中",
                 "# paddock/ (3)",
-                "dev-theme waiting",
-                "dev-agents working",
-                "main idle",
+                "dev-theme 等你回复",
+                "dev-agents 工作中",
+                "main 空闲",
                 "# saddle/ (1)",
-                "main exited",
+                "main 已退出",
             ]
         );
         let Line::Agent(card) = &lines[3] else {
@@ -1111,31 +1042,21 @@ mod tests {
     fn status_refreshes_with_each_listing() {
         let mut listing = Listing::default();
         listing.absorb(Ok(vec![agent("p/a", "working")]), None, 1000.0);
-        assert_eq!(shown(&listing.lines(None, &[], 40, 1000.0))[1], "a working");
+        assert_eq!(
+            shown(&listing.lines(None, None, &roomy, 1000.0))[1],
+            "a 工作中"
+        );
         listing.absorb(Ok(vec![agent("p/a", "idle")]), None, 1001.0);
-        assert_eq!(shown(&listing.lines(None, &[], 40, 1001.0))[1], "a idle");
+        assert_eq!(
+            shown(&listing.lines(None, None, &roomy, 1001.0))[1],
+            "a 空闲"
+        );
         listing.absorb(Ok(vec![]), None, 1002.0);
-        assert!(listing.lines(None, &[], 40, 1002.0).is_empty());
+        assert!(listing.lines(None, None, &roomy, 1002.0).is_empty());
     }
 
     #[test]
-    fn statuses_use_the_agents_panel_colours() {
-        let dune = crate::preset::Preset::Dune.theme();
-        let expected: [(Status, &str, crate::preset::Color); 8] = [
-            (Status::Waiting, "waiting", dune.agents_yellow),
-            (Status::Error, "error", dune.agents_red),
-            (Status::Stalled, "stalled", dune.agent_stalled),
-            (Status::Working, "working", dune.agents_blue),
-            (Status::Starting, "starting", dune.agent_starting),
-            (Status::Unknown, "unknown", dune.agents_dim),
-            (Status::Idle, "idle", dune.agents_green),
-            (Status::Exited, "exited", dune.agents_faint),
-        ];
-        for (status, label, color) in expected {
-            let look = card::look(status, 0.0);
-            assert_eq!(look.label, label);
-            assert_eq!((look.color)(&dune), color, "{status:?}");
-        }
+    fn errors_and_stalls_come_from_the_panel() {
         // Errors and stalls come from the panel's judgement, not just corral's state.
         let mut listing = Listing::default();
         let mut broken = agent("p/broken", "idle");
@@ -1144,8 +1065,8 @@ mod tests {
         quiet.last_output = Some(0.0);
         listing.absorb(Ok(vec![broken, quiet]), None, 1000.0);
         assert_eq!(
-            shown(&listing.lines(None, &[], 40, 1000.0)),
-            ["# p/ (2)", "broken error", "quiet stalled"]
+            shown(&listing.lines(None, None, &roomy, 1000.0)),
+            ["# p/ (2)", "broken 出错", "quiet 卡住了"]
         );
     }
 
@@ -1186,17 +1107,17 @@ mod tests {
                 .absorb(first_update(failing), None, 1001.0)
                 .is_none()
         );
-        let lines = shown(&listing.lines(None, &[], 40, 1001.0));
+        let lines = shown(&listing.lines(None, None, &roomy, 1001.0));
         assert!(lines[0].starts_with("! corral: "), "{lines:?}");
         assert!(lines[0].contains("daemon unreachable"), "{lines:?}");
-        assert_eq!(lines[1..], ["# p/ (1)", "a idle"]);
+        assert_eq!(lines[1..], ["# p/ (1)", "a 空闲"]);
 
         assert!(
             listing
                 .absorb(first_update(garbage), None, 1002.0)
                 .is_none()
         );
-        let lines = shown(&listing.lines(None, &[], 40, 1002.0));
+        let lines = shown(&listing.lines(None, None, &roomy, 1002.0));
         assert!(lines[0].contains("invalid JSON"), "{lines:?}");
 
         let missing = dir.join("no-such-corral").display().to_string();
@@ -1205,13 +1126,13 @@ mod tests {
                 .absorb(first_update(missing), None, 1003.0)
                 .is_none()
         );
-        assert!(shown(&listing.lines(None, &[], 40, 1003.0))[0].starts_with("! corral: "));
+        assert!(shown(&listing.lines(None, None, &roomy, 1003.0))[0].starts_with("! corral: "));
 
         // The next good listing clears the error.
         listing.absorb(Ok(vec![agent("p/a", "working")]), None, 1004.0);
         assert_eq!(
-            shown(&listing.lines(None, &[], 40, 1004.0)),
-            ["# p/ (1)", "a working"]
+            shown(&listing.lines(None, None, &roomy, 1004.0)),
+            ["# p/ (1)", "a 工作中"]
         );
         std::fs::remove_dir_all(&dir).unwrap();
         std::fs::remove_dir_all(dir.with_file_name(format!(
@@ -1233,15 +1154,15 @@ esac"#,
         let mut listing = Listing::default();
         let alive = listing.absorb(first_update(program), None, 1000.0).unwrap();
         assert_eq!(alive, ["p/a"]);
-        let lines = listing.lines(None, &[], 40, 1000.0);
-        assert_eq!(shown(&lines), ["# p/ (1)", "a working"]);
+        let lines = listing.lines(None, None, &roomy, 1000.0);
+        assert_eq!(shown(&lines), ["# p/ (1)", "a 工作中"]);
         let Line::Agent(card) = &lines[1] else {
             panic!()
         };
         assert_eq!(card.cwd.as_deref(), Some("/tmp/a"));
         assert_eq!(card.instance.as_deref(), Some("i1"));
-        // Before the first Git round the line says it is still loading.
-        assert_eq!(card.git, Some(GitLine::Loading));
+        // Before the first Git round the second line is only the directory.
+        assert_eq!(card.second.text, "/tmp/a");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }
