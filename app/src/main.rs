@@ -210,7 +210,11 @@ fn main() -> Result<()> {
             )
             .expect("open window");
         windows::set_main(main, cx);
-        cx.activate(true);
+        // Test and screenshot runs set PADDOCK_NO_ACTIVATE so the window does not take the
+        // keyboard from the app the user is typing in.
+        if std::env::var_os("PADDOCK_NO_ACTIVATE").is_none() {
+            cx.activate(true);
+        }
     });
     Ok(())
 }
