@@ -82,3 +82,11 @@
 - **验证了什么**：`git diff --check`、`cargo fmt --check`；`app/` 下 `cargo test --all-targets`（库 154 项及集成测试）全部通过，`cargo clippy --all-targets -- -D warnings` 无警告（只有上游 `block v0.1.6` 的未来兼容提示）。截图用临时 HOME、假 corral、`PADDOCK_NO_ACTIVATE=1`，只截自己的窗口，不入库：三个窗口在 Dune 13 和 Dune 18 下各一张，共 6 张。红绿灯都落在各自顶行的正中，字号 18 下也不压到内容；Settings 的红绿灯在导航上方，和页面标题同一行。截图期间临时加的打开窗口代码已删，不在提交里。
 - **拿主意的地方**：拖动交给 AppKit（主窗口是自己处理拖动，这三个窗口没有标签栏，不需要）；红绿灯每次重画都重新放一次，不另加状态记录，Settings 只能改顶部，也就加不了这个状态。
 - **没做的事**：没有用鼠标试过拖动、双击标题栏缩放、红绿灯本身的点击；截图里的红绿灯是灰的，因为测试窗口不在前台，这是系统的正常样子。这些留给用户实际看。
+
+## 主控审查
+
+2026-10-06，paddock/main。可以合并，已合并（`8f123a3`）。
+- 第一轮范围符合约定（`new_agent_view.rs`、`about.rs`、`windows.rs` 里两个窗口的尺寸）。对方的取舍：深色底用黑色加透明度压暗、目录候选保留在 Project 下、去掉 “a controller is always main” 小字、WILL RUN 平时就显示，都同意；First message 单行、命令不分色、字母间距没做，接受。
+- 主控决定的返工（标题栏照样稿做成透明、删掉没人用的 `Place::ALL` 和 `Place::label`）做完：`options()` 加了标题行高参数，三个窗口红绿灯在各自顶行正中，字号变大时跟着放；`settings_view.rs` 只改了顶部。
+- 合并后在 main 上重跑 `cargo test --all-targets`，190 项通过；`cargo clippy --all-targets -- -D warnings` 通过。
+- 拖动窗口、双击标题栏、点红绿灯和表单交互留给用户试。
