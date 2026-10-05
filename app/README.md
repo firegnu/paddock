@@ -95,6 +95,8 @@ Attention：侧栏头部的 `Attention · N`（有等待或出错时黄色，只
 ```toml
 theme = "tide"          # dune | tide | lagoon；不写等于 dune
 sidebar_width = 380     # 侧栏宽度，单位 pt；默认 380（Agents 面板信息较多，窄于 320 时“哪家”只显示图标、状态只显示动画）
+ui_font = "Avenir Next" # 界面字体（终端以外的全部文字）；不写等于系统界面字体
+ui_font_size = 13       # 界面字号，单位 pt；默认 13，各处字号按它等比缩放
 font = "Geist Mono"
 font_fallbacks = ["Sarasa Mono SC", "Maple Mono NF CN"]
 font_size = 14.5
@@ -109,16 +111,20 @@ focus = "yellow"
 terminal_blue = "#7aa2f7"
 ```
 
-字体配置的四个键都写在顶层（`[colors]` 之前），均可省略：
+字体配置的键都写在顶层（`[colors]` 之前），均可省略。界面和终端分开设置：
 
 | 键 | 类型与说明 | 内置默认值 |
 | --- | --- | --- |
+| `ui_font` | 字符串，界面字体：侧栏、标签栏、Attention、Go to Agent、终端查找栏，以及设置、About、New Agent 窗口 | 不写：系统界面字体 |
+| `ui_font_size` | 数字，界面字号；各处现有的大小关系照旧（标题比正文大、说明比正文小），按它等比缩放 | `13` |
 | `font` | 字符串，终端字体 | `Menlo` |
 | `font_fallbacks` | 字符串数组，按顺序尝试；`[]` 表示不设置后备字体 | `Symbols Nerd Font Mono`、`FiraCode Nerd Font Mono`、`FiraCode Nerd Font` |
 | `font_size` | 数字，字号；支持整数或小数 | `14` |
 | `line_height` | 数字，行高倍数；支持整数或小数 | `1.3` |
 
-`font_size` 和 `line_height` 必须是有限正数。四项写错类型或数值不合法时，报错会指出键名；命令行指定的字号和行高也必须是有限正数。
+`ui_font_size`、`font_size` 和 `line_height` 必须是有限正数。写错类型或数值不合法时，报错会指出键名；命令行指定的字号和行高也必须是有限正数。
+
+设置窗口 General 页里，界面字体和终端字体都从本机已装的字体里选：点开是可搜索的列表，每个字体名用它自己的字体显示，↑↓ 选、Enter 确定、Esc 关；终端字体只列等宽字体（按字宽自动判断）。界面字体、字号和终端的字体、字号、行高、后备字体，Save 后立刻生效，不用重启：正在显示的终端按新字体重排，里面的程序收到新的窗口尺寸。
 
 ### 宠物
 

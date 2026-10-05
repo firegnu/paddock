@@ -10,6 +10,7 @@ pub mod corral;
 pub mod damage;
 pub mod diagnostics;
 pub mod find;
+pub mod fonts;
 pub mod git;
 pub mod glyphs;
 pub mod grid;

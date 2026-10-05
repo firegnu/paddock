@@ -53,6 +53,10 @@ pub enum Kind {
     Theme,
     /// Free text, written as a string.
     Text,
+    /// An installed monospace family, chosen from a list; written as a string.
+    MonoFont,
+    /// An installed family, chosen from a list; empty for the system's, which removes the key.
+    UiFont,
     /// Comma-separated, written as an array of strings.
     List,
     /// A `[colors]` value.
@@ -126,21 +130,47 @@ pub fn fields() -> Vec<Field> {
         ),
         field("mascot_enabled", "Mascot", Page::General, Kind::Bool, false),
         field("mascot", "Pet", Page::General, Kind::Pet, false),
-        field("font", "Font", Page::General, Kind::Text, true),
         field(
-            "font_fallbacks",
-            "Fallback fonts",
+            "ui_font",
+            "Interface font",
             Page::General,
-            Kind::List,
-            true,
+            Kind::UiFont,
+            false,
         ),
-        field("font_size", "Font size", Page::General, Kind::Number, true),
+        field(
+            "ui_font_size",
+            "Interface size",
+            Page::General,
+            Kind::Number,
+            false,
+        ),
+        field(
+            "font",
+            "Terminal font",
+            Page::General,
+            Kind::MonoFont,
+            false,
+        ),
+        field(
+            "font_size",
+            "Terminal size",
+            Page::General,
+            Kind::Number,
+            false,
+        ),
         field(
             "line_height",
             "Line height",
             Page::General,
             Kind::Number,
-            true,
+            false,
+        ),
+        field(
+            "font_fallbacks",
+            "Fallback fonts",
+            Page::General,
+            Kind::List,
+            false,
         ),
         field("theme", "Theme", Page::Colors, Kind::Theme, false),
     ];
@@ -174,6 +204,8 @@ fn shown(config: &Config, key: &str) -> String {
         "refresh_ms" => config.refresh_ms.to_string(),
         "mascot_enabled" => config.mascot_enabled.to_string(),
         "mascot" => config.mascot.name().into(),
+        "ui_font" => config.ui_font.clone().unwrap_or_default(),
+        "ui_font_size" => number(f64::from(config.ui_font_size)),
         "font" => config.font.clone(),
         "font_fallbacks" => config.font_fallbacks.join(", "),
         "font_size" => number(f64::from(config.font_size)),
@@ -409,8 +441,9 @@ impl Draft {
         for (key, change) in &self.changes {
             let field = self.field(key).context("unknown setting")?;
             let text = match change {
+                Change::Set(text) if field.kind == Kind::UiFont && text.trim().is_empty() => None,
                 Change::Set(text) => Some(text.clone()),
-                Change::Default if field.kind == Kind::Color => None,
+                Change::Default if matches!(field.kind, Kind::Color | Kind::UiFont) => None,
                 Change::Default => Some(shown(&defaults, key)),
             };
             let value = match text {
@@ -472,7 +505,7 @@ fn value(field: &Field, text: &str) -> Result<Value> {
             }
             Value::from(text)
         }
-        Kind::Text | Kind::Color => Value::from(text),
+        Kind::Text | Kind::Color | Kind::MonoFont | Kind::UiFont => Value::from(text),
         Kind::List => {
             let items: toml_edit::Array = text
                 .split(',')
@@ -535,6 +568,7 @@ mod tests {
         let mut draft = Draft::new(Some(FILE.into())).unwrap();
         draft.set("sidebar_width", "400");
         draft.set("font_size", "15.5");
+        draft.set("refresh_ms", "2000");
         let (text, restart) = written(&draft);
         assert!(
             text.starts_with("# my paddock\ntheme = \"tide\"   # cool\n"),
@@ -543,7 +577,8 @@ mod tests {
         assert!(text.contains("# warm accent\nfocus = \"yellow\""), "{text}");
         assert!(text.contains("sidebar_width = 400\n"), "{text}");
         assert!(text.contains("font_size = 15.5\n"), "{text}");
-        assert_eq!(restart, ["Font size"]);
+        // The terminal font takes effect at once; the refresh interval still waits.
+        assert_eq!(restart, ["Refresh interval"]);
         // A replaced value keeps its trailing comment.
         let mut draft = Draft::new(Some(FILE.into())).unwrap();
         draft.set("font", "Menlo");
@@ -566,6 +601,53 @@ mod tests {
             config.font_fallbacks,
             ["Sarasa Mono SC", "Maple Mono NF CN"]
         );
+    }
+
+    #[test]
+    fn interface_font_is_saved_apart_and_system_removes_the_key() {
+        let file = "# fonts\nfont = \"Geist Mono\"\nui_font = \"Avenir Next\"   # mine\n";
+        let draft = Draft::new(Some(file.into())).unwrap();
+        assert_eq!(draft.value("ui_font"), "Avenir Next");
+        assert_eq!(draft.value("ui_font_size"), "13");
+        assert_eq!(draft.value("font"), "Geist Mono");
+
+        let mut draft = Draft::new(Some(file.into())).unwrap();
+        draft.set("ui_font", "Helvetica Neue");
+        draft.set("ui_font_size", "15");
+        let (text, restart) = written(&draft);
+        assert!(
+            text.contains("ui_font = \"Helvetica Neue\"   # mine\n"),
+            "{text}"
+        );
+        assert!(text.contains("ui_font_size = 15\n"), "{text}");
+        assert!(text.contains("font = \"Geist Mono\"\n"), "{text}");
+        assert!(restart.is_empty(), "{restart:?}");
+
+        // Choosing System, or Default, leaves the key out: the system font.
+        for system in [Some(""), None] {
+            let mut draft = Draft::new(Some(file.into())).unwrap();
+            match system {
+                Some(value) => draft.set("ui_font", value),
+                None => draft.reset("ui_font"),
+            }
+            assert_eq!(draft.value("ui_font"), "");
+            let (text, _) = written(&draft);
+            assert!(!text.contains("ui_font"), "{text}");
+            assert!(
+                text.starts_with("# fonts\nfont = \"Geist Mono\"\n"),
+                "{text}"
+            );
+            assert_eq!(Config::parse(&text).unwrap().ui_font, None);
+        }
+
+        // No interface key yet: an older file, with the terminal font kept as it is.
+        let mut draft = Draft::new(Some(FILE.into())).unwrap();
+        assert_eq!(draft.value("ui_font"), "");
+        draft.set("ui_font_size", "12.5");
+        let (text, _) = written(&draft);
+        let config = Config::parse(&text).unwrap();
+        assert_eq!(config.ui_font_size, 12.5);
+        assert_eq!(config.font, "Geist Mono");
     }
 
     #[test]
@@ -620,6 +702,8 @@ mod tests {
             ("mascot", "dog", "unknown mascot"),
             ("colors.focus", "chartreuse", "focus"),
             ("font_size", "0", "font_size"),
+            ("ui_font_size", "-1", "ui_font_size"),
+            ("ui_font_size", "big", "Interface size must be a number"),
         ] {
             let mut draft = Draft::new(Some(FILE.into())).unwrap();
             draft.set(key, value);
@@ -659,7 +743,10 @@ mod tests {
         for field in colors {
             assert!(!draft.value(&field.key).is_empty(), "{}", field.key);
         }
-        assert_eq!(fields.iter().filter(|f| f.page == Page::General).count(), 8);
+        assert_eq!(
+            fields.iter().filter(|f| f.page == Page::General).count(),
+            10
+        );
         assert!(
             fields
                 .iter()

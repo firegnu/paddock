@@ -171,6 +171,7 @@ fn main() -> Result<()> {
             None => Bounds::centered(None, size(px(1280.0), px(800.0)), cx),
         };
         cx.set_global(startup);
+        cx.set_global(paddock::fonts::UiFont::from_config(&config));
         cx.bind_keys(menu::bindings());
         cx.bind_keys(paddock::text_input::bindings());
         cx.on_action(|_: &menu::Quit, cx| windows::quit(cx));

@@ -7,6 +7,7 @@ use crate::{
     attention,
     card::{self, Card, GitLine, Line, Pick},
     corral::{Agent, Client, Poller, Role},
+    fonts::UiFont,
     git,
     theme::Theme,
     view::hsla,
@@ -197,6 +198,12 @@ impl Sidebar {
         cx.notify();
     }
 
+    /// A new terminal font from Settings, for the technical lines.
+    pub fn set_mono(&mut self, mono: Font, cx: &mut Context<Self>) {
+        self.mono = mono;
+        cx.notify();
+    }
+
     /// What the window shows: the active pane's agent and every agent open in it.
     pub fn set_view(
         &mut self,
@@ -225,6 +232,7 @@ impl Sidebar {
     /// `Attention · N` in the header: yellow when something needs a person, the unread colour for
     /// replies only, faint at zero, `…` before corral first answers. A click opens the list.
     fn attention_entry(&self, cx: &mut Context<Self>) -> gpui::Stateful<Div> {
+        let ui = UiFont::get(cx);
         let theme = &self.theme;
         let fg = |pick: Pick| hsla(theme.fg(pick), 1.0);
         let items = self.attention();
@@ -251,7 +259,7 @@ impl Sidebar {
             .rounded(px(5.0))
             .cursor_pointer()
             .hover(move |style| style.bg(highlight))
-            .text_size(px(DETAIL_SIZE))
+            .text_size(ui.px(DETAIL_SIZE))
             .child(
                 div()
                     .text_color(if items.is_empty() {
@@ -371,24 +379,27 @@ impl Sidebar {
     }
 
     /// Monospace cells that fit a detail line.
-    fn columns(&self, window: &Window) -> usize {
+    fn columns(&self, ui: &UiFont, window: &Window) -> usize {
         let text = window.text_system();
         let cell = text
-            .advance(text.resolve_font(&self.mono), px(MONO_SIZE), 'm')
-            .map_or(MONO_SIZE * 0.6, |advance| f32::from(advance.width));
+            .advance(text.resolve_font(&self.mono), ui.px(MONO_SIZE), 'm')
+            .map_or(ui.scale(MONO_SIZE) * 0.6, |advance| {
+                f32::from(advance.width)
+            });
         ((self.width - 2.0 * PAD - CARD_INSET - INDENT) / cell).max(8.0) as usize
     }
 }
 
 impl Render for Sidebar {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let ui = UiFont::get(cx);
         let theme = self.theme.clone();
         let fg = |pick: Pick| hsla(theme.fg(pick), 1.0);
         let now = now();
         let lines = self.listing.lines(
             self.selected.as_deref(),
             &self.here,
-            self.columns(window),
+            self.columns(&ui, window),
             now,
         );
         let agents = lines
@@ -412,14 +423,14 @@ impl Render for Sidebar {
             .border_color(fg(|t| t.agents_rule))
             .child(
                 div()
-                    .text_size(px(NAME_SIZE + 1.0))
+                    .text_size(ui.px(NAME_SIZE + 1.0))
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(fg(|t| t.agents_text))
                     .child("Agents"),
             )
             .child(
                 div()
-                    .text_size(px(DETAIL_SIZE))
+                    .text_size(ui.px(DETAIL_SIZE))
                     .text_color(fg(|t| t.agents_dim))
                     .child(agents.to_string()),
             )
@@ -442,7 +453,7 @@ impl Render for Sidebar {
                 Line::Error(text) => div()
                     .mt(px(8.0))
                     .px(px(4.0))
-                    .text_size(px(DETAIL_SIZE))
+                    .text_size(ui.px(DETAIL_SIZE))
                     .text_color(fg(|t| t.agents_red))
                     .child(text)
                     .into_any_element(),
@@ -459,7 +470,7 @@ impl Render for Sidebar {
                         .child(
                             div()
                                 .flex_shrink_0()
-                                .text_size(px(DETAIL_SIZE))
+                                .text_size(ui.px(DETAIL_SIZE))
                                 .font_weight(FontWeight::SEMIBOLD)
                                 .text_color(fg(|t| t.agents_accent))
                                 .child(title),
@@ -468,7 +479,7 @@ impl Render for Sidebar {
                         .child(
                             div()
                                 .flex_shrink_0()
-                                .text_size(px(DETAIL_SIZE - 1.0))
+                                .text_size(ui.px(DETAIL_SIZE - 1.0))
                                 .text_color(fg(|t| t.agents_dim))
                                 .child(count.to_string()),
                         )
@@ -554,7 +565,7 @@ impl Render for Sidebar {
                 .py(px(5.0))
                 .border_t_1()
                 .border_color(fg(|t| t.agents_rule))
-                .text_size(px(DETAIL_SIZE))
+                .text_size(ui.px(DETAIL_SIZE))
                 .text_color(if *problem {
                     fg(|t| t.agents_red)
                 } else {
@@ -633,7 +644,8 @@ struct AgentCard {
 }
 
 impl RenderOnce for AgentCard {
-    fn render(self, _: &mut Window, _: &mut App) -> impl IntoElement {
+    fn render(self, _: &mut Window, cx: &mut App) -> impl IntoElement {
+        let ui = UiFont::get(cx);
         let theme = &self.theme;
         let fg = |pick: Pick| hsla(theme.fg(pick), 1.0);
         let card = &self.card;
@@ -646,11 +658,11 @@ impl RenderOnce for AgentCard {
             .flex()
             .items_center()
             .gap(px(5.0))
-            .text_size(px(NAME_SIZE))
+            .text_size(ui.px(NAME_SIZE))
             .child(
                 div()
                     .flex_shrink_0()
-                    .w(px(INDENT - 6.0))
+                    .w(ui.px(INDENT - 6.0))
                     .text_color(state_color)
                     .child(card.look.dot),
             )
@@ -687,8 +699,8 @@ impl RenderOnce for AgentCard {
         first = first.child(
             brand
                 .flex_shrink_0()
-                .w(px(brand_width))
-                .text_size(px(DETAIL_SIZE))
+                .w(ui.px(brand_width))
+                .text_size(ui.px(DETAIL_SIZE))
                 .overflow_hidden()
                 .whitespace_nowrap(),
         );
@@ -697,10 +709,10 @@ impl RenderOnce for AgentCard {
         }
         let mut state = div()
             .flex_shrink_0()
-            .w(px(if self.compact { 18.0 } else { 66.0 }))
+            .w(ui.px(if self.compact { 18.0 } else { 66.0 }))
             .flex()
             .gap(px(3.0))
-            .text_size(px(DETAIL_SIZE))
+            .text_size(ui.px(DETAIL_SIZE))
             .font_weight(FontWeight::SEMIBOLD)
             .whitespace_nowrap()
             .overflow_hidden();
@@ -725,11 +737,11 @@ impl RenderOnce for AgentCard {
         first = first.child(
             div()
                 .flex_shrink_0()
-                .w(px(42.0))
+                .w(ui.px(42.0))
                 .flex()
                 .justify_end()
                 .font(self.mono.clone())
-                .text_size(px(MONO_SIZE))
+                .text_size(ui.px(MONO_SIZE))
                 .child(div().text_color(fg(mark_color)).child(mark))
                 .child(
                     div()
@@ -740,7 +752,7 @@ impl RenderOnce for AgentCard {
 
         let mut body = div().flex().flex_col().gap(px(2.0)).w_full().child(first);
         if card.expanded {
-            body = body.children(details(&self.theme, &self.mono, card, state_color));
+            body = body.children(details(&self.theme, &self.mono, &ui, card, state_color));
         }
 
         div()
@@ -766,7 +778,13 @@ impl RenderOnce for AgentCard {
 }
 
 /// The expanded lines: title, activity, Git, directory, then identity and connections.
-fn details(theme: &Theme, mono: &Font, card: &Card, state_color: Hsla) -> Vec<AnyElement> {
+fn details(
+    theme: &Theme,
+    mono: &Font,
+    ui: &UiFont,
+    card: &Card,
+    state_color: Hsla,
+) -> Vec<AnyElement> {
     let fg = |pick: Pick| hsla(theme.fg(pick), 1.0);
     let line = || {
         div()
@@ -778,12 +796,12 @@ fn details(theme: &Theme, mono: &Font, card: &Card, state_color: Hsla) -> Vec<An
             .whitespace_nowrap()
             .overflow_hidden()
     };
-    let mono_line = || line().font(mono.clone()).text_size(px(MONO_SIZE));
+    let mono_line = || line().font(mono.clone()).text_size(ui.px(MONO_SIZE));
     let mut lines = Vec::new();
     if let Some(title) = &card.title {
         lines.push(
             line()
-                .text_size(px(DETAIL_SIZE))
+                .text_size(ui.px(DETAIL_SIZE))
                 .text_color(fg(|t| t.agents_text))
                 .child(div().overflow_hidden().text_ellipsis().child(title.clone()))
                 .into_any_element(),
@@ -791,7 +809,7 @@ fn details(theme: &Theme, mono: &Font, card: &Card, state_color: Hsla) -> Vec<An
     }
     for activity in &card.activity {
         let mut row = line()
-            .text_size(px(DETAIL_SIZE))
+            .text_size(ui.px(DETAIL_SIZE))
             .text_color(state_color)
             .child(
                 div()

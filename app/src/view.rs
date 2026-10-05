@@ -163,11 +163,7 @@ impl TerminalView {
         };
         let focus = cx.focus_handle();
         window.focus(&focus, cx);
-        let mut font = gpui::font(options.font_family);
-        font.weight = FontWeight::NORMAL;
-        if !options.fallbacks.is_empty() {
-            font.fallbacks = Some(gpui::FontFallbacks::from_fonts(options.fallbacks));
-        }
+        let font = terminal_font(&options.font_family, &options.fallbacks);
         cx.spawn(async move |this, cx| {
             loop {
                 cx.background_executor()
@@ -209,6 +205,16 @@ impl TerminalView {
     /// New colours from Settings, at once.
     pub fn set_theme(&mut self, theme: Rc<theme::Theme>, cx: &mut Context<Self>) {
         self.theme = theme;
+        cx.notify();
+    }
+
+    /// A new font, size or line height from Settings, at once: the next frame measures the cells
+    /// again and resizes the PTY, as dragging the window does.
+    pub fn set_font(&mut self, options: &Options, cx: &mut Context<Self>) {
+        self.font = terminal_font(&options.font_family, &options.fallbacks);
+        self.font_size = px(options.font_size);
+        self.line_height_factor = options.line_height;
+        self.metrics = None;
         cx.notify();
     }
 
@@ -503,6 +509,7 @@ impl TerminalView {
         let fg = |pick: fn(&crate::preset::Theme) -> crate::preset::Color| {
             hsla(self.theme.fg(pick), 1.0)
         };
+        let ui = crate::fonts::UiFont::get(cx);
         let highlight = hsla(self.theme.bg(|t| t.agent_selected), 1.0);
         let button = |id: &'static str, label: &'static str| {
             div()
@@ -531,7 +538,7 @@ impl TerminalView {
             .border_color(fg(|t| t.focus))
             .bg(hsla(self.theme.bg(|t| t.agents_bg), 1.0))
             .shadow_md()
-            .text_size(px(12.0))
+            .text_size(ui.px(12.0))
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .on_action(cx.listener(Self::close_find))
             .child(div().flex_1().min_w(px(0.0)).child(bar.input.clone()))
@@ -866,6 +873,15 @@ pub struct Frame {
     marked: Option<String>,
     focused: bool,
     note: Option<String>,
+}
+
+fn terminal_font(family: &str, fallbacks: &[String]) -> Font {
+    let mut font = gpui::font(family.to_owned());
+    font.weight = FontWeight::NORMAL;
+    if !fallbacks.is_empty() {
+        font.fallbacks = Some(gpui::FontFallbacks::from_fonts(fallbacks.to_vec()));
+    }
+    font
 }
 
 pub fn hsla((r, g, b): Rgb, alpha: f32) -> Hsla {
