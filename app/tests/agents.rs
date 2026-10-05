@@ -1,4 +1,4 @@
-//! From Saddle `tests/agents.rs` at commit `df1c727`, without the Git summary test.
+//! From Saddle `tests/agents.rs` at commit `df1c727`.
 use paddock::{agents::Panel, corral::Agent};
 fn agent(name: &str, state: &str) -> Agent {
     Agent {
@@ -64,6 +64,35 @@ fn state_sort_stays_within_projects_and_selection_follows_display_order() {
         101.0,
     );
     assert!(panel.unread.is_empty());
+}
+
+#[test]
+fn git_results_are_kept_only_for_directories_agents_currently_use() {
+    use paddock::git::{Head, Summary};
+    let summary = |branch: &str| {
+        Some(Summary {
+            head: Head::Branch(branch.into()),
+            ahead: None,
+            changes: None,
+            untracked: None,
+        })
+    };
+    let with_cwd = |cwd: &str| Agent {
+        cwd: Some(cwd.into()),
+        ..agent("p/a", "idle")
+    };
+    let mut panel = Panel::default();
+    panel.absorb(vec![with_cwd("/w/a")], None, 100.0);
+    panel.absorb_git(vec![
+        ("/w/a".into(), summary("a")),
+        ("/w/b".into(), summary("b")),
+    ]);
+    assert_eq!(panel.git.get("/w/a"), Some(&summary("a")));
+    assert!(!panel.git.contains_key("/w/b"));
+    // After the agent moves, a late result for its old directory is dropped, not shown as its.
+    panel.absorb(vec![with_cwd("/w/c")], None, 101.0);
+    panel.absorb_git(vec![("/w/a".into(), summary("a"))]);
+    assert!(panel.git.is_empty());
 }
 
 #[test]
