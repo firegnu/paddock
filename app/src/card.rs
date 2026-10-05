@@ -184,40 +184,50 @@ impl Place {
         self.spans().into_iter().map(|(text, _)| text).collect()
     }
 
-    /// The line as it fits: the directory gives way first (from the middle), then the branch
-    /// (from the end); the counts always stay.
+    /// The line as it fits. The directory gives way first, from the middle, but keeps its last
+    /// level (`~/…/paddock`, then `…/paddock`); then the branch, from its end; only then the last
+    /// level itself, from its end. The counts always stay.
     pub fn fit(&self, fits: &dyn Fn(&str) -> bool) -> Place {
-        if fits(&self.text()) {
-            return self.clone();
-        }
-        let dir = shorten(&self.dir, &|dir| {
-            fits(
-                &Place {
-                    dir: dir.to_owned(),
-                    ..self.clone()
-                }
-                .text(),
-            )
-        });
-        let mut place = Place {
-            dir,
+        let with = |dir: &str, branch: Option<&str>| Place {
+            dir: dir.to_owned(),
+            branch: branch.map(str::to_owned),
             ..self.clone()
         };
-        if let Some(branch) = &place.branch
-            && !fits(&place.text())
-        {
-            let cut = elide(branch, &|branch| {
-                fits(
-                    &Place {
-                        branch: Some(branch.to_owned()),
-                        ..place.clone()
-                    }
-                    .text(),
-                )
-            });
-            place.branch = Some(cut);
+        let line = |dir: &str, branch: Option<&str>| fits(&with(dir, branch).text());
+        let branch = self.branch.as_deref();
+        if line(&self.dir, branch) {
+            return self.clone();
         }
-        place
+        let (head, rest) = match self.dir.strip_prefix('/') {
+            Some(rest) => ("", rest),
+            None => self.dir.split_once('/').unwrap_or((&self.dir, "")),
+        };
+        let levels: Vec<&str> = rest.split('/').filter(|l| !l.is_empty()).collect();
+        // The shortest the directory goes before the branch gives way, and what is left to cut.
+        let (lead, last) = match levels.last() {
+            Some(last) if levels.len() >= 2 => ("…/", *last),
+            _ => ("", self.dir.as_str()),
+        };
+        if levels.len() >= 2 {
+            for start in 1..levels.len() {
+                let candidate = format!("{head}/…/{}", levels[start..].join("/"));
+                if line(&candidate, branch) {
+                    return with(&candidate, branch);
+                }
+            }
+        }
+        let dir = format!("{lead}{last}");
+        if line(&dir, branch) {
+            return with(&dir, branch);
+        }
+        let branch = branch.map(|branch| elide(branch, &|cut| line(&dir, Some(cut))));
+        if line(&dir, branch.as_deref()) {
+            return with(&dir, branch.as_deref());
+        }
+        let last = elide(last, &|cut| {
+            line(&format!("{lead}{cut}"), branch.as_deref())
+        });
+        with(&format!("{lead}{last}"), branch.as_deref())
     }
 }
 
@@ -833,7 +843,7 @@ mod tests {
     }
 
     #[test]
-    fn a_tight_place_line_gives_up_the_directory_then_the_branch() {
+    fn a_tight_place_line_keeps_the_project_and_gives_up_the_branch_next() {
         let within = |n: usize| move |text: &str| text.chars().count() <= n;
         let line = Place {
             changes: Some((12, 3)),
@@ -851,15 +861,31 @@ mod tests {
             "~/…/personal_projs/paddock · ⎇ p5-8-cards  +12 -3 ↑1"
         );
         assert_eq!(fit(40), "~/…/paddock · ⎇ p5-8-cards  +12 -3 ↑1");
-        // …then characters, keeping more of its end…
-        assert_eq!(fit(35), "~/…addock · ⎇ p5-8-cards  +12 -3 ↑1");
-        assert_eq!(fit(29), "…ck · ⎇ p5-8-cards  +12 -3 ↑1");
-        assert_eq!(fit(27), "… · ⎇ p5-8-cards  +12 -3 ↑1");
-        // …and only then the branch, from its end; the counts stay.
-        assert_eq!(fit(25), "… · ⎇ p5-8-ca…  +12 -3 ↑1");
-        assert_eq!(fit(10), "… · ⎇ …  +12 -3 ↑1");
-        // Without Git, only the directory.
+        // …down to the last level, the project…
+        assert_eq!(fit(35), "…/paddock · ⎇ p5-8-cards  +12 -3 ↑1");
+        // …then the branch, from its end; the counts stay…
+        assert_eq!(fit(30), "…/paddock · ⎇ p5-8…  +12 -3 ↑1");
+        assert_eq!(fit(26), "…/paddock · ⎇ …  +12 -3 ↑1");
+        // …and only then the last level itself, from its end.
+        assert_eq!(fit(23), "…/pad… · ⎇ …  +12 -3 ↑1");
+        // A long branch gives way while the project still shows.
+        let long = Place {
+            changes: Some((400, 0)),
+            ..place(
+                "~/Developer/personal_projs/paddock",
+                Some("feature/an-unusually-long-branch-name"),
+            )
+        };
+        assert_eq!(
+            long.fit(&within(37)).text(),
+            "…/paddock · ⎇ feature/an-un…  +400 -0"
+        );
+        // Without Git, only the directory; one with a single level is cut from its end.
         assert_eq!(place("/opt/a/b/c", None).fit(&within(6)).text(), "/…/b/c");
+        assert_eq!(
+            place("/tmp-very-long", None).fit(&within(6)).text(),
+            "/tmp-…"
+        );
     }
 
     #[test]
