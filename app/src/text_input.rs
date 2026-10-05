@@ -113,6 +113,12 @@ impl TextInput {
         cx.notify();
     }
 
+    /// New colours, after the theme changed.
+    pub fn set_colors(&mut self, colors: Colors, cx: &mut Context<Self>) {
+        self.colors = colors;
+        cx.notify();
+    }
+
     fn left(&mut self, _: &Left, _: &mut Window, cx: &mut Context<Self>) {
         if self.selected_range.is_empty() {
             self.move_to(self.previous_boundary(self.cursor_offset()), cx);

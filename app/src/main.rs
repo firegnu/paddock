@@ -8,6 +8,7 @@ use paddock::{
     view::{Launch, Options},
     window::NewShell,
     window::PaddockWindow,
+    windows,
 };
 
 const HELP: &str = "paddock [--attach NAME] [--corral PROGRAM] [--cwd DIR] [--font FAMILY] \
@@ -154,44 +155,26 @@ fn main() -> Result<()> {
             Some((x, y, w, h)) => Bounds::new(point(px(x), px(y)), size(px(w), px(h))),
             None => Bounds::centered(None, size(px(1280.0), px(800.0)), cx),
         };
-        cx.on_window_closed(|cx, _| cx.quit()).detach();
         cx.bind_keys(menu::bindings());
         cx.bind_keys(paddock::text_input::bindings());
-        cx.on_action(|_: &menu::Quit, cx| cx.quit());
+        cx.on_action(|_: &menu::Quit, cx| windows::quit(cx));
+        cx.on_action(|_: &menu::OpenSettings, cx| windows::open_settings(cx));
+        cx.on_action(|_: &menu::About, cx| windows::open_about(cx));
         cx.set_menus(menu::menus(false, false));
-        cx.open_window(
-            WindowOptions {
-                window_bounds: Some(WindowBounds::Windowed(bounds)),
-                ..Default::default()
-            },
-            |window, cx| {
-                if std::env::var_os("GPUI_TERM_WINDOW_ID").is_some() {
-                    print_window_number(window);
-                }
-                cx.new(|cx| PaddockWindow::new(&config, theme, options, new_shell, window, cx))
-            },
-        )
-        .expect("open window");
+        let main = cx
+            .open_window(
+                WindowOptions {
+                    window_bounds: Some(WindowBounds::Windowed(bounds)),
+                    ..Default::default()
+                },
+                |window, cx| {
+                    windows::announce(window);
+                    cx.new(|cx| PaddockWindow::new(&config, theme, options, new_shell, window, cx))
+                },
+            )
+            .expect("open window");
+        windows::set_main(main, cx);
         cx.activate(true);
     });
     Ok(())
-}
-
-/// Prints the macOS window number (`screencapture -l N`) so test screenshots never include other
-/// windows on the screen.
-fn print_window_number(window: &gpui::Window) {
-    use objc2::{msg_send, runtime::AnyObject};
-    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
-    let Ok(handle) = HasWindowHandle::window_handle(window) else {
-        return;
-    };
-    if let RawWindowHandle::AppKit(appkit) = handle.as_raw() {
-        let view = appkit.ns_view.as_ptr().cast::<AnyObject>();
-        // SAFETY: GPUI hands out its live NSView; `window` and `windowNumber` are plain getters.
-        let number: isize = unsafe {
-            let ns_window: *mut AnyObject = msg_send![view, window];
-            msg_send![ns_window, windowNumber]
-        };
-        eprintln!("window-id: {number}");
-    }
 }

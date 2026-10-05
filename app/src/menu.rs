@@ -35,6 +35,8 @@ actions!(
         Tab9,
         /// Closes the open dialog.
         Cancel,
+        /// Closes the Settings or About window (⌘W there).
+        CloseWindow,
     ]
 );
 
@@ -68,7 +70,8 @@ pub fn bindings() -> Vec<KeyBinding> {
         KeyBinding::new("escape", Cancel, Some(DIALOG)),
         KeyBinding::new("cmd-,", OpenSettings, None),
         KeyBinding::new("cmd-s", SaveSettings, Some(crate::settings_view::CONTEXT)),
-        KeyBinding::new("escape", Cancel, Some(crate::settings_view::CONTEXT)),
+        KeyBinding::new("cmd-w", CloseWindow, Some(crate::settings_view::CONTEXT)),
+        KeyBinding::new("cmd-w", CloseWindow, Some(crate::about::CONTEXT)),
     ]
 }
 
@@ -128,8 +131,8 @@ pub fn menus(fold: bool, by_name: bool) -> Vec<Menu> {
 mod tests {
     use super::*;
 
-    /// Each shortcut as typed, and the action it runs.
-    fn shortcuts() -> Vec<(String, &'static str)> {
+    /// Each shortcut as typed, the action it runs, and the key context it is bound in.
+    fn shortcuts() -> Vec<(String, &'static str, String)> {
         bindings()
             .iter()
             .map(|binding| {
@@ -138,7 +141,11 @@ mod tests {
                     .iter()
                     .map(|k| k.inner().unparse())
                     .collect();
-                (keys.join(" "), binding.action().name())
+                let context = binding
+                    .predicate()
+                    .map(|p| p.to_string())
+                    .unwrap_or_default();
+                (keys.join(" "), binding.action().name(), context)
             })
             .collect()
     }
@@ -164,17 +171,17 @@ mod tests {
             ("escape", "paddock::Cancel"),
             ("cmd-,", "paddock::OpenSettings"),
             ("cmd-s", "paddock::SaveSettings"),
+            ("cmd-w", "paddock::CloseWindow"),
         ] {
             assert!(
-                shortcuts.iter().any(|(k, a)| k == keys && *a == action),
+                shortcuts.iter().any(|(k, a, _)| k == keys && *a == action),
                 "{keys} → {action} missing from {shortcuts:?}"
             );
         }
-        // One action per shortcut; Esc is bound once per key context (dialog, Settings).
+        // One action per shortcut in each key context.
         let mut keys: Vec<_> = shortcuts
             .iter()
-            .map(|(k, _)| k.clone())
-            .filter(|k| k != "escape")
+            .map(|(k, _, context)| (k.clone(), context.clone()))
             .collect();
         let others = keys.len();
         keys.sort();
