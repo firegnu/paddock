@@ -78,4 +78,14 @@
   - 第一次跑全部测试时 `protocol` 有一项在并行时卡住 7 分钟（三个测试 pen 空等）；按 PID 停掉后逐项跑、整体再跑 6 次都在几秒内通过，未能复现。是 Saddle 原有代码，留意。
   - 版本目录 `~/.local/share/ranch/versions/df46247/` 从干净的 main 生成；随程序文件与 Saddle `711ab18` 装的逐字节相同；已装的 corral 技能（`~/.claude/skills/corral`、`~/.agents/skills/corral`）与之相同，未重装。
 - **第二节**（用户在场，10-05）：`~/.local/bin/corral` 从 `~/.local/share/saddle/versions/711ab18/bin/corral` 改指向 ranch `df46247`。`corral ls` 照常；`paddock/test-m2` 用 `/bin/cat` 测 start/status/send/wait/stop，用 claude 测 `--prompt` 首句、`send`、`wait`、`reply`（回复正确、状态到 idle），exe 都在 ranch 版本目录；用完 stop。退回：链接改回 Saddle `711ab18`。
-- **还没做**：第三节，Saddle 改用 ranch 的 corral 后核对；paddock.app 侧栏未截图核对（用户可直接看）。
+- **第三节**：用户让主控直接把需求用 `corral send` 转给 `saddle/main`（10-05）。需求里第 5 条由“留不留由 Saddle 定”改为删掉 `crates/corral-core`（用户同意剥离）。Saddle 完成剥离并部署 `4c86983`（`7072c82` 起：删 corral-core 和两份设计文档；`agent_program.rs` 改为按 PATH 找，插件同；打包不带 corral；AGENTS.md 改为由 ranch 维护）。
+
+## 完成记录
+
+2026-10-05，paddock/main。
+
+- **核对 Saddle 与 ranch 的配合**（只读查代码后用 `saddle ctl` 在运行中的 Saddle 里测，均放新标签页、不抢焦点，用完关掉）：Saddle 开的测试 agent（`paddock/test-saddle`，`/bin/cat`）由 ranch 的 corral 管、Saddle 已接入；ranch 命令行开的测试 agent（`paddock/test-cli`）Saddle 能显示并接入（第一次因 agent 列表未刷新报“instance unknown”，几秒后重试成功）；Saddle 同时接着旧 corral 开的 `paddock/main`。测试 agent 都已 stop。`~/.local/bin/corral` 部署后仍指向 ranch。
+- **升级现有会话**（用户要求）：先演练：用 Saddle 旧 corral（`aab70c8`）开测试 agent，`/bin/cat` 和 claude 各一次，用 ranch 的 `corral upgrade` 接过来，结果 `complete`，pen、agent 进程号不变，claude 升级前后都正确回复。再升级 `saddle/main`、`paddock/main`：都是 `complete`，exe 在 ranch 版本目录，custody owner。
+- **文档**：paddock AGENTS.md、DESIGN §3、§7 第 9 条改为 corral 由 ranch 安装维护；ranch HANDOFF 更新。
+- **拿主意的地方**：测试 agent 用 `/bin/cat` 为主，hook 和回复用 claude 补测；Saddle 的 `--role` 只收固定值，测试时不带。
+- **没做的事**：没有让 Saddle 界面里的“停止”实测（需要按键，留给用户）；Saddle pane 上那条“saddle/main attach exited (1)”是重启前后留下的说明，同时 paddock/main 能被接入，未深究；`~/.local/share/saddle/versions/` 下旧目录现已无会话在用，删不删由用户/Saddle 主控定；paddock.app 侧栏未截图核对。

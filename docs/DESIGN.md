@@ -42,7 +42,7 @@ paddock 与 Saddle 在代码上完全分开：用到的 Saddle 代码迁入 padd
   | 插件协议 | ranch（迁入前在 Saddle） | paddock 做自己的插件系统：进程、命令、生命周期部分沿用这份协议，界面部分 paddock 自定（下文“插件”） |
   | 遥测命令（迁入前是 `saddle telemetry …`）、Drover 的公开命令 | 遥测归 ranch；Drover 在 Saddle（第 8 步再定） | 需要时照公开命令调用 |
 
-- **运行时要求**：机器上要有 `corral` 命令。开发阶段用 Saddle 安装的 `corral`（`~/.local/share/saddle/versions/…/bin/corral`）；paddock 不需要 Saddle TUI 在运行。
+- **运行时要求**：机器上要有 `corral` 命令，由 ranch 安装（`~/.local/bin/corral` → `~/.local/share/ranch/versions/…/bin/corral`，10-05 起）；paddock 不需要 Saddle TUI 在运行。
 - **单独分发**（用户 10-05 定）：paddock 要能不装 Saddle 单独使用，所需的运行时随 paddock 打包（见下一条）。
 - **全局只能一份的运行时归独立仓库 ranch**（用户 10-05 定，原话见 `docs/背景与决策记录.md` §6g、§6j）：corral、遥测、dispatch 的数据和全局位置（`~/.corral`、`~/.local/bin/corral`、技能目录、遥测数据库）每台机器、每个用户只能有一个主人。它们放进新建的 ranch 仓库（`../ranch`），由 paddock 主控兼管；Saddle 和 paddock 都只是前端，地位对等。
   - **依赖方式**：两个前端都只调用 ranch 装好的命令（PATH 上的 `corral`、遥测命令等），不在 Cargo 里引用 ranch 的 Rust 包，各自的依赖、锁文件和工具链互不进入（§4）。插件协议的类型怎么共享（各自照协议文档实现，还是引用 ranch 的协议包）到第 4 步定。
@@ -59,7 +59,7 @@ paddock 与 Saddle 在代码上完全分开：用到的 Saddle 代码迁入 padd
     6. **遥测查看页**：Saddle `src/telemetry_view.rs`（约 3100 行，ratatui）用 GPUI 重做。
     7. **插件界面（乙）**：先设计描述界面的协议给用户看，再做显示层、插件启动器、设置里的 Plugins 页。
     8. **Drover**：全部切换完成后才迁（用户 10-05）；在那之前用户不用任务流程，口头布置任务、由主控拆分委派。它的界面用 ratatui 写，按“不依赖 ratatui”必须重写，成为新插件界面的第一个用户。数据核心怎么放未定，到这一步给用户看方案：A 整个仍是插件，移到 ranch 或 paddock 维护；B 拆出数据与派发核心、对外提供接口，界面原生；C 仍是插件但只提供数据、界面由 paddock 画。
-- **搬迁完成前的兼容规矩**：在 corral 等完成上面的切换之前，正式的一份仍在 Saddle，paddock 照公开命令调用，不改它们的格式。
+- **搬迁完成前的兼容规矩**：在遥测、dispatch 等完成搬迁之前（corral 已于 10-05 搬到 ranch），正式的一份仍在 Saddle，paddock 照公开命令调用，不改它们的格式。
 - **Saddle 保底**（用户 10-05）：Saddle（TUI）不放弃，留作退路（GPUI 仍是 pre-1.0；只有终端、经 SSH 的环境）。不再给它加新功能，只保证它和运行时对得上。
   - Saddle 和 paddock 用的是 ranch 装好的同一份运行时。Saddle 改完之前（它默认用自己打包的 corral，插件也是），会有新旧两份 corral 同时操作同一批 agent（`~/.corral` 共用），这段时间兼容要双向：ranch 的 corral 开的 agent，Saddle 那份能看、能接入、能停，反过来也一样。
   - 改 ranch 时，任务文件写明对两个前端的影响：只改内部实现的，前端不用动；公开约定有兼容的新增，写说明交用户决定 Saddle 跟不跟；不兼容的先尽量改成兼容，做不到就先写好 Saddle 怎么适配，交用户/Saddle 主控，定好次序再合并 ranch。Saddle 的适配在 Saddle 自己的流程里做，paddock 主控不改 Saddle 代码。
@@ -133,7 +133,7 @@ paddock 与 Saddle 在代码上完全分开：用到的 Saddle 代码迁入 padd
 6. ~~paddock 与 Saddle TUI 同时运行时 Drover 的持有权~~：已定由 paddock 持有（§3 第 8 步，全部切换后）。布局文件各用各的（§12 P3-9）。
 7. 许可（paddock 和 Saddle 都还没有）、应用名与标识、签名公证，以及何时建远程仓库。Clawd 是 Claude Code 的吉祥物形象：用户 10-05 选定公开仓库照原样带着它（“照原样公开”）；猫和卡皮巴拉是 Saddle 原创。远程仓库已建（10-05，`github.com/firegnu/paddock`，public）；不加许可证（用户 10-05：“不加许可证。”），即保留所有权利。
 8. paddock 的任务是否纳入 Saddle 的 Tasks（Drover）管理。
-9. ~~corral 切换的具体做法~~：已定（用户 10-05）：只改 `~/.local/bin/corral` 的指向，已在运行的 agent 不做 `corral upgrade`，继续由启动它的那份管理；用户在场时做（§3 第 2 步）。
+9. ~~corral 切换的具体做法~~：已定（用户 10-05）：只改 `~/.local/bin/corral` 的指向，已在运行的 agent 不做 `corral upgrade`，继续由启动它的那份管理；用户在场时做（§3 第 2 步）。切换后 Saddle 完成剥离并部署，用户要求再升级现有会话：先用测试 agent 演练，`saddle/main`、`paddock/main` 已用 `corral upgrade` 接到 ranch 的 corral（10-05）。
 10. ~~`saddle ctl` 是否迁移~~：要迁（用户 10-05），做成 `paddock ctl`，排在切换之后第一件（§3 第 5 步）；用户的工作方式在切换时用不到它。
 11. ~~ranch 的远程仓库和许可~~：GitHub 公开仓库，不加许可证（用户 10-05）。
 

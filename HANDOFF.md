@@ -21,7 +21,7 @@
 ## 下一步
 
 1. 用户体验第三阶段这一批，反馈问题（截图已给用户看过）。
-2. 正在做 **M2**（`docs/任务/M2-ranch与corral.md`）：建 ranch、迁入 corral、切换 `~/.local/bin/corral`（用户在场）；Saddle 侧需求交 Saddle 主控并行做。用户定：先把 corral 从 Saddle 拉出去、直到 Saddle 能和新的 corral 一起工作，再转回 paddock 开发。
+2. **M2 已完成**（`docs/任务/M2-ranch与corral.md`）：corral 在 ranch，`~/.local/bin/corral` 指向 ranch，Saddle 已剥离并改用它，现有会话已升级。按用户次序，接下来转回 paddock 开发；遥测、dispatch 何时进 ranch 由用户定。
 3. 之后的次序：遥测进 ranch → 插件协议与 dispatch 进 ranch、paddock 的插件宿主底层 → 切换（Saddle 留作保底版） → `paddock ctl` → 遥测查看页 → 插件界面（先给用户看界面协议设计）→ Drover（核心放法 A/B/C 到时定）。
 
 ## 悬着
