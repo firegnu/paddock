@@ -49,9 +49,46 @@ B="$CARGO_TARGET_DIR/release/paddock"
 `~/.config/paddock/config.toml`。文件不存在等于全部默认；写了不认识的键会报错并退出。改完重启生效。
 
 ```toml
-theme = "dune"          # 预置主题名（尚未生效，目前始终是 Dune）
+theme = "tide"          # dune | tide | lagoon；不写等于 dune
 sidebar_width = 240     # 侧栏宽度，单位 pt；默认 240
 
-[colors]                # 覆盖单个颜色（尚未生效）
-agents_bg = "#1d1a16"
+[colors]                # 可选：覆盖单个颜色，其余跟随主题
+focus = "yellow"
+terminal_blue = "#7aa2f7"
 ```
+
+### 主题
+
+三套预置主题沿用 Saddle：界面颜色取自所引用 Saddle 提交的 Dune、Tide、Lagoon。终端窗格的配色由 paddock 自带：
+
+| 主题 | 终端 16 色的来源 |
+| --- | --- |
+| `dune` | Gruvbox dark |
+| `tide` | Nord，亮色由常规色调亮而来 |
+| `lagoon` | Everforest dark，亮色由常规色调亮而来 |
+
+终端默认字色、底色跟随 Saddle 主题的 `text`、`bg`（Dune 的这两项在 Saddle 里是“跟随外层终端”，paddock 用 Dune 的 `agents_text`、`agents_bg`）。各主题中除黑色外的 15 个基本色在默认底色上的对比度都不低于 3:1。
+
+Saddle 的 `terminal` 主题（全部跟随外层终端）在 paddock 里没有外层终端可跟，不提供，写了会报错。未知的主题名也报错。
+
+### `[colors]`
+
+最终颜色＝预置主题＋`[colors]` 里写的项。
+
+- 可写的键：
+  - Saddle 的 41 个界面颜色，键名与 Saddle 相同（`bg`、`text`、`border`、`muted`、`focus`、`agents_bg`、`agents_text` …，完整列表见 Saddle `src/theme.rs` 的 `named_mut`）。
+  - 终端配色 20 个：
+
+    | 键 | 含义 |
+    | --- | --- |
+    | `terminal_black` `terminal_red` `terminal_green` `terminal_yellow` `terminal_blue` `terminal_magenta` `terminal_cyan` `terminal_gray` | 0–7 号常规色 |
+    | `terminal_dark_gray` `terminal_light_red` `terminal_light_green` `terminal_light_yellow` `terminal_light_blue` `terminal_light_magenta` `terminal_light_cyan` `terminal_white` | 8–15 号亮色 |
+    | `terminal_text` `terminal_bg` | 终端默认字色、底色（不写时跟随 `text`、`bg`） |
+    | `terminal_cursor` | 光标 |
+    | `terminal_selection` | 选区底色（选中的字保持原色） |
+
+- 值的写法与 Saddle 相同：`#RRGGBB`、ANSI 颜色名（`black` `red` … `dark_gray` `light_red` … `white`）、`default`。
+  - 界面颜色写 ANSI 名，取终端配色里对应的那一色（含 `terminal_*` 的覆盖）；写 `default`，当文字用是终端默认字色，当底色用是终端默认底色。
+  - `terminal_*` 写 ANSI 名，取对应那一色（含其他 `terminal_*` 的 `#RRGGBB` 覆盖）；写 `default` 等于不覆盖。
+- 未知的键、写错的值都会报错并指出键名，程序不启动。
+- 256 色里 16 号以后的颜色立方和灰阶、程序直接给的 RGB、程序用 OSC 4 改的调色板，不受主题影响。

@@ -297,4 +297,176 @@ mod tests {
         assert_eq!(theme.fg(|t| t.text), terminal.foreground);
         assert_eq!(theme.bg(|t| t.bg), terminal.background);
     }
+
+    fn theme(config: &str) -> Result<Theme> {
+        Theme::from_config(&Config::parse(config).unwrap())
+    }
+
+    fn error(config: &str) -> String {
+        format!("{:#}", theme(config).err().expect("an error"))
+    }
+
+    #[test]
+    fn presets_by_name() {
+        let dune = theme("").unwrap();
+        assert_eq!(dune.terminal().ansi, DUNE.ansi);
+        assert_eq!(
+            theme("theme = \"dune\"").unwrap().terminal().ansi,
+            DUNE.ansi
+        );
+        // Dune's text and background are the outer terminal's; its Agents panel colours stand in.
+        let saddle = Preset::Dune.theme();
+        assert_eq!(
+            dune.terminal().foreground,
+            resolve(dune.terminal(), saddle.agents_text, (0, 0, 0))
+        );
+        assert_eq!(
+            dune.terminal().background,
+            resolve(dune.terminal(), saddle.agents_bg, (0, 0, 0))
+        );
+
+        for (name, preset, own) in [
+            ("tide", Preset::Tide, &TIDE),
+            ("lagoon", Preset::Lagoon, &LAGOON),
+        ] {
+            let theme = theme(&format!("theme = \"{name}\"")).unwrap();
+            let saddle = preset.theme();
+            let terminal = theme.terminal();
+            assert_eq!(terminal.ansi, own.ansi, "{name}");
+            assert_eq!(
+                (terminal.cursor, terminal.selection),
+                (own.cursor, own.selection)
+            );
+            assert_eq!(Color::from(terminal.foreground), saddle.text);
+            assert_eq!(Color::from(terminal.background), saddle.bg);
+            assert_eq!(
+                Color::from(theme.bg(|t| t.agents_bg)),
+                saddle.agents_bg,
+                "{name}"
+            );
+        }
+
+        // The sidebar and title bar colours change with the theme.
+        type Pick = fn(&saddle::theme::Theme) -> Color;
+        let picks: [(&str, Pick); 3] = [
+            ("agents_bg", |t| t.agents_bg),
+            ("agents_text", |t| t.agents_text),
+            ("border", |t| t.border),
+        ];
+        for (key, pick) in picks {
+            let [d, t, l] = ["dune", "tide", "lagoon"]
+                .map(|n| theme(&format!("theme = \"{n}\"")).unwrap().fg(pick));
+            assert!(d != t && t != l && d != l, "{key}: {d:?} {t:?} {l:?}");
+        }
+    }
+
+    #[test]
+    fn terminal_and_unknown_themes_are_errors() {
+        let message = error("theme = \"terminal\"");
+        assert!(
+            message.contains("\"terminal\" is not supported"),
+            "{message}"
+        );
+        for name in ["solarized", "Dune", ""] {
+            let message = error(&format!("theme = \"{name}\""));
+            assert!(
+                message.contains(&format!("unknown theme {name:?}")),
+                "{message}"
+            );
+        }
+    }
+
+    #[test]
+    fn overrides_merge_onto_the_preset() {
+        let theme = theme(
+            r##"
+theme = "tide"
+[colors]
+agents_bg = "#010203"
+border = "red"
+text = "#aabbcc"
+terminal_blue = "#0a0b0c"
+terminal_cursor = "light_red"
+terminal_selection = "default"
+"##,
+        )
+        .unwrap();
+        let terminal = theme.terminal();
+        // Interface colours: overridden ones as written, names through the terminal palette.
+        assert_eq!(theme.bg(|t| t.agents_bg), (1, 2, 3));
+        assert_eq!(theme.fg(|t| t.border), TIDE.ansi[1]);
+        assert_eq!(
+            Color::from(theme.fg(|t| t.muted)),
+            Preset::Tide.theme().muted
+        );
+        // Terminal colours: RGB as written, a name takes that entry, default keeps the theme's.
+        assert_eq!(terminal.ansi[4], (10, 11, 12));
+        assert_eq!(terminal.ansi[5], TIDE.ansi[5]);
+        assert_eq!(terminal.cursor, TIDE.ansi[9]);
+        assert_eq!(terminal.selection, TIDE.selection);
+        // The terminal's text follows Saddle's `text`; its background still follows `bg`.
+        assert_eq!(terminal.foreground, (0xaa, 0xbb, 0xcc));
+        assert_eq!(Color::from(terminal.background), Preset::Tide.theme().bg);
+    }
+
+    #[test]
+    fn names_and_indexes_follow_the_overridden_palette() {
+        let theme = theme(
+            r##"
+[colors]
+terminal_dark_gray = "#123456"
+terminal_blue = "#0a0b0c"
+terminal_cursor = "blue"
+"##,
+        )
+        .unwrap();
+        // Dune's border is dark gray.
+        assert_eq!(theme.fg(|t| t.border), (0x12, 0x34, 0x56));
+        assert_eq!(theme.terminal().cursor, (10, 11, 12));
+        assert_eq!(theme.fg(|_| Color::Indexed(4)), (10, 11, 12));
+        assert_eq!(theme.fg(|_| Color::Indexed(21)), (0, 0, 255));
+        assert_eq!(theme.fg(|_| Color::Indexed(232)), (8, 8, 8));
+    }
+
+    #[test]
+    fn terminal_text_and_bg_win_over_saddle_text_and_bg() {
+        let theme = theme(
+            r##"
+theme = "lagoon"
+[colors]
+bg = "#ffffff"
+terminal_bg = "#000001"
+terminal_text = "white"
+"##,
+        )
+        .unwrap();
+        assert_eq!(theme.terminal().background, (0, 0, 1));
+        assert_eq!(theme.terminal().foreground, LAGOON.ansi[15]);
+        assert_eq!(theme.bg(|t| t.bg), (255, 255, 255));
+        // Reset in the interface still means the terminal's own default.
+        assert_eq!(theme.bg(|_| Color::Reset), (0, 0, 1));
+    }
+
+    #[test]
+    fn unknown_keys_and_bad_values_name_the_key() {
+        for (config, key) in [
+            (
+                "[colors]\nagent_bg = \"#000000\"",
+                "unknown color \"agent_bg\"",
+            ),
+            (
+                "[colors]\nterminal_foreground = \"#000000\"",
+                "unknown color \"terminal_foreground\"",
+            ),
+            (
+                "[colors]\nterminal_red = \"#12345\"",
+                "terminal_red: invalid color",
+            ),
+            ("[colors]\nfocus = \"purple\"", "focus: invalid color"),
+            ("[colors]\nterminal_bg = \"\"", "terminal_bg: invalid color"),
+        ] {
+            let message = error(config);
+            assert!(message.contains(key), "{message}");
+        }
+    }
 }
