@@ -8,6 +8,7 @@ pub mod command;
 pub mod config;
 pub mod corral;
 pub mod damage;
+pub mod find;
 pub mod git;
 pub mod glyphs;
 pub mod grid;

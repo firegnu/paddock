@@ -37,6 +37,11 @@ actions!(
         Cancel,
         /// Closes the Settings or About window (⌘W there).
         CloseWindow,
+        Find,
+        FindNext,
+        FindPrevious,
+        /// Closes the find bar.
+        CloseFind,
         NewAgent,
         StopAgent,
         /// Create in the New Agent window.
@@ -51,6 +56,9 @@ actions!(
         OpenSelected,
     ]
 );
+
+/// The key context of a pane's find bar: ⏎ and ⇧⏎ go on searching, Esc closes it.
+pub const FIND: &str = "PaddockFind";
 
 /// The key context of the window while a dialog is open, so Esc reaches the terminal otherwise.
 pub const DIALOG: &str = "PaddockDialog";
@@ -87,6 +95,12 @@ pub fn bindings() -> Vec<KeyBinding> {
         KeyBinding::new("cmd-shift-n", NewAgent, None),
         KeyBinding::new("cmd-shift-a", ShowAttention, None),
         KeyBinding::new("cmd-p", GoToAgent, None),
+        KeyBinding::new("cmd-f", Find, None),
+        KeyBinding::new("cmd-g", FindNext, None),
+        KeyBinding::new("cmd-shift-g", FindPrevious, None),
+        KeyBinding::new("enter", FindNext, Some(FIND)),
+        KeyBinding::new("shift-enter", FindPrevious, Some(FIND)),
+        KeyBinding::new("escape", CloseFind, Some(FIND)),
         KeyBinding::new("down", SelectNext, Some(DIALOG)),
         KeyBinding::new("up", SelectPrevious, Some(DIALOG)),
         KeyBinding::new("enter", OpenSelected, Some(DIALOG)),
@@ -126,6 +140,10 @@ pub fn menus(fold: bool, by_name: bool) -> Vec<Menu> {
         Menu::new("Edit").items([
             MenuItem::action("Copy", Copy),
             MenuItem::action("Paste", Paste),
+            MenuItem::separator(),
+            MenuItem::action("Find…", Find),
+            MenuItem::action("Find Next", FindNext),
+            MenuItem::action("Find Previous", FindPrevious),
         ]),
         Menu::new("View").items([
             MenuItem::action("Fold Agents", ToggleFold).checked(fold),
@@ -207,6 +225,9 @@ mod tests {
             ("cmd-enter", "paddock::CreateAgent"),
             ("cmd-shift-a", "paddock::ShowAttention"),
             ("cmd-p", "paddock::GoToAgent"),
+            ("cmd-f", "paddock::Find"),
+            ("cmd-g", "paddock::FindNext"),
+            ("cmd-shift-g", "paddock::FindPrevious"),
         ] {
             assert!(
                 shortcuts.iter().any(|(k, a, _)| k == keys && *a == action),

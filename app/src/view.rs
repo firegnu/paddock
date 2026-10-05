@@ -4,12 +4,15 @@
 //! unchanged. This file only reads the parser's grid, draws it, and turns window input into the
 //! bytes Saddle's `input` module already encodes.
 use crate::{
-    damage, glyphs,
+    damage,
+    find::{self, Find},
+    glyphs,
     grid::{self, Metrics, Scroll},
     ime::Composition,
     keys, menu,
     palette::{Rgb, Theme},
     rows::{self, Run, Span, Style},
+    text_input::{self, Changed, TextInput},
     theme,
 };
 use crate::{
@@ -25,11 +28,11 @@ use alacritty_terminal::{
     vte::ansi::CursorShape,
 };
 use gpui::{
-    App, Bounds, ClipboardItem, Context, ElementInputHandler, EntityInputHandler, FocusHandle,
-    Focusable, Font, FontStyle, FontWeight, Hsla, KeyDownEvent, MouseButton, MouseDownEvent,
-    MouseMoveEvent, MouseUpEvent, Pixels, Point, Render, Rgba, ScrollDelta, ScrollWheelEvent,
-    SharedString, TextAlign, TextRun, UTF16Selection, UnderlineStyle, Window, canvas, div, fill,
-    point, prelude::*, px, size,
+    App, Bounds, ClipboardItem, Context, ElementInputHandler, Entity, EntityInputHandler,
+    FocusHandle, Focusable, Font, FontStyle, FontWeight, Hsla, KeyDownEvent, MouseButton,
+    MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point, Render, Rgba, ScrollDelta,
+    ScrollWheelEvent, SharedString, Subscription, TextAlign, TextRun, UTF16Selection,
+    UnderlineStyle, Window, canvas, div, fill, point, prelude::*, px, size,
 };
 use std::{cell::RefCell, ops::Range, path::PathBuf, rc::Rc, time::Duration, time::Instant};
 
@@ -90,6 +93,15 @@ pub struct TerminalView {
     note: String,
     title: String,
     stats: Option<Rc<RefCell<Stats>>>,
+    /// The find bar, while it is open.
+    find: Option<FindBar>,
+}
+
+struct FindBar {
+    input: Entity<TextInput>,
+    /// The last search found nothing.
+    missed: bool,
+    _subscription: Subscription,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -190,6 +202,7 @@ impl TerminalView {
             stats: options
                 .stats
                 .then(|| Rc::new(RefCell::new(Stats::default()))),
+            find: None,
         }
     }
 
@@ -391,7 +404,11 @@ impl TerminalView {
         }
     }
 
-    fn key_down(&mut self, event: &KeyDownEvent, _: &mut Window, cx: &mut Context<Self>) {
+    fn key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        // Keys typed in the find bar are its own.
+        if !self.focus.is_focused(window) {
+            return;
+        }
         let keystroke = &event.keystroke;
         // Command shortcuts are menu actions (`menu.rs`); none of them reach the terminal.
         if keystroke.modifiers.platform {
@@ -402,6 +419,136 @@ impl TerminalView {
             self.write(bytes, cx);
             cx.stop_propagation();
         }
+    }
+
+    /// ⌘F: the find bar, its field focused.
+    fn open_find(&mut self, _: &menu::Find, window: &mut Window, cx: &mut Context<Self>) {
+        let input = match &self.find {
+            Some(bar) => bar.input.clone(),
+            None => {
+                let colors = text_input::Colors {
+                    text: hsla(self.theme.fg(|t| t.agents_text), 1.0),
+                    placeholder: hsla(self.theme.fg(|t| t.agents_dimmer), 1.0),
+                    cursor: hsla(self.theme.fg(|t| t.focus), 1.0),
+                    selection: hsla(self.theme.fg(|t| t.focus), 0.3),
+                };
+                let input = cx.new(|cx| TextInput::new("", "Find", colors, cx));
+                // Typing searches again from the bottom of the view.
+                let subscription = cx.subscribe(&input, |this, _, _: &Changed, cx| {
+                    this.run_find(Find::First, cx)
+                });
+                self.find = Some(FindBar {
+                    input: input.clone(),
+                    missed: false,
+                    _subscription: subscription,
+                });
+                input
+            }
+        };
+        let focus = input.read(cx).focus_handle(cx);
+        window.focus(&focus, cx);
+        cx.notify();
+    }
+
+    fn find_next(&mut self, _: &menu::FindNext, window: &mut Window, cx: &mut Context<Self>) {
+        if self.find.is_none() {
+            self.open_find(&menu::Find, window, cx);
+        }
+        self.run_find(Find::Older, cx);
+    }
+
+    fn find_previous(
+        &mut self,
+        _: &menu::FindPrevious,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.find.is_none() {
+            self.open_find(&menu::Find, window, cx);
+        }
+        self.run_find(Find::Newer, cx);
+    }
+
+    fn run_find(&mut self, how: Find, cx: &mut Context<Self>) {
+        let Some(bar) = &self.find else { return };
+        let query = bar.input.read(cx).text().to_owned();
+        let found = match self.session() {
+            Some(session) => find::find(&mut session.screen.lock().unwrap().term, &query, how),
+            None => false,
+        };
+        if let Some(bar) = &mut self.find {
+            bar.missed = !query.is_empty() && !found;
+        }
+        cx.notify();
+    }
+
+    /// Esc or ×: the bar goes, the view returns to the bottom and the keys to the terminal.
+    fn close_find(&mut self, _: &menu::CloseFind, window: &mut Window, cx: &mut Context<Self>) {
+        self.find = None;
+        if let Some(session) = self.session() {
+            let mut screen = session.screen.lock().unwrap();
+            screen.term.selection = None;
+            screen.term.scroll_display(ViewScroll::Bottom);
+        }
+        window.focus(&self.focus, cx);
+        cx.notify();
+    }
+
+    fn find_bar(&self, bar: &FindBar, cx: &mut Context<Self>) -> impl IntoElement {
+        let fg = |pick: fn(&crate::preset::Theme) -> crate::preset::Color| {
+            hsla(self.theme.fg(pick), 1.0)
+        };
+        let highlight = hsla(self.theme.bg(|t| t.agent_selected), 1.0);
+        let button = |id: &'static str, label: &'static str| {
+            div()
+                .id(id)
+                .px(px(5.0))
+                .rounded(px(4.0))
+                .text_color(fg(|t| t.muted))
+                .cursor_pointer()
+                .hover(move |style| style.bg(highlight))
+                .child(label)
+        };
+        div()
+            .id("find-bar")
+            .key_context(menu::FIND)
+            .absolute()
+            .top(px(6.0))
+            .right(px(14.0))
+            .w(px(340.0))
+            .flex()
+            .items_center()
+            .gap(px(6.0))
+            .px(px(8.0))
+            .py(px(4.0))
+            .rounded(px(7.0))
+            .border_1()
+            .border_color(fg(|t| t.focus))
+            .bg(hsla(self.theme.bg(|t| t.agents_bg), 1.0))
+            .shadow_md()
+            .text_size(px(12.0))
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .on_action(cx.listener(Self::close_find))
+            .child(div().flex_1().min_w(px(0.0)).child(bar.input.clone()))
+            .when(bar.missed, |row| {
+                row.child(
+                    div()
+                        .flex_shrink_0()
+                        .text_color(fg(|t| t.agents_red))
+                        .child("No match"),
+                )
+            })
+            .child(button("find-older", "↑").on_click(
+                cx.listener(|this, _, window, cx| this.find_next(&menu::FindNext, window, cx)),
+            ))
+            .child(
+                button("find-newer", "↓").on_click(cx.listener(|this, _, window, cx| {
+                    this.find_previous(&menu::FindPrevious, window, cx)
+                })),
+            )
+            .child(button("find-close", "×").on_click(
+                cx.listener(|this, _, window, cx| this.close_find(&menu::CloseFind, window, cx)),
+            ))
     }
 
     /// The grid cell under a window position, and the grid point counting the scrolled view.
@@ -948,6 +1095,7 @@ impl Render for TerminalView {
         let focus = self.focus.clone();
         let stats = self.stats.clone();
         div()
+            .relative()
             .size_full()
             .bg(hsla(self.theme.terminal().background, 1.0))
             .p(px(6.0))
@@ -956,6 +1104,9 @@ impl Render for TerminalView {
             .on_key_down(cx.listener(Self::key_down))
             .on_action(cx.listener(Self::copy))
             .on_action(cx.listener(Self::paste_clipboard))
+            .on_action(cx.listener(Self::open_find))
+            .on_action(cx.listener(Self::find_next))
+            .on_action(cx.listener(Self::find_previous))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::mouse_down))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::mouse_up))
             .on_mouse_move(cx.listener(Self::mouse_move))
@@ -976,6 +1127,7 @@ impl Render for TerminalView {
                 )
                 .size_full(),
             )
+            .children(self.find.as_ref().map(|bar| self.find_bar(bar, cx)))
     }
 }
 
