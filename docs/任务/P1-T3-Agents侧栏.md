@@ -16,6 +16,7 @@
 ## 在哪里干活
 - worktree：`/Users/firegnu/Developer/personal_projs/paddock-worktrees/p1-agents`，分支 `p1-agents`（T1 合并后从 main 建好）。
 - 编译目录：命令前加 `CARGO_TARGET_DIR=$HOME/Developer/personal_projs/paddock-worktrees/.target`。
+- 启动窗口、截图会弹权限确认，要用户手动点。需要截的图集中在一次里截完，不要零散地反复启动截图。
 - 只动 `app/src/window.rs`、新建的 `app/src/sidebar.rs`，以及 `main.rs`、`lib.rs` 中接线所需的几行。如果需要从 `view.rs` 切换窗格接的对象，只在那里加最少的方法，不动绘制代码。
 - 并行任务：paddock/dev-theme 在分支 `p1-theme` 改 `theme.rs`、`palette.rs`、`rows.rs` 和 `view.rs` 的绘制部分。你不要动这些文件，也不要动 `config.rs` 的结构。
 - 颜色一律通过 `Theme::fg/bg` 按 Saddle 的字段名取（例如 `|t| t.agents_text`、`|t| t.agent_working`），不写死色值。这样主题任务合并后，侧栏自动跟随主题。
