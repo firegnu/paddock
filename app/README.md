@@ -48,7 +48,10 @@ cargo run --release --manifest-path "$M" --example bundle -- --install
 | Shell | New Tab…（⌘T）、New Shell（⌘N）、Split Right…（⌘D）、Split Down…（⇧⌘D）、Split Left…、Split Up…、Close Pane（⌘W）、Close Tab（⇧⌘W） |
 | Edit | Copy（⌘C，有选区时）、Paste（⌘V） |
 | View | Fold Agents、Sort Agents by Name（勾选跟随侧栏） |
+| Agent | New Agent…（⇧⌘N）、Stop Agent… |
 | Window | Minimize（⌘M）、Zoom、Next Tab（⇧⌘]）、Previous Tab（⇧⌘[）、Tab 1–9（⌘1…⌘9，⌘9 是最后一个） |
+
+新建 agent：菜单 Agent → New Agent…、侧栏底部 ＋ Agent，或 `+`、`Split ▾` 选择框里的 New agent…，打开单独的窗口：项目目录（可从列表选或 Choose… 用系统对话框）、Codex 或 Claude、Controller（名字固定 main）或 Regular、名字前缀（默认取目录名）、在哪里打开；Advanced 里可改完整命令、第一条消息，并显示将要执行的 `corral start …`。Create（⌘↩）成功后在选定位置接入；失败时窗口保留并显示原因。当前窗格是运行中的 shell 时不替换，改开新标签页。停止：Agent → Stop Agent… 或侧栏底部 ■ Stop，作用于当前窗格的 agent，系统提示框确认后调用 `corral stop`，结果显示在侧栏底部。
 
 关窗格、关标签页或退出时，会结束还活着的 shell 就先用系统提示框列出这些 shell，确认后才关；agent 窗格只是断开，agent 继续运行。新标签、分屏的选择框打开时 Esc 关闭。About paddock 是单独的小窗口，⌘W 关闭。其他按键都交给终端。
 

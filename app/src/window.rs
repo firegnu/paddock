@@ -6,11 +6,14 @@ use crate::{
     corral::Role,
     layout::{Axis, Direction, Node, PaneId, Placement, Shown, Workspace},
     menu,
+    new_agent::{self, Place, Started},
+    new_agent_view::Seed,
     pet::PetView,
     sidebar::{Sidebar, SidebarEvent},
     theme::Theme,
     view::{Launch, Options, TerminalView, hsla},
     viewer::AgentMetadata,
+    windows,
 };
 use gpui::{
     AnyElement, ClickEvent, Context, Div, ElementId, Entity, FocusHandle, Focusable, FontWeight,
@@ -259,6 +262,9 @@ impl PaddockWindow {
                 self.show_agent(name, metadata.clone(), window, cx)
             }
             SidebarEvent::NewShell => self.new_shell(window, cx),
+            // After this update: opening the window reads this one.
+            SidebarEvent::NewAgent => cx.defer(|cx| windows::open_new_agent(Place::Current, cx)),
+            SidebarEvent::Stop => self.stop_agent(window, cx),
             SidebarEvent::Alive(names) => {
                 let names: Vec<&str> = names.iter().map(String::as_str).collect();
                 for view in self.panes.values() {
@@ -266,6 +272,117 @@ impl PaddockWindow {
                 }
             }
         }
+    }
+
+    /// What the New Agent window starts from: the directories to offer and the active pane's.
+    pub fn seed(&self, cx: &gpui::App) -> Seed {
+        let sidebar = self.sidebar.read(cx);
+        let active = self.workspace.active_pane();
+        let project = match self.workspace.shown(active) {
+            Shown::Agent(name) => sidebar.metadata(name).cwd,
+            Shown::Shell => self.panes[&active].read(cx).cwd().map(str::to_owned),
+            Shown::Empty => None,
+        }
+        .unwrap_or_else(|| self.new_shell.cwd.clone());
+        let mut projects = sidebar.projects();
+        projects.push(self.new_shell.cwd.clone());
+        projects.sort();
+        projects.dedup();
+        Seed {
+            theme: self.theme.clone(),
+            corral: self.template.corral.clone(),
+            mono: self.template.font_family.clone().into(),
+            projects,
+            project,
+        }
+    }
+
+    /// An agent the New Agent window started, opened where it said. A running shell in the
+    /// active pane is kept: the agent gets a new tab instead.
+    pub fn open_started(
+        &mut self,
+        started: &Started,
+        cwd: &str,
+        place: Place,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let name = started.name.clone();
+        let shown = Shown::Agent(name.clone());
+        let active = self.workspace.active_pane();
+        let pane = match place {
+            Place::Current if !self.panes[&active].read(cx).shell_live() => {
+                self.workspace.set_shown(active, shown);
+                active
+            }
+            Place::Current | Place::Tab => self.workspace.new_tab(shown),
+            Place::Split(direction) => self.workspace.split(direction, shown),
+        };
+        if !self.panes.contains_key(&pane) {
+            let view = self.view(Launch::Empty, window, cx);
+            self.panes.insert(pane, view);
+        }
+        let metadata = AgentMetadata {
+            cwd: Some(cwd.to_owned()),
+            instance: started.instance.clone(),
+        };
+        self.attach(pane, &name, metadata, cx);
+        self.sidebar.update(cx, |sidebar, cx| {
+            sidebar.note(format!("Started {name}"), false, cx);
+            sidebar.refresh();
+        });
+        self.focus_active(window, cx);
+    }
+
+    /// Stops the active pane's agent with `corral stop`, after asking.
+    fn stop_agent(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(name) = self.workspace.active_agent().map(str::to_owned) else {
+            self.sidebar.update(cx, |sidebar, cx| {
+                let text = "Stop acts on the agent in the active pane; open one first.";
+                sidebar.note(text.into(), true, cx)
+            });
+            return;
+        };
+        if self.asking {
+            return;
+        }
+        self.asking = true;
+        let answer = window.prompt(
+            PromptLevel::Warning,
+            &format!("Stop {name}?"),
+            Some("corral stop ends the agent and its session. Panes showing it stay, saying it has gone."),
+            &["Stop", "Cancel"],
+            cx,
+        );
+        let corral = self.template.corral.clone();
+        cx.spawn_in(window, async move |this, cx| {
+            let stop = matches!(answer.await, Ok(0));
+            let _ = this.update(cx, |this, cx| {
+                this.asking = false;
+                if stop {
+                    this.sidebar.update(cx, |sidebar, cx| {
+                        sidebar.note(format!("Stopping {name}…"), false, cx)
+                    });
+                }
+            });
+            if !stop {
+                return;
+            }
+            let target = name.clone();
+            let result = cx
+                .background_spawn(async move { new_agent::stop(&corral, &target) })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                this.sidebar.update(cx, |sidebar, cx| {
+                    match result {
+                        Ok(()) => sidebar.note(format!("Stopped {name}"), false, cx),
+                        Err(error) => sidebar.note(format!("{error:#}"), true, cx),
+                    }
+                    sidebar.refresh();
+                })
+            });
+        })
+        .detach();
     }
 
     /// The colours in use, for the Settings and About windows.
@@ -874,6 +991,24 @@ impl PaddockWindow {
                         this.choose(Choice::Shell, window, cx)
                     })),
             );
+            body = body.child(
+                row("choice-new-agent".into())
+                    .child(
+                        div()
+                            .text_color(self.fg(|t| t.agents_accent))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child("＋"),
+                    )
+                    .child("New agent…")
+                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                        let place = match this.popup.take() {
+                            Some(Popup::Split(Some(direction))) => Place::Split(direction),
+                            _ => Place::Tab,
+                        };
+                        cx.notify();
+                        cx.defer(move |cx| windows::open_new_agent(place, cx));
+                    })),
+            );
             let names = self.sidebar.read(cx).agent_names();
             if names.is_empty() {
                 body = body.child(
@@ -1020,6 +1155,9 @@ impl Render for PaddockWindow {
             }))
             .on_action(
                 cx.listener(|this, _: &menu::ClosePane, window, cx| this.close_pane(window, cx)),
+            )
+            .on_action(
+                cx.listener(|this, _: &menu::StopAgent, window, cx| this.stop_agent(window, cx)),
             )
             .on_action(cx.listener(|this, _: &menu::CloseTab, window, cx| {
                 let index = this.workspace.active_tab;

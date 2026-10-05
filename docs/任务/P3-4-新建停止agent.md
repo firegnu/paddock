@@ -28,3 +28,17 @@
 - 不读 corral 内部状态；不碰用户现有的 agent。
 - 不做 Saddle 的 `saddle ctl` 开 agent。
 - 不改 Saddle 仓库。
+
+## 完成记录
+
+2026-10-05，paddock/main。按用户“不用写完一个就等我回复”，自查后直接合并。
+
+- **做了什么**：
+  - `new_agent.rs`：表单规则照 Saddle——默认 Codex（`codex --yolo`）、Controller 名字固定 `main`、Regular 可命名、`--label role=…`、可选 `--prompt`、命令按 shell 规则拆分；校验和提示文字同 Saddle；`~` 展开；调用预览按 shell 规则加引号。与 Saddle 的不同：前缀默认取项目目录名（Saddle 固定 `agents`；目录名为空时仍用 `agents`），用户改过就不再跟随。`start`、`stop` 只调用公开的 `corral start`、`corral stop`（超时 120 秒，同 Saddle）。
+  - `new_agent_view.rs`：New Agent 独立窗口（640×600），项目目录输入框＋Choose…（系统选文件夹对话框）＋可选目录列表（paddock 启动目录和各 agent 的目录）、Codex/Claude、Controller/Regular、前缀/名字、打开位置（当前窗格、新标签页、四个方向）、Advanced（命令、第一条消息、将要执行的调用）；Create（⌘↩）在后台运行，期间按钮变灰并显示 Starting…；失败显示原因并标红出问题的输入框，窗口和内容保留；Cancel、⌘W、红点关闭。
+  - 主窗口：`seed` 给出默认目录（当前窗格 agent 的目录、shell 的目录，或启动目录）；`open_started` 按选定位置接入（当前窗格是运行中的 shell 时改开新标签页）；Stop 作用于当前窗格的 agent，系统提示框确认后在后台 `corral stop`，侧栏底部显示 Stopping…/Stopped/错误并立即刷新列表。
+  - 菜单新增 Agent（New Agent… ⇧⌘N、Stop Agent…）；侧栏底部改为 ＋ Agent、＋ Shell、■ Stop（没有当前 agent 时变暗）；`+` 和 `Split ▾` 的选择框加 New agent…（预选新标签页或对应方向）。
+  - 新增直接依赖 `shell-words 1`（锁文件里本来就有 1.1.1，未增加包）。
+- **验证了什么**：128 项测试通过（新增：参数拼装 6 项、假 corral 的 start/stop 2 项、菜单测试更新）；clippy、fmt 通过。用临时演示代码和一个也能回答 start/stop 的假 corral（草稿目录）打开窗口截图（默认、Advanced 展开），并由演示代码触发 Create：假 corral 收到 `start paddock/main --cwd … --label role=controller -- codex --yolo`，主窗口在新标签页接入、侧栏显示 Started；接入时显示“identity changed”是因为假 corral 返回的实例号与它列表里同名 agent 不一致，属于假数据，paddock 拒绝接入是正确的。侧栏底部按钮第一次放不下，已缩短标签。演示代码已删、未提交；没有对用户的任何 agent 做操作，也没有开真实测试 agent。
+- **拿主意的地方**：前缀默认取目录名；“在哪里打开”放在主区域而不是 Advanced（Saddle 放在 Advanced）；Stop 只作用于当前窗格的 agent（要停别的先点开它）；第一条消息是单行输入（输入框只支持单行）；Create 期间关窗口，agent 照样会启动，但不会自动接入，可从侧栏打开。
+- **没做的事**：真实 corral 的新建、停止实测（留给用户，或需要时只开 `paddock/test-*`）；系统提示框的点击。

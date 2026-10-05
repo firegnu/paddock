@@ -3,6 +3,8 @@
 //! first lets a Settings window with unsaved edits ask what to do with them.
 use crate::{
     about::AboutView,
+    new_agent::Place,
+    new_agent_view::{NewAgentEvent, NewAgentView},
     settings_view::{SettingsEvent, SettingsView},
     window::PaddockWindow,
 };
@@ -16,6 +18,7 @@ struct Windows {
     main: Option<WindowHandle<PaddockWindow>>,
     settings: Option<WindowHandle<SettingsView>>,
     about: Option<WindowHandle<AboutView>>,
+    new_agent: Option<WindowHandle<NewAgentView>>,
     /// A quit is waiting on Settings' answer.
     quitting: bool,
 }
@@ -121,6 +124,51 @@ pub fn open_settings(cx: &mut App) {
         .detach()
     });
     cx.default_global::<Windows>().settings = Some(handle);
+}
+
+/// The New Agent window, set to open the agent at `place`; one already open comes to the front and
+/// keeps what was typed, taking `place` when it is not the current pane.
+pub fn open_new_agent(place: Place, cx: &mut App) {
+    let windows = cx.default_global::<Windows>();
+    let (existing, main) = (windows.new_agent, windows.main);
+    if let Some(handle) = existing
+        && handle
+            .update(cx, |view, window, cx| {
+                window.activate_window();
+                if place != Place::Current {
+                    view.set_place(place, cx);
+                }
+            })
+            .is_ok()
+    {
+        return;
+    }
+    let Some(main) = main else { return };
+    let Ok(seed) = main.read(cx).map(|main| main.seed(cx)) else {
+        return;
+    };
+    let options = options("New Agent", 640.0, 600.0, true, cx);
+    let Some((handle, view)) = open(options, move |_, cx| NewAgentView::new(seed, place, cx), cx)
+    else {
+        return;
+    };
+    // The main window opens what was started.
+    let _ = main.update(cx, |_, window, cx| {
+        cx.subscribe_in(
+            &view,
+            window,
+            |main, _, event: &NewAgentEvent, window, cx| {
+                let NewAgentEvent::Started {
+                    started,
+                    cwd,
+                    place,
+                } = event;
+                main.open_started(started, cwd, *place, window, cx);
+            },
+        )
+        .detach()
+    });
+    cx.default_global::<Windows>().new_agent = Some(handle);
 }
 
 pub fn open_about(cx: &mut App) {
