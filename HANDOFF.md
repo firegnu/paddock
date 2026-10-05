@@ -27,10 +27,11 @@
 3. 用户定：dispatch 不带遥测剥离到 ranch，之后转回 paddock 开发；遥测、Drover、整个插件系统砍掉（Saddle 删代码和对应测试，数据留在磁盘上）。**M3 已完成**（`docs/任务/M3-dispatch进ranch.md`）：dispatch 在 ranch（`ranch dispatch route`、技能由 `ranch dispatch install-skills` 装）；Saddle 已砍掉插件系统和遥测（被删代码可从 Saddle 标签 `before-cut` 取回，数据留在磁盘上）。两个前端同一起跑线，接下来转回 paddock 开发。
 4. M3 做完后转回 paddock 开发：`paddock ctl` 等。遥测查看页、插件界面、Drover 已取消（用户 10-05）。
 
-- 下一件：P5-3 Command palette（DESIGN §13），P5-1、P5-2 收尾后先出样稿。
 - 再下一件：P5-4 弹出界面重新设计（DESIGN §13 有盘点清单），P5-3 之后，同样先出样稿；系统对话框是否保留原生待用户定。
 
 - P5-1 侧栏改版、P5-2 窗口与窗格改版并行派给两个 Claude Code，主控集成后合并，已重新安装 paddock.app（10-06）。待用户试用：拖动、双击、全屏、悬停、点击；用户定：宠物回原大小、标题栏宠物开着时 48pt（P5-5 已做）；标签 × 淡入和分屏菜单并进 P5-4；P5-1 的建议改里只补“上次输入”的时间（P5-5 已做），其余因数据拿不到或 GPUI 不支持不做。
+
+- P5-3 Command palette、P5-8 卡片信息补回、P5-9 终端拖放文件并行派发（两个 Claude Code、一个 Codex），主控集成后合并，已重新安装（10-06）。待用户试：palette 的键盘鼠标和三种模式、卡片详情不再折行、从访达拖图片到 agent 窗格。
 
 ## 悬着
 
