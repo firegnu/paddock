@@ -47,11 +47,13 @@ cargo run --release --manifest-path "$M" --example bundle -- --install
 | paddock | About paddock、Quit（⌘Q） |
 | Shell | New Tab…（⌘T）、New Shell（⌘N）、Split Right…（⌘D）、Split Down…（⇧⌘D）、Split Left…、Split Up…、Close Pane（⌘W）、Close Tab（⇧⌘W） |
 | Edit | Copy（⌘C，有选区时）、Paste（⌘V）、Find…（⌘F）、Find Next（⌘G）、Find Previous（⇧⌘G） |
-| View | Fold Agents、Sort Agents by Name（勾选跟随侧栏） |
+| View | Fold Agents、Sort Agents by Name（勾选跟随侧栏）、Zoom Pane（⇧⌘↩） |
 | Agent | New Agent…（⇧⌘N）、Stop Agent…、Go to Agent…（⌘P）、Attention…（⇧⌘A） |
 | Window | Minimize（⌘M）、Zoom、Next Tab（⇧⌘]）、Previous Tab（⇧⌘[）、Tab 1–9（⌘1…⌘9，⌘9 是最后一个） |
 
 新建 agent：菜单 Agent → New Agent…、侧栏底部 ＋ Agent，或 `+`、`Split ▾` 选择框里的 New agent…，打开单独的窗口：项目目录（可从列表选或 Choose… 用系统对话框）、Codex 或 Claude、Controller（名字固定 main）或 Regular、名字前缀（默认取目录名）、在哪里打开；Advanced 里可改完整命令、第一条消息，并显示将要执行的 `corral start …`。Create（⌘↩）成功后在选定位置接入；失败时窗口保留并显示原因。当前窗格是运行中的 shell 时不替换，改开新标签页。停止：Agent → Stop Agent… 或侧栏底部 ■ Stop，作用于当前窗格的 agent，系统提示框确认后调用 `corral stop`，结果显示在侧栏底部。
+
+窗格放大：有多个窗格时，标题栏的 Zoom 或 View → Zoom Pane（⇧⌘↩）把当前窗格临时铺满终端区，Restore 或再按一次回到原来的分屏；其他窗格照常运行；切到别的窗格、关掉放大的窗格或再分屏时自动还原；按标签页分别记。
 
 终端里查找（⌘F）：在当前窗格右上方打开查找栏，边输入边从视图底部往上找，选中并滚到找到的地方；回车或 ⌘G 找更早的一处，⇧回车或 ⇧⌘G 找更新的一处，两头绕回；按字面找，输入里有大写字母才区分大小写；找不到时显示 No match。Esc 或 × 关闭并回到最底部。
 

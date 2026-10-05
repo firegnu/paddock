@@ -666,6 +666,11 @@ impl PaddockWindow {
         })
     }
 
+    fn toggle_zoom(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.workspace.toggle_zoom();
+        self.focus_active(window, cx);
+    }
+
     fn select_tab(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
         self.workspace.select_tab(index);
         self.focus_active(window, cx);
@@ -903,6 +908,14 @@ impl PaddockWindow {
                     })
                     .child(self.title(pane, cx)),
             );
+        if active && self.workspace.tab().panes().len() > 1 {
+            let zoomed = self.workspace.zoomed().is_some();
+            header = header.child(
+                control("zoom", if zoomed { "Restore" } else { "Zoom" }).on_click(
+                    cx.listener(|this, _: &ClickEvent, window, cx| this.toggle_zoom(window, cx)),
+                ),
+            );
+        }
         if active {
             header = header
                 .child(control("split", "Split ▾").on_click(cx.listener(
@@ -1491,7 +1504,11 @@ impl Render for PaddockWindow {
             self.menu_state = Some(view_state);
             cx.set_menus(menu::menus(view_state.0, view_state.1));
         }
-        let root = self.workspace.tab().root.clone();
+        // A zoomed pane fills the tab; the split waits underneath.
+        let root = match self.workspace.zoomed() {
+            Some(pane) => Node::Pane(pane),
+            None => self.workspace.tab().root.clone(),
+        };
         let content = div()
             .flex_1()
             .min_h(px(0.0))
@@ -1570,6 +1587,9 @@ impl Render for PaddockWindow {
             }))
             .on_action(cx.listener(|_, _: &menu::Minimize, window, _| window.minimize_window()))
             .on_action(cx.listener(|_, _: &menu::Zoom, window, _| window.zoom_window()))
+            .on_action(
+                cx.listener(|this, _: &menu::ZoomPane, window, cx| this.toggle_zoom(window, cx)),
+            )
             .on_action(
                 cx.listener(|this, _: &menu::NextTab, window, cx| this.cycle_tab(true, window, cx)),
             )

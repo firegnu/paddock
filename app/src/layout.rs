@@ -103,6 +103,8 @@ impl Node {
 pub struct Tab {
     pub root: Node,
     pub active: PaneId,
+    /// The pane filling the tab for now (Zoom); the split stays underneath.
+    zoomed: Option<PaneId>,
 }
 
 impl Tab {
@@ -192,6 +194,7 @@ impl Workspace {
         let tab = Tab {
             root: Node::Pane(pane),
             active: pane,
+            zoomed: None,
         };
         let at = if self.tabs.is_empty() {
             0
@@ -209,14 +212,35 @@ impl Workspace {
         let tab = &mut self.tabs[self.active_tab];
         tab.root.split(tab.active, pane, direction);
         tab.active = pane;
+        tab.zoomed = None;
         pane
+    }
+
+    /// Fills the tab with its active pane, or back to the split. Only with several panes.
+    pub fn toggle_zoom(&mut self) {
+        let tab = &mut self.tabs[self.active_tab];
+        tab.zoomed = match tab.zoomed {
+            Some(_) => None,
+            None if tab.panes().len() > 1 => Some(tab.active),
+            None => None,
+        };
+    }
+
+    /// The active tab's zoomed pane.
+    pub fn zoomed(&self) -> Option<PaneId> {
+        self.tab().zoomed
     }
 
     /// Makes `pane` active, and its tab.
     pub fn focus(&mut self, pane: PaneId) {
         if let Some(index) = self.tabs.iter().position(|t| t.panes().contains(&pane)) {
             self.active_tab = index;
-            self.tabs[index].active = pane;
+            let tab = &mut self.tabs[index];
+            tab.active = pane;
+            // Another pane ends the zoom.
+            if tab.zoomed.is_some_and(|zoomed| zoomed != pane) {
+                tab.zoomed = None;
+            }
         }
     }
 
@@ -237,6 +261,9 @@ impl Workspace {
         match tab.root.clone().remove(pane) {
             Some(root) => {
                 tab.root = root;
+                if tab.zoomed == Some(pane) {
+                    tab.zoomed = None;
+                }
                 if tab.active == pane {
                     tab.active = tab.panes()[0];
                 }
@@ -390,5 +417,48 @@ mod tests {
         assert_eq!(w.active_tab, 1);
         assert_eq!(w.tabs[1].active, c);
         assert_eq!(w.tabs[2].active, b);
+    }
+
+    #[test]
+    fn zoom_needs_several_panes_and_toggles() {
+        let (mut w, first) = Workspace::new(Shown::Shell);
+        w.toggle_zoom();
+        assert_eq!(w.zoomed(), None);
+        let second = w.split(Direction::Right, Shown::Empty);
+        w.toggle_zoom();
+        assert_eq!(w.zoomed(), Some(second));
+        w.toggle_zoom();
+        assert_eq!(w.zoomed(), None);
+        assert_eq!(w.active_pane(), second);
+        w.focus(first);
+        w.toggle_zoom();
+        assert_eq!(w.zoomed(), Some(first));
+    }
+
+    #[test]
+    fn zoom_ends_on_another_pane_a_close_or_a_split() {
+        let (mut w, first) = Workspace::new(Shown::Shell);
+        let second = w.split(Direction::Down, Shown::Shell);
+        w.toggle_zoom();
+        w.focus(first);
+        assert_eq!(w.zoomed(), None);
+        w.toggle_zoom();
+        w.split(Direction::Left, Shown::Empty);
+        assert_eq!(w.zoomed(), None);
+        w.focus(second);
+        w.toggle_zoom();
+        w.close_pane(second);
+        assert_eq!(w.zoomed(), None);
+    }
+
+    #[test]
+    fn zoom_is_kept_per_tab() {
+        let (mut w, _) = Workspace::new(Shown::Shell);
+        let zoomed = w.split(Direction::Right, Shown::Shell);
+        w.toggle_zoom();
+        w.new_tab(Shown::Empty);
+        assert_eq!(w.zoomed(), None);
+        w.select_tab(0);
+        assert_eq!(w.zoomed(), Some(zoomed));
     }
 }
