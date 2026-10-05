@@ -16,6 +16,10 @@ pub struct Config {
     pub colors: BTreeMap<String, String>,
     /// Width of the Agents sidebar, in points.
     pub sidebar_width: f32,
+    pub font: String,
+    pub font_fallbacks: Vec<String>,
+    pub font_size: f32,
+    pub line_height: f32,
 }
 
 impl Default for Config {
@@ -24,6 +28,17 @@ impl Default for Config {
             theme: None,
             colors: BTreeMap::new(),
             sidebar_width: 240.0,
+            font: "Menlo".into(),
+            // Common Nerd Font families for prompt icons; missing ones are skipped.
+            font_fallbacks: [
+                "Symbols Nerd Font Mono",
+                "FiraCode Nerd Font Mono",
+                "FiraCode Nerd Font",
+            ]
+            .map(str::to_owned)
+            .into(),
+            font_size: 14.0,
+            line_height: 1.3,
         }
     }
 }
@@ -35,7 +50,44 @@ impl Config {
             config.sidebar_width.is_finite() && config.sidebar_width > 0.0,
             "sidebar_width must be positive"
         );
+        config.validate_fonts()?;
         Ok(config)
+    }
+
+    fn validate_fonts(&self) -> Result<()> {
+        for (key, value) in [
+            ("font_size", self.font_size),
+            ("line_height", self.line_height),
+        ] {
+            ensure!(
+                value.is_finite() && value > 0.0,
+                "{key} must be positive and finite"
+            );
+        }
+        Ok(())
+    }
+
+    /// Apply explicit command-line values; repeated fallbacks replace the whole configured list.
+    pub fn apply_font_overrides(
+        &mut self,
+        font: Option<String>,
+        fallbacks: Vec<String>,
+        font_size: Option<f32>,
+        line_height: Option<f32>,
+    ) -> Result<()> {
+        if let Some(font) = font {
+            self.font = font;
+        }
+        if !fallbacks.is_empty() {
+            self.font_fallbacks = fallbacks;
+        }
+        if let Some(font_size) = font_size {
+            self.font_size = font_size;
+        }
+        if let Some(line_height) = line_height {
+            self.line_height = line_height;
+        }
+        self.validate_fonts()
     }
 
     pub fn load(path: &Path) -> Result<Self> {
@@ -58,6 +110,53 @@ mod tests {
     use super::*;
 
     #[test]
+    fn font_settings_are_accepted() {
+        let config = Config::parse(
+            r#"
+font = "Geist Mono"
+font_fallbacks = ["Sarasa Mono SC", "Maple Mono NF CN"]
+font_size = 14.5
+line_height = 1.4
+"#,
+        )
+        .unwrap();
+        assert_eq!(config.font, "Geist Mono");
+        assert_eq!(
+            config.font_fallbacks,
+            ["Sarasa Mono SC", "Maple Mono NF CN"]
+        );
+        assert_eq!(config.font_size, 14.5);
+        assert_eq!(config.line_height, 1.4);
+        let integers = Config::parse("font_size = 15\nline_height = 2").unwrap();
+        assert_eq!(integers.font_size, 15.0);
+        assert_eq!(integers.line_height, 2.0);
+    }
+
+    #[test]
+    fn invalid_font_values_name_the_key() {
+        for (key, values) in [
+            ("font", vec!["14", "[]"]),
+            ("font_fallbacks", vec!["\"Menlo\"", "[1]", "[\"Menlo\", 1]"]),
+            (
+                "font_size",
+                vec!["\"14\"", "true", "0", "-1", "nan", "inf", "-inf"],
+            ),
+            (
+                "line_height",
+                vec!["\"1.3\"", "[]", "0", "-1.3", "nan", "inf", "-inf"],
+            ),
+        ] {
+            for value in values {
+                let error = Config::parse(&format!("{key} = {value}")).unwrap_err();
+                assert!(
+                    format!("{error:#}").contains(key),
+                    "{key} = {value}: {error:#}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn missing_file_is_all_defaults() {
         let path = std::env::temp_dir().join("paddock-config-test-missing/config.toml");
         let config = Config::load(&path).unwrap();
@@ -65,6 +164,81 @@ mod tests {
         assert_eq!(config.sidebar_width, 240.0);
         assert_eq!(config.theme, None);
         assert!(config.colors.is_empty());
+        assert_eq!(config.font, "Menlo");
+        assert_eq!(
+            config.font_fallbacks,
+            [
+                "Symbols Nerd Font Mono",
+                "FiraCode Nerd Font Mono",
+                "FiraCode Nerd Font",
+            ]
+        );
+        assert_eq!(config.font_size, 14.0);
+        assert_eq!(config.line_height, 1.3);
+    }
+
+    #[test]
+    fn font_precedence_is_cli_then_config_then_defaults() {
+        for text in [
+            "",
+            r#"
+font = "Geist Mono"
+font_fallbacks = ["Sarasa Mono SC", "Maple Mono NF CN"]
+font_size = 14.5
+line_height = 1.4
+"#,
+        ] {
+            let mut config = Config::parse(text).unwrap();
+            let original = config.clone();
+            config
+                .apply_font_overrides(None, vec![], None, None)
+                .unwrap();
+            assert_eq!(config, original);
+
+            config
+                .apply_font_overrides(Some("CLI Font".into()), vec![], None, None)
+                .unwrap();
+            assert_eq!(config.font, "CLI Font");
+            assert_eq!(config.font_fallbacks, original.font_fallbacks);
+            assert_eq!(config.font_size, original.font_size);
+            assert_eq!(config.line_height, original.line_height);
+
+            config
+                .apply_font_overrides(
+                    None,
+                    vec!["CLI Fallback A".into(), "CLI Fallback B".into()],
+                    Some(16.5),
+                    Some(1.6),
+                )
+                .unwrap();
+            assert_eq!(config.font, "CLI Font");
+            assert_eq!(config.font_fallbacks, ["CLI Fallback A", "CLI Fallback B"]);
+            assert_eq!(config.font_size, 16.5);
+            assert_eq!(config.line_height, 1.6);
+        }
+        let mut config = Config::parse("font_fallbacks = []\nfont_size = 15").unwrap();
+        config
+            .apply_font_overrides(None, vec![], None, None)
+            .unwrap();
+        assert!(config.font_fallbacks.is_empty());
+        assert_eq!(config.font, "Menlo");
+        assert_eq!(config.font_size, 15.0);
+        assert_eq!(config.line_height, 1.3);
+    }
+
+    #[test]
+    fn invalid_numeric_font_overrides_name_the_key() {
+        for value in [0.0, -1.0, f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            for (size, height, key) in [
+                (Some(value), None, "font_size"),
+                (None, Some(value), "line_height"),
+            ] {
+                let error = Config::default()
+                    .apply_font_overrides(None, vec![], size, height)
+                    .unwrap_err();
+                assert!(format!("{error:#}").contains(key), "{error:#}");
+            }
+        }
     }
 
     #[test]

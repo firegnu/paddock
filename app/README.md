@@ -42,6 +42,8 @@ B="$CARGO_TARGET_DIR/release/paddock"
 
 环境变量 `GPUI_TERM_WINDOW_ID=1`：启动后向 stderr 打印 `window-id: N`，用 `screencapture -x -o -l N out.png` 只截本窗口。
 
+字体四项的优先级为：命令行 > 配置文件 > 上表的内置默认值。给了 `--fallback` 时，所有重复项组成的新列表整组替换配置里的 `font_fallbacks`，不合并。
+
 启动时会清掉从 corral、Saddle、Claude Code、Codex 会话继承的身份变量（列表见 `src/main.rs` 的 `INHERITED`），免得窗格里的程序误以为自己在那个会话里。
 
 ## 配置文件
@@ -51,11 +53,26 @@ B="$CARGO_TARGET_DIR/release/paddock"
 ```toml
 theme = "tide"          # dune | tide | lagoon；不写等于 dune
 sidebar_width = 240     # 侧栏宽度，单位 pt；默认 240
+font = "Geist Mono"
+font_fallbacks = ["Sarasa Mono SC", "Maple Mono NF CN"]
+font_size = 14.5
+line_height = 1.3
 
 [colors]                # 可选：覆盖单个颜色，其余跟随主题
 focus = "yellow"
 terminal_blue = "#7aa2f7"
 ```
+
+字体配置的四个键都写在顶层（`[colors]` 之前），均可省略：
+
+| 键 | 类型与说明 | 内置默认值 |
+| --- | --- | --- |
+| `font` | 字符串，终端字体 | `Menlo` |
+| `font_fallbacks` | 字符串数组，按顺序尝试；`[]` 表示不设置后备字体 | `Symbols Nerd Font Mono`、`FiraCode Nerd Font Mono`、`FiraCode Nerd Font` |
+| `font_size` | 数字，字号；支持整数或小数 | `14` |
+| `line_height` | 数字，行高倍数；支持整数或小数 | `1.3` |
+
+`font_size` 和 `line_height` 必须是有限正数。四项写错类型或数值不合法时，报错会指出键名；命令行指定的字号和行高也必须是有限正数。
 
 ### 主题
 

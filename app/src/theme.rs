@@ -287,6 +287,37 @@ mod tests {
     use super::*;
 
     #[test]
+    fn preset_ansi_colors_have_at_least_three_to_one_contrast() {
+        // WCAG relative luminance: linearize sRGB before weighting its channels.
+        fn luminance((r, g, b): Rgb) -> f64 {
+            let linear = |channel: u8| {
+                let value = f64::from(channel) / 255.0;
+                if value <= 0.04045 {
+                    value / 12.92
+                } else {
+                    ((value + 0.055) / 1.055).powf(2.4)
+                }
+            };
+            0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b)
+        }
+
+        for name in ["dune", "tide", "lagoon"] {
+            let theme = theme(&format!("theme = \"{name}\"")).unwrap();
+            let terminal = theme.terminal();
+            let background = luminance(terminal.background);
+            for (index, &color) in terminal.ansi.iter().enumerate().skip(1) {
+                let foreground = luminance(color);
+                let contrast =
+                    (foreground.max(background) + 0.05) / (foreground.min(background) + 0.05);
+                assert!(
+                    contrast >= 3.0,
+                    "{name} ANSI {index}: {contrast:.4}:1 < 3:1"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn reset_is_the_terminal_default() {
         let theme = Theme::from_config(&Config::default()).unwrap();
         let terminal = theme.terminal();
