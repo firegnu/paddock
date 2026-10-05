@@ -29,6 +29,7 @@ paddock 与 Saddle 在代码上完全分开：用到的 Saddle 代码迁入 padd
 | **要有插件系统**；插件界面走“乙”：进程、命令、生命周期沿用 Saddle 的插件协议，界面由插件描述、paddock 用 GPUI 原生画 | 用户 10-05：“还是做插件系统吧。这是一个应用的必备。”“按乙”。细节见 §3 |
 | **不依赖 ratatui**（含插件 SDK 和仓库里维护的插件） | 用户 10-05：“不能依赖ratatui”。细节见 §4 |
 | **`saddle ctl` 也迁移**，做成 `paddock ctl` | 用户 10-05：“这个也要迁移。” 细节见 §3 第 5 步 |
+| **先剥离完再开发 paddock**：遥测、插件协议、dispatch 都从 Saddle 剥离到 ranch，并且 Saddle 运行和现在一样之后，才转回 paddock 开发；插件 SDK（带 ratatui，只服务 Saddle 的字符界面）和 Drover 这一轮不迁，留在 Saddle 照常运行 | 用户 10-05：“我要等saddle中的都剥离完了，而且saddle运行和现在一样，再开发paddock”；“那就先不迁移插件sdk和drover。先把插件协议，dispatch以及遥测剥离过去” |
 | **Diff 插件不搬**；以后需要时在 paddock 里原生做（可能内置） | 用户 10-05：“diff插件我觉得不要搬了，diff是照顾tui而生的，现在没必要了，会开发更好的（可能会内置diff）。” |
 
 ## 3. 与 Saddle 的关系
