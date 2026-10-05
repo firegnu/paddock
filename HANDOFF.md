@@ -13,7 +13,7 @@
 
 1. 第一阶段（T1–T4）、迁移（M0、M1）、第二阶段（P2-1 Agents 面板、P2-2 标签页与分屏、P2-3 宠物、P2-4 菜单栏与 .app）都已合并；`paddock.app` 已装到 `~/Applications`（重新打包安装：`cargo build --release` 后 `cargo run --release --example bundle -- --install`，见 `app/README.md`）。
 2. 等用户日常使用、体验菜单与快捷键、从程序坞启动、点击与键盘操作，反馈问题。
-3. 第三阶段（DESIGN §12）：P3-1 Settings 已合并并重新安装；P3-2 独立窗口、P3-3 关闭 shell 确认、P3-4 新建停止 agent、P3-5 Attention 已合并（未安装）。用户 10-05 定：P3-2 到 P3-10 一次做完、不逐件等回复，做完一并汇报截图并重新安装；之后按 DESIGN §3 的四步把 corral、遥测、Drover 核心移到 paddock。
+3. 第三阶段（DESIGN §12）：P3-1 Settings 已合并并重新安装；P3-2 独立窗口、P3-3 关闭 shell 确认、P3-4 新建停止 agent、P3-5 Attention、P3-6 跳转搜索已合并（未安装）。用户 10-05 定：P3-2 到 P3-10 一次做完、不逐件等回复，做完一并汇报截图并重新安装；之后按 DESIGN §3 的四步把 corral、遥测、Drover 核心移到 paddock。
 
 ## 悬着
 
