@@ -257,6 +257,56 @@ impl Theme {
     pub fn terminal(&self) -> &palette::Theme {
         &self.terminal
     }
+
+    /// A `[colors]` key's colour in this theme, as RGB, for swatches.
+    pub fn color(&self, key: &str) -> Option<Rgb> {
+        if let Some(i) = TERMINAL_KEYS.iter().position(|k| *k == key) {
+            let mut terminal = self.terminal;
+            return Some(*terminal_slots(&mut terminal)[i]);
+        }
+        let mut saddle = self.saddle.clone();
+        let color = *saddle
+            .named_mut()
+            .into_iter()
+            .find(|(name, _)| *name == key)?
+            .1;
+        // The terminal's default stands in for an unset colour: its background for backgrounds.
+        let background = key.ends_with("bg") || key.ends_with("selected") || key == "overlay";
+        let reset = if background {
+            self.terminal.background
+        } else {
+            self.terminal.foreground
+        };
+        Some(resolve(&self.terminal, color, reset))
+    }
+
+    /// A `[colors]` key's value in this theme as the config file writes it.
+    pub fn written(&self, key: &str) -> Option<String> {
+        if let Some(i) = TERMINAL_KEYS.iter().position(|k| *k == key) {
+            let mut terminal = self.terminal;
+            let (r, g, b) = *terminal_slots(&mut terminal)[i];
+            return Some(format!("#{r:02x}{g:02x}{b:02x}"));
+        }
+        let mut saddle = self.saddle.clone();
+        let color = *saddle
+            .named_mut()
+            .into_iter()
+            .find(|(name, _)| *name == key)?
+            .1;
+        Some(crate::preset::color_name(color))
+    }
+}
+
+/// Every `[colors]` key: Saddle's interface colours, then the terminal's.
+pub fn color_keys() -> Vec<&'static str> {
+    let mut saddle = crate::preset::Theme::default();
+    let mut keys: Vec<&'static str> = saddle
+        .named_mut()
+        .into_iter()
+        .map(|(name, _)| name)
+        .collect();
+    keys.extend(TERMINAL_KEYS);
+    keys
 }
 
 /// Named and indexed colours mean what the terminal palette says they do.

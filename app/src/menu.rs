@@ -5,6 +5,8 @@ actions!(
     paddock,
     [
         About,
+        OpenSettings,
+        SaveSettings,
         Quit,
         NewTab,
         NewShell,
@@ -64,6 +66,9 @@ pub fn bindings() -> Vec<KeyBinding> {
         KeyBinding::new("cmd-8", Tab8, None),
         KeyBinding::new("cmd-9", Tab9, None),
         KeyBinding::new("escape", Cancel, Some(DIALOG)),
+        KeyBinding::new("cmd-,", OpenSettings, None),
+        KeyBinding::new("cmd-s", SaveSettings, Some(crate::settings_view::CONTEXT)),
+        KeyBinding::new("escape", Cancel, Some(crate::settings_view::CONTEXT)),
     ]
 }
 
@@ -72,6 +77,8 @@ pub fn menus(fold: bool, by_name: bool) -> Vec<Menu> {
     vec![
         Menu::new("paddock").items([
             MenuItem::action("About paddock", About),
+            MenuItem::separator(),
+            MenuItem::action("Settings…", OpenSettings),
             MenuItem::separator(),
             MenuItem::os_submenu("Services", SystemMenuType::Services),
             MenuItem::separator(),
@@ -155,17 +162,24 @@ mod tests {
             ("cmd-1", "paddock::Tab1"),
             ("cmd-9", "paddock::Tab9"),
             ("escape", "paddock::Cancel"),
+            ("cmd-,", "paddock::OpenSettings"),
+            ("cmd-s", "paddock::SaveSettings"),
         ] {
             assert!(
                 shortcuts.iter().any(|(k, a)| k == keys && *a == action),
                 "{keys} → {action} missing from {shortcuts:?}"
             );
         }
-        // One action per shortcut.
-        let mut keys: Vec<_> = shortcuts.iter().map(|(k, _)| k.clone()).collect();
+        // One action per shortcut; Esc is bound once per key context (dialog, Settings).
+        let mut keys: Vec<_> = shortcuts
+            .iter()
+            .map(|(k, _)| k.clone())
+            .filter(|k| k != "escape")
+            .collect();
+        let others = keys.len();
         keys.sort();
         keys.dedup();
-        assert_eq!(keys.len(), shortcuts.len());
+        assert_eq!(keys.len(), others);
     }
 
     #[test]

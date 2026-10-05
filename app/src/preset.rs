@@ -318,6 +318,20 @@ const NAMES: [(&str, Color); 16] = [
     ("white", Color::White),
 ];
 
+/// How a colour is written in the config file (Saddle's `color_name`): `#rrggbb`, an ANSI name,
+/// or `default`.
+pub fn color_name(color: Color) -> String {
+    match color {
+        Color::Rgb(r, g, b) => format!("#{r:02x}{g:02x}{b:02x}"),
+        Color::Reset => "default".into(),
+        Color::Indexed(index) => format!("{index}"),
+        other => NAMES
+            .iter()
+            .find(|(_, color)| *color == other)
+            .map_or_else(String::new, |(name, _)| (*name).into()),
+    }
+}
+
 /// A configured color: `default`/`reset`, an ANSI name or `#RRGGBB`.
 pub fn parse_color(value: &str) -> Result<Color, String> {
     if matches!(value, "default" | "reset") {
