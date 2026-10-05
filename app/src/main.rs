@@ -17,12 +17,6 @@ Without --attach or a program it starts $SHELL -i in --cwd (default: the current
 --stats prints frame timing to stderr once a second.
 Settings are read from ~/.config/paddock/config.toml.";
 
-const DEFAULT_FALLBACKS: [&str; 3] = [
-    "Symbols Nerd Font Mono",
-    "FiraCode Nerd Font Mono",
-    "FiraCode Nerd Font",
-];
-
 /// Identity this process may have inherited (for example when started from a Corral agent or a Claude
 /// Code session) that must not reach the programs in the pane. Saddle's `spawn_shell` strips the
 /// first five for shells; `Session::spawn` takes no environment, so paddock clears them for every
@@ -56,10 +50,10 @@ fn main() -> Result<()> {
     let mut attach = None;
     let mut corral = "corral".to_owned();
     let mut cwd = None;
-    let mut font_family = "Menlo".to_owned();
+    let mut font_family = None;
     let mut fallbacks = Vec::new();
-    let mut font_size = 14.0;
-    let mut line_height = 1.3;
+    let mut font_size = None;
+    let mut line_height = None;
     let mut window = None;
     let mut stats = false;
     let mut command = Vec::new();
@@ -69,10 +63,18 @@ fn main() -> Result<()> {
             "--attach" => attach = Some(value()?),
             "--corral" => corral = value()?,
             "--cwd" => cwd = Some(value()?),
-            "--font" => font_family = value()?,
+            "--font" => font_family = Some(value()?),
             "--fallback" => fallbacks.push(value()?),
-            "--size" => font_size = value()?.parse()?,
-            "--line-height" => line_height = value()?.parse()?,
+            "--size" => {
+                font_size = Some(
+                    value()?
+                        .parse()
+                        .context("--size (font_size) must be a number")?,
+                )
+            }
+            "--line-height" => {
+                line_height = Some(value()?.parse().context("--line-height must be a number")?)
+            }
             "--bounds" => {
                 let parts: Vec<f32> = value()?
                     .split(',')
@@ -118,20 +120,17 @@ fn main() -> Result<()> {
     } else {
         Launch::Shell { program, cwd }
     };
-    if fallbacks.is_empty() {
-        // Common Nerd Font families for prompt icons; missing ones are skipped.
-        fallbacks = DEFAULT_FALLBACKS.iter().map(|s| s.to_string()).collect();
-    }
+    let mut config = Config::load(&config::default_path())?;
+    config.apply_font_overrides(font_family, fallbacks, font_size, line_height)?;
     let options = Options {
         launch,
         corral,
-        font_family,
-        fallbacks,
-        font_size,
-        line_height,
+        font_family: config.font.clone(),
+        fallbacks: config.font_fallbacks.clone(),
+        font_size: config.font_size,
+        line_height: config.line_height,
         stats,
     };
-    let config = Config::load(&config::default_path())?;
     let theme = Theme::from_config(&config)?;
 
     gpui_platform::application().run(move |cx: &mut App| {
