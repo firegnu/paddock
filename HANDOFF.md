@@ -21,6 +21,7 @@
 ## 下一步
 
 - P4-1（⌘, 打不开设置窗口，About、⌘⇧N 同因）已修好并重新安装 paddock.app；这件按用户要求派给 Codex（paddock/dev-open-windows）做，用来试派发和路由，流程走通。用户重启后确认 ⌘, 能打开设置窗口（10-05）；About、⌘⇧N 未单独确认。
+- P4-2（界面字体与字号、两种字体都从已装字体里搜索挑选、终端字体 Save 后即时生效）和 P4-3（侧栏底部图标按钮）并行派给两个 Claude Code，主控集成（底部图标跟随界面字号）后合并，已重新安装 paddock.app。待用户确认：下拉的键盘操作、悬停说明和折叠底色；“即时生效”按 Save 后生效做是否合意。
 1. 用户体验第三阶段这一批，反馈问题（截图已给用户看过）。
 2. **M2 已完成**（`docs/任务/M2-ranch与corral.md`）：corral 在 ranch，`~/.local/bin/corral` 指向 ranch，Saddle 已剥离并改用它，现有会话已升级。
 3. 用户定：dispatch 不带遥测剥离到 ranch，之后转回 paddock 开发；遥测、Drover、整个插件系统砍掉（Saddle 删代码和对应测试，数据留在磁盘上）。**M3 已完成**（`docs/任务/M3-dispatch进ranch.md`）：dispatch 在 ranch（`ranch dispatch route`、技能由 `ranch dispatch install-skills` 装）；Saddle 已砍掉插件系统和遥测（被删代码可从 Saddle 标签 `before-cut` 取回，数据留在磁盘上）。两个前端同一起跑线，接下来转回 paddock 开发。
