@@ -20,6 +20,10 @@ pub struct Config {
     pub font_fallbacks: Vec<String>,
     pub font_size: f32,
     pub line_height: f32,
+    /// Whether the pet walks in the tab strip.
+    pub mascot_enabled: bool,
+    /// Which pet: `clawd`, `cat` or `capybara`.
+    pub mascot: crate::pet::Pet,
 }
 
 impl Default for Config {
@@ -39,6 +43,8 @@ impl Default for Config {
             .into(),
             font_size: 14.0,
             line_height: 1.3,
+            mascot_enabled: true,
+            mascot: crate::pet::Pet::Clawd,
         }
     }
 }
@@ -154,6 +160,19 @@ line_height = 1.4
                 );
             }
         }
+    }
+
+    #[test]
+    fn mascot_settings_are_read_and_checked() {
+        let config = Config::default();
+        assert!(config.mascot_enabled);
+        assert_eq!(config.mascot, crate::pet::Pet::Clawd);
+        let config = Config::parse("mascot_enabled = false\nmascot = \"capybara\"").unwrap();
+        assert!(!config.mascot_enabled);
+        assert_eq!(config.mascot, crate::pet::Pet::Capybara);
+        let error = Config::parse("mascot = \"dog\"").unwrap_err();
+        assert!(format!("{error:#}").contains("unknown mascot"), "{error:#}");
+        assert!(Config::parse("mascot_enabled = \"yes\"").is_err());
     }
 
     #[test]

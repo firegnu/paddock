@@ -14,6 +14,7 @@ pub mod input;
 pub mod keys;
 pub mod layout;
 pub mod palette;
+pub mod pet;
 pub mod preset;
 pub mod pty;
 pub mod rows;

@@ -5,6 +5,7 @@ use crate::{
     config::Config,
     corral::Role,
     layout::{Axis, Direction, Node, PaneId, Placement, Shown, Workspace},
+    pet::PetView,
     sidebar::{Sidebar, SidebarEvent},
     theme::Theme,
     view::{Launch, Options, TerminalView, hsla},
@@ -42,6 +43,8 @@ type Pick = fn(&crate::preset::Theme) -> crate::preset::Color;
 
 const GAP: f32 = 6.0;
 const TEXT: f32 = 12.0;
+/// Tall enough for the pets at twice their pixel size.
+const TAB_STRIP: f32 = 48.0;
 
 pub struct PaddockWindow {
     theme: Rc<Theme>,
@@ -53,6 +56,8 @@ pub struct PaddockWindow {
     new_shell: NewShell,
     popup: Option<Popup>,
     tabs: ScrollHandle,
+    /// The pet in the tab strip's spare room, unless turned off.
+    pet: Option<Entity<PetView>>,
 }
 
 impl PaddockWindow {
@@ -94,6 +99,9 @@ impl PaddockWindow {
             new_shell,
             popup: None,
             tabs: ScrollHandle::new(),
+            pet: config
+                .mascot_enabled
+                .then(|| cx.new(|cx| PetView::new(config.mascot, cx))),
         };
         let view = this.view(options.launch, window, cx);
         this.panes.insert(first, view);
@@ -428,7 +436,7 @@ impl PaddockWindow {
             .flex()
             .items_center()
             .gap(px(4.0))
-            .h(px(40.0))
+            .h(px(TAB_STRIP))
             .px(px(GAP))
             .child(
                 button("new-tab", "+").on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
@@ -449,8 +457,15 @@ impl PaddockWindow {
                 },
             )))
             .child(tabs)
-            // Spare room, where the pet will walk.
-            .child(div().flex_1())
+            // Spare room, where the pet walks.
+            .child(
+                div()
+                    .flex_1()
+                    .min_w(px(0.0))
+                    .h_full()
+                    .ml(px(GAP))
+                    .children(self.pet.clone()),
+            )
     }
 
     fn node(&self, node: &Node, cx: &mut Context<Self>) -> AnyElement {

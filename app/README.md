@@ -57,6 +57,8 @@ font = "Geist Mono"
 font_fallbacks = ["Sarasa Mono SC", "Maple Mono NF CN"]
 font_size = 14.5
 line_height = 1.3
+mascot = "cat"          # 宠物：clawd | cat | capybara；默认 clawd
+mascot_enabled = true   # 关掉宠物写 false；默认 true
 
 [colors]                # 可选：覆盖单个颜色，其余跟随主题
 focus = "yellow"
@@ -73,6 +75,10 @@ terminal_blue = "#7aa2f7"
 | `line_height` | 数字，行高倍数；支持整数或小数 | `1.3` |
 
 `font_size` 和 `line_height` 必须是有限正数。四项写错类型或数值不合法时，报错会指出键名；命令行指定的字号和行高也必须是有限正数。
+
+### 宠物
+
+标签条右侧的空地上有一只宠物来回走、时不时做个动作（照 Saddle 的宠物，只用图片版，见 `assets/pets/README.md`）。`mascot` 选 `clawd`、`cat` 或 `capybara`，写错会报错；`mascot_enabled = false` 关掉。空地放不下宠物时不显示。
 
 ### 主题
 
