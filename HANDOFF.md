@@ -3,7 +3,7 @@
 ## 现在在哪（2026-10-05）
 
 - 仓库只有本地 `main`，没有远程仓库。
-- `app/`：paddock 应用，第一阶段三件已合并：T1 骨架（窗口布局、配置文件、身份变量清理）、T2 主题（Dune/Tide/Lagoon、终端调色板、`[colors]` 覆盖）、T3 Agents 侧栏（按组列出、点击接入、新 shell）。字体可在配置文件设置（T4）。M0 起不再依赖 Saddle 的库，用到的代码已迁入 `app/src/`（来源 Saddle `df1c727`）；M1 起不再用 ratatui、crossterm。104 项测试通过。
+- `app/`：paddock 应用，第一阶段三件已合并：T1 骨架（窗口布局、配置文件、身份变量清理）、T2 主题（Dune/Tide/Lagoon、终端调色板、`[colors]` 覆盖）、T3 Agents 侧栏（按组列出、点击接入、新 shell）。字体可在配置文件设置（T4）。M0 起不再依赖 Saddle 的库，用到的代码已迁入 `app/src/`（来源 Saddle `df1c727`）；M1 起不再用 ratatui、crossterm。110 项测试通过。
 - 主控 `paddock/main` 已在运行；用户 10-05 决定不再委派，主控自己实现（AGENTS.md「开发方式」）。
 - 用户 10-05 体验原型（Claude Code 里中文输入、显示），判定通过。
 - 用户要求主题系统，像 Saddle 那样；细节已定，见 `docs/DESIGN.md` §8。
@@ -11,9 +11,9 @@
 
 ## 下一步
 
-1. 第一阶段（T1–T4）已全部合并，用户体验认可。编译目录已改为每个工作目录一个子目录。
-2. 方向已改为与 Saddle 代码完全分开、界面全部用 GPUI 重做（DESIGN §1–§3、§10）。迁移 M0（迁入 Saddle 代码、去掉 `saddle` 依赖）、M1（去掉 `ratatui`、`crossterm`）已合并。将来单独分发前还要迁入 corral 运行时（DESIGN §3）。
-3. 第二阶段（DESIGN §11）：P2-1 Agents 面板、P2-2 标签页与分屏、P2-3 宠物已合并（用户认可）；下一件 P2-4 菜单栏与 .app（任务文件已写）。
+1. 第一阶段（T1–T4）、迁移（M0、M1）、第二阶段（P2-1 Agents 面板、P2-2 标签页与分屏、P2-3 宠物、P2-4 菜单栏与 .app）都已合并；`paddock.app` 已装到 `~/Applications`（重新打包安装：`cargo build --release` 后 `cargo run --release --example bundle -- --install`，见 `app/README.md`）。
+2. 等用户日常使用、体验菜单与快捷键、从程序坞启动、点击与键盘操作，反馈问题。
+3. 第三阶段范围待用户定（DESIGN §6 的建议：插件（先 Drover）、Attention、新建 agent、Settings 页、历史搜索、布局保存等；插件界面做法见 DESIGN §7 第 5 条）。
 
 ## 悬着
 
