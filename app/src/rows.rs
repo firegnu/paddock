@@ -272,7 +272,7 @@ pub fn read<T>(
             std::mem::swap(&mut fg, &mut bg);
         }
         if selection.is_some_and(|s| s.contains(point)) {
-            std::mem::swap(&mut fg, &mut bg);
+            bg = theme.selection;
         }
         if flags.intersects(Flags::DIM) {
             fg = dim(fg);
@@ -313,9 +313,11 @@ mod parsed {
     use saddle::terminal::{Screen, Size};
 
     const THEME: Theme = Theme {
+        ansi: crate::palette::XTERM,
         foreground: (220, 220, 220),
         background: (0, 0, 0),
         cursor: (1, 1, 1),
+        selection: (2, 2, 2),
     };
 
     fn runs(bytes: &[u8]) -> Vec<Run> {
