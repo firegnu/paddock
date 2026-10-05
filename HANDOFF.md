@@ -22,7 +22,7 @@
 
 1. 用户体验第三阶段这一批，反馈问题（截图已给用户看过）。
 2. **M2 已完成**（`docs/任务/M2-ranch与corral.md`）：corral 在 ranch，`~/.local/bin/corral` 指向 ranch，Saddle 已剥离并改用它，现有会话已升级。
-3. 用户定：先把遥测、插件协议、dispatch 都剥离到 ranch，Saddle 运行和现在一样之后，再转回 paddock 开发；插件 SDK 和 Drover 这一轮不迁。下一件：M3 遥测（先写任务文件给用户看）。
+3. 用户定：dispatch 不带遥测剥离到 ranch，之后转回 paddock 开发；遥测、Drover 不要了，留在 Saddle 原样不动；插件 SDK、插件协议不迁。下一件：M3（`docs/任务/M3-dispatch进ranch.md`，待用户看过）。
 4. 之后的次序：遥测进 ranch → 插件协议与 dispatch 进 ranch、paddock 的插件宿主底层 → 切换（Saddle 留作保底版） → `paddock ctl` → 遥测查看页 → 插件界面（先给用户看界面协议设计）→ Drover（核心放法 A/B/C 到时定）。
 
 ## 悬着
