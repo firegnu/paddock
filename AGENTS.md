@@ -14,7 +14,7 @@ paddock 是用 GPUI 重做 Saddle 界面的独立桌面应用：原生窗口里�
 
 ## 规矩
 
-- **语言与依赖**：Rust stable；只用成熟、活跃维护的库。GPUI 本身仍是 pre-1.0，是否算“成熟”由用户裁定，见 DESIGN §7。实现、测试和辅助工具都不用 Python（沿用用户在 Saddle 的要求），工具用 Rust 或纯数据文件。
+- **语言与依赖**：Rust stable；只用成熟、活跃维护的库。GPUI 本身仍是 pre-1.0，是否算“成熟”由用户裁定，见 DESIGN §7。实现、测试和辅助工具都不用 Python（沿用用户在 Saddle 的要求），工具用 Rust 或纯数据文件。不依赖 ratatui、crossterm，包括插件 SDK 和仓库里维护的插件（用户 10-05：“不能依赖ratatui”）。
 - **与 Saddle 分开（最重要）**：
   - 不依赖 Saddle 的库，不加 `saddle` 的 git 或路径依赖。迁入的代码（`app/src/` 中开头注明“From Saddle”的文件）在本仓库自己维护；Saddle 的修复不会自动进来，需要时作为单独任务手动移植，注明对应的 Saddle 提交。
   - 和 Saddle 生态只通过公开约定打交道：`corral` 命令及其 JSON 输出、插件协议、遥测和 Drover 的公开命令（DESIGN §3）。不读 Saddle 的内部状态和配置文件。
