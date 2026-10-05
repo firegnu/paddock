@@ -28,9 +28,9 @@ use crate::{
 };
 use gpui::{
     Animation, AnimationExt, AnyElement, BoxShadow, ClickEvent, Context, Div, ElementId, Entity,
-    FocusHandle, Focusable, FontWeight, HighlightStyle, Hsla, MouseButton, MouseDownEvent,
-    MouseMoveEvent, Pixels, Point, PromptLevel, Render, ScrollHandle, SharedString, Stateful,
-    StyledText, Task, Window, div, ease_in_out, point, prelude::*, px,
+    ExternalPaths, FocusHandle, Focusable, FontWeight, HighlightStyle, Hsla, MouseButton,
+    MouseDownEvent, MouseMoveEvent, Pixels, Point, PromptLevel, Render, ScrollHandle, SharedString,
+    Stateful, StyledText, Task, Window, div, ease_in_out, point, prelude::*, px,
 };
 use std::{collections::HashMap, rc::Rc, time::Duration};
 
@@ -1322,6 +1322,10 @@ impl PaddockWindow {
             .capture_any_mouse_down(
                 cx.listener(move |this, _, window, cx| this.focus_pane(pane, window, cx)),
             )
+            .on_drop::<ExternalPaths>(cx.listener(move |this, paths, window, cx| {
+                this.focus_pane(pane, window, cx);
+                this.panes[&pane].update(cx, |view, cx| view.drop_files(paths, window, cx));
+            }))
             .when(header, |this| {
                 this.child(self.pane_header(pane, active, agents, cx))
             })

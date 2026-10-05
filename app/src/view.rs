@@ -3,6 +3,8 @@
 //! Saddle's `Viewer` owns the shell / `corral attach` lifecycle and `Session` the PTY and parser,
 //! unchanged. This file only reads the parser's grid, draws it, and turns window input into the
 //! bytes Saddle's `input` module already encodes.
+mod file_drop;
+
 use crate::{
     damage,
     find::{self, Find},
@@ -29,9 +31,9 @@ use alacritty_terminal::{
 };
 use gpui::{
     App, Bounds, ClipboardItem, Context, ElementInputHandler, Entity, EntityInputHandler,
-    FocusHandle, Focusable, Font, FontStyle, FontWeight, Hsla, KeyDownEvent, MouseButton,
-    MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point, Render, Rgba, ScrollDelta,
-    ScrollWheelEvent, SharedString, Subscription, TextAlign, TextRun, UTF16Selection,
+    ExternalPaths, FocusHandle, Focusable, Font, FontStyle, FontWeight, Hsla, KeyDownEvent,
+    MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point, Render, Rgba,
+    ScrollDelta, ScrollWheelEvent, SharedString, Subscription, TextAlign, TextRun, UTF16Selection,
     UnderlineStyle, Window, canvas, div, fill, point, prelude::*, px, size,
 };
 use std::{cell::RefCell, ops::Range, path::PathBuf, rc::Rc, time::Duration, time::Instant};
@@ -394,6 +396,19 @@ impl TerminalView {
             text.replace("\r\n", "\r").replace('\n', "\r")
         };
         self.write(crate::input::encode_paste(&text, bracketed), cx);
+    }
+
+    pub(crate) fn drop_files(
+        &mut self,
+        paths: &ExternalPaths,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let text = file_drop::text(paths.paths());
+        if !text.is_empty() {
+            window.focus(&self.focus, cx);
+            self.paste(&text, cx);
+        }
     }
 
     fn selection_text(&self) -> Option<String> {
@@ -1115,6 +1130,7 @@ impl Render for TerminalView {
         let input = entity.clone();
         let focus = self.focus.clone();
         let stats = self.stats.clone();
+        let drop_highlight = hsla(self.theme.fg(|t| t.focus), 0.08);
         div()
             .relative()
             .size_full()
@@ -1147,6 +1163,12 @@ impl Render for TerminalView {
                     },
                 )
                 .size_full(),
+            )
+            .child(
+                div()
+                    .absolute()
+                    .inset_0()
+                    .drag_over::<ExternalPaths>(move |style, _, _, _| style.bg(drop_highlight)),
             )
             .children(self.find.as_ref().map(|bar| self.find_bar(bar, cx)))
     }
