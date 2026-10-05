@@ -11,21 +11,18 @@
 - `~/Applications/paddock.app` 是第三阶段这一批的版本。重新打包安装：在 `app/` 下 `cargo build --release`，再 `cargo run --release --example bundle -- --install`（编译目录见 AGENTS.md）。
 - 远程仓库：`origin` = `github.com/firegnu/paddock`（public，10-05 建）。合并后推送；推送前查隐私（gitleaks、trufflehog）。
 - 主控 `paddock/main` 自己实现，不再委派（AGENTS.md「开发方式」）。
-- 用户 10-05 定下迁移的整体安排（DESIGN §2、§3“步骤”；原话见 `docs/背景与决策记录.md` §6g、§6h）：
-  - 全局只能一份的运行时（corral、遥测、Drover）移到 paddock，不再两边各留一份。
+- 用户 10-05 定下迁移的整体安排（DESIGN §2、§3“步骤”；原话见 `docs/背景与决策记录.md` §6g–§6j）：
+  - 全局只能一份的运行时（corral、遥测、dispatch、插件协议）独立成新仓库 ranch（`../ranch`，GitHub 公开、不加许可证），paddock 主控兼管；Saddle 和 paddock 都只是前端，只调用 ranch 装好的命令。
   - 要有插件系统；插件界面走“乙”（插件描述界面，paddock 用 GPUI 原生画）；paddock 不依赖 ratatui（含插件 SDK）。
   - Diff 插件不搬；`saddle ctl` 迁成 `paddock ctl`。
-  - dispatch 迁完就全部转到 paddock 开发，Saddle 退出；Drover 全部切换后才迁，在那之前用户口头布置任务、主控拆分委派。
+  - dispatch 迁完就转到 paddock 开发；Saddle 不放弃，定位为保底版（不加新功能，只保证和运行时对得上）。Drover 全部切换后才迁，在那之前用户口头布置任务、主控拆分委派。
 - 上下文：`AGENTS.md`（规矩）、`docs/DESIGN.md`（已定决定、步骤、待定问题）、`docs/背景与决策记录.md`（用户原话）、`docs/任务/`（每件活的任务文件和完成记录）。
 
 ## 下一步
 
 1. 用户体验第三阶段这一批，反馈问题（截图已给用户看过）。
-2. 按 DESIGN §3“步骤”，下一件是第 2 步 **corral**。动手前：
-   - 写任务文件给用户看；
-   - 由用户与 Saddle 主控约定冻结点（corral 仍在 Saddle 里活跃开发）。可先写一份给 Saddle 主控的需求说明（冻结点、Saddle 退出后安装上的整理），用户同意后再交；
-   - 切换 `~/.local/bin/corral` 时用户在场（DESIGN §7 第 9 条）。
-3. 之后的次序：第 3 步遥测的存储与命令（`paddock telemetry`、`paddock agent`）→ 第 4 步插件宿主底层与 dispatch → 切换、Saddle 退出 → `paddock ctl` → 遥测查看页 → 插件界面（先给用户看界面协议设计）→ Drover（核心放法 A/B/C 到时定）。
+2. 正在做 **M2**（`docs/任务/M2-ranch与corral.md`）：建 ranch、迁入 corral、切换 `~/.local/bin/corral`（用户在场）；Saddle 侧需求交 Saddle 主控并行做。用户定：先把 corral 从 Saddle 拉出去、直到 Saddle 能和新的 corral 一起工作，再转回 paddock 开发。
+3. 之后的次序：遥测进 ranch → 插件协议与 dispatch 进 ranch、paddock 的插件宿主底层 → 切换（Saddle 留作保底版） → `paddock ctl` → 遥测查看页 → 插件界面（先给用户看界面协议设计）→ Drover（核心放法 A/B/C 到时定）。
 
 ## 悬着
 
