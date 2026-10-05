@@ -82,7 +82,7 @@ paddock 与 Saddle 在代码上完全分开：用到的 Saddle 代码迁入 padd
 - **已定**：所有界面用 GPUI 重做（§2）。先做迁移（§10），再逐步补界面。
 - **建议的顺序（未批准）**：
   1. 迁移：去掉 `saddle` 依赖，行为不变（M0，已完成）；再去掉 `ratatui`、`crossterm`（M1，已完成）。
-  2. 第二阶段，补日常离不开的：标签页和分屏（同时解决切换时 shell 被结束）、Agents 面板补齐信息、菜单栏和 `.app` 打包。
+  2. 第二阶段（已定，见 §11）：Agents 面板按 Saddle 做全、标签页和分屏、宠物、菜单栏和 `.app` 打包；外观不比 Saddle 差。
   3. 第三阶段：插件（先 Drover）、Attention、新建 agent、Settings 页、历史搜索、布局保存等。
   4. 单独分发之前：迁入 corral 运行时和所需插件，打包（`.app`、签名公证等见 §7）。
 - **插件界面怎么做待定**（§7）：在 GPUI 里原生重做，或先做“字符面兼容层”按插件协议显示插件自己画的字符画面。
@@ -95,7 +95,7 @@ paddock 与 Saddle 在代码上完全分开：用到的 Saddle 代码迁入 padd
 4. ~~迁移路线~~：已定为全部用 GPUI 重做（10-05）。仍待定：是否引入 gpui-component；首期是否只做 macOS。
 5. 插件界面：原生重做，还是先做字符面兼容层（§6）。
 6. paddock 与 Saddle TUI 同时运行时，Drover 持有权和布局文件的规则。
-7. 许可（paddock 和 Saddle 都还没有）、应用名与标识、签名公证，以及何时建远程仓库。
+7. 许可（paddock 和 Saddle 都还没有）、应用名与标识、签名公证，以及何时建远程仓库。单独分发时还要考虑：Clawd 是 Claude Code 的吉祥物形象，自用没问题，分发是否带它待定；猫和卡皮巴拉是 Saddle 原创。
 8. paddock 的任务是否纳入 Saddle 的 Tasks（Drover）管理。
 9. 本机从 Saddle 切到 paddock 时 corral 怎么切换：Saddle 仍安装时，系统路径可继续指向 Saddle 的 corral，paddock 用完整路径调用自带的一份；卸掉 Saddle 时系统路径改指 paddock 的 corral。已在运行的 agent 由启动它的那份 corral 常驻进程管理，切换不影响它们；平滑接管可参考 Saddle 的 `corral upgrade`/`recover` 设计。到时再定。
 
@@ -123,7 +123,7 @@ paddock 与 Saddle 在代码上完全分开：用到的 Saddle 代码迁入 padd
 第一批任务的划分（用户 10-05 同意）：
 
 - 代码位置：原型提升为 `app/`，不另起新代码。原型 README 改存为 `docs/原型实测记录.md`。
-- 侧栏：每个 agent 一行，显示状态色点、名字、状态（精简版）。以后逐步加强度、会话标题、分支和改动数，每样单独做；所以每一行做成独立组件，侧栏宽度可在配置中设置。
+- 侧栏：每个 agent 一行，显示状态色点、名字、状态（精简版）。以后逐步加强度、会话标题、分支和改动数，每样单独做；所以每一行做成独立组件，侧栏宽度可在配置中设置。（第二阶段改为直接按 Saddle 做全，见 §11。）
 - 任务：T1 应用骨架、T2 主题系统、T3 Agents 侧栏、T4 字体配置，均已合并。任务文件见 `docs/任务/P1-T*.md`。
 
 ## 10. 迁移：去掉 `saddle` 依赖
@@ -148,3 +148,14 @@ paddock 与 Saddle 在代码上完全分开：用到的 Saddle 代码迁入 padd
 - **之后**：AGENTS.md 中“只通过 git 依赖按固定提交号引用 Saddle”“升级 Saddle 引用”“与 Saddle 交换类型的库同版本”等规矩已在 M0 改写为 §3 的关系。
 - **M0 结果**（10-05）：迁入 `pty`、`terminal`、`viewer`、`input`、`corral`（含 `command::run`）、`agents`、`preset`（原 `theme`）；Saddle 对应测试迁入 `app/tests/`，原 Python 假程序改为 shell 脚本。`agents::Panel` 中只服务 TUI 键盘操作的字段和方法暂时保留（`absorb` 依赖它们、迁入的测试覆盖它们），留待界面重做时再清理。
 - **M1 结果**（10-05）：`input.rs` 定义 paddock 自己的按键、修饰键、鼠标事件和区域类型，`preset.rs` 定义自己的 `Color`，取值与原类型一致；删去 `ratatui`、`crossterm`，锁文件少了 68 个包，无新增。编码测试只改输入的构造写法，期望字节未改。
+
+## 11. 第二阶段（进行中）
+
+用户 10-05 定下（原话见 `docs/背景与决策记录.md` §6d）：
+
+- **外观不比 Saddle 差**：以用户日常 Saddle 截图（10-05，未入库）和 Saddle `df1c727` 的实际实现为准，规格参考 Saddle `docs/设计稿/agents-panel-3a`。界面文字沿用 Saddle 的英文标签。
+- **范围与顺序**（每件先写任务文件、做出截图给用户看，认可后合并）：
+  1. P2-1 Agents 面板按 Saddle 做全：头部计数、分组标题、每个 agent 的多行信息（状态点与动画、哪家、强度格、状态、时间、会话标题、当前活动、git 分支与改动、目录、实例号与接入数与来源）、选中样式、折叠与排序。需迁入 Saddle 的 git 摘要代码，做法同 §10。底栏这次只做显示、折叠、排序；New、Stop 属于操作 agent，留到第三阶段。
+  2. P2-2 标签页与分屏：外观照 Saddle 的圆角标签和窗格边框（标题、边框上的按钮）；切走时 shell 不再结束。
+  3. P2-3 宠物：Clawd、猫、卡皮巴拉，在标签栏右侧空地巡游；迁入 Saddle 的宠物逻辑和图片素材，用 GPUI 直接画像素图。配置照 Saddle 的 `mascot_enabled`、`mascot`；不要 Saddle 的“显示方式”（方块/图片）选项。
+  4. P2-4 菜单栏与 `.app` 打包。
