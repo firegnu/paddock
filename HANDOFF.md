@@ -32,7 +32,7 @@
 - 键盘、点击、拖动缩放、系统提示框、菜单与快捷键，以及真实 corral 的新建/停止，都还没经用户实际操作。
 - 从程序坞菜单“退出”或注销时由系统直接结束，不问未保存的设置和运行中的 shell（GPUI 没有提供拦截）。
 - 拖动分隔线调整分屏大小没做。
-- `docs/DESIGN.md` §7 其余待定：GPUI 依赖渠道、pre-1.0 是否接受、gpui-component 与首期是否只做 macOS、许可（还没有许可证文件）与发布；Clawd 已定随公开仓库发布。
+- `docs/DESIGN.md` §7 其余待定：GPUI 依赖渠道、pre-1.0 是否接受、gpui-component 与首期是否只做 macOS、发布方式；已定：不加许可证、Clawd 随公开仓库发布。
 - 原型发现的缺口（DESIGN §5）由 paddock 在自己的代码里解决，按需排期。
 - Saddle 仓库里还留着 `t76-gpui-prototype`、`t76-gpui-research` 两个分支及 worktree；Saddle Tasks 里 T76 的状态。都由 Saddle 主控处理。
 - Xcode 缺 Metal 工具链组件，目前靠 `runtime_shaders`；是否安装待用户决定。
