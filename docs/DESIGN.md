@@ -39,6 +39,11 @@ paddock 与 Saddle 在代码上完全分开：用到的 Saddle 代码迁入 padd
 - **corral 兼容规矩**：同一台机器可能同时装 paddock 和 Saddle，两份 corral 管同一个 `~/.corral`。两边必须保持 `corral` 命令、JSON 输出和 `~/.corral` 登记格式兼容；任何一边要改这些，都要两边一起改（Saddle 侧走 Saddle 的流程）。corral 已有协议版本号（`proto`，不匹配的 agent 标为 `incompatible`），不兼容时能被发现。
 - **不改 Saddle**：不修改 Saddle 仓库。原先打算请 Saddle 新增的接口（§5 的缺口）改由 paddock 在自己的代码里解决；只有公开约定本身要变时，才写成需求交给用户/Saddle 主控。
 - **Drover 并存**：Drover 每个用户只允许一个插件进程持有数据：paddock 与 Saddle TUI 同时运行并都启用 Drover 时会冲突，规则待定（§7）。
+- **插件**（Saddle `df1c727` 的插件系统设计）：
+  - 插件是独立程序（目录里有 `plugin.toml` 和可执行文件），宿主启动它、按插件协议通信；插件自己用 ratatui 画字符画面，以结构化格子数据发给宿主显示。业务数据归插件自己管，宿主不碰。插件按公开约定对待，paddock 不改协议。
+  - 各插件的数据：Drover 有（`~/.drover/projects`、各项目的 `queue.md`、`tasks.state` 等），且每个用户的数据只允许一个 Drover 进程持有，第二个直接启动失败；Drover 记遥测要通过宿主调用 `saddle telemetry`，没有宿主路径时退回不记遥测、直接 `corral send`。Diff 读 git，dispatch 一问一答，都没有共享数据。
+  - 做法（建议，未批准，见 §7 第 5 条）：先由 paddock 做插件宿主（字符面兼容层），运行同一批插件程序，插件不移植、数据只有一个主人；paddock 用自己的插件登记（如 `~/.config/paddock/plugins.toml`），不读 Saddle 的。某个插件确实需要原生界面时再单独考虑：把它的逻辑搬进 paddock 会与原插件争同一份数据，让插件只提供数据则要扩展插件协议（归 Saddle，走 Saddle 的流程）。
+  - 单独分发时，需要的插件程序随 paddock 打包（插件本是独立 Cargo 包，迁入方式同 §10）；两份插件对同一份数据（如 `~/.drover`）的格式要保持兼容，规矩同上面的 corral。
 - **许可**：Saddle 仓库目前没有许可证文件。代码属于用户本人，迁入没有问题；paddock 公开发布前，需要先为两边定好许可（§7）。
 
 ## 4. 依赖与工具链隔离
