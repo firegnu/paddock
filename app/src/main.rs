@@ -3,6 +3,7 @@ use anyhow::{Context as _, Result, bail};
 use gpui::{App, AppContext as _, Bounds, WindowBounds, WindowOptions, point, px, size};
 use paddock::{
     config::{self, Config},
+    sidebar::NewShell,
     theme::Theme,
     view::{Launch, Options},
     window::PaddockWindow,
@@ -98,18 +99,23 @@ fn main() -> Result<()> {
         Some(dir) => dir,
         None => std::env::current_dir()?.display().to_string(),
     };
+    let program = std::env::var("SHELL")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .unwrap_or("/bin/sh".into());
+    // The sidebar's "new shell" starts the same shell in the same directory.
+    let new_shell = NewShell {
+        program: program.clone(),
+        cwd: cwd.clone(),
+    };
     let launch = if !command.is_empty() {
         Launch::Command {
             argv: command,
             cwd: Some(cwd.into()),
         }
     } else if let Some(name) = attach {
-        Launch::Agent { corral, name }
+        Launch::Agent { name }
     } else {
-        let program = std::env::var("SHELL")
-            .ok()
-            .filter(|s| !s.is_empty())
-            .unwrap_or("/bin/sh".into());
         Launch::Shell { program, cwd }
     };
     if fallbacks.is_empty() {
@@ -118,6 +124,7 @@ fn main() -> Result<()> {
     }
     let options = Options {
         launch,
+        corral,
         font_family,
         fallbacks,
         font_size,
@@ -142,7 +149,7 @@ fn main() -> Result<()> {
                 if std::env::var_os("GPUI_TERM_WINDOW_ID").is_some() {
                     print_window_number(window);
                 }
-                cx.new(|cx| PaddockWindow::new(&config, theme, options, window, cx))
+                cx.new(|cx| PaddockWindow::new(&config, theme, options, new_shell, window, cx))
             },
         )
         .expect("open window");
