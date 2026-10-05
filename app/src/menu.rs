@@ -22,6 +22,8 @@ actions!(
         ToggleSortByName,
         Minimize,
         Zoom,
+        /// Fill the tab with the active pane, or back to the split.
+        ZoomPane,
         NextTab,
         PreviousTab,
         Tab1,
@@ -95,6 +97,7 @@ pub fn bindings() -> Vec<KeyBinding> {
         KeyBinding::new("cmd-shift-n", NewAgent, None),
         KeyBinding::new("cmd-shift-a", ShowAttention, None),
         KeyBinding::new("cmd-p", GoToAgent, None),
+        KeyBinding::new("cmd-shift-enter", ZoomPane, None),
         KeyBinding::new("cmd-f", Find, None),
         KeyBinding::new("cmd-g", FindNext, None),
         KeyBinding::new("cmd-shift-g", FindPrevious, None),
@@ -148,6 +151,8 @@ pub fn menus(fold: bool, by_name: bool) -> Vec<Menu> {
         Menu::new("View").items([
             MenuItem::action("Fold Agents", ToggleFold).checked(fold),
             MenuItem::action("Sort Agents by Name", ToggleSortByName).checked(by_name),
+            MenuItem::separator(),
+            MenuItem::action("Zoom Pane", ZoomPane),
         ]),
         Menu::new("Agent").items([
             MenuItem::action("New Agent…", NewAgent),
@@ -225,6 +230,7 @@ mod tests {
             ("cmd-enter", "paddock::CreateAgent"),
             ("cmd-shift-a", "paddock::ShowAttention"),
             ("cmd-p", "paddock::GoToAgent"),
+            ("cmd-shift-enter", "paddock::ZoomPane"),
             ("cmd-f", "paddock::Find"),
             ("cmd-g", "paddock::FindNext"),
             ("cmd-shift-g", "paddock::FindPrevious"),
@@ -262,7 +268,8 @@ mod tests {
                 .map(|item| matches!(item, MenuItem::Action { checked: true, .. }))
                 .collect()
         };
-        assert_eq!(view(true, false), [true, false]);
-        assert_eq!(view(false, true), [false, true]);
+        // Fold, Sort, a separator and Zoom Pane, which is never ticked.
+        assert_eq!(view(true, false), [true, false, false, false]);
+        assert_eq!(view(false, true), [false, true, false, false]);
     }
 }
