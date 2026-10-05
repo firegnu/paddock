@@ -9,7 +9,7 @@ paddock 是 Saddle 的 GPUI 桌面前端，目前处在原型阶段：一个 GPU
 - `docs/DESIGN.md`：权威设计。§2 已定决定，§3 与 Saddle 的边界，§4 依赖隔离，§7 待定问题。
 - `docs/背景与决策记录.md`：用户原话、为什么独立成仓库、哪些还没批准（不要把建议当成已批准）。
 - `HANDOFF.md`：现在在哪、下一步做什么、悬着什么。
-- `prototypes/gpui-terminal/README.md`：原型的运行方式、复用结果、缺口和实测记录。
+- `docs/原型实测记录.md`：原型的运行方式、复用结果、缺口和实测记录。
 - `docs/调研/T76-GPUI桌面化详细方案.md`：从 Saddle 复制来的完整调研（GPUI 现状、迁移路线比较、风险）。只作依据，以本仓库 DESIGN 为准。
 
 ## 规矩

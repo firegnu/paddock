@@ -3,7 +3,7 @@
 ## 现在在哪（2026-10-05）
 
 - 仓库只有本地 `main`，没有远程仓库。
-- `prototypes/gpui-terminal/`：GPUI 单窗格终端原型，按提交号引用 Saddle `df1c727`。搬迁后 31 项测试通过、clippy 无警告。
+- `app/`：GPUI 单窗格终端原型，按提交号引用 Saddle `df1c727`。搬迁后 31 项测试通过、clippy 无警告。
 - 主控 `paddock/main` 已在运行。
 - 用户 10-05 体验原型（Claude Code 里中文输入、显示），判定通过。
 - 用户要求主题系统，像 Saddle 那样；细节已定，见 `docs/DESIGN.md` §8。
