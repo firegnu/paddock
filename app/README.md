@@ -25,6 +25,29 @@ B="$CARGO_TARGET_DIR/release/paddock"
 "$B" --help
 ```
 
+## 打包成 app
+
+```sh
+cargo build --release --manifest-path "$M"
+cargo run --release --manifest-path "$M" --example bundle -- --install
+```
+
+在编译目录的 `release/` 下生成 `paddock.app`（`Info.plist`、程序、猫的像素图标，图标用系统自带的 `iconutil` 合成），`--install` 再复制到 `~/Applications/paddock.app`（只覆盖之前装的 paddock）。不签名、不公证。
+
+从 Finder、Launchpad 或程序坞启动时，paddock 会向登录 shell 取一次 `PATH`（找得到 `corral`、`git` 和 shell 里的程序），新 shell 开在主目录。
+
+## 菜单与快捷键
+
+| 菜单 | 项 |
+| --- | --- |
+| paddock | About paddock、Quit（⌘Q） |
+| Shell | New Tab…（⌘T）、New Shell（⌘N）、Split Right…（⌘D）、Split Down…（⇧⌘D）、Split Left…、Split Up…、Close Pane（⌘W）、Close Tab（⇧⌘W） |
+| Edit | Copy（⌘C，有选区时）、Paste（⌘V） |
+| View | Fold Agents、Sort Agents by Name（勾选跟随侧栏） |
+| Window | Minimize（⌘M）、Zoom、Next Tab（⇧⌘]）、Previous Tab（⇧⌘[）、Tab 1–9（⌘1…⌘9，⌘9 是最后一个） |
+
+弹框打开时 Esc 关闭。其他按键都交给终端。
+
 ## 命令行选项
 
 | 选项 | 说明 |

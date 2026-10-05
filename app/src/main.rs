@@ -3,6 +3,7 @@ use anyhow::{Context as _, Result, bail};
 use gpui::{App, AppContext as _, Bounds, WindowBounds, WindowOptions, point, px, size};
 use paddock::{
     config::{self, Config},
+    menu,
     theme::Theme,
     view::{Launch, Options},
     window::NewShell,
@@ -45,6 +46,19 @@ fn main() -> Result<()> {
     for key in INHERITED {
         // SAFETY: first thing in main, before any other thread exists.
         unsafe { std::env::remove_var(key) };
+    }
+    // Started from Finder or the Dock: take the login shell's PATH, still before any thread.
+    let desktop = paddock::launch::from_desktop();
+    if desktop {
+        let shell = std::env::var("SHELL")
+            .ok()
+            .filter(|s| !s.is_empty())
+            .unwrap_or("/bin/zsh".into());
+        let timeout = std::time::Duration::from_secs(3);
+        if let Some(path) = paddock::launch::login_path(std::path::Path::new(&shell), timeout) {
+            // SAFETY: the login shell ran on this thread; no other thread exists yet.
+            unsafe { std::env::set_var("PATH", path) };
+        }
     }
     let mut args = std::env::args().skip(1);
     let mut attach = None;
@@ -99,6 +113,8 @@ fn main() -> Result<()> {
     }
     let cwd = match cwd {
         Some(dir) => dir,
+        // From the desktop the working directory is `/`; shells start at home instead.
+        None if desktop => std::env::var("HOME").unwrap_or_else(|_| "/".into()),
         None => std::env::current_dir()?.display().to_string(),
     };
     let program = std::env::var("SHELL")
@@ -136,9 +152,12 @@ fn main() -> Result<()> {
     gpui_platform::application().run(move |cx: &mut App| {
         let bounds = match window {
             Some((x, y, w, h)) => Bounds::new(point(px(x), px(y)), size(px(w), px(h))),
-            None => Bounds::centered(None, size(px(1000.0), px(640.0)), cx),
+            None => Bounds::centered(None, size(px(1280.0), px(800.0)), cx),
         };
         cx.on_window_closed(|cx, _| cx.quit()).detach();
+        cx.bind_keys(menu::bindings());
+        cx.on_action(|_: &menu::Quit, cx| cx.quit());
+        cx.set_menus(menu::menus(false, false));
         cx.open_window(
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),

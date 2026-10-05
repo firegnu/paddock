@@ -40,3 +40,15 @@
 - 不安装 Xcode 组件或别的工具（只用系统自带的 `iconutil`、`sips` 等）。
 - 不往 `/Applications` 或系统目录写东西。
 - 不改 Saddle 仓库。
+
+## 完成记录
+
+2026-10-05，paddock/main。用户看过说明后同意：“可以，合并并安装”。菜单栏在屏幕顶部，按规矩不能截全屏，菜单效果留给用户自己看。
+
+- **做了什么**：
+  - `menu.rs`：全部动作、快捷键和菜单栏（paddock、Shell、Edit、View、Window），View 的勾选随侧栏状态更新；Esc 只在弹框打开时（窗口的 `PaddockDialog` 按键上下文）生效。窗口处理各动作；终端窗格的 ⌘C/⌘V 改为 Copy/Paste 动作，⌘Q 为全局 Quit，行为不变；新增 About 弹框（版本、来源，注明 Clawd 来自 Anthropic）。
+  - `launch.rs`：判断从桌面启动（没有 `TERM`，或工作目录是 `/`），在启动最早处、单线程向登录 shell 取 `PATH`（3 秒超时，用标记截取输出）；没给 `--cwd` 时新 shell 开在主目录。
+  - `icon.rs`：猫的站姿裁到身体范围，整数倍放大放在 824/1024 的深色圆角方块上；小尺寸时用分数倍。`examples/bundle.rs`：打 `paddock.app`（Info.plist、程序、各尺寸图标经 `iconutil` 合成 `.icns`），`--install` 复制到 `~/Applications`，只覆盖标识为 `dev.paddock.app` 的旧版。新增开发依赖 `png`（锁文件里本来就有，未增加包）。
+  - 默认窗口 1280×800；`app/README.md` 写明打包、安装、菜单与快捷键。
+- **验证了什么**：110 项测试通过（新增快捷键与菜单 2 项、取 `PATH` 2 项、图标 2 项）；clippy、fmt 通过；`Info.plist` 经 `plutil -lint` 检查；用 `open` 经 LaunchServices 启动打好的 app，只截本窗口：侧栏列出 agent 和 git 信息，shell 开在主目录（第一次测出只看 `TERM` 不够、shell 落在 `/`，已补“工作目录是 `/`”的判断后重测通过）；截图已删。
+- **没做的事**：签名、公证、DMG、自动更新；菜单和快捷键的实际操作留给用户体验。

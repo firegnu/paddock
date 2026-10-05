@@ -182,6 +182,21 @@ impl Sidebar {
         }
     }
 
+    /// Whether the list is folded, and sorted by name, for the View menu's ticks.
+    pub fn view_state(&self) -> (bool, bool) {
+        (self.listing.panel.folded(), self.listing.panel.by_name)
+    }
+
+    pub fn toggle_fold(&mut self, cx: &mut Context<Self>) {
+        self.listing.panel.toggle_fold();
+        cx.notify();
+    }
+
+    pub fn toggle_sort(&mut self, cx: &mut Context<Self>) {
+        self.listing.panel.by_name = !self.listing.panel.by_name;
+        cx.notify();
+    }
+
     /// Every agent corral lists, by name.
     pub fn agent_names(&self) -> Vec<String> {
         let mut names: Vec<String> = self

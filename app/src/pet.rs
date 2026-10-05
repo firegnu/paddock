@@ -45,7 +45,7 @@ impl Pet {
             .ok_or_else(|| format!("unknown mascot {value:?}: expected clawd, cat or capybara"))
     }
 
-    fn pack(self) -> Arc<Pack> {
+    pub fn pack(self) -> Arc<Pack> {
         // Built-in packs are checked in and covered by tests; nothing is read from disk.
         static PACKS: LazyLock<[Arc<Pack>; 3]> = LazyLock::new(|| {
             [
@@ -82,6 +82,8 @@ pub struct Pack {
     pub height: usize,
     /// One palette index per pixel, row by row.
     poses: Vec<Vec<u8>>,
+    /// Pose names, for looking one up.
+    names: BTreeMap<String, usize>,
     clips: Vec<Clip>,
     walking: usize,
     turning: usize,
@@ -124,6 +126,17 @@ struct ClipSource {
 }
 
 impl Pack {
+    /// A pose by name, one colour per pixel row by row, `None` where it is transparent.
+    pub fn image(&self, pose: &str) -> Option<Vec<Option<Rgb>>> {
+        let pixels = &self.poses[*self.names.get(pose)?];
+        Some(
+            pixels
+                .iter()
+                .map(|&index| (index != 0).then(|| self.palette[usize::from(index)]))
+                .collect(),
+        )
+    }
+
     pub fn parse(text: &str) -> Result<Self> {
         let source: Source = toml::from_str(text)?;
         ensure!(source.step_ticks > 0, "step_ticks must be positive");
@@ -204,11 +217,16 @@ impl Pack {
         for (clip, left) in clips.iter_mut().zip(lefts) {
             clip.left = left;
         }
+        let names = names
+            .into_iter()
+            .map(|(name, index)| (name.to_owned(), index))
+            .collect();
         Ok(Self {
             palette,
             width,
             height,
             poses,
+            names,
             clips,
             walking,
             turning,
