@@ -1,0 +1,463 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>paddock main window</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;background:#141210}
+.pd-btn{background:none;border:0;padding:0;margin:0;font:inherit;color:inherit;cursor:pointer;text-align:left}
+.pd-tab .pd-x{opacity:0;transition:opacity .14s ease}
+.pd-tab:hover .pd-x{opacity:.75}
+.pd-tab:hover{background:#25211c}
+.pd-card:hover{background:#24201b}
+.pd-ico:hover{background:#2b2621;color:#e8dfcc}
+.pd-foot:hover{background:#26221d;color:#e8dfcc}
+.pd-row:hover{background:#2e2924}
+.pd-row:hover .pd-kbd{color:#a39a89}
+.pd-stop:hover{background:#3a2420;color:#f3a497}
+.pd-tile:hover{background:#26221d}
+.pd-div{position:relative;width:1px;background:#2e2a24;flex-shrink:0;z-index:2}
+.pd-grip{position:absolute;top:0;bottom:0;left:-3px;width:7px;cursor:col-resize}
+.pd-grip:hover{background:linear-gradient(90deg,transparent 2px,#5a5247 2px,#5a5247 5px,transparent 5px)}
+.pd-dir:hover{border-color:#4a4339}
+.pd-pulse{animation:pdpulse 1.6s ease-in-out infinite}
+@keyframes pdpulse{0%,100%{box-shadow:0 0 0 0 rgba(127,180,238,.55)}50%{box-shadow:0 0 0 4px rgba(127,180,238,0)}}
+.pd-pop{position:absolute;z-index:20;background:#23201b;border:1px solid #3a352e;border-radius:10px;box-shadow:0 12px 32px rgba(0,0,0,.45),0 1px 0 rgba(255,255,255,.03) inset;padding:5px;font-size:13px;color:#e8dfcc}
+</style>
+</helmet>
+<div style="width:1280px;height:800px;box-sizing:border-box;display:flex;flex-direction:column;background:#1b1916;color:#e8dfcc;font-family:-apple-system,'SF Pro Text','Helvetica Neue',sans-serif;font-size:13px;border-radius:12px;overflow:hidden;border:1px solid #3a352e;position:relative">
+
+  <!-- Title bar: traffic lights + tabs -->
+  <div style="height:40px;flex-shrink:0;display:flex;align-items:center;gap:6px;padding:0 10px 0 14px;background:#1d1a16;position:relative;z-index:5">
+    <div style="display:flex;gap:8px;width:68px;flex-shrink:0">
+      <span style="width:12px;height:12px;border-radius:50%;background:#ff5f57"></span>
+      <span style="width:12px;height:12px;border-radius:50%;background:#febc2e"></span>
+      <span style="width:12px;height:12px;border-radius:50%;background:#28c840"></span>
+    </div>
+    <div style="width:{{tabGap}}px;flex-shrink:0;transition:width .18s ease"></div>
+    <sc-for list="{{tabs}}" as="tab" hint-placeholder-count="3">
+      <div class="pd-tab" style="height:28px;display:flex;align-items:center;gap:7px;padding:0 6px 0 11px;border-radius:7px;background:{{tab.bg}};max-width:220px">
+        <span style="width:7px;height:7px;border-radius:50%;background:{{tab.dot}};flex-shrink:0"></span>
+        <span style="color:{{tab.color}};font-size:12.5px;white-space:nowrap">{{tab.title}}</span>
+        <span class="pd-x" style="width:16px;height:16px;border-radius:4px;display:flex;align-items:center;justify-content:center;color:#8c8374">
+          <svg width="9" height="9" viewBox="0 0 9 9" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M1.5 1.5l6 6M7.5 1.5l-6 6"/></svg>
+        </span>
+      </div>
+    </sc-for>
+    <div style="position:relative">
+      <button class="pd-btn pd-ico" onClick="{{toggleNewTab}}" aria-label="New tab" style="width:26px;height:26px;border-radius:6px;display:flex;align-items:center;justify-content:center;color:{{plusColor}};background:{{plusBg}}">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M6 1.5v9M1.5 6h9"/></svg>
+      </button>
+
+      <!-- New tab popover, hangs from the + button -->
+      <sc-if value="{{showNewTab}}" hint-placeholder-val="{{false}}">
+        <div class="pd-pop" style="top:34px;left:-6px;width:340px">
+          <div style="display:flex;align-items:center;gap:8px;height:34px;padding:0 10px;margin-bottom:4px;border-bottom:1px solid #2e2a24">
+            <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="#756c5e" stroke-width="1.3" stroke-linecap="round"><circle cx="5.5" cy="5.5" r="4"/><path d="M8.5 8.5l3 3"/></svg>
+            <span style="color:#756c5e">Open in a new tab…</span>
+          </div>
+          <div style="padding:6px 9px 3px;font-size:10.5px;font-weight:600;letter-spacing:.07em;color:#756c5e">NEW</div>
+          <div class="pd-row" style="display:flex;align-items:center;gap:10px;height:30px;padding:0 9px;border-radius:6px;background:#2e2924">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="#bdb86a" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="2" width="12" height="10" rx="2"/><path d="M3.75 5L6 7 3.75 9M7.25 9.25h3.25"/></svg>
+            <span style="flex:1">Shell</span><span class="pd-kbd" style="color:#756c5e;font-size:12px">⌘N</span>
+          </div>
+          <div class="pd-row" style="display:flex;align-items:center;gap:10px;height:30px;padding:0 9px;border-radius:6px">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="#bdb86a" stroke-width="1.25" stroke-linecap="round"><circle cx="7" cy="7" r="5.75"/><path d="M4.25 7h5.5M7 4.25v5.5"/></svg>
+            <span style="flex:1">Agent…</span><span class="pd-kbd" style="color:#756c5e;font-size:12px">⌘⇧N</span>
+          </div>
+          <div style="padding:10px 9px 3px;font-size:10.5px;font-weight:600;letter-spacing:.07em;color:#756c5e">AGENTS</div>
+          <sc-for list="{{openList}}" as="o" hint-placeholder-count="4">
+            <div class="pd-row" style="display:flex;align-items:center;gap:10px;height:30px;padding:0 9px;border-radius:6px">
+              <span style="width:14px;display:flex;justify-content:center"><span style="width:7px;height:7px;border-radius:50%;background:{{o.dot}}"></span></span>
+              <span>{{o.name}}</span>
+              <span style="color:#756c5e;font-size:12px">{{o.project}}</span>
+              <span style="flex:1"></span>
+              <span class="pd-kbd" style="color:#756c5e;font-size:12px">{{o.hint}}</span>
+            </div>
+          </sc-for>
+          <div style="display:flex;gap:14px;padding:8px 9px 4px;margin-top:4px;border-top:1px solid #2e2a24;color:#5f574b;font-size:11.5px">
+            <span>↑↓ move</span><span>↩ open</span><span>esc close</span>
+          </div>
+        </div>
+      </sc-if>
+    </div>
+    <div style="flex:1"></div>
+  </div>
+
+  <div style="flex:1;display:flex;min-height:0;position:relative">
+
+    <!-- Sidebar, expanded -->
+    <sc-if value="{{expanded}}" hint-placeholder-val="{{true}}">
+      <div style="width:300px;flex-shrink:0;display:flex;flex-direction:column;background:#1d1a16;position:relative">
+        <div style="height:44px;flex-shrink:0;display:flex;align-items:center;gap:4px;padding:0 10px 0 18px">
+          <span style="font-size:15px;font-weight:600;letter-spacing:-.01em">Agents</span>
+          <span style="color:#756c5e;font-size:12px;margin-left:3px">5</span>
+          <span style="flex:1"></span>
+          <button class="pd-btn pd-ico" onClick="{{toggleAttention}}" aria-label="Needs attention" style="height:24px;padding:0 8px;border-radius:12px;display:flex;align-items:center;gap:5px;background:#3a2f1c;color:#e6b566;font-size:11.5px;font-weight:600">
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M3 8.5V5.5a3 3 0 0 1 6 0v3l1 1H2z"/><path d="M5 10.5h2" stroke-linecap="round"/></svg>
+            <span>3</span>
+          </button>
+          <button class="pd-btn pd-ico" onClick="{{toggleCollapse}}" aria-label="Collapse sidebar" style="width:26px;height:26px;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#8c8374">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="2" width="12" height="10" rx="2"/><path d="M5 2v10M9.5 5.5L8 7l1.5 1.5"/></svg>
+          </button>
+        </div>
+
+        <div style="flex:1;overflow:hidden;padding:2px 10px 10px">
+          <sc-for list="{{groups}}" as="g" hint-placeholder-count="3">
+            <div style="padding:14px 8px 6px;font-size:10.5px;font-weight:600;letter-spacing:.08em;color:#756c5e;display:flex;gap:6px">
+              <span>{{g.label}}</span><span style="color:#5a5247">{{g.n}}</span>
+            </div>
+            <sc-for list="{{g.agents}}" as="a" hint-placeholder-count="2">
+              <button class="pd-btn pd-card" onClick="{{a.pick}}" style="display:block;width:100%;border-radius:8px;padding:8px 10px;margin-bottom:2px;background:{{a.bg}}">
+                <div style="display:flex;align-items:center;gap:8px">
+                  <span class="{{a.pulse}}" style="width:8px;height:8px;border-radius:50%;background:{{a.dot}};flex-shrink:0"></span>
+                  <span style="font-size:13px;font-weight:{{a.weight}};color:#e8dfcc">{{a.name}}</span>
+                  <span style="font-size:11px;color:{{a.kindColor}};opacity:.85">{{a.kind}}</span>
+                  <span style="flex:1"></span>
+                  <span style="font-size:11.5px;color:{{a.ageColor}};font-variant-numeric:tabular-nums">{{a.age}}</span>
+                </div>
+                <div style="display:flex;align-items:center;gap:0;margin:3px 0 0 16px;font-size:12px;white-space:nowrap;overflow:hidden">
+                  <span style="color:{{a.lineColor}}">{{a.line}}</span>
+                  <span style="color:#5f574b">{{a.sep}}</span>
+                  <span style="color:#a7a06d">{{a.branch}}</span>
+                  <span style="color:#9cbd80;margin-left:8px">{{a.add}}</span>
+                  <span style="color:#ef8174;margin-left:4px">{{a.del}}</span>
+                </div>
+              </button>
+            </sc-for>
+          </sc-for>
+        </div>
+
+        <!-- P5-10: one footer button with a menu -->
+        <div style="height:50px;flex-shrink:0;display:flex;align-items:center;padding:0 10px;position:relative">
+          <button class="pd-btn pd-foot" onClick="{{toggleMenu}}" aria-label="Agent actions and settings" style="height:32px;display:flex;align-items:center;gap:8px;padding:0 10px 0 9px;border-radius:8px;color:{{footColor}};background:{{footBg}}">
+            <svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round"><path d="M2 4h11M2 7.5h11M2 11h11"/><circle cx="5" cy="4" r="1.4" fill="#1d1a16"/><circle cx="10" cy="7.5" r="1.4" fill="#1d1a16"/><circle cx="6.5" cy="11" r="1.4" fill="#1d1a16"/></svg>
+            <span style="font-size:12.5px;font-weight:500">Actions</span>
+            <svg width="9" height="9" viewBox="0 0 9 9" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" style="opacity:.6"><path d="M2 5.5L4.5 3 7 5.5"/></svg>
+          </button>
+          <span style="flex:1"></span>
+          <span style="color:#5a5247;font-size:11.5px">by status</span>
+        </div>
+      </div>
+    </sc-if>
+
+    <!-- Sidebar, collapsed rail (52pt) -->
+    <sc-if value="{{collapsed}}" hint-placeholder-val="{{false}}">
+      <div style="width:52px;flex-shrink:0;display:flex;flex-direction:column;align-items:center;background:#1d1a16;position:relative">
+        <div style="height:8px"></div>
+        <button class="pd-btn pd-ico" onClick="{{toggleCollapse}}" aria-label="Expand sidebar" style="width:32px;height:30px;border-radius:7px;display:flex;align-items:center;justify-content:center;color:#8c8374">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="2" width="12" height="10" rx="2"/><path d="M5 2v10M8 5.5L9.5 7 8 8.5"/></svg>
+        </button>
+        <button class="pd-btn pd-ico" onClick="{{toggleAttention}}" aria-label="Needs attention" style="position:relative;width:32px;height:30px;border-radius:7px;display:flex;align-items:center;justify-content:center;color:#e6b566;margin-top:2px">
+          <svg width="14" height="14" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"><path d="M3 8.5V5.5a3 3 0 0 1 6 0v3l1 1H2z"/><path d="M5 10.5h2" stroke-linecap="round"/></svg>
+          <span style="position:absolute;top:3px;right:3px;min-width:13px;height:13px;border-radius:7px;background:#e6b566;color:#1d1a16;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center">3</span>
+        </button>
+        <div style="width:24px;height:1px;background:#2e2a24;margin:8px 0 4px"></div>
+        <sc-for list="{{rail}}" as="r" hint-placeholder-count="5">
+          <sc-if value="{{r.gap}}" hint-placeholder-val="{{false}}"><div style="width:16px;height:1px;background:#2a2621;margin:6px 0"></div></sc-if>
+          <button class="pd-btn pd-tile" onClick="{{r.pick}}" aria-label="{{r.full}}" style="position:relative;width:34px;height:34px;margin:2px 0;border-radius:9px;display:flex;align-items:center;justify-content:center;background:{{r.bg}};box-shadow:{{r.ring}}">
+            <span style="font-size:12.5px;font-weight:600;color:{{r.letterColor}}">{{r.letter}}</span>
+            <span class="{{r.pulse}}" style="position:absolute;right:2px;bottom:2px;width:8px;height:8px;border-radius:50%;background:{{r.dot}};box-shadow:0 0 0 2px #1d1a16"></span>
+          </button>
+        </sc-for>
+        <div style="flex:1"></div>
+        <button class="pd-btn pd-foot" onClick="{{toggleMenu}}" aria-label="Agent actions and settings" style="width:34px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;color:{{footColor}};background:{{footBg}};margin-bottom:9px">
+          <svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round"><path d="M2 4h11M2 7.5h11M2 11h11"/><circle cx="5" cy="4" r="1.4" fill="#1d1a16"/><circle cx="10" cy="7.5" r="1.4" fill="#1d1a16"/><circle cx="6.5" cy="11" r="1.4" fill="#1d1a16"/></svg>
+        </button>
+
+        <!-- Hover tip on a rail tile -->
+        <sc-if value="{{showTip}}" hint-placeholder-val="{{false}}">
+          <div style="position:absolute;left:48px;top:{{tipTop}}px;z-index:20;display:flex;align-items:center">
+            <span style="width:0;height:0;border:5px solid transparent;border-right-color:#2c2823"></span>
+            <div style="background:#2c2823;border-radius:7px;padding:6px 10px;box-shadow:0 6px 18px rgba(0,0,0,.4);white-space:nowrap;font-size:12px">
+              <span style="font-weight:600">dev-fonts</span>
+              <span style="color:#e2835e;font-size:11px;margin-left:5px">claude</span>
+              <div style="color:#e6b566;margin-top:2px">Waiting for your reply · 1m</div>
+              <div style="color:#756c5e;margin-top:1px">paddock · ⎇ p4-2-fonts</div>
+            </div>
+          </div>
+        </sc-if>
+      </div>
+    </sc-if>
+
+    <!-- P5-11: one-colour divider, drag to resize -->
+    <div class="pd-div"><div class="pd-grip" title="Drag to resize"></div></div>
+
+    <!-- Terminal pane -->
+    <div style="flex:1;min-width:0;display:flex;flex-direction:column;background:#181613;position:relative">
+      <div style="height:30px;flex-shrink:0;display:flex;align-items:center;gap:8px;padding:0 8px 0 14px;font-size:12px;color:#cfc6b2;box-shadow:inset 0 -1px 0 #24211c">
+        <span style="width:7px;height:7px;border-radius:50%;background:#7fb4ee"></span>
+        <span style="font-weight:600">paddock/main</span>
+        <span style="color:#756c5e">· ~/…/paddock</span>
+        <span style="flex:1"></span>
+        <div style="position:relative">
+          <button class="pd-btn pd-ico" onClick="{{toggleSplit}}" aria-label="Split" style="width:24px;height:24px;border-radius:6px;display:flex;align-items:center;justify-content:center;color:{{splitColor}};background:{{splitBg}}">
+            <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="1" y="1.5" width="11" height="10" rx="2"/><path d="M6.5 1.5v10"/></svg>
+          </button>
+
+          <!-- Split popover: hangs from the split button, right-aligned -->
+          <sc-if value="{{showSplit}}" hint-placeholder-val="{{false}}">
+            <div class="pd-pop" style="top:30px;right:-4px;width:316px">
+              <div style="padding:6px 9px 6px;font-size:10.5px;font-weight:600;letter-spacing:.07em;color:#756c5e">SPLIT</div>
+              <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;padding:0 5px 8px">
+                <sc-for list="{{dirs}}" as="d" hint-placeholder-count="4">
+                  <button class="pd-btn pd-dir" onClick="{{d.pick}}" style="display:flex;flex-direction:column;align-items:center;gap:5px;padding:8px 0 6px;border-radius:8px;border:1px solid {{d.border}};background:{{d.bg}}">
+                    <span style="position:relative;width:34px;height:24px;border-radius:4px;border:1.2px solid {{d.stroke}};box-sizing:border-box;overflow:hidden">
+                      <span style="position:absolute;left:{{d.l}};top:{{d.t}};width:{{d.w}};height:{{d.h}};background:{{d.fill}}"></span>
+                    </span>
+                    <span style="font-size:11.5px;color:{{d.text}}">{{d.label}}</span>
+                    <span style="font-size:10.5px;color:#5f574b;height:12px">{{d.key}}</span>
+                  </button>
+                </sc-for>
+              </div>
+              <div style="border-top:1px solid #2e2a24;margin:0 -5px;padding:6px 5px 0">
+                <div style="padding:4px 9px 3px;font-size:10.5px;font-weight:600;letter-spacing:.07em;color:#756c5e">OPEN {{dirWord}}</div>
+                <div class="pd-row" style="display:flex;align-items:center;gap:10px;height:30px;padding:0 9px;border-radius:6px;background:#2e2924">
+                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="#bdb86a" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="2" width="12" height="10" rx="2"/><path d="M3.75 5L6 7 3.75 9M7.25 9.25h3.25"/></svg>
+                  <span style="flex:1">Shell</span>
+                </div>
+                <div class="pd-row" style="display:flex;align-items:center;gap:10px;height:30px;padding:0 9px;border-radius:6px">
+                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="#bdb86a" stroke-width="1.25" stroke-linecap="round"><circle cx="7" cy="7" r="5.75"/><path d="M4.25 7h5.5M7 4.25v5.5"/></svg>
+                  <span style="flex:1">Agent…</span>
+                </div>
+                <sc-for list="{{openListShort}}" as="o" hint-placeholder-count="3">
+                  <div class="pd-row" style="display:flex;align-items:center;gap:10px;height:30px;padding:0 9px;border-radius:6px">
+                    <span style="width:14px;display:flex;justify-content:center"><span style="width:7px;height:7px;border-radius:50%;background:{{o.dot}}"></span></span>
+                    <span>{{o.name}}</span>
+                    <span style="color:#756c5e;font-size:12px">{{o.project}}</span>
+                    <span style="flex:1"></span>
+                    <span class="pd-kbd" style="color:#756c5e;font-size:12px">{{o.hint}}</span>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+          </sc-if>
+        </div>
+        <button class="pd-btn pd-ico" aria-label="Zoom" style="width:24px;height:24px;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#8c8374">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 1.5h3.5V5M5 10.5H1.5V7M10.5 1.5L7 5M1.5 10.5L5 7"/></svg>
+        </button>
+        <button class="pd-btn pd-ico" aria-label="Close pane" style="width:24px;height:24px;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#8c8374">
+          <svg width="10" height="10" viewBox="0 0 9 9" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M1.5 1.5l6 6M7.5 1.5l-6 6"/></svg>
+        </button>
+      </div>
+      <div style="flex:1;padding:14px 18px;font-family:'SF Mono',Menlo,monospace;font-size:13px;line-height:1.55;color:#d9d1bf;overflow:hidden">
+        <div><span style="color:#bdb86a">❯</span> Fold the five footer icons into one button with a menu</div>
+        <div style="height:10px"></div>
+        <div><span style="color:#e2835e">⏺</span> Reading how the footer is drawn now.</div>
+        <div style="color:#8c8374">  ⎿ Read app/src/sidebar.rs (1371 lines)</div>
+        <div style="color:#8c8374">  ⎿ Read app/src/footer_icon.rs (412 lines)</div>
+        <div style="height:10px"></div>
+        <div><span style="color:#e2835e">⏺</span> Plan:</div>
+        <div>  1. One 32pt button at the bottom left, label "Actions"</div>
+        <div>  2. The menu opens upward, anchored to the button</div>
+        <div>  3. Settings joins the menu, last, with ⌘,</div>
+        <div style="height:10px"></div>
+        <div><span style="color:#7fa9ea">✻</span> <span style="color:#8c8374">Thinking…</span></div>
+        <div style="height:16px"></div>
+        <div style="display:flex;align-items:center"><span style="color:#bdb86a">❯</span>&nbsp;<span style="display:inline-block;width:8px;height:16px;background:#e8dfcc"></span></div>
+      </div>
+    </div>
+
+    <!-- P5-10 menu: opens upward from the footer button -->
+    <sc-if value="{{showMenu}}" hint-placeholder-val="{{false}}">
+      <div class="pd-pop" style="left:{{menuLeft}}px;bottom:54px;width:252px">
+        <div class="pd-row" style="display:flex;align-items:center;gap:10px;height:30px;padding:0 9px;border-radius:6px">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="#a39a89" stroke-width="1.25" stroke-linecap="round"><circle cx="7" cy="7" r="5.75"/><path d="M4.25 7h5.5M7 4.25v5.5"/></svg>
+          <span style="flex:1">New Agent…</span><span class="pd-kbd" style="color:#756c5e;font-size:12px">⌘⇧N</span>
+        </div>
+        <div class="pd-row" style="display:flex;align-items:center;gap:10px;height:30px;padding:0 9px;border-radius:6px">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="#a39a89" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="2" width="12" height="10" rx="2"/><path d="M3.75 5L6 7 3.75 9M7.25 9.25h3.25"/></svg>
+          <span style="flex:1">New Shell</span><span class="pd-kbd" style="color:#756c5e;font-size:12px">⌘N</span>
+        </div>
+        <div style="height:1px;background:#2e2a24;margin:5px 4px"></div>
+        <div style="display:flex;align-items:center;gap:10px;height:32px;padding:0 6px 0 9px">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="#a39a89" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 12V2.5M2 5l2.5-2.5L7 5M9.5 2v9.5M7 9l2.5 2.5L12 9"/></svg>
+          <span style="flex:1">Sort</span>
+          <div style="display:flex;background:#1b1916;border-radius:6px;padding:2px;font-size:11.5px">
+            <button class="pd-btn" onClick="{{sortStatus}}" style="padding:3px 8px;border-radius:4px;background:{{sortStatusBg}};color:{{sortStatusColor}}">Status</button>
+            <button class="pd-btn" onClick="{{sortName}}" style="padding:3px 8px;border-radius:4px;background:{{sortNameBg}};color:{{sortNameColor}}">Name</button>
+          </div>
+        </div>
+        <button class="pd-btn pd-row" onClick="{{toggleFold}}" style="display:flex;width:100%;align-items:center;gap:10px;height:30px;padding:0 9px;border-radius:6px;box-sizing:border-box">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="#a39a89" stroke-width="1.25" stroke-linecap="round"><rect x="1.5" y="1.5" width="11" height="11" rx="2.5"/><path d="M4.5 7h5"/></svg>
+          <span style="flex:1">Fold agents</span>
+          <span style="color:#bdb86a;font-size:12px;width:12px">{{foldMark}}</span>
+        </button>
+        <div style="height:1px;background:#2e2a24;margin:5px 4px"></div>
+        <div class="pd-row pd-stop" style="display:flex;align-items:center;gap:10px;height:30px;padding:0 9px;border-radius:6px;color:#e8a196">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor"><rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/></svg>
+          <span style="flex:1">Stop main…</span>
+        </div>
+        <div style="height:1px;background:#2e2a24;margin:5px 4px"></div>
+        <div class="pd-row" style="display:flex;align-items:center;gap:10px;height:30px;padding:0 9px;border-radius:6px">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="#a39a89" stroke-width="1.2"><circle cx="7" cy="7" r="2"/><path d="M7 1.2v1.6M7 11.2v1.6M1.2 7h1.6M11.2 7h1.6M2.9 2.9l1.1 1.1M10 10l1.1 1.1M2.9 11.1L4 10M10 4l1.1-1.1" stroke-linecap="round"/></svg>
+          <span style="flex:1">Settings…</span><span class="pd-kbd" style="color:#756c5e;font-size:12px">⌘,</span>
+        </div>
+      </div>
+    </sc-if>
+
+    <!-- Attention popover: hangs from the bell -->
+    <sc-if value="{{showAttention}}" hint-placeholder-val="{{false}}">
+      <div class="pd-pop" style="left:{{attnLeft}}px;top:{{attnTop}}px;width:360px;padding:0">
+        <div style="display:flex;align-items:baseline;gap:8px;padding:12px 14px 8px">
+          <span style="font-weight:600">Needs you</span>
+          <span style="color:#756c5e;font-size:12px">3</span>
+          <span style="flex:1"></span>
+          <span style="color:#5f574b;font-size:11.5px">⌘⇧A</span>
+        </div>
+        <div style="padding:0 5px 5px">
+          <sc-for list="{{attn}}" as="t" hint-placeholder-count="3">
+            <div class="pd-row" style="display:flex;gap:11px;padding:9px 9px;border-radius:7px;background:{{t.bg}}">
+              <span style="flex-shrink:0;width:20px;height:20px;border-radius:50%;background:{{t.markBg}};color:{{t.markColor}};font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;margin-top:1px">{{t.mark}}</span>
+              <div style="flex:1;min-width:0">
+                <div style="display:flex;align-items:baseline;gap:6px">
+                  <span style="font-weight:600">{{t.name}}</span>
+                  <span style="color:#756c5e;font-size:12px">{{t.project}}</span>
+                  <span style="flex:1"></span>
+                  <span style="color:#756c5e;font-size:11.5px">{{t.age}}</span>
+                </div>
+                <div style="color:{{t.reasonColor}};font-size:12px;margin-top:2px">{{t.reason}}</div>
+                <div style="color:#8c8374;font-size:12px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{t.note}}</div>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+    </sc-if>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":800},"start":{"editor":"enum","options":["plain","menu","rail","newtab","split","attention"],"default":"plain"}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    const start = props.start || 'plain';
+    this.state = {
+      selected: 'paddock/main',
+      collapsed: start === 'rail',
+      popup: ['menu', 'newtab', 'split', 'attention'].includes(start) ? start : '',
+      sort: 'status', fold: false, dir: 'right', tip: start === 'rail'
+    };
+  }
+  toggle(name) { this.setState({ popup: this.state.popup === name ? '' : name }); }
+  renderVals() {
+    const s = this.state;
+    const C = { working: '#7fb4ee', idle: '#9cbd80', waiting: '#e6b566', error: '#ef8174' };
+    const K = { claude: '#e2835e', codex: '#79d4b4' };
+    const data = [
+      { label: 'PADDOCK', agents: [
+        { id: 'paddock/main', name: 'main', kind: 'claude', st: 'working', age: 'Edit · 3m', line: '~/…/paddock', branch: 'main', add: '+42', del: '-7' },
+        { id: 'paddock/dev-fonts', name: 'dev-fonts', kind: 'claude', st: 'waiting', age: '1m', note: 'Waiting for your reply' },
+        { id: 'paddock/dev-buttons', name: 'dev-buttons', kind: 'codex', st: 'idle', age: '12m', line: '…/p4-3-sidebar-buttons', branch: 'p4-3', add: '+118', del: '-64' }
+      ]},
+      { label: 'SADDLE', agents: [
+        { id: 'saddle/main', name: 'main', kind: 'codex', st: 'idle', age: '1h', line: '~/…/saddle', branch: 'main' }
+      ]},
+      { label: 'RANCH', agents: [
+        { id: 'ranch/test-m2', name: 'test-m2', kind: 'claude', st: 'error', age: '2h', note: 'Exited (code 1)' }
+      ]}
+    ];
+    const groups = data.map((g) => ({
+      label: g.label, n: g.agents.length,
+      agents: g.agents.map((a) => {
+        const sel = s.selected === a.id;
+        const isNote = !!a.note;
+        return {
+          name: a.name, kind: a.kind, kindColor: K[a.kind], age: a.age,
+          ageColor: a.st === 'working' ? 'rgba(127,180,238,.8)' : a.st === 'waiting' ? 'rgba(230,181,102,.8)' : a.st === 'error' ? 'rgba(239,129,116,.8)' : '#756c5e',
+          line: isNote ? a.note : a.line,
+          lineColor: a.st === 'waiting' ? '#e6b566' : a.st === 'error' ? '#ef8174' : '#8c8374',
+          sep: isNote ? '' : ' · ⎇ ', branch: isNote ? '' : a.branch,
+          add: a.add || '', del: a.del || '',
+          dot: C[a.st], pulse: a.st === 'working' ? 'pd-pulse' : '',
+          bg: sel ? '#2b2621' : 'transparent', weight: sel ? 600 : 500,
+          pick: () => this.setState({ selected: a.id })
+        };
+      })
+    }));
+    const rail = [];
+    data.forEach((g, gi) => g.agents.forEach((a, ai) => {
+      const sel = s.selected === a.id;
+      rail.push({
+        gap: gi > 0 && ai === 0, full: a.id,
+        letter: a.name.replace('dev-', '').replace('test-', '').slice(0, 1).toUpperCase(),
+        letterColor: sel ? '#e8dfcc' : '#a39a89',
+        dot: C[a.st], pulse: a.st === 'working' ? 'pd-pulse' : '',
+        bg: sel ? '#2b2621' : 'transparent',
+        ring: sel ? 'inset 0 0 0 1px #4a4339' : 'none',
+        pick: () => this.setState({ selected: a.id, tip: false })
+      });
+    }));
+    const tabList = [
+      { title: 'paddock/main', st: 'working', on: true },
+      { title: 'dev-fonts', st: 'waiting' },
+      { title: 'zsh · paddock', st: 'idle' }
+    ];
+    const tabs = tabList.map((t) => ({
+      title: t.title, dot: C[t.st],
+      bg: t.on ? '#2b2621' : 'transparent', color: t.on ? '#e8dfcc' : '#8c8374'
+    }));
+    const openList = [
+      { name: 'dev-fonts', project: 'paddock', dot: C.waiting, hint: 'Move here' },
+      { name: 'dev-buttons', project: 'paddock', dot: C.idle, hint: '' },
+      { name: 'main', project: 'saddle', dot: C.idle, hint: '' },
+      { name: 'test-m2', project: 'ranch', dot: C.error, hint: '' }
+    ];
+    const D = {
+      left:  { label: 'Left',  key: '',    l: '0', t: '0', w: '50%', h: '100%' },
+      right: { label: 'Right', key: '⌘D',  l: '50%', t: '0', w: '50%', h: '100%' },
+      up:    { label: 'Up',    key: '',    l: '0', t: '0', w: '100%', h: '50%' },
+      down:  { label: 'Down',  key: '⌘⇧D', l: '0', t: '50%', w: '100%', h: '50%' }
+    };
+    const dirs = Object.keys(D).map((k) => {
+      const on = s.dir === k;
+      return { ...D[k],
+        bg: on ? '#2e2924' : 'transparent', border: on ? '#4a4339' : '#2e2a24',
+        stroke: on ? '#cfc6b2' : '#756c5e', fill: on ? 'rgba(189,184,106,.55)' : 'rgba(117,108,94,.35)',
+        text: on ? '#e8dfcc' : '#8c8374',
+        pick: () => this.setState({ dir: k })
+      };
+    });
+    const collapsed = s.collapsed;
+    const sideW = collapsed ? 52 : 300;
+    const p = s.popup;
+    const on = (x) => p === x;
+    return {
+      tabs, groups, rail, dirs, openList, openListShort: openList.slice(0, 3),
+      dirWord: { left: 'ON THE LEFT', right: 'ON THE RIGHT', up: 'ABOVE', down: 'BELOW' }[s.dir],
+      expanded: !collapsed, collapsed,
+      tabGap: Math.max(0, sideW - 84),
+      showMenu: on('menu'), showNewTab: on('newtab'), showSplit: on('split'), showAttention: on('attention'),
+      showTip: collapsed && s.tip && !p, tipTop: 112,
+      menuLeft: 10,
+      attnLeft: collapsed ? 50 : 168, attnTop: collapsed ? 40 : 40,
+      footBg: on('menu') ? '#2b2621' : 'transparent', footColor: on('menu') ? '#e8dfcc' : '#a39a89',
+      plusBg: on('newtab') ? '#2b2621' : 'transparent', plusColor: on('newtab') ? '#e8dfcc' : '#8c8374',
+      splitBg: on('split') ? '#2b2621' : 'transparent', splitColor: on('split') ? '#e8dfcc' : '#8c8374',
+      sortStatusBg: s.sort === 'status' ? '#3a352e' : 'transparent', sortStatusColor: s.sort === 'status' ? '#e8dfcc' : '#8c8374',
+      sortNameBg: s.sort === 'name' ? '#3a352e' : 'transparent', sortNameColor: s.sort === 'name' ? '#e8dfcc' : '#8c8374',
+      foldMark: s.fold ? '✓' : '',
+      toggleMenu: () => this.toggle('menu'),
+      toggleNewTab: () => this.toggle('newtab'),
+      toggleSplit: () => this.toggle('split'),
+      toggleAttention: () => this.toggle('attention'),
+      toggleCollapse: () => this.setState({ collapsed: !collapsed, popup: '', tip: false }),
+      sortStatus: () => this.setState({ sort: 'status' }),
+      sortName: () => this.setState({ sort: 'name' }),
+      toggleFold: () => this.setState({ fold: !s.fold }),
+      attn: [
+        { mark: '?', markBg: 'rgba(230,181,102,.16)', markColor: '#e6b566', name: 'dev-fonts', project: 'paddock', age: '1m', reason: 'Waiting for your reply', reasonColor: '#e6b566', note: 'Upgrade the font crate to 0.8? It changes the fallback order.', bg: '#2a2621' },
+        { mark: '!', markBg: 'rgba(239,129,116,.16)', markColor: '#ef8174', name: 'test-m2', project: 'ranch', age: '2h', reason: 'Error · exited with code 1', reasonColor: '#ef8174', note: 'error: could not find `corral` in PATH', bg: 'transparent' },
+        { mark: '•', markBg: 'rgba(189,184,106,.16)', markColor: '#bdb86a', name: 'dev-buttons', project: 'paddock', age: '12m', reason: 'New reply', reasonColor: '#bdb86a', note: 'Done. Five icons now draw from footer_icon.rs; tests pass.', bg: 'transparent' }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

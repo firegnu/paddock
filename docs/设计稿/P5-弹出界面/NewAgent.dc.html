@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>New Agent window</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;background:#141210}
+.pd-btn{background:none;border:0;padding:0;margin:0;font:inherit;color:inherit;cursor:pointer}
+.pd-seg:hover{color:#e8dfcc}
+.pd-ghost:hover{background:#2e2924}
+.pd-primary:hover{filter:brightness(1.07)}
+.pd-field{height:30px;box-sizing:border-box;border-radius:7px;background:#14120f;box-shadow:inset 0 0 0 1px #34302a;display:flex;align-items:center;padding:0 10px}
+</style>
+</helmet>
+<div style="width:640px;height:700px;display:flex;align-items:flex-start;justify-content:center;padding-top:30px;box-sizing:border-box;background:#141210;font-family:-apple-system,'SF Pro Text','Helvetica Neue',sans-serif;font-size:13px;color:#e8dfcc">
+  <div style="width:560px;background:#1d1a16;border:1px solid #3a352e;border-radius:12px;box-shadow:0 24px 60px rgba(0,0,0,.5);overflow:hidden">
+    <!-- Title bar -->
+    <div style="height:38px;display:flex;align-items:center;padding:0 14px;position:relative">
+      <div style="display:flex;gap:8px">
+        <span style="width:12px;height:12px;border-radius:50%;background:#ff5f57"></span>
+        <span style="width:12px;height:12px;border-radius:50%;background:#febc2e"></span>
+        <span style="width:12px;height:12px;border-radius:50%;background:#28c840"></span>
+      </div>
+      <span style="position:absolute;left:0;right:0;text-align:center;font-size:12.5px;font-weight:600;color:#a39a89;pointer-events:none">New Agent</span>
+    </div>
+
+    <div style="padding:10px 28px 6px;display:grid;grid-template-columns:96px 1fr;row-gap:14px;column-gap:16px;align-items:center">
+      <span style="color:#8c8374;text-align:right">Project</span>
+      <div style="display:flex;gap:8px">
+        <div class="pd-field" style="flex:1;font-family:'SF Mono',Menlo,monospace;font-size:12px;color:#cfc6b2">~/Developer/personal_projs/paddock</div>
+        <button class="pd-btn pd-ghost" style="height:30px;padding:0 12px;border-radius:7px;box-shadow:inset 0 0 0 1px #3a352e;color:#cfc6b2">Choose…</button>
+      </div>
+
+      <span style="color:#8c8374;text-align:right">Agent</span>
+      <div style="display:flex;background:#14120f;border-radius:8px;padding:3px;width:max-content;box-shadow:inset 0 0 0 1px #2e2a24">
+        <sc-for list="{{tools}}" as="t" hint-placeholder-count="2">
+          <button class="pd-btn pd-seg" onClick="{{t.pick}}" style="display:flex;align-items:center;gap:7px;height:26px;padding:0 14px;border-radius:6px;background:{{t.bg}};color:{{t.color}}">
+            <span style="width:7px;height:7px;border-radius:50%;background:{{t.dot}}"></span>{{t.label}}
+          </button>
+        </sc-for>
+      </div>
+
+      <span style="color:#8c8374;text-align:right">Role</span>
+      <div style="display:flex;align-items:center;gap:12px">
+        <div style="display:flex;background:#14120f;border-radius:8px;padding:3px;box-shadow:inset 0 0 0 1px #2e2a24">
+          <sc-for list="{{roles}}" as="r" hint-placeholder-count="2">
+            <button class="pd-btn pd-seg" onClick="{{r.pick}}" style="height:26px;padding:0 14px;border-radius:6px;background:{{r.bg}};color:{{r.color}}">{{r.label}}</button>
+          </sc-for>
+        </div>
+      </div>
+
+      <span style="color:#8c8374;text-align:right">Name</span>
+      <div style="display:flex;align-items:center;gap:6px">
+        <div class="pd-field" style="width:120px">paddock</div>
+        <span style="color:#5f574b">/</span>
+        <div class="pd-field" style="flex:1;color:{{nameColor}}">{{agentName}}<sc-if value="{{nameEditable}}" hint-placeholder-val="{{true}}"><span style="display:inline-block;width:1.5px;height:15px;background:#bdb86a;margin-left:1px"></span></sc-if></div>
+      </div>
+
+      <span style="color:#8c8374;text-align:right;align-self:start;padding-top:6px">Open in</span>
+      <div style="display:flex;align-items:center;gap:10px">
+        <div style="display:flex;background:#14120f;border-radius:8px;padding:3px;box-shadow:inset 0 0 0 1px #2e2a24">
+          <sc-for list="{{places}}" as="p" hint-placeholder-count="3">
+            <button class="pd-btn pd-seg" onClick="{{p.pick}}" style="height:26px;padding:0 13px;border-radius:6px;background:{{p.bg}};color:{{p.color}}">{{p.label}}</button>
+          </sc-for>
+        </div>
+        <sc-if value="{{isSplit}}" hint-placeholder-val="{{true}}">
+          <div style="display:flex;gap:4px">
+            <sc-for list="{{dirs}}" as="d" hint-placeholder-count="4">
+              <button class="pd-btn pd-seg" onClick="{{d.pick}}" aria-label="{{d.label}}" style="width:30px;height:30px;border-radius:7px;display:flex;align-items:center;justify-content:center;box-shadow:inset 0 0 0 1px {{d.border}};background:{{d.bg}}">
+                <span style="position:relative;width:16px;height:12px;border-radius:2px;border:1.1px solid {{d.stroke}};box-sizing:border-box;overflow:hidden">
+                  <span style="position:absolute;left:{{d.l}};top:{{d.t}};width:{{d.w}};height:{{d.h}};background:{{d.fill}}"></span>
+                </span>
+              </button>
+            </sc-for>
+          </div>
+        </sc-if>
+      </div>
+    </div>
+
+    <!-- Advanced -->
+    <div style="margin:12px 28px 0;border-top:1px solid #2a2621;padding-top:10px">
+      <button class="pd-btn" onClick="{{toggleAdvanced}}" style="display:flex;align-items:center;gap:6px;color:#a39a89;font-size:12.5px;padding:2px 0">
+        <svg width="9" height="9" viewBox="0 0 9 9" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" style="transform:rotate({{chevron}}deg);transition:transform .15s"><path d="M3 1.5L6 4.5 3 7.5"/></svg>
+        Advanced
+      </button>
+      <sc-if value="{{advanced}}" hint-placeholder-val="{{true}}">
+        <div style="display:grid;grid-template-columns:96px 1fr;row-gap:12px;column-gap:16px;align-items:center;margin-top:12px">
+          <span style="color:#8c8374;text-align:right">Command</span>
+          <div class="pd-field" style="font-family:'SF Mono',Menlo,monospace;font-size:12px;color:#cfc6b2">{{command}}</div>
+          <span style="color:#8c8374;text-align:right;align-self:start;padding-top:7px">First message</span>
+          <div class="pd-field" style="height:58px;align-items:flex-start;padding-top:7px;color:#5f574b">Optional: the agent's first message</div>
+        </div>
+      </sc-if>
+    </div>
+
+    <!-- Will run -->
+    <div style="margin:14px 28px 0;padding:10px 12px;border-radius:8px;background:#161411">
+      <div style="font-size:10.5px;font-weight:600;letter-spacing:.07em;color:#5f574b;margin-bottom:5px">WILL RUN</div>
+      <div style="font-family:'SF Mono',Menlo,monospace;font-size:11.5px;line-height:1.55;color:#a39a89;word-break:break-all">corral start <span style="color:#e8dfcc">paddock/{{agentName}}</span> --cwd ~/Developer/personal_projs/paddock --label role={{role}} -- <span style="color:{{toolColor}}">{{command}}</span></div>
+    </div>
+
+    <!-- Footer -->
+    <div style="display:flex;align-items:center;gap:8px;padding:18px 20px 18px 28px">
+      <span style="flex:1"></span>
+      <button class="pd-btn pd-ghost" style="height:30px;padding:0 14px;border-radius:7px;color:#cfc6b2">Cancel</button>
+      <button class="pd-btn pd-primary" style="height:30px;padding:0 14px;border-radius:7px;background:#bdb86a;color:#1b1916;font-weight:600;display:flex;align-items:center;gap:8px">Create <span style="opacity:.6;font-weight:500">⌘↩</span></button>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":640,"height":700}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { tool: 'claude', role: 'regular', place: 'split', dir: 'right', advanced: true };
+  }
+  renderVals() {
+    const s = this.state;
+    const seg = (on) => ({ bg: on ? '#2e2924' : 'transparent', color: on ? '#e8dfcc' : '#8c8374' });
+    const tools = [
+      { id: 'claude', label: 'Claude', dot: '#e2835e' },
+      { id: 'codex', label: 'Codex', dot: '#79d4b4' }
+    ].map((t) => ({ ...t, ...seg(s.tool === t.id), pick: () => this.setState({ tool: t.id }) }));
+    const roles = [
+      { id: 'controller', label: 'Controller' },
+      { id: 'regular', label: 'Regular' }
+    ].map((r) => ({ ...r, ...seg(s.role === r.id), pick: () => this.setState({ role: r.id }) }));
+    const places = [
+      { id: 'current', label: 'Current pane' },
+      { id: 'tab', label: 'New tab' },
+      { id: 'split', label: 'Split' }
+    ].map((p) => ({ ...p, ...seg(s.place === p.id), pick: () => this.setState({ place: p.id }) }));
+    const D = {
+      left:  { label: 'Left',  l: '0', t: '0', w: '50%', h: '100%' },
+      right: { label: 'Right', l: '50%', t: '0', w: '50%', h: '100%' },
+      up:    { label: 'Up',    l: '0', t: '0', w: '100%', h: '50%' },
+      down:  { label: 'Down',  l: '0', t: '50%', w: '100%', h: '50%' }
+    };
+    const dirs = Object.keys(D).map((k) => {
+      const on = s.dir === k;
+      return { ...D[k], bg: on ? '#2e2924' : 'transparent', border: on ? '#4a4339' : '#2e2a24',
+        stroke: on ? '#cfc6b2' : '#756c5e', fill: on ? 'rgba(189,184,106,.6)' : 'rgba(117,108,94,.35)',
+        pick: () => this.setState({ dir: k }) };
+    });
+    const command = s.tool === "claude" ? "claude" : "codex --yolo";
+    return {
+      tools, roles, places, dirs, command,
+      toolColor: s.tool === 'claude' ? '#e2835e' : '#79d4b4',
+      isSplit: s.place === 'split',
+      agentName: s.role === 'controller' ? 'main' : 'dev-sidebar',
+            role: s.role,
+      nameEditable: s.role === "regular", nameColor: s.role === "regular" ? "#e8dfcc" : "#756c5e",
+      advanced: s.advanced, chevron: s.advanced ? 90 : 0,
+      toggleAdvanced: () => this.setState({ advanced: !s.advanced })
+    };
+  }
+}
+</script>
+</body>
+</html>

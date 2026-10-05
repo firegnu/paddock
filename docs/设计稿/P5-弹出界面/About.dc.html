@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>About window</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;background:#141210}
+</style>
+</helmet>
+<div style="width:480px;height:440px;display:flex;align-items:flex-start;justify-content:center;padding-top:24px;box-sizing:border-box;background:#141210;font-family:-apple-system,'SF Pro Text','Helvetica Neue',sans-serif;font-size:13px;color:#e8dfcc">
+  <div style="width:380px;background:#1d1a16;border:1px solid #3a352e;border-radius:12px;box-shadow:0 24px 60px rgba(0,0,0,.5);overflow:hidden">
+    <div style="height:34px;display:flex;align-items:center;gap:8px;padding:0 14px">
+      <span style="width:12px;height:12px;border-radius:50%;background:#ff5f57"></span>
+      <span style="width:12px;height:12px;border-radius:50%;background:#3a352e"></span>
+      <span style="width:12px;height:12px;border-radius:50%;background:#3a352e"></span>
+    </div>
+    <div style="display:flex;flex-direction:column;align-items:center;padding:8px 36px 26px;text-align:center">
+      <!-- The app icon: the pixel cat on its dark square (drawn by icon.rs in the app) -->
+      <div style="width:84px;height:84px;border-radius:19px;background:#1d1a16;box-shadow:inset 0 0 0 1px #3a352e,0 6px 18px rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center">
+        <svg width="48" height="40" viewBox="0 0 12 10" shape-rendering="crispEdges">
+          <g fill="#d9a066"><rect x="2" y="0" width="1" height="1"/><rect x="6" y="0" width="1" height="1"/><rect x="2" y="1" width="5" height="3"/><rect x="2" y="4" width="8" height="4"/><rect x="10" y="3" width="1" height="3"/><rect x="11" y="2" width="1" height="2"/><rect x="2" y="8" width="1" height="2"/><rect x="4" y="8" width="1" height="2"/><rect x="7" y="8" width="1" height="2"/><rect x="9" y="8" width="1" height="2"/></g>
+          <g fill="#1d1a16"><rect x="3" y="2" width="1" height="1"/><rect x="5" y="2" width="1" height="1"/></g>
+        </svg>
+      </div>
+      <div style="font-size:20px;font-weight:600;letter-spacing:-.01em;margin-top:16px">paddock</div>
+      <div style="color:#8c8374;font-size:12px;margin-top:3px;font-variant-numeric:tabular-nums">Version 0.0.0</div>
+      <div style="margin-top:14px;color:#cfc6b2;line-height:1.5">A desktop home for corral agents, built with GPUI.</div>
+      <div style="width:40px;height:1px;background:#2e2a24;margin:16px 0 12px"></div>
+      <div style="color:#756c5e;font-size:11.5px;line-height:1.55">Terminal and agent code, themes and pets come from Saddle. Clawd is Claude Code's mascot, from Anthropic; the cat and the capybara are Saddle originals.</div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":480,"height":440}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>
