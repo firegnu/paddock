@@ -15,7 +15,7 @@
 
 - Saddle `crates/corral-core` 最后一次改动是 `9648ff0`（10-03）；已安装的 `711ab18` 与 `a31dea2` 中这部分相同。约 7400 行（源码、测试、README）；依赖 `libc`、`serde`、`serde_json`、`uuid`、`sha2`、`base64`、`regex`、`shell-words`，测试另用 `tempfile`；不依赖 Saddle 其他代码，没有 ratatui、crossterm、Python。
 - `~/.local/bin/corral` 是软链接，指向 `~/.local/share/saddle/versions/711ab18/bin/corral`。
-- corral 技能（`~/.claude/skills/corral`、`~/.codex/skills/corral`）由 `corral skills` 安装，内容编在程序里。
+- corral 技能（`~/.claude/skills/corral`、`~/.agents/skills/corral`）由 `corral skills` 安装，内容编在程序里。
 - paddock 按 PATH 调用 `corral`，不用改。Saddle 默认用和自己打包在一起的 corral，不找 PATH（`src/agent_program.rs`）；插件也是（`bundled()`）；Updates 页按配置里的 corral 比较和升级。
 
 ## 要做的
@@ -69,3 +69,13 @@
 - 不把 corral 打进 paddock.app（单独分发时再定，DESIGN §7）。
 - 不改 Saddle 仓库；不删 Saddle 的版本目录；不碰旧的 Python corral 仓库（`../corral`）。
 - 不对用户的 agent 做任何写操作。
+
+## 进度记录
+
+2026-10-05，paddock/main。第一、二节完成；第三节（Saddle 侧）等 Saddle 主控。
+
+- **第一节**：ranch 建在 `../ranch`，推送到 `github.com/firegnu/ranch`（public，不加许可证；推送前 gitleaks、trufflehog 查全部历史和文件，无发现）。corral 迁入 `crates/corral/`：先原样复制一次提交（`1309725`），再加来源注释（`df46247`）；核对过源码相对 Saddle 只多每个 Rust 文件开头一行注释。锁文件以 Saddle 的为起点只删不升，剩 53 个包。打包工具 `tools/package`（`ranch-package`，只用 std）。42 项测试、clippy、fmt 通过；`collectors.mjs` 用 Node 24 手动跑通过。
+  - 第一次跑全部测试时 `protocol` 有一项在并行时卡住 7 分钟（三个测试 pen 空等）；按 PID 停掉后逐项跑、整体再跑 6 次都在几秒内通过，未能复现。是 Saddle 原有代码，留意。
+  - 版本目录 `~/.local/share/ranch/versions/df46247/` 从干净的 main 生成；随程序文件与 Saddle `711ab18` 装的逐字节相同；已装的 corral 技能（`~/.claude/skills/corral`、`~/.agents/skills/corral`）与之相同，未重装。
+- **第二节**（用户在场，10-05）：`~/.local/bin/corral` 从 `~/.local/share/saddle/versions/711ab18/bin/corral` 改指向 ranch `df46247`。`corral ls` 照常；`paddock/test-m2` 用 `/bin/cat` 测 start/status/send/wait/stop，用 claude 测 `--prompt` 首句、`send`、`wait`、`reply`（回复正确、状态到 idle），exe 都在 ranch 版本目录；用完 stop。退回：链接改回 Saddle `711ab18`。
+- **还没做**：第三节，Saddle 改用 ranch 的 corral 后核对；paddock.app 侧栏未截图核对（用户可直接看）。
