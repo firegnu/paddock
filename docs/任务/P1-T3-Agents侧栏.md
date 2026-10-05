@@ -66,3 +66,42 @@
 
 ## 做完
 在本文件末尾追加「## 完成记录」（在你的分支里提交）：做了什么、验证了什么、拿主意的地方、没做的事，各几句话。回复里只写这几样，加上有没有要主控决定的事。命令都在前台跑完，全部做完后，回复最后一行写 DONE。
+
+## 完成记录
+
+2026-10-05，paddock/dev-agents。
+
+**做了什么**
+- 新建 `app/src/sidebar.rs`：`Listing` 把 `saddle::corral::Poller`（每秒，同 Saddle 默认 `refresh_ms`）的结果交给 `saddle::agents::Panel`，按 `Panel::ordered` 排序、`Panel::status` 判状态，按 `group` 输出组名行和 agent 行（去组前缀；无前缀的组照 Saddle 显示为 `agents/`）。corral 报错时在列表顶部加一行错误说明，保留上一次的列表；下一次成功读取后错误行消失。
+- 每个 agent 一行是独立组件 `AgentRow`（`RenderOnce`）：状态色点、名字、状态文字；点击用各自元素的 `on_click`，列表是 `overflow_y_scroll` 的弹性布局，不假定行高，放不下时滚动。底部固定“＋ 新 shell”。
+- 颜色全部经 `Theme::fg/bg` 按 Saddle 字段名取。
+- `view.rs` 只加了切换方法，不动绘制：`target`、`attach`（`shell = None` 后 `Viewer::select_agent`，元数据带 agent 的 cwd 和 instance，同 Saddle 的 `attach_at`）、`start_shell`（`Viewer::close` 结束当前会话，等 `Viewer::closed()` 后再 `start_shell`，避免旧会话退出把新 shell 标成 exited）、`disappeared`（转给 `Viewer::disappeared`，传入未 exited 的 agent 名，同 Saddle）。`Options` 加 `corral` 字段，`Launch::Agent` 去掉其中重复的 `corral`；原来 shell 启动时 `Viewer` 固定用 `"corral"`，现在跟随 `--corral`。
+- `window.rs` 把占位换成侧栏；`main.rs` 把 `$SHELL` 和 `--cwd`（缺省当前目录）交给侧栏的“新 shell”；`lib.rs` 加模块。
+- 选中标记：`TerminalView::target()`（正在接入或已接入的 agent）那一行用 `agent_selected` 底色；标题栏显示 agent 名或 `shell · <cwd>`。点击后把键盘焦点交回终端窗格。
+
+**验证了什么**
+- 合成 `Agent` 数据的针对性测试：分组和组内排序、去前缀、行里带的 cwd/instance、状态随每次列表刷新、8 种状态到标签和颜色的对应、error/stalled 由 Panel 判断。
+- 假 `corral` 脚本（临时目录里的 sh 脚本，`Client.program` 指向它）：`ok:false` 报错、非 JSON 输出、程序不存在三种都变成错误行且保留旧列表、之后成功读取清掉错误；另一个假脚本走通 `ls`+`status` 到行。
+- 对 `app/Cargo.toml`：`cargo test --all-targets` 42 项通过（新增 5 项），`cargo clippy --all-targets -- -D warnings` 通过。
+- 启动一次，只截本窗口（`screencapture -l`）：侧栏按组列出 agent，色点、名字、状态文字和底部“＋ 新 shell”显示正常。截图已删除。
+- 点击 agent、点“＋ 新 shell”、点完直接打字、滚动，都没有用脚本模拟，留给用户实际体验。没有 attach 任何现有 agent，也没有开 `paddock/test-agents`。
+
+**拿主意的地方**
+- 状态颜色照 Saddle Agents 面板实际的 `look()`：waiting→`agents_yellow`、error→`agents_red`、stalled→`agent_stalled`、working→`agents_blue`、starting→`agent_starting`、unknown→`agents_dim`、idle→`agents_green`、exited→`agents_faint`（名字也用 `agents_faint`）。任务书举例的 `agent_working`、`agent_idle`、`agent_blocked` 在 Saddle 面板里并不用于状态行。
+- 色点画成圆点，不用 Saddle 的字符点（◐○? 等）。组名行只写组名，不带 Saddle 的计数和分隔线。
+- 点 agent 时，若 agent 带 instance，Saddle 的 attach 会先检查 `attached == 0`，在别处（如 Saddle TUI）已接入的 agent 会报“agent attached elsewhere”，这是沿用 Saddle 的行为。
+- `Launch::Command` 的会话被切走时在后台线程里结束（`Session` 的 drop 会等进程退出，最多 3 秒，不能卡界面线程）。
+
+**没做的事**
+- 没加分支、强度、角色、标题等信息；没做悬停效果、键盘选择、空列表提示。
+- `app/README.md` 第 3 行仍写“侧栏目前是空白占位”，不在本任务可改的文件里，没改。
+
+## 主控审查
+
+2026-10-05，paddock/main。结论：通过，已合并（`973299d`）。
+- 范围：只动了允许的文件；`view.rs` 只加切换方法，未动绘制；“不要做”各条均未触犯。
+- 对照“怎么算做完”逐条达到；每行为独立组件、列表可滚动；颜色全部经 `Theme::fg/bg`。主控在独立编译目录（`.target/review`）重跑 `cargo test --all-targets` 42 项通过、clippy 无警告，与完成记录一致。
+- 取舍：状态色照 Saddle 面板实际所用字段（`agents_yellow/blue/green` 等），同意；圆点代替字符点、组名不带计数，同意；沿用 Saddle“已在别处接入”的检查，同意，需告知用户。
+- README 第 3 行由主控合并后改正。
+- 点击、打字、滚动未实际操作，留给用户体验。
+- 对方提出的共用编译目录问题属实，T2 也遇到，规矩是否调整交用户决定。

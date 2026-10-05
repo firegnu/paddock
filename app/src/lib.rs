@@ -8,6 +8,7 @@ pub mod ime;
 pub mod keys;
 pub mod palette;
 pub mod rows;
+pub mod sidebar;
 pub mod theme;
 pub mod view;
 pub mod window;
