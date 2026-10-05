@@ -504,12 +504,14 @@ impl Render for Sidebar {
         if agents == 0 && self.listing.loaded {
             // Nothing listed: why, or how to start one, in the middle of the list.
             let quiet = match lines.first() {
-                Some(Line::Error(text)) => quiet(&theme, &ui, "读不到 corral", text, None, None),
+                Some(Line::Error(text)) => {
+                    quiet(&theme, &ui, "Can't read corral", text, None, None)
+                }
                 _ => quiet(
                     &theme,
                     &ui,
-                    "还没有 agent",
-                    "新建一个，在这里看它的状态和回复。",
+                    "No agents yet",
+                    "Start one to see its status and replies here.",
                     Some(Icon::NewAgent),
                     Some(
                         div()
@@ -526,7 +528,7 @@ impl Render for Sidebar {
                             .font_weight(FontWeight::SEMIBOLD)
                             .cursor_pointer()
                             .hover(|style| style.opacity(0.9))
-                            .child("新建 agent")
+                            .child("New Agent")
                             .on_click(cx.listener(|_, _: &ClickEvent, _, cx| {
                                 cx.emit(SidebarEvent::NewAgent)
                             })),
@@ -1011,13 +1013,13 @@ mod tests {
             shown(&lines),
             [
                 "# agents/ (1)",
-                "solo 工作中",
+                "solo Working",
                 "# paddock/ (3)",
-                "dev-theme 等你回复",
-                "dev-agents 工作中",
-                "main 空闲",
+                "dev-theme Waiting",
+                "dev-agents Working",
+                "main Idle",
                 "# saddle/ (1)",
-                "main 已退出",
+                "main Exited",
             ]
         );
         let Line::Agent(card) = &lines[3] else {
@@ -1044,12 +1046,12 @@ mod tests {
         listing.absorb(Ok(vec![agent("p/a", "working")]), None, 1000.0);
         assert_eq!(
             shown(&listing.lines(None, None, &roomy, 1000.0))[1],
-            "a 工作中"
+            "a Working"
         );
         listing.absorb(Ok(vec![agent("p/a", "idle")]), None, 1001.0);
         assert_eq!(
             shown(&listing.lines(None, None, &roomy, 1001.0))[1],
-            "a 空闲"
+            "a Idle"
         );
         listing.absorb(Ok(vec![]), None, 1002.0);
         assert!(listing.lines(None, None, &roomy, 1002.0).is_empty());
@@ -1066,7 +1068,7 @@ mod tests {
         listing.absorb(Ok(vec![broken, quiet]), None, 1000.0);
         assert_eq!(
             shown(&listing.lines(None, None, &roomy, 1000.0)),
-            ["# p/ (2)", "broken 出错", "quiet 卡住了"]
+            ["# p/ (2)", "broken Error", "quiet Stalled"]
         );
     }
 
@@ -1110,7 +1112,7 @@ mod tests {
         let lines = shown(&listing.lines(None, None, &roomy, 1001.0));
         assert!(lines[0].starts_with("! corral: "), "{lines:?}");
         assert!(lines[0].contains("daemon unreachable"), "{lines:?}");
-        assert_eq!(lines[1..], ["# p/ (1)", "a 空闲"]);
+        assert_eq!(lines[1..], ["# p/ (1)", "a Idle"]);
 
         assert!(
             listing
@@ -1132,7 +1134,7 @@ mod tests {
         listing.absorb(Ok(vec![agent("p/a", "working")]), None, 1004.0);
         assert_eq!(
             shown(&listing.lines(None, None, &roomy, 1004.0)),
-            ["# p/ (1)", "a 工作中"]
+            ["# p/ (1)", "a Working"]
         );
         std::fs::remove_dir_all(&dir).unwrap();
         std::fs::remove_dir_all(dir.with_file_name(format!(
@@ -1155,7 +1157,7 @@ esac"#,
         let alive = listing.absorb(first_update(program), None, 1000.0).unwrap();
         assert_eq!(alive, ["p/a"]);
         let lines = listing.lines(None, None, &roomy, 1000.0);
-        assert_eq!(shown(&lines), ["# p/ (1)", "a 工作中"]);
+        assert_eq!(shown(&lines), ["# p/ (1)", "a Working"]);
         let Line::Agent(card) = &lines[1] else {
             panic!()
         };

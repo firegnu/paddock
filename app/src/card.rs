@@ -23,14 +23,14 @@ pub struct Look {
 /// Only a working agent's dot breathes.
 pub fn look(status: Status) -> Look {
     let (label, color): (_, Pick) = match status {
-        Status::Waiting => ("等你回复", |t| t.agents_yellow),
-        Status::Error => ("出错", |t| t.agents_red),
-        Status::Stalled => ("卡住了", |t| t.agent_stalled),
-        Status::Working => ("工作中", |t| t.agents_blue),
-        Status::Starting => ("启动中", |t| t.agent_starting),
-        Status::Unknown => ("未知", |t| t.agents_dim),
-        Status::Idle => ("空闲", |t| t.agents_green),
-        Status::Exited => ("已退出", |t| t.agents_red),
+        Status::Waiting => ("Waiting", |t| t.agents_yellow),
+        Status::Error => ("Error", |t| t.agents_red),
+        Status::Stalled => ("Stalled", |t| t.agent_stalled),
+        Status::Working => ("Working", |t| t.agents_blue),
+        Status::Starting => ("Starting", |t| t.agent_starting),
+        Status::Unknown => ("Unknown", |t| t.agents_dim),
+        Status::Idle => ("Idle", |t| t.agents_green),
+        Status::Exited => ("Exited", |t| t.agents_red),
     };
     Look {
         color,
@@ -77,13 +77,16 @@ pub fn short_time(value: Option<f64>) -> String {
 fn ago(seconds: f64) -> String {
     let s = seconds.max(0.0);
     if s < 60.0 {
-        "刚刚".into()
+        "just now".into()
     } else if s < 3600.0 {
-        format!("{} 分钟前", (s / 60.0) as u64)
+        format!("{} min ago", (s / 60.0) as u64)
     } else if s < 86400.0 {
-        format!("{} 小时前", (s / 3600.0) as u64)
+        format!("{} hr ago", (s / 3600.0) as u64)
     } else {
-        format!("{} 天前", (s / 86400.0) as u64)
+        match (s / 86400.0) as u64 {
+            1 => "1 day ago".into(),
+            n => format!("{n} days ago"),
+        }
     }
 }
 
@@ -113,20 +116,20 @@ fn second(
     place: impl FnOnce() -> String,
 ) -> Second {
     let (text, tone) = match status {
-        Status::Starting => ("启动中…".to_owned(), Tone::Quiet),
+        Status::Starting => ("Starting…".to_owned(), Tone::Quiet),
         Status::Waiting => match title {
-            Some(title) => (format!("等你回复：{title}"), Tone::Waiting),
-            None => ("等你回复".to_owned(), Tone::Waiting),
+            Some(title) => (format!("Waiting for you: {title}"), Tone::Waiting),
+            None => ("Waiting for you".to_owned(), Tone::Waiting),
         },
         Status::Error => {
             let text = match (&a.error, a.incompatible) {
-                (Some(error), _) => format!("出错：{error}"),
-                (None, true) => format!("协议不兼容（{}）", a.proto.unwrap_or(0)),
-                (None, false) => "出错".to_owned(),
+                (Some(error), _) => format!("Error: {error}"),
+                (None, true) => format!("Incompatible protocol ({})", a.proto.unwrap_or(0)),
+                (None, false) => "Error".to_owned(),
             };
             (text, Tone::Problem)
         }
-        Status::Exited => ("已退出".to_owned(), Tone::Problem),
+        Status::Exited => ("Exited".to_owned(), Tone::Problem),
         _ => (place(), Tone::Quiet),
     };
     Second { text, tone }
@@ -218,7 +221,7 @@ fn branch_details(s: &Summary) -> String {
         clean = false;
         let mut text = format!("+{} -{}", c.added, c.deleted);
         if c.binary > 0 {
-            text += &format!("，{} 个二进制文件", c.binary);
+            text += &format!(", {} binary", c.binary);
         }
         parts.push(text);
     }
@@ -226,15 +229,15 @@ fn branch_details(s: &Summary) -> String {
         && untracked > 0
     {
         clean = false;
-        parts.push(format!("{untracked} 个未跟踪文件"));
+        parts.push(format!("{untracked} untracked"));
     }
     if clean && s.changes.is_some() && s.untracked.is_some() {
-        parts.push("无改动".into());
+        parts.push("clean".into());
     }
     if let Some((ahead, _)) = &s.ahead
         && *ahead > 0
     {
-        parts.push(format!("领先 {ahead}"));
+        parts.push(format!("{ahead} ahead"));
     }
     parts.join(" · ")
 }
@@ -266,12 +269,12 @@ fn details(
         (Status::Working | Status::Stalled, Some(tool)) => format!("{} · {tool}", look.label),
         _ => look.label.to_owned(),
     };
-    rows.push(row("状态", state));
+    rows.push(row("Status", state));
     if let Some(cwd) = &a.cwd {
-        rows.push(row("目录", tilde(cwd, home)));
+        rows.push(row("Directory", tilde(cwd, home)));
     }
     if let Some(Some(summary)) = git {
-        rows.push(row("分支", branch_details(summary)));
+        rows.push(row("Branch", branch_details(summary)));
     }
     let label = |key: &str| {
         a.labels
@@ -284,34 +287,35 @@ fn details(
         .flatten()
         .collect();
     if !model.is_empty() {
-        rows.push(row("模型", model.join(" · ")));
+        rows.push(row("Model", model.join(" · ")));
     }
     rows.push(row(
-        "接入",
+        "Attached",
         match a.attached {
-            0 => "没有窗口".into(),
-            n => format!("{n} 个窗口"),
+            0 => "no windows".into(),
+            1 => "1 window".into(),
+            n => format!("{n} windows"),
         },
     ));
     if let Some(source) = &a.last_input_source {
         let who = match source.as_str() {
-            "human" => "你",
+            "human" => "You",
             "send" => "corral send",
             "agent" => "agent",
             other => other,
         };
         let when = a.last_input_at.map(|at| ago(now - at));
         rows.push(row(
-            "上次输入",
+            "Last input",
             match when {
-                Some(when) => format!("{who}，{when}"),
+                Some(when) => format!("{who}, {when}"),
                 None => who.to_owned(),
             },
         ));
     }
     if let Some(instance) = &a.instance {
         rows.push(Detail {
-            label: "实例",
+            label: "Instance",
             value: instance.clone(),
             mono: true,
         });
@@ -525,7 +529,7 @@ mod tests {
             ..agent("p/plain", "idle")
         };
         let waiting = Agent {
-            title: Some("要不要升级依赖".into()),
+            title: Some("Upgrade the dependencies?".into()),
             ..agent("p/ask", "blocked")
         };
         let asking = Agent {
@@ -568,18 +572,18 @@ mod tests {
             [
                 (
                     "ask".into(),
-                    line("等你回复：要不要升级依赖", Tone::Waiting)
+                    line("Waiting for you: Upgrade the dependencies?", Tone::Waiting)
                 ),
-                ("ask2".into(), line("等你回复", Tone::Waiting)),
-                ("broken".into(), line("出错：status failed", Tone::Problem)),
+                ("ask2".into(), line("Waiting for you", Tone::Waiting)),
+                ("broken".into(), line("Error: status failed", Tone::Problem)),
                 (
                     "work".into(),
                     line("~/code/paddock · p2d-render", Tone::Quiet)
                 ),
-                ("new".into(), line("启动中…", Tone::Quiet)),
+                ("new".into(), line("Starting…", Tone::Quiet)),
                 // No Git there: only the directory, never "git unavailable".
                 ("plain".into(), line("/tmp", Tone::Quiet)),
-                ("gone".into(), line("已退出", Tone::Problem)),
+                ("gone".into(), line("Exited", Tone::Problem)),
             ]
         );
     }
@@ -699,16 +703,16 @@ mod tests {
         assert_eq!(
             rows(cards[0]),
             [
-                ("状态", "工作中 · Bash".into()),
-                ("目录", "~/code/paddock".into()),
+                ("Status", "Working · Bash".into()),
+                ("Directory", "~/code/paddock".into()),
                 (
-                    "分支",
-                    "p2d-render · +25 -3 · 3 个未跟踪文件 · 领先 2".into()
+                    "Branch",
+                    "p2d-render · +25 -3 · 3 untracked · 2 ahead".into()
                 ),
-                ("模型", "opus · high".into()),
-                ("接入", "1 个窗口".into()),
-                ("上次输入", "你，2 分钟前".into()),
-                ("实例", "b18cda32ce36".into()),
+                ("Model", "opus · high".into()),
+                ("Attached", "1 window".into()),
+                ("Last input", "You, 2 min ago".into()),
+                ("Instance", "b18cda32ce36".into()),
             ]
         );
         assert!(cards[0].details.last().unwrap().mono);
@@ -716,10 +720,10 @@ mod tests {
         assert_eq!(
             rows(cards[1]),
             [
-                ("状态", "空闲".into()),
-                ("目录", "/w/p/b".into()),
-                ("接入", "没有窗口".into()),
-                ("实例", "abcdef123".into()),
+                ("Status", "Idle".into()),
+                ("Directory", "/w/p/b".into()),
+                ("Attached", "no windows".into()),
+                ("Instance", "abcdef123".into()),
             ]
         );
         let clean = Summary {
@@ -732,7 +736,7 @@ mod tests {
             }),
             untracked: Some(0),
         };
-        assert_eq!(branch_details(&clean), "main · 无改动");
+        assert_eq!(branch_details(&clean), "main · clean");
     }
 
     #[test]
@@ -757,10 +761,11 @@ mod tests {
 
     #[test]
     fn input_ages_read_as_words() {
-        assert_eq!(ago(20.0), "刚刚");
-        assert_eq!(ago(150.0), "2 分钟前");
-        assert_eq!(ago(2.5 * 3600.0), "2 小时前");
-        assert_eq!(ago(3.0 * 86400.0), "3 天前");
+        assert_eq!(ago(20.0), "just now");
+        assert_eq!(ago(150.0), "2 min ago");
+        assert_eq!(ago(2.5 * 3600.0), "2 hr ago");
+        assert_eq!(ago(1.5 * 86400.0), "1 day ago");
+        assert_eq!(ago(3.0 * 86400.0), "3 days ago");
     }
 
     #[test]
