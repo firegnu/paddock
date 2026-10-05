@@ -27,6 +27,7 @@ pub mod new_agent;
 pub mod new_agent_view;
 pub mod palette;
 pub mod pet;
+pub mod popover;
 pub mod preset;
 pub mod pty;
 pub mod rows;

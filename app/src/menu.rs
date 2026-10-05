@@ -20,6 +20,8 @@ actions!(
         Paste,
         ToggleFold,
         ToggleSortByName,
+        /// Collapse the sidebar to a narrow strip, or expand it again.
+        ToggleSidebar,
         Minimize,
         Zoom,
         /// Fill the tab with the active pane, or back to the split.
@@ -101,6 +103,7 @@ pub fn bindings() -> Vec<KeyBinding> {
         KeyBinding::new("cmd-w", CloseWindow, Some(crate::about::CONTEXT)),
         KeyBinding::new("cmd-shift-n", NewAgent, None),
         KeyBinding::new("cmd-shift-a", ShowAttention, None),
+        KeyBinding::new("cmd-b", ToggleSidebar, None),
         KeyBinding::new("cmd-p", Search, None),
         KeyBinding::new("cmd-shift-p", CommandPalette, None),
         KeyBinding::new("cmd-shift-enter", ZoomPane, None),
@@ -124,8 +127,9 @@ pub fn bindings() -> Vec<KeyBinding> {
     ]
 }
 
-/// The menu bar; `fold` and `by_name` tick the View items as the sidebar has them.
-pub fn menus(fold: bool, by_name: bool) -> Vec<Menu> {
+/// The menu bar; `fold` and `by_name` tick the View items as the sidebar has them, and
+/// `collapsed` says which way the sidebar item goes.
+pub fn menus(fold: bool, by_name: bool, collapsed: bool) -> Vec<Menu> {
     vec![
         Menu::new("paddock").items([
             MenuItem::action("About paddock", About),
@@ -159,6 +163,14 @@ pub fn menus(fold: bool, by_name: bool) -> Vec<Menu> {
         Menu::new("View").items([
             MenuItem::action("Fold Agents", ToggleFold).checked(fold),
             MenuItem::action("Sort Agents by Name", ToggleSortByName).checked(by_name),
+            MenuItem::action(
+                if collapsed {
+                    "Expand Sidebar"
+                } else {
+                    "Collapse Sidebar"
+                },
+                ToggleSidebar,
+            ),
             MenuItem::separator(),
             MenuItem::action("Zoom Pane", ZoomPane),
         ]),
@@ -200,9 +212,10 @@ pub struct Command {
 }
 
 /// Every command in the menu bar, the app menu's last, but the two that open the palette. Out of
-/// their menu, `Find…`, `Attention…` and `Zoom` say what they act on.
+/// their menu, `Find…`, `Attention…` and `Zoom` say what they act on, and the sidebar item says
+/// it goes either way.
 pub fn commands() -> Vec<Command> {
-    let mut menus = menus(false, false);
+    let mut menus = menus(false, false, false);
     menus.rotate_left(1);
     menus
         .into_iter()
@@ -217,6 +230,7 @@ pub fn commands() -> Vec<Command> {
                 "Find…" => "Find in Terminal",
                 "Attention…" => "Show Attention",
                 "Zoom" => "Zoom Window",
+                "Collapse Sidebar" => "Toggle Sidebar",
                 name => name,
             };
             Command {
@@ -330,6 +344,7 @@ mod tests {
             ("cmd-shift-n", "paddock::NewAgent"),
             ("cmd-enter", "paddock::CreateAgent"),
             ("cmd-shift-a", "paddock::ShowAttention"),
+            ("cmd-b", "paddock::ToggleSidebar"),
             ("cmd-p", "paddock::Search"),
             ("cmd-shift-p", "paddock::CommandPalette"),
             ("cmd-shift-enter", "paddock::ZoomPane"),
@@ -355,7 +370,7 @@ mod tests {
 
     #[test]
     fn the_menu_bar_has_the_agreed_menus_and_ticks_the_view_items() {
-        let names: Vec<String> = menus(false, false)
+        let names: Vec<String> = menus(false, false, false)
             .iter()
             .map(|m| m.name.to_string())
             .collect();
@@ -364,22 +379,29 @@ mod tests {
             ["paddock", "Shell", "Edit", "View", "Agent", "Window"]
         );
         let view = |fold, by_name| -> Vec<bool> {
-            menus(fold, by_name)[3]
+            menus(fold, by_name, false)[3]
                 .items
                 .iter()
                 .map(|item| matches!(item, MenuItem::Action { checked: true, .. }))
                 .collect()
         };
-        // Fold, Sort, a separator and Zoom Pane, which is never ticked.
-        assert_eq!(view(true, false), [true, false, false, false]);
-        assert_eq!(view(false, true), [false, true, false, false]);
+        // Fold, Sort, the sidebar, a separator and Zoom Pane; the last three are never ticked.
+        assert_eq!(view(true, false), [true, false, false, false, false]);
+        assert_eq!(view(false, true), [false, true, false, false, false]);
+        // The sidebar item says what it will do.
+        let sidebar = |collapsed| match &menus(false, false, collapsed)[3].items[2] {
+            MenuItem::Action { name, .. } => name.to_string(),
+            _ => String::new(),
+        };
+        assert_eq!(sidebar(false), "Collapse Sidebar");
+        assert_eq!(sidebar(true), "Expand Sidebar");
     }
 
     #[test]
     fn the_palette_lists_every_menu_command_with_the_shortcut_it_has() {
         let commands = commands();
         let titles: Vec<&str> = commands.iter().map(|c| c.title.as_str()).collect();
-        let in_menus = menus(false, false)
+        let in_menus = menus(false, false, false)
             .iter()
             .flat_map(|menu| &menu.items)
             .filter(|item| matches!(item, MenuItem::Action { .. }))
@@ -406,6 +428,7 @@ mod tests {
             "Settings…",
             "Fold Agents",
             "Sort Agents by Name",
+            "Toggle Sidebar",
             "Next Tab",
             "Previous Tab",
             "About paddock",
@@ -428,6 +451,7 @@ mod tests {
         assert_eq!(keys_of("Show Attention"), ["⌘", "⇧", "A"]);
         assert_eq!(keys_of("Find in Terminal"), ["⌘", "F"]);
         assert_eq!(keys_of("Settings…"), ["⌘", ","]);
+        assert_eq!(keys_of("Toggle Sidebar"), ["⌘", "B"]);
         assert_eq!(keys_of("Next Tab"), ["⌘", "⇧", "]"]);
         assert!(keys_of("Stop Agent…").is_empty());
         assert!(keys_of("Split Left…").is_empty());

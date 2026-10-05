@@ -183,7 +183,7 @@ fn main() -> Result<()> {
         cx.on_action(|_: &menu::NewAgent, cx| {
             cx.defer(|cx| windows::open_new_agent(paddock::new_agent::Place::Current, cx))
         });
-        cx.set_menus(menu::menus(false, false));
+        cx.set_menus(menu::menus(false, false, false));
         let main = cx
             .open_window(
                 WindowOptions {

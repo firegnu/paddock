@@ -1,7 +1,8 @@
 //! The Agents sidebar: `corral ls` and the agents' Git summaries through the pollers taken from
 //! Saddle, ordered and judged by its Agents panel model, shown as native two-line cards (`card.rs`
 //! decides what each card says). Clicking a card asks the window to show that agent, and clicking
-//! the one shown opens its details; the footer can sort, close the details and open a shell.
+//! the one shown opens its details. The footer's one button opens the window's menu of actions;
+//! the header's last button collapses the sidebar to a narrow strip of one tile per agent.
 use crate::{
     agents::{Panel, Status},
     attention,
@@ -29,14 +30,14 @@ pub enum SidebarEvent {
         name: String,
         metadata: AgentMetadata,
     },
-    /// Open a shell.
-    NewShell,
     /// Open the New Agent window.
     NewAgent,
-    /// Stop the active pane's agent, after asking.
-    Stop,
     /// Open or close the Attention list.
     Attention,
+    /// Open or close the menu of actions.
+    Actions,
+    /// Collapse to the strip, or expand again.
+    ToggleCollapse,
     /// The agents corral still lists, for panes to let go of one that disappeared.
     Alive(Vec<String>),
 }
@@ -73,6 +74,63 @@ const SECOND_SIZE: f32 = 12.0;
 const NOTE_SIZE: f32 = 11.5;
 const KIND_SIZE: f32 = 11.0;
 const LABEL_SIZE: f32 = 10.5;
+const BADGE_SIZE: f32 = 9.0;
+const TILE_SIZE: f32 = 12.5;
+
+/// The collapsed strip's width, in points at the base interface size.
+pub const RAIL: f32 = 52.0;
+/// The widths dragging the divider keeps to.
+pub const MIN_WIDTH: f32 = 220.0;
+pub const MAX_WIDTH: f32 = 560.0;
+/// The footer, and its menu button at the bottom left; in the strip the button is centred, which
+/// puts it as far in.
+const FOOTER: f32 = 50.0;
+const BUTTON: f32 = 32.0;
+/// An agent's tile in the strip.
+const TILE: f32 = 34.0;
+/// Name prefixes that say what kind of work an agent does, not which it is: a tile's letter comes
+/// after them.
+const ROLE_PREFIXES: [&str; 3] = ["dev-", "test-", "review-"];
+
+/// The sidebar's width while the divider is dragged: the width when it was pressed, moved as far
+/// as the mouse has, kept within reach and to whole points.
+pub fn resize(width_at_press: f32, press_x: f32, x: f32) -> f32 {
+    (width_at_press + x - press_x)
+        .clamp(MIN_WIDTH, MAX_WIDTH)
+        .round()
+}
+
+/// A tile's letter: the agent's short name's first letter or digit, upper case, after a prefix
+/// such as `dev-`.
+pub fn initial(short: &str) -> String {
+    let core = ROLE_PREFIXES
+        .iter()
+        .find_map(|prefix| short.strip_prefix(prefix))
+        .filter(|rest| rest.chars().any(char::is_alphanumeric))
+        .unwrap_or(short);
+    core.chars()
+        .find(|c| c.is_alphanumeric())
+        .map_or_else(|| "?".to_owned(), |c| c.to_uppercase().collect())
+}
+
+/// The menu's Stop item for the active pane's agent: what it says, and whether it can be chosen.
+pub fn stop_item(selected: Option<&str>) -> (String, bool) {
+    match selected {
+        Some(name) => (format!("Stop {name}…"), true),
+        None => ("Stop Agent…".to_owned(), false),
+    }
+}
+
+/// Where the menu of actions opens: its left edge, in line with the button's, and how far its
+/// bottom edge sits above the window's, just over the button.
+pub fn menu_anchor(collapsed: bool, ui: &UiFont) -> (Pixels, Pixels) {
+    let left = if collapsed {
+        ui.px((RAIL - BUTTON) / 2.0)
+    } else {
+        px(PAD)
+    };
+    (left, ui.px((FOOTER - BUTTON) / 2.0 + BUTTON + 6.0))
+}
 
 /// The list model: the last good `corral ls`, the last error if the latest read failed, and the
 /// Git summaries by directory.
@@ -180,6 +238,10 @@ pub struct Sidebar {
     home: Option<String>,
     /// The result of the last start or stop, and whether it is a problem.
     note: Option<(String, bool)>,
+    /// Collapsed to the narrow strip.
+    collapsed: bool,
+    /// The menu of actions is open: its button stays lit.
+    menu_open: bool,
 }
 
 impl EventEmitter<SidebarEvent> for Sidebar {}
@@ -215,6 +277,8 @@ impl Sidebar {
             here: Vec::new(),
             home: std::env::var("HOME").ok(),
             note: None,
+            collapsed: false,
+            menu_open: false,
         }
     }
 
@@ -245,6 +309,22 @@ impl Sidebar {
         }
     }
 
+    /// Collapsed to the strip, or expanded.
+    pub fn set_collapsed(&mut self, collapsed: bool, cx: &mut Context<Self>) {
+        if self.collapsed != collapsed {
+            self.collapsed = collapsed;
+            cx.notify();
+        }
+    }
+
+    /// Whether the menu of actions is open, for its button.
+    pub fn set_menu_open(&mut self, open: bool, cx: &mut Context<Self>) {
+        if self.menu_open != open {
+            self.menu_open = open;
+            cx.notify();
+        }
+    }
+
     /// A line above the footer about the last start or stop.
     pub fn note(&mut self, text: String, problem: bool, cx: &mut Context<Self>) {
         self.note = Some((text, problem));
@@ -260,16 +340,8 @@ impl Sidebar {
     /// has, in amber when an agent needs a person, in the accent for new replies only, quiet and
     /// without a number when there is nothing. A click opens the Attention list.
     fn badge(&self, cx: &mut Context<Self>) -> gpui::Stateful<Div> {
-        let (count, urgency) = attention::bell(&self.attention());
+        let (count, color) = self.bell();
         let ui = UiFont::get(cx);
-        let color = hsla(
-            match urgency {
-                attention::Urgency::Needs => self.theme.fg(|t| t.agents_yellow),
-                attention::Urgency::Replies => self.theme.fg(|t| t.agents_accent),
-                attention::Urgency::Quiet => self.theme.fg(|t| t.agents_dim),
-            },
-            1.0,
-        );
         let mut pill = div()
             .flex()
             .items_center()
@@ -294,6 +366,169 @@ impl Sidebar {
             .hover(move |style| style.opacity(0.85))
             .child(pill)
             .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(SidebarEvent::Attention)))
+    }
+
+    /// How many rows the Attention list has, and the bell's colour for them.
+    fn bell(&self) -> (usize, Hsla) {
+        let (count, urgency) = attention::bell(&self.attention());
+        let color = hsla(
+            match urgency {
+                attention::Urgency::Needs => self.theme.fg(|t| t.agents_yellow),
+                attention::Urgency::Replies => self.theme.fg(|t| t.agents_accent),
+                attention::Urgency::Quiet => self.theme.fg(|t| t.agents_dim),
+            },
+            1.0,
+        );
+        (count, color)
+    }
+
+    /// The strip's bell: the header's, as an icon with the count in a small disc on its corner.
+    fn rail_bell(&self, cx: &mut Context<Self>) -> gpui::Stateful<Div> {
+        let (count, color) = self.bell();
+        let ui = UiFont::get(cx);
+        let ground = hsla(self.theme.bg(|t| t.agents_bg), 1.0);
+        let selected = hsla(self.theme.bg(|t| t.agent_selected), 1.0);
+        div()
+            .id("attention")
+            .relative()
+            .flex_shrink_0()
+            .w(ui.px(BUTTON))
+            .h(ui.px(30.0))
+            .mt(ui.px(2.0))
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded(ui.px(7.0))
+            .cursor_pointer()
+            .hover(move |style| style.bg(selected))
+            .child(footer_icon::icon(Icon::Bell, color, ui.scale(1.0)))
+            .when(count > 0, |bell| {
+                bell.child(
+                    div()
+                        .absolute()
+                        .top(ui.px(3.0))
+                        .right(ui.px(3.0))
+                        .min_w(ui.px(13.0))
+                        .h(ui.px(13.0))
+                        .px(ui.px(3.0))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .rounded_full()
+                        .bg(color)
+                        .text_color(ground)
+                        .text_size(ui.px(BADGE_SIZE))
+                        .font_weight(FontWeight::BOLD)
+                        .child(count.to_string()),
+                )
+            })
+            .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(SidebarEvent::Attention)))
+    }
+
+    /// The footer's button for the menu of actions, lit while the menu is open.
+    fn actions_button(&self, cx: &mut Context<Self>) -> gpui::Stateful<Div> {
+        let ui = UiFont::get(cx);
+        button(
+            &self.theme,
+            &ui,
+            "actions",
+            Icon::Actions,
+            "Agent actions and settings",
+            (BUTTON, BUTTON, 8.0),
+            self.menu_open,
+        )
+        .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(SidebarEvent::Actions)))
+    }
+
+    /// The button that collapses the sidebar (`expand` false) or expands the strip.
+    fn collapse_button(&self, expand: bool, cx: &mut Context<Self>) -> gpui::Stateful<Div> {
+        let ui = UiFont::get(cx);
+        let (icon, tip, size) = if expand {
+            (Icon::Expand, "Expand sidebar (⌘B)", (BUTTON, 30.0, 7.0))
+        } else {
+            (Icon::Collapse, "Collapse sidebar (⌘B)", (26.0, 26.0, 6.0))
+        };
+        button(&self.theme, &ui, "collapse", icon, tip, size, false)
+            .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(SidebarEvent::ToggleCollapse)))
+    }
+
+    /// The collapsed strip: expand, the bell, then a tile for each agent, the projects set apart
+    /// by short rules, and the menu button at the bottom.
+    fn rail(&mut self, cx: &mut Context<Self>) -> AnyElement {
+        let ui = UiFont::get(cx);
+        let theme = self.theme.clone();
+        let fg = |pick: Pick| hsla(theme.fg(pick), 1.0);
+        let rule = |width: f32, y: f32| {
+            div()
+                .flex_shrink_0()
+                .w(ui.px(width))
+                .h(px(1.0))
+                .my(ui.px(y))
+                .bg(fg(|t| t.agents_rule).opacity(0.8))
+        };
+        let lines = self.listing.lines(
+            self.selected.as_deref(),
+            &self.here,
+            self.home.as_deref(),
+            now(),
+        );
+        let mut tiles = div()
+            .id("rail")
+            .flex_1()
+            .min_h(px(0.0))
+            .w_full()
+            .overflow_y_scroll()
+            .flex()
+            .flex_col()
+            .items_center()
+            .pt(ui.px(4.0))
+            .pb(ui.px(4.0));
+        let mut first = true;
+        for line in lines {
+            match line {
+                Line::Error(_) => {}
+                Line::Group(..) => {
+                    if !first {
+                        tiles = tiles.child(rule(16.0, 6.0));
+                    }
+                }
+                Line::Agent(card) => {
+                    first = false;
+                    let on_click = {
+                        let card = card.clone();
+                        cx.listener(move |this, _: &ClickEvent, _, cx| this.click(&card, cx))
+                    };
+                    tiles = tiles.child(Tile {
+                        card: *card,
+                        theme: theme.clone(),
+                        on_click: Box::new(on_click),
+                    });
+                }
+            }
+        }
+        div()
+            .flex_shrink_0()
+            .w(ui.px(RAIL))
+            .h_full()
+            .flex()
+            .flex_col()
+            .items_center()
+            .bg(hsla(theme.bg(|t| t.agents_bg), 1.0))
+            .line_height(relative(1.3))
+            .pt(ui.px(8.0))
+            .child(self.collapse_button(true, cx))
+            .child(self.rail_bell(cx))
+            .child(rule(24.0, 0.0).mt(ui.px(8.0)).mb(ui.px(4.0)))
+            .child(tiles)
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .h(ui.px(FOOTER))
+                    .flex()
+                    .items_center()
+                    .child(self.actions_button(cx)),
+            )
+            .into_any_element()
     }
 
     /// The latest `corral ls`: when, and how many agents or why it failed.
@@ -332,6 +567,12 @@ impl Sidebar {
 
     pub fn toggle_sort(&mut self, cx: &mut Context<Self>) {
         self.listing.panel.by_name = !self.listing.panel.by_name;
+        cx.notify();
+    }
+
+    /// Sorts by name, or by status (the menu's choice).
+    pub fn set_sort(&mut self, by_name: bool, cx: &mut Context<Self>) {
+        self.listing.panel.by_name = by_name;
         cx.notify();
     }
 
@@ -410,6 +651,9 @@ impl Sidebar {
 
 impl Render for Sidebar {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if self.collapsed {
+            return self.rail(cx);
+        }
         let ui = UiFont::get(cx);
         let theme = self.theme.clone();
         let fg = |pick: Pick| hsla(theme.fg(pick), 1.0);
@@ -531,7 +775,8 @@ impl Render for Sidebar {
             .items_center()
             .min_h(ui.px(44.0))
             .pl(px(18.0))
-            .pr(px(14.0))
+            .pr(px(PAD))
+            .gap(ui.px(4.0))
             .child(
                 div()
                     .flex()
@@ -554,7 +799,8 @@ impl Render for Sidebar {
                     }),
             )
             .child(div().flex_1())
-            .child(self.badge(cx));
+            .child(self.badge(cx))
+            .child(self.collapse_button(false, cx));
 
         let mut list = div()
             .id("agents")
@@ -650,55 +896,13 @@ impl Render for Sidebar {
             });
         }
 
-        let by_name = self.listing.panel.by_name;
         let footer = div()
             .flex_shrink_0()
+            .h(ui.px(FOOTER))
             .flex()
             .items_center()
-            .gap(px(2.0))
             .px(px(PAD))
-            .py(px(6.0))
-            .child(
-                chip(
-                    &theme,
-                    &ui,
-                    "sort",
-                    Icon::Sort,
-                    if by_name {
-                        "Sort by name"
-                    } else {
-                        "Sort by status"
-                    },
-                )
-                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                    this.listing.panel.by_name = !this.listing.panel.by_name;
-                    cx.notify();
-                })),
-            )
-            .child(
-                chip(&theme, &ui, "fold", Icon::Fold, "Close all details")
-                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.toggle_fold(cx))),
-            )
-            .child(div().flex_1())
-            .child(
-                chip(&theme, &ui, "new-agent", Icon::NewAgent, "New agent").on_click(
-                    cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(SidebarEvent::NewAgent)),
-                ),
-            )
-            .child(
-                chip(&theme, &ui, "new-shell", Icon::NewShell, "New shell").on_click(
-                    cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(SidebarEvent::NewShell)),
-                ),
-            )
-            .child(if self.selected.is_some() {
-                chip(&theme, &ui, "stop", Icon::Stop, "Stop")
-                    .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(SidebarEvent::Stop)))
-            } else {
-                // Stop acts on the active pane's agent; there is none.
-                chip(&theme, &ui, "stop", Icon::Stop, "Stop")
-                    .opacity(0.4)
-                    .cursor_default()
-            });
+            .child(self.actions_button(cx));
         let note = self.note.as_ref().map(|(text, problem)| {
             div()
                 .flex_shrink_0()
@@ -726,6 +930,7 @@ impl Render for Sidebar {
             .child(list)
             .children(note)
             .child(footer)
+            .into_any_element()
     }
 }
 
@@ -777,13 +982,16 @@ fn quiet(
         .children(action)
 }
 
-/// A footer control: an icon, with what it does shown on hover.
-fn chip(
+/// An icon button, `(width, height, corner radius)` in points, with what it does shown on hover;
+/// `lit` while what it opens is open.
+fn button(
     theme: &Theme,
     ui: &UiFont,
     id: &'static str,
     icon: Icon,
     tip: &'static str,
+    (width, height, radius): (f32, f32, f32),
+    lit: bool,
 ) -> gpui::Stateful<Div> {
     let fg = |pick: Pick| hsla(theme.fg(pick), 1.0);
     let selected = hsla(theme.bg(|t| t.agent_selected), 1.0);
@@ -794,20 +1002,28 @@ fn chip(
         background: hsla(theme.bg(|t| t.agents_bg), 1.0),
         border: fg(|t| t.agents_rule),
     };
+    let ink = if lit {
+        fg(|t| t.agents_text)
+    } else {
+        fg(|t| t.agents_dim)
+    };
     div()
         .id(id)
-        .size(ui.px(28.0))
+        .flex_shrink_0()
+        .w(ui.px(width))
+        .h(ui.px(height))
         .flex()
         .items_center()
         .justify_center()
-        .rounded(px(6.0))
+        .rounded(ui.px(radius))
         .cursor_pointer()
+        .when(lit, |button| button.bg(selected))
         .hover(move |style| style.bg(selected))
         .tooltip(move |_, cx| cx.new(|_| tip.clone()).into())
-        .child(footer_icon::icon(icon, fg(|t| t.agents_dim), ui.scale(1.0)))
+        .child(footer_icon::icon(icon, ink, ui.scale(1.0)))
 }
 
-/// A footer control's hover text.
+/// A button's hover text.
 #[derive(Clone)]
 struct Tip {
     text: &'static str,
@@ -1007,6 +1223,174 @@ impl RenderOnce for AgentCard {
             .child(second)
             .when(card.expanded, |body| {
                 body.child(details(theme, &self.mono, &ui, self.label_width, card))
+            })
+    }
+}
+
+/// An agent in the collapsed strip: its letter on a rounded square, the status dot on the corner;
+/// the one in the active pane on a lit square with a faint edge. Hovering shows who it is.
+#[derive(IntoElement)]
+struct Tile {
+    card: Card,
+    theme: Rc<Theme>,
+    on_click: OnClick,
+}
+
+impl RenderOnce for Tile {
+    fn render(self, _: &mut Window, cx: &mut App) -> impl IntoElement {
+        let ui = UiFont::get(cx);
+        let theme = &self.theme;
+        let fg = |pick: Pick| hsla(theme.fg(pick), 1.0);
+        let card = &self.card;
+        let ground = hsla(theme.bg(|t| t.agents_bg), 1.0);
+        let selected = hsla(theme.bg(|t| t.agent_selected), 1.0);
+        let tip = RailTip::of(card, theme, &ui);
+        // The dot sits in a ring of the strip's colour, so it reads apart from the square.
+        let dot = div()
+            .absolute()
+            .right(ui.px(0.0))
+            .bottom(ui.px(0.0))
+            .p(ui.px(2.0))
+            .rounded_full()
+            .bg(ground)
+            .child(status_dot(fg(card.look.color), card.look.breathing, &ui));
+        div()
+            .id(ElementId::Name(SharedString::from(card.name.clone())))
+            .relative()
+            .flex_shrink_0()
+            .size(ui.px(TILE))
+            .my(ui.px(2.0))
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded(ui.px(9.0))
+            .cursor_pointer()
+            .text_size(ui.px(TILE_SIZE))
+            .font_weight(FontWeight::SEMIBOLD)
+            .when(card.selected, |tile| {
+                tile.bg(selected)
+                    .border_1()
+                    .border_color(fg(|t| t.agents_border).opacity(0.6))
+                    .text_color(fg(|t| t.agents_text))
+            })
+            .when(!card.selected, |tile| {
+                tile.text_color(fg(|t| t.agents_dim))
+                    .hover(move |style| style.bg(selected.opacity(0.6)))
+            })
+            .tooltip(move |_, cx| cx.new(|_| tip.clone()).into())
+            .on_click(self.on_click)
+            .child(initial(&card.short))
+            .child(dot)
+    }
+}
+
+/// A tile's hover note: the name and program, the status and how long, and the project and
+/// branch.
+#[derive(Clone)]
+struct RailTip {
+    name: String,
+    kind: Option<(String, Hsla)>,
+    status: (String, Hsla),
+    place: String,
+    size: Pixels,
+    small: Pixels,
+    text: Hsla,
+    dim: Hsla,
+    background: Hsla,
+    border: Hsla,
+}
+
+impl RailTip {
+    fn of(card: &Card, theme: &Theme, ui: &UiFont) -> Self {
+        let fg = |pick: Pick| hsla(theme.fg(pick), 1.0);
+        let (state, color) = match &card.second {
+            Second::Note(text, tone) => (
+                text.clone(),
+                fg(match tone {
+                    Tone::Quiet => |t| t.agents_dim,
+                    Tone::Waiting => |t| t.agents_yellow,
+                    Tone::Problem => |t| t.agents_red,
+                }),
+            ),
+            Second::Place(_) => (card.look.label.to_owned(), fg(card.look.color)),
+        };
+        let status = if card.time.is_empty() {
+            state
+        } else {
+            format!("{state} · {}", card.time)
+        };
+        let project = card
+            .name
+            .strip_suffix(&card.short)
+            .map(|prefix| prefix.trim_end_matches('/'))
+            .filter(|prefix| !prefix.is_empty());
+        let branch = match &card.second {
+            Second::Place(place) => place.branch.clone(),
+            Second::Note(..) => card
+                .details
+                .iter()
+                .find(|detail| detail.label == "Branch")
+                .and_then(|detail| detail.value.split(" · ").next().map(str::to_owned)),
+        };
+        let place = [
+            project.map(str::to_owned),
+            branch.map(|branch| format!("⎇ {branch}")),
+        ]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>()
+        .join(" · ");
+        Self {
+            name: card.short.clone(),
+            kind: card
+                .brand
+                .as_ref()
+                .map(|brand| (brand.kind.clone(), fg(brand.color))),
+            status: (status, color),
+            place,
+            size: ui.px(SECOND_SIZE),
+            small: ui.px(KIND_SIZE),
+            text: fg(|t| t.agents_text),
+            dim: fg(|t| t.agents_dimmer),
+            background: hsla(theme.bg(|t| t.agents_bg), 1.0),
+            border: fg(|t| t.agents_rule),
+        }
+    }
+}
+
+impl Render for RailTip {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(2.0))
+            .px(px(10.0))
+            .py(px(6.0))
+            .rounded(px(7.0))
+            .border_1()
+            .border_color(self.border)
+            .bg(self.background)
+            .shadow_md()
+            .whitespace_nowrap()
+            .text_size(self.size)
+            .child(
+                div()
+                    .flex()
+                    .items_baseline()
+                    .gap(px(5.0))
+                    .child(
+                        div()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(self.text)
+                            .child(self.name.clone()),
+                    )
+                    .children(self.kind.clone().map(|(kind, color)| {
+                        div().text_size(self.small).text_color(color).child(kind)
+                    })),
+            )
+            .child(div().text_color(self.status.1).child(self.status.0.clone()))
+            .when(!self.place.is_empty(), |tip| {
+                tip.child(div().text_color(self.dim).child(self.place.clone()))
             })
     }
 }
@@ -1233,6 +1617,64 @@ mod tests {
                 "/work/solo"
             ]
         );
+    }
+
+    #[test]
+    fn dragging_the_divider_follows_the_mouse_within_reach() {
+        // Pressed at x 300 on a 300-point sidebar: the width moves as far as the mouse.
+        assert_eq!(resize(300.0, 300.0, 340.0), 340.0);
+        assert_eq!(resize(300.0, 302.0, 250.0), 248.0);
+        // Never narrower than 220 nor wider than 560, however far the mouse goes.
+        assert_eq!(resize(300.0, 300.0, 100.0), MIN_WIDTH);
+        assert_eq!(resize(300.0, 300.0, -50.0), 220.0);
+        assert_eq!(resize(300.0, 300.0, 900.0), MAX_WIDTH);
+        assert_eq!(resize(300.0, 300.0, 560.5), 560.0);
+        // Whole points, for the config file.
+        assert_eq!(resize(300.0, 300.0, 333.4), 333.0);
+        // A width set outside the range in Settings comes back into it once dragged.
+        assert_eq!(resize(180.0, 180.0, 181.0), 220.0);
+    }
+
+    #[test]
+    fn a_tile_shows_the_first_letter_after_a_role_prefix() {
+        assert_eq!(initial("main"), "M");
+        assert_eq!(initial("dev-fonts"), "F");
+        assert_eq!(initial("test-m2"), "M");
+        assert_eq!(initial("review-p5"), "P");
+        // Only a prefix at the start goes, and only one.
+        assert_eq!(initial("fonts-dev"), "F");
+        assert_eq!(initial("dev-test-a"), "T");
+        // Digits count; marks before the first letter do not.
+        assert_eq!(initial("2fa"), "2");
+        assert_eq!(initial("_x"), "X");
+        assert_eq!(initial("ärger"), "Ä");
+        // Nothing after the prefix: the name as it is.
+        assert_eq!(initial("dev-"), "D");
+        assert_eq!(initial("--"), "?");
+        assert_eq!(initial(""), "?");
+    }
+
+    #[test]
+    fn stop_names_the_active_agent_and_is_off_without_one() {
+        assert_eq!(
+            stop_item(Some("paddock/main")),
+            ("Stop paddock/main…".to_owned(), true)
+        );
+        assert_eq!(stop_item(None), ("Stop Agent…".to_owned(), false));
+    }
+
+    #[test]
+    fn the_menu_opens_over_its_button_in_both_shapes() {
+        let base = UiFont::default();
+        // Expanded: in line with the list; collapsed: the button centred in the strip, as far in.
+        assert_eq!(menu_anchor(false, &base), (px(PAD), px(47.0)));
+        assert_eq!(menu_anchor(true, &base), (px(10.0), px(47.0)));
+        // A larger interface size moves it with the bigger button.
+        let large = UiFont {
+            size: 26.0,
+            ..UiFont::default()
+        };
+        assert_eq!(menu_anchor(true, &large), (px(20.0), px(94.0)));
     }
 
     #[test]
