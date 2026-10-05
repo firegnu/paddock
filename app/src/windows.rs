@@ -3,10 +3,11 @@
 //! first lets a Settings window with unsaved edits ask what to do with them.
 use crate::{
     about::AboutView,
+    fonts::UiFont,
     new_agent::Place,
     new_agent_view::{NewAgentEvent, NewAgentView},
     settings_view::{SettingsEvent, SettingsView},
-    window::PaddockWindow,
+    window::{PaddockWindow, traffic_lights},
 };
 use gpui::{
     App, AppContext as _, Bounds, Entity, Focusable, Global, Render, TitlebarOptions, Window,
@@ -45,11 +46,20 @@ fn raise<V: 'static>(handle: Option<WindowHandle<V>>, cx: &mut App) -> bool {
     })
 }
 
+/// A window's own title bar row, `base` points tall at the base interface size: it grows with
+/// larger interface sizes, never shrinks below `base`.
+pub fn title_bar(base: f32, ui: &UiFont) -> f32 {
+    base.max(ui.scale(base))
+}
+
+/// A window whose content runs up under a transparent title bar, the traffic lights centred on
+/// the view's own top row `title_bar` points tall; AppKit still drags the window from the top.
 fn options(
     title: &'static str,
     width: f32,
     height: f32,
     resizable: bool,
+    title_bar: f32,
     cx: &App,
 ) -> WindowOptions {
     WindowOptions {
@@ -60,7 +70,8 @@ fn options(
         ))),
         titlebar: Some(TitlebarOptions {
             title: Some(title.into()),
-            ..Default::default()
+            appears_transparent: true,
+            traffic_light_position: Some(traffic_lights(title_bar)),
         }),
         is_resizable: resizable,
         is_minimizable: resizable,
@@ -99,7 +110,8 @@ pub fn open_settings(cx: &mut App) {
     let Ok(theme) = main.read(cx).map(PaddockWindow::theme) else {
         return;
     };
-    let options = options("Settings", 960.0, 720.0, true, cx);
+    let bar = title_bar(crate::settings_view::TITLE_BAR, &UiFont::get(cx));
+    let options = options("Settings", 960.0, 720.0, true, bar, cx);
     let Some((handle, settings)) = open(
         options,
         |window, cx| {
@@ -147,7 +159,9 @@ pub fn open_new_agent(place: Place, cx: &mut App) {
     let Ok(seed) = main.read(cx).map(|main| main.seed(cx)) else {
         return;
     };
-    let options = options("New Agent", 640.0, 600.0, true, cx);
+    let ui = UiFont::get(cx);
+    let bar = title_bar(crate::new_agent_view::TITLE_BAR, &ui);
+    let options = options("New Agent", ui.scale(580.0), ui.scale(630.0), true, bar, cx);
     let Some((handle, view)) = open(options, move |_, cx| NewAgentView::new(seed, place, cx), cx)
     else {
         return;
@@ -194,7 +208,16 @@ pub fn open_about(cx: &mut App) {
     let Some(theme) = main.and_then(|main| main.read(cx).ok().map(PaddockWindow::theme)) else {
         return;
     };
-    let options = options("About paddock", 380.0, 230.0, false, cx);
+    let ui = UiFont::get(cx);
+    let bar = title_bar(crate::about::TITLE_BAR, &ui);
+    let options = options(
+        "About paddock",
+        ui.scale(400.0),
+        ui.scale(350.0),
+        false,
+        bar,
+        cx,
+    );
     let handle = open(options, |_, cx| AboutView::new(theme, cx), cx);
     cx.default_global::<Windows>().about = handle.map(|(handle, _)| handle);
 }
