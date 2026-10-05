@@ -21,6 +21,7 @@ paddock 与 Saddle 在代码上完全分开：用到的 Saddle 代码迁入 padd
 | 要有主题系统，像 Saddle 那样：预置主题＋用户覆盖 | 用户 10-05：“起码有一套theme系统，就像saddle那样。”细节见 §8 |
 | 第一阶段范围：一个窗口、左侧 Agents 列表、右侧一个终端窗格，加主题系统 | 用户 10-05：“第一阶段范围就按你的建议”。细节见 §9 |
 | **代码与 Saddle 完全分开**：用到的 Saddle 代码迁入 paddock 自己维护，不再依赖 Saddle 的库；所有界面用 GPUI 重做 | 用户 10-05：“paddock和saddle是完全分开的，或者paddock要把用的saddle的文件都迁移过来，所有saddle的界面都用gpui重做”，“按这个方向调整”。细节见 §3、§10 |
+| **paddock 要能单独分发**（别人不装 Saddle 也能用）：分发前把 corral 运行时及所需插件迁入 paddock、随 paddock 打包 | 用户 10-05：“要”（问：将来是否要让 paddock 能单独分发）。细节见 §3、§6 |
 
 ## 3. 与 Saddle 的关系
 
@@ -33,7 +34,9 @@ paddock 与 Saddle 在代码上完全分开：用到的 Saddle 代码迁入 padd
   | 插件协议 | Saddle | 若承载插件，paddock 只实现宿主侧，不改协议（尚未验证） |
   | 遥测命令（`saddle telemetry …`）、Drover 的公开命令 | Saddle | 需要时照公开命令调用 |
 
-- **运行时要求**：机器上要有 `corral` 命令。本机的 `corral` 随 Saddle 安装（`~/.local/share/saddle/versions/…/bin/corral`）。paddock 不需要 Saddle TUI 在运行。
+- **运行时要求**：机器上要有 `corral` 命令。开发阶段用 Saddle 安装的 `corral`（`~/.local/share/saddle/versions/…/bin/corral`）；paddock 不需要 Saddle TUI 在运行。
+- **单独分发**（用户 10-05 定）：paddock 要能不装 Saddle 单独使用。分发前，把 Saddle 的 corral 运行时（`crates/corral-core`，约 7300 行）迁入 paddock 自己维护、随 paddock 打包，做法同 §10；dispatch、Drover 等插件按需迁入或用 GPUI 原生重做。
+- **corral 兼容规矩**：同一台机器可能同时装 paddock 和 Saddle，两份 corral 管同一个 `~/.corral`。两边必须保持 `corral` 命令、JSON 输出和 `~/.corral` 登记格式兼容；任何一边要改这些，都要两边一起改（Saddle 侧走 Saddle 的流程）。corral 已有协议版本号（`proto`，不匹配的 agent 标为 `incompatible`），不兼容时能被发现。
 - **不改 Saddle**：不修改 Saddle 仓库。原先打算请 Saddle 新增的接口（§5 的缺口）改由 paddock 在自己的代码里解决；只有公开约定本身要变时，才写成需求交给用户/Saddle 主控。
 - **Drover 并存**：Drover 每个用户只允许一个插件进程持有数据：paddock 与 Saddle TUI 同时运行并都启用 Drover 时会冲突，规则待定（§7）。
 - **许可**：Saddle 仓库目前没有许可证文件。代码属于用户本人，迁入没有问题；paddock 公开发布前，需要先为两边定好许可（§7）。
@@ -76,6 +79,7 @@ paddock 与 Saddle 在代码上完全分开：用到的 Saddle 代码迁入 padd
   1. 迁移：去掉 `saddle` 依赖，行为不变（M0，已完成）；再去掉 `ratatui`、`crossterm`（M1）。
   2. 第二阶段，补日常离不开的：标签页和分屏（同时解决切换时 shell 被结束）、Agents 面板补齐信息、菜单栏和 `.app` 打包。
   3. 第三阶段：插件（先 Drover）、Attention、新建 agent、Settings 页、历史搜索、布局保存等。
+  4. 单独分发之前：迁入 corral 运行时和所需插件，打包（`.app`、签名公证等见 §7）。
 - **插件界面怎么做待定**（§7）：在 GPUI 里原生重做，或先做“字符面兼容层”按插件协议显示插件自己画的字符画面。
 
 ## 7. 待定问题
