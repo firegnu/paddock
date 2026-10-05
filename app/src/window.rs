@@ -5,6 +5,7 @@ use crate::{
     attention::Kind as AttentionKind,
     config::Config,
     corral::Role,
+    diagnostics::{Report, Startup},
     layout::{Axis, Direction, Node, PaneId, Placement, Shown, Workspace},
     layout_state::{Content, Layout, Store},
     menu,
@@ -146,6 +147,8 @@ pub struct PaddockWindow {
     attention_index: usize,
     /// Where the layout is saved.
     store: Store,
+    /// The config came from its file at startup, rather than defaults.
+    config_from_file: bool,
     /// The Go to Agent box while it is open, and its selected row.
     search: Option<Entity<TextInput>>,
     search_index: usize,
@@ -209,6 +212,7 @@ impl PaddockWindow {
             search: None,
             search_index: 0,
             store,
+            config_from_file: crate::config::default_path().exists(),
         };
         match restored {
             Some(contents) => this.restore(contents, window, cx),
@@ -287,6 +291,24 @@ impl PaddockWindow {
                     instance: metadata.instance,
                 }
             }
+        }
+    }
+
+    /// What Diagnostics shows from this window: the commands it runs and how its reads and saves
+    /// went.
+    pub fn report(&self, cx: &gpui::App) -> Report {
+        Report {
+            corral: self.template.corral.clone(),
+            shell: self.new_shell.program.clone(),
+            agents: self.sidebar.read(cx).last_read(),
+            config_path: crate::config::default_path(),
+            config_from_file: self.config_from_file,
+            layout_path: self.store.path().map(std::path::Path::to_path_buf),
+            restore: self.store.restored.clone(),
+            save: self.store.saved.clone(),
+            save_off: self.store.protected(),
+            startup: cx.try_global::<Startup>().cloned().unwrap_or_default(),
+            checked: std::time::SystemTime::now(),
         }
     }
 

@@ -323,6 +323,11 @@ impl Store {
         self.saved = Some((SystemTime::now(), result.map_err(|e| format!("{e:#}"))));
     }
 
+    /// Saving is off: the file could not be restored, or paddock was started for one thing.
+    pub fn protected(&self) -> bool {
+        self.protected
+    }
+
     pub fn path(&self) -> Option<&std::path::Path> {
         self.path.as_deref()
     }

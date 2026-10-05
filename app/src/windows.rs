@@ -179,6 +179,12 @@ pub fn open_settings_at(page: crate::settings::Page, cx: &mut App) {
     }
 }
 
+/// What Diagnostics shows from the main window.
+pub fn report(cx: &App) -> Option<crate::diagnostics::Report> {
+    let main = cx.try_global::<Windows>()?.main?;
+    main.read(cx).ok().map(|main| main.report(cx))
+}
+
 pub fn open_about(cx: &mut App) {
     let windows = cx.default_global::<Windows>();
     let (existing, main) = (windows.about, windows.main);

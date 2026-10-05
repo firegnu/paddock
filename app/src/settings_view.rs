@@ -3,6 +3,7 @@
 //! draws them and keeps one text field per typed setting.
 use crate::{
     config::Config,
+    diagnostics::{self, Checks, Report, clock},
     menu,
     settings::{Conflict, Draft, Field, Kind, Page, Saved},
     text_input::{self, TextInput},
@@ -40,6 +41,9 @@ pub struct SettingsView {
     conflict: bool,
     /// The Save / Don't Save / Cancel question is showing.
     asking: bool,
+    /// Diagnostics as last collected, and its background checks once they are done.
+    report: Option<Report>,
+    checks: Option<Checks>,
     focus: FocusHandle,
     _subscriptions: Vec<Subscription>,
 }
@@ -113,6 +117,8 @@ impl SettingsView {
             message,
             conflict: false,
             asking: false,
+            report: None,
+            checks: None,
             focus: cx.focus_handle(),
             _subscriptions: Vec::new(),
         };
@@ -271,9 +277,227 @@ impl SettingsView {
         self.refresh_inputs(cx);
     }
 
+    /// Collects what Diagnostics shows: at once from the main window, then the command and file
+    /// checks in the background.
+    fn refresh_diagnostics(&mut self, cx: &mut Context<Self>) {
+        let Some(report) = crate::windows::report(cx) else {
+            return;
+        };
+        let (corral, shell, config) = (
+            report.corral.clone(),
+            report.shell.clone(),
+            report.config_path.clone(),
+        );
+        self.report = Some(report);
+        self.checks = None;
+        let task = cx.background_spawn(async move {
+            diagnostics::check(&corral, &shell, &config, std::time::Duration::from_secs(5))
+        });
+        cx.spawn(async move |this, cx| {
+            let checks = task.await;
+            let _ = this.update(cx, |this, cx| {
+                this.checks = Some(checks);
+                cx.notify();
+            });
+        })
+        .detach();
+        cx.notify();
+    }
+
+    /// One Diagnostics line: a label and its value, coloured good, bad or unknown.
+    fn diagnostic(&self, label: &'static str, value: impl Into<SharedString>, tone: Tone) -> Div {
+        let color = match tone {
+            Tone::Good => self.fg(|t| t.agents_green),
+            Tone::Bad => self.fg(|t| t.agents_red),
+            Tone::Plain => self.fg(|t| t.agents_text),
+            Tone::Unknown => self.fg(|t| t.agents_dim),
+        };
+        div()
+            .flex()
+            .gap(px(12.0))
+            .py(px(3.0))
+            .child(
+                div()
+                    .w(px(150.0))
+                    .flex_shrink_0()
+                    .text_color(self.fg(|t| t.muted))
+                    .child(label),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_w(px(0.0))
+                    .text_color(color)
+                    .child(value.into()),
+            )
+    }
+
+    fn diagnostics_page(&self) -> Vec<AnyElement> {
+        let Some(report) = &self.report else {
+            return vec![
+                self.diagnostic(
+                    "Diagnostics",
+                    "Unavailable: the main window is gone.",
+                    Tone::Bad,
+                )
+                .into_any_element(),
+            ];
+        };
+        let checks = self.checks.as_ref();
+        let heading = |text: &'static str| {
+            div()
+                .pt(px(14.0))
+                .pb(px(4.0))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(self.fg(|t| t.agents_accent))
+                .child(text)
+                .into_any_element()
+        };
+        let checking = || ("checking…".to_owned(), Tone::Unknown);
+        let path = |found: &Result<std::path::PathBuf, String>| match found {
+            Ok(path) => (path.display().to_string(), Tone::Good),
+            Err(error) => (error.clone(), Tone::Bad),
+        };
+        let outcome = |result: &Result<String, String>| match result {
+            Ok(text) => (text.clone(), Tone::Good),
+            Err(error) => (error.clone(), Tone::Bad),
+        };
+        let row = |label, (value, tone): (String, Tone)| {
+            self.diagnostic(label, value, tone).into_any_element()
+        };
+        let mut rows = vec![heading("Commands")];
+        rows.push(row(
+            "corral",
+            checks.map_or_else(checking, |c| path(&c.corral.path)),
+        ));
+        rows.push(row(
+            "corral version",
+            checks.map_or_else(checking, |c| outcome(&c.corral.version)),
+        ));
+        rows.push(row(
+            "git",
+            checks.map_or_else(checking, |c| path(&c.git.path)),
+        ));
+        rows.push(row(
+            "git version",
+            checks.map_or_else(checking, |c| outcome(&c.git.version)),
+        ));
+        rows.push(row(
+            "shell",
+            checks.map_or_else(checking, |c| path(&c.shell)),
+        ));
+
+        rows.push(heading("Agents"));
+        rows.push(row(
+            "Latest corral ls",
+            match &report.agents {
+                None => ("not read yet".into(), Tone::Unknown),
+                Some((time, Ok(text))) => (format!("{} · {text}", clock(*time)), Tone::Good),
+                Some((time, Err(error))) => (format!("{} · {error}", clock(*time)), Tone::Bad),
+            },
+        ));
+
+        rows.push(heading("Config"));
+        rows.push(row("File", (shown_path(&report.config_path), Tone::Plain)));
+        rows.push(row(
+            "At start",
+            if report.config_from_file {
+                ("read from the file".into(), Tone::Good)
+            } else {
+                ("no file; defaults".into(), Tone::Unknown)
+            },
+        ));
+        rows.push(row(
+            "Now",
+            match checks.map(|c| &c.config) {
+                None => checking(),
+                Some(Ok(true)) => ("the file reads fine".into(), Tone::Good),
+                Some(Ok(false)) => ("no file; defaults".into(), Tone::Unknown),
+                Some(Err(error)) => (error.clone(), Tone::Bad),
+            },
+        ));
+
+        rows.push(heading("Layout"));
+        rows.push(row(
+            "File",
+            match &report.layout_path {
+                Some(path) => (shown_path(path), Tone::Plain),
+                None => ("no state directory (HOME unavailable)".into(), Tone::Bad),
+            },
+        ));
+        rows.push(row(
+            "At start",
+            match &report.restore {
+                None => ("not read".into(), Tone::Unknown),
+                Some((_, Ok(true))) => ("restored the saved layout".into(), Tone::Good),
+                Some((_, Ok(false))) if report.save_off => (
+                    "not used: started for one agent or program".into(),
+                    Tone::Unknown,
+                ),
+                Some((_, Ok(false))) => ("nothing saved yet".into(), Tone::Unknown),
+                Some((_, Err(error))) => (error.clone(), Tone::Bad),
+            },
+        ));
+        rows.push(row(
+            "Latest save",
+            if report.save_off {
+                (
+                    "saving is off this time; the file is left as it is".into(),
+                    Tone::Unknown,
+                )
+            } else {
+                match &report.save {
+                    None => ("not saved yet".into(), Tone::Unknown),
+                    Some((time, Ok(()))) => (format!("{} · saved", clock(*time)), Tone::Good),
+                    Some((time, Err(error))) => (format!("{} · {error}", clock(*time)), Tone::Bad),
+                }
+            },
+        ));
+
+        rows.push(heading("Start"));
+        rows.push(row(
+            "Started from",
+            (
+                if report.startup.desktop {
+                    "Finder or the Dock"
+                } else {
+                    "a terminal"
+                }
+                .into(),
+                Tone::Plain,
+            ),
+        ));
+        rows.push(row(
+            "PATH",
+            match report.startup.login_path {
+                None => ("as the terminal had it".into(), Tone::Plain),
+                Some(true) => ("taken from the login shell".into(), Tone::Good),
+                Some(false) => (
+                    "the login shell did not answer; kept as started".into(),
+                    Tone::Bad,
+                ),
+            },
+        ));
+        rows.push(
+            div()
+                .pt(px(14.0))
+                .text_size(px(11.0))
+                .text_color(self.fg(|t| t.agents_dim))
+                .child(format!(
+                    "Checked at {}. Read-only; nothing here changes paddock or its files.",
+                    clock(report.checked)
+                ))
+                .into_any_element(),
+        );
+        rows
+    }
+
     /// Shows `page`, as when Go to Agent picked it.
     pub fn show_page(&mut self, page: Page, cx: &mut Context<Self>) {
         self.page = page;
+        if page == Page::Diagnostics {
+            self.refresh_diagnostics(cx);
+        }
         cx.notify();
     }
 
@@ -572,10 +796,7 @@ impl Render for SettingsView {
                 .rounded(px(6.0))
                 .cursor_pointer()
                 .child(page.label())
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.page = page;
-                    cx.notify();
-                }));
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.show_page(page, cx)));
             item = if on {
                 item.bg(highlight)
                     .text_color(self.fg(|t| t.agents_text))
@@ -618,6 +839,9 @@ impl Render for SettingsView {
             }
             list = list.child(self.row(field, cx));
         }
+        if self.page == Page::Diagnostics {
+            list = list.children(self.diagnostics_page());
+        }
 
         let mut footer = div()
             .flex_shrink_0()
@@ -638,7 +862,12 @@ impl Render for SettingsView {
                     .child(text.clone())
             }),
         ));
-        if self.conflict {
+        if self.page == Page::Diagnostics {
+            footer =
+                footer.child(self.button("refresh", "Refresh").on_click(
+                    cx.listener(|this, _: &ClickEvent, _, cx| this.refresh_diagnostics(cx)),
+                ));
+        } else if self.conflict {
             footer = footer
                 .child(self.button("keep", "Keep my edits").on_click(
                     cx.listener(|this, _: &ClickEvent, _, cx| this.resolve_conflict(true, cx)),
@@ -709,4 +938,12 @@ impl Render for SettingsView {
             )
             .child(footer)
     }
+}
+
+#[derive(Clone, Copy)]
+enum Tone {
+    Good,
+    Bad,
+    Plain,
+    Unknown,
 }
