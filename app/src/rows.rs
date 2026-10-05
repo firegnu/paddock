@@ -310,7 +310,7 @@ pub fn read<T>(
 mod parsed {
     use super::*;
     use crate::palette::Theme;
-    use saddle::terminal::{Screen, Size};
+    use crate::terminal::{Screen, Size};
 
     const THEME: Theme = Theme {
         ansi: crate::palette::XTERM,

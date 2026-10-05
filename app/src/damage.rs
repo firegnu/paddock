@@ -22,7 +22,7 @@ pub fn take_changed<T: EventListener>(term: &mut Term<T>) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use saddle::terminal::{Screen, Size};
+    use crate::terminal::{Screen, Size};
 
     #[test]
     fn output_and_cursor_moves_are_changes_and_are_consumed() {

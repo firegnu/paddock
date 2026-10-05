@@ -1,13 +1,13 @@
 //! The colours in effect: a preset plus `[colors]` overrides. Interface colours come from Saddle's
 //! public theme; the terminal palette is paddock's own, since paddock has no outer terminal to
 //! defer to. Named and default colours resolve to concrete RGB through that palette.
+use crate::preset::{Preset, parse_color};
 use crate::{
     config::Config,
     palette::{self, Rgb},
 };
 use anyhow::{Result, anyhow, bail};
 use ratatui::style::Color;
-use saddle::theme::{Preset, parse_color};
 
 /// A preset's own terminal colours; its default text and background follow Saddle's `text`/`bg`.
 struct Terminal {
@@ -168,18 +168,20 @@ fn terminal_slots(t: &mut palette::Theme) -> [&mut Rgb; 20] {
 }
 
 fn preset(name: &str) -> Result<Preset> {
-    match Preset::parse(name) {
-        Ok(Preset::Terminal) => bail!(
+    if name == "terminal" {
+        bail!(
             "theme \"terminal\" is not supported: it follows the outer terminal's colours, and \
              paddock has none; use dune, tide or lagoon"
-        ),
+        );
+    }
+    match Preset::parse(name) {
         Ok(preset) => Ok(preset),
         Err(_) => bail!("unknown theme {name:?}: expected dune, tide or lagoon"),
     }
 }
 
 pub struct Theme {
-    saddle: saddle::theme::Theme,
+    saddle: crate::preset::Theme,
     terminal: palette::Theme,
 }
 
@@ -240,13 +242,13 @@ impl Theme {
     }
 
     /// A Saddle interface colour used as text; `Reset` is the terminal's default foreground.
-    pub fn fg(&self, pick: fn(&saddle::theme::Theme) -> Color) -> palette::Rgb {
+    pub fn fg(&self, pick: fn(&crate::preset::Theme) -> Color) -> palette::Rgb {
         resolve(&self.terminal, pick(&self.saddle), self.terminal.foreground)
     }
 
     /// A Saddle interface colour used as a background; `Reset` is the terminal's default
     /// background.
-    pub fn bg(&self, pick: fn(&saddle::theme::Theme) -> Color) -> palette::Rgb {
+    pub fn bg(&self, pick: fn(&crate::preset::Theme) -> Color) -> palette::Rgb {
         resolve(&self.terminal, pick(&self.saddle), self.terminal.background)
     }
 
@@ -378,7 +380,7 @@ mod tests {
         }
 
         // The sidebar and title bar colours change with the theme.
-        type Pick = fn(&saddle::theme::Theme) -> Color;
+        type Pick = fn(&crate::preset::Theme) -> Color;
         let picks: [(&str, Pick); 3] = [
             ("agents_bg", |t| t.agents_bg),
             ("agents_text", |t| t.agents_text),
