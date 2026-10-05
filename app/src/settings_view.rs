@@ -13,9 +13,9 @@ use crate::{
 };
 use gpui::{
     AnyElement, ClickEvent, Context, Div, ElementId, Entity, EventEmitter, FocusHandle, Focusable,
-    FontWeight, Hsla, MouseButton, PromptLevel, Render, ScrollStrategy, SharedString, Stateful,
-    Subscription, Task, UniformListScrollHandle, Window, anchored, deferred, div, prelude::*, px,
-    uniform_list,
+    FontWeight, Hsla, MouseButton, Pixels, PromptLevel, Render, ScrollStrategy, SharedString,
+    Stateful, Subscription, Task, TextRun, UniformListScrollHandle, Window, anchored, deferred,
+    div, prelude::*, px, relative, uniform_list,
 };
 use std::{collections::HashMap, path::PathBuf, rc::Rc};
 
@@ -104,9 +104,55 @@ fn unit(key: &str) -> Option<&'static str> {
     match key {
         "sidebar_width" | "ui_font_size" | "font_size" => Some("pt"),
         "refresh_ms" => Some("ms"),
-        "line_height" => Some("×"),
         _ => None,
     }
+}
+
+/// General's settings by heading, in display order.
+const GENERAL: [(&str, &[&str]); 4] = [
+    ("Interface", &["ui_font", "ui_font_size", "sidebar_width"]),
+    (
+        "Terminal",
+        &["font", "font_size", "line_height", "font_fallbacks"],
+    ),
+    ("Mascot", &["mascot_enabled", "mascot"]),
+    ("Agents", &["refresh_ms"]),
+];
+
+/// A setting's label in its row, shorter where its heading already says what it is for.
+fn row_label(field: &Field) -> &str {
+    match field.key.as_str() {
+        "ui_font" | "font" => "Font",
+        "ui_font_size" | "font_size" => "Size",
+        _ => &field.label,
+    }
+}
+
+/// A faint line under a setting's label.
+fn note(key: &str) -> Option<&'static str> {
+    (key == "font_fallbacks").then_some("For characters the font lacks, in order")
+}
+
+/// The family for config values: paths, colour values, and monospace lists.
+const MONO: &str = "Menlo";
+
+/// How wide `text` is set in `family` at `size`.
+fn text_width(text: &str, family: SharedString, size: Pixels, window: &Window) -> Pixels {
+    if text.is_empty() {
+        return px(0.0);
+    }
+    let run = TextRun {
+        len: text.len(),
+        font: gpui::font(family),
+        color: gpui::black(),
+        background_color: None,
+        underline: None,
+        strikethrough: None,
+    };
+    window
+        .text_system()
+        .shape_line(text.to_owned().into(), size, &[run], None)
+        .width
 }
 
 /// Writes the whole file at once: to a temporary file beside it, then renamed over it.
@@ -306,6 +352,19 @@ impl SettingsView {
         }
     }
 
+    /// A setting's field colours: colour values quieter than the rest.
+    fn colors_for(&self, field: &Field) -> text_input::Colors {
+        let colors = self.input_colors();
+        if field.kind == Kind::Color {
+            text_input::Colors {
+                text: self.fg(|t| t.agents_dim),
+                ..colors
+            }
+        } else {
+            colors
+        }
+    }
+
     fn make_inputs(&mut self, cx: &mut Context<Self>) {
         let typed: Vec<Field> = self
             .draft
@@ -319,8 +378,8 @@ impl SettingsView {
             })
             .cloned()
             .collect();
-        let colors = self.input_colors();
         for field in typed {
+            let colors = self.colors_for(&field);
             let text = self.draft.value(&field.key);
             let placeholder = match field.kind {
                 Kind::List => "Font, Font, …",
@@ -405,9 +464,12 @@ impl SettingsView {
                     });
                     if let Ok(theme) = Theme::from_config(&config) {
                         self.theme = Rc::new(theme);
-                        let colors = self.input_colors();
-                        for input in self.inputs.values() {
-                            input.update(cx, |input, cx| input.set_colors(colors, cx));
+                        let fields = self.draft.fields().to_vec();
+                        for field in &fields {
+                            let colors = self.colors_for(field);
+                            if let Some(input) = self.inputs.get(&field.key) {
+                                input.update(cx, |input, cx| input.set_colors(colors, cx));
+                            }
                         }
                     }
                     cx.emit(SettingsEvent::Saved { config, restart });
@@ -480,8 +542,14 @@ impl SettingsView {
         cx.notify();
     }
 
-    /// One Diagnostics line: a label and its value, coloured good, bad or unknown.
-    fn diagnostic(&self, label: &'static str, value: impl Into<SharedString>, tone: Tone) -> Div {
+    /// One Diagnostics row: a label and its value, coloured good, bad or unknown.
+    fn diagnostic(
+        &self,
+        label: &'static str,
+        value: impl Into<SharedString>,
+        tone: Tone,
+        ui: &UiFont,
+    ) -> Div {
         let color = match tone {
             Tone::Good => self.fg(|t| t.agents_green),
             Tone::Bad => self.fg(|t| t.agents_red),
@@ -490,13 +558,16 @@ impl SettingsView {
         };
         div()
             .flex()
+            .items_center()
             .gap(px(12.0))
-            .py(px(3.0))
+            .min_h(ui.px(38.0))
+            .px(px(16.0))
+            .py(px(7.0))
             .child(
                 div()
-                    .w(px(150.0))
+                    .w(ui.px(130.0))
                     .flex_shrink_0()
-                    .text_color(self.fg(|t| t.muted))
+                    .text_color(self.fg(|t| t.agents_dim))
                     .child(label),
             )
             .child(
@@ -510,25 +581,15 @@ impl SettingsView {
 
     fn diagnostics_page(&self, ui: &UiFont) -> Vec<AnyElement> {
         let Some(report) = &self.report else {
-            return vec![
-                self.diagnostic(
-                    "Diagnostics",
-                    "Unavailable: the main window is gone.",
-                    Tone::Bad,
-                )
-                .into_any_element(),
-            ];
+            let row = self.diagnostic(
+                "Diagnostics",
+                "Unavailable: the main window is gone.",
+                Tone::Bad,
+                ui,
+            );
+            return self.cards(vec![("", vec![row])], true, ui);
         };
         let checks = self.checks.as_ref();
-        let heading = |text: &'static str| {
-            div()
-                .pt(px(14.0))
-                .pb(px(4.0))
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(self.fg(|t| t.agents_accent))
-                .child(text)
-                .into_any_element()
-        };
         let checking = || ("checking…".to_owned(), Tone::Unknown);
         let path = |found: &Result<std::path::PathBuf, String>| match found {
             Ok(path) => (path.display().to_string(), Tone::Good),
@@ -538,137 +599,146 @@ impl SettingsView {
             Ok(text) => (text.clone(), Tone::Good),
             Err(error) => (error.clone(), Tone::Bad),
         };
-        let row = |label, (value, tone): (String, Tone)| {
-            self.diagnostic(label, value, tone).into_any_element()
-        };
-        let mut rows = vec![heading("Commands")];
-        rows.push(row(
-            "corral",
-            checks.map_or_else(checking, |c| path(&c.corral.path)),
-        ));
-        rows.push(row(
-            "corral version",
-            checks.map_or_else(checking, |c| outcome(&c.corral.version)),
-        ));
-        rows.push(row(
-            "git",
-            checks.map_or_else(checking, |c| path(&c.git.path)),
-        ));
-        rows.push(row(
-            "git version",
-            checks.map_or_else(checking, |c| outcome(&c.git.version)),
-        ));
-        rows.push(row(
-            "shell",
-            checks.map_or_else(checking, |c| path(&c.shell)),
-        ));
+        let row = |label, (value, tone): (String, Tone)| self.diagnostic(label, value, tone, ui);
+        let commands = vec![
+            row(
+                "corral",
+                checks.map_or_else(checking, |c| path(&c.corral.path)),
+            ),
+            row(
+                "corral version",
+                checks.map_or_else(checking, |c| outcome(&c.corral.version)),
+            ),
+            row("git", checks.map_or_else(checking, |c| path(&c.git.path))),
+            row(
+                "git version",
+                checks.map_or_else(checking, |c| outcome(&c.git.version)),
+            ),
+            row("shell", checks.map_or_else(checking, |c| path(&c.shell))),
+        ];
 
-        rows.push(heading("Agents"));
-        rows.push(row(
+        let agents = vec![row(
             "Latest corral ls",
             match &report.agents {
                 None => ("not read yet".into(), Tone::Unknown),
                 Some((time, Ok(text))) => (format!("{} · {text}", clock(*time)), Tone::Good),
                 Some((time, Err(error))) => (format!("{} · {error}", clock(*time)), Tone::Bad),
             },
-        ));
+        )];
 
-        rows.push(heading("Config"));
-        rows.push(row("File", (shown_path(&report.config_path), Tone::Plain)));
-        rows.push(row(
-            "At start",
-            if report.config_from_file {
-                ("read from the file".into(), Tone::Good)
-            } else {
-                ("no file; defaults".into(), Tone::Unknown)
-            },
-        ));
-        rows.push(row(
-            "Now",
-            match checks.map(|c| &c.config) {
-                None => checking(),
-                Some(Ok(true)) => ("the file reads fine".into(), Tone::Good),
-                Some(Ok(false)) => ("no file; defaults".into(), Tone::Unknown),
-                Some(Err(error)) => (error.clone(), Tone::Bad),
-            },
-        ));
-
-        rows.push(heading("Layout"));
-        rows.push(row(
-            "File",
-            match &report.layout_path {
-                Some(path) => (shown_path(path), Tone::Plain),
-                None => ("no state directory (HOME unavailable)".into(), Tone::Bad),
-            },
-        ));
-        rows.push(row(
-            "At start",
-            match &report.restore {
-                None => ("not read".into(), Tone::Unknown),
-                Some((_, Ok(true))) => ("restored the saved layout".into(), Tone::Good),
-                Some((_, Ok(false))) if report.save_off => (
-                    "not used: started for one agent or program".into(),
-                    Tone::Unknown,
-                ),
-                Some((_, Ok(false))) => ("nothing saved yet".into(), Tone::Unknown),
-                Some((_, Err(error))) => (error.clone(), Tone::Bad),
-            },
-        ));
-        rows.push(row(
-            "Latest save",
-            if report.save_off {
-                (
-                    "saving is off this time; the file is left as it is".into(),
-                    Tone::Unknown,
-                )
-            } else {
-                match &report.save {
-                    None => ("not saved yet".into(), Tone::Unknown),
-                    Some((time, Ok(()))) => (format!("{} · saved", clock(*time)), Tone::Good),
-                    Some((time, Err(error))) => (format!("{} · {error}", clock(*time)), Tone::Bad),
-                }
-            },
-        ));
-
-        rows.push(heading("Start"));
-        rows.push(row(
-            "Started from",
-            (
-                if report.startup.desktop {
-                    "Finder or the Dock"
+        let config = vec![
+            row("File", (shown_path(&report.config_path), Tone::Plain)),
+            row(
+                "At start",
+                if report.config_from_file {
+                    ("read from the file".into(), Tone::Good)
                 } else {
-                    "a terminal"
-                }
-                .into(),
-                Tone::Plain,
+                    ("no file; defaults".into(), Tone::Unknown)
+                },
             ),
-        ));
-        rows.push(row(
-            "PATH",
-            match report.startup.login_path {
-                None => ("as the terminal had it".into(), Tone::Plain),
-                Some(true) => ("taken from the login shell".into(), Tone::Good),
-                Some(false) => (
-                    "the login shell did not answer; kept as started".into(),
-                    Tone::Bad,
+            row(
+                "Now",
+                match checks.map(|c| &c.config) {
+                    None => checking(),
+                    Some(Ok(true)) => ("the file reads fine".into(), Tone::Good),
+                    Some(Ok(false)) => ("no file; defaults".into(), Tone::Unknown),
+                    Some(Err(error)) => (error.clone(), Tone::Bad),
+                },
+            ),
+        ];
+
+        let layout = vec![
+            row(
+                "File",
+                match &report.layout_path {
+                    Some(path) => (shown_path(path), Tone::Plain),
+                    None => ("no state directory (HOME unavailable)".into(), Tone::Bad),
+                },
+            ),
+            row(
+                "At start",
+                match &report.restore {
+                    None => ("not read".into(), Tone::Unknown),
+                    Some((_, Ok(true))) => ("restored the saved layout".into(), Tone::Good),
+                    Some((_, Ok(false))) if report.save_off => (
+                        "not used: started for one agent or program".into(),
+                        Tone::Unknown,
+                    ),
+                    Some((_, Ok(false))) => ("nothing saved yet".into(), Tone::Unknown),
+                    Some((_, Err(error))) => (error.clone(), Tone::Bad),
+                },
+            ),
+            row(
+                "Latest save",
+                if report.save_off {
+                    (
+                        "saving is off this time; the file is left as it is".into(),
+                        Tone::Unknown,
+                    )
+                } else {
+                    match &report.save {
+                        None => ("not saved yet".into(), Tone::Unknown),
+                        Some((time, Ok(()))) => (format!("{} · saved", clock(*time)), Tone::Good),
+                        Some((time, Err(error))) => {
+                            (format!("{} · {error}", clock(*time)), Tone::Bad)
+                        }
+                    }
+                },
+            ),
+        ];
+
+        let start = vec![
+            row(
+                "Started from",
+                (
+                    if report.startup.desktop {
+                        "Finder or the Dock"
+                    } else {
+                        "a terminal"
+                    }
+                    .into(),
+                    Tone::Plain,
                 ),
-            },
-        ));
-        rows.push(
+            ),
+            row(
+                "PATH",
+                match report.startup.login_path {
+                    None => ("as the terminal had it".into(), Tone::Plain),
+                    Some(true) => ("taken from the login shell".into(), Tone::Good),
+                    Some(false) => (
+                        "the login shell did not answer; kept as started".into(),
+                        Tone::Bad,
+                    ),
+                },
+            ),
+        ];
+
+        let mut items = self.cards(
+            vec![
+                ("Commands", commands),
+                ("Agents", agents),
+                ("Config", config),
+                ("Layout", layout),
+                ("Start", start),
+            ],
+            true,
+            ui,
+        );
+        items.push(
             div()
                 .pt(px(14.0))
+                .px(px(4.0))
                 .text_size(ui.px(11.0))
-                .text_color(self.fg(|t| t.agents_dim))
+                .text_color(self.fg(|t| t.agents_dimmer))
                 .child(format!(
                     "Checked at {}. Read-only; nothing here changes paddock or its files.",
                     clock(report.checked)
                 ))
                 .into_any_element(),
         );
-        rows
+        items
     }
 
-    /// Shows `page`, as when Go to Agent picked it.
     pub fn show_page(&mut self, page: Page, cx: &mut Context<Self>) {
         self.page = page;
         if page == Page::Diagnostics {
@@ -731,94 +801,175 @@ impl SettingsView {
         .detach();
     }
 
-    fn button(&self, id: impl Into<ElementId>, label: impl Into<SharedString>) -> Stateful<Div> {
-        let highlight = hsla(self.theme.bg(|t| t.agent_selected), 1.0);
+    /// The theme's rule colour at `alpha`: lines between rows, around cards and fields.
+    fn rule(&self, alpha: f32) -> Hsla {
+        hsla(self.theme.fg(|t| t.agents_rule), alpha)
+    }
+
+    /// A heading over a card: small, upper case, faint.
+    fn heading(&self, text: &str, first: bool, ui: &UiFont) -> Div {
+        div()
+            .pt(px(if first { 6.0 } else { 18.0 }))
+            .pb(px(7.0))
+            .px(px(4.0))
+            .text_size(ui.px(10.5))
+            .font_weight(FontWeight::SEMIBOLD)
+            .text_color(self.fg(|t| t.agents_dimmer))
+            .child(text.to_uppercase())
+    }
+
+    /// Rows in a rounded card, a faint line between them.
+    fn card(&self, rows: Vec<Div>) -> Div {
+        let ground = hsla(self.theme.bg(|t| t.agents_bg), 1.0)
+            .blend(hsla(self.theme.fg(|t| t.agents_text), 0.025));
+        let line = self.rule(0.55);
+        div()
+            .flex()
+            .flex_col()
+            .rounded(px(10.0))
+            .border_1()
+            .border_color(line)
+            .bg(ground)
+            .children(
+                rows.into_iter().enumerate().map(|(index, row)| {
+                    row.when(index > 0, |row| row.border_t_1().border_color(line))
+                }),
+            )
+    }
+
+    /// A card per group of rows, each under its heading; `first` when they open the page.
+    fn cards(&self, groups: Vec<(&str, Vec<Div>)>, first: bool, ui: &UiFont) -> Vec<AnyElement> {
+        let mut items = Vec::new();
+        for (index, (heading, rows)) in groups.into_iter().enumerate() {
+            let first = first && index == 0;
+            items.push(if heading.is_empty() {
+                div()
+                    .pt(px(if first { 6.0 } else { 18.0 }))
+                    .into_any_element()
+            } else {
+                self.heading(heading, first, ui).into_any_element()
+            });
+            items.push(self.card(rows).into_any_element());
+        }
+        items
+    }
+
+    /// A small tinted label after a setting's name.
+    fn tag(&self, text: &'static str, color: Hsla, ui: &UiFont) -> Div {
+        div()
+            .flex_shrink_0()
+            .px(px(6.0))
+            .rounded(px(4.0))
+            .text_size(ui.px(11.0))
+            .text_color(color)
+            .bg(color.opacity(0.12))
+            .child(text)
+    }
+
+    /// A quiet button's shape: its text in a rounded box, no ground.
+    fn button_shape(
+        &self,
+        id: impl Into<ElementId>,
+        label: impl Into<SharedString>,
+        ui: &UiFont,
+    ) -> Stateful<Div> {
         div()
             .id(id.into())
-            .px(px(10.0))
-            .py(px(4.0))
-            .rounded(px(6.0))
-            .border_1()
-            .border_color(self.fg(|t| t.agents_rule))
-            .text_color(self.fg(|t| t.agents_text))
-            .cursor_pointer()
-            .hover(move |style| style.bg(highlight))
+            .flex_shrink_0()
+            .h(ui.px(28.0))
+            .px(px(13.0))
+            .flex()
+            .items_center()
+            .rounded(px(7.0))
             .child(label.into())
     }
 
-    /// A row of choices, the drafted one highlighted.
+    /// A quiet button: text, a faint ground on hover.
+    fn button(
+        &self,
+        id: impl Into<ElementId>,
+        label: impl Into<SharedString>,
+        ui: &UiFont,
+    ) -> Stateful<Div> {
+        let hover = hsla(self.theme.fg(|t| t.agents_text), 0.07);
+        self.button_shape(id, label, ui)
+            .text_color(self.fg(|t| t.agents_branch))
+            .cursor_pointer()
+            .hover(move |style| style.bg(hover))
+    }
+
+    /// A row of choices, the drafted one raised.
     fn segments(
         &self,
         key: &str,
         options: &[(&'static str, &'static str)],
+        ui: &UiFont,
         cx: &mut Context<Self>,
     ) -> Div {
         let current = self.draft.value(key);
         let highlight = hsla(self.theme.bg(|t| t.agent_selected), 1.0);
+        let (text, dim) = (self.fg(|t| t.agents_text), self.fg(|t| t.agents_dim));
         let mut row = div()
             .flex()
-            .p(px(2.0))
-            .gap(px(2.0))
-            .rounded(px(7.0))
+            .flex_shrink_0()
+            .p(px(3.0))
+            .rounded(px(8.0))
+            .bg(hsla(self.theme.bg(|t| t.agents_bg), 1.0))
             .border_1()
-            .border_color(self.fg(|t| t.agents_rule));
+            .border_color(self.rule(0.75));
         for &(value, label) in options {
             let on = current == value;
             let key = key.to_owned();
-            let mut segment = div()
+            let segment = div()
                 .id(ElementId::Name(format!("{key}-{value}").into()))
+                .h(ui.px(24.0))
                 .px(px(12.0))
-                .py(px(3.0))
-                .rounded(px(5.0))
+                .flex()
+                .items_center()
+                .rounded(px(6.0))
                 .cursor_pointer()
                 .child(label)
                 .on_click(
                     cx.listener(move |this, _: &ClickEvent, _, cx| this.set(&key, value, cx)),
                 );
-            segment = if on {
-                segment
-                    .bg(highlight)
-                    .text_color(self.fg(|t| t.agents_text))
-                    .font_weight(FontWeight::SEMIBOLD)
+            row = row.child(if on {
+                segment.bg(highlight).text_color(text)
             } else {
                 segment
-                    .text_color(self.fg(|t| t.muted))
-                    .hover(move |style| style.bg(highlight.opacity(0.6)))
-            };
-            row = row.child(segment);
+                    .text_color(dim)
+                    .hover(move |style| style.text_color(text))
+            });
         }
         row
     }
 
-    fn switch(&self, key: &str, cx: &mut Context<Self>) -> Stateful<Div> {
+    /// A sliding switch: the accent when on.
+    fn switch(&self, key: &str, ui: &UiFont, cx: &mut Context<Self>) -> Stateful<Div> {
         let on = self.draft.value(key) == "true";
         let key = key.to_owned();
         let track = if on {
-            self.fg(|t| t.agents_green)
+            self.fg(|t| t.agents_accent)
         } else {
-            self.fg(|t| t.agents_faint)
+            self.fg(|t| t.agents_rule)
         };
         div()
             .id(ElementId::Name(format!("{key}-switch").into()))
+            .flex_shrink_0()
+            .w(ui.px(34.0))
+            .h(ui.px(20.0))
+            .p(ui.px(2.0))
+            .rounded(ui.px(10.0))
+            .bg(track)
             .flex()
             .items_center()
-            .gap(px(8.0))
+            .when(on, |track| track.justify_end())
             .cursor_pointer()
             .child(
                 div()
-                    .w(px(34.0))
-                    .h(px(18.0))
-                    .p(px(2.0))
-                    .rounded(px(9.0))
-                    .bg(track)
-                    .flex()
-                    .when(on, |track| track.justify_end())
-                    .child(div().size(px(14.0)).rounded(px(7.0)).bg(gpui::white())),
-            )
-            .child(
-                div()
-                    .text_color(self.fg(|t| t.muted))
-                    .child(if on { "On" } else { "Off" }),
+                    .size(ui.px(16.0))
+                    .rounded(ui.px(8.0))
+                    .bg(self.fg(|t| t.agents_text))
+                    .shadow_sm(),
             )
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 let value = if on { "false" } else { "true" };
@@ -826,20 +977,134 @@ impl SettingsView {
             }))
     }
 
-    fn field_box(&self, key: &str) -> Div {
-        div()
-            .flex_1()
-            .min_w(px(0.0))
-            .min_h(px(26.0))
-            .px(px(8.0))
+    /// A setting's text field in its box. Numbers and colour values sit against the right edge; a
+    /// colour's box shows only when its row is hovered or it is being typed in.
+    fn field_box(
+        &self,
+        key: &str,
+        boxed: Boxed,
+        window: &Window,
+        ui: &UiFont,
+        cx: &mut Context<Self>,
+    ) -> Stateful<Div> {
+        let (width, mono, right) = match boxed {
+            Boxed::Number => (ui.px(64.0), None, true),
+            Boxed::Text => (px(220.0), None, false),
+            Boxed::List => (px(220.0), Some(11.5), false),
+            Boxed::Color(_) => (ui.px(120.0), Some(11.5), true),
+        };
+        let input = self.inputs.get(key).cloned();
+        let focused = input
+            .as_ref()
+            .is_some_and(|input| input.read(cx).focus_handle(cx).is_focused(window));
+        let ground = hsla(self.theme.bg(|t| t.agents_bg), 1.0);
+        let line = self.rule(0.85);
+        let mut field = div()
+            .id(ElementId::Name(format!("{key}-field").into()))
+            .flex_shrink_0()
+            .w(width)
+            .h(ui.px(28.0))
+            .px(px(10.0))
             .flex()
             .items_center()
-            .rounded(px(6.0))
+            .rounded(px(7.0))
             .border_1()
-            .border_color(self.fg(|t| t.agents_rule))
-            .bg(hsla(self.theme.terminal().background, 1.0))
             .overflow_hidden()
-            .children(self.inputs.get(key).cloned())
+            .when(right, |field| field.justify_end())
+            .when_some(mono, |field, size| {
+                field.font_family(MONO).text_size(ui.px(size))
+            });
+        field = if focused {
+            field
+                .bg(ground)
+                .border_color(self.fg(|t| t.agents_accent).opacity(0.7))
+        } else if let Boxed::Color(group) = boxed {
+            field
+                .border_color(gpui::transparent_black())
+                .group_hover(group.clone(), move |style| {
+                    style.bg(ground).border_color(line)
+                })
+        } else {
+            field.bg(ground).border_color(line)
+        };
+        let Some(input) = input else {
+            return field;
+        };
+        let text = input.read(cx).text().to_owned();
+        // The field is as wide as its text when it sits right, so the text ends at the edge.
+        let inner = if right && !text.is_empty() {
+            let family: SharedString = match mono {
+                Some(_) => MONO.into(),
+                None => ui.family.clone().unwrap_or_else(|| ".SystemUIFont".into()),
+            };
+            let size = ui.px(mono.unwrap_or(13.0));
+            div()
+                .flex_shrink_0()
+                .w(text_width(&text, family, size, window) + px(2.0))
+        } else {
+            div().flex_1().min_w(px(0.0)).overflow_hidden()
+        };
+        let handle = input.read(cx).focus_handle(cx);
+        field
+            .cursor_text()
+            .on_mouse_down(MouseButton::Left, move |_, window, cx| {
+                window.focus(&handle, cx)
+            })
+            .child(inner.child(input))
+    }
+
+    /// A number setting: a narrow box, its unit after it.
+    fn number_control(
+        &self,
+        key: &str,
+        window: &Window,
+        ui: &UiFont,
+        cx: &mut Context<Self>,
+    ) -> Div {
+        div()
+            .flex()
+            .flex_shrink_0()
+            .items_center()
+            .gap(px(6.0))
+            .child(self.field_box(key, Boxed::Number, window, ui, cx))
+            .child(
+                div()
+                    .w(ui.px(20.0))
+                    .whitespace_nowrap()
+                    .text_size(ui.px(12.0))
+                    .text_color(self.fg(|t| t.agents_dimmer))
+                    .children(unit(key)),
+            )
+    }
+
+    /// A colour: its value, then a swatch of it as drafted.
+    fn color_control(
+        &self,
+        field: &Field,
+        drafted: Option<&Theme>,
+        group: &SharedString,
+        window: &Window,
+        ui: &UiFont,
+        cx: &mut Context<Self>,
+    ) -> Div {
+        let swatch = drafted
+            .and_then(|theme| theme.color(field.color()?))
+            .map(|rgb| hsla(rgb, 1.0))
+            .unwrap_or(gpui::transparent_black());
+        div()
+            .flex()
+            .flex_shrink_0()
+            .items_center()
+            .gap(px(10.0))
+            .child(self.field_box(&field.key, Boxed::Color(group), window, ui, cx))
+            .child(
+                div()
+                    .size(ui.px(20.0))
+                    .rounded(px(6.0))
+                    .border_1()
+                    .border_color(hsla(self.theme.fg(|t| t.agents_text), 0.08))
+                    .bg(swatch),
+            )
     }
 
     /// A font setting: its font in a box that opens the list of installed ones below it.
@@ -847,21 +1112,22 @@ impl SettingsView {
         let key = field.key.clone();
         let mono = field.kind == Kind::MonoFont;
         let open = self.picker.as_ref().is_some_and(|picker| picker.key == key);
+        let value = self.draft.value(&key);
         let button = div()
             .id(ElementId::Name(format!("{key}-picker").into()))
-            .min_h(px(26.0))
-            .px(px(8.0))
+            .h(ui.px(28.0))
+            .px(px(10.0))
             .flex()
             .items_center()
             .gap(px(8.0))
-            .rounded(px(6.0))
+            .rounded(px(7.0))
             .border_1()
             .border_color(if open {
-                self.fg(|t| t.focus)
+                self.fg(|t| t.agents_accent).opacity(0.7)
             } else {
-                self.fg(|t| t.agents_rule)
+                self.rule(0.85)
             })
-            .bg(hsla(self.theme.terminal().background, 1.0))
+            .bg(hsla(self.theme.bg(|t| t.agents_bg), 1.0))
             .cursor_pointer()
             .child(
                 div()
@@ -870,16 +1136,24 @@ impl SettingsView {
                     .overflow_hidden()
                     .whitespace_nowrap()
                     .text_ellipsis()
+                    // The font shown in itself.
+                    .when(!value.is_empty(), |name| name.font_family(value.clone()))
+                    .when(mono, |name| name.text_size(ui.px(12.0)))
                     .child(self.font_label(&key)),
             )
-            .child(div().text_color(self.fg(|t| t.agents_dim)).child("▾"))
+            .child(
+                div()
+                    .text_size(ui.px(11.0))
+                    .text_color(self.fg(|t| t.agents_dimmer))
+                    .child("▾"),
+            )
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |this, _, window, cx| this.toggle_picker(&key, mono, window, cx)),
             );
         div()
-            .flex_1()
-            .min_w(px(0.0))
+            .w(px(220.0))
+            .flex_shrink_0()
             .flex()
             .flex_col()
             .child(button)
@@ -940,7 +1214,7 @@ impl SettingsView {
                                 .flex()
                                 .items_center()
                                 .gap(px(6.0))
-                                .rounded(px(5.0))
+                                .rounded(px(6.0))
                                 .overflow_hidden()
                                 .whitespace_nowrap()
                                 .cursor_pointer()
@@ -975,9 +1249,9 @@ impl SettingsView {
             .flex_col()
             .gap(px(4.0))
             .p(px(6.0))
-            .rounded(px(8.0))
+            .rounded(px(10.0))
             .border_1()
-            .border_color(self.fg(|t| t.focus))
+            .border_color(self.rule(1.0))
             .bg(hsla(self.theme.bg(|t| t.agents_bg), 1.0))
             .shadow_lg()
             .on_mouse_down_out(cx.listener(|this, _, window, cx| {
@@ -995,14 +1269,14 @@ impl SettingsView {
             )
             .child(
                 div()
-                    .min_h(px(28.0))
+                    .h(ui.px(28.0))
                     .px(px(8.0))
                     .flex()
                     .items_center()
                     .gap(px(6.0))
-                    .rounded(px(6.0))
+                    .rounded(px(7.0))
                     .border_1()
-                    .border_color(self.fg(|t| t.agents_rule))
+                    .border_color(self.rule(0.85))
                     .bg(hsla(self.theme.terminal().background, 1.0))
                     .child(div().text_color(self.fg(|t| t.agents_dim)).child("⌕"))
                     .child(div().flex_1().min_w(px(0.0)).child(picker.input.clone())),
@@ -1010,16 +1284,27 @@ impl SettingsView {
             .child(list)
     }
 
-    fn row(&self, field: &Field, cx: &mut Context<Self>) -> AnyElement {
-        let ui = UiFont::get(cx);
+    /// One setting in its card: the label on the left with its tags and note, Default on hover,
+    /// the control on the right.
+    fn row(
+        &self,
+        field: &Field,
+        drafted: Option<&Theme>,
+        window: &Window,
+        ui: &UiFont,
+        cx: &mut Context<Self>,
+    ) -> Div {
         let key = field.key.clone();
+        let group = SharedString::from(format!("row-{key}"));
+        let color = field.kind == Kind::Color;
         let control: AnyElement = match field.kind {
-            Kind::MonoFont | Kind::UiFont => self.font_control(field, &ui, cx).into_any_element(),
-            Kind::Bool => self.switch(&key, cx).into_any_element(),
+            Kind::MonoFont | Kind::UiFont => self.font_control(field, ui, cx).into_any_element(),
+            Kind::Bool => self.switch(&key, ui, cx).into_any_element(),
             Kind::Pet => self
                 .segments(
                     &key,
                     &[("clawd", "Clawd"), ("cat", "Cat"), ("capybara", "Capybara")],
+                    ui,
                     cx,
                 )
                 .into_any_element(),
@@ -1027,232 +1312,445 @@ impl SettingsView {
                 .segments(
                     &key,
                     &[("dune", "Dune"), ("tide", "Tide"), ("lagoon", "Lagoon")],
+                    ui,
                     cx,
                 )
                 .into_any_element(),
-            Kind::Color => {
-                let swatch = self
-                    .draft
-                    .theme()
-                    .and_then(|theme| theme.color(field.color().unwrap()))
-                    .map(|rgb| hsla(rgb, 1.0))
-                    .unwrap_or(gpui::transparent_black());
-                div()
-                    .flex_1()
-                    .flex()
-                    .items_center()
-                    .gap(px(8.0))
-                    .child(
-                        div()
-                            .size(px(18.0))
-                            .rounded(px(4.0))
-                            .border_1()
-                            .border_color(self.fg(|t| t.agents_rule))
-                            .bg(swatch),
-                    )
-                    .child(self.field_box(&key).font_family("Menlo"))
-                    .into_any_element()
+            Kind::Color => self
+                .color_control(field, drafted, &group, window, ui, cx)
+                .into_any_element(),
+            Kind::Integer | Kind::Number => {
+                self.number_control(&key, window, ui, cx).into_any_element()
             }
-            _ => div()
-                .flex_1()
-                .flex()
-                .items_center()
-                .gap(px(8.0))
-                .child(self.field_box(&key))
-                .children(unit(&key).map(|unit| {
-                    div()
-                        .w(ui.px(20.0))
-                        .text_color(self.fg(|t| t.agents_dim))
-                        .child(unit)
-                }))
+            Kind::Text => self
+                .field_box(&key, Boxed::Text, window, ui, cx)
+                .into_any_element(),
+            Kind::List => self
+                .field_box(&key, Boxed::List, window, ui, cx)
                 .into_any_element(),
         };
-        let mut tags = div().flex().items_center().gap(px(6.0)).flex_shrink_0();
-        if self.draft.custom(&key) {
-            tags = tags.child(
-                div()
-                    .text_size(ui.px(11.0))
-                    .text_color(self.fg(|t| t.agents_accent))
-                    .child("custom"),
-            );
-        }
-        if field.restart && self.draft.changed(&key) {
-            tags = tags.child(
-                div()
-                    .text_size(ui.px(11.0))
-                    .text_color(self.fg(|t| t.agents_yellow))
-                    .child("Restart required"),
-            );
-        }
-        let reset_key = key.clone();
-        tags = tags.child(
-            div()
-                .id(ElementId::Name(format!("{key}-default").into()))
-                .px(px(6.0))
-                .py(px(2.0))
-                .rounded(px(5.0))
-                .text_size(ui.px(11.0))
-                .text_color(self.fg(|t| t.agents_dim))
-                .cursor_pointer()
-                .hover(|style| style.text_color(gpui::white()))
-                .child("Default")
-                .on_click(
-                    cx.listener(move |this, _: &ClickEvent, _, cx| this.reset(&reset_key, cx)),
-                ),
-        );
-        div()
+        let mut title = div()
             .flex()
             .items_center()
-            .gap(px(12.0))
-            .py(px(4.0))
+            .gap(px(6.0))
+            .min_w(px(0.0))
             .child(
                 div()
-                    .w(px(170.0))
-                    .flex_shrink_0()
-                    .text_color(self.fg(|t| t.agents_text))
+                    .min_w(px(0.0))
                     .overflow_hidden()
                     .whitespace_nowrap()
                     .text_ellipsis()
-                    .when(field.kind == Kind::Color, |label| {
-                        label.font_family("Menlo").text_size(ui.px(12.0))
+                    .when(color, |label| {
+                        label.font_family(MONO).text_size(ui.px(12.0))
                     })
-                    .child(field.label.clone()),
-            )
-            .child(div().flex_1().min_w(px(0.0)).flex().child(control))
-            .child(tags)
-            .into_any_element()
+                    .child(row_label(field).to_owned()),
+            );
+        if self.draft.custom(&key) {
+            title = title.child(self.tag("custom", self.fg(|t| t.agents_accent), ui));
+        }
+        if field.restart && self.draft.changed(&key) {
+            title = title.child(self.tag("Restart required", self.fg(|t| t.agents_yellow), ui));
+        }
+        let label = div()
+            .flex_1()
+            .min_w(px(0.0))
+            .flex()
+            .flex_col()
+            .child(title)
+            .children(note(&key).map(|note| {
+                div()
+                    .mt(px(1.0))
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .text_ellipsis()
+                    .text_size(ui.px(11.5))
+                    .text_color(self.fg(|t| t.agents_dimmer))
+                    .child(note)
+            }));
+        let (dim, text) = (self.fg(|t| t.agents_dim), self.fg(|t| t.agents_text));
+        let reset_key = key.clone();
+        let default = div()
+            .id(ElementId::Name(format!("{key}-default").into()))
+            .flex_shrink_0()
+            .px(px(6.0))
+            .py(px(2.0))
+            .rounded(px(5.0))
+            .text_size(ui.px(11.0))
+            .text_color(dim)
+            .cursor_pointer()
+            .invisible()
+            .group_hover(group.clone(), |style| style.visible())
+            .hover(move |style| style.text_color(text))
+            .child("Default")
+            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.reset(&reset_key, cx)));
+        // The pet waits while the mascot is off.
+        let resting = field.kind == Kind::Pet && self.draft.value("mascot_enabled") != "true";
+        div()
+            .group(group)
+            .flex()
+            .items_center()
+            .gap(px(12.0))
+            .min_h(ui.px(if color { 38.0 } else { 44.0 }))
+            .px(px(16.0))
+            .py(px(6.0))
+            .when(resting, |row| row.opacity(0.45))
+            .child(label)
+            .child(default)
+            .child(control)
     }
-}
 
-impl Render for SettingsView {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let ui = UiFont::get(cx);
+    /// The rows for the settings with `keys`, in that order.
+    fn rows_for(
+        &self,
+        keys: &[&str],
+        window: &Window,
+        ui: &UiFont,
+        cx: &mut Context<Self>,
+    ) -> Vec<Div> {
+        let mut rows = Vec::new();
+        for key in keys {
+            if let Some(field) = self.draft.fields().iter().find(|f| f.key == *key) {
+                let field = field.clone();
+                rows.push(self.row(&field, None, window, ui, cx));
+            }
+        }
+        rows
+    }
+
+    /// Rows for `fields` in a card per group, as they are grouped.
+    fn grouped(
+        &self,
+        fields: &[Field],
+        drafted: Option<&Theme>,
+        first: bool,
+        window: &Window,
+        ui: &UiFont,
+        cx: &mut Context<Self>,
+    ) -> Vec<AnyElement> {
+        let mut groups: Vec<(&str, Vec<Div>)> = Vec::new();
+        for field in fields {
+            let row = self.row(field, drafted, window, ui, cx);
+            match groups.last_mut() {
+                Some((group, rows)) if *group == field.group => rows.push(row),
+                _ => groups.push((field.group, vec![row])),
+            }
+        }
+        self.cards(groups, first, ui)
+    }
+
+    /// The three themes as small pictures of the window in their own colours.
+    fn theme_picker(&self, ui: &UiFont, cx: &mut Context<Self>) -> Div {
+        let current = self.draft.theme_name();
+        let accent = self.fg(|t| t.agents_accent);
+        let mut choices = div().flex().gap(px(12.0));
+        for (value, label) in [("dune", "Dune"), ("tide", "Tide"), ("lagoon", "Lagoon")] {
+            let config = Config {
+                theme: Some(value.into()),
+                ..Config::default()
+            };
+            let Ok(theme) = Theme::from_config(&config) else {
+                continue;
+            };
+            let on = current == value;
+            let color = |pick: Pick| hsla(theme.fg(pick), 1.0);
+            let (text, own_accent) = (color(|t| t.agents_text), color(|t| t.agents_accent));
+            let side = hsla(theme.bg(|t| t.agents_bg), 1.0).blend(text.opacity(0.05));
+            let bar = |color: Hsla, width: f32, height: f32| {
+                div()
+                    .h(px(height))
+                    .w(relative(width))
+                    .rounded(px(height / 2.0))
+                    .bg(color)
+            };
+            let picture = div()
+                .h(ui.px(74.0))
+                .flex()
+                .rounded(px(7.0))
+                .overflow_hidden()
+                .bg(hsla(theme.terminal().background, 1.0))
+                .child(
+                    div()
+                        .w(relative(0.34))
+                        .h_full()
+                        .flex()
+                        .flex_col()
+                        .gap(px(5.0))
+                        .px(px(7.0))
+                        .py(px(9.0))
+                        .bg(side)
+                        .child(bar(own_accent, 0.8, 5.0))
+                        .child(bar(color(|t| t.agent_blocked), 0.6, 5.0))
+                        .child(bar(color(|t| t.agent_working), 0.7, 5.0)),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .flex()
+                        .flex_col()
+                        .gap(px(5.0))
+                        .px(px(8.0))
+                        .py(px(9.0))
+                        .child(bar(text.opacity(0.7), 0.7, 4.0))
+                        .child(bar(text.opacity(0.4), 0.45, 4.0))
+                        .child(bar(own_accent.opacity(0.8), 0.55, 4.0)),
+                );
+            let rule = self.rule(1.0);
+            let choice = div()
+                .id(ElementId::Name(format!("theme-{value}").into()))
+                .flex_1()
+                .min_w(px(0.0))
+                .p(px(6.0))
+                .rounded(px(10.0))
+                .border_1()
+                .cursor_pointer()
+                .child(picture)
+                .child(
+                    div()
+                        .pt(px(7.0))
+                        .px(px(3.0))
+                        .text_size(ui.px(12.5))
+                        .text_color(if on {
+                            self.fg(|t| t.agents_text)
+                        } else {
+                            hsla(self.theme.fg(|t| t.agents_text), 0.7)
+                        })
+                        .child(label),
+                )
+                .on_click(
+                    cx.listener(move |this, _: &ClickEvent, _, cx| this.set("theme", value, cx)),
+                );
+            choices = choices.child(if on {
+                choice.border_color(accent)
+            } else {
+                choice
+                    .border_color(self.rule(0.6))
+                    .hover(move |style| style.border_color(rule))
+            });
+        }
+        choices
+    }
+
+    fn page_items(&self, window: &Window, ui: &UiFont, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        match self.page {
+            Page::General => {
+                let mut groups = Vec::new();
+                for (heading, keys) in GENERAL {
+                    groups.push((heading, self.rows_for(keys, window, ui, cx)));
+                }
+                self.cards(groups, true, ui)
+            }
+            Page::Colors => {
+                let colors: Vec<Field> = self
+                    .draft
+                    .fields()
+                    .iter()
+                    .filter(|f| f.page == Page::Colors && f.kind != Kind::Theme)
+                    .cloned()
+                    .collect();
+                let drafted = self.draft.theme();
+                let mut items = vec![
+                    self.heading("Theme", true, ui).into_any_element(),
+                    self.theme_picker(ui, cx).into_any_element(),
+                ];
+                items.extend(self.grouped(&colors, drafted.as_ref(), false, window, ui, cx));
+                items
+            }
+            Page::Advanced => {
+                let fields: Vec<Field> = self
+                    .draft
+                    .fields()
+                    .iter()
+                    .filter(|f| f.page == Page::Advanced)
+                    .cloned()
+                    .collect();
+                self.grouped(&fields, None, true, window, ui, cx)
+            }
+            Page::Diagnostics => self.diagnostics_page(ui),
+        }
+    }
+
+    /// The pages, each with its glyph; the one showing raised.
+    fn nav(&self, ui: &UiFont, cx: &mut Context<Self>) -> Div {
         let highlight = hsla(self.theme.bg(|t| t.agent_selected), 1.0);
+        let text = self.fg(|t| t.agents_text);
         let mut nav = div()
+            .w(px(184.0))
+            .flex_shrink_0()
             .flex()
             .flex_col()
             .gap(px(2.0))
-            .w(px(150.0))
-            .flex_shrink_0();
+            .px(px(10.0))
+            .pt(px(12.0));
         for page in Page::ALL {
             let on = page == self.page;
-            let mut item = div()
+            let glyph = match page {
+                Page::General => "◐",
+                Page::Colors => "◑",
+                Page::Advanced => "⋯",
+                Page::Diagnostics => "ⓘ",
+            };
+            let item = div()
                 .id(page.label())
-                .px(px(12.0))
-                .py(px(6.0))
-                .rounded(px(6.0))
+                .h(ui.px(32.0))
+                .px(px(10.0))
+                .flex()
+                .items_center()
+                .gap(px(10.0))
+                .rounded(px(7.0))
                 .cursor_pointer()
+                .child(
+                    div()
+                        .w(ui.px(16.0))
+                        .flex()
+                        .justify_center()
+                        .text_color(if on {
+                            self.fg(|t| t.agents_accent)
+                        } else {
+                            self.fg(|t| t.agents_dimmer)
+                        })
+                        .child(glyph),
+                )
                 .child(page.label())
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.show_page(page, cx)));
-            item = if on {
+            nav = nav.child(if on {
                 item.bg(highlight)
-                    .text_color(self.fg(|t| t.agents_text))
+                    .text_color(text)
                     .font_weight(FontWeight::SEMIBOLD)
             } else {
-                item.text_color(self.fg(|t| t.muted))
+                item.text_color(text.opacity(0.7))
                     .hover(move |style| style.bg(highlight.opacity(0.6)))
-            };
-            nav = nav.child(item);
+            });
         }
+        nav
+    }
 
-        let fields: Vec<Field> = self
-            .draft
-            .fields()
-            .iter()
-            .filter(|f| f.page == self.page)
-            .cloned()
-            .collect();
-        let mut list = div()
-            .id("settings-list")
-            .flex_1()
-            .min_w(px(0.0))
-            .h_full()
-            .overflow_y_scroll()
-            .flex()
-            .flex_col()
-            .pr(px(8.0));
-        let mut heading = "";
-        for field in &fields {
-            if field.group != heading {
-                heading = field.group;
-                list = list.child(
-                    div()
-                        .pt(px(14.0))
-                        .pb(px(4.0))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(self.fg(|t| t.agents_accent))
-                        .child(heading),
-                );
-            }
-            list = list.child(self.row(field, cx));
-        }
-        if self.page == Page::Diagnostics {
-            list = list.children(self.diagnostics_page(&ui));
-        }
-
+    /// The config file's path, what Save last said, and the buttons.
+    fn footer(&self, ui: &UiFont, cx: &mut Context<Self>) -> Div {
         let mut footer = div()
             .flex_shrink_0()
+            .h(ui.px(52.0))
             .flex()
             .items_center()
             .gap(px(8.0))
-            .pt(px(10.0))
+            .pl(px(20.0))
+            .pr(px(16.0))
             .border_t_1()
-            .border_color(self.fg(|t| t.agents_rule));
-        footer = footer.child(
-            div()
-                .flex_1()
-                .min_w(px(0.0))
-                .text_size(ui.px(12.0))
-                .children(self.message.as_ref().map(|(text, problem)| {
-                    div()
-                        .text_color(if *problem {
-                            self.fg(|t| t.agents_red)
-                        } else {
-                            self.fg(|t| t.agents_green)
-                        })
-                        .child(text.clone())
-                })),
-        );
+            .border_color(self.rule(0.75))
+            .child(
+                div()
+                    .min_w(px(0.0))
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .text_ellipsis()
+                    .font_family(MONO)
+                    .text_size(ui.px(12.0))
+                    .text_color(self.fg(|t| t.agents_dimmer))
+                    .child(shown_path(&self.path)),
+            )
+            .child(div().flex_1())
+            .children(self.message.as_ref().map(|(text, problem)| {
+                div()
+                    .min_w(px(0.0))
+                    .mr(px(6.0))
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .text_ellipsis()
+                    .text_size(ui.px(12.0))
+                    .text_color(if *problem {
+                        self.fg(|t| t.agents_red)
+                    } else {
+                        self.fg(|t| t.agents_green)
+                    })
+                    .child(text.clone())
+            }));
         if self.page == Page::Diagnostics {
             footer =
-                footer.child(self.button("refresh", "Refresh").on_click(
+                footer.child(self.button("refresh", "Refresh", ui).on_click(
                     cx.listener(|this, _: &ClickEvent, _, cx| this.refresh_diagnostics(cx)),
                 ));
         } else if self.conflict {
             footer = footer
-                .child(self.button("keep", "Keep my edits").on_click(
+                .child(self.button("keep", "Keep my edits", ui).on_click(
                     cx.listener(|this, _: &ClickEvent, _, cx| this.resolve_conflict(true, cx)),
                 ))
-                .child(self.button("discard", "Discard my edits").on_click(
+                .child(self.button("discard", "Discard my edits", ui).on_click(
                     cx.listener(|this, _: &ClickEvent, _, cx| this.resolve_conflict(false, cx)),
                 ));
         } else {
-            let edited = self.draft.edited();
-            let revert = if edited {
-                self.button("revert", "Revert")
+            let revert = if self.draft.edited() {
+                self.button("revert", "Revert", ui)
                     .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.revert(cx)))
             } else {
                 // Nothing to revert: shown, but not clickable.
-                div()
-                    .id("revert")
-                    .px(px(10.0))
-                    .py(px(4.0))
-                    .rounded(px(6.0))
-                    .border_1()
-                    .border_color(self.fg(|t| t.agents_rule))
+                // (GPUI allows one hover style per element, so not `button` with its hover undone.)
+                self.button_shape("revert", "Revert", ui)
                     .text_color(self.fg(|t| t.agents_dimmer))
-                    .child("Revert")
             };
+            let accent = self.fg(|t| t.agents_accent);
             footer = footer.child(revert).child(
-                self.button("save", "Save  ⌘S")
-                    .bg(hsla(self.theme.bg(|t| t.agent_selected), 1.0))
-                    .border_color(self.fg(|t| t.focus))
+                div()
+                    .id("save")
+                    .flex_shrink_0()
+                    .h(ui.px(28.0))
+                    .px(px(13.0))
+                    .flex()
+                    .items_center()
+                    .gap(px(8.0))
+                    .rounded(px(7.0))
+                    .bg(accent)
+                    .text_color(hsla(self.theme.bg(|t| t.agents_bg), 1.0))
                     .font_weight(FontWeight::SEMIBOLD)
+                    .cursor_pointer()
+                    .hover(move |style| style.bg(accent.opacity(0.88)))
+                    .child("Save")
+                    .child(
+                        div()
+                            .opacity(0.6)
+                            .font_weight(FontWeight::MEDIUM)
+                            .child("⌘S"),
+                    )
                     .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                         this.save(&menu::SaveSettings, window, cx)
                     })),
             );
         }
+        footer
+    }
+}
+
+impl Render for SettingsView {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let ui = UiFont::get(cx);
+        let items = self.page_items(window, &ui, cx);
+        let content = div()
+            .flex_1()
+            .min_w(px(0.0))
+            .flex()
+            .flex_col()
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .h(ui.px(46.0))
+                    .flex()
+                    .items_center()
+                    .px(px(28.0))
+                    .text_size(ui.px(15.0))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child(self.page.label()),
+            )
+            .child(
+                div()
+                    .id("settings-list")
+                    .flex_1()
+                    .min_h(px(0.0))
+                    .overflow_y_scroll()
+                    .flex()
+                    .flex_col()
+                    .px(px(28.0))
+                    .pt(px(2.0))
+                    .pb(px(20.0))
+                    .children(items),
+            );
 
         ui.apply(div())
             .id("settings")
@@ -1272,28 +1770,29 @@ impl Render for SettingsView {
             .size_full()
             .flex()
             .flex_col()
-            .gap(px(10.0))
-            .p(px(16.0))
             .bg(hsla(self.theme.bg(|t| t.agents_bg), 1.0))
             .text_size(ui.px(13.0))
             .text_color(self.fg(|t| t.agents_text))
             .child(
                 div()
-                    .text_size(ui.px(11.0))
-                    .text_color(self.fg(|t| t.agents_dim))
-                    .child(format!("Config file: {}", shown_path(&self.path))),
-            )
-            .child(
-                div()
                     .flex_1()
                     .min_h(px(0.0))
                     .flex()
-                    .gap(px(16.0))
-                    .child(nav)
-                    .child(list),
+                    .child(self.nav(&ui, cx))
+                    .child(div().w(px(1.0)).h_full().bg(self.rule(0.75)))
+                    .child(content),
             )
-            .child(footer)
+            .child(self.footer(&ui, cx))
     }
+}
+
+/// How a text field's box is drawn.
+enum Boxed<'a> {
+    Number,
+    Text,
+    List,
+    /// A colour value, its box shown when the row named here is hovered.
+    Color(&'a SharedString),
 }
 
 #[derive(Clone, Copy)]
