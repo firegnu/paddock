@@ -389,10 +389,10 @@ impl TerminalView {
         ))
     }
 
-    /// Reports a mouse event through Saddle's encoder when the program asked for the mouse.
+    /// Reports a mouse event through `input::encode_mouse` when the program asked for the mouse.
     fn report_mouse(
         &mut self,
-        kind: crossterm::event::MouseEventKind,
+        kind: crate::input::MouseEventKind,
         position: Point<Pixels>,
         modifiers: gpui::Modifiers,
         cx: &mut Context<Self>,
@@ -404,17 +404,17 @@ impl TerminalView {
         let Some((col, row, ..)) = self.locate(position) else {
             return false;
         };
-        let mut mods = crossterm::event::KeyModifiers::NONE;
-        mods.set(crossterm::event::KeyModifiers::SHIFT, modifiers.shift);
-        mods.set(crossterm::event::KeyModifiers::ALT, modifiers.alt);
-        mods.set(crossterm::event::KeyModifiers::CONTROL, modifiers.control);
-        let event = crossterm::event::MouseEvent {
+        let event = crate::input::MouseEvent {
             kind,
             column: col,
             row,
-            modifiers: mods,
+            modifiers: crate::input::Modifiers {
+                shift: modifiers.shift,
+                alt: modifiers.alt,
+                control: modifiers.control,
+            },
         };
-        let area = ratatui::layout::Rect::new(0, 0, self.size.cols, self.size.rows);
+        let area = crate::input::Area::new(0, 0, self.size.cols, self.size.rows);
         let bytes = crate::input::encode_mouse(event, area, mode);
         if let Some(session) = self.session()
             && !bytes.is_empty()
@@ -427,7 +427,7 @@ impl TerminalView {
 
     fn mouse_down(&mut self, event: &MouseDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         window.focus(&self.focus, cx);
-        use crossterm::event::{MouseButton as B, MouseEventKind as K};
+        use crate::input::{MouseButton as B, MouseEventKind as K};
         if !event.modifiers.shift
             && self.report_mouse(K::Down(B::Left), event.position, event.modifiers, cx)
         {
@@ -450,7 +450,7 @@ impl TerminalView {
     }
 
     fn mouse_move(&mut self, event: &MouseMoveEvent, _: &mut Window, cx: &mut Context<Self>) {
-        use crossterm::event::{MouseButton as B, MouseEventKind as K};
+        use crate::input::{MouseButton as B, MouseEventKind as K};
         match (self.pressed, event.pressed_button) {
             (Some(Press::Reported), Some(MouseButton::Left)) => {
                 self.report_mouse(K::Drag(B::Left), event.position, event.modifiers, cx);
@@ -474,7 +474,7 @@ impl TerminalView {
     }
 
     fn mouse_up(&mut self, event: &MouseUpEvent, _: &mut Window, cx: &mut Context<Self>) {
-        use crossterm::event::{MouseButton as B, MouseEventKind as K};
+        use crate::input::{MouseButton as B, MouseEventKind as K};
         match self.pressed.take() {
             Some(Press::Reported) => {
                 self.report_mouse(K::Up(B::Left), event.position, event.modifiers, cx);
@@ -504,7 +504,7 @@ impl TerminalView {
         if lines == 0 {
             return;
         }
-        use crossterm::event::MouseEventKind as K;
+        use crate::input::MouseEventKind as K;
         let mode = self.mode();
         if mode.intersects(TermMode::MOUSE_MODE) && !event.modifiers.shift {
             let kind = if lines > 0 {

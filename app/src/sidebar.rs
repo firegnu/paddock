@@ -1,6 +1,7 @@
-//! The Agents sidebar: `corral ls` through Saddle's poller, ordered and judged by Saddle's Agents
-//! panel, one row per agent. Clicking a row attaches the terminal pane to that agent; the footer
-//! opens a shell instead.
+//! The Agents sidebar: `corral ls` through the poller, ordered and judged by the Agents panel model
+//! (both taken from Saddle), one row per agent. Clicking a row attaches the terminal pane to that
+//! agent; the footer opens a shell instead.
+use crate::preset::Color;
 use crate::{
     agents::{Panel, Status, group},
     corral::{Agent, Client, Poller},
@@ -15,7 +16,6 @@ use gpui::{
     App, ClickEvent, Context, ElementId, Entity, Focusable, Render, RenderOnce, SharedString,
     Window, div, prelude::*, px,
 };
-use ratatui::style::Color;
 use std::{rc::Rc, time::Duration};
 
 /// How often corral is asked, as Saddle's default `refresh_ms`.

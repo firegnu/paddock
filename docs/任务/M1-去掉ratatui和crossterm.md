@@ -32,3 +32,14 @@
 - 不改按键、鼠标、颜色的行为，也不借机补新功能（比如右键、中键上报、新快捷键）。
 - 不改迁入代码中与这两个库无关的部分。
 - 不改 Saddle 仓库。
+
+## 完成记录
+
+2026-10-05，paddock/main。
+
+- **做了什么**：`input.rs` 定义 paddock 自己的 `KeyCode`、`Modifiers`、`KeyEvent`、`MouseButton`、`MouseEventKind`、`MouseEvent`、`Area`，名字和取值与原 crossterm/ratatui 类型一致；`encode_key`、`encode_mouse` 改收它们。`keys.rs` 直接从 GPUI 按键转成 paddock 的按键，`view.rs` 组装 paddock 的鼠标事件。`preset.rs` 定义自己的 `Color`（`Reset`、16 个具名色、`Indexed`、`Rgb`），`theme.rs`、`sidebar.rs` 改用它。删去 `ratatui`、`crossterm`：锁文件少了 68 个包（含 termwiz、wezterm 系列），没有新增或升级。DESIGN 同步更新；顺带改正了 `theme.rs`、`sidebar.rs` 开头两处仍说“来自 Saddle 库”的注释。
+- **验证了什么**：72 项测试全部通过；`tests/input.rs` 只改了导入和 `Rect::new` → `Area::new`，期望字节一个未改；`keys.rs` 的测试经 GPUI 按键走完整路径，未改。clippy 无警告（只剩 GPUI 依赖 `block v0.1.6` 的上游提示），`cargo fmt --check` 通过。release 构建启动一次，只截本窗口显示合成样例：颜色、侧栏正常；截图已删除。
+- **拿主意的地方**：
+  - `encode_mouse` 保留“区域”参数（`Area`，代替 ratatui 的 `Rect`），没有按任务书写的改成只收行列数：这样迁入的鼠标测试（区域带偏移、区域外的点不上报）原样有效。paddock 自己总是传 `(0, 0, 列, 行)`。
+  - 去掉了 `encode_key` 对“按键松开”的判断：paddock 的按键只来自 GPUI 的按下事件，原判断在 paddock 里从未生效。
+- **没做的事**：键盘、鼠标的实际操作没有测，留给用户体验；未改任何按键、鼠标、颜色行为。

@@ -1,13 +1,14 @@
-//! The colours in effect: a preset plus `[colors]` overrides. Interface colours come from Saddle's
-//! public theme; the terminal palette is paddock's own, since paddock has no outer terminal to
-//! defer to. Named and default colours resolve to concrete RGB through that palette.
+//! The colours in effect: a preset plus `[colors]` overrides. Interface colours come from the
+//! presets taken from Saddle (`preset.rs`); the terminal palette is paddock's own, since paddock has
+//! no outer terminal to defer to. Named and default colours resolve to concrete RGB through that
+//! palette.
+use crate::preset::Color;
 use crate::preset::{Preset, parse_color};
 use crate::{
     config::Config,
     palette::{self, Rgb},
 };
 use anyhow::{Result, anyhow, bail};
-use ratatui::style::Color;
 
 /// A preset's own terminal colours; its default text and background follow Saddle's `text`/`bg`.
 struct Terminal {

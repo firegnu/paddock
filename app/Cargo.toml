@@ -21,9 +21,6 @@ gpui_platform = { package = "gpui-pre-platform", version = "=0.3.8", features = 
 alacritty_terminal = "0.26"
 portable-pty = "0.9"
 libc = "0.2"
-# Only for the key/mouse encoding and colour types taken from Saddle; removed in M1.
-crossterm = "0.29"
-ratatui = "0.30"
 anyhow = "1"
 # The config file and corral's JSON output.
 serde = { version = "1", features = ["derive"] }
