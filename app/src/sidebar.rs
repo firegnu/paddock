@@ -7,6 +7,7 @@ use crate::{
     attention,
     card::{self, Card, GitLine, Line, Pick},
     corral::{Agent, Client, Poller, Role},
+    footer_icon::{self, Icon},
     git,
     theme::Theme,
     view::hsla,
@@ -499,19 +500,21 @@ impl Render for Sidebar {
             .flex_shrink_0()
             .flex()
             .items_center()
-            .gap(px(4.0))
+            .gap(px(2.0))
             .px(px(PAD - 2.0))
-            .py(px(6.0))
+            .py(px(5.0))
             .border_t_1()
             .border_color(fg(|t| t.agents_rule))
-            .text_size(px(DETAIL_SIZE))
             .child(
                 chip(
                     &theme,
                     "sort",
-                    "s",
-                    "Sort",
-                    Some(if by_name { "name" } else { "status" }),
+                    Icon::Sort,
+                    if by_name {
+                        "Sort by name"
+                    } else {
+                        "Sort by status"
+                    },
                     false,
                 )
                 .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
@@ -520,7 +523,7 @@ impl Render for Sidebar {
                 })),
             )
             .child(
-                chip(&theme, "fold", "z", "Fold", None, folded).on_click(cx.listener(
+                chip(&theme, "fold", Icon::Fold, "Fold all", folded).on_click(cx.listener(
                     |this, _: &ClickEvent, _, cx| {
                         this.listing.panel.toggle_fold();
                         cx.notify();
@@ -529,21 +532,21 @@ impl Render for Sidebar {
             )
             .child(div().flex_1())
             .child(
-                chip(&theme, "new-agent", "＋", "Agent", None, false).on_click(
+                chip(&theme, "new-agent", Icon::NewAgent, "New agent", false).on_click(
                     cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(SidebarEvent::NewAgent)),
                 ),
             )
             .child(
-                chip(&theme, "new-shell", "＋", "Shell", None, false).on_click(
+                chip(&theme, "new-shell", Icon::NewShell, "New shell", false).on_click(
                     cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(SidebarEvent::NewShell)),
                 ),
             )
             .child(if self.selected.is_some() {
-                chip(&theme, "stop", "■", "Stop", None, false)
+                chip(&theme, "stop", Icon::Stop, "Stop", false)
                     .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(SidebarEvent::Stop)))
             } else {
                 // Stop acts on the active pane's agent; there is none.
-                chip(&theme, "stop", "■", "Stop", None, false)
+                chip(&theme, "stop", Icon::Stop, "Stop", false)
                     .opacity(0.4)
                     .cursor_default()
             });
@@ -579,42 +582,63 @@ impl Render for Sidebar {
     }
 }
 
-/// A footer control: a key-like mark, a label and an optional current value. `on` marks a toggle
-/// that is in effect.
+/// A footer control: an icon, with what it does shown on hover. `on` marks a toggle that is in
+/// effect.
 fn chip(
     theme: &Theme,
     id: &'static str,
-    mark: &'static str,
-    label: &'static str,
-    value: Option<&'static str>,
+    icon: Icon,
+    tip: &'static str,
     on: bool,
 ) -> gpui::Stateful<Div> {
     let fg = |pick: Pick| hsla(theme.fg(pick), 1.0);
     let selected = hsla(theme.bg(|t| t.agent_selected), 1.0);
+    let tip = Tip {
+        text: tip,
+        color: fg(|t| t.agents_text),
+        background: hsla(theme.bg(|t| t.agents_bg), 1.0),
+        border: fg(|t| t.agents_rule),
+    };
     let mut chip = div()
         .id(id)
         .flex()
         .items_center()
-        .gap(px(4.0))
-        .px(px(6.0))
-        .py(px(3.0))
+        .justify_center()
+        .p(px(5.0))
         .rounded(px(5.0))
         .cursor_pointer()
         .hover(move |style| style.bg(selected))
-        .child(
-            div()
-                .font_weight(FontWeight::BOLD)
-                .text_color(fg(|t| t.agents_accent))
-                .child(mark),
-        )
-        .child(div().text_color(fg(|t| t.agents_text)).child(label));
-    if let Some(value) = value {
-        chip = chip.child(div().text_color(fg(|t| t.agents_dim)).child(value));
-    }
+        .tooltip(move |_, cx| cx.new(|_| tip.clone()).into())
+        .child(footer_icon::icon(icon, fg(|t| t.agents_text)));
     if on {
         chip = chip.bg(selected);
     }
     chip
+}
+
+/// A footer control's hover text.
+#[derive(Clone)]
+struct Tip {
+    text: &'static str,
+    color: Hsla,
+    background: Hsla,
+    border: Hsla,
+}
+
+impl Render for Tip {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .px(px(7.0))
+            .py(px(3.0))
+            .rounded(px(5.0))
+            .border_1()
+            .border_color(self.border)
+            .bg(self.background)
+            .shadow_md()
+            .text_size(px(DETAIL_SIZE))
+            .text_color(self.color)
+            .child(self.text)
+    }
 }
 
 type OnClick = Box<dyn Fn(&ClickEvent, &mut Window, &mut App)>;
