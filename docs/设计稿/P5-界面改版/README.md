@@ -8,6 +8,7 @@
 | `Main.dc.html` | 主窗口：标签在标题栏、侧栏新卡片、单窗格无标题无边框 |
 | `Cards.dc.html` | 侧栏卡片各状态、展开详情、分组头、提醒徽标、空状态 |
 | `Split.dc.html` | 分屏：细标题、图标按钮、压暗未聚焦的窗格 |
+| `Palette.dc.html` | P5-3 command palette：标题栏常驻入口、直接打字什么都找（可打字）；`PaletteCommands.dc.html`、`PaletteText.dc.html` 是同一个组件在 `>` 命令模式和 `/` 文字搜索模式下的样子 |
 
 颜色取自 Dune 主题；实现时一律从主题取色，不写死这些十六进制值。
 

@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>paddock command palette</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;background:#141210}
+.pd-btn{background:none;border:0;padding:0;margin:0;font:inherit;color:inherit;cursor:pointer;text-align:left}
+.pd-row:hover{background:#24201b}
+.pd-hint:hover{color:#e8dfcc}
+.pd-input{background:none;border:0;outline:none;color:#e8dfcc;font:inherit;font-size:15px;flex:1;min-width:0;padding:0}
+.pd-input::placeholder{color:#756c5e}
+.pd-pulse{animation:pdpulse 1.6s ease-in-out infinite}
+@keyframes pdpulse{0%,100%{box-shadow:0 0 0 0 rgba(127,180,238,.55)}50%{box-shadow:0 0 0 4px rgba(127,180,238,0)}}
+</style>
+</helmet>
+<div style="width:1280px;height:800px;box-sizing:border-box;position:relative;display:flex;flex-direction:column;background:#1b1916;color:#e8dfcc;font-family:-apple-system,'SF Pro Text','Helvetica Neue',sans-serif;font-size:13px;border-radius:12px;overflow:hidden;border:1px solid #3a352e">
+
+  <!-- Title bar with the always-visible entry at the right -->
+  <div style="height:48px;flex-shrink:0;display:flex;align-items:center;gap:6px;padding:0 12px 0 14px;background:#1d1a16">
+    <div style="display:flex;gap:8px;width:68px;flex-shrink:0">
+      <span style="width:12px;height:12px;border-radius:50%;background:#ff5f57"></span>
+      <span style="width:12px;height:12px;border-radius:50%;background:#febc2e"></span>
+      <span style="width:12px;height:12px;border-radius:50%;background:#28c840"></span>
+    </div>
+    <div style="width:218px;flex-shrink:0"></div>
+    <div style="height:28px;display:flex;align-items:center;gap:7px;padding:0 11px;border-radius:7px;background:#2b2621;font-size:12.5px">
+      <span style="width:7px;height:7px;border-radius:50%;background:#7fb4ee"></span>main<span style="color:#756c5e">+1</span>
+    </div>
+    <div style="height:28px;display:flex;align-items:center;gap:7px;padding:0 11px;border-radius:7px;color:#8c8374;font-size:12.5px">
+      <span style="width:7px;height:7px;border-radius:50%;background:#8c8374"></span>zsh · paddock
+    </div>
+    <div style="flex:1"></div>
+    <button class="pd-btn" aria-label="Search agents, commands and text" onClick="{{openGo}}" style="height:28px;display:flex;align-items:center;gap:8px;padding:0 6px 0 10px;border-radius:7px;background:#24201b;color:#8c8374;font-size:12.5px;width:220px;box-shadow:inset 0 0 0 1px #2e2a24">
+      <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><circle cx="6" cy="6" r="4.25"/><path d="M9.25 9.25L12.5 12.5"/></svg>
+      <span style="flex:1">Search</span>
+      <span style="display:flex;gap:2px">
+        <span style="min-width:16px;height:18px;padding:0 4px;box-sizing:border-box;border-radius:4px;background:#2b2621;color:#a39a89;font-size:11px;display:flex;align-items:center;justify-content:center">⌘</span>
+        <span style="min-width:16px;height:18px;padding:0 4px;box-sizing:border-box;border-radius:4px;background:#2b2621;color:#a39a89;font-size:11px;display:flex;align-items:center;justify-content:center">P</span>
+      </span>
+    </button>
+  </div>
+
+  <!-- The window underneath, quiet -->
+  <div style="flex:1;display:flex;min-height:0">
+    <div style="width:300px;flex-shrink:0;background:#1d1a16;padding:12px 18px;color:#756c5e">
+      <div style="display:flex;align-items:center;justify-content:space-between"><span style="font-size:15px;font-weight:600;color:#e8dfcc">Agents <span style="color:#756c5e;font-size:12px;font-weight:400">4</span></span></div>
+    </div>
+    <div style="flex:1;background:#181613;padding:14px 18px;font-family:'SF Mono',Menlo,monospace;font-size:13px;line-height:1.55;color:#d9d1bf">
+      <div><span style="color:#bdb86a">❯</span> git merge --no-ff p5-2-window</div>
+      <div style="color:#8c8374">Merge made by the 'ort' strategy.</div>
+    </div>
+  </div>
+
+  <!-- Scrim -->
+  <div style="position:absolute;inset:0;background:rgba(10,9,8,.38)"></div>
+
+  <!-- Palette -->
+  <div style="position:absolute;top:92px;left:50%;transform:translateX(-50%);width:600px;background:#1d1a16;border-radius:12px;box-shadow:0 0 0 1px #3a352e,0 24px 60px rgba(0,0,0,.55);overflow:hidden">
+    <div style="height:48px;display:flex;align-items:center;gap:10px;padding:0 14px 0 16px;box-shadow:inset 0 -1px 0 #2e2a24">
+      <svg width="15" height="15" viewBox="0 0 14 14" fill="none" stroke="#8c8374" stroke-width="1.3" stroke-linecap="round"><circle cx="6" cy="6" r="4.25"/><path d="M9.25 9.25L12.5 12.5"/></svg>
+      <sc-if value="{{chip}}" hint-placeholder-val="{{false}}">
+        <span style="height:22px;padding:0 8px;border-radius:6px;background:#2b2621;color:#cfc6b2;font-size:11.5px;font-weight:600;display:flex;align-items:center;white-space:nowrap">{{chipText}}</span>
+      </sc-if>
+      <input class="pd-input" aria-label="Search" value="{{query}}" onInput="{{onInput}}" placeholder="Search agents, tabs, settings and commands" style="background:transparent;border:0;outline:none;color:#e8dfcc;font-family:inherit;font-size:15px;flex:1;min-width:0;padding:0;margin:0">
+      <span style="font-size:11px;color:#5a5247">esc</span>
+    </div>
+
+    <div style="max-height:470px;overflow:hidden;padding:6px 6px 8px">
+      <sc-if value="{{empty}}" hint-placeholder-val="{{false}}">
+        <div style="padding:28px 16px;text-align:center;color:#8c8374;font-size:13px">No results for “{{needle}}”</div>
+      </sc-if>
+      <sc-for list="{{groups}}" as="g" hint-placeholder-count="3">
+        <div style="padding:10px 10px 4px;font-size:10.5px;font-weight:600;letter-spacing:.08em;color:#756c5e;display:flex;gap:6px"><span>{{g.label}}</span><span style="color:#5a5247">{{g.note}}</span></div>
+        <sc-for list="{{g.rows}}" as="r" hint-placeholder-count="3">
+          <button class="pd-btn pd-row" style="width:100%;min-height:34px;display:flex;align-items:center;gap:10px;padding:5px 10px;border-radius:7px;background:{{r.bg}};box-sizing:border-box">
+            <sc-if value="{{r.isDot}}" hint-placeholder-val="{{true}}">
+              <span style="width:16px;display:flex;justify-content:center;flex-shrink:0"><span class="{{r.pulse}}" style="width:8px;height:8px;border-radius:50%;background:{{r.dot}}"></span></span>
+            </sc-if>
+            <sc-if value="{{r.isGlyph}}" hint-placeholder-val="{{false}}">
+              <span style="width:16px;text-align:center;flex-shrink:0;color:#8c8374;font-size:12px">{{r.glyph}}</span>
+            </sc-if>
+            <sc-if value="{{r.isLine}}" hint-placeholder-val="{{false}}">
+              <span style="flex:1;min-width:0;font-family:'SF Mono',Menlo,monospace;font-size:12.5px;color:#cfc6b2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{r.before}}<span style="background:rgba(189,184,106,.28);color:#e8dfcc;border-radius:2px;padding:0 1px">{{r.hit}}</span>{{r.after}}</span>
+            </sc-if>
+            <sc-if value="{{r.isText}}" hint-placeholder-val="{{true}}">
+              <span style="flex:1;min-width:0;display:flex;align-items:baseline;gap:8px;white-space:nowrap;overflow:hidden">
+                <span style="font-size:13px;color:#e8dfcc">{{r.title}}</span>
+                <span style="font-size:12px;color:#756c5e;overflow:hidden;text-overflow:ellipsis">{{r.detail}}</span>
+              </span>
+            </sc-if>
+            <span style="display:flex;gap:2px;flex-shrink:0">
+              <sc-for list="{{r.keys}}" as="k" hint-placeholder-count="0">
+                <span style="min-width:18px;height:20px;padding:0 5px;box-sizing:border-box;border-radius:5px;background:#2b2621;color:#a39a89;font-size:11px;display:flex;align-items:center;justify-content:center">{{k}}</span>
+              </sc-for>
+            </span>
+          </button>
+        </sc-for>
+      </sc-for>
+    </div>
+
+    <div style="height:34px;display:flex;align-items:center;gap:16px;padding:0 16px;box-shadow:inset 0 1px 0 #2e2a24;font-size:11.5px;color:#756c5e">
+      <span><span style="color:#a39a89">↑↓</span> Select</span>
+      <span><span style="color:#a39a89">↵</span> {{enterHint}}</span>
+      <span style="flex:1"></span>
+      <button class="pd-btn pd-hint" onClick="{{toCommands}}" style="color:#756c5e"><span style="color:#a39a89">&gt;</span> Commands</button>
+      <button class="pd-btn pd-hint" onClick="{{toText}}" style="color:#756c5e"><span style="color:#a39a89">/</span> Search text</button>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"mode":{"editor":"enum","options":["go","commands","text"],"default":"go"},"$preview":{"width":1280,"height":800}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    const m = props.mode || 'go';
+    this.state = { query: m === 'commands' ? '>' : (m === 'text' ? '/ merge' : '') };
+  }
+  renderVals() {
+    const q = this.state.query || '';
+    const set = (query) => this.setState({ query });
+    const C = { working: '#7fb4ee', idle: '#9cbd80', waiting: '#e6b566', exited: '#ef8174', shell: '#8c8374' };
+    const agents = [
+      { title: 'paddock/main', detail: 'Working · ~/…/paddock', st: 'working' },
+      { title: 'paddock/dev-fonts', detail: 'Waiting for you', st: 'waiting' },
+      { title: 'saddle/main', detail: 'Idle · ~/…/saddle', st: 'idle' },
+      { title: 'ranch/test-m2', detail: 'Exited', st: 'exited' }
+    ].map((a) => ({ ...a, isDot: true, dot: C[a.st], pulse: a.st === 'working' ? 'pd-pulse' : '', keys: [] }));
+    const tabs = [
+      { title: 'main +1', detail: 'Tab 1 · paddock/main, paddock/dev-fonts', st: 'working', keys: ['⌘', '1'] },
+      { title: 'zsh · paddock', detail: 'Tab 2', st: 'shell', keys: ['⌘', '2'] }
+    ].map((t) => ({ ...t, isDot: true, dot: C[t.st], pulse: '' }));
+    const settings = [
+      { title: 'General', detail: 'Settings · fonts, sidebar, pet' },
+      { title: 'Colors', detail: 'Settings · theme and colours' },
+      { title: 'Diagnostics', detail: 'Settings · commands and paths' }
+    ].map((s) => ({ ...s, isGlyph: true, glyph: '⚙', keys: [] }));
+    const commands = [
+      ['New Agent…', ['⌘', '⇧', 'N']], ['New Tab…', ['⌘', 'T']], ['New Shell', ['⌘', 'N']],
+      ['Split Right…', ['⌘', 'D']], ['Split Down…', ['⌘', '⇧', 'D']], ['Zoom Pane', ['⌘', '⇧', '↵']],
+      ['Close Pane', ['⌘', 'W']], ['Close Tab', ['⌘', '⇧', 'W']], ['Stop Agent…', []],
+      ['Show Attention', ['⌘', '⇧', 'A']], ['Find in Terminal', ['⌘', 'F']], ['Settings…', ['⌘', ',']],
+      ['Fold Agents', []], ['Sort Agents by Name', []], ['Next Tab', ['⌘', '⇧', ']']], ['About paddock', []]
+    ].map(([title, keys]) => ({ title, detail: '', keys, isGlyph: true, glyph: '›' }));
+
+    let groups = [];
+    let chip = false, chipText = '', enterHint = 'Open', needle = q;
+    const has = (s, n) => s.toLowerCase().includes(n.toLowerCase());
+    if (q.startsWith('>')) {
+      needle = q.slice(1).trim();
+      chip = true; chipText = 'Commands'; enterHint = 'Run';
+      const rows = commands.filter((c) => !needle || has(c.title, needle));
+      if (rows.length) groups.push({ label: 'COMMANDS', note: String(rows.length), rows });
+    } else if (q.startsWith('/')) {
+      needle = q.slice(1).trim();
+      chip = true; chipText = 'Text in all panes'; enterHint = 'Jump to match';
+      const panes = [
+        { label: 'PADDOCK/MAIN', lines: ['❯ git merge --no-ff p5-2-window', "Merge made by the 'ort' strategy.", '❯ git merge --no-ff p5-1-sidebar', 'Auto-merging app/src/footer_icon.rs', 'CONFLICT (content): Merge conflict in app/src/footer_icon.rs'] },
+        { label: 'PADDOCK/DEV-FONTS', lines: ['Fast-forward merge of p4-2-fonts into main', 'Updating 41fb178..6f695c8'] },
+        { label: 'ZSH · PADDOCK', lines: ['git log --oneline --merges -3'] }
+      ];
+      for (const p of panes) {
+        const rows = [];
+        for (const line of p.lines) {
+          const i = needle ? line.toLowerCase().indexOf(needle.toLowerCase()) : -1;
+          if (i < 0) continue;
+          rows.push({ isLine: true, before: line.slice(0, i), hit: line.slice(i, i + needle.length), after: line.slice(i + needle.length), keys: [] });
+        }
+        if (rows.length) groups.push({ label: p.label, note: rows.length + (rows.length === 1 ? ' match' : ' matches'), rows });
+      }
+    } else {
+      const f = (list) => list.filter((r) => !q || has(r.title + ' ' + r.detail, q));
+      const a = f(agents), t = f(tabs), s = f(settings), c = q ? f(commands) : commands.slice(0, 3);
+      if (a.length) groups.push({ label: 'AGENTS', note: String(a.length), rows: a });
+      if (t.length) groups.push({ label: 'TABS', note: '', rows: t });
+      if (s.length) groups.push({ label: 'SETTINGS', note: '', rows: s });
+      if (c.length) groups.push({ label: 'COMMANDS', note: q ? '' : 'type > for all', rows: c });
+    }
+    let first = true;
+    groups = groups.map((g) => ({ ...g, rows: g.rows.map((r) => {
+      const row = { isDot: false, isGlyph: false, isLine: false, isText: !r.isLine, ...r, bg: first ? '#2b2621' : 'transparent' };
+      first = false;
+      return row;
+    }) }));
+    return {
+      query: q, chip, chipText, enterHint, groups, needle,
+      empty: groups.length === 0 && !!needle,
+      onInput: (e) => set(e.target.value),
+      toCommands: () => set('>'),
+      toText: () => set('/'),
+      openGo: () => set('')
+    };
+  }
+}
+</script>
+</body>
+</html>
