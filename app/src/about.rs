@@ -1,5 +1,5 @@
 //! The About window: what paddock is and where its parts come from.
-use crate::{menu, theme::Theme, view::hsla};
+use crate::{fonts::UiFont, menu, theme::Theme, view::hsla};
 use gpui::{Context, FocusHandle, Focusable, FontWeight, Render, Window, div, prelude::*, px};
 use std::rc::Rc;
 
@@ -28,10 +28,11 @@ impl Focusable for AboutView {
 
 impl Render for AboutView {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let ui = UiFont::get(cx);
         let fg = |pick: fn(&crate::preset::Theme) -> crate::preset::Color| {
             hsla(self.theme.fg(pick), 1.0)
         };
-        div()
+        ui.apply(div())
             .key_context(CONTEXT)
             .track_focus(&self.focus)
             .on_action(cx.listener(|_, _: &menu::CloseWindow, window, _| window.remove_window()))
@@ -43,11 +44,11 @@ impl Render for AboutView {
             .gap(px(8.0))
             .px(px(28.0))
             .bg(hsla(self.theme.bg(|t| t.agents_bg), 1.0))
-            .text_size(px(12.0))
+            .text_size(ui.px(12.0))
             .text_color(fg(|t| t.agents_text))
             .child(
                 div()
-                    .text_size(px(20.0))
+                    .text_size(ui.px(20.0))
                     .font_weight(FontWeight::SEMIBOLD)
                     .child("paddock"),
             )
@@ -64,7 +65,7 @@ impl Render for AboutView {
             .child(
                 div()
                     .text_center()
-                    .text_size(px(11.0))
+                    .text_size(ui.px(11.0))
                     .text_color(fg(|t| t.agents_dim))
                     .child(
                         "Terminal and agent code, themes and pets come from Saddle. \

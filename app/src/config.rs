@@ -16,6 +16,11 @@ pub struct Config {
     pub colors: BTreeMap<String, String>,
     /// Width of the Agents sidebar, in points.
     pub sidebar_width: f32,
+    /// The interface font; `None` is the system's.
+    pub ui_font: Option<String>,
+    /// The interface size every other interface size scales from, in points.
+    pub ui_font_size: f32,
+    /// The terminal font, its fallbacks, size and line height.
     pub font: String,
     pub font_fallbacks: Vec<String>,
     pub font_size: f32,
@@ -36,6 +41,8 @@ impl Default for Config {
             theme: None,
             colors: BTreeMap::new(),
             sidebar_width: 380.0,
+            ui_font: None,
+            ui_font_size: crate::fonts::BASE_SIZE,
             font: "Menlo".into(),
             // Common Nerd Font families for prompt icons; missing ones are skipped.
             font_fallbacks: [
@@ -76,6 +83,7 @@ impl Config {
 
     fn validate_fonts(&self) -> Result<()> {
         for (key, value) in [
+            ("ui_font_size", self.ui_font_size),
             ("font_size", self.font_size),
             ("line_height", self.line_height),
         ] {
@@ -153,8 +161,39 @@ line_height = 1.4
     }
 
     #[test]
+    fn interface_font_is_read_apart_from_the_terminal_font() {
+        let config = Config::parse(
+            r#"
+ui_font = "Avenir Next"
+ui_font_size = 14.5
+font = "Geist Mono"
+font_size = 15
+"#,
+        )
+        .unwrap();
+        assert_eq!(config.ui_font.as_deref(), Some("Avenir Next"));
+        assert_eq!(config.ui_font_size, 14.5);
+        assert_eq!(config.font, "Geist Mono");
+        assert_eq!(config.font_size, 15.0);
+        // An older file without the interface keys: the system font at the size used so far.
+        let old = Config::parse(
+            "font = \"Geist Mono\"\nfont_fallbacks = [\"Sarasa Mono SC\"]\nfont_size = 14.5\nline_height = 1.4\n",
+        )
+        .unwrap();
+        assert_eq!(old.ui_font, None);
+        assert_eq!(old.ui_font_size, 13.0);
+        assert_eq!(
+            (old.font.as_str(), old.font_size, old.line_height),
+            ("Geist Mono", 14.5, 1.4)
+        );
+        assert_eq!(old.font_fallbacks, ["Sarasa Mono SC"]);
+    }
+
+    #[test]
     fn invalid_font_values_name_the_key() {
         for (key, values) in [
+            ("ui_font", vec!["14", "[]"]),
+            ("ui_font_size", vec!["\"13\"", "0", "-2", "nan", "inf"]),
             ("font", vec!["14", "[]"]),
             ("font_fallbacks", vec!["\"Menlo\"", "[1]", "[\"Menlo\", 1]"]),
             (
@@ -230,6 +269,8 @@ line_height = 1.4
         );
         assert_eq!(config.font_size, 14.0);
         assert_eq!(config.line_height, 1.3);
+        assert_eq!(config.ui_font, None);
+        assert_eq!(config.ui_font_size, 13.0);
     }
 
     #[test]

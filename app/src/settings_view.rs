@@ -4,6 +4,7 @@
 use crate::{
     config::Config,
     diagnostics::{self, Checks, Report, clock},
+    fonts::{self, Installed, UiFont},
     menu,
     settings::{Conflict, Draft, Field, Kind, Page, Saved},
     text_input::{self, TextInput},
@@ -12,8 +13,9 @@ use crate::{
 };
 use gpui::{
     AnyElement, ClickEvent, Context, Div, ElementId, Entity, EventEmitter, FocusHandle, Focusable,
-    FontWeight, Hsla, PromptLevel, Render, SharedString, Stateful, Subscription, Task, Window, div,
-    prelude::*, px,
+    FontWeight, Hsla, MouseButton, PromptLevel, Render, ScrollStrategy, SharedString, Stateful,
+    Subscription, Task, UniformListScrollHandle, Window, anchored, deferred, div, prelude::*, px,
+    uniform_list,
 };
 use std::{collections::HashMap, path::PathBuf, rc::Rc};
 
@@ -44,9 +46,31 @@ pub struct SettingsView {
     /// Diagnostics as last collected, and its background checks once they are done.
     report: Option<Report>,
     checks: Option<Checks>,
+    /// Installed families for the font lists.
+    fonts: Installed,
+    /// The open font list.
+    picker: Option<Picker>,
+    /// The font list a press just closed by landing outside it, so a press on its own button
+    /// closes it rather than opening it again.
+    dismissed: Option<String>,
     focus: FocusHandle,
     _subscriptions: Vec<Subscription>,
 }
+
+/// A font list opened under its setting: a search field over the matching families.
+struct Picker {
+    key: String,
+    /// Monospace families only, for the terminal.
+    mono: bool,
+    input: Entity<TextInput>,
+    /// The highlighted row among the matches.
+    index: usize,
+    scroll: UniformListScrollHandle,
+    _subscription: Subscription,
+}
+
+/// Rows a font list shows before it scrolls.
+const PICKER_ROWS: usize = 10;
 
 impl EventEmitter<SettingsEvent> for SettingsView {}
 
@@ -78,7 +102,7 @@ fn shown_path(path: &std::path::Path) -> String {
 /// The unit after a number setting.
 fn unit(key: &str) -> Option<&'static str> {
     match key {
-        "sidebar_width" | "font_size" => Some("pt"),
+        "sidebar_width" | "ui_font_size" | "font_size" => Some("pt"),
         "refresh_ms" => Some("ms"),
         "line_height" => Some("×"),
         _ => None,
@@ -119,11 +143,158 @@ impl SettingsView {
             asking: false,
             report: None,
             checks: None,
+            fonts: cx.try_global::<Installed>().cloned().unwrap_or_default(),
+            picker: None,
+            dismissed: None,
             focus: cx.focus_handle(),
             _subscriptions: Vec::new(),
         };
         view.make_inputs(cx);
+        view.load_fonts(cx);
         view
+    }
+
+    /// Reads the installed families off the UI thread, then measures which are monospace; both are
+    /// kept for the next Settings window.
+    fn load_fonts(&mut self, cx: &mut Context<Self>) {
+        if self.fonts.mono.is_some() {
+            return;
+        }
+        let text = cx.text_system().clone();
+        cx.spawn(async move |this, cx| {
+            let all = {
+                let text = text.clone();
+                cx.background_spawn(async move { fonts::visible(text.all_font_names()) })
+                    .await
+            };
+            this.update(cx, |this, cx| {
+                this.fonts.all = all.clone();
+                cx.notify();
+            })?;
+            let mono = cx
+                .background_spawn(async move { fonts::monospace_families(&text, &all) })
+                .await;
+            this.update(cx, |this, cx| {
+                this.fonts.mono = Some(mono);
+                cx.set_global(this.fonts.clone());
+                cx.notify();
+            })
+        })
+        .detach();
+    }
+
+    /// The families a font list offers, as shown: for the interface, the system's first.
+    fn font_names(&self, mono: bool) -> Vec<String> {
+        if mono {
+            return self.fonts.mono.clone().unwrap_or_default();
+        }
+        let mut names = vec![fonts::SYSTEM.to_owned()];
+        names.extend(self.fonts.all.iter().cloned());
+        names
+    }
+
+    /// The open list's matches for what is typed in its field.
+    fn picker_matches(&self, cx: &gpui::App) -> Vec<String> {
+        let Some(picker) = &self.picker else {
+            return Vec::new();
+        };
+        let names = self.font_names(picker.mono);
+        let query = picker.input.read(cx).text().to_owned();
+        fonts::matching(&names, &query)
+            .into_iter()
+            .map(str::to_owned)
+            .collect()
+    }
+
+    /// A setting's font as its list names it.
+    fn font_label(&self, key: &str) -> String {
+        let value = self.draft.value(key);
+        if value.is_empty() && key == "ui_font" {
+            fonts::SYSTEM.to_owned()
+        } else {
+            value
+        }
+    }
+
+    /// Opens `key`'s font list with its field focused and the current font highlighted, or closes
+    /// it when a press outside just did.
+    fn toggle_picker(
+        &mut self,
+        key: &str,
+        mono: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.dismissed.take().as_deref() == Some(key) {
+            return;
+        }
+        let colors = self.input_colors();
+        let input = cx.new(|cx| TextInput::new("", "Search fonts", colors, cx));
+        let subscription = cx.subscribe(&input, |this, _, _: &text_input::Changed, cx| {
+            if let Some(picker) = &mut this.picker {
+                picker.index = 0;
+                picker.scroll.scroll_to_item(0, ScrollStrategy::Top);
+            }
+            cx.notify();
+        });
+        window.focus(&input.read(cx).focus_handle(cx), cx);
+        let current = self.font_label(key);
+        let index = self
+            .font_names(mono)
+            .iter()
+            .position(|name| *name == current)
+            .unwrap_or(0);
+        let scroll = UniformListScrollHandle::new();
+        scroll.scroll_to_item(index, ScrollStrategy::Center);
+        self.picker = Some(Picker {
+            key: key.to_owned(),
+            mono,
+            input,
+            index,
+            scroll,
+            _subscription: subscription,
+        });
+        cx.notify();
+    }
+
+    fn close_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.picker.take().is_some() {
+            window.focus(&self.focus, cx);
+            cx.notify();
+        }
+    }
+
+    /// ↑↓ in the open font list.
+    fn move_pick(&mut self, step: isize, cx: &mut Context<Self>) {
+        let count = self.picker_matches(cx).len();
+        let Some(picker) = &mut self.picker else {
+            return;
+        };
+        if count > 0 {
+            let index = (picker.index.min(count - 1) as isize + step).clamp(0, count as isize - 1);
+            picker.index = index as usize;
+            picker
+                .scroll
+                .scroll_to_item(picker.index, ScrollStrategy::Nearest);
+            cx.notify();
+        }
+    }
+
+    /// Drafts the font at `index` of the open list's matches and closes it; Save applies it.
+    fn pick(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(name) = self.picker_matches(cx).into_iter().nth(index) else {
+            return;
+        };
+        let Some(key) = self.picker.as_ref().map(|picker| picker.key.clone()) else {
+            return;
+        };
+        let value = if key == "ui_font" && name == fonts::SYSTEM {
+            ""
+        } else {
+            &name
+        };
+        self.set(&key, value, cx);
+        self.close_picker(window, cx);
     }
 
     fn input_colors(&self) -> text_input::Colors {
@@ -140,7 +311,12 @@ impl SettingsView {
             .draft
             .fields()
             .iter()
-            .filter(|f| !matches!(f.kind, Kind::Bool | Kind::Pet | Kind::Theme))
+            .filter(|f| {
+                !matches!(
+                    f.kind,
+                    Kind::Bool | Kind::Pet | Kind::Theme | Kind::MonoFont | Kind::UiFont
+                )
+            })
             .cloned()
             .collect();
         let colors = self.input_colors();
@@ -332,7 +508,7 @@ impl SettingsView {
             )
     }
 
-    fn diagnostics_page(&self) -> Vec<AnyElement> {
+    fn diagnostics_page(&self, ui: &UiFont) -> Vec<AnyElement> {
         let Some(report) = &self.report else {
             return vec![
                 self.diagnostic(
@@ -481,7 +657,7 @@ impl SettingsView {
         rows.push(
             div()
                 .pt(px(14.0))
-                .text_size(px(11.0))
+                .text_size(ui.px(11.0))
                 .text_color(self.fg(|t| t.agents_dim))
                 .child(format!(
                     "Checked at {}. Read-only; nothing here changes paddock or its files.",
@@ -654,7 +830,7 @@ impl SettingsView {
         div()
             .flex_1()
             .min_w(px(0.0))
-            .h(px(26.0))
+            .min_h(px(26.0))
             .px(px(8.0))
             .flex()
             .items_center()
@@ -666,9 +842,179 @@ impl SettingsView {
             .children(self.inputs.get(key).cloned())
     }
 
+    /// A font setting: its font in a box that opens the list of installed ones below it.
+    fn font_control(&self, field: &Field, ui: &UiFont, cx: &mut Context<Self>) -> Div {
+        let key = field.key.clone();
+        let mono = field.kind == Kind::MonoFont;
+        let open = self.picker.as_ref().is_some_and(|picker| picker.key == key);
+        let button = div()
+            .id(ElementId::Name(format!("{key}-picker").into()))
+            .min_h(px(26.0))
+            .px(px(8.0))
+            .flex()
+            .items_center()
+            .gap(px(8.0))
+            .rounded(px(6.0))
+            .border_1()
+            .border_color(if open {
+                self.fg(|t| t.focus)
+            } else {
+                self.fg(|t| t.agents_rule)
+            })
+            .bg(hsla(self.theme.terminal().background, 1.0))
+            .cursor_pointer()
+            .child(
+                div()
+                    .flex_1()
+                    .min_w(px(0.0))
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .text_ellipsis()
+                    .child(self.font_label(&key)),
+            )
+            .child(div().text_color(self.fg(|t| t.agents_dim)).child("▾"))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |this, _, window, cx| this.toggle_picker(&key, mono, window, cx)),
+            );
+        div()
+            .flex_1()
+            .min_w(px(0.0))
+            .flex()
+            .flex_col()
+            .child(button)
+            .when(open, |control| {
+                // Laid out right under the box, drawn above everything else.
+                control.child(
+                    div().h(px(0.0)).child(deferred(
+                        anchored()
+                            .snap_to_window_with_margin(px(8.0))
+                            .child(self.picker_card(ui, cx)),
+                    )),
+                )
+            })
+    }
+
+    /// The open font list: a search field, then the matches, each in its own font.
+    fn picker_card(&self, ui: &UiFont, cx: &mut Context<Self>) -> Stateful<Div> {
+        let picker = self.picker.as_ref().expect("an open list");
+        let matches = self.picker_matches(cx);
+        let current = self.font_label(&picker.key);
+        let selected = picker.index.min(matches.len().saturating_sub(1));
+        let row_height = ui.scale(26.0);
+        let highlight = hsla(self.theme.bg(|t| t.agent_selected), 1.0);
+        let (check, text) = (self.fg(|t| t.agents_accent), self.fg(|t| t.agents_text));
+        let list = if matches.is_empty() {
+            let note = if picker.mono && self.fonts.mono.is_none() {
+                "Finding monospace fonts…"
+            } else if self.font_names(picker.mono).is_empty() {
+                "Reading installed fonts…"
+            } else {
+                "No font matches."
+            };
+            div()
+                .px(px(8.0))
+                .py(px(6.0))
+                .text_color(self.fg(|t| t.agents_dim))
+                .child(note)
+                .into_any_element()
+        } else {
+            let rows = matches.len().min(PICKER_ROWS);
+            uniform_list(
+                "font-list",
+                matches.len(),
+                cx.processor(move |_, range: std::ops::Range<usize>, _, cx| {
+                    range
+                        .filter_map(|index| Some((index, matches.get(index)?.clone())))
+                        .map(|(index, name)| {
+                            let family = if name == fonts::SYSTEM {
+                                ".SystemUIFont".to_owned()
+                            } else {
+                                name.clone()
+                            };
+                            div()
+                                .id(("font", index))
+                                .w_full()
+                                .h(px(row_height))
+                                .px(px(8.0))
+                                .flex()
+                                .items_center()
+                                .gap(px(6.0))
+                                .rounded(px(5.0))
+                                .overflow_hidden()
+                                .whitespace_nowrap()
+                                .cursor_pointer()
+                                .hover(move |style| style.bg(highlight.opacity(0.6)))
+                                .when(index == selected, |row| row.bg(highlight))
+                                .child(
+                                    div()
+                                        .w(px(14.0))
+                                        .flex_shrink_0()
+                                        .text_color(check)
+                                        .child(if name == current { "✓" } else { "" }),
+                                )
+                                .child(div().text_color(text).font_family(family).child(name))
+                                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                                    this.pick(index, window, cx)
+                                }))
+                        })
+                        .collect()
+                }),
+            )
+            .track_scroll(&picker.scroll)
+            .h(px(row_height * rows as f32))
+            .into_any_element()
+        };
+        div()
+            .id("font-picker")
+            .key_context(menu::DIALOG)
+            .occlude()
+            .w(ui.px(340.0))
+            .mt(px(4.0))
+            .flex()
+            .flex_col()
+            .gap(px(4.0))
+            .p(px(6.0))
+            .rounded(px(8.0))
+            .border_1()
+            .border_color(self.fg(|t| t.focus))
+            .bg(hsla(self.theme.bg(|t| t.agents_bg), 1.0))
+            .shadow_lg()
+            .on_mouse_down_out(cx.listener(|this, _, window, cx| {
+                this.dismissed = this.picker.as_ref().map(|picker| picker.key.clone());
+                this.close_picker(window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &menu::SelectNext, _, cx| this.move_pick(1, cx)))
+            .on_action(cx.listener(|this, _: &menu::SelectPrevious, _, cx| this.move_pick(-1, cx)))
+            .on_action(cx.listener(|this, _: &menu::OpenSelected, window, cx| {
+                let index = this.picker.as_ref().map_or(0, |picker| picker.index);
+                this.pick(index, window, cx)
+            }))
+            .on_action(
+                cx.listener(|this, _: &menu::Cancel, window, cx| this.close_picker(window, cx)),
+            )
+            .child(
+                div()
+                    .min_h(px(28.0))
+                    .px(px(8.0))
+                    .flex()
+                    .items_center()
+                    .gap(px(6.0))
+                    .rounded(px(6.0))
+                    .border_1()
+                    .border_color(self.fg(|t| t.agents_rule))
+                    .bg(hsla(self.theme.terminal().background, 1.0))
+                    .child(div().text_color(self.fg(|t| t.agents_dim)).child("⌕"))
+                    .child(div().flex_1().min_w(px(0.0)).child(picker.input.clone())),
+            )
+            .child(list)
+    }
+
     fn row(&self, field: &Field, cx: &mut Context<Self>) -> AnyElement {
+        let ui = UiFont::get(cx);
         let key = field.key.clone();
         let control: AnyElement = match field.kind {
+            Kind::MonoFont | Kind::UiFont => self.font_control(field, &ui, cx).into_any_element(),
             Kind::Bool => self.switch(&key, cx).into_any_element(),
             Kind::Pet => self
                 .segments(
@@ -715,7 +1061,7 @@ impl SettingsView {
                 .child(self.field_box(&key))
                 .children(unit(&key).map(|unit| {
                     div()
-                        .w(px(20.0))
+                        .w(ui.px(20.0))
                         .text_color(self.fg(|t| t.agents_dim))
                         .child(unit)
                 }))
@@ -725,7 +1071,7 @@ impl SettingsView {
         if self.draft.custom(&key) {
             tags = tags.child(
                 div()
-                    .text_size(px(11.0))
+                    .text_size(ui.px(11.0))
                     .text_color(self.fg(|t| t.agents_accent))
                     .child("custom"),
             );
@@ -733,7 +1079,7 @@ impl SettingsView {
         if field.restart && self.draft.changed(&key) {
             tags = tags.child(
                 div()
-                    .text_size(px(11.0))
+                    .text_size(ui.px(11.0))
                     .text_color(self.fg(|t| t.agents_yellow))
                     .child("Restart required"),
             );
@@ -745,7 +1091,7 @@ impl SettingsView {
                 .px(px(6.0))
                 .py(px(2.0))
                 .rounded(px(5.0))
-                .text_size(px(11.0))
+                .text_size(ui.px(11.0))
                 .text_color(self.fg(|t| t.agents_dim))
                 .cursor_pointer()
                 .hover(|style| style.text_color(gpui::white()))
@@ -768,7 +1114,7 @@ impl SettingsView {
                     .whitespace_nowrap()
                     .text_ellipsis()
                     .when(field.kind == Kind::Color, |label| {
-                        label.font_family("Menlo").text_size(px(12.0))
+                        label.font_family("Menlo").text_size(ui.px(12.0))
                     })
                     .child(field.label.clone()),
             )
@@ -780,6 +1126,7 @@ impl SettingsView {
 
 impl Render for SettingsView {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let ui = UiFont::get(cx);
         let highlight = hsla(self.theme.bg(|t| t.agent_selected), 1.0);
         let mut nav = div()
             .flex()
@@ -840,7 +1187,7 @@ impl Render for SettingsView {
             list = list.child(self.row(field, cx));
         }
         if self.page == Page::Diagnostics {
-            list = list.children(self.diagnostics_page());
+            list = list.children(self.diagnostics_page(&ui));
         }
 
         let mut footer = div()
@@ -851,17 +1198,21 @@ impl Render for SettingsView {
             .pt(px(10.0))
             .border_t_1()
             .border_color(self.fg(|t| t.agents_rule));
-        footer = footer.child(div().flex_1().min_w(px(0.0)).text_size(px(12.0)).children(
-            self.message.as_ref().map(|(text, problem)| {
-                div()
-                    .text_color(if *problem {
-                        self.fg(|t| t.agents_red)
-                    } else {
-                        self.fg(|t| t.agents_green)
-                    })
-                    .child(text.clone())
-            }),
-        ));
+        footer = footer.child(
+            div()
+                .flex_1()
+                .min_w(px(0.0))
+                .text_size(ui.px(12.0))
+                .children(self.message.as_ref().map(|(text, problem)| {
+                    div()
+                        .text_color(if *problem {
+                            self.fg(|t| t.agents_red)
+                        } else {
+                            self.fg(|t| t.agents_green)
+                        })
+                        .child(text.clone())
+                })),
+        );
         if self.page == Page::Diagnostics {
             footer =
                 footer.child(self.button("refresh", "Refresh").on_click(
@@ -903,11 +1254,16 @@ impl Render for SettingsView {
             );
         }
 
-        div()
+        ui.apply(div())
             .id("settings")
             .key_context(CONTEXT)
             .track_focus(&self.focus)
             .on_action(cx.listener(Self::save))
+            // After a font list's own button has seen the press.
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _, _, _| this.dismissed = None),
+            )
             .on_action(
                 cx.listener(|this, _: &menu::CloseWindow, window, cx| {
                     this.request_close(window, cx)
@@ -919,11 +1275,11 @@ impl Render for SettingsView {
             .gap(px(10.0))
             .p(px(16.0))
             .bg(hsla(self.theme.bg(|t| t.agents_bg), 1.0))
-            .text_size(px(13.0))
+            .text_size(ui.px(13.0))
             .text_color(self.fg(|t| t.agents_text))
             .child(
                 div()
-                    .text_size(px(11.0))
+                    .text_size(ui.px(11.0))
                     .text_color(self.fg(|t| t.agents_dim))
                     .child(format!("Config file: {}", shown_path(&self.path))),
             )

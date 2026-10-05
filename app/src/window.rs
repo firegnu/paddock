@@ -6,6 +6,7 @@ use crate::{
     config::Config,
     corral::Role,
     diagnostics::{Report, Startup},
+    fonts::UiFont,
     layout::{Axis, Direction, Node, PaneId, Placement, Shown, Workspace},
     layout_state::{Content, Layout, Store},
     menu,
@@ -166,11 +167,7 @@ impl PaddockWindow {
         cx: &mut Context<Self>,
     ) -> Self {
         let theme = Rc::new(theme);
-        // The sidebar's technical lines use the terminal's font.
-        let mut mono = gpui::font(options.font_family.clone());
-        if !options.fallbacks.is_empty() {
-            mono.fallbacks = Some(gpui::FontFallbacks::from_fonts(options.fallbacks.clone()));
-        }
+        let mono = mono_font(&options);
         let sidebar = {
             let theme = theme.clone();
             let (width, corral) = (config.sidebar_width, options.corral.clone());
@@ -521,9 +518,38 @@ impl PaddockWindow {
         self.theme.clone()
     }
 
-    /// What Settings saved that takes effect at once: colours, sidebar width and the pet. The rest
-    /// (fonts, refresh interval, corral command) waits for a restart.
+    /// What Settings saved that takes effect at once: colours, sidebar width, the pet, the
+    /// interface font and the terminal font, which open terminals take up as if resized. The rest
+    /// (refresh interval, corral command) waits for a restart.
     pub fn apply(&mut self, config: &Config, cx: &mut Context<Self>) {
+        let ui = UiFont::from_config(config);
+        if UiFont::get(cx) != ui {
+            cx.set_global(ui);
+            cx.refresh_windows();
+        }
+        let template = &self.template;
+        if (
+            &template.font_family,
+            &template.fallbacks,
+            template.font_size,
+            template.line_height,
+        ) != (
+            &config.font,
+            &config.font_fallbacks,
+            config.font_size,
+            config.line_height,
+        ) {
+            self.template.font_family = config.font.clone();
+            self.template.fallbacks = config.font_fallbacks.clone();
+            self.template.font_size = config.font_size;
+            self.template.line_height = config.line_height;
+            for view in self.panes.values() {
+                view.update(cx, |view, cx| view.set_font(&self.template, cx));
+            }
+            let mono = mono_font(&self.template);
+            self.sidebar
+                .update(cx, |sidebar, cx| sidebar.set_mono(mono, cx));
+        }
         if let Ok(theme) = Theme::from_config(config) {
             let theme = Rc::new(theme);
             self.theme = theme.clone();
@@ -834,6 +860,7 @@ impl PaddockWindow {
     }
 
     fn tab_strip(&self, cx: &mut Context<Self>) -> Div {
+        let ui = UiFont::get(cx);
         let highlight = self.highlight();
         let button = |id: &'static str, label: &'static str| {
             div()
@@ -842,9 +869,9 @@ impl PaddockWindow {
                 .flex()
                 .items_center()
                 .justify_center()
-                .size(px(26.0))
+                .size(ui.px(26.0))
                 .rounded(px(6.0))
-                .text_size(px(14.0))
+                .text_size(ui.px(14.0))
                 .text_color(self.fg(|t| t.muted))
                 .cursor_pointer()
                 .hover(move |style| style.bg(highlight))
@@ -872,7 +899,7 @@ impl PaddockWindow {
             if panes > 1 {
                 label = label.child(
                     div()
-                        .text_size(px(TEXT - 2.0))
+                        .text_size(ui.px(TEXT - 2.0))
                         .text_color(self.fg(|t| t.agents_dim))
                         .child(panes.to_string()),
                 );
@@ -895,12 +922,12 @@ impl PaddockWindow {
                 .flex()
                 .items_center()
                 .gap(px(8.0))
-                .h(px(28.0))
+                .h(ui.px(28.0))
                 .pl(px(12.0))
                 .pr(px(6.0))
                 .rounded(px(7.0))
                 .border_1()
-                .text_size(px(TEXT))
+                .text_size(ui.px(TEXT))
                 .cursor_pointer();
             item = if active {
                 item.bg(highlight)
@@ -921,7 +948,7 @@ impl PaddockWindow {
             .flex()
             .items_center()
             .gap(px(4.0))
-            .h(px(TAB_STRIP))
+            .h(px(TAB_STRIP.max(ui.scale(TAB_STRIP))))
             .px(px(GAP))
             .child(
                 button("new-tab", "+").on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
@@ -980,6 +1007,7 @@ impl PaddockWindow {
     }
 
     fn pane(&self, pane: PaneId, cx: &mut Context<Self>) -> AnyElement {
+        let ui = UiFont::get(cx);
         let active = pane == self.workspace.active_pane();
         let highlight = self.highlight();
         let control = |id: &'static str, label: &'static str| {
@@ -998,10 +1026,10 @@ impl PaddockWindow {
             .flex()
             .items_center()
             .gap(px(2.0))
-            .h(px(28.0))
+            .h(ui.px(28.0))
             .pl(px(10.0))
             .pr(px(4.0))
-            .text_size(px(TEXT))
+            .text_size(ui.px(TEXT))
             .border_b_1()
             .border_color(self.fg(|t| t.agents_rule))
             .child(
@@ -1106,6 +1134,7 @@ impl PaddockWindow {
 
     /// The Attention list, floating under the sidebar's header.
     fn attention_panel(&self, cx: &mut Context<Self>) -> Stateful<Div> {
+        let ui = UiFont::get(cx);
         let items = self.sidebar.read(cx).attention();
         let selected = self.attention_index.min(items.len().saturating_sub(1));
         let highlight = self.highlight();
@@ -1128,7 +1157,7 @@ impl PaddockWindow {
             let mut detail = div()
                 .flex()
                 .gap(px(6.0))
-                .text_size(px(TEXT - 1.0))
+                .text_size(ui.px(TEXT - 1.0))
                 .child(div().text_color(self.fg(|t| t.muted)).child(item.reason()));
             if !item.note.is_empty() {
                 detail = detail.child(
@@ -1202,7 +1231,7 @@ impl PaddockWindow {
             .border_color(self.fg(|t| t.focus))
             .bg(hsla(self.theme.bg(|t| t.agents_bg), 1.0))
             .shadow_lg()
-            .text_size(px(TEXT + 1.0))
+            .text_size(ui.px(TEXT + 1.0))
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .child(
                 div()
@@ -1220,7 +1249,7 @@ impl PaddockWindow {
                     .child(div().flex_1())
                     .child(
                         div()
-                            .text_size(px(TEXT - 1.0))
+                            .text_size(ui.px(TEXT - 1.0))
                             .text_color(self.fg(|t| t.agents_dim))
                             .child("↑↓  ⏎ open  esc"),
                     ),
@@ -1341,6 +1370,7 @@ impl PaddockWindow {
 
     /// The Go to Agent box and its matches, at the top of the window.
     fn search_panel(&self, cx: &mut Context<Self>) -> Stateful<Div> {
+        let ui = UiFont::get(cx);
         let entries = self.search_entries(cx);
         let selected = self.search_index.min(entries.len().saturating_sub(1));
         let highlight = self.highlight();
@@ -1386,7 +1416,7 @@ impl PaddockWindow {
                 .child(
                     div()
                         .flex_shrink_0()
-                        .text_size(px(TEXT - 1.0))
+                        .text_size(ui.px(TEXT - 1.0))
                         .text_color(self.fg(|t| t.agents_dim))
                         .child(entry.detail.clone()),
                 )
@@ -1411,11 +1441,11 @@ impl PaddockWindow {
             .border_color(self.fg(|t| t.focus))
             .bg(hsla(self.theme.bg(|t| t.agents_bg), 1.0))
             .shadow_lg()
-            .text_size(px(TEXT + 1.0))
+            .text_size(ui.px(TEXT + 1.0))
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .child(
                 div()
-                    .h(px(30.0))
+                    .h(ui.px(30.0))
                     .px(px(10.0))
                     .flex()
                     .items_center()
@@ -1443,6 +1473,7 @@ impl PaddockWindow {
     }
 
     fn dialog(&self, popup: Popup, cx: &mut Context<Self>) -> Stateful<Div> {
+        let ui = UiFont::get(cx);
         let highlight = self.highlight();
         let row = |id: ElementId| {
             div()
@@ -1534,7 +1565,7 @@ impl PaddockWindow {
                 if open {
                     entry = entry.child(
                         div()
-                            .text_size(px(TEXT - 1.0))
+                            .text_size(ui.px(TEXT - 1.0))
                             .text_color(self.fg(|t| t.connected))
                             .child("Move here"),
                     );
@@ -1559,7 +1590,7 @@ impl PaddockWindow {
             .border_1()
             .border_color(self.fg(|t| t.focus))
             .bg(hsla(self.theme.bg(|t| t.agents_bg), 1.0))
-            .text_size(px(TEXT + 1.0))
+            .text_size(ui.px(TEXT + 1.0))
             .text_color(self.fg(|t| t.agents_text))
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .child(
@@ -1599,6 +1630,15 @@ impl PaddockWindow {
             )
             .child(card)
     }
+}
+
+/// The sidebar's technical lines use the terminal's font.
+fn mono_font(options: &Options) -> gpui::Font {
+    let mut mono = gpui::font(options.font_family.clone());
+    if !options.fallbacks.is_empty() {
+        mono.fallbacks = Some(gpui::FontFallbacks::from_fonts(options.fallbacks.clone()));
+    }
+    mono
 }
 
 fn side(direction: Direction) -> &'static str {
@@ -1644,11 +1684,14 @@ impl Render for PaddockWindow {
             Popup::Search => self.search_panel(cx),
             popup => self.dialog(popup, cx),
         });
-        div()
+        let ui = UiFont::get(cx);
+        ui.apply(div())
             .relative()
             .size_full()
             .flex()
             .flex_row()
+            // GPUI's default size, scaled, for text nothing else sizes.
+            .text_size(ui.px(16.0))
             .bg(hsla(self.theme.bg(|t| t.agents_bg), 1.0))
             .when(self.popup.is_some(), |root| root.key_context(menu::DIALOG))
             .on_action(

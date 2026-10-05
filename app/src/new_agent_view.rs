@@ -2,6 +2,7 @@
 //! background. Success closes the window and the main window opens the agent; a failure keeps
 //! the window and everything typed, with the reason below.
 use crate::{
+    fonts::UiFont,
     menu,
     new_agent::{self, Form, Place, Started, Tool},
     text_input::{self, Changed, TextInput},
@@ -288,7 +289,7 @@ impl NewAgentView {
         div()
             .flex_1()
             .min_w(px(0.0))
-            .h(px(26.0))
+            .min_h(px(26.0))
             .px(px(8.0))
             .flex()
             .items_center()
@@ -323,6 +324,7 @@ impl NewAgentView {
 
 impl Render for NewAgentView {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let ui = UiFont::get(cx);
         let problem = self.error.as_ref().and(self.form.problem()).map(|(f, _)| f);
         let highlight = hsla(self.theme.bg(|t| t.agent_selected), 1.0);
 
@@ -336,7 +338,7 @@ impl Render for NewAgentView {
                 .py(px(2.0))
                 .rounded(px(5.0))
                 .border_1()
-                .text_size(px(11.0))
+                .text_size(ui.px(11.0))
                 .cursor_pointer()
                 .child(shown_path(project))
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -392,7 +394,7 @@ impl Render for NewAgentView {
                 )
                 .child(
                     div()
-                        .text_size(px(11.0))
+                        .text_size(ui.px(11.0))
                         .text_color(self.fg(|t| t.agents_dim))
                         .child("a controller is always main"),
                 )
@@ -490,7 +492,7 @@ impl Render for NewAgentView {
                             .rounded(px(6.0))
                             .bg(hsla(self.theme.terminal().background, 1.0))
                             .font_family(self.mono.clone())
-                            .text_size(px(11.5))
+                            .text_size(ui.px(11.5))
                             .text_color(self.fg(|t| t.agents_text))
                             .child(self.form.preview(&self.corral)),
                     ),
@@ -509,7 +511,7 @@ impl Render for NewAgentView {
                 div()
                     .flex_1()
                     .min_w(px(0.0))
-                    .text_size(px(12.0))
+                    .text_size(ui.px(12.0))
                     .children(
                         self.error
                             .clone()
@@ -540,7 +542,7 @@ impl Render for NewAgentView {
             )
         };
 
-        div()
+        ui.apply(div())
             .key_context(CONTEXT)
             .track_focus(&self.focus)
             .on_action(cx.listener(Self::create))
@@ -551,7 +553,7 @@ impl Render for NewAgentView {
             .gap(px(12.0))
             .p(px(18.0))
             .bg(hsla(self.theme.bg(|t| t.agents_bg), 1.0))
-            .text_size(px(13.0))
+            .text_size(ui.px(13.0))
             .text_color(self.fg(|t| t.agents_text))
             .child(body)
             .child(footer)
