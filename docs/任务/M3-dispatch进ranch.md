@@ -52,3 +52,19 @@
 - 不改路由规则、请求格式和输出。
 - 不迁遥测、Drover、插件 SDK、插件协议。
 - 不改 Saddle 仓库（由 Saddle 主控做）；不对用户的 agent 做写操作。
+
+## 进度记录
+
+2026-10-05，paddock/main。用户同意三件事（`ranch dispatch route`、技能删遥测部分、Saddle 不留转发），并要求“该交给saddle就交给saddle”。
+
+- **第一节完成**：ranch 先原样复制 Saddle `c21674a` 的 `plugins/dispatch` 和 `crates/core-plugin`（`e808979`），再改（`d771c10`）：
+  - 去掉插件外壳和遥测采集，路由规则、请求、重试、输出不变（保留了只为采集加的“解析后超 16 MiB 失败”检查，免得同样的回复结果不同）。
+  - 测试保留全部业务断言；原来检查采集内容（begin/end）的地方改为检查 stdout 的错误说明。新增 4 项安装技能的测试（临时 HOME）。
+  - 技能删 `遥测操作.md` 和讲遥测的段落，路由命令改成 `ranch dispatch route`，不可用原因改为看退出码和 stdout；`项目AGENTS模板.md` 逐字节不变；README 改写安装说明。
+  - `ranch dispatch install-skills`：照 corral 的做法（确认、`--dry-run`、软链接不动），目录里不属于技能的文件（如旧的 `遥测操作.md`）只提示不删。
+  - 打包工具加 `bin/ranch`；`bin/corral` 校验和不变。
+  - 锁文件以 Saddle `c21674a` 的为起点，corral 原有版本不变，只多了两个本地包。
+  - 测试共 63 项通过，clippy、fmt 通过。打包后的 `ranch` 在临时 HOME 里试过：帮助、没 key 时退出码 1、用法错误退出码 2、dry-run、不确认不写、`--yes` 写入。没有发真实路由请求（花钱，留到切换时问用户）。
+  - 测试夹具 `tls-key.pem` 与 ureq 3.4.2 发行包的 `testdata/key.pem` 逐字节相同，`.gitleaks.toml` 只放行这一个路径；gitleaks、trufflehog 查后推送（ranch `d771c10`）。
+  - 版本目录 `~/.local/share/ranch/versions/d771c10/` 已生成，未链接。
+- **第二节**：需求已用 `corral send` 交给 `saddle/main`（10-05），等它删插件、放掉技能归属、改 AGENTS.md、部署。
