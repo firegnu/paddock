@@ -243,44 +243,44 @@ impl Sidebar {
         self.poller.refresh();
     }
 
-    /// The header's badge: a bell and how many agents wait for a person or are in error, in amber;
-    /// none when no agent does. A click opens the Attention list.
-    fn badge(&self, cx: &mut Context<Self>) -> Option<gpui::Stateful<Div>> {
-        let count = self
-            .attention()
-            .iter()
-            .filter(|item| item.agent_needs())
-            .count();
-        if count == 0 {
-            return None;
-        }
+    /// The header's bell, always there so the Attention list has a way in: how many rows the list
+    /// has, in amber when an agent needs a person, in the accent for new replies only, quiet and
+    /// without a number when there is nothing. A click opens the Attention list.
+    fn badge(&self, cx: &mut Context<Self>) -> gpui::Stateful<Div> {
+        let (count, urgency) = attention::bell(&self.attention());
         let ui = UiFont::get(cx);
-        let amber = hsla(self.theme.fg(|t| t.agents_yellow), 1.0);
-        let pill = div()
+        let color = hsla(
+            match urgency {
+                attention::Urgency::Needs => self.theme.fg(|t| t.agents_yellow),
+                attention::Urgency::Replies => self.theme.fg(|t| t.agents_accent),
+                attention::Urgency::Quiet => self.theme.fg(|t| t.agents_dim),
+            },
+            1.0,
+        );
+        let mut pill = div()
             .flex()
             .items_center()
             .gap(ui.px(5.0))
             .h(ui.px(24.0))
             .px(ui.px(8.0))
             .rounded(ui.px(12.0))
-            .bg(amber.opacity(0.15))
-            .text_color(amber)
+            .text_color(color)
             .text_size(ui.px(NOTE_SIZE))
             .font_weight(FontWeight::SEMIBOLD)
-            .child(footer_icon::icon(Icon::Bell, amber, ui.scale(1.0)))
-            .child(count.to_string());
-        Some(
-            div()
-                .id("attention")
-                .flex_shrink_0()
-                .h(ui.px(28.0))
-                .flex()
-                .items_center()
-                .cursor_pointer()
-                .hover(move |style| style.opacity(0.85))
-                .child(pill)
-                .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(SidebarEvent::Attention))),
-        )
+            .child(footer_icon::icon(Icon::Bell, color, ui.scale(1.0)));
+        if count > 0 {
+            pill = pill.bg(color.opacity(0.15)).child(count.to_string());
+        }
+        div()
+            .id("attention")
+            .flex_shrink_0()
+            .h(ui.px(28.0))
+            .flex()
+            .items_center()
+            .cursor_pointer()
+            .hover(move |style| style.opacity(0.85))
+            .child(pill)
+            .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(SidebarEvent::Attention)))
     }
 
     /// The latest `corral ls`: when, and how many agents or why it failed.
@@ -488,7 +488,7 @@ impl Render for Sidebar {
                     }),
             )
             .child(div().flex_1())
-            .children(self.badge(cx));
+            .child(self.badge(cx));
 
         let mut list = div()
             .id("agents")

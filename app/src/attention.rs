@@ -36,11 +36,6 @@ impl Item {
         }
     }
 
-    /// An agent waiting for a person or in error: what the header's badge counts.
-    pub fn agent_needs(&self) -> bool {
-        matches!(self.kind, Kind::Waiting | Kind::Error)
-    }
-
     pub fn mark(&self) -> &'static str {
         match self.kind {
             Kind::Waiting => "?",
@@ -48,6 +43,27 @@ impl Item {
             Kind::Reply => "•",
         }
     }
+}
+
+/// How the header's bell looks: quiet with nothing to look at, the accent for new replies only,
+/// amber when an agent waits for a person, is in error or corral cannot be read.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Urgency {
+    Quiet,
+    Replies,
+    Needs,
+}
+
+/// The bell: how many rows the Attention list has, and how urgent the most urgent one is.
+pub fn bell(items: &[Item]) -> (usize, Urgency) {
+    let urgency = if items.iter().any(Item::needs) {
+        Urgency::Needs
+    } else if items.is_empty() {
+        Urgency::Quiet
+    } else {
+        Urgency::Replies
+    };
+    (items.len(), urgency)
 }
 
 /// Needs attention first (waiting, then error, then a failed read), then new replies by name;
@@ -157,13 +173,8 @@ mod tests {
         );
         assert!(items[2].agent.is_none());
         assert!(items[0].needs() && !items[3].needs());
-        // The badge counts agents only: not the failed read, nor a reply to read.
-        let badge: Vec<_> = items
-            .iter()
-            .filter(|i| i.agent_needs())
-            .map(|i| i.label.as_str())
-            .collect();
-        assert_eq!(badge, ["p/ask", "p/broken"]);
+        // The bell counts every row and takes the colour of the most urgent.
+        assert_eq!(bell(&items), (4, Urgency::Needs));
         assert_eq!((items[0].mark(), items[3].mark()), ("?", "•"));
     }
 
@@ -172,5 +183,23 @@ mod tests {
         let mut panel = Panel::default();
         panel.absorb(vec![agent("p/a", "idle")], None, 100.0);
         assert!(items(&panel, None, 100.0).is_empty());
+    }
+
+    #[test]
+    fn the_bell_stays_and_shows_how_urgent() {
+        // Nothing to look at: the bell is still there, quiet and without a number.
+        assert_eq!(bell(&[]), (0, Urgency::Quiet));
+        let reply = Item {
+            kind: Kind::Reply,
+            agent: Some("p/a".into()),
+            label: "p/a".into(),
+            note: String::new(),
+        };
+        assert_eq!(bell(&[reply.clone(), reply.clone()]), (2, Urgency::Replies));
+        let waiting = Item {
+            kind: Kind::Waiting,
+            ..reply.clone()
+        };
+        assert_eq!(bell(&[reply, waiting]), (2, Urgency::Needs));
     }
 }
