@@ -32,3 +32,17 @@
 - 不做遥测开关、Diagnostics、Plugins、Updates。
 - 不读写 Saddle 的配置文件。
 - 不改 Saddle 仓库。
+
+## 完成记录
+
+2026-10-05，paddock/main。用户看 General、Colors 截图后同意：“可以，合并并重新安装”。
+
+- **做了什么**：
+  - `settings.rs`：设置项清单（General 8 项、Colors 主题加 61 个颜色按五组、Advanced 的 corral 命令）、草稿、换主题清掉颜色覆盖、Default（写默认值；颜色改为跟随主题即删键）、按类型校验、用 `toml_edit` 只写改过的键并保留注释和值的行尾注释、文件被外部改过时拒绝保存及 Keep/Discard。
+  - `settings_view.rs`：窗口内设置面板（左侧页面、右侧设置项；开关、分段选择、色块、`custom` 与 `Restart required` 标记、单位、Default；底部提示与 Cancel/Save、冲突时 Keep my edits / Discard my edits）；保存写临时文件后改名。
+  - `text_input.rs`：改自 GPUI `examples/input.rs`（Apache-2.0，保留来源说明）的单行输入框，加主题色、改动事件，复制粘贴走菜单动作。
+  - 配置新增 `refresh_ms`、`corral`；`--corral` 优先于配置。保存后主题、颜色、侧栏宽度、宠物立即生效（侧栏、窗格换主题，宠物重建）。
+  - 菜单 Settings…（⌘,）、⌘S 保存、Esc 取消（设置面板的按键上下文）；`app/README.md` 同步。新增依赖 `toml_edit`、`unicode-segmentation` 均已在锁文件里，未增加包。
+- **验证了什么**：118 项测试通过（设置 7 项、配置 1 项）；clippy、fmt 通过。用临时配置和临时演示代码打开三页设置、只截本窗口；演示代码截图后删除、未提交；截图给用户看过，未入库，临时配置已删。
+- **拿主意的地方**：设置做成窗口内面板而非单独窗口；配置路径显示为 `~/…`；数字项显示单位。
+- **没做的事**：遥测开关、Diagnostics、Plugins、Updates；输入框里打字、切换和保存的实际操作留给用户体验。
