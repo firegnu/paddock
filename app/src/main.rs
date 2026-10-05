@@ -3,6 +3,7 @@ use anyhow::{Context as _, Result, bail};
 use gpui::{App, AppContext as _, Bounds, WindowBounds, WindowOptions, point, px, size};
 use paddock::{
     config::{self, Config},
+    layout_state::Store,
     menu,
     theme::Theme,
     view::{Launch, Options},
@@ -137,6 +138,14 @@ fn main() -> Result<()> {
     } else {
         Launch::Shell { program, cwd }
     };
+    // Started plainly, paddock opens the saved layout; asked for an agent or a program, it opens
+    // that and leaves the saved layout alone.
+    let path = paddock::layout_state::default_path();
+    let layout = if matches!(launch, Launch::Shell { .. }) {
+        Store::open(path)
+    } else {
+        (Store::skip(path), None)
+    };
     let mut config = Config::load(&config::default_path())?;
     config.apply_font_overrides(font_family, fallbacks, font_size, line_height)?;
     let options = Options {
@@ -172,7 +181,9 @@ fn main() -> Result<()> {
                 },
                 |window, cx| {
                     windows::announce(window);
-                    cx.new(|cx| PaddockWindow::new(&config, theme, options, new_shell, window, cx))
+                    cx.new(|cx| {
+                        PaddockWindow::new(&config, theme, options, new_shell, layout, window, cx)
+                    })
                 },
             )
             .expect("open window");

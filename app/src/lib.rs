@@ -18,6 +18,7 @@ pub mod input;
 pub mod keys;
 pub mod launch;
 pub mod layout;
+pub mod layout_state;
 pub mod menu;
 pub mod new_agent;
 pub mod new_agent_view;
