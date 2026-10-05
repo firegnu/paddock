@@ -99,7 +99,7 @@ pub fn open_settings(cx: &mut App) {
     let Ok(theme) = main.read(cx).map(PaddockWindow::theme) else {
         return;
     };
-    let options = options("Settings", 900.0, 640.0, true, cx);
+    let options = options("Settings", 960.0, 720.0, true, cx);
     let Some((handle, settings)) = open(
         options,
         |window, cx| {

@@ -128,7 +128,13 @@ pub fn fields() -> Vec<Field> {
             Kind::Integer,
             true,
         ),
-        field("mascot_enabled", "Mascot", Page::General, Kind::Bool, false),
+        field(
+            "mascot_enabled",
+            "Show the mascot",
+            Page::General,
+            Kind::Bool,
+            false,
+        ),
         field("mascot", "Pet", Page::General, Kind::Pet, false),
         field(
             "ui_font",
