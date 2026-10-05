@@ -1,115 +1,63 @@
 //! What the Agents panel shows for each agent, worked out apart from drawing so it can be tested.
-//! The rules (status dots and their animation, the activity line, ages, the Git line and where its
-//! changes go, how directories shorten) follow Saddle's Agents panel in `src/ui.rs` at commit
-//! `df1c727`; paddock draws them with native widgets instead of terminal cells.
+//! Ages follow Saddle's Agents panel in `src/ui.rs` at commit `df1c727`; the rest is paddock's own
+//! two-line card (DESIGN §13): a status dot, name, program and age, then one line saying where the
+//! agent works or what it needs, with the internal fields kept for the expanded details.
 use crate::{
     agents::{Panel, Status, group},
-    corral::{Agent, Effort},
+    corral::Agent,
     git::{Head, Summary},
     preset::{Color, Theme},
 };
-use unicode_width::UnicodeWidthStr;
 
 /// A Saddle interface colour, as `Theme::fg/bg` take it.
 pub type Pick = fn(&Theme) -> Color;
 
-/// Status dot, state label and colour.
+/// The status dot's colour, whether it breathes, and the status in words for the details.
 #[derive(Clone, Copy, Debug)]
 pub struct Look {
-    pub dot: &'static str,
-    pub label: &'static str,
     pub color: Pick,
+    pub breathing: bool,
+    pub label: &'static str,
 }
 
-/// Working agents turn their dot every 360 ms, as in Saddle.
-pub fn look(status: Status, now: f64) -> Look {
-    let (dot, label, color): (_, _, Pick) = match status {
-        Status::Waiting => ("?", "waiting", |t| t.agents_yellow),
-        Status::Error => ("!", "error", |t| t.agents_red),
-        Status::Stalled => ("▲", "stalled", |t| t.agent_stalled),
-        Status::Working => (
-            ["◐", "◓", "◑", "◒"][(now * 1000.0 / 360.0) as usize % 4],
-            "working",
-            |t| t.agents_blue,
-        ),
-        Status::Starting => ("◌", "starting", |t| t.agent_starting),
-        Status::Unknown => ("·", "unknown", |t| t.agents_dim),
-        Status::Idle => ("○", "idle", |t| t.agents_green),
-        Status::Exited => ("✕", "exited", |t| t.agents_faint),
+/// Only a working agent's dot breathes.
+pub fn look(status: Status) -> Look {
+    let (label, color): (_, Pick) = match status {
+        Status::Waiting => ("等你回复", |t| t.agents_yellow),
+        Status::Error => ("出错", |t| t.agents_red),
+        Status::Stalled => ("卡住了", |t| t.agent_stalled),
+        Status::Working => ("工作中", |t| t.agents_blue),
+        Status::Starting => ("启动中", |t| t.agent_starting),
+        Status::Unknown => ("未知", |t| t.agents_dim),
+        Status::Idle => ("空闲", |t| t.agents_green),
+        Status::Exited => ("已退出", |t| t.agents_red),
     };
-    Look { dot, label, color }
+    Look {
+        color,
+        breathing: status == Status::Working,
+        label,
+    }
 }
 
-/// The braille spinner in front of `working`, one frame every 120 ms.
-pub fn spinner(now: f64) -> &'static str {
-    ["⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷"][(now * 1000.0 / 120.0) as usize % 8]
-}
-
-/// Which agent program runs it: a short mark and the name, in the program's colour.
+/// Which agent program runs it, in the program's colour.
 #[derive(Clone, Debug)]
 pub struct Brand {
-    pub mark: Option<&'static str>,
     pub kind: String,
     pub color: Pick,
 }
 
 pub fn brand(kind: &str) -> Brand {
-    let (mark, color): (_, Pick) = match kind.to_ascii_lowercase().as_str() {
-        "claude" => (Some("✳"), |t| t.claude),
-        "codex" => (Some(">_"), |t| t.codex),
-        "pi" => (Some("π"), |t| t.pi),
-        "omp" => (Some("π"), |t| t.omp),
-        _ => (None, |t| t.agents_dim),
+    let color: Pick = match kind.to_ascii_lowercase().as_str() {
+        "claude" => |t| t.claude,
+        "codex" => |t| t.codex,
+        "pi" => |t| t.pi,
+        "omp" => |t| t.omp,
+        _ => |t| t.agents_dim,
     };
     Brand {
-        mark,
         kind: kind.to_owned(),
         color,
     }
-}
-
-/// How many of the three effort bars are lit, and their colour; Saddle's tiers.
-pub fn effort(effort: Effort) -> (usize, Pick) {
-    match effort {
-        Effort::Medium => (1, |t| t.agent_idle),
-        Effort::High => (2, |t| t.agent_working),
-        Effort::Xhigh => (3, |t| t.agent_starting),
-    }
-}
-
-/// One line of what the agent is doing or needs: `DOING Bash · 4m`, `ASK …`, `ERR …`.
-#[derive(Clone, Debug, PartialEq)]
-pub struct Activity {
-    pub label: &'static str,
-    pub text: String,
-    pub duration: Option<String>,
-}
-
-/// From public fields only. Waiting has no public summary of the question, so it says so plainly.
-fn activity(a: &Agent, status: Status, time: &str) -> Vec<Activity> {
-    let mut lines = Vec::new();
-    let line = |label, text: &str, timed: bool| Activity {
-        label,
-        text: text.to_owned(),
-        duration: timed.then(|| time.to_owned()),
-    };
-    match status {
-        Status::Waiting => lines.push(line("ASK", "waiting for input", true)),
-        Status::Working | Status::Stalled => lines.push(line(
-            "DOING",
-            a.last_tool.as_deref().unwrap_or("thinking"),
-            true,
-        )),
-        _ => {}
-    }
-    if let Some(error) = &a.error {
-        lines.push(line("ERR", error, false));
-    }
-    if a.incompatible {
-        let text = format!("incompatible protocol {}", a.proto.unwrap_or(0));
-        lines.push(line("ERR", &text, false));
-    }
-    lines
 }
 
 /// Ages: at most four characters, as in Saddle's time column.
@@ -125,139 +73,228 @@ pub fn short_time(value: Option<f64>) -> String {
     }
 }
 
-/// The Git line: the branch (left out when it repeats the agent's name), commits beyond its base,
-/// and uncommitted changes, which move to a line of their own rather than squeezing the branch.
+/// How the second line is coloured.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Tone {
+    /// Where the agent works, or that it is starting: dim.
+    Quiet,
+    /// It waits for a person: amber.
+    Waiting,
+    /// An error or an exit: red.
+    Problem,
+}
+
+/// The card's second line.
 #[derive(Clone, Debug, PartialEq)]
-pub enum GitLine {
-    Loading,
-    Unavailable,
-    Known {
-        head: String,
-        /// Commits on HEAD beyond the base, and the base's name; `None` when Git couldn't tell.
-        ahead: Option<(u64, String)>,
-        /// `+added`, `-deleted`, binary files; `None` when Git couldn't count.
-        changes: Option<(u64, u64, u64)>,
-        untracked: Option<u64>,
-        /// The changes don't fit beside the branch within the panel's width.
-        changes_below: bool,
-    },
+pub struct Second {
+    pub text: String,
+    pub tone: Tone,
 }
 
-impl GitLine {
-    /// `columns` is the room for the line, in monospace cells.
-    pub fn new(git: Option<&Option<Summary>>, name: &str, columns: usize) -> Self {
-        let Some(git) = git else {
-            return GitLine::Loading;
-        };
-        let Some(s) = git else {
-            return GitLine::Unavailable;
-        };
-        let head = match &s.head {
-            Head::Branch(branch) if branch == name => String::new(),
-            Head::Branch(branch) => branch.clone(),
-            Head::Detached => "HEAD detached".into(),
-            Head::Unknown => "—".into(),
-        };
-        let changes = s.changes.as_ref().map(|c| (c.added, c.deleted, c.binary));
-        let mut line = GitLine::Known {
-            head,
-            ahead: s.ahead.clone(),
-            changes,
-            untracked: s.untracked,
-            changes_below: false,
-        };
-        let (left, right) = (line.left_text(), line.changes_text());
-        if let GitLine::Known { changes_below, .. } = &mut line {
-            *changes_below = left.width() + 1 + right.width() > columns;
+/// Starting, waiting, errors and exits say so; otherwise the directory and branch.
+fn second(
+    a: &Agent,
+    status: Status,
+    title: Option<&str>,
+    place: impl FnOnce() -> String,
+) -> Second {
+    let (text, tone) = match status {
+        Status::Starting => ("启动中…".to_owned(), Tone::Quiet),
+        Status::Waiting => match title {
+            Some(title) => (format!("等你回复：{title}"), Tone::Waiting),
+            None => ("等你回复".to_owned(), Tone::Waiting),
+        },
+        Status::Error => {
+            let text = match (&a.error, a.incompatible) {
+                (Some(error), _) => format!("出错：{error}"),
+                (None, true) => format!("协议不兼容（{}）", a.proto.unwrap_or(0)),
+                (None, false) => "出错".to_owned(),
+            };
+            (text, Tone::Problem)
         }
-        line
-    }
-
-    /// The text left of the changes, as it is drawn: `⎇ branch ↑n base`.
-    pub fn left_text(&self) -> String {
-        match self {
-            GitLine::Loading => "git …".into(),
-            GitLine::Unavailable => "git unavailable".into(),
-            GitLine::Known { head, ahead, .. } => {
-                let mut text = "⎇".to_owned();
-                if !head.is_empty() {
-                    text += &format!(" {head}");
-                }
-                match ahead {
-                    Some((count, base)) => text += &format!(" ↑{count} {base}"),
-                    None => text += " ↑—",
-                }
-                text
-            }
-        }
-    }
-
-    /// The changes as drawn: `+a -d [n binary] ?u`.
-    pub fn changes_text(&self) -> String {
-        let GitLine::Known {
-            changes, untracked, ..
-        } = self
-        else {
-            return String::new();
-        };
-        let mut text = match changes {
-            Some((added, deleted, 0)) => format!("+{added} -{deleted}"),
-            Some((added, deleted, binary)) => format!("+{added} -{deleted} {binary} binary"),
-            None => "+— -—".into(),
-        };
-        text += &format!(" ?{}", untracked.map_or("—".into(), |n| n.to_string()));
-        text
-    }
+        Status::Exited => ("已退出".to_owned(), Tone::Problem),
+        _ => (place(), Tone::Quiet),
+    };
+    Second { text, tone }
 }
 
-/// The full directory; when its last level repeats the group, only the parent's last level.
-/// Anything wider than `width` cells loses leading levels, then leading characters, keeping the
-/// end. Saddle's `agent_path`.
-pub fn agent_path(path: &str, prefix: &str, width: usize) -> String {
-    use unicode_width::UnicodeWidthChar;
-    let mut parts: Vec<_> = path.split('/').filter(|part| !part.is_empty()).collect();
-    let trailing = if !prefix.is_empty() && parts.last() == Some(&prefix.trim_end_matches('/')) {
-        parts.pop();
-        "/"
-    } else {
-        ""
-    };
-    let mut start = if trailing.is_empty() {
-        0
-    } else {
-        parts.len().saturating_sub(1)
-    };
-    let text = |start: usize| {
-        let joined = parts[start..].join("/");
-        if start > 0 {
-            format!("…/{joined}{trailing}")
-        } else if path.starts_with('/') {
-            format!("/{joined}{trailing}")
-        } else {
-            format!("{joined}{trailing}")
-        }
-    };
-    if parts.is_empty() {
+/// `path` with the home directory written `~`.
+pub fn tilde(path: &str, home: Option<&str>) -> String {
+    let Some(home) = home
+        .map(|h| h.trim_end_matches('/'))
+        .filter(|h| !h.is_empty())
+    else {
         return path.to_owned();
+    };
+    match path.strip_prefix(home) {
+        Some("") => "~".to_owned(),
+        Some(rest) if rest.starts_with('/') => format!("~{rest}"),
+        _ => path.to_owned(),
     }
-    while text(start).width() > width && start + 1 < parts.len() {
-        start += 1;
+}
+
+/// The directory, then the branch after a `·`. A directory too long for the line loses its middle
+/// levels, down to its start and last level (`~/…/paddock`); what still does not fit is cut at the
+/// end when drawn.
+pub fn place(
+    cwd: &str,
+    branch: Option<&str>,
+    home: Option<&str>,
+    fits: &dyn Fn(&str) -> bool,
+) -> String {
+    let path = tilde(cwd, home);
+    let line = |dir: &str| match branch {
+        Some(branch) => format!("{dir} · {branch}"),
+        None => dir.to_owned(),
+    };
+    let (head, rest) = match path.strip_prefix('/') {
+        Some(rest) => ("", rest),
+        None => path.split_once('/').unwrap_or((path.as_str(), "")),
+    };
+    let levels: Vec<&str> = rest.split('/').filter(|l| !l.is_empty()).collect();
+    let full = line(&path);
+    if levels.len() < 2 || fits(&full) {
+        return full;
     }
-    let result = text(start);
-    if result.width() <= width {
-        return result;
-    }
-    let mut kept = String::new();
-    let mut used = 1;
-    for c in result.chars().rev() {
-        let w = c.width().unwrap_or(0);
-        if used + w > width {
+    let mut candidate = full;
+    for start in 1..levels.len() {
+        candidate = line(&format!("{head}/…/{}", levels[start..].join("/")));
+        if fits(&candidate) {
             break;
         }
-        kept.insert(0, c);
-        used += w;
     }
-    format!("…{kept}")
+    candidate
+}
+
+/// `text` as it fits: whole, or cut at the end with `…`, down to the `…` alone.
+pub fn elide(text: &str, fits: &dyn Fn(&str) -> bool) -> String {
+    if fits(text) {
+        return text.to_owned();
+    }
+    let mut kept: Vec<char> = text.chars().collect();
+    while kept.pop().is_some() {
+        let cut = format!("{}…", kept.iter().collect::<String>());
+        if fits(&cut) {
+            return cut;
+        }
+    }
+    "…".to_owned()
+}
+
+/// The branch as the second line names it; `None` while Git is unread or unavailable.
+fn branch(git: Option<&Option<Summary>>) -> Option<String> {
+    match &git?.as_ref()?.head {
+        Head::Branch(branch) => Some(branch.clone()),
+        Head::Detached => Some("detached HEAD".into()),
+        Head::Unknown => None,
+    }
+}
+
+/// The branch with its uncommitted changes and the commits it is ahead of its base.
+fn branch_details(s: &Summary) -> String {
+    let mut parts = vec![match &s.head {
+        Head::Branch(branch) => branch.clone(),
+        Head::Detached => "detached HEAD".into(),
+        Head::Unknown => "—".into(),
+    }];
+    let mut clean = true;
+    if let Some(c) = &s.changes
+        && c.added + c.deleted + c.binary > 0
+    {
+        clean = false;
+        let mut text = format!("+{} -{}", c.added, c.deleted);
+        if c.binary > 0 {
+            text += &format!("，{} 个二进制文件", c.binary);
+        }
+        parts.push(text);
+    }
+    if let Some(untracked) = s.untracked
+        && untracked > 0
+    {
+        clean = false;
+        parts.push(format!("{untracked} 个未跟踪文件"));
+    }
+    if clean && s.changes.is_some() && s.untracked.is_some() {
+        parts.push("无改动".into());
+    }
+    if let Some((ahead, _)) = &s.ahead
+        && *ahead > 0
+    {
+        parts.push(format!("领先 {ahead}"));
+    }
+    parts.join(" · ")
+}
+
+/// One row of the expanded details.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Detail {
+    pub label: &'static str,
+    pub value: String,
+    /// Drawn in the terminal font: the instance id.
+    pub mono: bool,
+}
+
+fn details(
+    a: &Agent,
+    look: &Look,
+    status: Status,
+    git: Option<&Option<Summary>>,
+    home: Option<&str>,
+) -> Vec<Detail> {
+    let row = |label, value: String| Detail {
+        label,
+        value,
+        mono: false,
+    };
+    let mut rows = Vec::new();
+    let state = match (status, &a.last_tool) {
+        (Status::Working | Status::Stalled, Some(tool)) => format!("{} · {tool}", look.label),
+        _ => look.label.to_owned(),
+    };
+    rows.push(row("状态", state));
+    if let Some(cwd) = &a.cwd {
+        rows.push(row("目录", tilde(cwd, home)));
+    }
+    if let Some(Some(summary)) = git {
+        rows.push(row("分支", branch_details(summary)));
+    }
+    let label = |key: &str| {
+        a.labels
+            .get(key)
+            .and_then(|v| v.as_str())
+            .filter(|v| !v.is_empty())
+    };
+    let model: Vec<&str> = [label("model"), label("effort")]
+        .into_iter()
+        .flatten()
+        .collect();
+    if !model.is_empty() {
+        rows.push(row("模型", model.join(" · ")));
+    }
+    rows.push(row(
+        "接入",
+        match a.attached {
+            0 => "没有窗口".into(),
+            n => format!("{n} 个窗口"),
+        },
+    ));
+    if let Some(source) = &a.last_input_source {
+        let who = match source.as_str() {
+            "human" => "你",
+            "send" => "corral send",
+            "agent" => "agent",
+            other => other,
+        };
+        rows.push(row("上次输入", who.to_owned()));
+    }
+    if let Some(instance) = &a.instance {
+        rows.push(Detail {
+            label: "实例",
+            value: instance.clone(),
+            mono: true,
+        });
+    }
+    rows
 }
 
 /// Everything the panel shows for one agent.
@@ -268,27 +305,33 @@ pub struct Card {
     pub short: String,
     pub status: Status,
     pub look: Look,
-    /// Open in one of this window's panes.
-    pub here: bool,
-    /// Shown in the active pane: highlighted, and kept expanded when the list folds.
+    /// Shown in the active pane: highlighted, and a click opens its details instead.
     pub selected: bool,
-    /// Finished a turn this window hasn't shown yet.
-    pub unread: bool,
-    /// Every line, not just the first: unfolded, or the selected one.
+    /// The details show below the second line.
     pub expanded: bool,
     pub brand: Option<Brand>,
-    pub effort: Option<Effort>,
     pub time: String,
-    pub time_color: Pick,
-    pub title: Option<String>,
-    pub activity: Vec<Activity>,
-    /// `None` when corral reports no directory.
-    pub git: Option<GitLine>,
-    pub path: String,
+    pub second: Second,
+    pub details: Vec<Detail>,
     pub instance: Option<String>,
     pub cwd: Option<String>,
-    pub attached: usize,
-    pub via: String,
+}
+
+/// What a click on a card does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Click {
+    /// Show the agent.
+    Open,
+    /// Expand or collapse its details: it is already the one shown.
+    Details,
+}
+
+pub fn click(card: &Card) -> Click {
+    if card.selected {
+        Click::Details
+    } else {
+        Click::Open
+    }
 }
 
 /// A line of the panel.
@@ -301,14 +344,14 @@ pub enum Line {
     Agent(Box<Card>),
 }
 
-/// The panel's lines. `selected` is the active pane's agent and `here` every agent open in this
-/// window; `columns` is the room for the detail lines, in monospace cells.
+/// The panel's lines. `selected` is the active pane's agent; `home` the home directory, written
+/// `~`; `fits` whether a second line fits the card.
 pub fn lines(
     panel: &Panel,
     error: Option<&str>,
     selected: Option<&str>,
-    here: &[String],
-    columns: usize,
+    home: Option<&str>,
+    fits: &dyn Fn(&str) -> bool,
     now: f64,
 ) -> Vec<Line> {
     let mut lines: Vec<Line> = error
@@ -316,7 +359,6 @@ pub fn lines(
         .into_iter()
         .collect();
     let ordered = panel.ordered(now);
-    let folded = panel.folded();
     let mut previous = None;
     for (index, a) in ordered.iter().enumerate() {
         let prefix = group(&a.name);
@@ -330,27 +372,24 @@ pub fn lines(
             previous = Some(prefix);
         }
         lines.push(Line::Agent(Box::new(card(
-            panel, a, prefix, selected, here, folded, columns, now,
+            panel, a, prefix, selected, home, fits, now,
         ))));
     }
     lines
 }
 
-#[allow(clippy::too_many_arguments)]
 fn card(
     panel: &Panel,
     a: &Agent,
     prefix: &str,
     selected: Option<&str>,
-    here: &[String],
-    folded: bool,
-    columns: usize,
+    home: Option<&str>,
+    fits: &dyn Fn(&str) -> bool,
     now: f64,
 ) -> Card {
     let status = panel.status(a, now);
+    let look = look(status);
     let short = a.name.strip_prefix(prefix).unwrap_or(&a.name).to_owned();
-    let is_here = here.contains(&a.name);
-    let is_selected = selected == Some(a.name.as_str());
     let origin = match status {
         Status::Working | Status::Stalled if a.state.as_deref() == Some("working") => {
             a.turn_started
@@ -358,45 +397,29 @@ fn card(
         Status::Idle | Status::Waiting => a.state_started,
         _ => None,
     };
-    let time = short_time(origin.map(|v| now - v));
-    let time_color: Pick = if is_here {
-        |t| t.agents_green
-    } else if status == Status::Working {
-        |t| t.agents_blue
-    } else if status == Status::Exited {
-        |t| t.agents_faint
-    } else {
-        |t| t.agents_text
-    };
     let title = a
         .title
         .as_deref()
-        .filter(|title| !title.trim().is_empty() && *title != prefix.trim_end_matches('/'))
-        .map(str::to_owned);
+        .map(str::trim)
+        .filter(|title| !title.is_empty() && *title != prefix.trim_end_matches('/'));
+    let git = a.cwd.as_ref().and_then(|cwd| panel.git.get(cwd));
+    let place = || match &a.cwd {
+        Some(cwd) => place(cwd, branch(git).as_deref(), home, fits),
+        None => "—".into(),
+    };
     Card {
         name: a.name.clone(),
-        look: look(status, now),
         status,
-        here: is_here,
-        selected: is_selected,
-        unread: !is_here && panel.unread.contains(&a.name),
-        expanded: !folded || is_selected,
+        selected: selected == Some(a.name.as_str()),
+        expanded: panel.expanded.contains(&a.name),
         brand: a.kind.as_deref().map(brand),
-        effort: a.effort(),
-        activity: activity(a, status, &time),
-        time,
-        time_color,
-        title,
-        git: a
-            .cwd
-            .as_ref()
-            .map(|cwd| GitLine::new(panel.git.get(cwd), &short, columns)),
-        path: agent_path(a.cwd.as_deref().unwrap_or("—"), prefix, columns),
+        time: short_time(origin.map(|v| now - v)),
+        second: second(a, status, title, place),
+        details: details(a, &look, status, git, home),
+        look,
         short,
         instance: a.instance.clone(),
         cwd: a.cwd.clone(),
-        attached: a.attached,
-        via: a.last_input_source.clone().unwrap_or_else(|| "—".into()),
     }
 }
 
@@ -415,6 +438,10 @@ mod tests {
         }
     }
 
+    fn roomy(_: &str) -> bool {
+        true
+    }
+
     fn cards(lines: &[Line]) -> Vec<&Card> {
         lines
             .iter()
@@ -425,20 +452,21 @@ mod tests {
             .collect()
     }
 
+    fn panel(agents: Vec<Agent>) -> Panel {
+        let mut panel = Panel::default();
+        panel.absorb(agents, None, 100.0);
+        panel
+    }
+
     #[test]
     fn groups_carry_their_counts_and_names_lose_the_prefix() {
-        let mut panel = Panel::default();
-        panel.absorb(
-            vec![
-                agent("p/a", "idle"),
-                agent("p/b", "idle"),
-                agent("q/c", "idle"),
-                agent("solo", "idle"),
-            ],
-            None,
-            100.0,
-        );
-        let lines = lines(&panel, None, None, &[], 40, 100.0);
+        let panel = panel(vec![
+            agent("p/a", "idle"),
+            agent("p/b", "idle"),
+            agent("q/c", "idle"),
+            agent("solo", "idle"),
+        ]);
+        let lines = lines(&panel, None, None, None, &roomy, 100.0);
         let groups: Vec<_> = lines
             .iter()
             .filter_map(|line| match line {
@@ -451,126 +479,10 @@ mod tests {
         assert_eq!(shorts, ["solo", "a", "b", "c"]);
     }
 
-    #[test]
-    fn lines_show_only_when_they_have_something_to_say() {
-        let working = Agent {
-            title: Some("p".into()),
-            last_tool: Some("Bash".into()),
-            turn_started: Some(40.0),
-            kind: Some("codex".into()),
-            ..agent("p/a", "working")
-        };
-        let idle = Agent {
-            title: Some("Handoff memory".into()),
-            state_started: Some(100.0 - 7200.0),
-            ..agent("p/b", "idle")
-        };
-        let mut panel = Panel::default();
-        panel.absorb(vec![working, idle], None, 100.0);
-        let lines = lines(&panel, None, None, &[], 40, 100.0);
-        let cards = cards(&lines);
-        let (a, b) = (cards[0], cards[1]);
-        // A title that only repeats the group is not shown.
-        assert_eq!(a.title, None);
-        assert_eq!(
-            a.activity,
-            [Activity {
-                label: "DOING",
-                text: "Bash".into(),
-                duration: Some("1m".into()),
-            }]
-        );
-        assert_eq!(a.time, "1m");
-        assert_eq!(a.brand.as_ref().unwrap().mark, Some(">_"));
-        assert_eq!(b.title.as_deref(), Some("Handoff memory"));
-        assert!(b.activity.is_empty());
-        assert_eq!(b.time, "2.0h");
-        assert_eq!(b.look.label, "idle");
-    }
-
-    #[test]
-    fn waiting_and_errors_say_so() {
-        let waiting = agent("p/w", "blocked");
-        let broken = Agent {
-            error: Some("status failed".into()),
-            ..agent("p/x", "idle")
-        };
-        let mut panel = Panel::default();
-        panel.absorb(vec![waiting, broken], None, 100.0);
-        let lines = lines(&panel, None, None, &[], 40, 100.0);
-        let labels: Vec<Vec<_>> = cards(&lines)
-            .iter()
-            .map(|c| c.activity.iter().map(|a| a.label).collect())
-            .collect();
-        assert_eq!(labels, [vec!["ASK"], vec!["ERR"]]);
-    }
-
-    #[test]
-    fn folding_keeps_the_agent_shown_here_expanded() {
-        let mut panel = Panel::default();
-        panel.absorb(
-            (0..6).map(|i| agent(&format!("p/{i}"), "idle")).collect(),
-            None,
-            100.0,
-        );
-        assert!(panel.folded(), "more than five agents fold by default");
-        let lines = lines(&panel, None, Some("p/3"), &[], 40, 100.0);
-        let expanded: Vec<_> = cards(&lines)
-            .iter()
-            .filter(|c| c.expanded)
-            .map(|c| c.name.clone())
-            .collect();
-        assert_eq!(expanded, ["p/3"]);
-        panel.toggle_fold();
-        let lines = super::lines(&panel, None, Some("p/3"), &[], 40, 100.0);
-        assert!(cards(&lines).iter().all(|c| c.expanded));
-    }
-
-    #[test]
-    fn sorting_switches_between_status_and_name() {
-        let mut panel = Panel::default();
-        panel.absorb(
-            vec![
-                agent("p/a", "idle"),
-                agent("p/b", "working"),
-                agent("p/c", "blocked"),
-            ],
-            None,
-            100.0,
-        );
-        let names = |panel: &Panel| -> Vec<String> {
-            cards(&lines(panel, None, None, &[], 40, 100.0))
-                .iter()
-                .map(|c| c.short.clone())
-                .collect()
-        };
-        assert_eq!(names(&panel), ["c", "b", "a"]);
-        panel.by_name = true;
-        assert_eq!(names(&panel), ["a", "b", "c"]);
-    }
-
-    #[test]
-    fn here_marks_time_and_unread() {
-        let mut panel = Panel::default();
-        let a = Agent {
-            state_started: Some(90.0),
-            ..agent("p/a", "idle")
-        };
-        panel.absorb(vec![a.clone(), agent("p/b", "idle")], None, 100.0);
-        let lines = lines(&panel, None, Some("p/a"), &["p/a".to_owned()], 40, 100.0);
-        let card = cards(&lines)[0];
-        assert!(card.here);
-        assert_eq!(card.time, "10s");
-        assert_eq!(
-            (card.time_color)(&Theme::default()),
-            Theme::default().agents_green
-        );
-    }
-
     fn summary(added: u64, deleted: u64) -> Option<Summary> {
         Some(Summary {
             head: Head::Branch("p2d-render".into()),
-            ahead: Some((0, "main".into())),
+            ahead: Some((2, "main".into())),
             changes: Some(Changes {
                 added,
                 deleted,
@@ -581,52 +493,279 @@ mod tests {
     }
 
     #[test]
-    fn git_changes_move_below_rather_than_squeeze_the_branch() {
-        let line = GitLine::new(Some(&summary(25, 0)), "dev-render", 44);
-        assert_eq!(line.left_text(), "⎇ p2d-render ↑0 main");
-        assert_eq!(line.changes_text(), "+25 -0 ?3");
-        assert!(matches!(
-            line,
-            GitLine::Known {
-                changes_below: false,
-                ..
-            }
-        ));
-        let long = GitLine::new(Some(&summary(12847, 3291)), "dev-render", 30);
-        assert!(matches!(
-            long,
-            GitLine::Known {
-                changes_below: true,
-                ..
-            }
-        ));
-        // The branch is left out when it repeats the agent's name.
-        let same = GitLine::new(Some(&summary(1, 0)), "p2d-render", 44);
-        assert_eq!(same.left_text(), "⎇ ↑0 main");
-        assert_eq!(GitLine::new(None, "x", 44), GitLine::Loading);
-        assert_eq!(GitLine::new(Some(&None), "x", 44), GitLine::Unavailable);
+    fn the_second_line_is_the_directory_and_branch_or_what_the_agent_needs() {
+        let working = Agent {
+            cwd: Some("/home/me/code/paddock".into()),
+            ..agent("p/work", "working")
+        };
+        let plain = Agent {
+            cwd: Some("/tmp".into()),
+            ..agent("p/plain", "idle")
+        };
+        let waiting = Agent {
+            title: Some("要不要升级依赖".into()),
+            ..agent("p/ask", "blocked")
+        };
+        let asking = Agent {
+            // A title that only repeats the group says nothing.
+            title: Some("p".into()),
+            ..agent("p/ask2", "blocked")
+        };
+        let broken = Agent {
+            error: Some("status failed".into()),
+            ..agent("p/broken", "idle")
+        };
+        let starting = Agent {
+            starting: true,
+            ..agent("p/new", "idle")
+        };
+        let mut panel = panel(vec![
+            working,
+            plain,
+            waiting,
+            asking,
+            broken,
+            starting,
+            agent("p/gone", "exited"),
+        ]);
+        panel.absorb_git(vec![
+            ("/home/me/code/paddock".into(), summary(1, 0)),
+            ("/tmp".into(), None),
+        ]);
+        let lines = lines(&panel, None, None, Some("/home/me"), &roomy, 100.0);
+        let seconds: Vec<(String, Second)> = cards(&lines)
+            .iter()
+            .map(|c| (c.short.clone(), c.second.clone()))
+            .collect();
+        let line = |text: &str, tone| Second {
+            text: text.into(),
+            tone,
+        };
+        assert_eq!(
+            seconds,
+            [
+                (
+                    "ask".into(),
+                    line("等你回复：要不要升级依赖", Tone::Waiting)
+                ),
+                ("ask2".into(), line("等你回复", Tone::Waiting)),
+                ("broken".into(), line("出错：status failed", Tone::Problem)),
+                (
+                    "work".into(),
+                    line("~/code/paddock · p2d-render", Tone::Quiet)
+                ),
+                ("new".into(), line("启动中…", Tone::Quiet)),
+                // No Git there: only the directory, never "git unavailable".
+                ("plain".into(), line("/tmp", Tone::Quiet)),
+                ("gone".into(), line("已退出", Tone::Problem)),
+            ]
+        );
     }
 
     #[test]
-    fn paths_keep_their_end() {
-        let path = "/Users/me/Developer/personal_projs/cairn-worktrees/p2d-render";
-        assert_eq!(agent_path(path, "cairn/", 80), path);
+    fn long_directories_lose_their_middle_first() {
+        let home = Some("/Users/me");
+        let path = "/Users/me/Developer/personal_projs/paddock";
+        let within = |n: usize| move |text: &str| text.chars().count() <= n;
         assert_eq!(
-            agent_path(path, "cairn/", 30),
-            "…/cairn-worktrees/p2d-render"
+            place(path, Some("main"), home, &within(80)),
+            "~/Developer/personal_projs/paddock · main"
         );
-        // A directory named after the group shows its parent's last level.
         assert_eq!(
-            agent_path("/Users/me/Developer/personal_projs/cairn", "cairn/", 80),
-            "…/personal_projs/"
+            place(path, Some("main"), home, &within(34)),
+            "~/…/personal_projs/paddock · main"
         );
-        assert_eq!(agent_path(path, "cairn/", 8).width(), 8);
+        assert_eq!(
+            place(path, Some("main"), home, &within(20)),
+            "~/…/paddock · main"
+        );
+        // Never shorter than the start and the last level; the drawing cuts the rest.
+        assert_eq!(
+            place(path, Some("main"), home, &within(4)),
+            "~/…/paddock · main"
+        );
+        assert_eq!(place("/opt/a/b/c", None, home, &within(6)), "/…/b/c");
+        assert_eq!(place("/opt/a/b/c", None, home, &within(5)), "/…/c");
+        assert_eq!(place("/Users/me", None, home, &within(1)), "~");
+        assert_eq!(tilde("/Users/melody/x", home), "/Users/melody/x");
     }
 
     #[test]
-    fn effort_tiers_light_more_bars() {
-        assert_eq!(effort(Effort::Medium).0, 1);
-        assert_eq!(effort(Effort::High).0, 2);
-        assert_eq!(effort(Effort::Xhigh).0, 3);
+    fn long_names_are_cut_at_the_end() {
+        let within = |n: usize| move |text: &str| text.chars().count() <= n;
+        assert_eq!(elide("dev-buttons", &within(11)), "dev-buttons");
+        assert_eq!(elide("dev-buttons", &within(8)), "dev-but…");
+        assert_eq!(elide("dev-buttons", &within(0)), "…");
+    }
+
+    #[test]
+    fn a_second_click_on_the_shown_agent_opens_its_details() {
+        let mut panel = panel(vec![agent("p/a", "idle"), agent("p/b", "idle")]);
+        let shown = |panel: &Panel, selected| -> Vec<(String, Click, bool)> {
+            cards(&lines(panel, None, selected, None, &roomy, 100.0))
+                .iter()
+                .map(|c| (c.short.clone(), click(c), c.expanded))
+                .collect()
+        };
+        // Every card starts as two lines; the first click only opens the agent.
+        assert_eq!(
+            shown(&panel, None),
+            [
+                ("a".into(), Click::Open, false),
+                ("b".into(), Click::Open, false)
+            ]
+        );
+        // Once it is the one shown, another click opens its details, and the next closes them.
+        assert_eq!(
+            shown(&panel, Some("p/a"))[0],
+            ("a".into(), Click::Details, false)
+        );
+        panel.toggle_details("p/a");
+        assert_eq!(
+            shown(&panel, Some("p/a"))[0],
+            ("a".into(), Click::Details, true)
+        );
+        // Details stay open while another agent is shown, until collapsed.
+        panel.toggle_details("p/b");
+        assert_eq!(
+            shown(&panel, Some("p/b")),
+            [
+                ("a".into(), Click::Open, true),
+                ("b".into(), Click::Details, true)
+            ]
+        );
+        panel.collapse_all();
+        assert!(shown(&panel, Some("p/b")).iter().all(|(_, _, open)| !open));
+        panel.toggle_details("p/a");
+        panel.absorb(vec![agent("p/b", "idle")], None, 101.0);
+        panel.absorb(
+            vec![agent("p/a", "idle"), agent("p/b", "idle")],
+            None,
+            102.0,
+        );
+        assert!(
+            !panel.expanded.contains("p/a"),
+            "an agent that went away comes back folded"
+        );
+    }
+
+    #[test]
+    fn details_name_the_internals_in_words() {
+        let mut labels = serde_json::Map::new();
+        labels.insert("model".into(), "opus".into());
+        labels.insert("effort".into(), "high".into());
+        let a = Agent {
+            cwd: Some("/Users/me/code/paddock".into()),
+            instance: Some("b18cda32ce36".into()),
+            attached: 1,
+            last_input_source: Some("human".into()),
+            last_tool: Some("Bash".into()),
+            labels,
+            ..agent("p/a", "working")
+        };
+        let mut panel = panel(vec![a, agent("p/b", "idle")]);
+        panel.absorb_git(vec![("/Users/me/code/paddock".into(), summary(25, 3))]);
+        let lines = lines(&panel, None, None, Some("/Users/me"), &roomy, 100.0);
+        let rows = |card: &Card| -> Vec<(&str, String)> {
+            card.details
+                .iter()
+                .map(|d| (d.label, d.value.clone()))
+                .collect()
+        };
+        let cards = cards(&lines);
+        assert_eq!(
+            rows(cards[0]),
+            [
+                ("状态", "工作中 · Bash".into()),
+                ("目录", "~/code/paddock".into()),
+                (
+                    "分支",
+                    "p2d-render · +25 -3 · 3 个未跟踪文件 · 领先 2".into()
+                ),
+                ("模型", "opus · high".into()),
+                ("接入", "1 个窗口".into()),
+                ("上次输入", "你".into()),
+                ("实例", "b18cda32ce36".into()),
+            ]
+        );
+        assert!(cards[0].details.last().unwrap().mono);
+        // Rows with nothing to say are left out; Git is still loading for this one.
+        assert_eq!(
+            rows(cards[1]),
+            [
+                ("状态", "空闲".into()),
+                ("目录", "/w/p/b".into()),
+                ("接入", "没有窗口".into()),
+                ("实例", "abcdef123".into()),
+            ]
+        );
+        let clean = Summary {
+            head: Head::Branch("main".into()),
+            ahead: Some((0, "origin/main".into())),
+            changes: Some(Changes {
+                added: 0,
+                deleted: 0,
+                binary: 0,
+            }),
+            untracked: Some(0),
+        };
+        assert_eq!(branch_details(&clean), "main · 无改动");
+    }
+
+    #[test]
+    fn only_a_working_dot_breathes() {
+        let dune = crate::preset::Preset::Dune.theme();
+        let expected = [
+            (Status::Waiting, dune.agents_yellow),
+            (Status::Error, dune.agents_red),
+            (Status::Stalled, dune.agent_stalled),
+            (Status::Working, dune.agents_blue),
+            (Status::Starting, dune.agent_starting),
+            (Status::Unknown, dune.agents_dim),
+            (Status::Idle, dune.agents_green),
+            (Status::Exited, dune.agents_red),
+        ];
+        for (status, color) in expected {
+            let look = look(status);
+            assert_eq!((look.color)(&dune), color, "{status:?}");
+            assert_eq!(look.breathing, status == Status::Working, "{status:?}");
+        }
+    }
+
+    #[test]
+    fn ages_count_from_the_current_turn_or_state() {
+        let working = Agent {
+            turn_started: Some(40.0),
+            kind: Some("codex".into()),
+            ..agent("p/a", "working")
+        };
+        let idle = Agent {
+            state_started: Some(100.0 - 7200.0),
+            ..agent("p/b", "idle")
+        };
+        let panel = panel(vec![working, idle]);
+        let lines = lines(&panel, None, None, None, &roomy, 100.0);
+        let cards = cards(&lines);
+        assert_eq!(cards[0].time, "1m");
+        assert_eq!(cards[0].brand.as_ref().unwrap().kind, "codex");
+        assert_eq!(cards[1].time, "2.0h");
+    }
+
+    #[test]
+    fn sorting_switches_between_status_and_name() {
+        let mut panel = panel(vec![
+            agent("p/a", "idle"),
+            agent("p/b", "working"),
+            agent("p/c", "blocked"),
+        ]);
+        let names = |panel: &Panel| -> Vec<String> {
+            cards(&lines(panel, None, None, None, &roomy, 100.0))
+                .iter()
+                .map(|c| c.short.clone())
+                .collect()
+        };
+        assert_eq!(names(&panel), ["c", "b", "a"]);
+        panel.by_name = true;
+        assert_eq!(names(&panel), ["a", "b", "c"]);
     }
 }

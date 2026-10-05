@@ -982,7 +982,7 @@ impl PaddockWindow {
             Shown::Agent(name) => match agents.iter().find(|a| &a.name == name) {
                 Some(agent) => {
                     let status = Panel::default().status(agent, now);
-                    self.fg(card::look(status, now).color)
+                    self.fg(card::look(status).color)
                 }
                 None => self.fg(|t| t.agents_faint),
             },
