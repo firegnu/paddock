@@ -46,7 +46,7 @@ Saddle 本身（含 TUI、插件、Drover、遥测、`saddle ctl`）继续独立
 ## 4. 依赖与工具链隔离
 
 - 每个 Cargo 清单有自己的 `[workspace]` 和 `Cargo.lock`。原型锁文件中第三方库版本与 Saddle 根锁文件一致，只多出 GPUI 带来的依赖。
-- 编译目录：`$HOME/Developer/personal_projs/paddock-worktrees/.target`，不与 Saddle 共用。
+- 编译目录：`$HOME/Developer/personal_projs/paddock-worktrees/.target/<子目录>`，不与 Saddle 共用；每个工作目录一个子目录（主仓库 `main`、任务 worktree 用分支名、审查用 `review`），避免并行 worktree 互相覆盖同名包的产物（用户 10-05 同意）。
 - GPUI：`gpui-pre =0.3.8` / `gpui-pre-platform =0.3.8`（zed@279fe07 的第三方快照，发布者 huacnlee，Apache-2.0），特性 `font-kit`、`runtime_shaders`。所有 `gpui-pre-*` 一起精确固定、一起升级。
 - `runtime_shaders`：本机 Xcode 27 缺 Metal 工具链组件；安装属于系统安装，未做，改为运行时编译着色器。
 - 工具链：本机默认 stable `rustc 1.96.0` 可以编过；暂未加 `rust-toolchain.toml`。写精确版本会让 rustup 另装一份同版本工具链，等 GPUI 要求更新的 Rust 时再与用户确定。

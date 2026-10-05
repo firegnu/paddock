@@ -5,7 +5,7 @@
 ## 构建
 
 ```sh
-export CARGO_TARGET_DIR="$HOME/Developer/personal_projs/paddock-worktrees/.target"
+export CARGO_TARGET_DIR="$HOME/Developer/personal_projs/paddock-worktrees/.target/main"  # worktree 里用分支名代替 main
 M=app/Cargo.toml   # 在仓库根目录执行；其他目录写完整路径
 
 cargo build --release --manifest-path "$M"

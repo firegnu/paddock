@@ -34,7 +34,7 @@ paddock 是 Saddle 的 GPUI 桌面前端，目前处在原型阶段：一个 GPU
   - GPUI 在窗口被完全遮挡时暂停绘制，截到旧画面不等于没更新。
 - **测试不依赖真实 agent**：用合成数据和假 `corral` 脚本；真实 agent 只用于明确的实测，且只用自己开的测试实例。
 - **验证**：按改动影响面选择检查。小改跑直接相关测试；跨模块改动和合并前，对每个 Cargo 清单跑 `cargo test --all-targets` 和 `cargo clippy --all-targets -- -D warnings`。保留有价值的测试，不靠删测试、放宽断言或缩短超时来通过。
-- **独立编译目录**：所有 worktree 共用 paddock 自己的编译目录，不和 Saddle 的 `.target` 共用：命令前加 `CARGO_TARGET_DIR=$HOME/Developer/personal_projs/paddock-worktrees/.target`。
+- **独立编译目录**：paddock 的编译产物都放在 `$HOME/Developer/personal_projs/paddock-worktrees/.target/` 下，不和 Saddle 的 `.target` 共用；每个工作目录用自己的子目录，不和别的 worktree 共用：命令前加 `CARGO_TARGET_DIR=$HOME/Developer/personal_projs/paddock-worktrees/.target/<子目录>`。主仓库用 `main`，任务 worktree 用分支名（如 `p1-font`），审查 worktree 用 `review`。原因：并行的 worktree 编的是同一个包，共用目录会互相覆盖产物，cargo 还可能把别人的产物当成最新的（P1 的 T2、T3 都遇到过）。清 worktree 时一并删掉它的子目录。
 
 ## 开发方式（主控分派）
 
