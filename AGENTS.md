@@ -36,15 +36,13 @@ paddock 是 Saddle 的 GPUI 桌面前端，目前处在原型阶段：一个 GPU
 - **验证**：按改动影响面选择检查。小改跑直接相关测试；跨模块改动和合并前，对每个 Cargo 清单跑 `cargo test --all-targets` 和 `cargo clippy --all-targets -- -D warnings`。保留有价值的测试，不靠删测试、放宽断言或缩短超时来通过。
 - **独立编译目录**：paddock 的编译产物都放在 `$HOME/Developer/personal_projs/paddock-worktrees/.target/` 下，不和 Saddle 的 `.target` 共用；每个工作目录用自己的子目录，不和别的 worktree 共用：命令前加 `CARGO_TARGET_DIR=$HOME/Developer/personal_projs/paddock-worktrees/.target/<子目录>`。主仓库用 `main`，任务 worktree 用分支名（如 `p1-font`），审查 worktree 用 `review`。原因：并行的 worktree 编的是同一个包，共用目录会互相覆盖产物，cargo 还可能把别人的产物当成最新的（P1 的 T2、T3 都遇到过）。清 worktree 时一并删掉它的子目录。
 
-## 开发方式（主控分派）
+## 开发方式（主控自己做）
 
-- 这个项目的开发任务由主控（`paddock/main`）拆开，派给别的 agent 做。主控负责拆任务、写任务文件、审查、合并，不自己写功能代码。分派时按 corral-dispatch 技能做；遥测是否记录按技能规定，默认不开。
-- 被委派的 agent（任务文件里写明了身份）照任务文件做，不再往下派。
-- 需求单只写用户要的结果；验收照抄用户原话，不补验收点。主控觉得该加的，列出来问用户。调研和设计文档里的“建议”不是用户的验收条件。
-- agent 名字以 `paddock/dev-` 开头；任务文件放 `docs/任务/`；每个任务一个分支，worktree 放 `../paddock-worktrees/<分支>`，交叉审查用 detached worktree `../paddock-worktrees/review-<分支>`。
-- 创建派发的 agent 时，在 `corral start` 参数里注明职责：实现者加 `--label role=implementer`，独立审查者加 `--label role=reviewer`，实测用的 agent 加 `--label role=test`，主控用 `role=controller`。标签只用于显示，不改变职责分工或权限。
-- 审查：主控审查每个任务。
-- 合并：审查通过后，本地合并进 main。现在没有远程仓库；以后用户配置了 `origin`，就在合并后推送。主控不自行创建远程仓库。
-- 收尾记号：一件活合并完、worktree 和分支清干净之后，在 main 上补一条空提交（`git commit --allow-empty`），首行写「收尾: 」加一句话说明这件活。只记真正落地的活。
+- 用户 10-05 决定：不再把开发任务派给别的 agent，由主控（`paddock/main`）自己实现。P1 的 T1–T4 是按旧的分派流程做的，任务文件里的委派信息只作历史记录。
+- 每件活先在 `docs/任务/` 写任务文件（做成什么、范围、怎么算做完），给用户看过再动手。验收照抄用户原话，不补验收点；主控觉得该加的，列出来问用户。调研和设计文档里的“建议”不是用户的验收条件。
+- 每件活一个分支，worktree 放 `../paddock-worktrees/<分支>`，编译目录用 `.target/<分支>`（见上文“独立编译目录”）。
+- 合并前按影响面自查：至少跑 `cargo test --all-targets` 和 `cargo clippy --all-targets -- -D warnings`，在任务文件末尾写「完成记录」：做了什么、验证了什么、拿主意的地方、没做的事。
+- 合并：本地合并进 main。现在没有远程仓库；以后用户配置了 `origin`，就在合并后推送。不自行创建远程仓库。
+- 收尾记号：一件活合并完、worktree、分支和它的编译子目录清干净之后，在 main 上补一条空提交（`git commit --allow-empty`），首行写「收尾: 」加一句话说明这件活。只记真正落地的活。
 - 收尾之后更新 `HANDOFF.md`：现在在哪、下一步、悬着什么。设计和理由进 `docs/DESIGN.md`，别写进交接文件。
-- 清掉某个 worktree 时，把住在里面的 agent 一并关掉；其余的用户说关才关。
+- 需要真实 agent 实测时，照“不要干扰用户正在用的 agent”一条，自己开 `paddock/test-<名字>`（`--label role=test`），用完 `corral stop`。
