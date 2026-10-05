@@ -1,6 +1,8 @@
 //! `paddock [OPTIONS] [-- PROGRAM ARG…]`: one window, the Agents sidebar and one terminal pane.
 use anyhow::{Context as _, Result, bail};
-use gpui::{App, AppContext as _, Bounds, WindowBounds, WindowOptions, point, px, size};
+use gpui::{
+    App, AppContext as _, Bounds, TitlebarOptions, WindowBounds, WindowOptions, point, px, size,
+};
 use paddock::{
     config::{self, Config},
     layout_state::Store,
@@ -186,6 +188,17 @@ fn main() -> Result<()> {
             .open_window(
                 WindowOptions {
                     window_bounds: Some(WindowBounds::Windowed(bounds)),
+                    // The tabs share the title bar's row with the traffic lights; the title is
+                    // still set, for Mission Control and the Window menu, just not drawn.
+                    titlebar: Some(TitlebarOptions {
+                        title: Some("paddock".into()),
+                        appears_transparent: true,
+                        traffic_light_position: Some(paddock::window::traffic_lights(
+                            paddock::window::TITLE_BAR,
+                        )),
+                    }),
+                    // The window drags itself from the empty parts of its title bar.
+                    app_owns_titlebar_drag: true,
                     ..Default::default()
                 },
                 |window, cx| {

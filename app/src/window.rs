@@ -1,12 +1,16 @@
-//! The window's root view: the Agents sidebar on the left; on the right a tab strip and the active
-//! tab's panes, each a terminal in a frame with its title and controls. `layout.rs` holds the
-//! rules; this file draws them and keeps one terminal view per pane.
+//! The window's root view: the title bar, where the tabs share the traffic lights' row; below it
+//! the Agents sidebar on the left and the active tab's panes on the right, each split pane under a
+//! slim header. `layout.rs` holds the rules; this file draws them and keeps one terminal view per
+//! pane.
 use crate::{
+    agents::Panel,
     attention::Kind as AttentionKind,
+    card,
     config::Config,
-    corral::Role,
+    corral::{Agent, Role},
     diagnostics::{Report, Startup},
     fonts::UiFont,
+    footer_icon::{self, Icon},
     layout::{Axis, Direction, Node, PaneId, Placement, Shown, Workspace},
     layout_state::{Content, Layout, Store},
     menu,
@@ -23,8 +27,8 @@ use crate::{
 };
 use gpui::{
     AnyElement, ClickEvent, Context, Div, ElementId, Entity, FocusHandle, Focusable, FontWeight,
-    Hsla, MouseButton, PromptLevel, Render, ScrollHandle, Stateful, Task, Window, div, prelude::*,
-    px,
+    Hsla, MouseButton, MouseDownEvent, MouseMoveEvent, Pixels, Point, PromptLevel, Render,
+    ScrollHandle, SharedString, Stateful, Task, Window, div, point, prelude::*, px,
 };
 use std::{collections::HashMap, rc::Rc};
 
@@ -123,8 +127,115 @@ type Pick = fn(&crate::preset::Theme) -> crate::preset::Color;
 
 const GAP: f32 = 6.0;
 const TEXT: f32 = 12.0;
-/// Tall enough for the pets at twice their pixel size.
-const TAB_STRIP: f32 = 48.0;
+/// The title bar's height at the base interface size: the traffic lights' row, which holds the
+/// tabs. It grows with larger interface sizes, never shrinks below this.
+pub const TITLE_BAR: f32 = 40.0;
+/// Room the traffic lights take from the window's left edge, for when the sidebar is narrower.
+const LIGHTS: f32 = 84.0;
+/// What the dimmed panes are covered with: the terminal's background, this opaque.
+const DIM: f32 = 0.42;
+
+/// Where the traffic lights go in a title bar `height` points tall: in from the left edge, and
+/// centred on the row (AppKit's buttons are 14 points tall).
+pub fn traffic_lights(height: f32) -> Point<Pixels> {
+    point(px(14.0), px(((height - 14.0) / 2.0).max(0.0)))
+}
+
+fn title_bar_height(ui: &UiFont) -> f32 {
+    TITLE_BAR.max(ui.scale(TITLE_BAR))
+}
+
+/// What a pane shows, as far as its tab and its header name it.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Subject {
+    Agent(String),
+    /// A shell: the program and the directory it started in.
+    Shell {
+        program: String,
+        cwd: String,
+    },
+    /// A program started with `-- PROGRAM ARG…`, as typed.
+    Command(String),
+    Empty,
+}
+
+/// The last part of a path: `paddock` for `/Users/me/paddock`, `/` for the root.
+fn last_part(path: &str) -> &str {
+    match path.trim_end_matches('/').rsplit('/').next() {
+        Some(part) if !part.is_empty() => part,
+        _ => "/",
+    }
+}
+
+/// A tab's title, for the pane it shows: an agent by its name without the group prefix, unless
+/// another agent open in the window (`open`) would read the same; a shell as `zsh · paddock`.
+pub fn tab_title(subject: &Subject, open: &[String]) -> String {
+    match subject {
+        Subject::Agent(name) => {
+            let short = name.rsplit('/').next().unwrap_or(name);
+            let clash = open
+                .iter()
+                .any(|other| other != name && other.rsplit('/').next() == Some(short));
+            if clash || short.is_empty() {
+                name.clone()
+            } else {
+                short.to_owned()
+            }
+        }
+        Subject::Shell { program, cwd } => format!("{} · {}", last_part(program), last_part(cwd)),
+        Subject::Command(command) => command.clone(),
+        Subject::Empty => "empty".into(),
+    }
+}
+
+/// The faint count after a tab's title for the panes it holds besides the one named.
+pub fn more_panes(panes: usize) -> Option<String> {
+    (panes > 1).then(|| format!("+{}", panes - 1))
+}
+
+/// A directory, short: `~` for home, and only the last part of anything deeper, as `~/…/paddock`.
+pub fn short_dir(path: &str, home: Option<&str>) -> String {
+    let path = path.trim_end_matches('/');
+    let (root, rest) = match home.map(|home| home.trim_end_matches('/')) {
+        Some(home) if !home.is_empty() && path == home => return "~".into(),
+        Some(home) if !home.is_empty() && path.starts_with(&format!("{home}/")) => {
+            ("~/", &path[home.len() + 1..])
+        }
+        _ => ("/", path.trim_start_matches('/')),
+    };
+    match rest.split('/').count() {
+        _ if rest.is_empty() => root.into(),
+        1 => format!("{root}{rest}"),
+        _ => format!("{root}…/{}", last_part(rest)),
+    }
+}
+
+/// A split pane's header: the name, in full, and the directory, short, when there is one.
+pub fn pane_name(
+    subject: &Subject,
+    agent_cwd: Option<&str>,
+    home: Option<&str>,
+) -> (String, Option<String>) {
+    match subject {
+        Subject::Agent(name) => (name.clone(), agent_cwd.map(|cwd| short_dir(cwd, home))),
+        Subject::Shell { program, cwd } => {
+            (last_part(program).to_owned(), Some(short_dir(cwd, home)))
+        }
+        Subject::Command(command) => (command.clone(), None),
+        Subject::Empty => ("empty".into(), None),
+    }
+}
+
+/// Panes get a header only when their tab is split: alone, the terminal is all there is. A zoomed
+/// pane keeps its header, for Restore.
+pub fn header_shown(panes_in_tab: usize) -> bool {
+    panes_in_tab > 1
+}
+
+/// The panes on screen besides the active one are dimmed; one alone is never.
+pub fn dimmed(panes_shown: usize, active: bool) -> bool {
+    panes_shown > 1 && !active
+}
 
 pub struct PaddockWindow {
     theme: Rc<Theme>,
@@ -153,6 +264,12 @@ pub struct PaddockWindow {
     /// The Go to Agent box while it is open, and its selected row.
     search: Option<Entity<TextInput>>,
     search_index: usize,
+    /// The sidebar's width, which the title bar leaves empty before the tabs.
+    sidebar_width: f32,
+    /// A press on the title bar's empty part: moving now drags the window.
+    dragging: bool,
+    /// The title bar height the traffic lights were last centred on.
+    lights: Option<f32>,
 }
 
 impl PaddockWindow {
@@ -208,6 +325,9 @@ impl PaddockWindow {
             attention_index: 0,
             search: None,
             search_index: 0,
+            sidebar_width: config.sidebar_width,
+            dragging: false,
+            lights: None,
             store,
             config_from_file: crate::config::default_path().exists(),
         };
@@ -554,6 +674,7 @@ impl PaddockWindow {
             let theme = Rc::new(theme);
             self.theme = theme.clone();
             let width = config.sidebar_width;
+            self.sidebar_width = width;
             let sidebar_theme = theme.clone();
             self.sidebar
                 .update(cx, |sidebar, cx| sidebar.restyle(sidebar_theme, width, cx));
@@ -836,18 +957,37 @@ impl PaddockWindow {
         }
     }
 
-    /// A tab's label: what its active pane shows.
-    fn tab_label(&self, pane: PaneId, cx: &Context<Self>) -> String {
+    /// What a pane shows, for its tab and its header.
+    fn subject(&self, pane: PaneId, cx: &Context<Self>) -> Subject {
         match self.workspace.shown(pane) {
-            Shown::Agent(name) => name.clone(),
+            Shown::Agent(name) => Subject::Agent(name.clone()),
             Shown::Shell => {
-                let subject = self.panes[&pane].read(cx).subject().to_owned();
-                match subject.rsplit('/').next() {
-                    Some(dir) if !dir.is_empty() => format!("shell · {dir}"),
-                    _ => "shell".into(),
+                let view = self.panes[&pane].read(cx);
+                match view.cwd() {
+                    Some(cwd) => Subject::Shell {
+                        program: self.new_shell.program.clone(),
+                        cwd: cwd.to_owned(),
+                    },
+                    None => Subject::Command(view.subject().to_owned()),
                 }
             }
-            Shown::Empty => "empty".into(),
+            Shown::Empty => Subject::Empty,
+        }
+    }
+
+    /// A pane's status dot: an agent's status colour as the sidebar shows it, a neutral one for
+    /// a shell, a faint one for an empty pane or an agent no longer listed.
+    fn dot(&self, pane: PaneId, agents: &[Agent], now: f64) -> Hsla {
+        match self.workspace.shown(pane) {
+            Shown::Agent(name) => match agents.iter().find(|a| &a.name == name) {
+                Some(agent) => {
+                    let status = Panel::default().status(agent, now);
+                    self.fg(card::look(status, now).color)
+                }
+                None => self.fg(|t| t.agents_faint),
+            },
+            Shown::Shell => self.fg(|t| t.muted),
+            Shown::Empty => self.fg(|t| t.agents_faint),
         }
     }
 
@@ -859,25 +999,19 @@ impl PaddockWindow {
         hsla(self.theme.bg(|t| t.agent_selected), 1.0)
     }
 
-    fn tab_strip(&self, cx: &mut Context<Self>) -> Div {
+    /// The title bar: the traffic lights over the sidebar, then the tabs from the terminal's left
+    /// edge, the `+` after the last, and the pet in the room left. What is not a tab or a button
+    /// drags the window, and a double click there zooms or minimises it as the system is set.
+    fn title_bar(&self, agents: &[Agent], now: f64, cx: &mut Context<Self>) -> Stateful<Div> {
         let ui = UiFont::get(cx);
+        let scale = ui.scale(1.0);
         let highlight = self.highlight();
-        let button = |id: &'static str, label: &'static str| {
-            div()
-                .id(id)
-                .flex_shrink_0()
-                .flex()
-                .items_center()
-                .justify_center()
-                .size(ui.px(26.0))
-                .rounded(px(6.0))
-                .text_size(ui.px(14.0))
-                .text_color(self.fg(|t| t.muted))
-                .cursor_pointer()
-                .hover(move |style| style.bg(highlight))
-                .child(label)
-        };
-        let count = self.workspace.tabs.len();
+        // A hovered tab's faint ground, solid, so the × drawn over its title can hide the text.
+        let hovered = hsla(self.theme.bg(|t| t.agents_bg), 1.0).blend(highlight.opacity(0.6));
+        let muted = self.theme.fg(|t| t.muted);
+        let open = self.workspace.agents();
+        // A press on a tab or a button is theirs, not the start of a drag.
+        let keep = |_: &MouseDownEvent, _: &mut Window, cx: &mut gpui::App| cx.stop_propagation();
         let mut tabs = div()
             .id("tabs")
             .flex()
@@ -885,156 +1019,343 @@ impl PaddockWindow {
             .gap(px(4.0))
             .min_w(px(0.0))
             .flex_shrink(1.0)
+            .h_full()
             .overflow_x_scroll()
             .track_scroll(&self.tabs);
         for (index, tab) in self.workspace.tabs.iter().enumerate() {
             let active = index == self.workspace.active_tab;
-            let panes = tab.panes().len();
-            let mut label = div()
-                .flex()
-                .items_center()
-                .gap(px(6.0))
-                .whitespace_nowrap()
-                .child(self.tab_label(tab.active, cx));
-            if panes > 1 {
-                label = label.child(
-                    div()
-                        .text_size(ui.px(TEXT - 2.0))
-                        .text_color(self.fg(|t| t.agents_dim))
-                        .child(panes.to_string()),
-                );
-            }
+            let group = SharedString::from(format!("tab-{index}"));
+            // The active tab keeps its × in line; the others show it on hover over the end of
+            // their title, so a narrow tab gives the title all its room.
+            let under = if active { highlight } else { hovered };
             let close = div()
                 .id(("close-tab", index))
                 .flex_shrink_0()
-                .px(px(3.0))
+                .flex()
+                .items_center()
+                .justify_center()
+                .size(ui.px(16.0))
                 .rounded(px(4.0))
-                .text_color(self.fg(|t| t.agents_dim))
-                .hover(move |style| style.bg(highlight))
-                .child("×")
+                .bg(under)
+                .hover(move |style| style.bg(under.blend(hsla(muted, 0.18))))
+                .when(!active, |close| {
+                    close
+                        .absolute()
+                        .top(ui.px(6.0))
+                        .right(ui.px(6.0))
+                        .invisible()
+                        .group_hover(group.clone(), |style| style.visible())
+                })
+                .child(footer_icon::icon(
+                    Icon::Close,
+                    self.fg(|t| t.muted),
+                    scale * 0.85,
+                ))
                 .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                     cx.stop_propagation();
                     this.close_tab(index, window, cx);
                 }));
             let mut item = div()
                 .id(("tab", index))
-                .flex_shrink_0()
+                .group(group)
+                .relative()
+                .max_w(ui.px(220.0))
                 .flex()
                 .items_center()
-                .gap(px(8.0))
+                .gap(ui.px(7.0))
                 .h(ui.px(28.0))
-                .pl(px(12.0))
-                .pr(px(6.0))
+                .pl(ui.px(11.0))
                 .rounded(px(7.0))
-                .border_1()
-                .text_size(ui.px(TEXT))
-                .cursor_pointer();
+                .text_size(ui.px(12.5))
+                .cursor_pointer()
+                .on_mouse_down(MouseButton::Left, keep)
+                .child(
+                    div()
+                        .flex_shrink_0()
+                        .size(ui.px(7.0))
+                        .rounded_full()
+                        .bg(self.dot(tab.active, agents, now)),
+                )
+                .child(
+                    div()
+                        .flex_shrink(1.0)
+                        .min_w(px(0.0))
+                        .overflow_hidden()
+                        .whitespace_nowrap()
+                        .text_ellipsis()
+                        .child(tab_title(&self.subject(tab.active, cx), &open)),
+                )
+                .children(more_panes(tab.panes().len()).map(|more| {
+                    div()
+                        .flex_shrink_0()
+                        .text_color(self.fg(|t| t.agents_dim))
+                        .child(more)
+                }));
+            // Short of room, the other tabs narrow first; the active one keeps its title.
             item = if active {
-                item.bg(highlight)
-                    .border_color(self.fg(|t| t.focus))
+                item.flex_shrink_0()
+                    .pr(ui.px(6.0))
+                    .bg(highlight)
                     .text_color(self.fg(|t| t.agents_text))
-                    .font_weight(FontWeight::SEMIBOLD)
             } else {
-                item.border_color(self.fg(|t| t.agents_rule))
+                item.flex_shrink(1.0)
+                    .min_w(ui.px(56.0))
+                    .pr(ui.px(11.0))
                     .text_color(self.fg(|t| t.muted))
-                    .hover(move |style| style.bg(highlight.opacity(0.6)))
+                    .hover(move |style| style.bg(hovered))
             };
-            tabs = tabs.child(item.child(label).child(close).on_click(cx.listener(
+            tabs = tabs.child(item.child(close).on_click(cx.listener(
                 move |this, _: &ClickEvent, window, cx| this.select_tab(index, window, cx),
             )));
         }
-        div()
+        let new_tab = div()
+            .id("new-tab")
             .flex_shrink_0()
             .flex()
             .items_center()
-            .gap(px(4.0))
-            .h(px(TAB_STRIP.max(ui.scale(TAB_STRIP))))
-            .px(px(GAP))
-            .child(
-                button("new-tab", "+").on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                    this.popup = Some(Popup::NewTab);
-                    cx.notify();
-                })),
+            .justify_center()
+            .size(ui.px(28.0))
+            .rounded(px(6.0))
+            .cursor_pointer()
+            .hover(move |style| style.bg(highlight))
+            .on_mouse_down(MouseButton::Left, keep)
+            .child(footer_icon::icon(Icon::Plus, self.fg(|t| t.muted), scale))
+            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.popup = Some(Popup::NewTab);
+                cx.notify();
+            }));
+        div()
+            .id("title-bar")
+            .flex_shrink_0()
+            .flex()
+            .items_center()
+            .h(px(title_bar_height(&ui)))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, event: &MouseDownEvent, window, _| {
+                    this.dragging = event.click_count < 2;
+                    if event.click_count == 2 {
+                        window.titlebar_double_click();
+                    }
+                }),
             )
-            .child(button("prev-tab", "‹").on_click(cx.listener(
-                |this, _: &ClickEvent, window, cx| {
-                    let index = this.workspace.active_tab.saturating_sub(1);
-                    this.select_tab(index, window, cx);
-                },
-            )))
-            .child(button("next-tab", "›").on_click(cx.listener(
-                move |this, _: &ClickEvent, window, cx| {
-                    let index = (this.workspace.active_tab + 1).min(count - 1);
-                    this.select_tab(index, window, cx);
-                },
-            )))
-            .child(tabs)
-            // Spare room, where the pet walks.
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|this, _, _, _| this.dragging = false),
+            )
+            .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, window, _| {
+                if this.dragging && event.pressed_button == Some(MouseButton::Left) {
+                    this.dragging = false;
+                    window.start_window_move();
+                }
+            }))
+            // Over the sidebar: the traffic lights, and room to drag by.
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .w(px(self.sidebar_width.max(LIGHTS)))
+                    .h_full(),
+            )
             .child(
                 div()
                     .flex_1()
                     .min_w(px(0.0))
                     .h_full()
-                    .ml(px(GAP))
-                    .children(self.pet.clone()),
+                    .flex()
+                    .items_center()
+                    .gap(px(4.0))
+                    .pl(px(10.0))
+                    .pr(px(10.0))
+                    .child(tabs)
+                    .child(new_tab)
+                    // Spare room, where the pet walks along the terminal's top edge.
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w(px(0.0))
+                            .h_full()
+                            .ml(px(GAP))
+                            .children(self.pet.clone()),
+                    ),
             )
     }
 
-    fn node(&self, node: &Node, cx: &mut Context<Self>) -> AnyElement {
+    /// `shown` is how many panes are on screen, for dimming all but the active one.
+    fn node(
+        &self,
+        node: &Node,
+        shown: usize,
+        agents: &[Agent],
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         match node {
-            Node::Pane(pane) => self.pane(*pane, cx),
+            Node::Pane(pane) => self.pane(*pane, shown, agents, cx),
             Node::Split {
                 axis,
                 first,
                 second,
             } => {
+                // The seam between the panes: the split's own colour, one pixel through the gap.
                 let split = div()
                     .flex()
                     .flex_1()
                     .min_w(px(0.0))
                     .min_h(px(0.0))
-                    .gap(px(GAP));
+                    .gap(px(1.0))
+                    .bg(self.fg(|t| t.agents_rule));
                 let split = match axis {
                     Axis::Row => split.flex_row(),
                     Axis::Column => split.flex_col(),
                 };
                 split
-                    .child(self.node(first, cx))
-                    .child(self.node(second, cx))
+                    .child(self.node(first, shown, agents, cx))
+                    .child(self.node(second, shown, agents, cx))
                     .into_any_element()
             }
         }
     }
 
-    fn pane(&self, pane: PaneId, cx: &mut Context<Self>) -> AnyElement {
-        let ui = UiFont::get(cx);
+    fn pane(
+        &self,
+        pane: PaneId,
+        shown: usize,
+        agents: &[Agent],
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let active = pane == self.workspace.active_pane();
-        let highlight = self.highlight();
-        let control = |id: &'static str, label: &'static str| {
-            div()
-                .id(id)
-                .px(px(7.0))
-                .py(px(2.0))
-                .rounded(px(5.0))
-                .text_color(self.fg(|t| t.muted))
-                .cursor_pointer()
-                .hover(move |style| style.bg(highlight))
-                .child(label)
-        };
-        let mut header = div()
-            .flex_shrink_0()
+        let header = header_shown(self.workspace.tab().panes().len());
+        let background = hsla(self.theme.terminal().background, 1.0);
+        // Around the terminal: roomier alone, tighter under a header (the view adds 6 itself).
+        let (top, side) = if header { (6.0, 10.0) } else { (8.0, 12.0) };
+        div()
+            .id(("pane", pane as usize))
+            .group(SharedString::from(format!("pane-{pane}")))
+            .relative()
             .flex()
-            .items_center()
-            .gap(px(2.0))
-            .h(ui.px(28.0))
-            .pl(px(10.0))
-            .pr(px(4.0))
-            .text_size(ui.px(TEXT))
-            .border_b_1()
-            .border_color(self.fg(|t| t.agents_rule))
+            .flex_col()
+            .flex_1()
+            .min_w(px(0.0))
+            .min_h(px(0.0))
+            .overflow_hidden()
+            .bg(background)
+            .capture_any_mouse_down(
+                cx.listener(move |this, _, window, cx| this.focus_pane(pane, window, cx)),
+            )
+            .when(header, |this| {
+                this.child(self.pane_header(pane, active, agents, cx))
+            })
             .child(
                 div()
                     .flex_1()
+                    .min_h(px(0.0))
+                    .overflow_hidden()
+                    .pt(px(top))
+                    .pb(px(top))
+                    .px(px(side))
+                    .child(self.panes[&pane].clone()),
+            )
+            // A veil rather than a frame: it takes no clicks, so they reach the terminal.
+            .when(dimmed(shown, active), |this| {
+                this.child(div().absolute().inset_0().bg(background.opacity(DIM)))
+            })
+            .into_any_element()
+    }
+
+    /// A split pane's slim header: status dot, name, short directory, and icons to split, zoom
+    /// and close, always there on the active pane and on hover on the others.
+    fn pane_header(
+        &self,
+        pane: PaneId,
+        active: bool,
+        agents: &[Agent],
+        cx: &mut Context<Self>,
+    ) -> Div {
+        let ui = UiFont::get(cx);
+        let scale = ui.scale(1.0);
+        let highlight = self.highlight();
+        let agent_cwd = match self.workspace.shown(pane) {
+            Shown::Agent(name) => agents
+                .iter()
+                .find(|a| &a.name == name)
+                .and_then(|a| a.cwd.clone()),
+            _ => None,
+        };
+        let home = std::env::var("HOME").ok();
+        let (name, dir) = pane_name(
+            &self.subject(pane, cx),
+            agent_cwd.as_deref(),
+            home.as_deref(),
+        );
+        let now = now();
+        let button = |id: &str, icon: Icon| {
+            let group = SharedString::from(format!("{id}-{pane}"));
+            div()
+                .id(SharedString::from(format!("{id}-{pane}")))
+                .group(group.clone())
+                .flex_shrink_0()
+                .flex()
+                .items_center()
+                .justify_center()
+                .size(ui.px(28.0))
+                .cursor_pointer()
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .size(ui.px(22.0))
+                        .rounded(px(6.0))
+                        .group_hover(group, move |style| style.bg(highlight))
+                        .child(footer_icon::icon(icon, self.fg(|t| t.muted), scale)),
+                )
+        };
+        let zoomed = self.workspace.zoomed().is_some();
+        let buttons = div()
+            .flex_shrink_0()
+            .flex()
+            .items_center()
+            .when(!active, |buttons| {
+                buttons
+                    .invisible()
+                    .group_hover(format!("pane-{pane}"), |style| style.visible())
+            })
+            .child(button("split", Icon::Split).on_click(cx.listener(
+                |this, _: &ClickEvent, _, cx| {
+                    this.popup = Some(Popup::Split(None));
+                    cx.notify();
+                },
+            )))
+            .child(
+                button("zoom", if zoomed { Icon::Restore } else { Icon::Zoom }).on_click(
+                    cx.listener(|this, _: &ClickEvent, window, cx| this.toggle_zoom(window, cx)),
+                ),
+            )
+            .child(button("close-pane", Icon::Close).on_click(cx.listener(
+                move |this, _: &ClickEvent, window, cx| {
+                    this.request_close(Closing::Pane(pane), window, cx)
+                },
+            )));
+        div()
+            .flex_shrink_0()
+            .flex()
+            .items_center()
+            .gap(ui.px(8.0))
+            .h(ui.px(28.0))
+            .pl(ui.px(14.0))
+            .pr(ui.px(4.0))
+            .text_size(ui.px(12.0))
+            .border_b_1()
+            .border_color(hsla(self.theme.fg(|t| t.agents_rule), 0.6))
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .size(ui.px(7.0))
+                    .rounded_full()
+                    .bg(self.dot(pane, agents, now)),
+            )
+            .child(
+                div()
+                    .flex_shrink(1.0)
                     .min_w(px(0.0))
                     .overflow_hidden()
                     .whitespace_nowrap()
@@ -1049,62 +1370,20 @@ impl PaddockWindow {
                     } else {
                         self.fg(|t| t.muted)
                     })
-                    .child(self.title(pane, cx)),
-            );
-        if active && self.workspace.tab().panes().len() > 1 {
-            let zoomed = self.workspace.zoomed().is_some();
-            header = header.child(
-                control("zoom", if zoomed { "Restore" } else { "Zoom" }).on_click(
-                    cx.listener(|this, _: &ClickEvent, window, cx| this.toggle_zoom(window, cx)),
-                ),
-            );
-        }
-        if active {
-            header = header
-                .child(control("split", "Split ▾").on_click(cx.listener(
-                    |this, _: &ClickEvent, _, cx| {
-                        this.popup = Some(Popup::Split(None));
-                        cx.notify();
-                    },
-                )))
-                .child(control("close-pane", "Close pane").on_click(
-                    cx.listener(|this, _: &ClickEvent, window, cx| this.close_pane(window, cx)),
-                ))
-                .child(control("close-this-tab", "Close tab").on_click(cx.listener(
-                    |this, _: &ClickEvent, window, cx| {
-                        let index = this.workspace.active_tab;
-                        this.close_tab(index, window, cx);
-                    },
-                )));
-        }
-        div()
-            .id(("pane", pane as usize))
-            .flex()
-            .flex_col()
-            .flex_1()
-            .min_w(px(0.0))
-            .min_h(px(0.0))
-            .rounded(px(7.0))
-            .border_1()
-            .border_color(if active {
-                self.fg(|t| t.focus)
-            } else {
-                self.fg(|t| t.agents_rule)
-            })
-            .overflow_hidden()
-            .bg(hsla(self.theme.terminal().background, 1.0))
-            .capture_any_mouse_down(
-                cx.listener(move |this, _, window, cx| this.focus_pane(pane, window, cx)),
+                    .child(name),
             )
-            .child(header)
-            .child(
+            .children(dir.map(|dir| {
                 div()
-                    .flex_1()
-                    .min_h(px(0.0))
+                    .flex_shrink(1.0)
+                    .min_w(px(0.0))
                     .overflow_hidden()
-                    .child(self.panes[&pane].clone()),
-            )
-            .into_any_element()
+                    .whitespace_nowrap()
+                    .text_ellipsis()
+                    .text_color(self.fg(|t| t.agents_dim))
+                    .child(format!("· {dir}"))
+            }))
+            .child(div().flex_1())
+            .child(buttons)
     }
 
     fn toggle_attention(&mut self, cx: &mut Context<Self>) {
@@ -1217,7 +1496,8 @@ impl PaddockWindow {
         let card = div()
             .id("attention-list")
             .absolute()
-            .top(px(44.0))
+            // Under the sidebar's header, below the title bar.
+            .top(px(title_bar_height(&ui) + ui.scale(44.0)))
             .left(px(GAP))
             .w(px(400.0))
             .max_h(px(520.0))
@@ -1464,7 +1744,7 @@ impl PaddockWindow {
             .flex()
             .items_start()
             .justify_center()
-            .pt(px(70.0))
+            .pt(px(title_bar_height(&ui) + 30.0))
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|this, _, window, cx| this.close_popup(window, cx)),
@@ -1632,6 +1912,13 @@ impl PaddockWindow {
     }
 }
 
+/// Seconds since the epoch, as the agent statuses count them.
+fn now() -> f64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0.0, |d| d.as_secs_f64())
+}
+
 /// The sidebar's technical lines use the terminal's font.
 fn mono_font(options: &Options) -> gpui::Font {
     let mut mono = gpui::font(options.font_family.clone());
@@ -1659,37 +1946,47 @@ impl Render for PaddockWindow {
             self.menu_state = Some(view_state);
             cx.set_menus(menu::menus(view_state.0, view_state.1));
         }
+        let ui = UiFont::get(cx);
+        // Larger interface sizes make the title bar taller; the traffic lights stay centred on it.
+        let height = title_bar_height(&ui);
+        if self.lights != Some(height) {
+            self.lights = Some(height);
+            window.set_traffic_light_position(traffic_lights(height));
+        }
         // A zoomed pane fills the tab; the split waits underneath.
-        let root = match self.workspace.zoomed() {
-            Some(pane) => Node::Pane(pane),
-            None => self.workspace.tab().root.clone(),
+        let (root, shown) = match self.workspace.zoomed() {
+            Some(pane) => (Node::Pane(pane), 1),
+            None => {
+                let tab = self.workspace.tab();
+                (tab.root.clone(), tab.panes().len())
+            }
         };
+        let agents = self.sidebar.read(cx).agents();
+        let now = now();
         let content = div()
-            .flex_1()
-            .min_h(px(0.0))
-            .flex()
-            .px(px(GAP))
-            .pb(px(GAP))
-            .child(self.node(&root, cx));
-        let main = div()
             .flex_1()
             .min_w(px(0.0))
             .h_full()
             .flex()
-            .flex_col()
-            .child(self.tab_strip(cx))
+            .bg(hsla(self.theme.terminal().background, 1.0))
+            .child(self.node(&root, shown, &agents, cx));
+        let body = div()
+            .flex_1()
+            .min_h(px(0.0))
+            .flex()
+            .flex_row()
+            .child(self.sidebar.clone())
             .child(content);
         let dialog = self.popup.map(|popup| match popup {
             Popup::Attention => self.attention_panel(cx),
             Popup::Search => self.search_panel(cx),
             popup => self.dialog(popup, cx),
         });
-        let ui = UiFont::get(cx);
         ui.apply(div())
             .relative()
             .size_full()
             .flex()
-            .flex_row()
+            .flex_col()
             // GPUI's default size, scaled, for text nothing else sizes.
             .text_size(ui.px(16.0))
             .bg(hsla(self.theme.bg(|t| t.agents_bg), 1.0))
@@ -1766,8 +2063,8 @@ impl Render for PaddockWindow {
             .on_action(
                 cx.listener(|this, _: &menu::Cancel, window, cx| this.close_popup(window, cx)),
             )
-            .child(self.sidebar.clone())
-            .child(main)
+            .child(self.title_bar(&agents, now, cx))
+            .child(body)
             .children(dialog)
     }
 }
@@ -1775,6 +2072,114 @@ impl Render for PaddockWindow {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn shell(program: &str, cwd: &str) -> Subject {
+        Subject::Shell {
+            program: program.into(),
+            cwd: cwd.into(),
+        }
+    }
+
+    #[test]
+    fn tabs_name_agents_short_unless_that_reads_the_same_as_another() {
+        let agent = Subject::Agent("paddock/main".into());
+        let open = vec!["paddock/main".to_owned(), "paddock/dev-fonts".to_owned()];
+        assert_eq!(tab_title(&agent, &open), "main");
+        let clash = vec!["paddock/main".to_owned(), "saddle/main".to_owned()];
+        assert_eq!(tab_title(&agent, &clash), "paddock/main");
+        // Not open anywhere else, or without a group.
+        assert_eq!(tab_title(&agent, &[]), "main");
+        assert_eq!(tab_title(&Subject::Agent("solo".into()), &[]), "solo");
+    }
+
+    #[test]
+    fn tabs_name_shells_by_program_and_directory() {
+        let open = [];
+        assert_eq!(
+            tab_title(&shell("/bin/zsh", "/Users/me/paddock"), &open),
+            "zsh · paddock"
+        );
+        assert_eq!(tab_title(&shell("/bin/zsh", "/tmp/x/"), &open), "zsh · x");
+        assert_eq!(tab_title(&shell("fish", "/"), &open), "fish · /");
+        assert_eq!(
+            tab_title(&Subject::Command("htop -d 5".into()), &open),
+            "htop -d 5"
+        );
+        assert_eq!(tab_title(&Subject::Empty, &open), "empty");
+    }
+
+    #[test]
+    fn a_split_tab_counts_its_other_panes() {
+        assert_eq!(more_panes(1), None);
+        assert_eq!(more_panes(2).as_deref(), Some("+1"));
+        assert_eq!(more_panes(4).as_deref(), Some("+3"));
+    }
+
+    #[test]
+    fn directories_shorten_to_their_last_part() {
+        let home = Some("/Users/me");
+        assert_eq!(short_dir("/Users/me", home), "~");
+        assert_eq!(short_dir("/Users/me/", home), "~");
+        assert_eq!(short_dir("/Users/me/code", home), "~/code");
+        assert_eq!(short_dir("/Users/me/code/paddock", home), "~/…/paddock");
+        assert_eq!(short_dir("/Users/meow/x", home), "/…/x");
+        assert_eq!(short_dir("/tmp", home), "/tmp");
+        assert_eq!(short_dir("/", home), "/");
+        assert_eq!(short_dir("/Users/me/code", None), "/…/code");
+    }
+
+    #[test]
+    fn pane_headers_name_in_full_with_the_short_directory() {
+        let home = Some("/Users/me");
+        let agent = Subject::Agent("paddock/main".into());
+        assert_eq!(
+            pane_name(&agent, Some("/Users/me/code/paddock"), home),
+            ("paddock/main".into(), Some("~/…/paddock".into()))
+        );
+        assert_eq!(pane_name(&agent, None, home), ("paddock/main".into(), None));
+        assert_eq!(
+            pane_name(&shell("/bin/zsh", "/Users/me/code"), None, home),
+            ("zsh".into(), Some("~/code".into()))
+        );
+        assert_eq!(
+            pane_name(&Subject::Empty, None, home),
+            ("empty".into(), None)
+        );
+    }
+
+    #[test]
+    fn only_split_tabs_have_pane_headers() {
+        assert!(!header_shown(1));
+        assert!(header_shown(2));
+        assert!(header_shown(3));
+    }
+
+    #[test]
+    fn panes_other_than_the_active_one_dim_when_several_show() {
+        assert!(!dimmed(1, true));
+        // A zoomed pane shows alone: nothing to tell it from.
+        assert!(!dimmed(1, false));
+        assert!(!dimmed(2, true));
+        assert!(dimmed(2, false));
+        assert!(dimmed(4, false));
+    }
+
+    #[test]
+    fn traffic_lights_centre_on_the_title_bar() {
+        assert_eq!(traffic_lights(40.0), point(px(14.0), px(13.0)));
+        assert_eq!(traffic_lights(54.0), point(px(14.0), px(20.0)));
+        assert_eq!(title_bar_height(&UiFont::default()), TITLE_BAR);
+        let large = UiFont {
+            family: None,
+            size: 18.0,
+        };
+        assert!(title_bar_height(&large) > TITLE_BAR);
+        let small = UiFont {
+            family: None,
+            size: 11.0,
+        };
+        assert_eq!(title_bar_height(&small), TITLE_BAR);
+    }
 
     #[test]
     fn only_live_shells_make_closing_ask() {
