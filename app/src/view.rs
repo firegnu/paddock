@@ -398,7 +398,7 @@ impl TerminalView {
         self.write(crate::input::encode_paste(&text, bracketed), cx);
     }
 
-    fn drop_files(&mut self, paths: &ExternalPaths, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn drop_files(&mut self, paths: &ExternalPaths, window: &mut Window, cx: &mut Context<Self>) {
         let text = file_drop::text(paths.paths());
         if !text.is_empty() {
             window.focus(&self.focus, cx);
@@ -1143,7 +1143,6 @@ impl Render for TerminalView {
             .on_mouse_up(MouseButton::Left, cx.listener(Self::mouse_up))
             .on_mouse_move(cx.listener(Self::mouse_move))
             .on_scroll_wheel(cx.listener(Self::scroll_wheel))
-            .on_drop(cx.listener(Self::drop_files))
             .child(
                 canvas(
                     move |bounds, window, cx| {
