@@ -27,28 +27,6 @@ pub enum Place {
     Split(Direction),
 }
 
-impl Place {
-    pub const ALL: [Place; 6] = [
-        Place::Current,
-        Place::Tab,
-        Place::Split(Direction::Left),
-        Place::Split(Direction::Right),
-        Place::Split(Direction::Up),
-        Place::Split(Direction::Down),
-    ];
-
-    pub fn label(self) -> &'static str {
-        match self {
-            Place::Current => "Current pane",
-            Place::Tab => "New tab",
-            Place::Split(Direction::Left) => "← Left",
-            Place::Split(Direction::Right) => "→ Right",
-            Place::Split(Direction::Up) => "↑ Up",
-            Place::Split(Direction::Down) => "↓ Down",
-        }
-    }
-}
-
 #[derive(Clone, Debug, PartialEq)]
 pub struct Form {
     pub project: String,

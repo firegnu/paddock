@@ -68,3 +68,17 @@
   - 窗口标题栏：样稿里标题栏和窗口内容同色、连成一片；现在这两个窗口用的是系统标题栏（深灰）。要做成样稿那样，得在 `windows.rs` 给这两个窗口开 `appears_transparent` 并自己画标题、留出红绿灯位置，超出“只改尺寸”的范围，**留给主控决定**。
   - `new_agent.rs` 的 `Place::ALL` 和 `Place::label()` 视图不再用了（是 `pub` 项，不报警告）；按要求没动 `new_agent.rs`，要不要删由主控定。
   - 键盘、鼠标都没实际操作过，留给用户试：各分段和方向图块的点击与悬停、Advanced 的箭头转动、输入框聚焦时的边线、Choose…、目录候选的点击、出错时的提示位置。没有真的点 Create。
+
+## 返工
+
+主控决定（10-06）：先合并 main（P5-4b 设置窗口已合并）；New Agent、Settings、About 三个窗口照样稿改成透明标题栏，红绿灯和窗口内容连成一片，窗口仍能拖动；删掉没人用的 `Place::ALL`、`Place::label`；界面字号 18 下红绿灯不压到内容。
+
+- **做了什么**：
+  - `git merge main`，没有冲突（`windows.rs` 里 Settings 的 960×720 保留）。
+  - `windows.rs`：`options()` 加了标题栏行高这个参数，三个窗口都用透明标题栏（`appears_transparent`），红绿灯放在该行竖直居中（沿用 `window::traffic_lights`）；新加 `title_bar(base, ui)`，算法和主窗口一样：随界面字号变高，不低于基准高度。三个视图各自定基准：New Agent 38、About 34、Settings 46（就是它原来页面标题那一行的高度）。`app_owns_titlebar_drag` 保持默认 false，拖动交给 AppKit 原生的顶部标题栏区域；三个窗口顶部那一条里都没有可点的控件。New Agent 窗口高 600 改成 630、About 330 改成 350，补上标题行占去的高度。
+  - 三个视图每次重画都按当前界面字号重新放一次红绿灯：在 Settings 里改了界面字号并保存后，打开着的窗口红绿灯仍然在顶行居中。
+  - New Agent 顶部一行，标题 “New Agent” 居中，小号、淡色（`agents_dim`），表单上边距从 18 改成 10。About 顶部只留一行空位，没有标题。Settings 只改顶部：导航顶部留出标题栏行高（原来 12），红绿灯落在导航上方；右边页面标题那一行用同一个高度，和红绿灯对齐。
+  - `new_agent.rs` 删掉 `Place::ALL` 和 `Place::label()`；测试里没有用到它们，所以测试没改。
+- **验证了什么**：`git diff --check`、`cargo fmt --check`；`app/` 下 `cargo test --all-targets`（库 154 项及集成测试）全部通过，`cargo clippy --all-targets -- -D warnings` 无警告（只有上游 `block v0.1.6` 的未来兼容提示）。截图用临时 HOME、假 corral、`PADDOCK_NO_ACTIVATE=1`，只截自己的窗口，不入库：三个窗口在 Dune 13 和 Dune 18 下各一张，共 6 张。红绿灯都落在各自顶行的正中，字号 18 下也不压到内容；Settings 的红绿灯在导航上方，和页面标题同一行。截图期间临时加的打开窗口代码已删，不在提交里。
+- **拿主意的地方**：拖动交给 AppKit（主窗口是自己处理拖动，这三个窗口没有标签栏，不需要）；红绿灯每次重画都重新放一次，不另加状态记录，Settings 只能改顶部，也就加不了这个状态。
+- **没做的事**：没有用鼠标试过拖动、双击标题栏缩放、红绿灯本身的点击；截图里的红绿灯是灰的，因为测试窗口不在前台，这是系统的正常样子。这些留给用户实际看。

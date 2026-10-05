@@ -22,6 +22,10 @@ use std::{collections::HashMap, path::PathBuf, rc::Rc};
 /// The key context of the Settings window: ⌘S saves, ⌘W closes.
 pub const CONTEXT: &str = "PaddockSettings";
 
+/// The top row at the base interface size: the traffic lights over the pages, the page's title
+/// beside them.
+pub const TITLE_BAR: f32 = 46.0;
+
 type Pick = fn(&crate::preset::Theme) -> crate::preset::Color;
 
 pub enum SettingsEvent {
@@ -1580,7 +1584,8 @@ impl SettingsView {
             .flex_col()
             .gap(px(2.0))
             .px(px(10.0))
-            .pt(px(12.0));
+            // Room for the traffic lights.
+            .pt(px(crate::windows::title_bar(TITLE_BAR, ui)));
         for page in Page::ALL {
             let on = page == self.page;
             let glyph = match page {
@@ -1721,6 +1726,8 @@ impl SettingsView {
 impl Render for SettingsView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let ui = UiFont::get(cx);
+        let bar = crate::windows::title_bar(TITLE_BAR, &ui);
+        window.set_traffic_light_position(crate::window::traffic_lights(bar));
         let items = self.page_items(window, &ui, cx);
         let content = div()
             .flex_1()
@@ -1730,7 +1737,7 @@ impl Render for SettingsView {
             .child(
                 div()
                     .flex_shrink_0()
-                    .h(ui.px(46.0))
+                    .h(px(bar))
                     .flex()
                     .items_center()
                     .px(px(28.0))

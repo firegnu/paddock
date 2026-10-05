@@ -15,6 +15,9 @@ use std::rc::Rc;
 /// The key context of the About window: ⌘W closes it.
 pub const CONTEXT: &str = "PaddockAbout";
 
+/// The top row at the base interface size: the traffic lights alone.
+pub const TITLE_BAR: f32 = 34.0;
+
 /// The app icon's square, in points at the base interface size.
 const ICON: f32 = 84.0;
 
@@ -129,8 +132,10 @@ impl AboutView {
 }
 
 impl Render for AboutView {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let ui = UiFont::get(cx);
+        let bar = crate::windows::title_bar(TITLE_BAR, &ui);
+        window.set_traffic_light_position(crate::window::traffic_lights(bar));
         let fg = |pick: fn(&crate::preset::Theme) -> crate::preset::Color| {
             hsla(self.theme.fg(pick), 1.0)
         };
@@ -144,11 +149,12 @@ impl Render for AboutView {
             .items_center()
             .text_center()
             .px(ui.px(36.0))
-            .pt(ui.px(22.0))
             .pb(ui.px(26.0))
             .bg(hsla(self.theme.bg(|t| t.agents_bg), 1.0))
             .text_size(ui.px(13.0))
             .text_color(fg(|t| t.agents_text))
+            // The title bar, then a little room above the icon.
+            .child(div().flex_shrink_0().h(px(bar) + ui.px(8.0)))
             .child(self.icon(&ui))
             .child(
                 div()

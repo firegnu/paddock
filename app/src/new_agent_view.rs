@@ -21,6 +21,9 @@ use std::{rc::Rc, time::Duration};
 /// The key context of the New Agent window: ⌘↩ creates, ⌘W closes.
 pub const CONTEXT: &str = "PaddockNewAgent";
 
+/// The top row at the base interface size: the traffic lights and the window's title.
+pub const TITLE_BAR: f32 = 38.0;
+
 /// The labels' column and the height of a field or button, in points at the base interface size.
 const LABEL: f32 = 96.0;
 const CONTROL: f32 = 30.0;
@@ -505,6 +508,8 @@ fn chevron(color: Hsla, angle: f32, size: f32) -> impl IntoElement {
 impl Render for NewAgentView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let ui = UiFont::get(cx);
+        let bar = crate::windows::title_bar(TITLE_BAR, &ui);
+        window.set_traffic_light_position(crate::window::traffic_lights(bar));
         let problem = self.error.as_ref().and(self.form.problem()).map(|(f, _)| f);
         let lit = self.bg(|t| t.agent_selected);
         let text = self.fg(|t| t.agents_text);
@@ -696,7 +701,7 @@ impl Render for NewAgentView {
             .min_h(px(0.0))
             .overflow_y_scroll()
             .px(ui.px(28.0))
-            .pt(ui.px(18.0))
+            .pt(ui.px(10.0))
             .pb(ui.px(4.0))
             .flex()
             .flex_col()
@@ -816,6 +821,19 @@ impl Render for NewAgentView {
             .bg(self.bg(|t| t.agents_bg))
             .text_size(ui.px(13.0))
             .text_color(text)
+            // The title bar: the traffic lights on the left, the title in the middle.
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .h(px(bar))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .text_size(ui.px(12.5))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(self.fg(|t| t.agents_dim))
+                    .child("New Agent"),
+            )
             .child(body)
             .child(footer)
     }
