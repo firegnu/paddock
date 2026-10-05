@@ -38,7 +38,7 @@ pub enum Launch {
     /// The user's shell, as Saddle starts plain terminals.
     Shell { program: String, cwd: String },
     /// `corral attach NAME` through Saddle's viewer.
-    Agent { corral: String, name: String },
+    Agent { name: String },
     /// Any program, straight on a PTY (synthetic output tests).
     Command {
         argv: Vec<String>,
@@ -48,6 +48,8 @@ pub enum Launch {
 
 pub struct Options {
     pub launch: Launch,
+    /// The `corral` program the pane attaches with.
+    pub corral: String,
     pub font_family: String,
     /// Families tried for glyphs the main font lacks (prompt icons, symbols).
     pub fallbacks: Vec<String>,
@@ -60,6 +62,8 @@ pub struct TerminalView {
     viewer: Viewer,
     /// Set only for `Launch::Command`; the viewer stays idle then.
     direct: Option<Session>,
+    /// A shell to start once the previous session has ended.
+    queued_shell: Option<Shell>,
     label: String,
     subject: String,
     focus: FocusHandle,
@@ -105,10 +109,7 @@ impl TerminalView {
         cx: &mut Context<Self>,
     ) -> Self {
         let size = Size { rows: 24, cols: 80 };
-        let mut viewer = Viewer::new(match &options.launch {
-            Launch::Agent { corral, .. } => corral.clone(),
-            _ => "corral".into(),
-        });
+        let mut viewer = Viewer::new(options.corral);
         let mut direct = None;
         let mut note = String::new();
         let (label, subject) = match options.launch {
@@ -122,7 +123,7 @@ impl TerminalView {
                 });
                 (format!("{program} · {cwd}"), format!("shell · {cwd}"))
             }
-            Launch::Agent { name, .. } => {
+            Launch::Agent { name } => {
                 if let Err(error) = viewer.select_agent(name.clone(), AgentMetadata::default()) {
                     note = format!("{error:#}");
                 }
@@ -158,6 +159,7 @@ impl TerminalView {
         Self {
             viewer,
             direct,
+            queued_shell: None,
             label,
             subject,
             focus,
@@ -183,6 +185,57 @@ impl TerminalView {
     /// What the pane is connected to, for the title bar: `shell · <cwd>`, the agent, or the command.
     pub fn subject(&self) -> &str {
         &self.subject
+    }
+
+    /// The agent the pane shows or is attaching to.
+    pub fn target(&self) -> Option<&str> {
+        self.viewer.target()
+    }
+
+    /// Attaches the pane to an agent; whatever ran before ends, a shell included.
+    pub fn attach(&mut self, name: String, metadata: AgentMetadata, cx: &mut Context<Self>) {
+        self.retire_direct();
+        self.queued_shell = None;
+        self.viewer.shell = None;
+        if let Err(error) = self.viewer.select_agent(name.clone(), metadata) {
+            self.note = format!("{error:#}");
+        }
+        self.label = format!("corral attach {name}");
+        self.subject = name;
+        cx.notify();
+    }
+
+    /// Ends what the pane runs and starts an interactive shell once it is gone.
+    pub fn start_shell(&mut self, program: String, cwd: String, cx: &mut Context<Self>) {
+        self.retire_direct();
+        if let Err(error) = self.viewer.close() {
+            self.note = format!("{error:#}");
+        }
+        self.label = format!("{program} · {cwd}");
+        self.subject = format!("shell · {cwd}");
+        self.queued_shell = Some(Shell {
+            program,
+            cwd,
+            state: "starting",
+            exit_code: None,
+            env: Vec::new(),
+        });
+        cx.notify();
+    }
+
+    /// Agents still listed by corral; an attached agent missing from them is let go.
+    pub fn disappeared(&mut self, names: &[&str]) {
+        if let Err(error) = self.viewer.disappeared(names) {
+            self.note = format!("{error:#}");
+        }
+    }
+
+    /// A `Launch::Command` session ends off the UI thread, since dropping one waits for its exit.
+    fn retire_direct(&mut self) {
+        if let Some(mut session) = self.direct.take() {
+            let _ = session.interrupt();
+            std::thread::spawn(move || drop(session));
+        }
     }
 
     fn session(&self) -> Option<&Session> {
@@ -224,6 +277,9 @@ impl TerminalView {
             let _ = session.resize(size);
         } else if let Err(error) = self.viewer.tick(size) {
             self.note = format!("{error:#}");
+        }
+        if self.queued_shell.is_some() && self.viewer.closed() {
+            self.viewer.start_shell(self.queued_shell.take().unwrap());
         }
         let changed = self
             .session()

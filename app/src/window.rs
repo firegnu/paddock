@@ -2,6 +2,7 @@
 //! on the right.
 use crate::{
     config::Config,
+    sidebar::{NewShell, Sidebar},
     theme::Theme,
     view::{Options, TerminalView, hsla},
 };
@@ -10,7 +11,7 @@ use std::rc::Rc;
 
 pub struct PaddockWindow {
     theme: Rc<Theme>,
-    sidebar_width: f32,
+    sidebar: Entity<Sidebar>,
     terminal: Entity<TerminalView>,
 }
 
@@ -19,17 +20,24 @@ impl PaddockWindow {
         config: &Config,
         theme: Theme,
         options: Options,
+        new_shell: NewShell,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
         let theme = Rc::new(theme);
+        let corral = options.corral.clone();
         let terminal = {
             let theme = theme.clone();
             cx.new(|cx| TerminalView::new(options, theme, window, cx))
         };
+        let sidebar = {
+            let (theme, terminal) = (theme.clone(), terminal.clone());
+            let width = config.sidebar_width;
+            cx.new(|cx| Sidebar::new(theme, width, corral, new_shell, terminal, cx))
+        };
         Self {
             theme,
-            sidebar_width: config.sidebar_width,
+            sidebar,
             terminal,
         }
     }
@@ -44,14 +52,7 @@ impl Render for PaddockWindow {
             .flex()
             .flex_row()
             .bg(hsla(theme.bg(|t| t.bg), 1.0))
-            .child(
-                // Placeholder until the Agents list arrives.
-                div()
-                    .flex_shrink_0()
-                    .w(px(self.sidebar_width))
-                    .h_full()
-                    .bg(hsla(theme.bg(|t| t.agents_bg), 1.0)),
-            )
+            .child(self.sidebar.clone())
             .child(
                 div()
                     .flex_1()
