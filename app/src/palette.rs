@@ -1,5 +1,5 @@
-//! Resolving cell colours. Program-set palette entries win; otherwise the xterm defaults that
-//! Saddle's `terminal::Screen` also answers to colour queries, and the window's fg/bg/cursor.
+//! Resolving cell colours. Program-set palette entries win; otherwise the theme's 16 colours, the
+//! xterm 256-colour cube and gray ramp, and the theme's fg/bg/cursor.
 use alacritty_terminal::{
     term::color::Colors,
     vte::ansi::{Color, NamedColor},
@@ -9,12 +9,27 @@ pub type Rgb = (u8, u8, u8);
 
 #[derive(Clone, Copy, Debug)]
 pub struct Theme {
+    /// The 16 basic colours, black…white then their bright variants.
+    pub ansi: [Rgb; 16],
     pub foreground: Rgb,
     pub background: Rgb,
     pub cursor: Rgb,
+    /// Drawn behind selected text, which keeps its own colour.
+    pub selection: Rgb,
 }
 
-const ANSI: [Rgb; 16] = [
+impl Theme {
+    /// A palette entry as this theme shows it before any program changes it.
+    pub fn indexed(&self, index: u8) -> Rgb {
+        match index {
+            0..=15 => self.ansi[usize::from(index)],
+            _ => indexed(index),
+        }
+    }
+}
+
+/// The xterm defaults for the 16 basic colours.
+pub const XTERM: [Rgb; 16] = [
     (0, 0, 0),
     (205, 0, 0),
     (0, 205, 0),
@@ -33,9 +48,10 @@ const ANSI: [Rgb; 16] = [
     (255, 255, 255),
 ];
 
+/// The xterm 256-colour palette.
 pub fn indexed(index: u8) -> Rgb {
     match index {
-        0..=15 => ANSI[usize::from(index)],
+        0..=15 => XTERM[usize::from(index)],
         16..=231 => {
             let n = index - 16;
             let level = [0, 95, 135, 175, 215, 255];
@@ -62,7 +78,7 @@ pub fn resolve(color: Color, colors: &Colors, theme: &Theme) -> Rgb {
         return (rgb.r, rgb.g, rgb.b);
     }
     match index {
-        0..=255 => indexed(index as u8),
+        0..=255 => theme.indexed(index as u8),
         _ => match color {
             Color::Named(NamedColor::Background) => theme.background,
             Color::Named(NamedColor::Cursor) => theme.cursor,
@@ -72,7 +88,7 @@ pub fn resolve(color: Color, colors: &Colors, theme: &Theme) -> Rgb {
                 if (NamedColor::DimBlack as usize..=NamedColor::DimWhite as usize)
                     .contains(&(name as usize)) =>
             {
-                dim(ANSI[name as usize - NamedColor::DimBlack as usize])
+                dim(theme.ansi[name as usize - NamedColor::DimBlack as usize])
             }
             _ => theme.foreground,
         },
@@ -91,9 +107,11 @@ mod tests {
     use alacritty_terminal::vte::ansi::Rgb as A;
 
     const THEME: Theme = Theme {
+        ansi: XTERM,
         foreground: (220, 220, 220),
         background: (30, 30, 30),
         cursor: (200, 200, 0),
+        selection: (60, 60, 60),
     };
 
     #[test]
