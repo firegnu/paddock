@@ -42,3 +42,16 @@
 - 不改终端窗格、标题栏（标签页和窗格边框是 P2-2）。
 - 不读 Corral 内部状态目录；git 采集照 Saddle 的做法，只读本地数据、不联网、不改仓库。
 - 不改 Saddle 仓库。
+
+## 完成记录
+
+2026-10-05，paddock/main。用户看截图后认可：“我觉得还可以”。开工前用户补充：“不一定复刻，但是信息不能少，而且我觉得可以做的更加漂亮，毕竟不再被困在tui中了。”
+
+- **做了什么**：
+  - 迁入 Saddle `df1c727` 的 `git.rs`、`command.rs`（`corral.rs` 恢复为原样，不再内嵌 command），`agents.rs` 恢复 git 部分；迁入 `tests/git.rs`、`tests/git_env.rs` 和 `tests/agents.rs` 的 git 用例。
+  - 新增 `card.rs`：按 Saddle `ui.rs` 的规则算出每个 agent 要显示的全部信息（状态点与动画、哪家、强度、状态、时间与 `⦿`/`•`、标题、活动行、git 行与改动换行、目录截断、实例号·ATT·VIA），可脱离窗口测试。
+  - 重写 `sidebar.rs`：GPUI 原生卡片；头部总数；分组标题带横线与计数；选中卡片色条与底色、悬停效果；名字和标题用系统字体，git、目录、实例号等用终端字体；强度改为三格信号图标；底栏 `s Sort`、`z Fold`、`＋ New shell` 可点；后台每 5 秒采集 git。
+  - 侧栏默认宽度 240 → 380 pt（窄于 320 时紧凑显示）；`app/README.md` 同步。
+- **验证了什么**：90 项测试通过（新增面板模型测试 9 项、迁入 git 测试 9 项）；clippy、fmt 通过。用假 corral 提供的合成 agent（目录指向本机仓库）启动 release 版并只截本窗口，核对展开、选中、git、ASK/DOING 显示；截图给用户看过，未入库。
+- **拿主意的地方**：不放 Saddle 底栏的 `[Attached]`（TUI 键盘焦点提示，GUI 里不需要）；强度用三格信号图标代替点阵字符；默认宽度改为 380。
+- **没做的事**：New、Stop、Attention、Tasks、Search、键盘快捷键；真实 agent 上的点击操作留给用户体验。
