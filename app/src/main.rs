@@ -174,10 +174,11 @@ fn main() -> Result<()> {
         cx.bind_keys(menu::bindings());
         cx.bind_keys(paddock::text_input::bindings());
         cx.on_action(|_: &menu::Quit, cx| windows::quit(cx));
-        cx.on_action(|_: &menu::OpenSettings, cx| windows::open_settings(cx));
-        cx.on_action(|_: &menu::About, cx| windows::open_about(cx));
+        // Opening or raising a window reads it from App; wait until this event's window is back.
+        cx.on_action(|_: &menu::OpenSettings, cx| cx.defer(windows::open_settings));
+        cx.on_action(|_: &menu::About, cx| cx.defer(windows::open_about));
         cx.on_action(|_: &menu::NewAgent, cx| {
-            windows::open_new_agent(paddock::new_agent::Place::Current, cx)
+            cx.defer(|cx| windows::open_new_agent(paddock::new_agent::Place::Current, cx))
         });
         cx.set_menus(menu::menus(false, false));
         let main = cx
