@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>paddock 现在的样子</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;background:#141210}
+</style>
+</helmet>
+<div style="width:1280px;height:800px;box-sizing:border-box;display:flex;flex-direction:column;background:#1e1d1a;color:#e8dfcc;font-family:-apple-system,'SF Pro Text','Helvetica Neue',sans-serif;font-size:13px;border-radius:12px;overflow:hidden;border:1px solid #3a352e">
+  <div style="height:30px;flex-shrink:0;display:flex;align-items:center;gap:8px;padding:0 14px;background:#2c2a27;border-bottom:1px solid #111">
+    <span style="width:12px;height:12px;border-radius:50%;background:#ff5f57"></span>
+    <span style="width:12px;height:12px;border-radius:50%;background:#febc2e"></span>
+    <span style="width:12px;height:12px;border-radius:50%;background:#28c840"></span>
+    <span style="margin-left:12px;font-size:13px;font-weight:600;color:#cfc6b2">corral attach paddock/main — running</span>
+  </div>
+  <div style="flex:1;display:flex;min-height:0">
+    <div style="width:300px;flex-shrink:0;display:flex;flex-direction:column;background:#1d1a16;border-right:1px solid #3a352e">
+      <div style="height:48px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:0 14px;border-bottom:1px solid #3a352e">
+        <span style="font-size:16px;font-weight:600">Agents <span style="color:#8c8374;font-weight:400">5</span></span>
+        <span style="color:#8c8374">Attention · 2</span>
+      </div>
+      <div style="flex:1;overflow:hidden;padding:4px 10px">
+        <div style="display:flex;align-items:center;gap:8px;padding:10px 2px 6px;color:#bdb86a;font-weight:600">paddock/<span style="flex:1;height:1px;background:#3a352e"></span><span style="color:#8c8374;font-weight:400">3</span></div>
+        <div style="border-left:2px solid #5a5247;padding:4px 0 8px 10px;margin-bottom:6px">
+          <div style="display:flex;align-items:center;gap:6px"><span style="color:#7fb4ee">●</span><span style="font-weight:600">main</span><span style="margin-left:auto;color:#7fb4ee">working</span><span style="color:#8c8374;margin-left:12px">—</span></div>
+          <div style="font-family:'SF Mono',Menlo,monospace;font-size:12px;color:#8c8374;line-height:1.7;margin-top:2px">main ↑0 ↓0 · 2M —<br>~/Developer/personal_projs/paddock<br>b18cda32ce36 · ATT 1 · VIA human</div>
+        </div>
+        <div style="border-left:2px solid #5a5247;padding:4px 0 8px 10px;margin-bottom:6px">
+          <div style="display:flex;align-items:center;gap:6px"><span style="color:#e6b566">●</span><span style="font-weight:600">dev-fonts</span><span style="margin-left:auto;color:#e6b566">blocked</span><span style="color:#8c8374;margin-left:12px">—</span></div>
+          <div style="font-family:'SF Mono',Menlo,monospace;font-size:12px;color:#8c8374;line-height:1.7;margin-top:2px">p4-2-fonts ↑1 ↓0 · 4M —<br>~/…/paddock-worktrees/p4-2-fonts<br>d47d5f9b6136 · ATT 0 · VIA send</div>
+        </div>
+        <div style="border-left:2px solid #5a5247;padding:4px 0 8px 10px;margin-bottom:6px">
+          <div style="display:flex;align-items:center;gap:6px"><span style="color:#9cbd80">○</span><span style="font-weight:600">dev-buttons</span><span style="margin-left:auto;color:#9cbd80">idle</span><span style="color:#8c8374;margin-left:12px">—</span></div>
+          <div style="font-family:'SF Mono',Menlo,monospace;font-size:12px;color:#8c8374;line-height:1.7;margin-top:2px">git unavailable<br>/tmp<br>42065e933f83 · ATT 0 · VIA —</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;padding:10px 2px 6px;color:#bdb86a;font-weight:600">saddle/<span style="flex:1;height:1px;background:#3a352e"></span><span style="color:#8c8374;font-weight:400">1</span></div>
+        <div style="border-left:2px solid #5a5247;padding:4px 0 8px 10px">
+          <div style="display:flex;align-items:center;gap:6px"><span style="color:#9cbd80">○</span><span style="font-weight:600">main</span><span style="margin-left:auto;color:#9cbd80">idle</span><span style="color:#8c8374;margin-left:12px">—</span></div>
+        </div>
+      </div>
+      <div style="height:38px;flex-shrink:0;display:flex;align-items:center;gap:10px;padding:0 12px;border-top:1px solid #3a352e;font-size:12px">
+        <span><b style="color:#bdb86a">s</b> Sort <span style="color:#8c8374">status</span></span>
+        <span><b style="color:#bdb86a">z</b> Fold</span>
+        <span style="flex:1"></span>
+        <span><b style="color:#bdb86a">＋</b> Agent</span>
+        <span><b style="color:#bdb86a">＋</b> Shell</span>
+        <span><b style="color:#bdb86a">■</b> Stop</span>
+      </div>
+    </div>
+    <div style="flex:1;min-width:0;display:flex;flex-direction:column;padding:10px">
+      <div style="height:40px;flex-shrink:0;display:flex;align-items:center;gap:14px;padding:0 6px;color:#cfc6b2">
+        <span style="font-size:18px">+</span><span>‹</span><span>›</span>
+        <span style="border:1px solid #bdb86a;border-radius:6px;padding:5px 12px;font-weight:600">agent · paddock/main ×</span>
+      </div>
+      <div style="flex:1;border:1px solid #d9b25f;border-radius:6px;display:flex;flex-direction:column;min-height:0">
+        <div style="height:34px;flex-shrink:0;display:flex;align-items:center;padding:0 12px;border-bottom:1px solid #3a352e;font-weight:600">paddock/main<span style="flex:1"></span><span style="color:#cfc6b2;font-weight:400">Split ▾　Close pane　Close tab</span></div>
+        <div style="flex:1;padding:12px;font-family:'SF Mono',Menlo,monospace;font-size:13px;line-height:1.55;color:#d9d1bf">
+          <div><span style="color:#bdb86a">❯</span> 先把侧栏卡片改成两行，状态用圆点表示</div>
+          <div style="height:10px"></div>
+          <div><span style="color:#e2835e">⏺</span> 我先看一下卡片现在是怎么画的。</div>
+          <div style="color:#8c8374">  ⎿ Read app/src/card.rs (480 lines)</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":800}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

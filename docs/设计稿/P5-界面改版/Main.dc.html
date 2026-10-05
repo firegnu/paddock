@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>paddock 主窗口提议</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;background:#141210}
+a{color:#bdb86a}a:hover{color:#e8dfcc}
+.pd-btn{background:none;border:0;padding:0;margin:0;font:inherit;color:inherit;cursor:pointer}
+.pd-tab .pd-x{opacity:0;transition:opacity .12s}
+.pd-tab:hover .pd-x,.pd-tab.pd-on .pd-x{opacity:.7}
+.pd-tab:hover{background:#26221d}
+.pd-card:hover{background:#24201b}
+.pd-card .pd-chev{opacity:0;transition:opacity .12s}
+.pd-card:hover .pd-chev{opacity:.6}
+.pd-ico:hover{background:#2b2621;color:#e8dfcc}
+.pd-pulse{animation:pdpulse 1.6s ease-in-out infinite}
+@keyframes pdpulse{0%,100%{box-shadow:0 0 0 0 rgba(127,180,238,.55)}50%{box-shadow:0 0 0 4px rgba(127,180,238,0)}}
+</style>
+</helmet>
+<div style="width:1280px;height:800px;box-sizing:border-box;display:flex;flex-direction:column;background:#1b1916;color:#e8dfcc;font-family:-apple-system,'SF Pro Text','Helvetica Neue',sans-serif;font-size:13px;border-radius:12px;overflow:hidden;border:1px solid #3a352e">
+
+  <!-- Unified title bar: traffic lights + tabs -->
+  <div style="height:40px;flex-shrink:0;display:flex;align-items:center;gap:6px;padding:0 10px 0 14px;background:#1d1a16">
+    <div style="display:flex;gap:8px;width:68px;flex-shrink:0">
+      <span style="width:12px;height:12px;border-radius:50%;background:#ff5f57"></span>
+      <span style="width:12px;height:12px;border-radius:50%;background:#febc2e"></span>
+      <span style="width:12px;height:12px;border-radius:50%;background:#28c840"></span>
+    </div>
+    <div style="width:{{sidebarGap}}px;flex-shrink:0"></div>
+    <sc-for list="{{tabs}}" as="tab" hint-placeholder-count="3">
+      <div class="pd-tab {{tab.cls}}" style="height:28px;display:flex;align-items:center;gap:7px;padding:0 8px 0 11px;border-radius:7px;background:{{tab.bg}};max-width:220px">
+        <button class="pd-btn" onClick="{{tab.pick}}" style="display:flex;align-items:center;gap:7px;color:{{tab.color}};font-size:12.5px;white-space:nowrap">
+          <span style="width:7px;height:7px;border-radius:50%;background:{{tab.dot}};flex-shrink:0"></span>
+          <span>{{tab.title}}</span>
+        </button>
+        <button class="pd-btn pd-x" aria-label="关闭标签页" style="width:16px;height:16px;border-radius:4px;display:flex;align-items:center;justify-content:center;color:#8c8374">
+          <svg width="9" height="9" viewBox="0 0 9 9" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M1.5 1.5l6 6M7.5 1.5l-6 6"/></svg>
+        </button>
+      </div>
+    </sc-for>
+    <button class="pd-btn pd-ico" aria-label="新建标签页" style="width:26px;height:26px;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#8c8374">
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M6 1.5v9M1.5 6h9"/></svg>
+    </button>
+    <div style="flex:1"></div>
+  </div>
+
+  <div style="flex:1;display:flex;min-height:0">
+    <!-- Sidebar -->
+    <div style="width:300px;flex-shrink:0;display:flex;flex-direction:column;background:#1d1a16">
+      <div style="height:44px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:0 14px 0 18px">
+        <div style="display:flex;align-items:baseline;gap:7px">
+          <span style="font-size:15px;font-weight:600;letter-spacing:-.01em">Agents</span>
+          <span style="color:#756c5e;font-size:12px">{{count}}</span>
+        </div>
+        <button class="pd-btn pd-ico" aria-label="需要处理的 agent" style="height:24px;padding:0 8px;border-radius:12px;display:flex;align-items:center;gap:5px;background:#3a2f1c;color:#e6b566;font-size:11.5px;font-weight:600">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M3 8.5V5.5a3 3 0 0 1 6 0v3l1 1H2z"/><path d="M5 10.5h2" stroke-linecap="round"/></svg>
+          <span>{{attention}}</span>
+        </button>
+      </div>
+
+      <div style="flex:1;overflow:hidden;padding:2px 10px 10px">
+        <sc-for list="{{groups}}" as="g" hint-placeholder-count="2">
+          <div style="padding:14px 8px 6px;font-size:10.5px;font-weight:600;letter-spacing:.08em;color:#756c5e;display:flex;gap:6px">
+            <span>{{g.label}}</span><span style="color:#5a5247">{{g.n}}</span>
+          </div>
+          <sc-for list="{{g.agents}}" as="a" hint-placeholder-count="2">
+            <button class="pd-btn pd-card" onClick="{{a.pick}}" style="display:block;width:100%;text-align:left;border-radius:8px;padding:8px 10px;margin-bottom:2px;background:{{a.bg}}">
+              <div style="display:flex;align-items:center;gap:8px">
+                <span class="{{a.pulse}}" style="width:8px;height:8px;border-radius:50%;background:{{a.dot}};flex-shrink:0"></span>
+                <span style="font-size:13px;font-weight:{{a.weight}};color:#e8dfcc">{{a.name}}</span>
+                <span style="font-size:11px;color:{{a.kindColor}};opacity:.85">{{a.kind}}</span>
+                <span style="flex:1"></span>
+                <span style="font-size:11.5px;color:#756c5e;font-variant-numeric:tabular-nums">{{a.age}}</span>
+              </div>
+              <div style="display:flex;align-items:center;gap:6px;margin:3px 0 0 16px;font-size:12px;color:{{a.lineColor}};white-space:nowrap;overflow:hidden">
+                <span>{{a.line}}</span>
+              </div>
+              <sc-if value="{{a.open}}" hint-placeholder-val="{{false}}">
+                <div style="margin:8px 0 2px 16px;padding-top:8px;border-top:1px solid #2e2a24;display:grid;grid-template-columns:auto 1fr;column-gap:12px;row-gap:4px;font-size:11.5px">
+                  <span style="color:#756c5e">目录</span><span style="color:#cfc6b2">~/Developer/personal_projs/paddock</span>
+                  <span style="color:#756c5e">分支</span><span style="color:#cfc6b2">main · 2 处改动</span>
+                  <span style="color:#756c5e">模型</span><span style="color:#cfc6b2">opus · high</span>
+                  <span style="color:#756c5e">实例</span><span style="color:#cfc6b2;font-family:'SF Mono',Menlo,monospace;font-size:11px">b18cda32ce36</span>
+                </div>
+              </sc-if>
+            </button>
+          </sc-for>
+        </sc-for>
+      </div>
+
+      <!-- Footer icons -->
+      <div style="height:40px;flex-shrink:0;display:flex;align-items:center;gap:2px;padding:0 10px">
+        <button class="pd-btn pd-ico" aria-label="排序：按状态" style="width:28px;height:28px;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#a39a89">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 12V2.5M2 5l2.5-2.5L7 5M9.5 2v9.5M7 9l2.5 2.5L12 9"/></svg>
+        </button>
+        <button class="pd-btn pd-ico" aria-label="全部折叠" style="width:28px;height:28px;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#a39a89">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round"><rect x="1.5" y="1.5" width="11" height="11" rx="2.5"/><path d="M4.5 7h5"/></svg>
+        </button>
+        <span style="flex:1"></span>
+        <button class="pd-btn pd-ico" aria-label="新建 agent" style="width:28px;height:28px;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#a39a89">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round"><circle cx="7" cy="7" r="5.75"/><path d="M4.25 7h5.5M7 4.25v5.5"/></svg>
+        </button>
+        <button class="pd-btn pd-ico" aria-label="新建 shell" style="width:28px;height:28px;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#a39a89">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="2" width="12" height="10" rx="2"/><path d="M3.75 5L6 7 3.75 9M7.25 9.25h3.25"/></svg>
+        </button>
+        <button class="pd-btn pd-ico" aria-label="停止" style="width:28px;height:28px;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#a39a89">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor"><rect x="3" y="3" width="8" height="8" rx="1.5"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Terminal: one pane, no header, no border -->
+    <div style="flex:1;min-width:0;background:#181613;padding:14px 18px;font-family:'SF Mono',Menlo,monospace;font-size:13px;line-height:1.55;color:#d9d1bf;overflow:hidden">
+      <div style="color:#8c8374">╭─ claude · paddock/main</div>
+      <div style="height:10px"></div>
+      <div><span style="color:#bdb86a">❯</span> 先把侧栏卡片改成两行，状态用圆点表示</div>
+      <div style="height:10px"></div>
+      <div><span style="color:#e2835e">⏺</span> 我先看一下卡片现在是怎么画的。</div>
+      <div style="color:#8c8374">  ⎿ Read app/src/card.rs (480 lines)</div>
+      <div style="color:#8c8374">  ⎿ Read app/src/sidebar.rs (960 lines)</div>
+      <div style="height:10px"></div>
+      <div><span style="color:#e2835e">⏺</span> 改动计划：</div>
+      <div>  1. 详情行换成比例字体，只留目录和分支</div>
+      <div>  2. 实例号、接入数、输入来源移到展开详情</div>
+      <div>  3. 状态改成圆点：工作中呼吸、等待琥珀、出错红</div>
+      <div style="height:10px"></div>
+      <div><span style="color:#7fa9ea">✻</span> <span style="color:#8c8374">Thinking…</span></div>
+      <div style="height:16px"></div>
+      <div style="display:flex;align-items:center;gap:0"><span style="color:#bdb86a">❯</span>&nbsp;<span style="display:inline-block;width:8px;height:16px;background:#e8dfcc"></span></div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":800}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { selected: 'paddock/main', open: '', tab: 'paddock/main' };
+  }
+  renderVals() {
+    const C = { working: '#7fb4ee', idle: '#9cbd80', waiting: '#e6b566', error: '#ef8174' };
+    const K = { claude: '#e2835e', codex: '#79d4b4' };
+    const data = [
+      { label: 'PADDOCK', agents: [
+        { id: 'paddock/main', name: 'main', kind: 'claude', st: 'working', age: '3m', line: '~/…/paddock · main' },
+        { id: 'paddock/dev-fonts', name: 'dev-fonts', kind: 'claude', st: 'waiting', age: '1m', line: '等你确认：要不要升级依赖' },
+        { id: 'paddock/dev-buttons', name: 'dev-buttons', kind: 'claude', st: 'idle', age: '12m', line: '~/…/p4-3-sidebar-buttons · p4-3' }
+      ]},
+      { label: 'SADDLE', agents: [
+        { id: 'saddle/main', name: 'main', kind: 'codex', st: 'idle', age: '1h', line: '~/…/saddle · main' }
+      ]},
+      { label: 'RANCH', agents: [
+        { id: 'ranch/test-m2', name: 'test-m2', kind: 'claude', st: 'error', age: '2h', line: '已退出（退出码 1）' }
+      ]}
+    ];
+    const s = this.state;
+    const groups = data.map((g) => ({
+      label: g.label,
+      n: g.agents.length,
+      agents: g.agents.map((a) => {
+        const sel = s.selected === a.id;
+        return {
+          name: a.name, kind: a.kind, kindColor: K[a.kind], age: a.age, line: a.line,
+          dot: C[a.st], pulse: a.st === 'working' ? 'pd-pulse' : '',
+          lineColor: a.st === 'waiting' ? '#e6b566' : (a.st === 'error' ? '#ef8174' : '#8c8374'),
+          bg: sel ? '#2b2621' : 'transparent', weight: sel ? 600 : 500,
+          open: s.open === a.id,
+          pick: () => this.setState({ selected: a.id, tab: a.id, open: s.selected === a.id ? (s.open === a.id ? '' : a.id) : s.open })
+        };
+      })
+    }));
+    const tabList = [
+      { id: 'paddock/main', title: 'paddock/main', st: 'working' },
+      { id: 'paddock/dev-fonts', title: 'dev-fonts', st: 'waiting' },
+      { id: 'shell', title: 'zsh · paddock', st: 'idle' }
+    ];
+    const tabs = tabList.map((t) => {
+      const on = s.tab === t.id;
+      return {
+        title: t.title, dot: C[t.st], cls: on ? 'pd-on' : '',
+        bg: on ? '#2b2621' : 'transparent', color: on ? '#e8dfcc' : '#8c8374',
+        pick: () => this.setState({ tab: t.id, selected: t.id === 'shell' ? s.selected : t.id })
+      };
+    });
+    return { groups, tabs, count: 5, attention: 2, sidebarGap: 218 };
+  }
+}
+</script>
+</body>
+</html>
