@@ -19,16 +19,24 @@ pub enum Page {
     General,
     Colors,
     Advanced,
+    /// Read-only: what paddock runs and how its reads and saves went.
+    Diagnostics,
 }
 
 impl Page {
-    pub const ALL: [Page; 3] = [Page::General, Page::Colors, Page::Advanced];
+    pub const ALL: [Page; 4] = [
+        Page::General,
+        Page::Colors,
+        Page::Advanced,
+        Page::Diagnostics,
+    ];
 
     pub fn label(self) -> &'static str {
         match self {
             Page::General => "General",
             Page::Colors => "Colors",
             Page::Advanced => "Advanced",
+            Page::Diagnostics => "Diagnostics",
         }
     }
 }

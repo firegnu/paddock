@@ -51,13 +51,19 @@ fn main() -> Result<()> {
     }
     // Started from Finder or the Dock: take the login shell's PATH, still before any thread.
     let desktop = paddock::launch::from_desktop();
+    let mut startup = paddock::diagnostics::Startup {
+        desktop,
+        login_path: None,
+    };
     if desktop {
         let shell = std::env::var("SHELL")
             .ok()
             .filter(|s| !s.is_empty())
             .unwrap_or("/bin/zsh".into());
         let timeout = std::time::Duration::from_secs(3);
-        if let Some(path) = paddock::launch::login_path(std::path::Path::new(&shell), timeout) {
+        let path = paddock::launch::login_path(std::path::Path::new(&shell), timeout);
+        startup.login_path = Some(path.is_some());
+        if let Some(path) = path {
             // SAFETY: the login shell ran on this thread; no other thread exists yet.
             unsafe { std::env::set_var("PATH", path) };
         }
@@ -164,6 +170,7 @@ fn main() -> Result<()> {
             Some((x, y, w, h)) => Bounds::new(point(px(x), px(y)), size(px(w), px(h))),
             None => Bounds::centered(None, size(px(1280.0), px(800.0)), cx),
         };
+        cx.set_global(startup);
         cx.bind_keys(menu::bindings());
         cx.bind_keys(paddock::text_input::bindings());
         cx.on_action(|_: &menu::Quit, cx| windows::quit(cx));

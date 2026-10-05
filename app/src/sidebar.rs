@@ -58,6 +58,8 @@ pub struct Listing {
     error: Option<String>,
     /// corral has answered at least once, well or not.
     loaded: bool,
+    /// The latest `corral ls`, for Diagnostics.
+    last: crate::diagnostics::Last,
 }
 
 impl Listing {
@@ -70,6 +72,14 @@ impl Listing {
         now: f64,
     ) -> Option<Vec<String>> {
         self.loaded = true;
+        let now_time = std::time::SystemTime::now();
+        self.last = Some((
+            now_time,
+            match &update {
+                Ok(agents) => Ok(format!("{} agents", agents.len())),
+                Err(error) => Err(format!("{error:#}")),
+            },
+        ));
         match update {
             Ok(agents) => {
                 self.error = None;
@@ -259,6 +269,11 @@ impl Sidebar {
                     .child(count),
             )
             .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(SidebarEvent::Attention)))
+    }
+
+    /// The latest `corral ls`: when, and how many agents or why it failed.
+    pub fn last_read(&self) -> crate::diagnostics::Last {
+        self.listing.last.clone()
     }
 
     /// The agents as corral last listed them.

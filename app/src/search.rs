@@ -95,7 +95,7 @@ mod tests {
         assert_eq!(labels(&found), ["colors/main", "Settings › Colors"]);
         assert_eq!(found[1].target, Target::Settings(Page::Colors));
         // An empty query lists everything.
-        assert_eq!(entries(&agents, "").len(), 4);
-        assert_eq!(labels(&entries(&agents, "settings")).len(), 3);
+        assert_eq!(entries(&agents, "").len(), 5);
+        assert_eq!(labels(&entries(&agents, "settings")).len(), 4);
     }
 }

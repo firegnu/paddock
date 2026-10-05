@@ -53,6 +53,8 @@ cargo run --release --manifest-path "$M" --example bundle -- --install
 
 新建 agent：菜单 Agent → New Agent…、侧栏底部 ＋ Agent，或 `+`、`Split ▾` 选择框里的 New agent…，打开单独的窗口：项目目录（可从列表选或 Choose… 用系统对话框）、Codex 或 Claude、Controller（名字固定 main）或 Regular、名字前缀（默认取目录名）、在哪里打开；Advanced 里可改完整命令、第一条消息，并显示将要执行的 `corral start …`。Create（⌘↩）成功后在选定位置接入；失败时窗口保留并显示原因。当前窗格是运行中的 shell 时不替换，改开新标签页。停止：Agent → Stop Agent… 或侧栏底部 ■ Stop，作用于当前窗格的 agent，系统提示框确认后调用 `corral stop`，结果显示在侧栏底部。
 
+Diagnostics：设置窗口的最后一页，只读：corral、git、shell 在 PATH 上找到的路径和版本（`corral --version`、`git --version`），最近一次 `corral ls` 的时间和结果，配置文件启动时和现在能否读，布局存档的路径、启动时恢复的结果和最近一次保存，以及从桌面还是终端启动、取登录 shell 的 PATH 是否成功。打开该页或点 Refresh 时检查，结果只在内存里。
+
 布局保存：标签页、分屏和每个窗格的内容（shell 及其目录、agent 名字）有变化就存进 `$XDG_STATE_HOME/paddock/layout.json`（没设时 `~/.local/state/paddock/layout.json`），退出时也存。下次不带 `--attach` 或 `-- 程序` 启动时恢复：shell 在原目录开新的（之前的命令不会重放），agent 按名字和实例号重新接入（不在了或换了实例会显示原因）。带 `--attach` 或 `-- 程序` 启动时不恢复，也不覆盖存档。存档读不出来时照常启动，侧栏底部说明原因，并且不覆盖那个文件。不读写 Saddle 的布局文件。
 
 窗格放大：有多个窗格时，标题栏的 Zoom 或 View → Zoom Pane（⇧⌘↩）把当前窗格临时铺满终端区，Restore 或再按一次回到原来的分屏；其他窗格照常运行；切到别的窗格、关掉放大的窗格或再分屏时自动还原；按标签页分别记。
