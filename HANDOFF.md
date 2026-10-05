@@ -13,7 +13,7 @@
 
 1. 第一阶段（T1–T4）、迁移（M0、M1）、第二阶段（P2-1 Agents 面板、P2-2 标签页与分屏、P2-3 宠物、P2-4 菜单栏与 .app）都已合并；`paddock.app` 已装到 `~/Applications`（重新打包安装：`cargo build --release` 后 `cargo run --release --example bundle -- --install`，见 `app/README.md`）。
 2. 等用户日常使用、体验菜单与快捷键、从程序坞启动、点击与键盘操作，反馈问题。
-3. 第三阶段范围待用户定（DESIGN §6 的建议：插件（先 Drover）、Attention、新建 agent、Settings 页、历史搜索、布局保存等；插件界面做法见 DESIGN §7 第 5 条）。
+3. 第三阶段已定（DESIGN §12）：Settings → 新建/停止 agent（动手前再确认）→ Attention → 搜索 → 历史搜索 → 布局保存；插件与遥测查看页留到第四阶段。
 
 ## 悬着
 

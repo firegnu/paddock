@@ -44,6 +44,10 @@ paddock 与 Saddle 在代码上完全分开：用到的 Saddle 代码迁入 padd
   - 各插件的数据：Drover 有（`~/.drover/projects`、各项目的 `queue.md`、`tasks.state` 等），且每个用户的数据只允许一个 Drover 进程持有，第二个直接启动失败；Drover 记遥测要通过宿主调用 `saddle telemetry`，没有宿主路径时退回不记遥测、直接 `corral send`。Diff 读 git，dispatch 一问一答，都没有共享数据。
   - 做法（建议，未批准，见 §7 第 5 条）：先由 paddock 做插件宿主（字符面兼容层），运行同一批插件程序，插件不移植、数据只有一个主人；paddock 用自己的插件登记（如 `~/.config/paddock/plugins.toml`），不读 Saddle 的。某个插件确实需要原生界面时再单独考虑：把它的逻辑搬进 paddock 会与原插件争同一份数据，让插件只提供数据则要扩展插件协议（归 Saddle，走 Saddle 的流程）。
   - 单独分发时，需要的插件程序随 paddock 打包（插件本是独立 Cargo 包，迁入方式同 §10）；两份插件对同一份数据（如 `~/.drover`）的格式要保持兼容，规矩同上面的 corral。
+- **遥测**（Saddle `df1c727` 的 `docs/遥测使用.md`，用户 10-05 要求核查）：
+  - 数据在 `~/.local/state/saddle/telemetry/`（SQLite `telemetry.sqlite3`，带格式版本号，现为 2；正文在 `blobs/`），默认关闭。写入方首次写入会把旧格式自动升级。
+  - 使用者：`saddle telemetry` 命令、`saddle agent`、Drover（经宿主程序 `SADDLE_HOST_BIN` 调用前两者）、corral-dispatch 技能、Saddle TUI 的 Settings 总开关和遥测查看页。
+  - 与 corral 同类：数据只有一份。开发阶段 paddock 不碰数据库，只调用已安装的 `saddle telemetry` 命令（JSON 输入输出）；单独分发前作为单独任务迁入存储代码，并提供与 `saddle telemetry`、`saddle agent` 用法兼容的命令，否则技能和 Drover 的记录会失效。两份代码对同一个数据库的格式（含版本号和升级规则）要保持兼容，规矩同 corral。
 - **许可**：Saddle 仓库目前没有许可证文件。代码属于用户本人，迁入没有问题；paddock 公开发布前，需要先为两边定好许可（§7）。
 
 ## 4. 依赖与工具链隔离
@@ -159,3 +163,16 @@ paddock 与 Saddle 在代码上完全分开：用到的 Saddle 代码迁入 padd
   2. P2-2 标签页与分屏：外观照 Saddle 的圆角标签和窗格边框（标题、边框上的按钮）；切走时 shell 不再结束。 **已完成（10-05，用户认可）**：按钮放在窗格标题栏右侧，弹框居中；活动窗格是运行中的 shell 时，侧栏点 agent 新开标签页；未做拖动调整大小。
   3. P2-3 宠物：Clawd、猫、卡皮巴拉，在标签栏右侧空地巡游；迁入 Saddle 的宠物逻辑和图片素材，用 GPUI 直接画像素图。配置照 Saddle 的 `mascot_enabled`、`mascot`；不要 Saddle 的“显示方式”（方块/图片）选项。用户 10-05 补充：只用图片版，不要方块字符版（“如果支持图片的话，就不需要再有兼容像素的画法了”）。 **已完成（10-05，用户认可）**：像素整 2 倍绘制，标签条加高到 48 pt。
   4. P2-4 菜单栏与 `.app` 打包。用户 10-05 选定：快捷键照 macOS 常见约定（⌘T、⌘N、⌘D、⇧⌘D、⌘W、⇧⌘W、⇧⌘[ ]、⌘1–9）；图标用猫的像素图；打好的 app 放 `~/Applications`；不签名、不公证。 **已完成（10-05，用户同意合并并安装）**：已装到 `~/Applications/paddock.app`；从桌面启动时向登录 shell 取 `PATH`，新 shell 开在主目录。
+
+## 12. 第三阶段（进行中）
+
+用户 10-05 定下（原话见 `docs/背景与决策记录.md` §6e）：继续把 Saddle 的组件搬过来；不涉及 corral、遥测、Drover 这类共享运行时的，都可以做。
+
+- **顺序**：
+  1. Settings 设置页（General、Colors、Advanced；保存时保留配置文件的注释）。遥测总开关会写遥测数据库，这次不放。
+  2. 新建、停止 agent（调用公开的 `corral start`、`corral stop`；动手前再与用户确认）。
+  3. Attention 提醒。
+  4. 搜索。
+  5. 回看历史时搜索。
+  6. 布局保存与恢复。
+- **之后（第四阶段）**：插件宿主与 Tasks（先 Drover）、遥测查看页；届时再定插件界面做法（§7 第 5 条）。
