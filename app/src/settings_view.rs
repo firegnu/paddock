@@ -1,5 +1,6 @@
-//! The Settings panel: pages on the left, settings on the right, Save and Cancel below. The rules
-//! are in `settings.rs`; this file draws them and keeps one text field per typed setting.
+//! The Settings window: pages on the left, settings on the right, Revert and Save below. Closing it
+//! with unsaved edits asks Save / Don't Save / Cancel. The rules are in `settings.rs`; this file
+//! draws them and keeps one text field per typed setting.
 use crate::{
     config::Config,
     menu,
@@ -10,12 +11,12 @@ use crate::{
 };
 use gpui::{
     AnyElement, ClickEvent, Context, Div, ElementId, Entity, EventEmitter, FocusHandle, Focusable,
-    FontWeight, Hsla, MouseButton, Render, SharedString, Stateful, Subscription, Window, div,
+    FontWeight, Hsla, PromptLevel, Render, SharedString, Stateful, Subscription, Task, Window, div,
     prelude::*, px,
 };
 use std::{collections::HashMap, path::PathBuf, rc::Rc};
 
-/// The key context while Settings is open: ⌘S saves, Esc cancels.
+/// The key context of the Settings window: ⌘S saves, ⌘W closes.
 pub const CONTEXT: &str = "PaddockSettings";
 
 type Pick = fn(&crate::preset::Theme) -> crate::preset::Color;
@@ -26,7 +27,6 @@ pub enum SettingsEvent {
         config: Box<Config>,
         restart: Vec<String>,
     },
-    Closed,
 }
 
 pub struct SettingsView {
@@ -38,6 +38,8 @@ pub struct SettingsView {
     /// A message for the footer, and whether it reports a problem.
     message: Option<(String, bool)>,
     conflict: bool,
+    /// The Save / Don't Save / Cancel question is showing.
+    asking: bool,
     focus: FocusHandle,
     _subscriptions: Vec<Subscription>,
 }
@@ -110,6 +112,7 @@ impl SettingsView {
             inputs: HashMap::new(),
             message,
             conflict: false,
+            asking: false,
             focus: cx.focus_handle(),
             _subscriptions: Vec::new(),
         };
@@ -185,14 +188,20 @@ impl SettingsView {
     }
 
     pub fn save(&mut self, _: &menu::SaveSettings, _: &mut Window, cx: &mut Context<Self>) {
+        self.save_draft(cx);
+    }
+
+    /// Saves the draft; false when nothing was written because of a problem, now shown below.
+    fn save_draft(&mut self, cx: &mut Context<Self>) -> bool {
         let disk = match read(&self.path) {
             Ok(disk) => disk,
             Err(error) => {
                 self.message = Some((format!("Not saved: {error}"), true));
                 cx.notify();
-                return;
+                return false;
             }
         };
+        let mut saved = false;
         match self.draft.save(disk.as_deref()) {
             Ok(Ok(Saved::Written {
                 text,
@@ -212,10 +221,21 @@ impl SettingsView {
                             false,
                         )
                     });
+                    if let Ok(theme) = Theme::from_config(&config) {
+                        self.theme = Rc::new(theme);
+                        let colors = self.input_colors();
+                        for input in self.inputs.values() {
+                            input.update(cx, |input, cx| input.set_colors(colors, cx));
+                        }
+                    }
                     cx.emit(SettingsEvent::Saved { config, restart });
+                    saved = true;
                 }
             }
-            Ok(Ok(Saved::Unchanged)) => self.message = Some(("Nothing to save.".into(), false)),
+            Ok(Ok(Saved::Unchanged)) => {
+                self.message = Some(("Nothing to save.".into(), false));
+                saved = true;
+            }
             Ok(Err(Conflict)) => {
                 self.conflict = true;
                 self.message = Some((
@@ -226,6 +246,7 @@ impl SettingsView {
             Err(error) => self.message = Some((format!("Not saved: {error:#}"), true)),
         }
         cx.notify();
+        saved
     }
 
     fn resolve_conflict(&mut self, keep: bool, cx: &mut Context<Self>) {
@@ -250,8 +271,58 @@ impl SettingsView {
         self.refresh_inputs(cx);
     }
 
-    pub fn cancel(&mut self, _: &menu::Cancel, _: &mut Window, cx: &mut Context<Self>) {
-        cx.emit(SettingsEvent::Closed);
+    /// Drops the draft; the window stays open.
+    fn revert(&mut self, cx: &mut Context<Self>) {
+        let result = read(&self.path)
+            .map_err(anyhow::Error::from)
+            .and_then(|disk| self.draft.discard(disk));
+        self.conflict = false;
+        self.message = result
+            .err()
+            .map(|error| (format!("The config file has a problem: {error:#}"), true));
+        self.refresh_inputs(cx);
+    }
+
+    /// Whether the window may close: yes without unsaved edits; otherwise as answered to Save /
+    /// Don't Save / Cancel, where a Save that fails keeps the window open with the reason shown.
+    pub fn confirm_close(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Task<bool> {
+        if !self.draft.edited() {
+            return Task::ready(true);
+        }
+        if self.asking {
+            return Task::ready(false);
+        }
+        self.asking = true;
+        let answer = window.prompt(
+            PromptLevel::Warning,
+            "Save your changes to Settings?",
+            Some("If you don't save them, your edits are lost."),
+            &["Save", "Don't Save", "Cancel"],
+            cx,
+        );
+        cx.spawn_in(window, async move |this, cx| {
+            let answer = answer.await;
+            this.update(cx, |this, cx| {
+                this.asking = false;
+                match answer {
+                    Ok(0) => this.save_draft(cx),
+                    Ok(1) => true,
+                    _ => false,
+                }
+            })
+            .unwrap_or(false)
+        })
+    }
+
+    /// The red button or ⌘W.
+    pub fn request_close(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let close = self.confirm_close(window, cx);
+        cx.spawn_in(window, async move |_, cx| {
+            if close.await {
+                let _ = cx.update(|window, _| window.remove_window());
+            }
+        })
+        .detach();
     }
 
     fn button(&self, id: impl Into<ElementId>, label: impl Into<SharedString>) -> Stateful<Div> {
@@ -570,53 +641,56 @@ impl Render for SettingsView {
                     cx.listener(|this, _: &ClickEvent, _, cx| this.resolve_conflict(false, cx)),
                 ));
         } else {
-            footer = footer
-                .child(self.button("cancel", "Cancel  esc").on_click(
-                    cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(SettingsEvent::Closed)),
-                ))
-                .child(
-                    self.button("save", "Save  ⌘S")
-                        .bg(hsla(self.theme.bg(|t| t.agent_selected), 1.0))
-                        .border_color(self.fg(|t| t.focus))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                            this.save(&menu::SaveSettings, window, cx)
-                        })),
-                );
+            let edited = self.draft.edited();
+            let revert = if edited {
+                self.button("revert", "Revert")
+                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.revert(cx)))
+            } else {
+                // Nothing to revert: shown, but not clickable.
+                div()
+                    .id("revert")
+                    .px(px(10.0))
+                    .py(px(4.0))
+                    .rounded(px(6.0))
+                    .border_1()
+                    .border_color(self.fg(|t| t.agents_rule))
+                    .text_color(self.fg(|t| t.agents_dimmer))
+                    .child("Revert")
+            };
+            footer = footer.child(revert).child(
+                self.button("save", "Save  ⌘S")
+                    .bg(hsla(self.theme.bg(|t| t.agent_selected), 1.0))
+                    .border_color(self.fg(|t| t.focus))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                        this.save(&menu::SaveSettings, window, cx)
+                    })),
+            );
         }
 
-        let card = div()
+        div()
             .id("settings")
-            .w(px(860.0))
-            .h(px(620.0))
+            .key_context(CONTEXT)
+            .track_focus(&self.focus)
+            .on_action(cx.listener(Self::save))
+            .on_action(
+                cx.listener(|this, _: &menu::CloseWindow, window, cx| {
+                    this.request_close(window, cx)
+                }),
+            )
+            .size_full()
             .flex()
             .flex_col()
             .gap(px(10.0))
             .p(px(16.0))
-            .rounded(px(12.0))
-            .border_1()
-            .border_color(self.fg(|t| t.focus))
             .bg(hsla(self.theme.bg(|t| t.agents_bg), 1.0))
             .text_size(px(13.0))
             .text_color(self.fg(|t| t.agents_text))
-            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .child(
                 div()
-                    .flex()
-                    .items_baseline()
-                    .gap(px(10.0))
-                    .child(
-                        div()
-                            .text_size(px(16.0))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child("Settings"),
-                    )
-                    .child(
-                        div()
-                            .text_size(px(11.0))
-                            .text_color(self.fg(|t| t.agents_dim))
-                            .child(shown_path(&self.path)),
-                    ),
+                    .text_size(px(11.0))
+                    .text_color(self.fg(|t| t.agents_dim))
+                    .child(format!("Config file: {}", shown_path(&self.path))),
             )
             .child(
                 div()
@@ -627,21 +701,6 @@ impl Render for SettingsView {
                     .child(nav)
                     .child(list),
             )
-            .child(footer);
-
-        div()
-            .id("settings-backdrop")
-            .absolute()
-            .inset_0()
-            .occlude()
-            .flex()
-            .items_center()
-            .justify_center()
-            .bg(gpui::black().opacity(0.35))
-            .key_context(CONTEXT)
-            .track_focus(&self.focus)
-            .on_action(cx.listener(Self::save))
-            .on_action(cx.listener(Self::cancel))
-            .child(card)
+            .child(footer)
     }
 }

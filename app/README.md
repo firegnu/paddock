@@ -38,7 +38,7 @@ cargo run --release --manifest-path "$M" --example bundle -- --install
 
 ## 设置页
 
-菜单 paddock → Settings…（⌘,）打开，分 General、Colors、Advanced 三页（照 Saddle 的 Settings）。改动先是草稿，Save（⌘S）才写入配置文件，Cancel（Esc）放弃；每项可 Default 恢复默认。换主题会载入该主题的全部颜色并清掉颜色覆盖，之后改的颜色标 `custom`。保存只改动过的键，保留注释和其他内容；配置文件在别处被改过时不写，可选 Keep my edits 或 Discard my edits。主题、颜色、侧栏宽度、宠物保存后立即生效；字体、刷新间隔、corral 命令标 Restart required，重启后生效。
+菜单 paddock → Settings…（⌘,）打开单独的设置窗口（已开着就提到最前），分 General、Colors、Advanced 三页（照 Saddle 的 Settings）。改动先是草稿，Save（⌘S）才写入配置文件，Revert 放弃草稿；用红点或 ⌘W 关窗，有未保存的改动时先问 Save / Don't Save / Cancel（退出 paddock 时也会问）；每项可 Default 恢复默认。换主题会载入该主题的全部颜色并清掉颜色覆盖，之后改的颜色标 `custom`。保存只改动过的键，保留注释和其他内容；配置文件在别处被改过时不写，可选 Keep my edits 或 Discard my edits。主题、颜色、侧栏宽度、宠物保存后立即生效；字体、刷新间隔、corral 命令标 Restart required，重启后生效。
 
 ## 菜单与快捷键
 
@@ -50,7 +50,7 @@ cargo run --release --manifest-path "$M" --example bundle -- --install
 | View | Fold Agents、Sort Agents by Name（勾选跟随侧栏） |
 | Window | Minimize（⌘M）、Zoom、Next Tab（⇧⌘]）、Previous Tab（⇧⌘[）、Tab 1–9（⌘1…⌘9，⌘9 是最后一个） |
 
-弹框打开时 Esc 关闭。其他按键都交给终端。
+新标签、分屏的选择框打开时 Esc 关闭。About paddock 是单独的小窗口，⌘W 关闭。其他按键都交给终端。
 
 ## 命令行选项
 

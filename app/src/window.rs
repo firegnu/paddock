@@ -7,7 +7,6 @@ use crate::{
     layout::{Axis, Direction, Node, PaneId, Placement, Shown, Workspace},
     menu,
     pet::PetView,
-    settings_view::{SettingsEvent, SettingsView},
     sidebar::{Sidebar, SidebarEvent},
     theme::Theme,
     view::{Launch, Options, TerminalView, hsla},
@@ -25,15 +24,13 @@ pub struct NewShell {
     pub cwd: String,
 }
 
-/// The small dialog behind `+` and `Split ▾`.
+/// The small chooser behind `+` and `Split ▾`.
 #[derive(Clone, Copy, PartialEq)]
 enum Popup {
     /// Choose what the new tab shows.
     NewTab,
     /// First the direction, then what the new pane shows.
     Split(Option<Direction>),
-    /// What paddock is.
-    About,
 }
 
 /// Something to open in a new tab or pane.
@@ -66,8 +63,6 @@ pub struct PaddockWindow {
     menu_state: Option<(bool, bool)>,
     /// The pet as configured: shown, and which.
     pet_setting: (bool, crate::pet::Pet),
-    /// The Settings panel, while it is open.
-    settings: Option<Entity<SettingsView>>,
 }
 
 impl PaddockWindow {
@@ -115,7 +110,6 @@ impl PaddockWindow {
                 .then(|| cx.new(|cx| PetView::new(config.mascot, cx))),
             menu_state: None,
             pet_setting: (config.mascot_enabled, config.mascot),
-            settings: None,
         };
         let view = this.view(options.launch, window, cx);
         this.panes.insert(first, view);
@@ -205,38 +199,14 @@ impl PaddockWindow {
         }
     }
 
-    fn open_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.settings.is_some() {
-            return;
-        }
-        let theme = self.theme.clone();
-        let view = cx.new(|cx| SettingsView::new(theme, crate::config::default_path(), cx));
-        cx.subscribe_in(&view, window, Self::on_settings).detach();
-        let focus = view.read(cx).focus_handle(cx);
-        window.focus(&focus, cx);
-        self.settings = Some(view);
-        cx.notify();
-    }
-
-    fn on_settings(
-        &mut self,
-        _: &Entity<SettingsView>,
-        event: &SettingsEvent,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        match event {
-            SettingsEvent::Saved { config, .. } => self.apply(config, cx),
-            SettingsEvent::Closed => {
-                self.settings = None;
-                self.focus_active(window, cx);
-            }
-        }
+    /// The colours in use, for the Settings and About windows.
+    pub fn theme(&self) -> Rc<Theme> {
+        self.theme.clone()
     }
 
     /// What Settings saved that takes effect at once: colours, sidebar width and the pet. The rest
     /// (fonts, refresh interval, corral command) waits for a restart.
-    fn apply(&mut self, config: &Config, cx: &mut Context<Self>) {
+    pub fn apply(&mut self, config: &Config, cx: &mut Context<Self>) {
         if let Ok(theme) = Theme::from_config(config) {
             let theme = Rc::new(theme);
             self.theme = theme.clone();
@@ -346,7 +316,7 @@ impl PaddockWindow {
         let direction = match popup {
             Popup::NewTab => None,
             Popup::Split(Some(direction)) => Some(direction),
-            Popup::Split(None) | Popup::About => return,
+            Popup::Split(None) => return,
         };
         if let Choice::Agent(name) = &choice
             && let Some(old) = self.workspace.find(name)
@@ -698,26 +668,9 @@ impl PaddockWindow {
             Popup::NewTab => "Open in a new tab".to_owned(),
             Popup::Split(None) => "Split: which side?".to_owned(),
             Popup::Split(Some(direction)) => format!("Split {}", side(direction)),
-            Popup::About => "paddock".to_owned(),
         };
         let mut body = div().flex().flex_col().gap(px(2.0));
-        if popup == Popup::About {
-            body = body
-                .px(px(4.0))
-                .gap(px(6.0))
-                .text_size(px(TEXT))
-                .child(format!("Version {}", env!("CARGO_PKG_VERSION")))
-                .child(
-                    div()
-                        .text_color(self.fg(|t| t.muted))
-                        .child("A desktop home for corral agents, built with GPUI."),
-                )
-                .child(div().text_color(self.fg(|t| t.agents_dim)).child(
-                    "Terminal and agent code, themes and pets come from Saddle. \
-                     Clawd is Claude Code's mascot, from Anthropic; the cat and the \
-                     capybara are Saddle originals.",
-                ));
-        } else if popup == Popup::Split(None) {
+        if popup == Popup::Split(None) {
             let mut grid = div().flex().flex_wrap().gap(px(6.0));
             for (direction, label) in [
                 (Direction::Left, "← Left"),
@@ -879,12 +832,6 @@ impl Render for PaddockWindow {
             .flex_row()
             .bg(hsla(self.theme.bg(|t| t.agents_bg), 1.0))
             .when(self.popup.is_some(), |root| root.key_context(menu::DIALOG))
-            .on_action(cx.listener(|this, _: &menu::OpenSettings, window, cx| {
-                this.open_settings(window, cx)
-            }))
-            .on_action(
-                cx.listener(|this, _: &menu::About, _, cx| this.open_popup(Popup::About, cx)),
-            )
             .on_action(
                 cx.listener(|this, _: &menu::NewTab, _, cx| this.open_popup(Popup::NewTab, cx)),
             )
@@ -942,6 +889,5 @@ impl Render for PaddockWindow {
             .child(self.sidebar.clone())
             .child(main)
             .children(dialog)
-            .children(self.settings.clone())
     }
 }
