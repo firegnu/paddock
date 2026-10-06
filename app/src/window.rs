@@ -18,6 +18,7 @@ use crate::{
     layout::{Axis, Direction, Node, PaneId, Placement, Shown, Workspace},
     layout_state::{Content, Layout, Store},
     menu,
+    motion::{self, HoverMotion},
     new_agent::{self, Place, Started},
     new_agent_view::Seed,
     pet::PetView,
@@ -2031,34 +2032,40 @@ impl PaddockWindow {
                 move |this, _: &ClickEvent, window, cx| this.select_tab(index, window, cx),
             )));
         }
-        // Lit while its panel is open, which hangs from it.
+        // Lit while its panel is open, which hangs from it; the `+` turns as the pointer comes in.
         let choosing = self.popup == Some(Popup::NewTab);
-        let new_tab = div()
-            .id("new-tab")
-            .relative()
-            .flex_shrink_0()
-            .flex()
-            .items_center()
-            .justify_center()
-            .size(ui.px(BAR_BUTTON))
-            .rounded(px(6.0))
-            .cursor_pointer()
-            .when(choosing, |button| button.bg(highlight))
-            .hover(move |style| style.bg(highlight))
-            .on_mouse_down(MouseButton::Left, keep)
-            .child(footer_icon::icon(
-                Icon::Plus,
-                if choosing {
-                    self.fg(|t| t.agents_text)
-                } else {
-                    self.fg(|t| t.muted)
-                },
-                scale,
-            ))
-            .child(self.spot(Spot::NewTab))
-            .on_click(
-                cx.listener(|this, _: &ClickEvent, window, cx| this.toggle_new_tab(window, cx)),
-            );
+        let color = if choosing {
+            self.fg(|t| t.agents_text)
+        } else {
+            self.fg(|t| t.muted)
+        };
+        let spot = self.spot(Spot::NewTab).into_any_element();
+        let on_click =
+            cx.listener(|this, _: &ClickEvent, window, cx| this.toggle_new_tab(window, cx));
+        let button_size = ui.px(BAR_BUTTON);
+        let new_tab = motion::hover_motion("new-tab-motion", motion::SPIN, move |hover| {
+            div()
+                .id("new-tab")
+                .relative()
+                .flex_shrink_0()
+                .flex()
+                .items_center()
+                .justify_center()
+                .size(button_size)
+                .rounded(px(6.0))
+                .cursor_pointer()
+                .when(choosing, |button| button.bg(highlight))
+                .hover(move |style| style.bg(highlight))
+                .on_mouse_down(MouseButton::Left, keep)
+                .child(footer_icon::posed(
+                    Icon::Plus,
+                    motion::spin(hover.play),
+                    color,
+                    scale,
+                ))
+                .child(spot)
+                .on_click(on_click)
+        });
         // Over the sidebar: the traffic lights, then the sidebar's header row (the expand button
         // alone over the strip), with room to drag by.
         let compact = sidebar::compact_bell(self.sidebar_width, full_screen, &ui);
@@ -2135,8 +2142,9 @@ impl PaddockWindow {
     }
 
     /// The right sidebar's switch, after the search field at the title bar's right end; lit while
-    /// the sidebar is open.
-    fn right_button(&self, cx: &mut Context<Self>) -> Stateful<Div> {
+    /// the sidebar is open. As the pointer comes in its edge slides the way the click goes, out
+    /// to close and in to open.
+    fn right_button(&self, cx: &mut Context<Self>) -> HoverMotion {
         let ui = UiFont::get(cx);
         let highlight = self.highlight();
         let lit = self.right.open;
@@ -2149,36 +2157,42 @@ impl PaddockWindow {
             background: hsla(self.theme.bg(|t| t.agents_bg), 1.0),
             border: self.fg(|t| t.agents_rule),
         };
-        div()
-            .id("right-sidebar")
-            .flex_shrink_0()
-            .flex()
-            .items_center()
-            .justify_center()
-            .size(ui.px(BAR_BUTTON))
-            .ml(ui.px(SPLIT_GAP))
-            .rounded(px(6.0))
-            .cursor_pointer()
-            .when(lit, |button| button.bg(highlight))
-            .hover(move |style| style.bg(highlight))
-            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-            .tooltip(move |_, cx| cx.new(|_| tip.clone()).into())
-            .child(footer_icon::icon(
-                Icon::RightSidebar,
-                if lit {
-                    self.fg(|t| t.agents_text)
-                } else {
-                    self.fg(|t| t.muted)
-                },
-                ui.scale(1.0),
-            ))
-            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.toggle_right(cx)))
+        let color = if lit {
+            self.fg(|t| t.agents_text)
+        } else {
+            self.fg(|t| t.muted)
+        };
+        let on_click = cx.listener(|this, _: &ClickEvent, _, cx| this.toggle_right(cx));
+        motion::hover_motion("right-sidebar-motion", motion::SHIFT, move |hover| {
+            div()
+                .id("right-sidebar")
+                .flex_shrink_0()
+                .flex()
+                .items_center()
+                .justify_center()
+                .size(ui.px(BAR_BUTTON))
+                .ml(ui.px(SPLIT_GAP))
+                .rounded(px(6.0))
+                .cursor_pointer()
+                .when(lit, |button| button.bg(highlight))
+                .hover(move |style| style.bg(highlight))
+                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                .tooltip(move |_, cx| cx.new(|_| tip.clone()).into())
+                .child(footer_icon::posed(
+                    Icon::RightSidebar,
+                    // Open, the click closes it: out, to the right.
+                    motion::shift(hover.play, lit),
+                    color,
+                    ui.scale(1.0),
+                ))
+                .on_click(on_click)
+        })
     }
 
     /// The way into the split panel for the active pane, always before the search field, as a
     /// lone pane has no header to carry its split button. Quiet until hovered; lit while the
-    /// panel hangs from it.
-    fn split_button(&self, cx: &mut Context<Self>) -> Stateful<Div> {
+    /// panel hangs from it. Its halves part as the pointer comes in.
+    fn split_button(&self, cx: &mut Context<Self>) -> HoverMotion {
         let ui = UiFont::get(cx);
         let highlight = self.highlight();
         let lit = self.split_hanging() == Some(SplitFrom::Bar);
@@ -2191,70 +2205,81 @@ impl PaddockWindow {
             background: hsla(self.theme.bg(|t| t.agents_bg), 1.0),
             border: self.fg(|t| t.agents_rule),
         };
-        div()
-            .id("split-pane")
-            .relative()
-            .flex_shrink_0()
-            .flex()
-            .items_center()
-            .justify_center()
-            .size(ui.px(BAR_BUTTON))
-            .mr(ui.px(SPLIT_GAP))
-            .rounded(px(6.0))
-            .cursor_pointer()
-            .when(lit, |button| button.bg(highlight))
-            .hover(move |style| style.bg(highlight))
-            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-            .tooltip(move |_, cx| cx.new(|_| tip.clone()).into())
-            .child(footer_icon::icon(
-                Icon::Split,
-                if lit {
-                    self.fg(|t| t.agents_text)
-                } else {
-                    self.fg(|t| t.muted)
-                },
-                ui.scale(1.0),
-            ))
-            .child(self.spot(Spot::Split))
-            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                this.ask_split(SplitAsk::Bar, window, cx)
-            }))
+        let color = if lit {
+            self.fg(|t| t.agents_text)
+        } else {
+            self.fg(|t| t.muted)
+        };
+        let spot = self.spot(Spot::Split).into_any_element();
+        let on_click = cx
+            .listener(|this, _: &ClickEvent, window, cx| this.ask_split(SplitAsk::Bar, window, cx));
+        motion::hover_motion("split-pane-motion", motion::PART, move |hover| {
+            div()
+                .id("split-pane")
+                .relative()
+                .flex_shrink_0()
+                .flex()
+                .items_center()
+                .justify_center()
+                .size(ui.px(BAR_BUTTON))
+                .mr(ui.px(SPLIT_GAP))
+                .rounded(px(6.0))
+                .cursor_pointer()
+                .when(lit, |button| button.bg(highlight))
+                .hover(move |style| style.bg(highlight))
+                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                .tooltip(move |_, cx| cx.new(|_| tip.clone()).into())
+                .child(footer_icon::posed(
+                    Icon::Split,
+                    motion::part(hover.play),
+                    color,
+                    ui.scale(1.0),
+                ))
+                .child(spot)
+                .on_click(on_click)
+        })
     }
 
     /// The way into the command palette, always at the title bar's right end: the tabs narrow
-    /// before it does.
-    fn search_button(&self, cx: &mut Context<Self>) -> Stateful<Div> {
+    /// before it does. Its magnifier tilts as the pointer comes in.
+    fn search_button(&self, cx: &mut Context<Self>) -> HoverMotion {
         let ui = UiFont::get(cx);
         let highlight = self.highlight();
-        div()
-            .id("search")
-            .flex_shrink_0()
-            .w(ui.px(SEARCH))
-            .h(ui.px(28.0))
-            .flex()
-            .items_center()
-            .gap(ui.px(8.0))
-            .pl(ui.px(10.0))
-            .pr(ui.px(6.0))
-            .rounded(px(7.0))
-            .border_1()
-            .border_color(hsla(self.theme.fg(|t| t.agents_rule), 0.6))
-            .bg(highlight.opacity(0.5))
-            .hover(move |style| style.bg(highlight))
-            .text_size(ui.px(12.5))
-            .text_color(self.fg(|t| t.agents_dim))
-            .cursor_pointer()
-            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-            .child(footer_icon::icon(
-                Icon::Search,
-                self.fg(|t| t.agents_dim),
-                ui.scale(13.0 / footer_icon::SIZE),
-            ))
-            .child(div().flex_1().child("Search"))
-            .child(self.keycaps(&menu::keys(&menu::Search), &ui, 18.0))
-            .on_click(
-                cx.listener(|this, _: &ClickEvent, window, cx| this.toggle_palette("", window, cx)),
-            )
+        let border = hsla(self.theme.fg(|t| t.agents_rule), 0.6);
+        let dim = self.fg(|t| t.agents_dim);
+        let keycaps = self.keycaps(&menu::keys(&menu::Search), &ui, 18.0);
+        let on_click =
+            cx.listener(|this, _: &ClickEvent, window, cx| this.toggle_palette("", window, cx));
+        motion::hover_motion("search-motion", motion::TILT, move |hover| {
+            div()
+                .id("search")
+                .flex_shrink_0()
+                .w(ui.px(SEARCH))
+                .h(ui.px(28.0))
+                .flex()
+                .items_center()
+                .gap(ui.px(8.0))
+                .pl(ui.px(10.0))
+                .pr(ui.px(6.0))
+                .rounded(px(7.0))
+                .border_1()
+                .border_color(border)
+                .bg(highlight.opacity(0.5))
+                .hover(move |style| style.bg(highlight))
+                .text_size(ui.px(12.5))
+                .text_color(dim)
+                .cursor_pointer()
+                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                .child(footer_icon::posed(
+                    Icon::Search,
+                    motion::tilt(hover.play),
+                    dim,
+                    ui.scale(13.0 / footer_icon::SIZE),
+                ))
+                .child(div().flex_1().child("Search"))
+                .child(keycaps)
+                .on_click(on_click)
+        })
     }
 
     /// A shortcut's keys, each on a small cap `height` points tall.

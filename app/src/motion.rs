@@ -1,9 +1,11 @@
 //! Icon buttons that move when the pointer comes over them (DESIGN §13, P5-26): the sidebar's bell
 //! swings, a card's Copy nudges and shows a tick once clicked, its Stop presses in and reddens, the
-//! menu button's knobs slide. A motion plays once as the pointer comes in, never loops, and asks
-//! for no frames once it is still. With the system's Reduce Motion on, nothing moves: colours and
-//! grounds still change and the tick still shows. The timings and curves are the approved demo's
-//! (`docs/设计稿/P5-26-图标动效/`).
+//! menu button's knobs slide. The title bar's way in to things too (P5-27): a sidebar switch's
+//! edge slides the way its click goes, the new tab `+` turns, Split parts, Search's magnifier
+//! tilts. A motion plays once as the pointer comes in, never loops, and asks for no frames once it
+//! is still. With the system's Reduce Motion on, nothing moves: colours and grounds still change
+//! and the tick still shows. The timings and curves are the approved demo's
+//! (`docs/设计稿/P5-26-图标动效/`), and in its manner for the title bar's (DESIGN §13).
 use crate::{
     footer_icon::{Icon, Pose},
     reduce_motion,
@@ -49,6 +51,30 @@ pub const SLIDE: Timing = Timing {
     fade: Duration::ZERO,
     flash: Duration::ZERO,
 };
+/// A sidebar switch's edge sliding out and back.
+pub const SHIFT: Timing = Timing {
+    play: ms(SHIFT_MS),
+    fade: Duration::ZERO,
+    flash: Duration::ZERO,
+};
+/// The new tab `+` turning a quarter.
+pub const SPIN: Timing = Timing {
+    play: ms(SPIN_MS),
+    fade: Duration::ZERO,
+    flash: Duration::ZERO,
+};
+/// Split's halves parting and closing.
+pub const PART: Timing = Timing {
+    play: ms(PART_MS),
+    fade: Duration::ZERO,
+    flash: Duration::ZERO,
+};
+/// The magnifier tilting.
+pub const TILT: Timing = Timing {
+    play: ms(TILT_MS),
+    fade: Duration::ZERO,
+    flash: Duration::ZERO,
+};
 
 const RING_MS: f32 = 520.0;
 const CLAPPER_DELAY_MS: f32 = 40.0;
@@ -85,6 +111,19 @@ const KNOB_DELAY_MS: f32 = 60.0;
 /// How far each knob goes, top to bottom, halfway through its slide.
 const KNOB_REACH: [f32; 3] = [4.5, -5.0, 4.0];
 const SLIDE_EASE: Bezier = Bezier(0.45, 0.0, 0.2, 1.0);
+const SHIFT_MS: f32 = 360.0;
+/// How far a sidebar switch's edge goes, halfway through.
+const SHIFT_REACH: f32 = 1.5;
+const SPIN_MS: f32 = 320.0;
+const SPIN_DEGREES: f32 = 90.0;
+const PART_MS: f32 = 380.0;
+/// How far each half of Split goes from the seam, halfway through.
+const PART_REACH: f32 = 0.9;
+const TILT_MS: f32 = 420.0;
+/// The magnifier's tilt in degrees clockwise, at fractions of its time.
+const TILT_FRAMES: [(f32, f32); 4] = [(0.0, 0.0), (0.3, -14.0), (0.65, 8.0), (1.0, 0.0)];
+/// The bell's curve.
+const TILT_EASE: Bezier = RING_EASE;
 
 const fn ms(ms: f32) -> Duration {
     Duration::from_millis(ms as u64)
@@ -339,6 +378,47 @@ pub fn slide(play: Option<Duration>) -> Pose {
     Pose::Slide(by)
 }
 
+/// A sidebar switch's edge `play` into its slide, to the right when `rightward`, else to the
+/// left: the way its click will take the sidebar's edge.
+pub fn shift(play: Option<Duration>, rightward: bool) -> Pose {
+    let Some(play) = play else {
+        return Pose::Rest;
+    };
+    let t = (millis(play) / SHIFT_MS).min(1.0);
+    let by = keyframes(t, &[(0.0, 0.0), (0.5, SHIFT_REACH), (1.0, 0.0)], SLIDE_EASE);
+    Pose::Shift(if rightward { by } else { -by })
+}
+
+/// The `+` `play` into its quarter turn, overshooting a little before it settles.
+pub fn spin(play: Option<Duration>) -> Pose {
+    let Some(play) = play else {
+        return Pose::Rest;
+    };
+    Pose::Turn(SPIN_DEGREES * SPRING.at(millis(play) / SPIN_MS))
+}
+
+/// Split's halves `play` into parting and closing again.
+pub fn part(play: Option<Duration>) -> Pose {
+    let Some(play) = play else {
+        return Pose::Rest;
+    };
+    let t = (millis(play) / PART_MS).min(1.0);
+    Pose::Part(keyframes(
+        t,
+        &[(0.0, 0.0), (0.5, PART_REACH), (1.0, 0.0)],
+        SLIDE_EASE,
+    ))
+}
+
+/// The magnifier `play` into its tilt about the lens.
+pub fn tilt(play: Option<Duration>) -> Pose {
+    let Some(play) = play else {
+        return Pose::Rest;
+    };
+    let t = (millis(play) / TILT_MS).min(1.0);
+    Pose::Turn(keyframes(t, &TILT_FRAMES, TILT_EASE))
+}
+
 /// `from` blended `t` of the way to `to`, through red, green and blue as CSS does.
 pub fn mix(from: Hsla, to: Hsla, t: f32) -> Hsla {
     let (from, to) = (Rgba::from(from), Rgba::from(to));
@@ -506,6 +586,76 @@ mod tests {
         assert_eq!(&by[1..], &[0.0, 0.0]);
         assert_eq!(knobs(740.0), [0.0; 3]);
         assert_eq!(slide(None), Pose::Rest);
+    }
+
+    #[test]
+    fn sidebar_switch_edge_slides_the_way_of_the_click() {
+        let by = |play: f32, rightward: bool| match shift(Some(after(play)), rightward) {
+            Pose::Shift(by) => by,
+            pose => panic!("{pose:?}"),
+        };
+        // Halfway through 360ms: the whole 1.5 points, right or left.
+        assert!(close(by(180.0, true), 1.5));
+        assert!(close(by(180.0, false), -1.5));
+        let early = by(60.0, true);
+        assert!(early > 0.0 && early < 1.5, "{early}");
+        assert!(close(by(360.0, false), 0.0));
+        assert_eq!(shift(None, true), Pose::Rest);
+    }
+
+    #[test]
+    fn plus_turns_a_quarter_with_a_bounce() {
+        let turn = |play: f32| match spin(Some(after(play))) {
+            Pose::Turn(degrees) => degrees,
+            pose => panic!("{pose:?}"),
+        };
+        assert_eq!(turn(0.0), 0.0);
+        // Past the quarter on the way, settled on it at 320ms, where it looks as it did.
+        assert!(turn(200.0) > 90.0, "{}", turn(200.0));
+        assert_eq!(turn(320.0), 90.0);
+        assert_eq!(spin(None), Pose::Rest);
+    }
+
+    #[test]
+    fn split_parts_and_closes() {
+        let by = |play: f32| match part(Some(after(play))) {
+            Pose::Part(by) => by,
+            pose => panic!("{pose:?}"),
+        };
+        // Each half 0.9 points out halfway through 380ms, closed again at the end.
+        assert!(close(by(190.0), 0.9));
+        let early = by(50.0);
+        assert!(early > 0.0 && early < 0.9, "{early}");
+        assert!(close(by(380.0), 0.0));
+        assert_eq!(part(None), Pose::Rest);
+    }
+
+    #[test]
+    fn magnifier_tilts_back_then_forward() {
+        let degrees = |play: f32| match tilt(Some(after(play))) {
+            Pose::Turn(degrees) => degrees,
+            pose => panic!("{pose:?}"),
+        };
+        // 30% and 65% of 420ms: −14°, then 8°; upright again at the end.
+        assert!(close(degrees(126.0), -14.0));
+        assert!(close(degrees(273.0), 8.0));
+        assert!(close(degrees(420.0), 0.0));
+        assert_eq!(tilt(None), Pose::Rest);
+    }
+
+    #[test]
+    fn title_bar_motions_still_with_reduce_motion() {
+        let start = Instant::now();
+        for timing in [SHIFT, SPIN, PART, TILT] {
+            let mut state = State::default();
+            state.hover(true, start, true, timing);
+            let (hover, next) = state.at(start + after(100.0), timing);
+            assert_eq!((hover.play, hover.hovered, next), (None, true, Next::Idle));
+            assert_eq!(shift(hover.play, true), Pose::Rest);
+            assert_eq!(spin(hover.play), Pose::Rest);
+            assert_eq!(part(hover.play), Pose::Rest);
+            assert_eq!(tilt(hover.play), Pose::Rest);
+        }
     }
 
     #[test]

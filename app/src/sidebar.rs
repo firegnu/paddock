@@ -489,6 +489,11 @@ impl Sidebar {
     pub fn head(&mut self, compact: bool, spot: AnyElement, cx: &mut Context<Self>) -> Div {
         let ui = UiFont::get(cx);
         let keep = |_: &MouseDownEvent, _: &mut Window, cx: &mut App| cx.stop_propagation();
+        let gap = ui.px(if self.collapsed {
+            TOGGLE_GAP
+        } else {
+            TITLE_GAP
+        });
         let row = div()
             .flex_1()
             .min_w(px(0.0))
@@ -497,12 +502,7 @@ impl Sidebar {
             .items_center()
             .child(
                 self.collapse_button(self.collapsed, cx)
-                    .mr(ui.px(if self.collapsed {
-                        TOGGLE_GAP
-                    } else {
-                        TITLE_GAP
-                    }))
-                    .on_mouse_down(MouseButton::Left, keep),
+                    .map(move |button| button.mr(gap).on_mouse_down(MouseButton::Left, keep)),
             );
         if self.collapsed {
             return row;
@@ -724,8 +724,9 @@ impl Sidebar {
     }
 
     /// The button that collapses the sidebar (`expand` false) or expands the strip, one size
-    /// either way so it stays put in the title bar.
-    fn collapse_button(&self, expand: bool, cx: &mut Context<Self>) -> gpui::Stateful<Div> {
+    /// either way so it stays put in the title bar; as the pointer comes in its edge slides the
+    /// way the click goes, out to collapse and in to expand.
+    fn collapse_button(&self, expand: bool, cx: &mut Context<Self>) -> HoverMotion {
         let ui = UiFont::get(cx);
         let tip = if expand {
             "Expand sidebar (⌘B)"
@@ -733,29 +734,37 @@ impl Sidebar {
             "Collapse sidebar (⌘B)"
         };
         // Expanding, it stands on the title bar's opaque row, in its buttons' colours.
-        let look = if expand {
+        let (theme, selected, ink) = if expand {
             (
-                &*self.given,
+                self.given.clone(),
                 Grounds::of(&self.given, false).selected,
                 (|t| t.muted) as Pick,
             )
         } else {
             (
-                &*self.theme,
+                self.theme.clone(),
                 self.grounds().selected,
                 (|t| t.agents_dim) as Pick,
             )
         };
-        button(
-            look,
-            &ui,
-            "collapse",
-            (Icon::LeftSidebar, Pose::Rest, footer_icon::SIZE),
-            tip,
-            (TOGGLE, TOGGLE, 6.0),
-            false,
-        )
-        .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(SidebarEvent::ToggleCollapse)))
+        let on_click =
+            cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(SidebarEvent::ToggleCollapse));
+        motion::hover_motion("collapse-motion", motion::SHIFT, move |hover| {
+            button(
+                (&theme, selected, ink),
+                &ui,
+                "collapse",
+                (
+                    Icon::LeftSidebar,
+                    motion::shift(hover.play, expand),
+                    footer_icon::SIZE,
+                ),
+                tip,
+                (TOGGLE, TOGGLE, 6.0),
+                false,
+            )
+            .on_click(on_click)
+        })
     }
 
     /// The collapsed strip: the bell, then a tile for each agent, the projects set apart by short
