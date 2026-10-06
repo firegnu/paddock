@@ -59,3 +59,11 @@
 - **验证了什么**：`git diff --check` 通过；新测试 `kind_icon::tests::each_known_kind_has_its_own_icon_and_others_none`（四种各对上自己的文件，不认识的和空的为 `None`）；`app/` 下 `cargo test --all-targets` 全过，`cargo clippy --all-targets -- -D warnings` 无警告。截图（scratchpad，不入库）：侧栏 13 和 18 各一张，用 `PADDOCK_NO_ACTIVATE=1`、临时 HOME、假 corral（四种各一个，另加一个 `gemini` 看不认识的种类、一个长名字看让位）；四个图标 64pt 对照图，用 scratchpad 里的临时 GPUI 程序画，三套预置主题各一行，每行下面附 13pt 的样子。13 和 18 下都不折行；18 下长名字先去掉 `xhigh`，名字截断，图标和 `claude` 保留。
 - **拿主意的地方**：四个图标宽度不同、高度一样：pi 是实心方块，按原宽画显得重，画成 0.8 宽；omp 的原图是 4:3、细腿的 π，画成 1.15 宽；claude、codex 是 1.0。这样不用改官方文件就让四个分量接近。图标和名字之间用已有的标记间距（5pt），图标和种类文字之间沿用原来的间距。omp 原图里插头上的两根深色插脚在单色遮罩里和插头连成一块，13pt 下本来也看不出；两边橙色小点是 0.8 透明度，小尺寸下基本看不见。对照图里四个图标用的是各主题的种类颜色，pi 在三套主题里都是接近白色，那是主题本来的颜色。
 - **没做的事**：没改标签、窄条、palette、卡片第二行和详情；没新增主题颜色键、没加依赖、`Cargo.lock` 没动；没打包安装，没合并，没推送。13pt 的截图是窗口在后台时截的，画面完整，但实际观感（尤其 pi 的实心方块在浅色主题下的分量）留给用户看。
+
+## 主控审查
+
+2026-10-06，paddock/main。可以合并，已合并。
+- 用户看过截图（四个图标放大对照、侧栏 13 和 18 号字）：“可以，合并吧，pi 不用改”。
+- 范围符合约定：只加 `app/assets/kinds/`、`kind_icon.rs`，改 `sidebar.rs`、`lib.rs`；没有放 Anthropic、OpenAI 的官方图形；出处说明写了来源、许可、商标说明和“分发前复核”；omp 的 MIT 声明全文在 `LICENSE-omp`。`Cargo.lock` 未变。
+- 合并后在 main 上重跑 `cargo test --all-targets`，197 项通过；`cargo clippy --all-targets -- -D warnings` 通过。
+- 对方的取舍：四个图标同高不同宽（pi 0.8、omp 1.15）以求分量相近、名字放不下时图标和种类文字留到最后，同意。对方在假 corral 里多加了两个 agent 看边界、写了临时对照程序，超出验证预算但无害，产物随编译目录清掉。
