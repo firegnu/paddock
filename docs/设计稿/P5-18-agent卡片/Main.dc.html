@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>paddock agent cards</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;background:#081010}
+.pd-btn{background:none;border:0;padding:0;margin:0;font:inherit;color:inherit;cursor:pointer;text-align:left}
+.pd-head:hover{background:rgba(214,230,225,.035)}
+.pd-copy:hover{color:#d6e6e1;background:rgba(214,230,225,.06)}
+.pd-ico:hover{background:#172b2a;color:#d6e6e1}
+.pd-pulse{animation:pdpulse 1.6s ease-in-out infinite}
+@keyframes pdpulse{0%,100%{box-shadow:0 0 0 0 rgba(126,162,238,.55)}50%{box-shadow:0 0 0 4px rgba(126,162,238,0)}}
+.pd-mono{font-family:'SF Mono',Menlo,monospace}
+</style>
+</helmet>
+<div style="width:320px;height:780px;box-sizing:border-box;display:flex;flex-direction:column;background:#0c1616;color:#d6e6e1;font-family:-apple-system,'SF Pro Text','Helvetica Neue',sans-serif;font-size:13px;overflow:hidden">
+
+  <div style="flex:1;min-height:0;overflow:hidden;padding:4px 8px 10px">
+    <sc-for list="{{groups}}" as="g" hint-placeholder-count="2">
+      <div style="padding:{{g.pad}};font-size:10.5px;font-weight:600;letter-spacing:.08em;color:#668580;display:flex;gap:6px">
+        <span>{{g.label}}</span><span style="color:#4d6763">{{g.n}}</span>
+      </div>
+
+      <sc-for list="{{g.agents}}" as="a" hint-placeholder-count="2">
+        <div style="border-radius:9px;margin-bottom:2px;background:{{a.bg}}">
+
+          <!-- ===== Today ===== -->
+          <sc-if value="{{now}}" hint-placeholder-val="{{false}}">
+            <button class="pd-btn pd-head" onClick="{{a.toggle}}" aria-expanded="{{a.open}}" style="display:block;width:100%;box-sizing:border-box;padding:9px 12px 8px;border-radius:9px">
+              <div style="display:flex;align-items:center;gap:7px">
+                <span style="width:9px;height:9px;border-radius:{{a.dotRadius}};background:{{a.dot}};flex-shrink:0"></span>
+                <span style="font-size:14px;font-weight:600;white-space:nowrap">{{a.name}}</span>
+                <sc-if value="{{a.here}}" hint-placeholder-val="{{false}}">
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="#83a098" stroke-width="1.1"><rect x="1" y="2" width="10" height="8" rx="1.5"/><path d="M1 5h10"/></svg>
+                </sc-if>
+                <sc-if value="{{a.isClaude}}" hint-placeholder-val="{{true}}">
+                  <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="#e48c66" stroke-width="2" stroke-linecap="round"><path d="M8 1.75V14.25"/><path d="M2.59 4.88L13.41 11.12"/><path d="M2.59 11.12L13.41 4.88"/></svg>
+                </sc-if>
+                <sc-if value="{{a.isCodex}}" hint-placeholder-val="{{false}}">
+                  <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="#6fd3c2" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="1.3" y="1.3" width="13.4" height="13.4" rx="3.6"/><path d="M4.9 5.4L7.4 8L4.9 10.6"/><path d="M8.9 10.6H11.3"/></svg>
+                </sc-if>
+                <sc-if value="{{a.isPi}}" hint-placeholder-val="{{false}}">
+                  <svg width="11" height="11" viewBox="0 0 560 560" fill="#c8b6e2"><path d="M420 280H280V140H0V0H420V280Z"/><path d="M560 560H420V280H560V560Z"/><path d="M140 560H0V140H140V280H280V420H140V560Z"/></svg>
+                </sc-if>
+                <span style="font-size:12.5px;color:{{a.kindColor}};white-space:nowrap">{{a.kind}}</span>
+                <span style="font-size:12.5px;color:#668580;white-space:nowrap">{{a.effortSuffix}}</span>
+                <span style="flex:1"></span>
+                <span style="font-size:12.5px;color:{{a.timeColor}};white-space:nowrap">{{a.oldRight}}</span>
+              </div>
+              <div style="margin:4px 0 0 16px;font-size:12.5px;color:#83a098;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{a.oldSecond}}<span style="color:#dbbd6e">{{a.oldAhead}}</span></div>
+            </button>
+            <sc-if value="{{a.open}}" hint-placeholder-val="{{false}}">
+              <div style="margin:0 12px 0 28px;padding:9px 0 12px;box-shadow:inset 0 1px 0 #1f3633;display:grid;grid-template-columns:96px minmax(0,1fr);row-gap:6px;font-size:12.5px">
+                <sc-for list="{{a.oldRows}}" as="r" hint-placeholder-count="6">
+                  <span style="color:#668580">{{r.k}}</span>
+                  <span style="color:#d6e6e1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{r.v}}</span>
+                </sc-for>
+              </div>
+            </sc-if>
+          </sc-if>
+
+          <!-- ===== Proposed ===== -->
+          <sc-if value="{{fresh}}" hint-placeholder-val="{{true}}">
+            <button class="pd-btn pd-head" onClick="{{a.toggle}}" aria-expanded="{{a.open}}" style="display:block;width:100%;box-sizing:border-box;padding:9px 12px 9px;border-radius:9px">
+              <div style="display:flex;align-items:center;gap:7px">
+                <span class="{{a.pulse}}" style="width:8px;height:8px;border-radius:50%;background:{{a.dot}};flex-shrink:0"></span>
+                <span style="font-size:13.5px;font-weight:{{a.weight}};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{a.name}}</span>
+                <sc-if value="{{a.isClaude}}" hint-placeholder-val="{{true}}">
+                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="#e48c66" stroke-width="2" stroke-linecap="round" aria-label="Claude Code"><path d="M8 1.75V14.25"/><path d="M2.59 4.88L13.41 11.12"/><path d="M2.59 11.12L13.41 4.88"/></svg>
+                </sc-if>
+                <sc-if value="{{a.isCodex}}" hint-placeholder-val="{{false}}">
+                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="#6fd3c2" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-label="Codex"><rect x="1.3" y="1.3" width="13.4" height="13.4" rx="3.6"/><path d="M4.9 5.4L7.4 8L4.9 10.6"/><path d="M8.9 10.6H11.3"/></svg>
+                </sc-if>
+                <sc-if value="{{a.isPi}}" hint-placeholder-val="{{false}}">
+                  <svg width="10" height="10" viewBox="0 0 560 560" fill="#c8b6e2" aria-label="pi"><path d="M420 280H280V140H0V0H420V280Z"/><path d="M560 560H420V280H560V560Z"/><path d="M140 560H0V140H140V280H280V420H140V560Z"/></svg>
+                </sc-if>
+                <sc-if value="{{a.here}}" hint-placeholder-val="{{false}}">
+                  <span style="font-size:10.5px;font-weight:600;letter-spacing:.02em;color:#7fd4bf;padding:1px 5px;border-radius:4px;background:rgba(127,212,191,.10)">here</span>
+                </sc-if>
+                <span style="flex:1"></span>
+                <span style="font-size:12px;white-space:nowrap;font-variant-numeric:tabular-nums"><span style="color:{{a.stateColor}}">{{a.stateWord}}</span><span style="color:#4d6763">{{a.sep}}</span><span style="color:{{a.timeColor}}">{{a.time}}</span></span>
+              </div>
+              <div style="display:flex;align-items:center;gap:6px;margin:3px 0 0 15px;font-size:12px;white-space:nowrap;overflow:hidden">
+                <span style="color:{{a.secondColor}};overflow:hidden;text-overflow:ellipsis;min-width:0">{{a.second}}</span>
+                <sc-if value="{{a.showPlace}}" hint-placeholder-val="{{false}}">
+                  <span style="color:#83a098;overflow:hidden;text-overflow:ellipsis;min-width:0">{{a.placeDir}}</span>
+                  <span style="color:#83a098;flex-shrink:0;display:flex;align-items:center;gap:3px">
+                    <svg width="10" height="11" viewBox="0 0 10 11" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"><circle cx="2.5" cy="2.5" r="1.4"/><circle cx="2.5" cy="8.5" r="1.4"/><circle cx="7.5" cy="3.5" r="1.4"/><path d="M2.5 4v3M7.5 5c0 2-5 1.5-5 2"/></svg>
+                    {{a.branch}}
+                  </span>
+                  <span style="color:#dbbd6e;flex-shrink:0">{{a.ahead}}</span>
+                  <span style="color:#83a098;flex-shrink:0">{{a.dirty}}</span>
+                </sc-if>
+              </div>
+            </button>
+
+            <sc-if value="{{a.open}}" hint-placeholder-val="{{false}}">
+              <div style="padding:2px 12px 10px 27px">
+                <sc-if value="{{a.hasReply}}" hint-placeholder-val="{{false}}">
+                  <div style="margin:2px 0 10px;padding:8px 10px;border-radius:7px;background:rgba(214,230,225,.04)">
+                    <div style="display:flex;font-size:10.5px;font-weight:600;letter-spacing:.06em;color:#668580;margin-bottom:4px"><span>LAST REPLY</span><span style="flex:1"></span><span style="font-weight:400;letter-spacing:0">{{a.replyAge}}</span></div>
+                    <div style="font-size:12px;line-height:1.5;color:#b8ccc6;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden">{{a.reply}}</div>
+                  </div>
+                </sc-if>
+                <div style="display:grid;grid-template-columns:78px minmax(0,1fr);row-gap:5px;font-size:12px">
+                  <sc-for list="{{a.rows}}" as="r" hint-placeholder-count="5">
+                    <span style="color:#668580">{{r.k}}</span>
+                    <span style="color:#b8ccc6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{r.v}}</span>
+                  </sc-for>
+                </div>
+                <div style="display:flex;justify-content:flex-end;margin-top:6px">
+                  <button class="pd-btn pd-copy" aria-label="Copy instance ID" style="font-size:11px;color:#668580;padding:2px 6px;border-radius:5px">Copy ID</button>
+                </div>
+              </div>
+            </sc-if>
+          </sc-if>
+        </div>
+      </sc-for>
+    </sc-for>
+  </div>
+
+  <div style="height:50px;flex-shrink:0;display:flex;align-items:center;padding:0 10px">
+    <button class="pd-btn pd-ico" aria-label="Agent actions and settings" style="width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#83a098">
+      <svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round"><path d="M2 4h11M2 7.5h11M2 11h11"/><circle cx="5" cy="4" r="1.4" fill="#0c1616"/><circle cx="10" cy="7.5" r="1.4" fill="#0c1616"/><circle cx="6.5" cy="11" r="1.4" fill="#0c1616"/></svg>
+    </button>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":320,"height":780},"look":{"editor":"enum","options":["new","now"],"default":"new"},"open":{"editor":"enum","options":["none","work","idle","both"],"default":"none"}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    const o = props.open || 'none';
+    const open = {};
+    if (o === 'work' || o === 'both') open.cards = true;
+    if (o === 'idle' || o === 'both') open.main = true;
+    this.state = { open };
+  }
+  renderVals() {
+    const fresh = (this.props.look || 'new') !== 'now';
+    const s = this.state;
+    const C = { blue: '#7ea2ee', green: '#9cc98e', yellow: '#dbbd6e', stalled: '#d9a066', dim: '#83a098', dimmer: '#668580', text: '#d6e6e1' };
+    const kindColor = { claude: '#e48c66', codex: '#6fd3c2', pi: '#c8b6e2' };
+    const defs = [
+      { group: 'PADDOCK', id: 'cards', name: 'dev-cards-1', kind: 'claude', status: 'working', tool: 'Edit', time: '4m', sel: true,
+        title: 'P5-17 窗格卡片风格', dir: 'p5-17-cards', fullDir: '~/…/paddock-worktrees/p5-17-cards', branch: 'p5-17-cards', ahead: '', dirty: '3 changed',
+        model: 'opus[1m]', effort: 'high', attached: 0, input: 'corral send', inputAgo: '4 min ago', up: '22m' },
+      { group: 'PADDOCK', id: 'review', name: 'review-cards', kind: 'codex', status: 'waiting', time: '1m',
+        title: 'Allow cargo clean in the worktree?', dir: 'review', fullDir: '~/…/paddock-worktrees/review', branch: 'p5-17-cards', ahead: '', dirty: '',
+        model: 'gpt-6-astra', effort: 'xhigh', attached: 0, input: 'corral send', inputAgo: '6 min ago', up: '8m' },
+      { group: 'PADDOCK', id: 'main', name: 'main', kind: 'claude', status: 'idle', time: '57s', here: true,
+        title: '', dir: 'paddock', fullDir: '~/Developer/personal_projs/paddock', branch: 'main', ahead: '↑1', dirty: '',
+        model: '', effort: '', attached: 1, input: 'agent', inputAgo: '3 min ago', up: '1h 12m',
+        reply: 'P5-17 卡片风格已经派出去开工了。按你说的，照我前面的建议全做，不是最小版本。agent 是 paddock/dev-cards-1，它这一轮结束时我会收到提醒，然后去审查、合并、收尾。', replyAge: '57s ago' },
+      { group: 'PADDOCK', id: 'test', name: 'test-a', kind: 'pi', status: 'stalled', tool: 'Bash', time: '18m',
+        title: 'cargo build --release', dir: 'tmp-a', fullDir: '/tmp/paddock-test-a', branch: '', ahead: '', dirty: '',
+        model: '', effort: '', attached: 0, input: 'corral send', inputAgo: '19 min ago', up: '19m' },
+      { group: 'RANCH', id: 'ranch', name: 'main', kind: 'codex', status: 'idle', time: '1h',
+        title: '', dir: 'ranch', fullDir: '~/Developer/personal_projs/ranch', branch: 'main', ahead: '', dirty: '',
+        model: '', effort: '', attached: 0, input: 'You', inputAgo: '1 hr ago', up: '3h',
+        reply: 'Dispatch route now returns null when confidence is low; the caller falls back to its own rule.', replyAge: '1h ago' }
+    ];
+    const word = { working: 'Working', waiting: 'Waiting', idle: 'Idle', stalled: 'Stalled' };
+    const color = { working: C.blue, waiting: C.yellow, idle: C.green, stalled: C.stalled };
+    const card = (d) => {
+      const open = !!s.open[d.id];
+      const sameName = d.dir === d.branch;
+      const place = d.branch ? (sameName ? '' : d.dir + ' ·') : d.dir;
+      const busy = d.status === 'working' || d.status === 'stalled';
+      let second = '', secondColor = C.dim, showPlace = false;
+      if (busy && d.title) { second = d.title; secondColor = '#b8ccc6'; }
+      else if (d.status === 'waiting') { second = 'Waiting for you: ' + d.title; secondColor = C.yellow; }
+      else { showPlace = true; }
+      const rows = [];
+      rows.push({ k: 'Path', v: d.fullDir });
+      if (d.branch) rows.push({ k: 'Changes', v: [d.dirty || 'clean', d.ahead ? d.ahead.replace('↑', '') + ' to push' : ''].filter(Boolean).join(' · ') });
+      if (d.model) rows.push({ k: 'Model', v: d.model + ' · ' + d.effort });
+      rows.push({ k: 'Running', v: busy ? d.time + ' this turn · up ' + d.up : 'up ' + d.up });
+      rows.push({ k: 'Last input', v: d.input + ' · ' + d.inputAgo });
+      rows.push({ k: 'Windows', v: d.attached === 0 ? 'none attached' : (d.attached + ' attached' + (d.here ? ' · open here' : '')) });
+      const oldRows = [
+        { k: 'Status', v: word[d.status] + (d.tool ? ' · ' + d.tool : '') },
+        { k: 'Directory', v: d.fullDir }
+      ];
+      if (d.branch) oldRows.push({ k: 'Branch', v: d.branch + ' · ' + (d.dirty ? 'dirty' : 'clean') + (d.ahead ? ' · 1 ahead' : '') });
+      if (d.model) oldRows.push({ k: 'Model', v: d.model + ' · ' + d.effort });
+      oldRows.push({ k: 'Attached', v: d.attached === 0 ? 'no windows' : d.attached + ' window' });
+      oldRows.push({ k: 'Last input', v: d.input + ', ' + d.inputAgo });
+      oldRows.push({ k: 'Instance', v: d.id === 'cards' ? '6459b5ec25a6' : '4d80190e77c5' });
+      return {
+        ...d,
+        open,
+        toggle: () => this.setState({ open: { ...s.open, [d.id]: !open } }),
+        bg: d.sel ? '#172b2a' : 'transparent',
+        weight: d.sel ? 600 : 500,
+        dot: color[d.status],
+        dotRadius: d.status === 'working' ? '3px' : '50%',
+        pulse: d.status === 'working' ? 'pd-pulse' : '',
+        isClaude: d.kind === 'claude', isCodex: d.kind === 'codex', isPi: d.kind === 'pi',
+        kindColor: kindColor[d.kind],
+        effortSuffix: d.effort ? '· ' + d.effort : '',
+        oldRight: (d.tool ? d.tool + ' · ' : '') + d.time,
+        oldSecond: d.fullDir.replace('~/Developer/', '~/…/').replace('~/…/paddock-worktrees/', '~/…/') + (d.branch ? ' · ⎇ ' + d.branch + ' ' : ''),
+        oldAhead: d.ahead,
+        stateWord: busy && d.tool ? d.tool : word[d.status],
+        stateColor: busy ? color[d.status] : C.dimmer,
+        sep: ' · ',
+        timeColor: d.status === 'idle' ? C.dimmer : color[d.status],
+        second, secondColor, showPlace,
+        placeDir: place,
+        hasReply: !!d.reply,
+        rows, oldRows
+      };
+    };
+    const groupsOf = ['PADDOCK', 'RANCH'];
+    const groups = groupsOf.map((label, i) => {
+      const agents = defs.filter((d) => d.group === label).map(card);
+      return { label, n: agents.length, pad: i === 0 ? '10px 12px 6px' : '16px 12px 6px', agents };
+    });
+    return { fresh, now: !fresh, groups };
+  }
+}
+</script>
+</body>
+</html>

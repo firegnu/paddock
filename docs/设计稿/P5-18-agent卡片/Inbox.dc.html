@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>paddock agent inbox</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;background:#081010}
+.pd-btn{background:none;border:0;padding:0;margin:0;font:inherit;color:inherit;cursor:pointer;text-align:left}
+.pd-row:hover{background:rgba(214,230,225,.035)}
+.pd-act{transition:background .12s ease,color .12s ease}
+.pd-act:hover{background:rgba(214,230,225,.09);color:#d6e6e1}
+.pd-cta:hover{filter:brightness(1.08)}
+.pd-ico:hover{background:#172b2a;color:#d6e6e1}
+.pd-spin{animation:pdspin 1.1s linear infinite;transform-origin:50% 50%}
+@keyframes pdspin{to{transform:rotate(360deg)}}
+.pd-ping{animation:pdping 1.8s ease-out infinite}
+@keyframes pdping{0%{box-shadow:0 0 0 0 rgba(219,189,110,.6)}70%,100%{box-shadow:0 0 0 6px rgba(219,189,110,0)}}
+.pd-mono{font-family:'SF Mono',Menlo,monospace}
+</style>
+</helmet>
+<div style="width:320px;height:780px;box-sizing:border-box;display:flex;flex-direction:column;background:#0c1616;color:#d6e6e1;font-family:-apple-system,'SF Pro Text','Helvetica Neue',sans-serif;font-size:13px;overflow:hidden">
+
+  <div style="flex:1;min-height:0;overflow:hidden;padding:2px 8px 10px">
+    <sc-for list="{{groups}}" as="g" hint-placeholder-count="2">
+
+      <!-- Group: name, count, and a thin bar of how its agents are doing -->
+      <div style="display:flex;align-items:center;gap:8px;padding:{{g.pad}}">
+        <span style="font-size:10.5px;font-weight:650;letter-spacing:.09em;color:#83a098">{{g.label}}</span>
+        <span style="font-size:10.5px;color:#4d6763">{{g.n}}</span>
+        <span style="flex:1"></span>
+        <div style="display:flex;gap:2px;width:{{g.barW}}px">
+          <sc-for list="{{g.bar}}" as="b" hint-placeholder-count="3">
+            <span style="flex:1;height:3px;border-radius:2px;background:{{b.c}}"></span>
+          </sc-for>
+        </div>
+      </div>
+
+      <sc-for list="{{g.agents}}" as="a" hint-placeholder-count="2">
+        <div style="position:relative;border-radius:12px;margin-bottom:3px;background:{{a.bg}};box-shadow:{{a.ring}}">
+          <button class="pd-btn pd-row" onClick="{{a.toggle}}" aria-expanded="{{a.open}}" style="display:flex;gap:11px;width:100%;box-sizing:border-box;padding:10px 12px 10px 10px;border-radius:12px">
+
+            <!-- Avatar: the kind, tinted; status on its corner -->
+            <span style="position:relative;width:34px;height:34px;flex-shrink:0;border-radius:10px;background:{{a.tile}};display:flex;align-items:center;justify-content:center;margin-top:1px">
+              <sc-if value="{{a.isClaude}}" hint-placeholder-val="{{true}}">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#e48c66" stroke-width="2" stroke-linecap="round" aria-label="Claude Code"><path d="M8 1.75V14.25"/><path d="M2.59 4.88L13.41 11.12"/><path d="M2.59 11.12L13.41 4.88"/></svg>
+              </sc-if>
+              <sc-if value="{{a.isCodex}}" hint-placeholder-val="{{false}}">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#6fd3c2" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-label="Codex"><rect x="1.3" y="1.3" width="13.4" height="13.4" rx="3.6"/><path d="M4.9 5.4L7.4 8L4.9 10.6"/><path d="M8.9 10.6H11.3"/></svg>
+              </sc-if>
+              <sc-if value="{{a.isPi}}" hint-placeholder-val="{{false}}">
+                <svg width="13" height="13" viewBox="0 0 560 560" fill="#c8b6e2" aria-label="pi"><path d="M420 280H280V140H0V0H420V280Z"/><path d="M560 560H420V280H560V560Z"/><path d="M140 560H0V140H140V280H280V420H140V560Z"/></svg>
+              </sc-if>
+
+              <sc-if value="{{a.working}}" hint-placeholder-val="{{false}}">
+                <span style="position:absolute;right:-4px;bottom:-4px;width:15px;height:15px;border-radius:50%;background:{{a.cardBg}};display:flex;align-items:center;justify-content:center">
+                  <svg class="pd-spin" width="11" height="11" viewBox="0 0 12 12" fill="none" stroke-width="2" stroke-linecap="round"><circle cx="6" cy="6" r="4.5" stroke="rgba(126,162,238,.25)"/><path d="M6 1.5a4.5 4.5 0 0 1 4.5 4.5" stroke="#7ea2ee"/></svg>
+                </span>
+              </sc-if>
+              <sc-if value="{{a.waiting}}" hint-placeholder-val="{{false}}">
+                <span class="pd-ping" style="position:absolute;right:-3px;bottom:-3px;width:11px;height:11px;border-radius:50%;background:#dbbd6e;box-shadow:0 0 0 2.5px {{a.cardBg}}"></span>
+              </sc-if>
+              <sc-if value="{{a.stalled}}" hint-placeholder-val="{{false}}">
+                <span style="position:absolute;right:-4px;bottom:-4px;width:14px;height:14px;border-radius:50%;background:#d9a066;color:#0c1616;font-size:10px;font-weight:800;display:flex;align-items:center;justify-content:center;box-shadow:0 0 0 2px {{a.cardBg}}">!</span>
+              </sc-if>
+              <sc-if value="{{a.idle}}" hint-placeholder-val="{{false}}">
+                <span style="position:absolute;right:-2px;bottom:-2px;width:8px;height:8px;border-radius:50%;background:#9cc98e;box-shadow:0 0 0 2.5px {{a.cardBg}}"></span>
+              </sc-if>
+            </span>
+
+            <!-- Words -->
+            <span style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px">
+              <span style="display:flex;align-items:baseline;gap:6px;min-width:0">
+                <span style="font-size:14px;font-weight:{{a.weight}};letter-spacing:-.01em;color:{{a.nameColor}};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{a.name}}</span>
+                <sc-if value="{{a.here}}" hint-placeholder-val="{{false}}">
+                  <span title="Open in this window" style="width:5px;height:5px;border-radius:50%;background:#7fd4bf;flex-shrink:0;align-self:center"></span>
+                </sc-if>
+                <span style="font-size:11.5px;color:#4d6763;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0">{{a.where}}</span>
+                <span style="flex:1"></span>
+                <span style="font-size:11.5px;color:{{a.timeColor}};white-space:nowrap;font-variant-numeric:tabular-nums">{{a.time}}</span>
+              </span>
+              <span style="font-size:12.5px;line-height:1.42;color:{{a.previewColor}};display:-webkit-box;-webkit-line-clamp:{{a.clamp}};-webkit-box-orient:vertical;overflow:hidden"><span style="color:{{a.leadColor}};font-weight:600">{{a.lead}}</span>{{a.preview}}</span>
+            </span>
+          </button>
+
+          <!-- Waiting: the answer is one click away -->
+          <sc-if value="{{a.waiting}}" hint-placeholder-val="{{false}}">
+            <div style="display:flex;gap:6px;padding:0 12px 11px 55px">
+              <button class="pd-btn pd-cta" style="height:24px;padding:0 10px;border-radius:7px;background:#dbbd6e;color:#1a1608;font-size:12px;font-weight:600">Reply</button>
+              <button class="pd-btn pd-act" style="height:24px;padding:0 10px;border-radius:7px;background:rgba(214,230,225,.06);color:#b8ccc6;font-size:12px">Open</button>
+            </div>
+          </sc-if>
+
+          <!-- Expanded -->
+          <sc-if value="{{a.open}}" hint-placeholder-val="{{false}}">
+            <div style="padding:0 12px 12px 55px;display:flex;flex-direction:column;gap:10px">
+              <div style="display:flex;flex-wrap:wrap;gap:5px">
+                <sc-for list="{{a.chips}}" as="c" hint-placeholder-count="3">
+                  <span style="height:21px;display:flex;align-items:center;gap:4px;padding:0 7px;border-radius:6px;background:rgba(214,230,225,.055);font-size:11.5px;color:{{c.color}}">{{c.t}}</span>
+                </sc-for>
+              </div>
+              <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 12px">
+                <sc-for list="{{a.stats}}" as="st" hint-placeholder-count="4">
+                  <span style="display:flex;flex-direction:column;gap:1px;min-width:0">
+                    <span style="font-size:9.5px;font-weight:650;letter-spacing:.09em;color:#4d6763">{{st.k}}</span>
+                    <span style="font-size:12.5px;color:#d6e6e1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{st.v}}</span>
+                  </span>
+                </sc-for>
+              </div>
+              <div class="pd-mono" style="font-size:11px;color:#668580;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{a.path}}</div>
+              <div style="display:flex;gap:4px;margin-top:-2px">
+                <button class="pd-btn pd-act" style="height:24px;padding:0 9px;border-radius:7px;color:#83a098;font-size:12px">Open</button>
+                <button class="pd-btn pd-act" style="height:24px;padding:0 9px;border-radius:7px;color:#83a098;font-size:12px">Copy ID</button>
+                <span style="flex:1"></span>
+                <button class="pd-btn pd-act" style="height:24px;padding:0 9px;border-radius:7px;color:#b58079;font-size:12px">Stop…</button>
+              </div>
+            </div>
+          </sc-if>
+        </div>
+      </sc-for>
+    </sc-for>
+  </div>
+
+  <div style="height:50px;flex-shrink:0;display:flex;align-items:center;padding:0 10px">
+    <button class="pd-btn pd-ico" aria-label="Agent actions and settings" style="width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#83a098">
+      <svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round"><path d="M2 4h11M2 7.5h11M2 11h11"/><circle cx="5" cy="4" r="1.4" fill="#0c1616"/><circle cx="10" cy="7.5" r="1.4" fill="#0c1616"/><circle cx="6.5" cy="11" r="1.4" fill="#0c1616"/></svg>
+    </button>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":320,"height":780},"open":{"editor":"enum","options":["none","work","idle"],"default":"none"}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    const o = props.open || 'none';
+    this.state = { open: o === 'work' ? 'cards' : (o === 'idle' ? 'main' : null) };
+  }
+  renderVals() {
+    const s = this.state;
+    const tint = { claude: 'rgba(228,140,102,.13)', codex: 'rgba(111,211,194,.12)', pi: 'rgba(200,182,226,.12)' };
+    const defs = [
+      { group: 'PADDOCK', id: 'cards', name: 'dev-cards-1', kind: 'claude', status: 'working', time: '4m', sel: true,
+        where: 'p5-17-cards', lead: 'Edit  ', preview: 'P5-17 窗格卡片风格',
+        chips: [['⎇ p5-17-cards', '#83a098'], ['3 changed', '#dbbd6e']],
+        stats: [['MODEL', 'opus[1m] · high'], ['THIS TURN', '4m 12s'], ['UP', '22m'], ['LAST INPUT', 'corral send · 4m']],
+        path: '~/Developer/personal_projs/paddock-worktrees/p5-17-cards' },
+      { group: 'PADDOCK', id: 'review', name: 'review-cards', kind: 'codex', status: 'waiting', time: '1m',
+        where: 'review', lead: '', preview: 'Allow cargo clean in the worktree?',
+        chips: [], stats: [], path: '' },
+      { group: 'PADDOCK', id: 'main', name: 'main', kind: 'claude', status: 'idle', time: '57s', here: true,
+        where: 'paddock · main', lead: '', preview: 'P5-17 卡片风格已经派出去开工了。按你说的，照我前面的建议全做，不是最小版本。agent 是 paddock/dev-cards-1，它这一轮结束时我会收到提醒，然后去审查、合并、收尾。',
+        chips: [['⎇ main', '#83a098'], ['↑1 to push', '#dbbd6e'], ['clean', '#668580']],
+        stats: [['MODEL', '—'], ['IDLE FOR', '57s'], ['UP', '1h 12m'], ['WINDOWS', '1 · open here']],
+        path: '~/Developer/personal_projs/paddock' },
+      { group: 'PADDOCK', id: 'test', name: 'test-a', kind: 'pi', status: 'stalled', time: '18m',
+        where: '/tmp', lead: 'Quiet 18m  ', preview: 'cargo build --release',
+        chips: [], stats: [], path: '' },
+      { group: 'RANCH', id: 'ranch', name: 'main', kind: 'codex', status: 'idle', time: '1h',
+        where: 'ranch · main', lead: '', preview: 'Dispatch route now returns null when confidence is low; the caller falls back to its own rule.',
+        chips: [['⎇ main', '#83a098'], ['clean', '#668580']],
+        stats: [['MODEL', '—'], ['IDLE FOR', '1h'], ['UP', '3h'], ['WINDOWS', 'none']],
+        path: '~/Developer/personal_projs/ranch' }
+    ];
+    const statusColor = { working: '#7ea2ee', waiting: '#dbbd6e', idle: '#9cc98e', stalled: '#d9a066' };
+    const card = (d) => {
+      const open = s.open === d.id;
+      const waiting = d.status === 'waiting';
+      const bg = waiting ? '#16211a' : (d.sel ? '#172b2a' : 'transparent');
+      const cardBg = waiting ? '#16211a' : (d.sel ? '#172b2a' : '#0c1616');
+      return {
+        ...d,
+        open,
+        toggle: () => this.setState({ open: open ? null : d.id }),
+        bg,
+        cardBg,
+        ring: waiting ? 'inset 0 0 0 1px rgba(219,189,110,.22)' : 'none',
+        tile: tint[d.kind],
+        isClaude: d.kind === 'claude', isCodex: d.kind === 'codex', isPi: d.kind === 'pi',
+        working: d.status === 'working', waiting, stalled: d.status === 'stalled', idle: d.status === 'idle',
+        weight: d.status === 'idle' && !d.sel ? 500 : 600,
+        nameColor: d.status === 'idle' && !d.sel ? '#b8ccc6' : '#e4efeb',
+        timeColor: d.status === 'idle' ? '#4d6763' : statusColor[d.status],
+        leadColor: statusColor[d.status],
+        previewColor: waiting ? '#eadcae' : (d.status === 'idle' ? '#7f9b94' : '#b8ccc6'),
+        clamp: open ? 6 : 2,
+        chips: d.chips.map(([t, color]) => ({ t, color })),
+        stats: d.stats.map(([k, v]) => ({ k, v }))
+      };
+    };
+    const order = { waiting: 0, working: 1, stalled: 2, idle: 3 };
+    const groups = ['PADDOCK', 'RANCH'].map((label, i) => {
+      const agents = defs.filter((d) => d.group === label).map(card);
+      const bar = agents.slice().sort((x, y) => order[x.status] - order[y.status]).map((a) => ({ c: statusColor[a.status] }));
+      return { label, n: agents.length, pad: i === 0 ? '10px 12px 8px' : '18px 12px 8px', agents, bar, barW: 12 * agents.length };
+    });
+    return { groups };
+  }
+}
+</script>
+</body>
+</html>
