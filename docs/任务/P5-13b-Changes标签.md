@@ -83,3 +83,12 @@
 - 没有截图（见上）。窄面板 13／18、加宽 Split、空状态、三套主题下的样子，以及点击、滚动、贴顶文件头、折叠、悬停、横向滚动、真实 agent 下的效果，都留给用户实际看。
 - 贴顶文件头被下一个文件头顶上去的位置用的是上一帧的布局，可能慢一帧。`syntect` 自带语法集里没有的文件类型按纯文本显示。
 - 编辑器的 rust-analyzer 在 `app/target` 建了编译目录（已被 `.gitignore` 忽略），我有一次 `cargo test` 忘了带 `CARGO_TARGET_DIR` 也编进了那里；没删（规矩不让用 `rm`），需要的话由主控清。
+
+## 主控审查
+
+2026-10-06，paddock/main。可以合并，已合并。
+- 范围符合约定：新加 `changes.rs`、`diff.rs`、`highlight.rs` 和 `tests/changes.rs`，改了 `right_panel.rs`、`window.rs`、`layout_state.rs`、`lib.rs`、`git.rs`；没碰左侧栏、Browser、弹出框。依赖只加了 `syntect`（纯 Rust 正则、只带内置语法）和 `similar`，锁文件里多出的是它们自己的纯 Rust 依赖；`gpui-pre-*` 没变。
+- `git.rs` 把 HEAD 和基准分支的判断原样抽成 `head_and_base`，供两处共用，命令和行为没变，同意（任务写的是“只加函数”，这一处属于为了共用而做的原样搬移）。
+- 主控在分支上重跑：`cargo test --all-targets` 共 225 项全过（lib 191），`cargo clippy --all-targets -- -D warnings` 通过，和对方说的一致。
+- 对方的取舍逐条同意：在 main 上时对比 upstream，没有基准分支时给 “No base branch”；删除的文件、锁文件、改动超过 1500 行的默认收起，超过 1 MB 的未跟踪文件只显示大小；加宽到 680pt（随界面字号缩放）换文件树和 Unified／Split；每 1.5 秒读一次，只在右侧栏开在 Changes 时读；只构建看得到的行；shell 的圆点用中性色。
+- 截图没截到（截图问题另由 P5-23r 调查），界面和交互全部留给用户在装好的版本里看。
