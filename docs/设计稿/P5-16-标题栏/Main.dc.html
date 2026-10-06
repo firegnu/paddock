@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>paddock title bar</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;background:#141210}
+.pd-btn{background:none;border:0;padding:0;margin:0;font:inherit;color:inherit;cursor:pointer;text-align:left}
+.pd-ico:hover{background:#2b2621;color:#e8dfcc}
+.pd-tab:hover{background:#25211c}
+.pd-card:hover{background:#24201b}
+.pd-foot:hover{background:#26221d;color:#e8dfcc}
+.pd-tile:hover{background:#26221d}
+.pd-bell:hover{opacity:.85}
+.pd-mono{font-family:'SF Mono',Menlo,monospace}
+</style>
+</helmet>
+<div style="width:1100px;height:460px;box-sizing:border-box;display:flex;flex-direction:column;background:#1d1a16;color:#e8dfcc;font-family:-apple-system,'SF Pro Text','Helvetica Neue',sans-serif;font-size:13px;border-radius:12px;overflow:hidden;border:1px solid #3a352e">
+
+  <!-- Title bar -->
+  <div style="height:{{barH}}px;flex-shrink:0;display:flex;background:#1d1a16;box-shadow:{{barLine}}">
+
+    <!-- Over the sidebar: traffic lights, and the sidebar's header when it moves up -->
+    <div style="width:{{leftW}}px;flex-shrink:0;height:100%;box-sizing:border-box;display:flex;align-items:center;padding:0 10px 0 {{leftPad}}px">
+      <sc-if value="{{lights}}" hint-placeholder-val="{{true}}">
+        <div style="width:70px;flex-shrink:0;display:flex;gap:8px">
+          <span style="width:12px;height:12px;border-radius:50%;background:#ff5f57"></span>
+          <span style="width:12px;height:12px;border-radius:50%;background:#febc2e"></span>
+          <span style="width:12px;height:12px;border-radius:50%;background:#28c840"></span>
+        </div>
+      </sc-if>
+      <sc-if value="{{toggleFirst}}" hint-placeholder-val="{{true}}">
+        <button class="pd-btn pd-ico" onClick="{{toggle}}" aria-label="{{toggleLabel}}" style="width:26px;height:26px;flex-shrink:0;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#8c8374;margin-right:8px">
+          <svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><rect x="1.5" y="2" width="12" height="11" rx="2"/><path d="M5.5 2v11"/><path d="M3 5h1M3 7h1M3 9h1" stroke-width="1.1"/></svg>
+        </button>
+      </sc-if>
+      <sc-if value="{{headInBar}}" hint-placeholder-val="{{true}}">
+        <div style="display:flex;align-items:baseline;gap:7px;flex-shrink:0">
+          <span style="font-size:15px;font-weight:600;letter-spacing:-.01em">Agents</span>
+          <span style="color:#756c5e;font-size:12px">4</span>
+        </div>
+        <span style="flex:1"></span>
+        <sc-if value="{{bellPill}}" hint-placeholder-val="{{true}}">
+          <button class="pd-btn pd-bell" aria-label="Needs attention" style="height:24px;padding:0 8px;border-radius:12px;display:flex;align-items:center;gap:5px;background:#3a2f1c;color:#e6b566;font-size:11.5px;font-weight:600;flex-shrink:0">
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M3 8.5V5.5a3 3 0 0 1 6 0v3l1 1H2z"/><path d="M5 10.5h2" stroke-linecap="round"/></svg>
+            <span>2</span>
+          </button>
+        </sc-if>
+        <sc-if value="{{bellCompact}}" hint-placeholder-val="{{false}}">
+          <button class="pd-btn pd-ico" aria-label="Needs attention, 2" style="position:relative;width:28px;height:28px;border-radius:7px;display:flex;align-items:center;justify-content:center;color:#e6b566;flex-shrink:0">
+            <svg width="13" height="13" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M3 8.5V5.5a3 3 0 0 1 6 0v3l1 1H2z"/><path d="M5 10.5h2" stroke-linecap="round"/></svg>
+            <span style="position:absolute;top:2px;right:2px;min-width:13px;height:13px;padding:0 3px;box-sizing:border-box;border-radius:7px;background:#e6b566;color:#1d1a16;font-size:9.5px;font-weight:700;display:flex;align-items:center;justify-content:center">2</span>
+          </button>
+        </sc-if>
+        <sc-if value="{{toggleLast}}" hint-placeholder-val="{{false}}">
+          <button class="pd-btn pd-ico" onClick="{{toggle}}" aria-label="Collapse sidebar" style="width:26px;height:26px;flex-shrink:0;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#8c8374;margin-left:4px">
+            <svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><rect x="1.5" y="2" width="12" height="11" rx="2"/><path d="M5.5 2v11"/><path d="M3 5h1M3 7h1M3 9h1" stroke-width="1.1"/></svg>
+          </button>
+        </sc-if>
+      </sc-if>
+    </div>
+
+    <sc-if value="{{divInBar}}" hint-placeholder-val="{{true}}">
+      <div style="width:1px;flex-shrink:0;background:#2e2a24"></div>
+    </sc-if>
+
+    <!-- Tabs, +, the pet's room, split, search, right sidebar -->
+    <div style="flex:1;min-width:0;height:100%;box-sizing:border-box;display:flex;align-items:center;gap:4px;padding:0 10px;box-shadow:{{tabsLine}}">
+      <div class="pd-tab" style="height:28px;display:flex;align-items:center;gap:7px;padding:0 11px;border-radius:7px;background:#2b2621;font-size:12.5px;flex-shrink:0"><span style="width:7px;height:7px;border-radius:50%;background:#7fb4ee"></span>dev-sidebar</div>
+      <div class="pd-tab" style="height:28px;display:flex;align-items:center;gap:7px;padding:0 11px;border-radius:7px;color:#8c8374;font-size:12.5px;flex-shrink:0"><span style="width:7px;height:7px;border-radius:50%;background:#9cbd80"></span>main</div>
+      <div class="pd-tab" style="height:28px;display:flex;align-items:center;gap:7px;padding:0 11px;border-radius:7px;color:#8c8374;font-size:12.5px;flex-shrink:0"><span style="width:7px;height:7px;border-radius:50%;background:#9cbd80"></span>zsh · paddock</div>
+      <button class="pd-btn pd-ico" aria-label="New tab" style="width:28px;height:28px;flex-shrink:0;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#8c8374">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M6 1.5v9M1.5 6h9"/></svg>
+      </button>
+
+      <!-- Spare room, where the pet walks -->
+      <div style="flex:1;min-width:0;height:100%;position:relative;margin-left:6px;box-shadow:{{petLine}}">
+        <sc-if value="{{pet}}" hint-placeholder-val="{{true}}">
+          <svg width="32" height="22" viewBox="0 0 16 11" shape-rendering="crispEdges" aria-label="Pet" style="position:absolute;left:38%;bottom:{{petBottom}}px">
+            <rect x="2" y="2" width="12" height="6" fill="#d97757"/>
+            <rect x="0" y="4" width="2" height="2" fill="#d97757"/>
+            <rect x="14" y="4" width="2" height="2" fill="#d97757"/>
+            <rect x="5" y="4" width="1" height="2" fill="#2a1f19"/>
+            <rect x="10" y="4" width="1" height="2" fill="#2a1f19"/>
+            <rect x="3" y="8" width="1" height="3" fill="#d97757"/>
+            <rect x="5" y="8" width="1" height="3" fill="#d97757"/>
+            <rect x="10" y="8" width="1" height="3" fill="#d97757"/>
+            <rect x="12" y="8" width="1" height="3" fill="#d97757"/>
+          </svg>
+        </sc-if>
+      </div>
+
+      <button class="pd-btn pd-ico" aria-label="Split pane" style="width:28px;height:28px;flex-shrink:0;border-radius:7px;display:flex;align-items:center;justify-content:center;color:#8c8374">
+        <svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><rect x="1.5" y="2" width="12" height="11" rx="2"/><path d="M7.5 2v11"/><path d="M10.5 6v3M9 7.5h3"/></svg>
+      </button>
+      <div style="width:180px;height:28px;flex-shrink:0;display:flex;align-items:center;gap:8px;padding:0 6px 0 10px;margin:0 4px;border-radius:7px;box-shadow:inset 0 0 0 1px rgba(58,53,46,.6);background:rgba(43,38,33,.5);color:#8c8374;font-size:12.5px;box-sizing:border-box">
+        <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><circle cx="5.5" cy="5.5" r="4"/><path d="M8.5 8.5l3 3"/></svg>
+        <span style="flex:1">Search</span>
+        <span style="font-size:11px;padding:1px 5px;border-radius:4px;box-shadow:inset 0 0 0 1px #3a352e">⌘P</span>
+      </div>
+      <button class="pd-btn pd-ico" aria-label="Toggle right sidebar" style="width:28px;height:28px;flex-shrink:0;border-radius:7px;display:flex;align-items:center;justify-content:center;color:#8c8374">
+        <svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><rect x="1.5" y="2" width="12" height="11" rx="2"/><path d="M9.5 2v11"/><path d="M11 5h1M11 7h1M11 9h1" stroke-width="1.1"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- Body -->
+  <div style="flex:1;display:flex;min-height:0">
+
+    <!-- Sidebar, expanded -->
+    <sc-if value="{{expanded}}" hint-placeholder-val="{{true}}">
+      <div style="width:{{sideW}}px;flex-shrink:0;display:flex;flex-direction:column;background:#1d1a16">
+        <sc-if value="{{headBelow}}" hint-placeholder-val="{{false}}">
+          <div style="height:44px;flex-shrink:0;display:flex;align-items:center;gap:4px;padding:0 10px 0 18px">
+            <span style="font-size:15px;font-weight:600;letter-spacing:-.01em">Agents</span>
+            <span style="color:#756c5e;font-size:12px;margin-left:3px">4</span>
+            <span style="flex:1"></span>
+            <button class="pd-btn pd-bell" aria-label="Needs attention" style="height:24px;padding:0 8px;border-radius:12px;display:flex;align-items:center;gap:5px;background:#3a2f1c;color:#e6b566;font-size:11.5px;font-weight:600">
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M3 8.5V5.5a3 3 0 0 1 6 0v3l1 1H2z"/><path d="M5 10.5h2" stroke-linecap="round"/></svg>
+              <span>2</span>
+            </button>
+            <button class="pd-btn pd-ico" onClick="{{toggle}}" aria-label="Collapse sidebar" style="width:26px;height:26px;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#8c8374">
+              <svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><rect x="1.5" y="2" width="12" height="11" rx="2"/><path d="M5.5 2v11"/><path d="M3 5h1M3 7h1M3 9h1" stroke-width="1.1"/></svg>
+            </button>
+          </div>
+        </sc-if>
+
+        <div style="flex:1;min-height:0;overflow:hidden;padding:2px 10px 10px">
+          <sc-for list="{{groups}}" as="g" hint-placeholder-count="2">
+            <div style="padding:{{g.pad}};font-size:10.5px;font-weight:600;letter-spacing:.08em;color:#756c5e;display:flex;gap:6px">
+              <span>{{g.label}}</span><span style="color:#5a5247">{{g.n}}</span>
+            </div>
+            <sc-for list="{{g.agents}}" as="a" hint-placeholder-count="2">
+              <button class="pd-btn pd-card" style="display:block;width:100%;box-sizing:border-box;border-radius:8px;padding:8px 10px;margin-bottom:2px;background:{{a.bg}}">
+                <div style="display:flex;align-items:center;gap:8px">
+                  <span style="width:8px;height:8px;border-radius:50%;background:{{a.dot}};flex-shrink:0"></span>
+                  <span style="font-size:13px;font-weight:{{a.weight}};color:#e8dfcc;white-space:nowrap">{{a.name}}</span>
+                  <span style="font-size:11px;color:#8c8374;opacity:.85">{{a.kind}}</span>
+                  <span style="flex:1"></span>
+                  <span style="font-size:11.5px;color:#756c5e;font-variant-numeric:tabular-nums;white-space:nowrap">{{a.age}}</span>
+                </div>
+                <div style="margin:3px 0 0 16px;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:{{a.lineColor}}">{{a.line}}</div>
+              </button>
+            </sc-for>
+          </sc-for>
+        </div>
+
+        <div style="height:50px;flex-shrink:0;display:flex;align-items:center;padding:0 10px">
+          <button class="pd-btn pd-foot" aria-label="Agent actions and settings" style="height:32px;display:flex;align-items:center;gap:8px;padding:0 10px 0 9px;border-radius:8px;color:#8c8374">
+            <svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round"><path d="M2 4h11M2 7.5h11M2 11h11"/><circle cx="5" cy="4" r="1.4" fill="#1d1a16"/><circle cx="10" cy="7.5" r="1.4" fill="#1d1a16"/><circle cx="6.5" cy="11" r="1.4" fill="#1d1a16"/></svg>
+            <span style="font-size:12.5px;font-weight:500">Actions</span>
+          </button>
+        </div>
+      </div>
+    </sc-if>
+
+    <!-- Sidebar, collapsed strip -->
+    <sc-if value="{{collapsed}}" hint-placeholder-val="{{false}}">
+      <div style="width:52px;flex-shrink:0;display:flex;flex-direction:column;align-items:center;background:#1d1a16;padding-top:8px;box-sizing:border-box">
+        <sc-if value="{{railToggle}}" hint-placeholder-val="{{false}}">
+          <button class="pd-btn pd-ico" onClick="{{toggle}}" aria-label="Expand sidebar" style="width:32px;height:30px;border-radius:7px;display:flex;align-items:center;justify-content:center;color:#8c8374">
+            <svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><rect x="1.5" y="2" width="12" height="11" rx="2"/><path d="M5.5 2v11"/><path d="M3 5h1M3 7h1M3 9h1" stroke-width="1.1"/></svg>
+          </button>
+        </sc-if>
+        <button class="pd-btn pd-ico" aria-label="Needs attention, 2" style="position:relative;width:32px;height:30px;margin-top:2px;border-radius:7px;display:flex;align-items:center;justify-content:center;color:#e6b566">
+          <svg width="13" height="13" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M3 8.5V5.5a3 3 0 0 1 6 0v3l1 1H2z"/><path d="M5 10.5h2" stroke-linecap="round"/></svg>
+          <span style="position:absolute;top:3px;right:3px;min-width:13px;height:13px;padding:0 3px;box-sizing:border-box;border-radius:7px;background:#e6b566;color:#1d1a16;font-size:9.5px;font-weight:700;display:flex;align-items:center;justify-content:center">2</span>
+        </button>
+        <div style="width:24px;height:1px;background:#2e2a24;margin:8px 0 4px"></div>
+        <sc-for list="{{tiles}}" as="t" hint-placeholder-count="4">
+          <sc-if value="{{t.rule}}" hint-placeholder-val="{{false}}">
+            <div style="width:16px;height:1px;background:#2e2a24;margin:6px 0"></div>
+          </sc-if>
+          <button class="pd-btn pd-tile" aria-label="{{t.name}}" style="position:relative;width:34px;height:34px;margin:2px 0;border-radius:8px;display:flex;align-items:center;justify-content:center;background:{{t.bg}};font-size:13px;font-weight:600;color:#e8dfcc">
+            {{t.letter}}
+            <span style="position:absolute;right:3px;bottom:3px;width:7px;height:7px;border-radius:50%;background:{{t.dot}};box-shadow:0 0 0 2px #1d1a16"></span>
+          </button>
+        </sc-for>
+        <span style="flex:1"></span>
+        <div style="height:50px;display:flex;align-items:center">
+          <button class="pd-btn pd-foot" aria-label="Agent actions and settings" style="width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#8c8374">
+            <svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round"><path d="M2 4h11M2 7.5h11M2 11h11"/><circle cx="5" cy="4" r="1.4" fill="#1d1a16"/><circle cx="10" cy="7.5" r="1.4" fill="#1d1a16"/><circle cx="6.5" cy="11" r="1.4" fill="#1d1a16"/></svg>
+          </button>
+        </div>
+      </div>
+    </sc-if>
+
+    <div style="width:1px;flex-shrink:0;background:#2e2a24"></div>
+
+    <!-- Terminal -->
+    <div class="pd-mono" style="flex:1;min-width:0;background:#181613;padding:14px 18px;font-size:12.5px;line-height:1.6;color:#d9d1bf;overflow:hidden">
+      <div><span style="color:#9cbd80">❯</span> cargo test --all-targets</div>
+      <div style="color:#8c8374">   Compiling paddock v0.1.0 (app)</div>
+      <div style="color:#8c8374">    Finished `test` profile in 14.2s</div>
+      <div>test result: <span style="color:#9cbd80">ok</span>. 203 passed; 0 failed</div>
+      <div style="margin-top:8px"><span style="color:#9cbd80">❯</span> <span style="display:inline-block;width:8px;height:15px;background:#d9d1bf;vertical-align:-3px"></span></div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1100,"height":460},"head":{"editor":"enum","options":["a","b","now"],"default":"b"},"line":{"editor":"enum","options":["term","full","pet","none"],"default":"term"},"collapsed":{"editor":"boolean","default":false},"pet":{"editor":"boolean","default":true},"narrow":{"editor":"boolean","default":false},"fullscreen":{"editor":"boolean","default":false}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { collapsed: this.flag(props.collapsed, false) };
+  }
+  flag(v, d) {
+    if (v === undefined || v === null || v === '') return d;
+    return v === true || v === 'true';
+  }
+  renderVals() {
+    const p = this.props;
+    const head = p.head || 'b';
+    const line = p.line || 'term';
+    const pet = this.flag(p.pet, true);
+    const narrow = this.flag(p.narrow, false);
+    const full = this.flag(p.fullscreen, false);
+    const collapsed = this.state.collapsed;
+    const moved = head !== 'now';
+    const sideW = narrow ? 220 : 300;
+    const rule = 'inset 0 -1px 0 #2e2a24';
+
+    // Over the sidebar: its width when expanded; when collapsed, the traffic lights' room
+    // (plus the expand icon in B, which stays where the collapse icon was).
+    const lightsRoom = full ? 0 : 84;
+    let leftW;
+    if (collapsed) {
+      leftW = head === 'b' ? Math.max(lightsRoom, 12) + 44 : Math.max(lightsRoom, 52);
+    } else {
+      leftW = moved ? sideW : sideW + 1;
+    }
+    const divInBar = moved && !collapsed;
+    const headInBar = moved && !collapsed;
+
+    // The line under the title bar.
+    let barLine = 'none', tabsLine = 'none', petLine = 'none';
+    if (line === 'full' || (line === 'term' && (collapsed || !moved))) barLine = rule;
+    else if (line === 'term') tabsLine = rule;
+    else if (line === 'pet') petLine = rule;
+
+    const groups = [
+      { label: 'PADDOCK', n: 3, agents: [
+        { name: 'dev-sidebar', kind: 'claude', age: 'Edit · 1m', line: 'p5-16-header · +86 −41', dot: '#7fb4ee', sel: true },
+        { name: 'main', kind: 'claude', age: '3m', line: 'Waiting for your reply', dot: '#e6b566', warn: true },
+        { name: 'review-p5', kind: 'codex', age: '12m', line: 'p5-16-header', dot: '#9cbd80' }
+      ] },
+      { label: 'RANCH', n: 1, agents: [
+        { name: 'main', kind: 'codex', age: '1h', line: 'Waiting for your reply', dot: '#e6b566', warn: true }
+      ] }
+    ].map((g, i) => ({
+      ...g,
+      pad: i === 0 && moved ? '10px 8px 6px' : '14px 8px 6px',
+      agents: g.agents.map((a) => ({
+        ...a,
+        bg: a.sel ? '#2b2621' : 'transparent',
+        weight: a.sel ? 600 : 500,
+        lineColor: a.warn ? '#e6b566' : '#8c8374'
+      }))
+    }));
+    const tiles = [
+      { name: 'dev-sidebar', letter: 'S', dot: '#7fb4ee', sel: true },
+      { name: 'main', letter: 'M', dot: '#e6b566' },
+      { name: 'review-p5', letter: 'P', dot: '#9cbd80' },
+      { name: 'ranch main', letter: 'M', dot: '#e6b566', rule: true }
+    ].map((t) => ({ ...t, bg: t.sel ? '#2b2621' : 'transparent' }));
+
+    return {
+      barH: pet ? 48 : 40,
+      leftW,
+      leftPad: full ? 12 : 14,
+      lights: !full,
+      toggleFirst: head === 'b',
+      toggleLabel: collapsed ? 'Expand sidebar' : 'Collapse sidebar',
+      toggleLast: head === 'a',
+      headInBar,
+      headBelow: !moved && !collapsed,
+      bellPill: !narrow,
+      bellCompact: narrow,
+      divInBar,
+      barLine, tabsLine, petLine,
+      pet,
+      petBottom: line === 'none' ? 0 : 1,
+      expanded: !collapsed,
+      collapsed,
+      railToggle: collapsed && head !== 'b',
+      sideW,
+      groups, tiles,
+      toggle: () => this.setState({ collapsed: !this.state.collapsed })
+    };
+  }
+}
+</script>
+</body>
+</html>
