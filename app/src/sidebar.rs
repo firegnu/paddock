@@ -22,8 +22,8 @@ use anyhow::Result;
 use gpui::{
     Animation, AnimationExt, AnyElement, App, BoxShadow, ClickEvent, ClipboardItem, Context, Div,
     ElementId, EventEmitter, Font, FontFeatures, FontWeight, HighlightStyle, Hsla, MouseButton,
-    MouseDownEvent, Pixels, Render, RenderOnce, SharedString, StyledText, TextRun, Transformation,
-    Window, div, ease_in_out, percentage, point, prelude::*, px, relative, svg,
+    MouseDownEvent, Pixels, Render, RenderOnce, Rgba, SharedString, StyledText, TextRun,
+    Transformation, Window, div, ease_in_out, percentage, point, prelude::*, px, relative, svg,
 };
 use std::{rc::Rc, sync::Arc, time::Duration};
 
@@ -344,8 +344,8 @@ pub struct Sidebar {
     collapsed: bool,
     /// The menu of actions is open: its button stays lit.
     menu_open: bool,
-    /// The window is in full screen, where its grounds are opaque.
-    full_screen: bool,
+    /// Its column shows the system's sidebar material: its grounds are tints over it.
+    frosted: bool,
 }
 
 impl EventEmitter<SidebarEvent> for Sidebar {}
@@ -386,7 +386,7 @@ impl Sidebar {
             note: None,
             collapsed: false,
             menu_open: false,
-            full_screen: false,
+            frosted: false,
         }
     }
 
@@ -397,15 +397,15 @@ impl Sidebar {
         cx.notify();
     }
 
-    /// The window went into full screen or came out of it.
-    pub fn set_full_screen(&mut self, full_screen: bool, cx: &mut Context<Self>) {
-        self.full_screen = full_screen;
+    /// The system's sidebar material shows through the column, or it is gone (full screen).
+    pub fn set_frosted(&mut self, frosted: bool, cx: &mut Context<Self>) {
+        self.frosted = frosted;
         cx.notify();
     }
 
-    /// How opaque the grounds laid on the sidebar are.
-    fn card(&self) -> f32 {
-        self.theme.backdrop(self.full_screen).card
+    /// The grounds laid on the column.
+    fn grounds(&self) -> Grounds {
+        Grounds::of(&self.theme, self.frosted)
     }
 
     /// A new terminal font from Settings, for the instance id.
@@ -578,7 +578,7 @@ impl Sidebar {
         let (count, color) = self.bell();
         let ui = UiFont::get(cx);
         let ground = hsla(self.theme.bg(|t| t.agents_bg), 1.0);
-        let selected = hsla(self.theme.bg(|t| t.agent_selected), 1.0).opacity(self.card());
+        let selected = self.grounds().selected;
         div()
             .id("attention")
             .relative()
@@ -620,7 +620,7 @@ impl Sidebar {
     fn actions_button(&self, cx: &mut Context<Self>) -> gpui::Stateful<Div> {
         let ui = UiFont::get(cx);
         button(
-            self,
+            (&self.theme, self.grounds().selected),
             &ui,
             "actions",
             Icon::Actions,
@@ -640,8 +640,10 @@ impl Sidebar {
         } else {
             "Collapse sidebar (⌘B)"
         };
+        // Expanding, it stands past the strip, on the window's own opaque ground.
+        let ground = Grounds::of(&self.theme, self.frosted && !expand).selected;
         button(
-            self,
+            (&self.theme, ground),
             &ui,
             "collapse",
             Icon::LeftSidebar,
@@ -657,14 +659,14 @@ impl Sidebar {
     fn rail(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let ui = UiFont::get(cx);
         let theme = self.theme.clone();
-        let fg = |pick: Pick| hsla(theme.fg(pick), 1.0);
+        let grounds = self.grounds();
         let rule = |width: f32, y: f32| {
             div()
                 .flex_shrink_0()
                 .w(ui.px(width))
                 .h(px(1.0))
                 .my(ui.px(y))
-                .bg(fg(|t| t.agents_rule).opacity(0.8))
+                .bg(grounds.rule)
         };
         let lines = self.listing.lines(
             self.selected.as_deref(),
@@ -702,7 +704,7 @@ impl Sidebar {
                         card: *card,
                         theme: theme.clone(),
                         on_click: Box::new(on_click),
-                        alpha: self.card(),
+                        grounds,
                     });
                 }
             }
@@ -892,7 +894,7 @@ impl Render for Sidebar {
         }
         let ui = UiFont::get(cx);
         let theme = self.theme.clone();
-        let alpha = self.card();
+        let grounds = self.grounds();
         let fg = |pick: Pick| hsla(theme.fg(pick), 1.0);
         let now = now();
         let lines = {
@@ -1021,9 +1023,15 @@ impl Render for Sidebar {
         if agents == 0 && self.listing.loaded {
             // Nothing listed: why, or how to start one, in the middle of the list.
             let quiet = match lines.first() {
-                Some(Line::Error(text)) => {
-                    quiet(&theme, &ui, "Can't read corral", text, None, None, alpha)
-                }
+                Some(Line::Error(text)) => quiet(
+                    &theme,
+                    &ui,
+                    "Can't read corral",
+                    text,
+                    None,
+                    None,
+                    grounds.selected,
+                ),
                 _ => quiet(
                     &theme,
                     &ui,
@@ -1050,7 +1058,7 @@ impl Render for Sidebar {
                                 cx.emit(SidebarEvent::NewAgent)
                             })),
                     ),
-                    alpha,
+                    grounds.selected,
                 ),
             };
             list = list.justify_center().child(quiet);
@@ -1120,7 +1128,7 @@ impl Render for Sidebar {
                         mono: self.mono.clone(),
                         on_click: Box::new(on_click),
                         actions,
-                        alpha,
+                        grounds,
                     }
                     .into_any_element()
                 }
@@ -1163,8 +1171,62 @@ impl Render for Sidebar {
     }
 }
 
-/// The empty list's message: an icon, a title, a sentence and an action, centred and quiet; the
-/// icon's ground `alpha` opaque.
+/// The grounds laid on the sidebar's column. On the sidebar's own colour they are whole colours;
+/// over the system's sidebar material, tints of the text colour (amber for waiting) that light it
+/// and let it through, as much as the preset says (`preset::Frost`).
+#[derive(Clone, Copy)]
+struct Grounds {
+    /// The column itself: the sidebar's colour, or nothing over the material.
+    base: Hsla,
+    /// A selected card or tile, a lit button; a hovered one takes half of it.
+    selected: Hsla,
+    /// What a waiting card adds.
+    waiting: Hsla,
+    /// The strip's short rules.
+    rule: Hsla,
+}
+
+impl Grounds {
+    fn of(theme: &Theme, frosted: bool) -> Self {
+        let fg = |pick: Pick| hsla(theme.fg(pick), 1.0);
+        if frosted {
+            let frost = theme.frost();
+            Self {
+                base: gpui::transparent_black(),
+                selected: fg(|t| t.agents_text).opacity(frost.lit),
+                waiting: fg(|t| t.agents_yellow).opacity(frost.waiting),
+                rule: fg(|t| t.agents_text).opacity(frost.lit),
+            }
+        } else {
+            Self {
+                base: hsla(theme.bg(|t| t.agents_bg), 1.0),
+                selected: hsla(theme.bg(|t| t.agent_selected), 1.0),
+                waiting: fg(|t| t.agents_yellow).opacity(WAITING_TINT),
+                rule: fg(|t| t.agents_rule).opacity(0.8),
+            }
+        }
+    }
+}
+
+/// `top` laid over `bottom`, either of them see-through; over a whole colour, as `Hsla::blend`.
+fn over(top: Hsla, bottom: Hsla) -> Hsla {
+    let alpha = top.a + bottom.a * (1.0 - top.a);
+    if alpha <= 0.0 {
+        return gpui::transparent_black();
+    }
+    let (t, b) = (Rgba::from(top), Rgba::from(bottom));
+    let mix = |t: f32, b: f32| (t * top.a + b * bottom.a * (1.0 - top.a)) / alpha;
+    Rgba {
+        r: mix(t.r, b.r),
+        g: mix(t.g, b.g),
+        b: mix(t.b, b.b),
+        a: alpha,
+    }
+    .into()
+}
+
+/// The empty list's message: an icon on `ground`, a title, a sentence and an action, centred and
+/// quiet.
 fn quiet(
     theme: &Theme,
     ui: &UiFont,
@@ -1172,7 +1234,7 @@ fn quiet(
     text: &str,
     icon: Option<Icon>,
     action: Option<gpui::Stateful<Div>>,
-    alpha: f32,
+    ground: Hsla,
 ) -> Div {
     let fg = |pick: Pick| hsla(theme.fg(pick), 1.0);
     div()
@@ -1190,7 +1252,7 @@ fn quiet(
                 .items_center()
                 .justify_center()
                 .rounded(px(10.0))
-                .bg(hsla(theme.bg(|t| t.agent_selected), 1.0).opacity(alpha))
+                .bg(ground)
                 .child(footer_icon::icon(
                     icon,
                     fg(|t| t.agents_dim),
@@ -1214,9 +1276,9 @@ fn quiet(
 }
 
 /// An icon button, `(width, height, corner radius)` in points, with what it does shown on hover;
-/// `lit` while what it opens is open.
+/// `lit` while what it opens is open. Lit and hovered, it takes `ground`.
 fn button(
-    sidebar: &Sidebar,
+    (theme, ground): (&Theme, Hsla),
     ui: &UiFont,
     id: &'static str,
     icon: Icon,
@@ -1224,9 +1286,7 @@ fn button(
     (width, height, radius): (f32, f32, f32),
     lit: bool,
 ) -> gpui::Stateful<Div> {
-    let theme = &sidebar.theme;
     let fg = |pick: Pick| hsla(theme.fg(pick), 1.0);
-    let selected = hsla(theme.bg(|t| t.agent_selected), 1.0).opacity(sidebar.card());
     let tip = Tip {
         text: tip.into(),
         size: ui.px(NOTE_SIZE),
@@ -1249,8 +1309,8 @@ fn button(
         .justify_center()
         .rounded(ui.px(radius))
         .cursor_pointer()
-        .when(lit, |button| button.bg(selected))
-        .hover(move |style| style.bg(selected))
+        .when(lit, |button| button.bg(ground))
+        .hover(move |style| style.bg(ground))
         .tooltip(move |_, cx| cx.new(|_| tip.clone()).into())
         .child(footer_icon::icon(icon, ink, ui.scale(1.0)))
 }
@@ -1301,8 +1361,7 @@ struct AgentCard {
     mono: Font,
     on_click: OnClick,
     actions: CardActions,
-    /// How opaque its grounds are.
-    alpha: f32,
+    grounds: Grounds,
 }
 
 impl RenderOnce for AgentCard {
@@ -1313,7 +1372,7 @@ impl RenderOnce for AgentCard {
             mono,
             on_click,
             actions,
-            alpha,
+            grounds,
         } = self;
         let ui = UiFont::get(cx);
         let fg = |pick: Pick| hsla(theme.fg(pick), 1.0);
@@ -1327,31 +1386,23 @@ impl RenderOnce for AgentCard {
         let waiting = card.status == Status::Waiting;
         // Idle and not the one shown: the name and preview a step quieter.
         let resting = card.status == Status::Idle && !card.selected;
-        // The card's ground, a whole colour rather than a tint, so the ring round the status badge
-        // matches it; waiting adds an amber tint.
-        let selected = hsla(theme.bg(|t| t.agent_selected), 1.0);
+        // The card's ground, on the sidebar's own colour a whole colour, so the ring round the
+        // status badge matches it; over the system's material a tint, which only nears that.
+        // Waiting adds amber.
         let base = if card.selected {
-            selected
+            over(grounds.selected, grounds.base)
         } else {
-            hsla(theme.bg(|t| t.agents_bg), 1.0)
+            grounds.base
         };
         let ground = if waiting {
-            base.blend(fg(|t| t.agents_yellow).opacity(WAITING_TINT))
+            over(grounds.waiting, base)
         } else {
             base
         };
         let hovered = if card.selected {
             ground
         } else {
-            ground.blend(selected.opacity(0.5))
-        };
-        // Off full screen the desktop shows through them; a card neither shown nor waiting lies on
-        // the sidebar's own ground and draws none.
-        let (ground, hovered) = (ground.opacity(alpha), hovered.opacity(alpha));
-        let fill = if card.selected || waiting {
-            ground
-        } else {
-            gpui::transparent_black()
+            over(grounds.selected.opacity(0.5), ground)
         };
         let group = SharedString::from(format!("agent-card-{}", card.name));
 
@@ -1553,7 +1604,7 @@ impl RenderOnce for AgentCard {
             } else {
                 gpui::transparent_black()
             })
-            .bg(fill)
+            .bg(ground)
             .when(!card.selected, |body| {
                 body.hover(move |style| style.bg(hovered))
             })
@@ -1841,8 +1892,7 @@ struct Tile {
     card: Card,
     theme: Rc<Theme>,
     on_click: OnClick,
-    /// How opaque its grounds are.
-    alpha: f32,
+    grounds: Grounds,
 }
 
 impl RenderOnce for Tile {
@@ -1851,10 +1901,10 @@ impl RenderOnce for Tile {
         let theme = &self.theme;
         let fg = |pick: Pick| hsla(theme.fg(pick), 1.0);
         let card = &self.card;
-        let ground = hsla(theme.bg(|t| t.agents_bg), 1.0).opacity(self.alpha);
-        let selected = hsla(theme.bg(|t| t.agent_selected), 1.0).opacity(self.alpha);
+        let (ground, selected) = (self.grounds.base, self.grounds.selected);
         let tip = RailTip::of(card, theme, &ui);
-        // The dot sits in a ring of the strip's colour, so it reads apart from the square.
+        // The dot sits in a ring of the strip's colour, so it reads apart from the square; over the
+        // system's material there is none to ring it with.
         let dot = div()
             .absolute()
             .right(ui.px(0.0))

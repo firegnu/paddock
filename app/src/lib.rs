@@ -12,6 +12,7 @@ pub mod diagnostics;
 pub mod find;
 pub mod fonts;
 pub mod footer_icon;
+pub mod frost;
 pub mod git;
 pub mod glyphs;
 pub mod grid;
