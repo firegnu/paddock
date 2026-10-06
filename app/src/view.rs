@@ -41,6 +41,52 @@ use std::{cell::RefCell, ops::Range, path::PathBuf, rc::Rc, time::Duration, time
 /// Shown in a pane with nothing in it.
 const EMPTY_NOTE: &str = "Choose an agent on the left, or open one here with + or Split.";
 
+/// Only the empty-pane hint wraps; session messages keep their existing layout.
+fn note_lines(note: &str, width: f32, mut measure: impl FnMut(&str) -> f32) -> Vec<&str> {
+    if note != EMPTY_NOTE {
+        return vec![note];
+    }
+    let mut lines = Vec::new();
+    let (mut start, mut end) = (0, 0);
+    for next in note
+        .match_indices(' ')
+        .map(|(index, _)| index)
+        .chain(std::iter::once(note.len()))
+    {
+        if end > start && measure(&note[start..next]) > width {
+            lines.push(&note[start..end]);
+            start = end + 1;
+        }
+        end = next;
+    }
+    lines.push(&note[start..]);
+    lines
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn empty_note_wraps_at_words_to_fit_the_pane() {
+        let measure = |text: &str| text.len() as f32 * 8.0;
+        let lines = note_lines(EMPTY_NOTE, 240.0, measure);
+        assert_eq!(
+            lines,
+            [
+                "Choose an agent on the left,",
+                "or open one here with + or",
+                "Split."
+            ]
+        );
+        assert_eq!(lines.join(" "), EMPTY_NOTE);
+        assert!(lines.iter().all(|line| measure(line) <= 240.0));
+        assert_eq!(note_lines(EMPTY_NOTE, 800.0, measure), [EMPTY_NOTE]);
+        let other_note = "A session error keeps its existing layout.";
+        assert_eq!(note_lines(other_note, 80.0, measure), [other_note]);
+    }
+}
+
 /// What runs in the pane.
 #[derive(Clone)]
 pub enum Launch {
@@ -1027,7 +1073,7 @@ impl Frame {
         }
     }
 
-    fn paint(&self, window: &mut Window, cx: &mut App) {
+    fn paint(&self, width: f32, window: &mut Window, cx: &mut App) {
         let lh = self.metrics.line_height;
         for (row, (spans, _)) in self.rows.iter().enumerate() {
             for span in spans {
@@ -1062,9 +1108,16 @@ impl Frame {
                 fg: self.note_color,
                 ..Style::default()
             };
-            let shaped = self.shape(note, &style, style.fg, None, window);
-            let y = self.y(self.rows.len().max(1));
-            let _ = shaped.paint(self.at(0.0, y), px(lh), TextAlign::Left, None, window, cx);
+            let lines = note_lines(note, width, |text| {
+                self.shape(text, &style, style.fg, None, window)
+                    .width
+                    .into()
+            });
+            for (row, line) in lines.into_iter().enumerate() {
+                let shaped = self.shape(line, &style, style.fg, None, window);
+                let y = self.y(self.rows.len().max(1) + row);
+                let _ = shaped.paint(self.at(0.0, y), px(lh), TextAlign::Left, None, window, cx);
+            }
         }
     }
 
@@ -1156,7 +1209,7 @@ impl Render for TerminalView {
                     move |bounds, frame: Frame, window, cx| {
                         let started = Instant::now();
                         window.handle_input(&focus, ElementInputHandler::new(bounds, input), cx);
-                        frame.paint(window, cx);
+                        frame.paint(bounds.size.width.into(), window, cx);
                         if let Some(stats) = stats {
                             stats.borrow_mut().record_paint(started.elapsed());
                         }

@@ -67,6 +67,12 @@ enum Popup {
 /// What dragging the divider carries: nothing, only that it is the divider.
 struct SidebarDrag;
 
+/// The released sidebar width, formatted for the settings draft.
+fn finish_sidebar_width(width: &mut f32) -> String {
+    *width = width.round();
+    width.to_string()
+}
+
 /// What dragging the right sidebar's divider carries.
 struct RightDrag;
 
@@ -800,7 +806,11 @@ impl PaddockWindow {
             return;
         }
         let path = crate::config::default_path();
-        let width = self.sidebar_width;
+        let width = finish_sidebar_width(&mut self.sidebar_width);
+        let theme = self.theme.clone();
+        self.sidebar.update(cx, |sidebar, cx| {
+            sidebar.restyle(theme, self.sidebar_width, cx)
+        });
         let result = (|| -> anyhow::Result<()> {
             let disk = match std::fs::read_to_string(&path) {
                 Ok(text) => Some(text),
@@ -808,7 +818,7 @@ impl PaddockWindow {
                 Err(error) => return Err(error.into()),
             };
             let mut draft = Draft::new(disk.clone())?;
-            draft.set("sidebar_width", &width.to_string());
+            draft.set("sidebar_width", &width);
             match draft.save(disk.as_deref())? {
                 Ok(Saved::Written { text, .. }) => {
                     if let Some(dir) = path.parent() {
@@ -3718,6 +3728,26 @@ impl Render for PaddockWindow {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn released_sidebar_width_is_the_same_integer_in_config_and_view() {
+        let disk = "# sidebar\nsidebar_width = 380\ntheme = \"tide\"\n";
+        for (dragged, expected) in [(312.734_38, 313.0), (312.25, 312.0), (312.5, 313.0)] {
+            let mut width = dragged;
+            let value = finish_sidebar_width(&mut width);
+            let mut draft = Draft::new(Some(disk.into())).unwrap();
+            draft.set("sidebar_width", &value);
+            let Saved::Written { text, .. } = draft.save(Some(disk)).unwrap().unwrap() else {
+                panic!("width was not written");
+            };
+            assert_eq!(
+                text,
+                format!("# sidebar\nsidebar_width = {expected}\ntheme = \"tide\"\n")
+            );
+            assert_eq!(width, expected);
+            assert_eq!(Config::parse(&text).unwrap().sidebar_width, width);
+        }
+    }
 
     fn shell(program: &str, cwd: &str) -> Subject {
         Subject::Shell {
