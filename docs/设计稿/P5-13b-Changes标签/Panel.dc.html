@@ -1,0 +1,317 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Changes panel</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+.cp-btn{background:none;border:0;padding:0;margin:0;font:inherit;color:inherit;cursor:pointer;text-align:left}
+.cp-hov:hover{background:rgba(255,255,255,.045)}
+.cp-mono{font-family:'SF Mono',Menlo,monospace}
+.cp-scroll{scrollbar-width:thin}
+.cp-pulse{animation:cppulse 1.6s ease-in-out infinite}
+@keyframes cppulse{0%,100%{opacity:1}50%{opacity:.45}}
+</style>
+</helmet>
+<div style="width:{{w}};height:{{h}};min-height:0;box-sizing:border-box;display:flex;flex-direction:column;background:{{c.panel}};color:{{c.text}};font-family:-apple-system,'SF Pro Text','Helvetica Neue',sans-serif;font-size:13px">
+
+  <!-- Panel tabs (the shell from P5-13a) -->
+  <div style="height:40px;flex-shrink:0;display:flex;align-items:center;gap:2px;padding:0 8px 0 10px">
+    <button class="cp-btn" style="height:28px;display:flex;align-items:center;gap:7px;padding:0 11px;border-radius:7px;background:{{c.selected}};color:{{c.text}};font-size:12.5px;font-weight:600">
+      <span style="color:{{c.accent}}">±</span>Changes
+    </button>
+    <button class="cp-btn cp-hov" style="height:28px;display:flex;align-items:center;gap:7px;padding:0 11px;border-radius:7px;color:{{c.muted}};font-size:12.5px">
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2"><circle cx="6" cy="6" r="4.6"/><path d="M1.6 6h8.8M6 1.4c1.5 1.4 1.5 7.8 0 9.2M6 1.4c-1.5 1.4-1.5 7.8 0 9.2"/></svg>Browser
+    </button>
+    <span style="flex:1"></span>
+    <button class="cp-btn cp-hov" aria-label="Wider" style="width:26px;height:26px;border-radius:6px;display:flex;align-items:center;justify-content:center;color:{{c.muted}}">
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 1.5h3.5V5M5 10.5H1.5V7M10.5 1.5L7 5M1.5 10.5L5 7"/></svg>
+    </button>
+    <button class="cp-btn cp-hov" aria-label="Close sidebar" style="width:26px;height:26px;border-radius:6px;display:flex;align-items:center;justify-content:center;color:{{c.muted}}">
+      <svg width="10" height="10" viewBox="0 0 9 9" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M1.5 1.5l6 6M7.5 1.5l-6 6"/></svg>
+    </button>
+  </div>
+
+  <!-- Whose changes, and against what -->
+  <div style="flex-shrink:0;padding:2px 14px 10px 16px;display:flex;flex-direction:column;gap:8px">
+    <div style="display:flex;align-items:center;gap:8px;min-width:0" title="Follows the focused pane">
+      <span class="cp-pulse" style="width:7px;height:7px;border-radius:50%;background:{{c.blue}};flex-shrink:0"></span>
+      <span style="font-weight:600;white-space:nowrap">dev-changes</span>
+      <span style="color:{{c.dim}};font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">⎇ p5-13b-changes</span>
+      <span style="flex:1"></span>
+      <span style="color:{{c.green}};font-size:12px">+{{totAdd}}</span><span style="color:{{c.red}};font-size:12px">−{{totDel}}</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px">
+      <div role="group" aria-label="Compare against" style="display:flex;background:{{c.seg}};border-radius:7px;padding:2px;font-size:12px">
+        <button class="cp-btn" onClick="{{pickWork}}" style="padding:2px 9px;border-radius:5px;background:{{workBg}};color:{{workColor}};font-weight:{{workWeight}}">Uncommitted</button>
+        <button class="cp-btn" onClick="{{pickBranch}}" style="padding:2px 9px;border-radius:5px;background:{{branchBg}};color:{{branchColor}};font-weight:{{branchWeight}}">Branch vs main</button>
+      </div>
+      <span style="flex:1"></span>
+      <span style="color:{{c.dim}};font-size:12px">{{fileCount}}</span>
+      <button class="cp-btn cp-hov" onClick="{{toggleAll}}" aria-label="{{allLabel}}" title="{{allLabel}}" style="width:24px;height:24px;border-radius:6px;display:flex;align-items:center;justify-content:center;color:{{c.muted}}">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><path d="{{allIcon}}"/></svg>
+      </button>
+    </div>
+  </div>
+  <div style="height:1px;background:{{c.rule}};flex-shrink:0"></div>
+
+  <div class="cp-scroll" style="flex:1;min-height:0;overflow-y:auto">
+    <!-- File index -->
+    <div style="padding:6px 8px 8px">
+      <sc-for list="{{files}}" as="f" hint-placeholder-count="3">
+        <a href="#{{f.anchor}}" onClick="{{f.reveal}}" class="cp-hov" style="display:flex;align-items:center;gap:8px;height:26px;padding:0 8px;border-radius:6px;color:{{c.text}};text-decoration:none;font-size:12.5px">
+          <span style="width:12px;font-size:10.5px;font-weight:700;color:{{f.stColor}};text-align:center">{{f.st}}</span>
+          <span style="min-width:0;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><span style="color:{{c.dim}}">{{f.dir}}</span>{{f.name}}</span>
+          <span style="color:{{c.green}};font-size:11.5px">{{f.addTxt}}</span><span style="color:{{c.red}};font-size:11.5px">{{f.delTxt}}</span>
+        </a>
+      </sc-for>
+    </div>
+
+    <!-- The diffs, one file after another -->
+    <sc-for list="{{files}}" as="f" hint-placeholder-count="3">
+      <div id="{{f.anchor}}" style="border-top:1px solid {{c.rule}}">
+        <button class="cp-btn" onClick="{{f.toggle}}" aria-expanded="{{f.open}}" style="position:sticky;top:0;z-index:1;display:flex;width:100%;box-sizing:border-box;align-items:center;gap:8px;height:34px;padding:0 14px 0 12px;background:{{c.panel}};border-bottom:1px solid {{f.headRule}}">
+          <svg width="9" height="9" viewBox="0 0 8 8" fill="none" stroke="{{c.dim}}" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" style="transform:rotate({{f.rot}}deg);flex-shrink:0"><path d="M2.5 1.5L5.5 4 2.5 6.5"/></svg>
+          <span style="width:12px;font-size:10.5px;font-weight:700;color:{{f.stColor}};text-align:center">{{f.st}}</span>
+          <span style="min-width:0;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12.5px"><span style="color:{{c.dim}}">{{f.dir}}</span><span style="font-weight:600">{{f.name}}</span></span>
+          <span style="color:{{c.green}};font-size:11.5px">{{f.addTxt}}</span><span style="color:{{c.red}};font-size:11.5px">{{f.delTxt}}</span>
+        </button>
+        <sc-if value="{{f.open}}" hint-placeholder-val="{{true}}">
+          <div class="cp-mono cp-scroll" style="overflow-x:auto;font-size:12px;line-height:20px;padding-bottom:6px">
+            <div style="min-width:max-content">
+              <sc-for list="{{f.rows}}" as="r" hint-placeholder-count="8">
+                <sc-if value="{{r.isHunk}}" hint-placeholder-val="{{false}}">
+                  <div style="display:flex;background:{{c.hunkBg}};color:{{c.hunk}};font-size:11.5px;margin-top:{{r.mt}}">
+                    <span style="width:84px;flex-shrink:0"></span><span style="white-space:pre">{{r.head}}</span><span style="white-space:pre;color:{{c.dim}}">  {{r.ctx}}</span>
+                  </div>
+                </sc-if>
+                <sc-if value="{{r.isGap}}" hint-placeholder-val="{{false}}">
+                  <button class="cp-btn cp-hov" style="display:flex;align-items:center;width:100%;height:24px;color:{{c.dim}};font-size:11.5px;font-family:-apple-system,'SF Pro Text',sans-serif">
+                    <span style="width:84px;flex-shrink:0;display:flex;justify-content:center">
+                      <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3.5L5 1.5 7 3.5M3 6.5L5 8.5 7 6.5"/></svg>
+                    </span>{{r.label}}
+                  </button>
+                </sc-if>
+                <sc-if value="{{r.isLine}}" hint-placeholder-val="{{true}}">
+                  <div style="display:flex;background:{{r.bg}}">
+                    <span style="width:36px;flex-shrink:0;text-align:right;padding-right:6px;box-sizing:border-box;color:{{r.numColor}};font-size:11px">{{r.a}}</span>
+                    <span style="width:36px;flex-shrink:0;text-align:right;padding-right:6px;box-sizing:border-box;color:{{r.numColor}};font-size:11px">{{r.b}}</span>
+                    <span style="width:12px;flex-shrink:0;color:{{r.signColor}}">{{r.sign}}</span>
+                    <span style="white-space:pre;padding-right:16px"><sc-for list="{{r.toks}}" as="k" hint-placeholder-count="3"><span style="color:{{k.color}};background:{{k.bg}};font-style:{{k.style}};border-radius:2px">{{k.t}}</span></sc-for></span>
+                  </div>
+                </sc-if>
+              </sc-for>
+            </div>
+          </div>
+        </sc-if>
+      </div>
+    </sc-for>
+    <div style="height:24px"></div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["dune","tide","lagoon"],"default":"dune"},"scope":{"editor":"enum","options":["work","branch"],"default":"work"},"w":{"editor":null,"default":"500px"},"h":{"editor":null,"default":"820px"},"$preview":{"width":500,"height":820}}'>
+const PAL = {
+  dune:   { panel:'#1d1a16', text:'#e8dfcc', code:'#d9d1bf', muted:'#8c8374', dim:'#756c5e', faint:'#4f483e', rule:'#2a2621', selected:'#2b2621', seg:'#161411', segOn:'#3a352e',
+            green:'#9cbd80', red:'#ef8174', yellow:'#e6b566', blue:'#7fb4ee', accent:'#bdb86a', purple:'#c79fe0', orange:'#e39e72', str:'#d8bf86', hunk:'#8fb2d6' },
+  tide:   { panel:'#151b23', text:'#dce4ee', code:'#cdd6e2', muted:'#8d9bb0', dim:'#6b7a8f', faint:'#435166', rule:'#2b3542', selected:'#243244', seg:'#10151c', segOn:'#2e3d52',
+            green:'#9cc98e', red:'#e47a74', yellow:'#dbbd6e', blue:'#7ea2ee', accent:'#86c1e6', purple:'#a99ae6', orange:'#e39e72', str:'#e2c98a', hunk:'#86c1e6' },
+  lagoon: { panel:'#0c1616', text:'#d6e6e1', code:'#c8dad4', muted:'#8aa59e', dim:'#668580', faint:'#36524c', rule:'#1f3633', selected:'#1d3833', seg:'#071010', segOn:'#25443e',
+            green:'#9cc98e', red:'#e47a74', yellow:'#dbbd6e', blue:'#7ea2ee', accent:'#7fd4bf', purple:'#a99ae6', orange:'#e39e72', str:'#e2c98a', hunk:'#7fd4bf' }
+};
+function rgba(hex, a) {
+  const n = parseInt(hex.slice(1), 16);
+  return 'rgba(' + (n >> 16) + ',' + ((n >> 8) & 255) + ',' + (n & 255) + ',' + a + ')';
+}
+const KW = new Set(['pub','fn','let','mut','self','Self','match','use','enum','struct','impl','return','if','else','for','in','const','where','crate','mod','as','ref','move','true','false','Some','None','Option','PathBuf']);
+function rust(text, c) {
+  const out = [];
+  const re = /(\/\/.*$)|("(?:[^"\\]|\\.)*")|(#\[[^\]]*\])|(\b\d+(?:\.\d+)?\b)|([A-Za-z_][A-Za-z0-9_]*!?)|(\s+)|([^\sA-Za-z0-9_"#/]+|.)/g;
+  let m;
+  while ((m = re.exec(text))) {
+    const t = m[0];
+    let color = c.code, style = 'normal';
+    if (m[1]) { color = c.dim; style = 'italic'; }
+    else if (m[2]) color = c.str;
+    else if (m[3]) color = c.muted;
+    else if (m[4]) color = c.orange;
+    else if (m[5]) {
+      const next = text[re.lastIndex];
+      if (t.endsWith('!')) color = c.blue;
+      else if (KW.has(t) && t !== 'Option' && t !== 'PathBuf') color = c.purple;
+      else if (/^[A-Z]/.test(t)) color = c.accent;
+      else if (next === '(') color = c.blue;
+    } else if (m[7]) color = c.muted;
+    out.push({ t, color, style });
+  }
+  return out;
+}
+function toml(text, c) {
+  const sec = text.match(/^(\s*)(\[.*\])\s*$/);
+  if (sec) return [{ t: text, color: c.purple, style: 'normal' }];
+  const kv = text.match(/^(\s*[A-Za-z0-9_.-]+)(\s*=\s*)(.*)$/);
+  if (!kv) return [{ t: text, color: c.code, style: 'normal' }];
+  const rest = kv[3];
+  const parts = [{ t: kv[1], color: c.blue, style: 'normal' }, { t: kv[2], color: c.muted, style: 'normal' }];
+  const re = /("(?:[^"\\]|\\.)*")|(#.*$)|([^"#]+)/g;
+  let m;
+  while ((m = re.exec(rest))) parts.push({ t: m[0], color: m[1] ? c.str : m[2] ? c.dim : c.code, style: m[2] ? 'italic' : 'normal' });
+  return parts;
+}
+function mark(toks, text, w, bg) {
+  if (!w) return toks;
+  const s = text.indexOf(w);
+  if (s < 0) return toks;
+  const e = s + w.length;
+  const out = [];
+  let pos = 0;
+  for (const k of toks) {
+    const a = pos, b = pos + k.t.length;
+    pos = b;
+    if (b <= s || a >= e) { out.push(k); continue; }
+    const cut = [Math.max(a, s), Math.min(b, e)];
+    if (cut[0] > a) out.push({ ...k, t: k.t.slice(0, cut[0] - a) });
+    out.push({ ...k, t: k.t.slice(cut[0] - a, cut[1] - a), bg });
+    if (cut[1] < b) out.push({ ...k, t: k.t.slice(cut[1] - a) });
+  }
+  return out;
+}
+
+const RP = [
+  { h: '@@ -88,9 +88,14 @@', x: 'impl RightPanel' },
+  [' ', 88, 88, '    pub fn render_tab(&self, cx: &mut Context<Self>) -> AnyElement {'],
+  [' ', 89, 89, '        match self.tab {'],
+  ['-', 90, '', '            Tab::Changes => placeholder("Changes will show here"),', 'placeholder("Changes will show here")'],
+  ['+', '', 90, '            Tab::Changes => self.changes.clone().into_any_element(),', 'self.changes.clone().into_any_element()'],
+  [' ', 91, 91, '            Tab::Browser => placeholder("Browser will show here"),'],
+  [' ', 92, 92, '        }'],
+  [' ', 93, 93, '    }'],
+  [' ', 94, 94, ''],
+  ['+', '', 95, '    /// Follows the focused pane: its cwd decides which repository we read.'],
+  ['+', '', 96, '    pub fn follow(&mut self, cwd: Option<PathBuf>, cx: &mut Context<Self>) {'],
+  ['+', '', 97, '        self.changes.update(cx, |c, cx| c.set_cwd(cwd, cx));'],
+  ['+', '', 98, '    }'],
+  { gap: 41 },
+  { h: '@@ -136,7 +146,7 @@', x: 'fn clamp_width' },
+  [' ', 136, 146, '    let max = (window * 0.7).min(window - TERMINAL_MIN);'],
+  ['-', 137, '', '    width.clamp(MIN_WIDTH, max.max(MIN_WIDTH))', 'MIN_WIDTH, max.max(MIN_WIDTH)'],
+  ['+', '', 147, '    width.clamp(min_width(ui), max.max(min_width(ui)))', 'min_width(ui), max.max(min_width(ui))'],
+  [' ', 138, 148, '}'],
+  { gap: 'rest', n: 58 }
+];
+const CH = [
+  { h: '@@ -0,0 +1,212 @@', x: '' },
+  ['+', '', 1, '//! The Changes tab: what git says changed under the focused pane.'],
+  ['+', '', 2, ''],
+  ['+', '', 3, 'use similar::{ChangeTag, TextDiff};'],
+  ['+', '', 4, 'use syntect::parsing::SyntaxSet;'],
+  ['+', '', 5, ''],
+  ['+', '', 6, '/// Which changes to show.'],
+  ['+', '', 7, '#[derive(Clone, Copy, PartialEq, Eq, Default)]'],
+  ['+', '', 8, 'pub enum Scope {'],
+  ['+', '', 9, '    /// Staged, unstaged and untracked, against HEAD.'],
+  ['+', '', 10, '    #[default]'],
+  ['+', '', 11, '    Uncommitted,'],
+  ['+', '', 12, '    /// Everything this branch changed since it left main.'],
+  ['+', '', 13, '    Branch,'],
+  ['+', '', 14, '}'],
+  { gap: 'rest', n: 198 }
+];
+const CT = [
+  { h: '@@ -16,6 +16,9 @@', x: '[dependencies]' },
+  [' ', 16, 16, 'serde_json = { version = "1", features = ["float_roundtrip"] }'],
+  [' ', 17, 17, 'shell-words = "1"'],
+  ['+', '', 18, '# The Changes tab: word-level diffs and syntax colors.'],
+  ['+', '', 19, 'similar = "2"'],
+  ['+', '', 20, 'syntect = { version = "5", default-features = false }'],
+  [' ', 18, 21, 'toml_edit = "0.25"']
+];
+const SB = [
+  { h: '@@ -412,6 +412,8 @@', x: 'fn footer' },
+  [' ', 412, 412, '        .child(menu_button(&theme, &ui, self.menu_open))'],
+  ['+', '', 413, '        .child(changes_badge(&theme, &ui, self.git.get(cwd)))'],
+  ['+', '', 414, '        .gap(ui.px(6.))'],
+  [' ', 413, 415, '        .on_click(cx.listener(|this, _, _, cx| {'],
+];
+
+const WORK = [
+  { id: 'rp', st: 'M', dir: 'app/src/', name: 'right_panel.rs', add: 9, del: 2, rows: RP, lang: 'rust', open: true },
+  { id: 'ch', st: 'A', dir: 'app/src/', name: 'changes.rs', add: 212, del: 0, rows: CH, lang: 'rust', open: true },
+  { id: 'ct', st: 'M', dir: 'app/', name: 'Cargo.toml', add: 3, del: 0, rows: CT, lang: 'toml', open: false }
+];
+const BRANCH = WORK.concat([
+  { id: 'sb', st: 'M', dir: 'app/src/', name: 'sidebar.rs', add: 2, del: 0, rows: SB, lang: 'rust', open: false },
+  { id: 'lk', st: 'M', dir: '', name: 'Cargo.lock', add: 41, del: 0, rows: [], lang: 'toml', open: false, generated: true }
+]);
+
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { scope: null, closed: {} };
+  }
+  renderVals() {
+    const c = PAL[this.props.theme] || PAL.dune;
+    const scope = this.state.scope || this.props.scope || 'work';
+    const defs = scope === 'branch' ? BRANCH : WORK;
+    const isOpen = (f) => (f.id in this.state.closed ? !this.state.closed[f.id] : f.open);
+    const tint = {
+      '+': { bg: rgba(c.green, 0.10), word: rgba(c.green, 0.28), sign: c.green, num: rgba(c.green, 0.55) },
+      '-': { bg: rgba(c.red, 0.10), word: rgba(c.red, 0.30), sign: c.red, num: rgba(c.red, 0.55) },
+      ' ': { bg: 'transparent', word: '', sign: c.dim, num: c.faint }
+    };
+    const files = defs.map((f) => {
+      const open = isOpen(f);
+      let first = true;
+      const rows = f.generated ? [{ isGap: true, label: 'Generated file · Show diff' }] : f.rows.map((r) => {
+        if (r.h) { const row = { isHunk: true, head: r.h, ctx: r.x, mt: first ? '0' : '6px' }; first = false; return row; }
+        if (r.gap) {
+          const label = r.gap === 'rest' ? r.n + ' more lines' : r.gap + ' unchanged lines';
+          return { isGap: true, label };
+        }
+        first = false;
+        const [s, a, b, text, w] = r;
+        const tn = tint[s];
+        const base = f.lang === 'toml' ? toml(text, c) : rust(text, c);
+        const toks = mark(base, text, w, tn.word).map((k) => ({ ...k, bg: k.bg || 'transparent' }));
+        return { isLine: true, a, b, sign: s === ' ' ? '' : (s === '-' ? '−' : '+'), signColor: tn.sign, numColor: tn.num, bg: tn.bg, toks };
+      });
+      return {
+        ...f, open, rows,
+        anchor: 'file-' + f.id,
+        stColor: f.st === 'A' ? c.green : f.st === 'D' ? c.red : c.yellow,
+        addTxt: f.add ? '+' + f.add : '', delTxt: f.del ? '−' + f.del : '',
+        rot: open ? 90 : 0,
+        headRule: open ? c.rule : 'transparent',
+        toggle: () => this.setState({ closed: { ...this.state.closed, [f.id]: open } }),
+        reveal: () => this.setState({ closed: { ...this.state.closed, [f.id]: false } })
+      };
+    });
+    const anyOpen = files.some((f) => f.open);
+    const seg = (on) => ({ bg: on ? c.segOn : 'transparent', color: on ? c.text : c.muted, weight: on ? 600 : 400 });
+    const w = seg(scope === 'work'), br = seg(scope === 'branch');
+    return {
+      c, files, w: this.props.w || "500px", h: this.props.h || "820px",
+      totAdd: defs.reduce((n, f) => n + f.add, 0), totDel: defs.reduce((n, f) => n + f.del, 0),
+      fileCount: defs.length + ' files',
+      workBg: w.bg, workColor: w.color, workWeight: w.weight,
+      branchBg: br.bg, branchColor: br.color, branchWeight: br.weight,
+      pickWork: () => this.setState({ scope: 'work', closed: {} }),
+      pickBranch: () => this.setState({ scope: 'branch', closed: {} }),
+      allLabel: anyOpen ? 'Collapse all' : 'Expand all',
+      allIcon: anyOpen ? 'M3.5 2.5L6 5l2.5-2.5M3.5 9.5L6 7l2.5 2.5' : 'M3.5 5L6 2.5 8.5 5M3.5 7L6 9.5 8.5 7',
+      toggleAll: () => {
+        const closed = {};
+        defs.forEach((f) => { closed[f.id] = anyOpen; });
+        this.setState({ closed });
+      }
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Changes in three themes</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div style="width:1660px;height:900px;box-sizing:border-box;padding:40px;display:flex;gap:40px;background:#0f0e0c;font-family:-apple-system,'SF Pro Text','Helvetica Neue',sans-serif">
+  <div style="display:flex;flex-direction:column;gap:12px">
+    <div style="color:#bdb2a0;font-size:13px;font-weight:600">Dune</div>
+    <div style="border-radius:10px;overflow:hidden;border:1px solid #3a352e">
+      <dc-import name="Panel" theme="dune" scope="work" w="500px" h="780px" hint-size="500px,780px"></dc-import>
+    </div>
+  </div>
+  <div style="display:flex;flex-direction:column;gap:12px">
+    <div style="color:#bdb2a0;font-size:13px;font-weight:600">Tide</div>
+    <div style="border-radius:10px;overflow:hidden;border:1px solid #435166">
+      <dc-import name="Panel" theme="tide" scope="work" w="500px" h="780px" hint-size="500px,780px"></dc-import>
+    </div>
+  </div>
+  <div style="display:flex;flex-direction:column;gap:12px">
+    <div style="color:#bdb2a0;font-size:13px;font-weight:600">Lagoon</div>
+    <div style="border-radius:10px;overflow:hidden;border:1px solid #36524c">
+      <dc-import name="Panel" theme="lagoon" scope="work" w="500px" h="780px" hint-size="500px,780px"></dc-import>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1660,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

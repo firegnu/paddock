@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Changes states</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+.cp-btn{background:none;border:0;padding:0;margin:0;font:inherit;color:inherit;cursor:pointer;text-align:left}
+.cp-hov:hover{background:rgba(255,255,255,.045)}
+</style>
+</helmet>
+<div style="width:1880px;height:680px;box-sizing:border-box;padding:40px;display:grid;grid-template-columns:repeat(4, minmax(0, 1fr));gap:40px;background:#0f0e0c;font-family:-apple-system,'SF Pro Text','Helvetica Neue',sans-serif;font-size:13px">
+
+  <sc-for list="{{panels}}" as="p" hint-placeholder-count="4">
+    <div style="display:flex;flex-direction:column;gap:12px;min-width:0">
+      <div style="color:#bdb2a0;font-size:13px;font-weight:600">{{p.caption}}</div>
+      <div style="height:560px;display:flex;flex-direction:column;background:#1d1a16;color:#e8dfcc;border-radius:10px;overflow:hidden;border:1px solid #3a352e">
+        <div style="height:40px;flex-shrink:0;display:flex;align-items:center;gap:2px;padding:0 8px 0 10px">
+          <span style="height:28px;display:flex;align-items:center;gap:7px;padding:0 11px;border-radius:7px;background:#2b2621;font-size:12.5px;font-weight:600"><span style="color:#bdb86a">±</span>Changes</span>
+          <span style="height:28px;display:flex;align-items:center;padding:0 11px;color:#8c8374;font-size:12.5px">Browser</span>
+        </div>
+        <div style="flex-shrink:0;padding:2px 14px 10px 16px;display:flex;align-items:center;gap:8px">
+          <span style="width:7px;height:7px;border-radius:50%;background:{{p.dot}}"></span>
+          <span style="font-weight:600">{{p.who}}</span>
+          <span style="color:#756c5e;font-size:12px">{{p.branch}}</span>
+          <span style="flex:1"></span>
+          <span style="color:#9cbd80;font-size:12px">{{p.add}}</span><span style="color:#ef8174;font-size:12px">{{p.del}}</span>
+        </div>
+        <div style="height:1px;background:#2a2621;flex-shrink:0"></div>
+
+        <sc-if value="{{p.empty}}" hint-placeholder-val="{{true}}">
+          <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:0 40px;text-align:center">
+            <svg width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="#5a5247" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="{{p.icon}}"/></svg>
+            <div style="color:#bdb2a0;font-weight:600">{{p.title}}</div>
+            <div style="color:#756c5e;font-size:12px">{{p.sub}}</div>
+            <sc-if value="{{p.retry}}" hint-placeholder-val="{{false}}">
+              <button class="cp-btn cp-hov" style="margin-top:4px;padding:4px 12px;border-radius:6px;box-shadow:inset 0 0 0 1px #3a352e;color:#e8dfcc;font-size:12px">Retry</button>
+            </sc-if>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{p.list}}" hint-placeholder-val="{{false}}">
+          <div style="flex:1;min-height:0">
+            <sc-for list="{{p.files}}" as="f" hint-placeholder-count="5">
+              <div style="border-bottom:1px solid #2a2621">
+                <div style="display:flex;align-items:center;gap:8px;height:34px;padding:0 14px 0 12px">
+                  <svg width="9" height="9" viewBox="0 0 8 8" fill="none" stroke="#756c5e" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" style="transform:rotate(90deg);flex-shrink:0"><path d="M2.5 1.5L5.5 4 2.5 6.5"/></svg>
+                  <span style="width:12px;font-size:10.5px;font-weight:700;color:{{f.stColor}};text-align:center">{{f.st}}</span>
+                  <span style="min-width:0;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12.5px"><span style="color:#756c5e">{{f.dir}}</span><span style="font-weight:600">{{f.name}}</span></span>
+                  <span style="color:#9cbd80;font-size:11.5px">{{f.add}}</span><span style="color:#ef8174;font-size:11.5px">{{f.del}}</span>
+                </div>
+                <div style="display:flex;align-items:center;gap:8px;height:30px;padding:0 14px 0 40px;margin-bottom:6px;color:#8c8374;font-size:12px">
+                  <span>{{f.note}}</span>
+                  <sc-if value="{{f.action}}" hint-placeholder-val="{{false}}">
+                    <span style="color:#5a5247">·</span>
+                    <button class="cp-btn" style="color:#bdb86a;font-size:12px">{{f.action}}</button>
+                  </sc-if>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+        </sc-if>
+      </div>
+    </div>
+  </sc-for>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1880,"height":680}}'>
+const CHECK = 'M6 14.5l5 5L22 8.5';
+const FOLDER = 'M3.5 8.5a2 2 0 0 1 2-2h5l2.5 2.5h9.5a2 2 0 0 1 2 2v9.5a2 2 0 0 1-2 2h-17a2 2 0 0 1-2-2zM10 15h8';
+const WARN = 'M14 4.5l10.5 18.5h-21zM14 11.5v5M14 19.5v.5';
+class Component extends DCLogic {
+  renderVals() {
+    const base = { empty: false, list: false, retry: false, files: [], add: '', del: '' };
+    const panels = [
+      { ...base, caption: '没有改动', empty: true, who: 'main', dot: '#9cbd80', branch: '⎇ main', icon: CHECK,
+        title: 'No uncommitted changes', sub: 'Working tree matches HEAD' },
+      { ...base, caption: '不在 git 仓库里（普通 shell 窗格）', empty: true, who: 'zsh', dot: '#9cbd80', branch: '~/Downloads', icon: FOLDER,
+        title: 'Not a git repository', sub: 'Changes show for panes inside a repository' },
+      { ...base, caption: '特殊文件：改名、删除、二进制、太大', list: true, who: 'dev-assets', dot: '#7fb4ee', branch: '⎇ p5-assets', add: '+2,431', del: '−84',
+        files: [
+          { st: 'R', stColor: '#7fb4ee', dir: 'app/src/', name: 'icon.rs → app_icon.rs', add: '', del: '', note: 'Renamed without changes', action: '' },
+          { st: 'D', stColor: '#ef8174', dir: 'docs/', name: 'old-notes.md', add: '', del: '−84', note: 'Deleted file', action: 'Show diff' },
+          { st: 'M', stColor: '#e6b566', dir: 'app/assets/', name: 'icon.png', add: '', del: '', note: 'Binary file · 12 KB → 14 KB', action: '' },
+          { st: 'M', stColor: '#e6b566', dir: '', name: 'Cargo.lock', add: '+2,431', del: '', note: 'Large diff · 2,431 lines', action: 'Show diff' }
+        ] },
+      { ...base, caption: 'git 出错', empty: true, retry: true, who: 'dev-changes', dot: '#7fb4ee', branch: '⎇ p5-13b-changes', icon: WARN,
+        title: 'Couldn’t read changes', sub: 'git exited with status 128' }
+    ];
+    return { panels };
+  }
+}
+</script>
+</body>
+</html>

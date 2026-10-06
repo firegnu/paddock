@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Changes, widened</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;background:#141210}
+.cp-btn{background:none;border:0;padding:0;margin:0;font:inherit;color:inherit;cursor:pointer;text-align:left}
+.cp-hov:hover{background:rgba(255,255,255,.045)}
+.cp-mono{font-family:'SF Mono',Menlo,monospace}
+</style>
+</helmet>
+<div style="width:1040px;height:860px;box-sizing:border-box;display:flex;flex-direction:column;background:#1d1a16;color:#e8dfcc;font-family:-apple-system,'SF Pro Text','Helvetica Neue',sans-serif;font-size:13px;border-left:1px solid #2e2a24">
+
+  <!-- Panel tabs -->
+  <div style="height:40px;flex-shrink:0;display:flex;align-items:center;gap:2px;padding:0 8px 0 10px">
+    <button class="cp-btn" style="height:28px;display:flex;align-items:center;gap:7px;padding:0 11px;border-radius:7px;background:#2b2621;font-size:12.5px;font-weight:600"><span style="color:#bdb86a">±</span>Changes</button>
+    <button class="cp-btn cp-hov" style="height:28px;display:flex;align-items:center;gap:7px;padding:0 11px;border-radius:7px;color:#8c8374;font-size:12.5px">
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2"><circle cx="6" cy="6" r="4.6"/><path d="M1.6 6h8.8M6 1.4c1.5 1.4 1.5 7.8 0 9.2M6 1.4c-1.5 1.4-1.5 7.8 0 9.2"/></svg>Browser</button>
+    <span style="flex:1"></span>
+    <button class="cp-btn cp-hov" aria-label="Narrower" style="width:26px;height:26px;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#e8dfcc;background:#2b2621">
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.5 5H7V1.5M1.5 7H5v3.5M7 5l3.5-3.5M5 7l-3.5 3.5"/></svg>
+    </button>
+    <button class="cp-btn cp-hov" aria-label="Close sidebar" style="width:26px;height:26px;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#8c8374">
+      <svg width="10" height="10" viewBox="0 0 9 9" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M1.5 1.5l6 6M7.5 1.5l-6 6"/></svg>
+    </button>
+  </div>
+
+  <!-- Header: who, against what, how to lay it out -->
+  <div style="flex-shrink:0;padding:2px 14px 10px 16px;display:flex;align-items:center;gap:10px">
+    <span style="width:7px;height:7px;border-radius:50%;background:#7fb4ee"></span>
+    <span style="font-weight:600">dev-changes</span>
+    <span style="color:#756c5e;font-size:12px">⎇ p5-13b-changes</span>
+    <span style="color:#9cbd80;font-size:12px">+224</span><span style="color:#ef8174;font-size:12px;margin-left:-6px">−2</span>
+    <span style="flex:1"></span>
+    <div role="group" aria-label="Compare against" style="display:flex;background:#161411;border-radius:7px;padding:2px;font-size:12px">
+      <button class="cp-btn" style="padding:2px 9px;border-radius:5px;background:#3a352e;font-weight:600">Uncommitted</button>
+      <button class="cp-btn" style="padding:2px 9px;border-radius:5px;color:#8c8374">Branch vs main</button>
+    </div>
+    <div role="group" aria-label="Layout" style="display:flex;background:#161411;border-radius:7px;padding:2px">
+      <button class="cp-btn" aria-label="Unified" title="Unified" style="width:26px;height:20px;border-radius:5px;display:flex;align-items:center;justify-content:center;color:#8c8374">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"><rect x="1.5" y="1.5" width="9" height="9" rx="1.5"/><path d="M4 4.5h4M4 7.5h4"/></svg>
+      </button>
+      <button class="cp-btn" aria-label="Split" title="Split" style="width:26px;height:20px;border-radius:5px;display:flex;align-items:center;justify-content:center;background:#3a352e;color:#e8dfcc">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"><rect x="1.5" y="1.5" width="9" height="9" rx="1.5"/><path d="M6 1.5v9"/></svg>
+      </button>
+    </div>
+  </div>
+  <div style="height:1px;background:#2a2621;flex-shrink:0"></div>
+
+  <div style="flex:1;min-height:0;display:flex">
+    <!-- File tree -->
+    <div style="width:230px;flex-shrink:0;padding:8px;box-sizing:border-box;border-right:1px solid #2a2621;font-size:12.5px">
+      <div style="padding:4px 8px 6px;font-size:10.5px;font-weight:600;letter-spacing:.08em;color:#8c8374">3 FILES</div>
+      <sc-for list="{{tree}}" as="n" hint-placeholder-count="5">
+        <button class="cp-btn cp-hov" style="display:flex;width:100%;box-sizing:border-box;align-items:center;gap:7px;height:26px;padding:0 8px 0 {{n.pad}};border-radius:6px;background:{{n.bg}}">
+          <sc-if value="{{n.dir}}" hint-placeholder-val="{{false}}">
+            <svg width="9" height="9" viewBox="0 0 8 8" fill="none" stroke="#756c5e" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" style="transform:rotate(90deg)"><path d="M2.5 1.5L5.5 4 2.5 6.5"/></svg>
+            <span style="color:#8c8374">{{n.name}}</span>
+          </sc-if>
+          <sc-if value="{{n.file}}" hint-placeholder-val="{{true}}">
+            <span style="width:10px;font-size:10.5px;font-weight:700;color:{{n.stColor}}">{{n.st}}</span>
+            <span style="flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:{{n.weight}}">{{n.name}}</span>
+            <span style="color:#9cbd80;font-size:11.5px">{{n.add}}</span><span style="color:#ef8174;font-size:11.5px">{{n.del}}</span>
+          </sc-if>
+        </button>
+      </sc-for>
+    </div>
+
+    <!-- Split diff -->
+    <div style="flex:1;min-width:0;overflow:hidden;display:flex;flex-direction:column">
+      <div style="height:34px;flex-shrink:0;display:flex;align-items:center;gap:8px;padding:0 14px 0 12px;border-bottom:1px solid #2a2621">
+        <svg width="9" height="9" viewBox="0 0 8 8" fill="none" stroke="#756c5e" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" style="transform:rotate(90deg)"><path d="M2.5 1.5L5.5 4 2.5 6.5"/></svg>
+        <span style="font-size:10.5px;font-weight:700;color:#e6b566">M</span>
+        <span style="font-size:12.5px"><span style="color:#756c5e">app/src/</span><span style="font-weight:600">right_panel.rs</span></span>
+        <span style="flex:1"></span>
+        <span style="color:#9cbd80;font-size:11.5px">+9</span><span style="color:#ef8174;font-size:11.5px">−2</span>
+      </div>
+      <div class="cp-mono" style="flex:1;overflow:hidden;font-size:12px;line-height:20px">
+        <sc-for list="{{rows}}" as="r" hint-placeholder-count="14">
+          <sc-if value="{{r.isHunk}}" hint-placeholder-val="{{false}}">
+            <div style="display:flex;background:rgba(143,178,214,.07);color:#8fb2d6;font-size:11.5px;margin-top:{{r.mt}}">
+              <span style="width:44px;flex-shrink:0"></span><span style="white-space:pre">{{r.head}}</span><span style="white-space:pre;color:#756c5e">  {{r.ctx}}</span>
+            </div>
+          </sc-if>
+          <sc-if value="{{r.isGap}}" hint-placeholder-val="{{false}}">
+            <button class="cp-btn cp-hov" style="display:flex;align-items:center;width:100%;height:24px;color:#756c5e;font-size:11.5px;font-family:-apple-system,'SF Pro Text',sans-serif">
+              <span style="width:44px;flex-shrink:0;display:flex;justify-content:center"><svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3.5L5 1.5 7 3.5M3 6.5L5 8.5 7 6.5"/></svg></span>{{r.label}}
+            </button>
+          </sc-if>
+          <sc-if value="{{r.isPair}}" hint-placeholder-val="{{true}}">
+            <div style="display:grid;grid-template-columns:repeat(2, minmax(0, 1fr))">
+              <div style="display:flex;min-width:0;overflow:hidden;background:{{r.l.bg}};border-right:1px solid #2a2621">
+                <span style="width:40px;flex-shrink:0;text-align:right;padding-right:10px;box-sizing:border-box;color:{{r.l.num}};font-size:11px">{{r.l.n}}</span>
+                <span style="white-space:pre"><sc-for list="{{r.l.toks}}" as="k" hint-placeholder-count="3"><span style="color:{{k.color}};background:{{k.bg}};font-style:{{k.style}};border-radius:2px">{{k.t}}</span></sc-for></span>
+              </div>
+              <div style="display:flex;min-width:0;overflow:hidden;background:{{r.r.bg}}">
+                <span style="width:40px;flex-shrink:0;text-align:right;padding-right:10px;box-sizing:border-box;color:{{r.r.num}};font-size:11px">{{r.r.n}}</span>
+                <span style="white-space:pre"><sc-for list="{{r.r.toks}}" as="k" hint-placeholder-count="3"><span style="color:{{k.color}};background:{{k.bg}};font-style:{{k.style}};border-radius:2px">{{k.t}}</span></sc-for></span>
+              </div>
+            </div>
+          </sc-if>
+        </sc-for>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1040,"height":860}}'>
+const c = { code:'#d9d1bf', muted:'#8c8374', dim:'#756c5e', faint:'#4f483e', green:'#9cbd80', red:'#ef8174', blue:'#7fb4ee', accent:'#bdb86a', purple:'#c79fe0', orange:'#e39e72', str:'#d8bf86' };
+const KW = new Set(['pub','fn','let','mut','self','Self','match','use','enum','struct','impl','return','if','else','for','in','const','where','crate','mod','as','ref','move','true','false','Some','None']);
+function rust(text) {
+  const out = [];
+  const re = /(\/\/.*$)|("(?:[^"\\]|\\.)*")|(#\[[^\]]*\])|(\b\d+(?:\.\d+)?\b)|([A-Za-z_][A-Za-z0-9_]*!?)|(\s+)|([^\sA-Za-z0-9_"#/]+|.)/g;
+  let m;
+  while ((m = re.exec(text))) {
+    const t = m[0];
+    let color = c.code, style = 'normal';
+    if (m[1]) { color = c.dim; style = 'italic'; }
+    else if (m[2]) color = c.str;
+    else if (m[3]) color = c.muted;
+    else if (m[4]) color = c.orange;
+    else if (m[5]) {
+      if (t.endsWith('!')) color = c.blue;
+      else if (KW.has(t)) color = c.purple;
+      else if (/^[A-Z]/.test(t)) color = c.accent;
+      else if (text[re.lastIndex] === '(') color = c.blue;
+    } else if (m[7]) color = c.muted;
+    out.push({ t, color, style, bg: 'transparent' });
+  }
+  return out;
+}
+function mark(toks, text, w, bg) {
+  if (!w) return toks;
+  const s = text.indexOf(w);
+  if (s < 0) return toks;
+  const e = s + w.length, out = [];
+  let pos = 0;
+  for (const k of toks) {
+    const a = pos, b = pos + k.t.length;
+    pos = b;
+    if (b <= s || a >= e) { out.push(k); continue; }
+    const x = Math.max(a, s), y = Math.min(b, e);
+    if (x > a) out.push({ ...k, t: k.t.slice(0, x - a) });
+    out.push({ ...k, t: k.t.slice(x - a, y - a), bg });
+    if (y < b) out.push({ ...k, t: k.t.slice(y - a) });
+  }
+  return out;
+}
+const RP = [
+  { h: '@@ -88,9 +88,14 @@', x: 'impl RightPanel' },
+  [' ', 88, 88, '    pub fn render_tab(&self, cx: &mut Context<Self>) -> AnyElement {'],
+  [' ', 89, 89, '        match self.tab {'],
+  ['-', 90, '', '            Tab::Changes => placeholder("Changes will show here"),', 'placeholder("Changes will show here")'],
+  ['+', '', 90, '            Tab::Changes => self.changes.clone().into_any_element(),', 'self.changes.clone().into_any_element()'],
+  [' ', 91, 91, '            Tab::Browser => placeholder("Browser will show here"),'],
+  [' ', 92, 92, '        }'],
+  [' ', 93, 93, '    }'],
+  [' ', 94, 94, ''],
+  ['+', '', 95, '    /// Follows the focused pane: its cwd decides which repository we read.'],
+  ['+', '', 96, '    pub fn follow(&mut self, cwd: Option<PathBuf>, cx: &mut Context<Self>) {'],
+  ['+', '', 97, '        self.changes.update(cx, |c, cx| c.set_cwd(cwd, cx));'],
+  ['+', '', 98, '    }'],
+  { gap: 41 },
+  { h: '@@ -136,7 +146,7 @@', x: 'fn clamp_width' },
+  [' ', 136, 146, '    let max = (window * 0.7).min(window - TERMINAL_MIN);'],
+  ['-', 137, '', '    width.clamp(MIN_WIDTH, max.max(MIN_WIDTH))', 'MIN_WIDTH, max.max(MIN_WIDTH)'],
+  ['+', '', 147, '    width.clamp(min_width(ui), max.max(min_width(ui)))', 'min_width(ui), max.max(min_width(ui))'],
+  [' ', 138, 148, '}'],
+  { gap: 'rest', n: 58 }
+];
+function side(r) {
+  if (!r) return { n: '', bg: 'rgba(255,255,255,.018)', num: c.faint, toks: [] };
+  const [s, a, b, text, w] = r;
+  const add = s === '+', del = s === '-';
+  const tint = add ? c.green : del ? c.red : null;
+  const rgba = (hex, al) => { const v = parseInt(hex.slice(1), 16); return 'rgba(' + (v >> 16) + ',' + ((v >> 8) & 255) + ',' + (v & 255) + ',' + al + ')'; };
+  return {
+    n: del ? a : b,
+    bg: tint ? rgba(tint, 0.10) : 'transparent',
+    num: tint ? rgba(tint, 0.55) : c.faint,
+    toks: mark(rust(text), text, w, tint ? rgba(tint, 0.28) : '')
+  };
+}
+class Component extends DCLogic {
+  renderVals() {
+    const rows = [];
+    let i = 0, first = true;
+    while (i < RP.length) {
+      const r = RP[i];
+      if (r.h) { rows.push({ isHunk: true, head: r.h, ctx: r.x, mt: first ? '0' : '6px' }); first = false; i++; continue; }
+      if (r.gap) { rows.push({ isGap: true, label: r.gap === 'rest' ? r.n + ' more lines' : r.gap + ' unchanged lines' }); i++; continue; }
+      if (r[0] === ' ') { rows.push({ isPair: true, l: side(r), r: side(r) }); i++; continue; }
+      const dels = [], adds = [];
+      while (i < RP.length && Array.isArray(RP[i]) && RP[i][0] === '-') dels.push(RP[i++]);
+      while (i < RP.length && Array.isArray(RP[i]) && RP[i][0] === '+') adds.push(RP[i++]);
+      for (let k = 0; k < Math.max(dels.length, adds.length); k++) rows.push({ isPair: true, l: side(dels[k]), r: side(adds[k]) });
+    }
+    const tree = [
+      { dir: true, file: false, name: 'app', pad: '8px', bg: 'transparent' },
+      { dir: true, file: false, name: 'src', pad: '22px', bg: 'transparent' },
+      { dir: false, file: true, st: 'M', stColor: '#e6b566', name: 'right_panel.rs', add: '+9', del: '−2', pad: '38px', bg: '#2b2621', weight: 600 },
+      { dir: false, file: true, st: 'A', stColor: '#9cbd80', name: 'changes.rs', add: '+212', del: '', pad: '38px', bg: 'transparent', weight: 400 },
+      { dir: false, file: true, st: 'M', stColor: '#e6b566', name: 'Cargo.toml', add: '+3', del: '', pad: '22px', bg: 'transparent', weight: 400 }
+    ];
+    return { rows, tree };
+  }
+}
+</script>
+</body>
+</html>
