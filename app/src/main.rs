@@ -166,6 +166,8 @@ fn main() -> Result<()> {
         stats,
     };
     let theme = Theme::from_config(&config)?;
+    // The window opens windowed, so with the desktop blurred behind it.
+    let backdrop = theme.backdrop(false).appearance;
 
     gpui_platform::application().run(move |cx: &mut App| {
         let bounds = match window {
@@ -204,6 +206,7 @@ fn main() -> Result<()> {
                     }),
                     // The window drags itself from the empty parts of its title bar.
                     app_owns_titlebar_drag: true,
+                    window_background: backdrop,
                     ..Default::default()
                 },
                 |window, cx| {

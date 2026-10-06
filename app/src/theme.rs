@@ -3,12 +3,13 @@
 //! no outer terminal to defer to. Named and default colours resolve to concrete RGB through that
 //! palette.
 use crate::preset::Color;
-use crate::preset::{Preset, parse_color};
+use crate::preset::{Glass, Preset, parse_color};
 use crate::{
     config::Config,
     palette::{self, Rgb},
 };
 use anyhow::{Result, anyhow, bail};
+use gpui::WindowBackgroundAppearance;
 
 /// A preset's own terminal colours; its default text and background follow Saddle's `text`/`bg`.
 struct Terminal {
@@ -184,6 +185,16 @@ fn preset(name: &str) -> Result<Preset> {
 pub struct Theme {
     saddle: crate::preset::Theme,
     terminal: palette::Theme,
+    glass: Glass,
+}
+
+/// How the main window shows what is behind it: the background mode, and how opaque its own ground
+/// and the grounds laid on the sidebar are drawn.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Backdrop {
+    pub appearance: WindowBackgroundAppearance,
+    pub ground: f32,
+    pub card: f32,
 }
 
 impl Theme {
@@ -239,7 +250,11 @@ impl Theme {
                 *terminal_slots(&mut terminal)[i] = resolve(&settled, color, (0, 0, 0));
             }
         }
-        Ok(Theme { saddle, terminal })
+        Ok(Theme {
+            saddle,
+            terminal,
+            glass: preset.glass(),
+        })
     }
 
     /// A Saddle interface colour used as text; `Reset` is the terminal's default foreground.
@@ -251,6 +266,24 @@ impl Theme {
     /// background.
     pub fn bg(&self, pick: fn(&crate::preset::Theme) -> Color) -> palette::Rgb {
         resolve(&self.terminal, pick(&self.saddle), self.terminal.background)
+    }
+
+    /// The main window's backdrop: the desktop blurred through the preset's grounds, except in
+    /// full screen, where there is nothing behind and the window stays opaque.
+    pub fn backdrop(&self, full_screen: bool) -> Backdrop {
+        if full_screen {
+            Backdrop {
+                appearance: WindowBackgroundAppearance::Opaque,
+                ground: 1.0,
+                card: 1.0,
+            }
+        } else {
+            Backdrop {
+                appearance: WindowBackgroundAppearance::Blurred,
+                ground: self.glass.ground,
+                card: self.glass.card,
+            }
+        }
     }
 
     /// The terminal pane's colours.
@@ -380,6 +413,34 @@ mod tests {
         // Dune leaves its text and background to the terminal.
         assert_eq!(theme.fg(|t| t.text), terminal.foreground);
         assert_eq!(theme.bg(|t| t.bg), terminal.background);
+    }
+
+    #[test]
+    fn full_screen_is_opaque_and_a_window_blurs_through_its_preset_s_grounds() {
+        for preset in Preset::ALL {
+            let glass = preset.glass();
+            assert!(glass.ground < 1.0 && glass.card < 1.0, "{preset:?}");
+            // A configured `agents_bg` is seen through as much as the preset's own.
+            for colors in ["", "[colors]\nagents_bg = \"#202020\"\n"] {
+                let theme = theme(&format!("theme = \"{}\"\n{colors}", preset.name())).unwrap();
+                assert_eq!(
+                    theme.backdrop(true),
+                    Backdrop {
+                        appearance: WindowBackgroundAppearance::Opaque,
+                        ground: 1.0,
+                        card: 1.0,
+                    }
+                );
+                assert_eq!(
+                    theme.backdrop(false),
+                    Backdrop {
+                        appearance: WindowBackgroundAppearance::Blurred,
+                        ground: glass.ground,
+                        card: glass.card,
+                    }
+                );
+            }
+        }
     }
 
     fn theme(config: &str) -> Result<Theme> {

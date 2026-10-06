@@ -72,6 +72,15 @@ pub const AGENTS_BLUE: Color = Color::Rgb(0x7f, 0xa9, 0xea);
 pub const AGENTS_YELLOW: Color = Color::Rgb(0xd9, 0xb2, 0x5f);
 pub const AGENTS_PURPLE: Color = Color::Rgb(0xa5, 0x8b, 0xdc);
 
+/// A preset's opacities over the blurred desktop (P5-19a): `ground` for the window's own ground
+/// (the sidebar, the strip, the title bar and the gaps round the cards), `card` for the grounds
+/// laid on it (the sidebar's cards and tiles, the selected, hovered and waiting grounds).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Glass {
+    pub ground: f32,
+    pub card: f32,
+}
+
 /// A built-in palette that `[colors]` overrides; `dune` is the original look.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Preset {
@@ -96,6 +105,24 @@ impl Preset {
             .into_iter()
             .find(|p| p.name() == value)
             .ok_or_else(|| format!("unknown theme {value:?}: expected dune, tide or lagoon"))
+    }
+    /// How opaque the main window's grounds are while the desktop shows blurred through them.
+    pub fn glass(self) -> Glass {
+        match self {
+            Preset::Dune => Glass {
+                ground: 0.80,
+                card: 0.86,
+            },
+            // Darker grounds, so a little more of the desktop shows for the same contrast.
+            Preset::Tide => Glass {
+                ground: 0.79,
+                card: 0.85,
+            },
+            Preset::Lagoon => Glass {
+                ground: 0.77,
+                card: 0.84,
+            },
+        }
     }
     /// Every color of the theme.
     pub fn theme(self) -> Theme {

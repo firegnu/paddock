@@ -25,7 +25,7 @@ use crate::{
     settings::{Conflict, Draft, Saved},
     sidebar::{self, Sidebar, SidebarEvent, status_dot},
     text_input::{self, Changed, TextInput},
-    theme::Theme,
+    theme::{Backdrop, Theme},
     view::{Launch, Options, TerminalView, hsla},
     viewer::AgentMetadata,
     windows,
@@ -530,6 +530,8 @@ pub struct PaddockWindow {
     dragging: bool,
     /// The title bar height the traffic lights were last centred on.
     lights: Option<f32>,
+    /// The window is in full screen, where it is opaque: there is nothing behind it to see.
+    full_screen: bool,
 }
 
 impl PaddockWindow {
@@ -606,8 +608,22 @@ impl PaddockWindow {
             dragging: false,
             lights: None,
             store,
+            // It opens windowed, blurred (`main.rs`).
+            full_screen: false,
             config_from_file: crate::config::default_path().exists(),
         };
+        // Full screen has nothing behind it to blur: the window turns opaque there, and back after.
+        cx.observe_window_bounds(window, |this, window, cx| {
+            let full_screen = window.is_fullscreen();
+            if full_screen != this.full_screen {
+                this.full_screen = full_screen;
+                window.set_background_appearance(this.theme.backdrop(full_screen).appearance);
+                this.sidebar
+                    .update(cx, |sidebar, cx| sidebar.set_full_screen(full_screen, cx));
+                cx.notify();
+            }
+        })
+        .detach();
         match restored {
             Some(contents) => this.restore(contents, window, cx),
             None => {
@@ -1681,6 +1697,15 @@ impl PaddockWindow {
         hsla(self.theme.bg(|t| t.agent_selected), 1.0)
     }
 
+    fn backdrop(&self) -> Backdrop {
+        self.theme.backdrop(self.full_screen)
+    }
+
+    /// The highlight on the title bar, which lets the desktop through as the sidebar's grounds do.
+    fn bar_highlight(&self) -> Hsla {
+        self.highlight().opacity(self.backdrop().card)
+    }
+
     /// The title bar: over the sidebar the traffic lights (none in full screen) and the sidebar's
     /// header row, then the tabs from the terminal's left edge, the `+` after the last, and the
     /// pet in the room left. What is not a tab or a button drags the window, and a double click
@@ -1698,6 +1723,14 @@ impl PaddockWindow {
         // A hovered tab's faint ground, solid, so the × drawn over its title can hide the text.
         let ground = hsla(self.theme.bg(|t| t.agents_bg), 1.0);
         let hovered = ground.blend(highlight.opacity(0.6));
+        // Off full screen the desktop shows through these a little, as through the sidebar's
+        // grounds, and the title faintly under the ×.
+        let card = self.backdrop().card;
+        let (highlight, ground, hovered) = (
+            highlight.opacity(card),
+            ground.opacity(card),
+            hovered.opacity(card),
+        );
         let muted = self.theme.fg(|t| t.muted);
         let open = self.workspace.agents();
         let shown_at = Instant::now();
@@ -1904,7 +1937,7 @@ impl PaddockWindow {
     /// the sidebar is open.
     fn right_button(&self, cx: &mut Context<Self>) -> Stateful<Div> {
         let ui = UiFont::get(cx);
-        let highlight = self.highlight();
+        let highlight = self.bar_highlight();
         let lit = self.right.open;
         let tip = BarTip {
             text: "Toggle right sidebar",
@@ -1946,7 +1979,7 @@ impl PaddockWindow {
     /// panel hangs from it.
     fn split_button(&self, cx: &mut Context<Self>) -> Stateful<Div> {
         let ui = UiFont::get(cx);
-        let highlight = self.highlight();
+        let highlight = self.bar_highlight();
         let lit = self.split_hanging() == Some(SplitFrom::Bar);
         let tip = BarTip {
             text: "Split pane",
@@ -1991,7 +2024,7 @@ impl PaddockWindow {
     /// before it does.
     fn search_button(&self, cx: &mut Context<Self>) -> Stateful<Div> {
         let ui = UiFont::get(cx);
-        let highlight = self.highlight();
+        let highlight = self.bar_highlight();
         div()
             .id("search")
             .flex_shrink_0()
@@ -3780,7 +3813,7 @@ impl Render for PaddockWindow {
             .flex_col()
             // GPUI's default size, scaled, for text nothing else sizes.
             .text_size(ui.px(16.0))
-            .bg(hsla(self.theme.bg(|t| t.agents_bg), 1.0))
+            .bg(hsla(self.theme.bg(|t| t.agents_bg), self.backdrop().ground))
             .when(self.popup.is_some(), |root| root.key_context(menu::DIALOG))
             .on_action(
                 cx.listener(|this, _: &menu::NewTab, window, cx| this.toggle_new_tab(window, cx)),
