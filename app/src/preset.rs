@@ -75,12 +75,15 @@ pub const AGENTS_PURPLE: Color = Color::Rgb(0xa5, 0x8b, 0xdc);
 /// How a preset's sidebar column lies over the system's sidebar material (P5-19b): `wash`, how
 /// much of the sidebar's own colour is laid over the material; `lit`, how much of the text colour
 /// lights a selected card, tile or button there (a hovered one takes half of it, the strip's rules
-/// as much); `waiting`, how much amber a waiting card takes.
+/// as much); `waiting`, how much amber a waiting card takes; `dim` and `dimmer`, how far the two
+/// quiet text colours step towards the text colour there, to read on the brighter ground (P5-19c).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Frost {
     pub wash: f32,
     pub lit: f32,
     pub waiting: f32,
+    pub dim: f32,
+    pub dimmer: f32,
 }
 
 /// A built-in palette that `[colors]` overrides; `dune` is the original look.
@@ -111,14 +114,19 @@ impl Preset {
     /// How the sidebar's column lies over the system's sidebar material. The material is already
     /// dark and frosted; the wash only leans it to the preset's colour, and the grounds on it step
     /// up about half again as much as the preset's own selected colour does over its sidebar, as
-    /// they lie on a busier ground.
+    /// they lie on a busier ground. The quiet text steps up until, on a grey like the material's
+    /// under a selected card (#45494a), `agents_dim` reads at about 4.6:1 and `agents_dimmer` at
+    /// about 3.6:1, still apart from each other and from the text (about 7:1).
     pub fn frost(self) -> Frost {
         match self {
-            // A warm brown, the nearest to the material's grey: the least wash.
+            // A warm brown, the nearest to the material's grey: the least wash. Its quiet text is
+            // the darkest of the three, so it steps the furthest.
             Preset::Dune => Frost {
                 wash: 0.30,
                 lit: 0.10,
                 waiting: 0.11,
+                dim: 0.56,
+                dimmer: 0.48,
             },
             // Deeper, bluer and greener grounds, a little more of each to keep them; their own
             // selected colours step further too.
@@ -126,11 +134,15 @@ impl Preset {
                 wash: 0.34,
                 lit: 0.12,
                 waiting: 0.12,
+                dim: 0.46,
+                dimmer: 0.40,
             },
             Preset::Lagoon => Frost {
                 wash: 0.38,
                 lit: 0.12,
                 waiting: 0.12,
+                dim: 0.42,
+                dimmer: 0.36,
             },
         }
     }

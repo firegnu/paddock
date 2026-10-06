@@ -323,6 +323,9 @@ impl Listing {
 }
 
 pub struct Sidebar {
+    /// The colours from Settings.
+    given: Rc<Theme>,
+    /// The colours the column is drawn in: the given ones, their quiet text lifted while frosted.
     theme: Rc<Theme>,
     width: f32,
     /// The terminal's font, for the instance id in the details.
@@ -371,6 +374,7 @@ impl Sidebar {
         })
         .detach();
         Self {
+            given: theme.clone(),
             theme,
             width,
             mono,
@@ -392,7 +396,8 @@ impl Sidebar {
 
     /// New colours or width from Settings, at once.
     pub fn restyle(&mut self, theme: Rc<Theme>, width: f32, cx: &mut Context<Self>) {
-        self.theme = theme;
+        self.theme = column_theme(&theme, self.frosted);
+        self.given = theme;
         self.width = width;
         cx.notify();
     }
@@ -400,6 +405,7 @@ impl Sidebar {
     /// The system's sidebar material shows through the column, or it is gone (full screen).
     pub fn set_frosted(&mut self, frosted: bool, cx: &mut Context<Self>) {
         self.frosted = frosted;
+        self.theme = column_theme(&self.given, frosted);
         cx.notify();
     }
 
@@ -701,6 +707,8 @@ impl Sidebar {
                         cx.listener(move |this, _: &ClickEvent, _, cx| this.click(&card, cx))
                     };
                     tiles = tiles.child(Tile {
+                        // Its hover note lies on its own opaque ground: the given colours.
+                        tip: RailTip::of(&card, &self.given, &ui),
                         card: *card,
                         theme: theme.clone(),
                         on_click: Box::new(on_click),
@@ -1205,6 +1213,16 @@ impl Grounds {
                 rule: fg(|t| t.agents_rule).opacity(0.8),
             }
         }
+    }
+}
+
+/// The colours the column is drawn in: over the system's sidebar material the quiet text is lifted
+/// to read on that brighter ground (`Theme::frosted`); on the sidebar's own colour, as given.
+fn column_theme(given: &Rc<Theme>, frosted: bool) -> Rc<Theme> {
+    if frosted {
+        Rc::new(given.frosted())
+    } else {
+        given.clone()
     }
 }
 
@@ -1891,6 +1909,7 @@ fn details(
 struct Tile {
     card: Card,
     theme: Rc<Theme>,
+    tip: RailTip,
     on_click: OnClick,
     grounds: Grounds,
 }
@@ -1902,7 +1921,7 @@ impl RenderOnce for Tile {
         let fg = |pick: Pick| hsla(theme.fg(pick), 1.0);
         let card = &self.card;
         let (ground, selected) = (self.grounds.base, self.grounds.selected);
-        let tip = RailTip::of(card, theme, &ui);
+        let tip = self.tip;
         // The dot sits in a ring of the strip's colour, so it reads apart from the square; over the
         // system's material there is none to ring it with.
         let dot = div()
@@ -2525,5 +2544,44 @@ esac"#,
             }
         );
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn quiet_text_reads_on_the_frost_and_stays_in_full_screen() {
+        // WCAG relative luminance: linearize sRGB before weighting its channels.
+        fn luminance((r, g, b): crate::palette::Rgb) -> f64 {
+            let linear = |channel: u8| {
+                let value = f64::from(channel) / 255.0;
+                if value <= 0.04045 {
+                    value / 12.92
+                } else {
+                    ((value + 0.055) / 1.055).powf(2.4)
+                }
+            };
+            0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b)
+        }
+        // The material under a selected card, as the user's screenshot shows it.
+        let frost = luminance((0x45, 0x49, 0x4a));
+        let contrast = |color| (luminance(color) + 0.05) / (frost + 0.05);
+
+        for name in ["dune", "tide", "lagoon"] {
+            let given = Rc::new(
+                Theme::from_config(&crate::config::Config {
+                    theme: Some(name.into()),
+                    ..crate::config::Config::default()
+                })
+                .unwrap(),
+            );
+            let frosted = column_theme(&given, true);
+            let dim = contrast(frosted.fg(|t| t.agents_dim));
+            assert!(dim >= 4.5, "{name} agents_dim: {dim:.2}:1 < 4.5:1");
+            let dimmer = contrast(frosted.fg(|t| t.agents_dimmer));
+            assert!(dimmer >= 3.5, "{name} agents_dimmer: {dimmer:.2}:1 < 3.5:1");
+
+            let full_screen = column_theme(&given, false);
+            for key in crate::theme::color_keys() {
+                assert_eq!(full_screen.color(key), given.color(key), "{name} {key}");
+            }
+        }
     }
 }
