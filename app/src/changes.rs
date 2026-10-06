@@ -1789,7 +1789,8 @@ impl Render for ChangesView {
                 .child(who)
                 .child(div().flex_1())
                 .when(repo, |d| d.child(scopes))
-                .child(layouts)
+                // No files to lay out: no layouts to choose between.
+                .when(listed.is_some(), |d| d.child(layouts))
                 .when(listed.is_some(), |d| d.child(fold))
         } else {
             div()

@@ -69,3 +69,6 @@
 **没做的事**
 - 0 个文件、读出错的状态没有另外截图；悬停、点击、横向滚动、真实 agent 下的效果留给用户实际看。
 - 加宽时 “Not a git repository” 下 Unified／Split 切换还在，任务没列，没改。
+
+**主控回复后补的**
+- 主控认可第 2 条的测试没能先失败（根因是行宽，测试留着防回归），并要求加宽面板时读不到仓库（Not a git repository、没有目录可读）和 0 个文件时也藏起 Unified／Split 切换：已补，只在有文件时显示。重跑 changes 相关测试（lib 里 `changes::tests` 5 项、`tests/changes.rs` 3 项）和 clippy 均通过；加宽面板（窗口 1700、面板 720）下的 “Not a git repository” 截图看过，顶部只剩窗格名字。
