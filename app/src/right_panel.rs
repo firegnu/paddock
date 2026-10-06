@@ -1,8 +1,10 @@
 //! The right sidebar: pushed out from the window's right edge, narrowing the terminal rather than
 //! covering it, with two tabs, Changes and Browser, a button to widen it and one to close it.
-//! Changes shows the focused pane's worktree (`changes.rs`); Browser holds a quiet placeholder. The window draws the card it sits in and lays it out;
-//! the rules for its width live here, so they can be tested without a window.
+//! Changes shows the focused pane's worktree (`changes.rs`); Browser a web page
+//! (`browser_view.rs`). The window draws the card it sits in and lays it out; the rules for its
+//! width live here, so they can be tested without a window.
 use crate::{
+    browser,
     diff::Scope,
     fonts::UiFont,
     footer_icon::{self, Icon},
@@ -50,14 +52,14 @@ impl Tab {
     pub fn empty(self) -> &'static str {
         match self {
             Tab::Changes => "Changes will show here",
-            Tab::Browser => "Browser will show here",
+            Tab::Browser => "Open a page",
         }
     }
 }
 
 /// What the layout file keeps of it; files from before it was saved open it closed, at the
-/// default width, on Changes, and files from before Changes was made show uncommitted changes,
-/// unified.
+/// default width, on Changes, files from before Changes was made show uncommitted changes,
+/// unified, and files from before the Browser kept its address open it on nothing.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Saved {
@@ -68,6 +70,8 @@ pub struct Saved {
     pub scope: Scope,
     /// Widened, the Changes tab shows old and new side by side.
     pub split: bool,
+    /// The address the Browser tab last showed, which it opens again.
+    pub url: Option<String>,
 }
 
 impl Default for Saved {
@@ -78,6 +82,7 @@ impl Default for Saved {
             tab: Tab::Changes,
             scope: Scope::Uncommitted,
             split: false,
+            url: None,
         }
     }
 }
@@ -111,6 +116,8 @@ pub struct RightPanel {
     /// The Changes tab's scope and layout, as it last said.
     pub scope: Scope,
     pub split: bool,
+    /// The Browser tab's address, as it last said.
+    pub url: Option<String>,
     /// The divider is being dragged: the width shown and the mouse's x when it was pressed.
     resizing: Option<(f32, f32)>,
 }
@@ -124,6 +131,7 @@ impl RightPanel {
             tab: saved.tab,
             scope: saved.scope,
             split: saved.split,
+            url: saved.url.clone(),
             resizing: None,
         }
     }
@@ -135,6 +143,7 @@ impl RightPanel {
             tab: self.tab,
             scope: self.scope,
             split: self.split,
+            url: self.url.clone(),
         }
     }
 
@@ -179,13 +188,13 @@ impl RightPanel {
     }
 
     /// Its top row and the active tab's content, on the ground of the card the window puts it in:
-    /// `changes` for Changes. `pick` chooses a tab; `widen` and `close` are the buttons at the right
-    /// end.
+    /// `content` is the Changes or the Browser view. `pick` chooses a tab; `widen` and `close` are
+    /// the buttons at the right end.
     pub fn render(
         &self,
         theme: &Theme,
         ui: &UiFont,
-        changes: AnyElement,
+        content: AnyElement,
         pick: impl Fn(&Tab, &mut Window, &mut App) + 'static,
         widen: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
         close: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
@@ -257,13 +266,7 @@ impl RightPanel {
                     .on_click(move |_, window, cx| pick(&tab, window, cx)),
             );
         }
-        let tip = |text: &'static str| Tip {
-            text,
-            size: ui.px(11.5),
-            color: fg(|t| t.agents_text),
-            background: hsla(theme.bg(|t| t.agents_bg), 1.0),
-            border: fg(|t| t.agents_rule),
-        };
+        let tip = |text: &'static str| Tip::new(text, theme, ui);
         let button = |id: &'static str, icon: Icon, tip: Tip| {
             div()
                 .id(id)
@@ -299,25 +302,19 @@ impl RightPanel {
             .child(div().flex_1().min_w(px(0.0)))
             .child(button("right-wider", icon, tip(words)).on_click(widen))
             .child(button("right-close", Icon::Close, tip("Close sidebar")).on_click(close));
-        div()
-            .size_full()
-            .flex()
-            .flex_col()
-            .child(top)
-            .child(match self.tab {
-                Tab::Changes => div()
-                    .flex_1()
-                    .min_h(px(0.0))
-                    .flex()
-                    .flex_col()
-                    .child(changes),
-                Tab::Browser => placeholder(theme, ui, self.tab),
-            })
+        div().size_full().flex().flex_col().child(top).child(
+            div()
+                .flex_1()
+                .min_h(px(0.0))
+                .flex()
+                .flex_col()
+                .child(content),
+        )
     }
 }
 
 /// A tab with nothing in it yet: a faint icon and one line, in the middle.
-fn placeholder(theme: &Theme, ui: &UiFont, tab: Tab) -> Div {
+pub fn placeholder(theme: &Theme, ui: &UiFont, tab: Tab) -> Div {
     let icon = match tab {
         Tab::Changes => Icon::Changes,
         Tab::Browser => Icon::Browser,
@@ -345,9 +342,9 @@ fn placeholder(theme: &Theme, ui: &UiFont, tab: Tab) -> Div {
         )
 }
 
-/// A button's hover text.
+/// A button's hover text, here and on the Browser's toolbar.
 #[derive(Clone)]
-struct Tip {
+pub struct Tip {
     text: &'static str,
     size: Pixels,
     color: Hsla,
@@ -355,9 +352,22 @@ struct Tip {
     border: Hsla,
 }
 
+impl Tip {
+    pub fn new(text: &'static str, theme: &Theme, ui: &UiFont) -> Self {
+        Tip {
+            text,
+            size: ui.px(11.5),
+            color: hsla(theme.fg(|t| t.agents_text), 1.0),
+            background: hsla(theme.bg(|t| t.agents_bg), 1.0),
+            border: hsla(theme.fg(|t| t.agents_rule), 1.0),
+        }
+    }
+}
+
 impl Render for Tip {
     fn render(&mut self, _: &mut Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
         div()
+            .relative()
             .px(px(7.0))
             .py(px(3.0))
             .rounded(px(6.0))
@@ -368,6 +378,7 @@ impl Render for Tip {
             .text_size(self.size)
             .text_color(self.color)
             .child(self.text)
+            .child(browser::cover())
     }
 }
 

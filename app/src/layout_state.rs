@@ -441,6 +441,7 @@ mod tests {
             tab: right_panel::Tab::Browser,
             scope: crate::diff::Scope::Branch,
             split: true,
+            url: Some("http://localhost:5173/settings".into()),
         };
         store.save(&Layout {
             right_sidebar: right.clone(),
@@ -483,6 +484,18 @@ mod tests {
         assert_eq!((back.open, back.width), (true, 500.0));
         assert_eq!(back.scope, crate::diff::Scope::Uncommitted);
         assert!(!back.split);
+        // One from before the Browser kept its address (P5-28a): nothing to open.
+        assert_eq!(back.url, None);
+        let mut earlier = serde_json::to_value(&layout).unwrap();
+        earlier["right_sidebar"] = serde_json::json!({
+            "open": true, "width": 500.0, "tab": "browser", "scope": "branch", "split": true
+        });
+        fs::write(&path, serde_json::to_vec(&earlier).unwrap()).unwrap();
+        let (store, back) = Store::open(Some(path.clone()));
+        assert!(store.problem().is_none());
+        let back = back.unwrap().right_sidebar;
+        assert_eq!(back.tab, right_panel::Tab::Browser);
+        assert_eq!(back.url, None);
         fs::remove_dir_all(&dir).unwrap();
     }
 

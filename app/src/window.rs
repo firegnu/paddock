@@ -5,6 +5,8 @@
 use crate::{
     agents::Panel,
     attention::Kind as AttentionKind,
+    browser::{self, cover},
+    browser_view::{BrowserView, Visited},
     card,
     changes::{self, ChangesView, Follow, Frame},
     config::Config,
@@ -600,6 +602,8 @@ pub struct PaddockWindow {
     right: RightPanel,
     /// The right sidebar's Changes tab, following the focused pane.
     changes: Entity<ChangesView>,
+    /// The right sidebar's Browser tab, this window's web page.
+    browser: Entity<BrowserView>,
     /// A press on the title bar's empty part: moving now drags the window.
     dragging: bool,
     /// The title bar height the traffic lights were last centred on.
@@ -652,6 +656,15 @@ impl PaddockWindow {
             this.save_layout(cx);
         })
         .detach();
+        let browser = {
+            let (theme, url) = (theme.clone(), right.url.clone());
+            cx.new(|cx| BrowserView::new(theme, url, cx))
+        };
+        cx.subscribe(&browser, |this, _, visited: &Visited, cx| {
+            this.right.url = Some(visited.0.clone());
+            this.save_layout(cx);
+        })
+        .detach();
         let shown = match &options.launch {
             Launch::Empty => Shown::Empty,
             Launch::Agent { name } => Shown::Agent(name.clone()),
@@ -694,6 +707,7 @@ impl PaddockWindow {
             resizing: None,
             right,
             changes,
+            browser,
             dragging: false,
             lights: None,
             store,
@@ -1265,6 +1279,8 @@ impl PaddockWindow {
                 let theme = theme.clone();
                 view.update(cx, |view, cx| view.set_theme(theme, cx));
             }
+            self.browser
+                .update(cx, |browser, cx| browser.set_theme(theme, cx));
         }
         let pet = (config.mascot_enabled, config.mascot);
         if pet != self.pet_setting {
@@ -1893,6 +1909,27 @@ impl PaddockWindow {
                 }
             });
         }
+    }
+
+    /// An empty layer that puts the Browser's page where this frame leaves room for it, `open`
+    /// saying whether the right sidebar is, `dragging` whether a divider is being dragged. It does
+    /// so as it is painted: by then everything drawn over the window, hover texts last, has noted
+    /// itself with [`cover`].
+    fn place_page(&self, open: bool, dragging: bool) -> impl IntoElement {
+        let browser = self.browser.clone();
+        let on_browser = self.right.tab == RightTab::Browser;
+        canvas(
+            |_, _, _| {},
+            move |_, _, window, cx| {
+                browser.update(cx, |browser, cx| {
+                    browser.place(open, on_browser, dragging, window, cx)
+                });
+            },
+        )
+        .absolute()
+        .top_0()
+        .left_0()
+        .size_full()
     }
 
     /// The title bar: over the sidebar the traffic lights (none in full screen) and the sidebar's
@@ -2758,7 +2795,8 @@ impl PaddockWindow {
             })
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .child(header)
-            .child(list);
+            .child(list)
+            .child(cover());
         // A click outside closes it; nothing is dimmed, as for a menu.
         div()
             .id("attention-backdrop")
@@ -2888,7 +2926,8 @@ impl PaddockWindow {
                     this.close_popup(window, cx);
                     cx.defer(windows::open_settings);
                 })),
-            );
+            )
+            .child(cover());
         // A click outside closes it; nothing is dimmed, as for a menu.
         div()
             .id("actions-backdrop")
@@ -3396,6 +3435,8 @@ impl PaddockWindow {
                 cx.listener(|this, _, window, cx| this.close_popup(window, cx)),
             )
             .child(card)
+            // It dims the whole window, the Browser's page and all.
+            .child(cover())
     }
 
     /// A palette row: dot or icon, title and detail (or a line of text, its match marked), and
@@ -3749,13 +3790,16 @@ impl PaddockWindow {
                 )
                 .child(popover::rule(theme, &ui));
         }
-        panel = panel.child(list).when(side.is_none(), |panel| {
-            panel.child(popover::hints(
-                theme,
-                &ui,
-                &[("↑↓", "move"), ("↩", "open"), ("esc", "close")],
-            ))
-        });
+        panel = panel
+            .child(list)
+            .when(side.is_none(), |panel| {
+                panel.child(popover::hints(
+                    theme,
+                    &ui,
+                    &[("↑↓", "move"), ("↩", "open"), ("esc", "close")],
+                ))
+            })
+            .child(cover());
         // A click outside closes it; nothing is dimmed, as for a menu.
         div()
             .id("chooser-backdrop")
@@ -3888,6 +3932,7 @@ struct BarTip {
 impl Render for BarTip {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
         div()
+            .relative()
             .flex()
             .gap(px(8.0))
             .px(px(7.0))
@@ -3903,6 +3948,7 @@ impl Render for BarTip {
             .when(!self.keys.is_empty(), |tip| {
                 tip.child(div().text_color(self.dim).child(self.keys.clone()))
             })
+            .child(cover())
     }
 }
 
@@ -3999,6 +4045,7 @@ impl Render for PaddockWindow {
             .right
             .open
             .then(|| self.right.shown(self.right_room(window, cx)));
+        let dragging = self.resizing.is_some() || self.right.resizing();
         let seams = across(
             f32::from(window.viewport_size().width),
             self.sidebar_shown(&ui),
@@ -4017,12 +4064,16 @@ impl Render for PaddockWindow {
             .update(cx, |changes, cx| changes.frame(frame, cx));
         // The right sidebar, a card pushed out from the right edge: the terminal narrows for it.
         if let Some(width) = right {
+            let content = match self.right.tab {
+                RightTab::Changes => AnyView::from(self.changes.clone())
+                    .cached(StyleRefinement::default().size_full())
+                    .into_any_element(),
+                RightTab::Browser => self.browser.clone().into_any_element(),
+            };
             let panel = self.right.render(
                 &self.theme,
                 &ui,
-                AnyView::from(self.changes.clone())
-                    .cached(StyleRefinement::default().size_full())
-                    .into_any_element(),
+                content,
                 cx.listener(|this, tab: &RightTab, _, cx| {
                     this.right.tab = *tab;
                     this.save_layout(cx);
@@ -4152,6 +4203,11 @@ impl Render for PaddockWindow {
                 this.finish_resize(cx);
                 this.finish_right_resize(cx);
             }))
+            // A click on anything GPUI draws takes the keyboard back from the Browser's page, after
+            // this event: AppKit asks GPUI's view about its text as it takes it.
+            .capture_any_mouse_down(|_, window, cx| {
+                window.defer(cx, |window, _| browser::take_keys(window))
+            })
             .on_mouse_up_out(
                 MouseButton::Left,
                 cx.listener(|this, _, _, cx| {
@@ -4187,7 +4243,7 @@ impl Render for PaddockWindow {
             .children(dialog)
             // While a divider is dragged the cursor keeps its shape, and nothing under it
             // reacts.
-            .when(self.resizing.is_some() || self.right.resizing(), |root| {
+            .when(dragging, |root| {
                 root.child(
                     div()
                         .id("resizing")
@@ -4197,6 +4253,7 @@ impl Render for PaddockWindow {
                         .cursor_col_resize(),
                 )
             })
+            .child(self.place_page(right.is_some(), dragging))
     }
 }
 
