@@ -2,8 +2,8 @@
 
 ## 现在在哪（2026-10-06 晚）
 
-- main 干净，和 `origin/main`（`github.com/firegnu/paddock`，public）同步；没有开着的 worktree、任务分支，corral 里只有主控 `paddock/main`。
-- 211 项测试通过。`~/Applications/paddock.app` 是合并 P5-19e 之后的版本。重新打包安装：在 `app/` 下 `cargo build --release`，再 `cargo run --release --example bundle -- --install`（编译目录见 AGENTS.md，主仓库用 `.target/main`）。
+- main 和 `origin/main`（`github.com/firegnu/paddock`，public）同步。**进行中：P5-13b Changes 标签**——`paddock/dev-changes-1`（Claude Code，常规）在 worktree `../paddock-worktrees/p5-13b-changes`（分支 `p5-13b-changes`）里做，任务文件 `docs/任务/P5-13b-Changes标签.md`，样稿 `docs/设计稿/P5-13b-Changes标签/`；主控挂了 `--after` 提醒，结束后审查、合并、安装、收尾。
+- 211 项测试通过。`~/Applications/paddock.app` 是合并 P5-22 之后的版本。重新打包安装：在 `app/` 下 `cargo build --release`，再 `cargo run --release --example bundle -- --install`（编译目录见 AGENTS.md，主仓库用 `.target/main`）。
 - 已合并：第一至第三阶段、迁移 M0–M3（corral、dispatch 在 `../ranch`；遥测、Drover、插件系统已砍）、P4-1～P4-3、P5-1～P5-21（P5-13 只做了 13a 右侧栏外壳；P5-19 做了 19r 调研、19a～19e 左侧栏磨砂）。每件的范围、完成记录、主控审查在 `docs/任务/`。
 - 上下文：`AGENTS.md`（规矩）、`docs/DESIGN.md`（已定决定，§13 是界面改版的全部决定和用户原话）、`docs/背景与决策记录.md`、`docs/设计稿/`、`docs/调研/`。
 
@@ -19,9 +19,15 @@
 - **P5-19e** 收起时标题栏整行不透明，窄条从标题栏下磨砂到底；展开时整列从上到下磨砂。用户：“还可以吧”，“现在基本可以了吧。之后再细细调整。”
 - 小事：P5-21 测试的 `cargo fmt` 格式补了一个提交。
 
+## 10-06 晚续
+
+- **P5-22** 侧栏头部：“Agents” 降到 13pt，数量改小胶囊、垂直居中（用户：“Agents太突兀了……数字也没有和agents对齐”，选方向 A）。已合并、安装、推送；截图没截到，观感待用户看。
+- **P5-13b** Changes 标签：用户定了加 `syntect`、`similar`，先只做看；样稿用户认可，已派出（见上）。
+
 ## 下一步（按优先级）
 
-1. **右侧栏 Kanban**：先和用户聊需求，聊定之前不出样稿、不派活（右侧栏定为 Changes、Browser、Kanban 三个标签）。
+1. **P5-13b 收尾**，之后是 Changes 第二步（行上评论发给 agent、暂存、撤销，另议）。
+2. **右侧栏 Kanban**（用户 10-06：“kanban往后放一点”）：先和用户聊需求，聊定之前不出样稿、不派活（右侧栏定为 Changes、Browser、Kanban 三个标签）。
 2. **等用户反馈**：P5-18 收件箱卡片（角标动画、等你卡片和 Reply、空闲预览、展开布局、空心“在此打开”环是否太小）、P5-20 程序坞图标（16px 边缘偏软）、P5-16 的收起／窄侧栏／全屏／大字号和 Attention 弹出位置。
 3. **磨砂细调（用户说“之后再细细调整”，等用户提）**：三套主题的 wash／lit／waiting 和提亮比例（`preset.rs` `Preset::frost`）、亮壁纸上的可读性、拖宽／收起／全屏时边缘闪不闪；收起时窄条右边那道不透明的缝要不要跟着磨砂或收窄（主控提过，用户没答）；浮动圆角面板和边缘高光没做。
 4. 之后：Changes 标签的 diff（P5-13 剩余）、Browser 标签（先调研 WKWebView 嵌进 GPUI）、拖动分隔线调整分屏大小、`paddock ctl`。
