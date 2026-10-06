@@ -1,5 +1,5 @@
 //! The menu bar, its actions and their keyboard shortcuts, in the usual macOS places.
-use gpui::{Action, KeyBinding, Menu, MenuItem, SystemMenuType, actions};
+use gpui::{Action, KeyBinding, Menu, MenuItem, OsAction, SystemMenuType, actions};
 
 actions!(
     paddock,
@@ -62,6 +62,10 @@ actions!(
         SelectNext,
         SelectPrevious,
         OpenSelected,
+        /// The Browser's address field takes the keyboard, all of it selected (⌘L).
+        FocusAddress,
+        /// The Browser loads its page again (⌘R).
+        ReloadPage,
     ]
 );
 
@@ -73,6 +77,10 @@ pub const DIALOG: &str = "PaddockDialog";
 
 /// The key context of the command palette: Tab moves in its list rather than out of it.
 pub const PALETTE: &str = "PaddockPalette";
+
+/// The key context of the right sidebar's Browser, while its page or address field has the
+/// keyboard: ⌘L and ⌘R are its own there, and the pane's elsewhere.
+pub const BROWSER: &str = "PaddockBrowser";
 
 /// The shortcuts. Everything else typed goes to the terminal.
 pub fn bindings() -> Vec<KeyBinding> {
@@ -127,7 +135,28 @@ pub fn bindings() -> Vec<KeyBinding> {
             Some(crate::new_agent_view::CONTEXT),
         ),
         KeyBinding::new("cmd-w", CloseWindow, Some(crate::new_agent_view::CONTEXT)),
+        KeyBinding::new("cmd-l", FocusAddress, Some(BROWSER)),
+        KeyBinding::new("cmd-r", ReloadPage, Some(BROWSER)),
     ]
+}
+
+/// The menu commands that act on what has the keyboard rather than on the window: the pane
+/// copies, pastes and finds in itself, the Browser's page in itself.
+pub fn follows_keyboard(action: &dyn Action) -> bool {
+    [
+        &Copy as &dyn Action,
+        &Paste,
+        &Find,
+        &FindNext,
+        &FindPrevious,
+    ]
+    .into_iter()
+    .any(|own| action.partial_eq(own))
+}
+
+/// The Browser's own commands, ⌘L and ⌘R.
+pub fn browser(action: &dyn Action) -> bool {
+    action.partial_eq(&FocusAddress) || action.partial_eq(&ReloadPage)
 }
 
 /// The menu bar; `fold` and `by_name` tick the View items as the sidebar has them, and
@@ -155,9 +184,11 @@ pub fn menus(fold: bool, by_name: bool, collapsed: bool, right_open: bool) -> Ve
             MenuItem::action("Close Pane", ClosePane),
             MenuItem::action("Close Tab", CloseTab),
         ]),
+        // The system's own copy and paste: whatever has the keyboard takes them, the Browser's
+        // page included, and paddock's views through GPUI.
         Menu::new("Edit").items([
-            MenuItem::action("Copy", Copy),
-            MenuItem::action("Paste", Paste),
+            MenuItem::os_action("Copy", Copy, OsAction::Copy),
+            MenuItem::os_action("Paste", Paste, OsAction::Paste),
             MenuItem::separator(),
             MenuItem::action("Find…", Find),
             MenuItem::action("Find Next", FindNext),
@@ -364,6 +395,8 @@ mod tests {
             ("cmd-f", "paddock::Find"),
             ("cmd-g", "paddock::FindNext"),
             ("cmd-shift-g", "paddock::FindPrevious"),
+            ("cmd-l", "paddock::FocusAddress"),
+            ("cmd-r", "paddock::ReloadPage"),
         ] {
             assert!(
                 shortcuts.iter().any(|(k, a, _)| k == keys && *a == action),
@@ -414,6 +447,58 @@ mod tests {
         assert_eq!(item(true, false, 2), "Expand Sidebar");
         assert_eq!(item(false, false, 3), "Show Right Sidebar");
         assert_eq!(item(false, true, 3), "Hide Right Sidebar");
+        // Copy and Paste are the system's, so the Browser's page takes them when it has the
+        // keyboard; Find is paddock's own.
+        let edit: Vec<Option<OsAction>> = menus(false, false, false, false)[2]
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                MenuItem::Action { os_action, .. } => Some(*os_action),
+                _ => None,
+            })
+            .collect();
+        // (`OsAction` has no `Debug`.)
+        assert!(
+            edit == [
+                Some(OsAction::Copy),
+                Some(OsAction::Paste),
+                None,
+                None,
+                None
+            ]
+        );
+    }
+
+    #[test]
+    fn only_the_panes_own_commands_follow_the_keyboard_and_the_browser_binds_l_and_r_alone() {
+        for action in [
+            &Copy as &dyn Action,
+            &Paste,
+            &Find,
+            &FindNext,
+            &FindPrevious,
+        ] {
+            assert!(follows_keyboard(action), "{}", action.name());
+        }
+        for action in [
+            &ClosePane as &dyn Action,
+            &NewTab,
+            &ToggleRightSidebar,
+            &Search,
+            &ToggleSidebar,
+            &CommandPalette,
+            &SplitRight,
+            &Quit,
+            &FocusAddress,
+        ] {
+            assert!(!follows_keyboard(action), "{}", action.name());
+        }
+        assert!(browser(&FocusAddress) && browser(&ReloadPage) && !browser(&Copy));
+        // ⌘L and ⌘R only where the Browser has the keyboard; the pane keeps them otherwise.
+        for binding in bindings().iter().filter(|b| browser(b.action())) {
+            let context = binding.predicate().map(|p| p.to_string());
+            assert_eq!(context.as_deref(), Some(BROWSER));
+        }
     }
 
     #[test]

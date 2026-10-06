@@ -2,17 +2,22 @@
 //! forward, reload or stop while loading, the address, open in the default browser) over the page
 //! (`browser.rs`), which it lays out. Before anything is opened it shows a quiet empty state; after
 //! a load fails, a quiet error with Retry in the page's place.
+//!
+//! It keeps the window's keyboard record ([`Keys`]): the page has a focus handle of its own, so
+//! GPUI's focus says when the page has the keyboard as AppKit's does, and ⌘L and ⌘R are the
+//! Browser's there and in the address field.
 use crate::{
-    browser::{self, Failure, Page, Scene, State},
+    browser::{self, Failure, Keys, Owner, Page, Scene, Seen, Showing, State},
     fonts::UiFont,
     footer_icon::{self, Icon},
+    menu,
     right_panel::{self, Tab, Tip},
     text_input::{self, TextInput},
     theme::Theme,
     view::hsla,
 };
 use gpui::{
-    App, Bounds, ClickEvent, Context, Div, Entity, EventEmitter, Focusable, FontWeight,
+    Bounds, ClickEvent, Context, Div, Entity, EventEmitter, FocusHandle, Focusable, FontWeight,
     HighlightStyle, KeyDownEvent, MouseButton, Pixels, Render, Stateful, StyledText, Window,
     canvas, div, prelude::*, px, relative,
 };
@@ -27,6 +32,15 @@ type Pick = fn(&crate::preset::Theme) -> crate::preset::Color;
 
 /// Sent when the address the toolbar shows changes, for the layout to keep.
 pub struct Visited(pub String);
+
+/// Sent when the keyboard's record needs the window to do something.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Handoff {
+    /// The page was clicked while a popup was open: it closes.
+    Dismiss,
+    /// The Browser went away with the keyboard: the active pane takes it.
+    ToPane,
+}
 
 pub struct BrowserView {
     theme: Rc<Theme>,
@@ -43,11 +57,22 @@ pub struct BrowserView {
     /// The address last sent as [`Visited`].
     visited: Option<String>,
     address: Entity<TextInput>,
+    /// The address field's text is to be selected once it shows (⌘L).
+    select: bool,
     /// Where the page goes as laid out this frame, until [`BrowserView::place`] takes it.
     area: Rc<Cell<Option<Bounds<Pixels>>>>,
+    /// GPUI's focus is here while the page has the keyboard: on its area, or its error state.
+    page_focus: FocusHandle,
+    /// Who has the window's keyboard.
+    keys: Keys,
+    /// How the page did at the last frame.
+    showing: Showing,
+    /// A popup was open at the last frame.
+    dialog: bool,
 }
 
 impl EventEmitter<Visited> for BrowserView {}
+impl EventEmitter<Handoff> for BrowserView {}
 
 impl BrowserView {
     /// The tab, to open `url` when it first shows.
@@ -63,8 +88,23 @@ impl BrowserView {
             pending: url,
             refused: None,
             address,
+            select: false,
             area: Rc::default(),
+            page_focus: cx.focus_handle(),
+            keys: Keys::default(),
+            showing: Showing::default(),
+            dialog: false,
         }
+    }
+
+    /// Who has the window's keyboard.
+    pub fn owner(&self) -> Owner {
+        self.keys.owner()
+    }
+
+    /// The page has the keyboard again, once it shows: after a popup that borrowed it closes.
+    pub fn give_back(&self, window: &mut Window, cx: &mut Context<Self>) {
+        window.focus(&self.page_focus, cx);
     }
 
     /// New colours, after the theme changed.
@@ -78,14 +118,16 @@ impl BrowserView {
 
     /// Puts the page where this frame leaves room for it, once everything drawn over the window
     /// has noted itself (`browser::cover`): `open` and `on_browser` say whether the sidebar is
-    /// open on this tab, `dragging` whether a divider is being dragged.
+    /// open on this tab, `dragging` whether a divider is being dragged, `dialog` whether a popup
+    /// is open. The keyboard's record settles after the frame.
     pub fn place(
         &mut self,
         open: bool,
         on_browser: bool,
         dragging: bool,
-        window: &Window,
-        cx: &mut App,
+        dialog: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
     ) {
         let scene = Scene {
             open,
@@ -94,8 +136,55 @@ impl BrowserView {
             covers: browser::covers(window),
             dragging,
         };
+        let shown = scene.page().filter(|_| self.page.is_some());
         if let Some(page) = &mut self.page {
-            page.place(scene.page(), window, cx);
+            page.place(shown, window);
+        }
+        self.showing = match shown {
+            _ if !(open && on_browser) => Showing::Away,
+            Some(_) => Showing::Shown,
+            None => Showing::Hidden,
+        };
+        self.dialog = dialog;
+        // Outside GPUI's drawing: it may move AppKit's keyboard and GPUI's focus.
+        cx.defer_in(window, |this, window, cx| this.settle(window, cx));
+    }
+
+    /// Brings the keyboard's record up to date with GPUI's focus, AppKit's keyboard, the page and
+    /// popups, and makes the moves it says: AppKit's before GPUI's when the keyboard leaves the
+    /// page.
+    fn settle(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let focus = if self.page_focus.is_focused(window) {
+            Owner::Page
+        } else if self.address.read(cx).focus_handle(cx).is_focused(window) {
+            Owner::Address
+        } else {
+            Owner::Paddock
+        };
+        let seen = Seen {
+            focus,
+            native: self.page.as_ref().is_some_and(Page::has_keys),
+            showing: self.showing,
+            dialog: self.dialog,
+        };
+        let moves = self.keys.settle(seen);
+        match moves.native {
+            Some(true) => {
+                if let Some(page) = &self.page {
+                    page.focus();
+                }
+            }
+            Some(false) => browser::take_keys(window),
+            None => {}
+        }
+        if moves.focus_page {
+            window.focus(&self.page_focus, cx);
+        }
+        if moves.dismiss {
+            cx.emit(Handoff::Dismiss);
+        }
+        if moves.to_pane {
+            cx.emit(Handoff::ToPane);
         }
     }
 
@@ -111,10 +200,13 @@ impl BrowserView {
         if let Some(url) = self.pending.take() {
             self.go(url, cx);
         }
-        cx.spawn(async move |this, cx| {
+        cx.spawn_in(window, async move |this, cx| {
             loop {
                 cx.background_executor().timer(POLL).await;
-                if this.update(cx, |view, cx| view.poll(cx)).is_err() {
+                if this
+                    .update_in(cx, |view, window, cx| view.poll(window, cx))
+                    .is_err()
+                {
                     break;
                 }
             }
@@ -124,8 +216,9 @@ impl BrowserView {
     }
 
     /// Reads the page's state: drawn again when it changed, and the layout told when the address
-    /// shown did.
-    fn poll(&mut self, cx: &mut Context<Self>) {
+    /// shown did. The keyboard's record settles too, as a click on the page shows only here
+    /// while nothing else is drawn.
+    fn poll(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(page) = &self.page else {
             return;
         };
@@ -141,6 +234,7 @@ impl BrowserView {
             self.visited = Some(url.clone());
             cx.emit(Visited(url));
         }
+        self.settle(window, cx);
     }
 
     /// Why the page shows its error instead: an address refused, else a load that failed.
@@ -173,30 +267,48 @@ impl BrowserView {
         cx.notify();
     }
 
-    /// A click on the address: the field takes the keyboard, holding the address shown.
-    fn edit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let text = self.shown_url().unwrap_or_default().to_owned();
-        self.address
-            .update(cx, |input, cx| input.set_text(text, cx));
-        let focus = self.address.read(cx).focus_handle(cx);
-        window.focus(&focus, cx);
-        cx.notify();
+    /// A click on the address, or ⌘L (`select`): the field takes the keyboard, holding the address
+    /// shown, all of it selected for ⌘L. After this event, AppKit's keyboard first: AppKit asks
+    /// GPUI's view about its text as it takes it.
+    fn edit(&mut self, select: bool, window: &mut Window, cx: &mut Context<Self>) {
+        cx.defer_in(window, move |this, window, cx| {
+            browser::take_keys(window);
+            let editing = this.address.read(cx).focus_handle(cx).is_focused(window);
+            if !editing {
+                let text = this.shown_url().unwrap_or_default().to_owned();
+                this.address
+                    .update(cx, |input, cx| input.set_text(text, cx));
+                let focus = this.address.read(cx).focus_handle(cx);
+                window.focus(&focus, cx);
+            }
+            this.select = select;
+            cx.notify();
+        });
     }
 
-    /// ⏎ in the address field: opens what was typed, and the page takes the keyboard.
+    /// ⏎ in the address field: opens what was typed, and the page takes the keyboard (AppKit's
+    /// as the record settles).
     fn commit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let typed = self.address.read(cx).text().to_owned();
         let Some(url) = address(&typed) else {
             return;
         };
-        window.blur(cx);
+        window.focus(&self.page_focus, cx);
         self.go(url, cx);
-        // After this key: AppKit asks GPUI's view about its text as it gives the keyboard up.
-        cx.defer_in(window, |this, _, _| {
-            if let Some(page) = &this.page {
-                page.focus();
-            }
-        });
+    }
+
+    /// ⌘R: the page loads again, or tries a failed load again.
+    fn reload_page(&mut self, cx: &mut Context<Self>) {
+        let Some(page) = &self.page else {
+            return;
+        };
+        if let Some(url) = self.failure().and_then(|failure| failure.url.clone()) {
+            self.go(url, cx);
+        } else if self.opened {
+            page.reload();
+            self.refused = None;
+            cx.notify();
+        }
     }
 
     fn back(&mut self, cx: &mut Context<Self>) {
@@ -336,8 +448,9 @@ impl BrowserView {
             .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
                 match event.keystroke.key.as_str() {
                     "enter" => this.commit(window, cx),
+                    // Back to the page, as typing had not started.
                     "escape" => {
-                        window.blur(cx);
+                        window.focus(&this.page_focus, cx);
                         cx.notify();
                     }
                     _ => return,
@@ -369,7 +482,7 @@ impl BrowserView {
                 .cursor_text()
                 .on_mouse_down(
                     MouseButton::Left,
-                    cx.listener(|this, _, window, cx| this.edit(window, cx)),
+                    cx.listener(|this, _, window, cx| this.edit(false, window, cx)),
                 )
                 .child(label)
         };
@@ -394,14 +507,16 @@ impl BrowserView {
     }
 
     /// Under the toolbar: the empty state before anything is opened, the error after a failed
-    /// load, else the area the page shows in, a faint rim round it.
+    /// load, else the area the page shows in, a faint rim round it. The page's focus handle is on
+    /// the last two, so ⌘L and ⌘R stay the Browser's while its page is in error; a click on the
+    /// page itself never reaches it.
     fn content(&self, ui: &UiFont, cx: &mut Context<Self>) -> Div {
         let theme = &*self.theme;
         if !self.opened {
             return right_panel::placeholder(theme, ui, Tab::Browser);
         }
         if let Some(failure) = self.failure() {
-            return self.failed(failure, ui, cx);
+            return self.failed(failure, ui, cx).track_focus(&self.page_focus);
         }
         let area = self.area.clone();
         div()
@@ -412,6 +527,7 @@ impl BrowserView {
             .rounded(px(RADIUS))
             .border_1()
             .border_color(hsla(theme.fg(|t| t.agents_rule), 1.0))
+            .track_focus(&self.page_focus)
             .child(canvas(move |bounds, _, _| area.set(Some(bounds)), |_, _, _, _| {}).size_full())
     }
 
@@ -471,11 +587,23 @@ impl Render for BrowserView {
         if self.page.is_none() {
             cx.defer_in(window, |this, window, cx| this.open_page(window, cx));
         }
+        // ⌘L's selection, once the field it selects in is drawn.
+        if self.select && self.address.read(cx).focus_handle(cx).is_focused(window) {
+            self.select = false;
+            cx.defer_in(window, |_, window, cx| {
+                window.dispatch_action(Box::new(text_input::SelectAll), cx)
+            });
+        }
         let ui = UiFont::get(cx);
         div()
             .size_full()
             .flex()
             .flex_col()
+            .key_context(menu::BROWSER)
+            .on_action(
+                cx.listener(|this, _: &menu::FocusAddress, window, cx| this.edit(true, window, cx)),
+            )
+            .on_action(cx.listener(|this, _: &menu::ReloadPage, _, cx| this.reload_page(cx)))
             .child(self.toolbar(window, &ui, cx))
             .child(self.content(&ui, cx))
     }

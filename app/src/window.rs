@@ -5,8 +5,8 @@
 use crate::{
     agents::Panel,
     attention::Kind as AttentionKind,
-    browser::{self, cover},
-    browser_view::{BrowserView, Visited},
+    browser::{self, Owner, cover},
+    browser_view::{BrowserView, Handoff, Visited},
     card,
     changes::{self, ChangesView, Follow, Frame},
     config::Config,
@@ -668,6 +668,22 @@ impl PaddockWindow {
             this.save_layout(cx);
         })
         .detach();
+        cx.subscribe_in(
+            &browser,
+            window,
+            |this, _, handoff: &Handoff, window, cx| match handoff {
+                Handoff::Dismiss => {
+                    if this.popup.is_some() {
+                        this.close_popup(window, cx);
+                    }
+                }
+                Handoff::ToPane => {
+                    browser::take_keys(window);
+                    this.focus_active(window, cx);
+                }
+            },
+        )
+        .detach();
         let kanban = {
             let (theme, mono) = (theme.clone(), mono_font(&options));
             let folded = right.kanban_folded.clone();
@@ -1094,6 +1110,13 @@ impl PaddockWindow {
         if self.workspace.active_pane() != pane {
             self.workspace.focus(pane);
             self.focus_active(window, cx);
+        } else if let Some(view) = self.panes.get(&pane) {
+            // The active pane clicked while the Browser has the keyboard (its header too): back
+            // to the pane.
+            let focus: FocusHandle = view.read(cx).focus_handle(cx);
+            if !focus.contains_focused(window, cx) {
+                window.focus(&focus, cx);
+            }
         }
     }
 
@@ -1957,11 +1980,12 @@ impl PaddockWindow {
     fn place_page(&self, open: bool, dragging: bool) -> impl IntoElement {
         let browser = self.browser.clone();
         let on_browser = self.right.tab == RightTab::Browser;
+        let dialog = self.popup.is_some();
         canvas(
             |_, _, _| {},
             move |_, _, window, cx| {
                 browser.update(cx, |browser, cx| {
-                    browser.place(open, on_browser, dragging, window, cx)
+                    browser.place(open, on_browser, dragging, dialog, window, cx)
                 });
             },
         )
@@ -3237,12 +3261,19 @@ impl PaddockWindow {
         }
     }
 
-    /// Closes the open chooser, list or palette and gives the keys back to the active pane.
+    /// Closes the open chooser, list or palette and gives the keys back to the active pane, or to
+    /// the Browser's page when it had them as the popup opened.
     fn close_popup(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.popup = None;
         self.palette = None;
         self.chooser = Chooser::default();
-        self.focus_active(window, cx);
+        if self.browser.read(cx).owner() == Owner::Page {
+            self.browser
+                .update(cx, |browser, cx| browser.give_back(window, cx));
+            cx.notify();
+        } else {
+            self.focus_active(window, cx);
+        }
     }
 
     /// ↑↓ in the new tab or split panel, the Attention list or the palette.
@@ -4256,11 +4287,6 @@ impl Render for PaddockWindow {
                 this.finish_resize(cx);
                 this.finish_right_resize(cx);
             }))
-            // A click on anything GPUI draws takes the keyboard back from the Browser's page, after
-            // this event: AppKit asks GPUI's view about its text as it takes it.
-            .capture_any_mouse_down(|_, window, cx| {
-                window.defer(cx, |window, _| browser::take_keys(window))
-            })
             .on_mouse_up_out(
                 MouseButton::Left,
                 cx.listener(|this, _, _, cx| {
