@@ -264,6 +264,27 @@ impl Theme {
         self.frost
     }
 
+    /// These colours for the sidebar's column over the system's sidebar material: `agents_dim`
+    /// and `agents_dimmer`, as `[colors]` leaves them, stepped towards `agents_text` as far as
+    /// [`Self::frost`] says; every other colour as it is.
+    pub fn frosted(&self) -> Theme {
+        let text = self.fg(|t| t.agents_text);
+        let toward = |(r, g, b): Rgb, share: f32| {
+            let step = |from: u8, to: u8| {
+                (f32::from(from) + (f32::from(to) - f32::from(from)) * share).round() as u8
+            };
+            Color::Rgb(step(r, text.0), step(g, text.1), step(b, text.2))
+        };
+        let mut saddle = self.saddle.clone();
+        saddle.agents_dim = toward(self.fg(|t| t.agents_dim), self.frost.dim);
+        saddle.agents_dimmer = toward(self.fg(|t| t.agents_dimmer), self.frost.dimmer);
+        Theme {
+            saddle,
+            terminal: self.terminal,
+            frost: self.frost,
+        }
+    }
+
     /// The terminal pane's colours.
     pub fn terminal(&self) -> &palette::Theme {
         &self.terminal
