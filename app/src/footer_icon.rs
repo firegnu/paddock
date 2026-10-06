@@ -86,6 +86,13 @@ pub enum Pose {
     Slide([f32; 3]),
     /// `Copied`: the tick scaled about the centre.
     Grow(f32),
+    /// `LeftSidebar`, `RightSidebar`: the column's edge and its lines moved right (left when
+    /// negative).
+    Shift(f32),
+    /// `Plus` about its centre, `Search` about the lens: turned clockwise, in degrees.
+    Turn(f32),
+    /// `Split`: cut at the seam, each half moved this far out, the plus with the right one.
+    Part(f32),
 }
 
 /// `icon` in `color`, `SIZE` points square times `scale` (the interface size over the base).
@@ -213,6 +220,14 @@ fn shapes(icon: Icon, pose: Pose, bounds: Bounds<Pixels>, scale: f32) -> Vec<Pat
             vec![cross]
         }
         Icon::Plus => {
+            let turn = match pose {
+                Pose::Turn(degrees) => degrees,
+                _ => 0.0,
+            };
+            let at = |x, y| {
+                let (x, y) = turned(turn, (7.0, 7.0), x, y);
+                at(x, y)
+            };
             let mut plus = stroke();
             plus.move_to(at(7.0, 2.5));
             plus.line_to(at(7.0, 11.5));
@@ -221,17 +236,43 @@ fn shapes(icon: Icon, pose: Pose, bounds: Bounds<Pixels>, scale: f32) -> Vec<Pat
             vec![plus]
         }
         Icon::Split => {
-            let mut frame = stroke();
-            rounded_rect(&mut frame, at(1.0, 2.0), at(13.0, 12.0), 2.0 * scale);
-            let mut seam = stroke();
-            seam.move_to(at(7.0, 2.0));
-            seam.line_to(at(7.0, 12.0));
+            let by = match pose {
+                Pose::Part(by) => by,
+                _ => 0.0,
+            };
             let mut plus = stroke();
-            plus.move_to(at(10.0, 5.5));
-            plus.line_to(at(10.0, 8.5));
-            plus.move_to(at(8.5, 7.0));
-            plus.line_to(at(11.5, 7.0));
-            vec![frame, seam, plus]
+            plus.move_to(at(10.0 + by, 5.5));
+            plus.line_to(at(10.0 + by, 8.5));
+            plus.move_to(at(8.5 + by, 7.0));
+            plus.line_to(at(11.5 + by, 7.0));
+            if by == 0.0 {
+                let mut frame = stroke();
+                rounded_rect(&mut frame, at(1.0, 2.0), at(13.0, 12.0), 2.0 * scale);
+                let mut seam = stroke();
+                seam.move_to(at(7.0, 2.0));
+                seam.line_to(at(7.0, 12.0));
+                return vec![frame, seam, plus];
+            }
+            // Parted, each half of the frame is closed along its own side of the seam.
+            let r = px(2.0 * scale);
+            let radii = point(r, r);
+            let mut left = stroke();
+            left.move_to(at(7.0 - by, 2.0));
+            left.line_to(at(3.0 - by, 2.0));
+            left.arc_to(radii, px(0.0), false, false, at(1.0 - by, 4.0));
+            left.line_to(at(1.0 - by, 10.0));
+            left.arc_to(radii, px(0.0), false, false, at(3.0 - by, 12.0));
+            left.line_to(at(7.0 - by, 12.0));
+            left.close();
+            let mut right = stroke();
+            right.move_to(at(7.0 + by, 2.0));
+            right.line_to(at(11.0 + by, 2.0));
+            right.arc_to(radii, px(0.0), false, true, at(13.0 + by, 4.0));
+            right.line_to(at(13.0 + by, 10.0));
+            right.arc_to(radii, px(0.0), false, true, at(11.0 + by, 12.0));
+            right.line_to(at(7.0 + by, 12.0));
+            right.close();
+            vec![left, right, plus]
         }
         Icon::Panes => {
             let mut frame = stroke();
@@ -299,11 +340,20 @@ fn shapes(icon: Icon, pose: Pose, bounds: Bounds<Pixels>, scale: f32) -> Vec<Pat
             vec![bell, clapper]
         }
         Icon::Search => {
+            let tilt = match pose {
+                Pose::Turn(degrees) => degrees,
+                _ => 0.0,
+            };
+            // Turned about the lens's centre, which leaves the lens where it is.
+            let handle_at = |x, y| {
+                let (x, y) = turned(tilt, (6.0, 6.0), x, y);
+                at(x, y)
+            };
             let mut lens = stroke();
             circle(&mut lens, at(6.0, 6.0), 4.25 * scale);
             let mut handle = stroke();
-            handle.move_to(at(9.25, 9.25));
-            handle.line_to(at(12.5, 12.5));
+            handle.move_to(handle_at(9.25, 9.25));
+            handle.line_to(handle_at(12.5, 12.5));
             vec![lens, handle]
         }
         Icon::Settings => {
@@ -393,6 +443,10 @@ fn shapes(icon: Icon, pose: Pose, bounds: Bounds<Pixels>, scale: f32) -> Vec<Pat
                 Icon::LeftSidebar => (5.0, 2.0, 4.0),
                 _ => (9.0, 10.0, 12.0),
             };
+            let (edge, from, to) = match pose {
+                Pose::Shift(by) => (edge + by, from + by, to + by),
+                _ => (edge, from, to),
+            };
             let mut frame = stroke();
             rounded_rect(&mut frame, at(1.0, 2.0), at(13.0, 12.0), 2.0 * scale);
             let mut side = stroke();
@@ -431,6 +485,13 @@ fn shapes(icon: Icon, pose: Pose, bounds: Bounds<Pixels>, scale: f32) -> Vec<Pat
             vec![ring, meridian, equator]
         }
     }
+}
+
+/// The point `(x, y)` turned clockwise by `degrees` about `pivot`.
+fn turned(degrees: f32, pivot: (f32, f32), x: f32, y: f32) -> (f32, f32) {
+    let (sin, cos) = degrees.to_radians().sin_cos();
+    let (dx, dy) = (x - pivot.0, y - pivot.1);
+    (pivot.0 + dx * cos - dy * sin, pivot.1 + dx * sin + dy * cos)
 }
 
 /// A closed circle round `centre` of radius `r`.
