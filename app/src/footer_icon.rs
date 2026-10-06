@@ -47,8 +47,6 @@ pub enum Icon {
     /// A panel with a narrow column of lines on its left: collapse the sidebar. The mirror of
     /// `RightSidebar`.
     LeftSidebar,
-    /// A panel with its side bar on the left and an arrow out: expand the sidebar again.
-    Expand,
     /// A panel with a narrow column of lines on its right: open or close the right sidebar.
     RightSidebar,
     /// A plus over a minus: the right sidebar's Changes.
@@ -283,18 +281,6 @@ fn shapes(icon: Icon, bounds: Bounds<Pixels>, scale: f32) -> Vec<PathBuilder> {
             tick.line_to(at(5.75, 10.25));
             tick.line_to(at(11.0, 4.0));
             vec![tick]
-        }
-        Icon::Expand => {
-            let mut frame = stroke();
-            rounded_rect(&mut frame, at(1.0, 2.0), at(13.0, 12.0), 2.0 * scale);
-            let mut side = stroke();
-            side.move_to(at(5.0, 2.0));
-            side.line_to(at(5.0, 12.0));
-            let mut arrow = stroke();
-            arrow.move_to(at(8.0, 5.5));
-            arrow.line_to(at(9.5, 7.0));
-            arrow.line_to(at(8.0, 8.5));
-            vec![frame, side, arrow]
         }
         Icon::LeftSidebar | Icon::RightSidebar => {
             // The column's edge, and its lines across the middle of it.

@@ -446,7 +446,11 @@ impl Sidebar {
     fn collapse_button(&self, expand: bool, cx: &mut Context<Self>) -> gpui::Stateful<Div> {
         let ui = UiFont::get(cx);
         let (icon, tip, size) = if expand {
-            (Icon::Expand, "Expand sidebar (⌘B)", (BUTTON, 30.0, 7.0))
+            (
+                Icon::LeftSidebar,
+                "Expand sidebar (⌘B)",
+                (BUTTON, 30.0, 7.0),
+            )
         } else {
             (
                 Icon::LeftSidebar,
