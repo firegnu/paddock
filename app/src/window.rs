@@ -199,6 +199,8 @@ enum Spot {
     NewTab,
     /// The title bar's split icon.
     Split,
+    /// The Attention bell, in the title bar while the sidebar is expanded.
+    Bell,
     Pane(PaneId),
 }
 
@@ -306,8 +308,6 @@ pub const TITLE_BAR: f32 = 40.0;
 /// The title bar with the pet shown: room for it at twice its pixel size, standing on the
 /// terminal's top edge.
 pub const PET_TITLE_BAR: f32 = 48.0;
-/// Room the traffic lights take from the window's left edge, for when the sidebar is narrower.
-const LIGHTS: f32 = 84.0;
 /// The line between the sidebar and the panes, and the room on each side of it the mouse can
 /// take it by.
 const DIVIDER: f32 = 1.0;
@@ -322,13 +322,11 @@ const PANE_HEADER_END: f32 = 4.0;
 const BAR_BUTTON: f32 = 28.0;
 const SEARCH: f32 = 220.0;
 const SPLIT_GAP: f32 = 4.0;
-/// Where the sidebar draws the Attention bell, for the list to hang from it: in the strip, this
-/// far under the title bar; in the header, this far in from the right edge (not scaled) and then
-/// the collapse button and the gap before it; a digit of its count about this wide.
-const RAIL_BELL: f32 = 40.0;
-const BELL_END: f32 = 10.0;
-const BELL_AFTER: f32 = 30.0;
-const DIGIT: f32 = 7.0;
+/// How far under the line below the title bar the strip draws the Attention bell, for the list to
+/// hang from it.
+const RAIL_BELL: f32 = 10.0;
+/// The room the title bar keeps after the sidebar's header row, or after the expand button.
+const HEAD_END: f32 = 10.0;
 
 /// Where the traffic lights go in a title bar `height` points tall: in from the left edge, and
 /// centred on the row (AppKit's buttons are 14 points tall).
@@ -339,6 +337,17 @@ pub fn traffic_lights(height: f32) -> Point<Pixels> {
 fn title_bar_height(ui: &UiFont, pet: bool) -> f32 {
     let base = if pet { PET_TITLE_BAR } else { TITLE_BAR };
     base.max(ui.scale(base))
+}
+
+/// How wide the title bar's left part is, before the divider's line or the tabs: the sidebar's
+/// width, with its header row in it; collapsed to the strip, the traffic lights (none in full
+/// screen) and the expand button.
+fn bar_left(collapsed: bool, full_screen: bool, sidebar_width: f32, ui: &UiFont) -> f32 {
+    if collapsed {
+        sidebar::head_start(full_screen) + sidebar::toggle_room(ui) + HEAD_END
+    } else {
+        sidebar_width
+    }
 }
 
 /// What a pane shows, as far as its tab and its header name it.
@@ -785,7 +794,7 @@ impl PaddockWindow {
         let Some((width, from)) = self.resizing else {
             return;
         };
-        let width = sidebar::resize(width, from, x);
+        let width = sidebar::resize(width, from, x, sidebar::min_width(&UiFont::get(cx)));
         if width != self.sidebar_width {
             self.sidebar_width = width;
             let theme = self.theme.clone();
@@ -1206,7 +1215,10 @@ impl PaddockWindow {
     /// from; an open panel follows when it moves.
     fn spot(&self, spot: Spot) -> impl IntoElement {
         let spots = self.spots.clone();
-        let open = matches!(self.popup, Some(Popup::NewTab | Popup::Split(_)));
+        let open = matches!(
+            self.popup,
+            Some(Popup::NewTab | Popup::Split(_) | Popup::Attention)
+        );
         canvas(
             move |bounds, window, _| {
                 let moved = spots.borrow_mut().insert(spot, bounds) != Some(bounds);
@@ -1541,14 +1553,26 @@ impl PaddockWindow {
         hsla(self.theme.fg(pick), 1.0)
     }
 
+    /// The dividers' lines, and the one under the title bar.
+    fn rule(&self) -> Hsla {
+        self.fg(|t| t.agents_rule).opacity(0.7)
+    }
+
     fn highlight(&self) -> Hsla {
         hsla(self.theme.bg(|t| t.agent_selected), 1.0)
     }
 
-    /// The title bar: the traffic lights over the sidebar, then the tabs from the terminal's left
-    /// edge, the `+` after the last, and the pet in the room left. What is not a tab or a button
-    /// drags the window, and a double click there zooms or minimises it as the system is set.
-    fn title_bar(&self, agents: &[Agent], now: f64, cx: &mut Context<Self>) -> Stateful<Div> {
+    /// The title bar: over the sidebar the traffic lights (none in full screen) and the sidebar's
+    /// header row, then the tabs from the terminal's left edge, the `+` after the last, and the
+    /// pet in the room left. What is not a tab or a button drags the window, and a double click
+    /// there zooms or minimises it as the system is set.
+    fn title_bar(
+        &self,
+        agents: &[Agent],
+        now: f64,
+        full_screen: bool,
+        cx: &mut Context<Self>,
+    ) -> Stateful<Div> {
         let ui = UiFont::get(cx);
         let scale = ui.scale(1.0);
         let highlight = self.highlight();
@@ -1681,6 +1705,28 @@ impl PaddockWindow {
             .on_click(
                 cx.listener(|this, _: &ClickEvent, window, cx| this.toggle_new_tab(window, cx)),
             );
+        // Over the sidebar: the traffic lights, then the sidebar's header row (the expand button
+        // alone over the strip), with room to drag by.
+        let compact = sidebar::compact_bell(self.sidebar_width, full_screen, &ui);
+        let spot = self.spot(Spot::Bell).into_any_element();
+        let head = self
+            .sidebar
+            .update(cx, |sidebar, cx| sidebar.head(compact, spot, cx));
+        let left = div()
+            .flex_shrink_0()
+            .w(px(bar_left(
+                self.collapsed,
+                full_screen,
+                self.sidebar_width,
+                &ui,
+            )))
+            .h_full()
+            .flex()
+            .items_center()
+            .overflow_hidden()
+            .pl(px(sidebar::head_start(full_screen)))
+            .when(!self.collapsed, |left| left.pr(px(HEAD_END)))
+            .child(head);
         div()
             .id("title-bar")
             .flex_shrink_0()
@@ -1706,13 +1752,18 @@ impl PaddockWindow {
                     window.start_window_move();
                 }
             }))
-            // Over the sidebar: the traffic lights, and room to drag by.
-            .child(
-                div()
-                    .flex_shrink_0()
-                    .w(px((self.sidebar_shown(&ui) + DIVIDER).max(LIGHTS)))
-                    .h_full(),
-            )
+            .child(left)
+            // The divider's line goes on up to the window's top; over the strip it would cross
+            // the traffic lights.
+            .when(!self.collapsed, |bar| {
+                bar.child(
+                    div()
+                        .flex_shrink_0()
+                        .w(px(DIVIDER))
+                        .h_full()
+                        .bg(self.rule()),
+                )
+            })
             .child(
                 div()
                     .flex_1()
@@ -3069,7 +3120,7 @@ impl PaddockWindow {
     }
 
     /// Where a panel hangs: from the `+`; from the active pane's split button or the title bar's
-    /// split icon, as [`split_from`] says; from the Attention bell, under it in the sidebar's header or
+    /// split icon, as [`split_from`] says; from the Attention bell, under it in the title bar or
     /// beside the strip.
     fn placed(&self, popup: Popup, width: f32, window: &Window, cx: &Context<Self>) -> Placed {
         let ui = UiFont::get(cx);
@@ -3122,26 +3173,19 @@ impl PaddockWindow {
                 Hang::BelowRight,
             ),
             _ => {
-                let count = self.sidebar.read(cx).attention().len();
                 if self.collapsed {
                     (
-                        rect(0.0, title + RAIL_BELL * s, side, 30.0 * s),
+                        rect(0.0, title + DIVIDER + RAIL_BELL * s, side, 30.0 * s),
                         Hang::Beside,
                     )
                 } else {
-                    // The header's bell, before its collapse button at the right end: an icon,
-                    // and the count after it when there is one.
-                    let right = self.sidebar_width - BELL_END - BELL_AFTER * s;
-                    let digits = if count > 0 {
-                        5.0 + DIGIT * count.to_string().len() as f32
-                    } else {
-                        0.0
-                    };
-                    let width = (16.0 + footer_icon::SIZE + digits) * s;
-                    (
-                        rect(right - width, title + 8.0 * s, width, 28.0 * s),
-                        Hang::BelowLeft,
-                    )
+                    // Not drawn yet: at the right end of the header row in the title bar.
+                    let anchor = spots.get(&Spot::Bell).copied().unwrap_or_else(|| {
+                        let bell = 28.0 * s;
+                        let right = self.sidebar_width - HEAD_END;
+                        rect(right - bell, (title - bell) / 2.0, bell, bell)
+                    });
+                    (anchor, Hang::BelowLeft)
                 }
             }
         };
@@ -3548,7 +3592,17 @@ impl Render for PaddockWindow {
             .flex()
             .bg(hsla(self.theme.terminal().background, 1.0))
             .child(self.node(&root, shown, &agents, cx));
-        let rule = self.fg(|t| t.agents_rule).opacity(0.7);
+        let rule = self.rule();
+        // Under the title bar, where the pet stands: from the divider to the right edge, or right
+        // across over the strip.
+        let line = div()
+            .flex_shrink_0()
+            .h(px(DIVIDER))
+            .flex()
+            .when(!self.collapsed, |line| {
+                line.child(div().flex_shrink_0().w(px(self.sidebar_width)))
+            })
+            .child(div().flex_1().bg(rule));
         let body = div()
             .relative()
             .flex_1()
@@ -3707,7 +3761,8 @@ impl Render for PaddockWindow {
             .on_action(
                 cx.listener(|this, _: &menu::Cancel, window, cx| this.close_popup(window, cx)),
             )
-            .child(self.title_bar(&agents, now, cx))
+            .child(self.title_bar(&agents, now, window.is_fullscreen(), cx))
+            .child(line)
             .child(body)
             .children(dialog)
             // While a divider is dragged the cursor keeps its shape, and nothing under it
@@ -3859,6 +3914,28 @@ mod tests {
         };
         assert_eq!(title_bar_height(&small, false), TITLE_BAR);
         assert_eq!(title_bar_height(&small, true), PET_TITLE_BAR);
+    }
+
+    #[test]
+    fn the_title_bar_left_part_is_the_sidebar_or_the_lights_and_the_expand_button() {
+        let base = UiFont::default();
+        // Expanded: as wide as the sidebar, the divider following it, full screen or not.
+        assert_eq!(bar_left(false, false, 300.0, &base), 300.0);
+        assert_eq!(bar_left(false, true, 300.0, &base), 300.0);
+        assert_eq!(bar_left(false, false, 220.0, &base), 220.0);
+        // Collapsed: the traffic lights, the expand button and room after it, whatever the
+        // sidebar's width.
+        assert_eq!(bar_left(true, false, 300.0, &base), 118.0);
+        assert_eq!(bar_left(true, false, 220.0, &base), 118.0);
+        // In full screen there are no traffic lights: the button is 12 points in.
+        assert_eq!(bar_left(true, true, 300.0, &base), 54.0);
+        // The button grows with the interface size; the lights do not.
+        let large = UiFont {
+            family: None,
+            size: 19.5,
+        };
+        assert_eq!(bar_left(true, false, 300.0, &large), 76.0 + 48.0 + 10.0);
+        assert_eq!(bar_left(true, true, 300.0, &large), 12.0 + 48.0 + 10.0);
     }
 
     #[test]

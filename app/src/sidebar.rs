@@ -2,7 +2,8 @@
 //! Saddle, ordered and judged by its Agents panel model, shown as native two-line cards (`card.rs`
 //! decides what each card says). Clicking a card asks the window to show that agent, and clicking
 //! the one shown opens its details. The footer's one button opens the window's menu of actions;
-//! the header's last button collapses the sidebar to a narrow strip of one tile per agent.
+//! the header row, which the window puts in its title bar, starts with the button that collapses
+//! the sidebar to a narrow strip of one tile per agent.
 use crate::{
     agents::{Panel, Status},
     attention,
@@ -19,8 +20,9 @@ use crate::{
 use anyhow::Result;
 use gpui::{
     Animation, AnimationExt, AnyElement, App, BoxShadow, ClickEvent, Context, Div, ElementId,
-    EventEmitter, Font, FontFeatures, FontWeight, HighlightStyle, Hsla, Pixels, Render, RenderOnce,
-    SharedString, StyledText, TextRun, Window, div, ease_in_out, point, prelude::*, px, relative,
+    EventEmitter, Font, FontFeatures, FontWeight, HighlightStyle, Hsla, MouseButton,
+    MouseDownEvent, Pixels, Render, RenderOnce, SharedString, StyledText, TextRun, Window, div,
+    ease_in_out, point, prelude::*, px, relative,
 };
 use std::{rc::Rc, sync::Arc, time::Duration};
 
@@ -81,9 +83,27 @@ const TILE_SIZE: f32 = 12.5;
 
 /// The collapsed strip's width, in points at the base interface size.
 pub const RAIL: f32 = 52.0;
-/// The widths dragging the divider keeps to.
+/// The widths dragging the divider keeps to, at the base interface size; larger sizes need more
+/// room for the header row (see [`min_width`]).
 pub const MIN_WIDTH: f32 = 220.0;
 pub const MAX_WIDTH: f32 = 560.0;
+/// Where the header row starts in the title bar, from the window's left edge: past the traffic
+/// lights (at 14 points, ending at 68), or in from the edge in full screen, where there are none.
+/// Neither scales.
+const LIGHTS: f32 = 76.0;
+const FULL_SCREEN: f32 = 12.0;
+/// The collapse (or expand) button, and the room after it.
+const TOGGLE: f32 = 26.0;
+const TOGGLE_GAP: f32 = 6.0;
+/// What the header row needs for its words, about as wide as the system font draws them: `Agents`,
+/// the room before its count, and a digit of the count or the bell's.
+const TITLE_WIDTH: f32 = 51.0;
+const COUNT_GAP: f32 = 7.0;
+const DIGIT: f32 = 7.8;
+/// The bell as a pill (its sides, and the room between the icon and the count) and compact.
+const PILL_X: f32 = 8.0;
+const PILL_GAP: f32 = 5.0;
+const COMPACT_BELL: f32 = 28.0;
 /// The footer, and its menu button at the bottom left; in the strip the button is centred, which
 /// puts it as far in.
 const FOOTER: f32 = 50.0;
@@ -96,10 +116,44 @@ const ROLE_PREFIXES: [&str; 3] = ["dev-", "test-", "review-"];
 
 /// The sidebar's width while the divider is dragged: the width when it was pressed, moved as far
 /// as the mouse has, kept within reach and to whole points.
-pub fn resize(width_at_press: f32, press_x: f32, x: f32) -> f32 {
+pub fn resize(width_at_press: f32, press_x: f32, x: f32, min: f32) -> f32 {
     (width_at_press + x - press_x)
-        .clamp(MIN_WIDTH, MAX_WIDTH)
+        .clamp(min, MAX_WIDTH.max(min))
         .round()
+}
+
+/// Where the header row starts in the title bar.
+pub fn head_start(full_screen: bool) -> f32 {
+    if full_screen { FULL_SCREEN } else { LIGHTS }
+}
+
+/// The collapse or expand button and the room after it, where `Agents` starts past
+/// [`head_start`].
+pub fn toggle_room(ui: &UiFont) -> f32 {
+    ui.scale(TOGGLE + TOGGLE_GAP)
+}
+
+/// How wide a sidebar the header row needs, starting at `start`, for a two-digit count with the
+/// bell compact or as a pill with a two-digit number.
+fn head_width(start: f32, compact: bool, ui: &UiFont) -> f32 {
+    let bell = if compact {
+        COMPACT_BELL
+    } else {
+        PILL_X + footer_icon::SIZE + PILL_GAP + 2.0 * DIGIT + PILL_X
+    };
+    start + toggle_room(ui) + ui.scale(TITLE_WIDTH + COUNT_GAP + 2.0 * DIGIT + bell) + PAD
+}
+
+/// The narrowest the sidebar is dragged to: 220, or wider when the header row with the compact
+/// bell needs it at a larger interface size.
+pub fn min_width(ui: &UiFont) -> f32 {
+    MIN_WIDTH.max(head_width(LIGHTS, true, ui))
+}
+
+/// Whether the bell goes compact in a sidebar `width` wide: when the row has no room for it as a
+/// pill.
+pub fn compact_bell(width: f32, full_screen: bool, ui: &UiFont) -> bool {
+    width < head_width(head_start(full_screen), false, ui)
 }
 
 /// A tile's letter: the agent's short name's first letter or digit, upper case, after a prefix
@@ -338,10 +392,74 @@ impl Sidebar {
         self.poller.refresh();
     }
 
+    /// The header row, in the title bar after the traffic lights: the collapse button, `Agents`
+    /// and how many, and the bell at the right end, compact when told; collapsed to the strip,
+    /// only the expand button, where the collapse button was. `spot` goes in the bell, for the
+    /// window to hang the Attention list from. A press on a button is not the start of a drag.
+    pub fn head(&mut self, compact: bool, spot: AnyElement, cx: &mut Context<Self>) -> Div {
+        let ui = UiFont::get(cx);
+        let keep = |_: &MouseDownEvent, _: &mut Window, cx: &mut App| cx.stop_propagation();
+        let row = div()
+            .flex_1()
+            .min_w(px(0.0))
+            .h_full()
+            .flex()
+            .items_center()
+            .child(
+                self.collapse_button(self.collapsed, cx)
+                    .mr(ui.px(TOGGLE_GAP))
+                    .on_mouse_down(MouseButton::Left, keep),
+            );
+        if self.collapsed {
+            return row;
+        }
+        let fg = |pick: Pick| hsla(self.theme.fg(pick), 1.0);
+        let agents = self
+            .listing
+            .lines(
+                self.selected.as_deref(),
+                &self.here,
+                self.home.as_deref(),
+                now(),
+            )
+            .iter()
+            .filter(|line| matches!(line, Line::Agent(_)))
+            .count();
+        let bell = if compact {
+            self.small_bell((COMPACT_BELL, COMPACT_BELL), Some(spot), cx)
+        } else {
+            self.badge(spot, cx)
+        };
+        row.child(
+            div()
+                .flex_shrink_0()
+                .flex()
+                .items_baseline()
+                .gap(ui.px(COUNT_GAP))
+                .child(
+                    div()
+                        .text_size(ui.px(TITLE_SIZE))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(fg(|t| t.agents_text))
+                        .child("Agents"),
+                )
+                .when(agents > 0, |title| {
+                    title.child(
+                        div()
+                            .text_size(ui.px(SECOND_SIZE))
+                            .text_color(fg(|t| t.agents_dimmer))
+                            .child(agents.to_string()),
+                    )
+                }),
+        )
+        .child(div().flex_1())
+        .child(bell.on_mouse_down(MouseButton::Left, keep))
+    }
+
     /// The header's bell, always there so the Attention list has a way in: how many rows the list
     /// has, in amber when an agent needs a person, in the accent for new replies only, quiet and
     /// without a number when there is nothing. A click opens the Attention list.
-    fn badge(&self, cx: &mut Context<Self>) -> gpui::Stateful<Div> {
+    fn badge(&self, spot: AnyElement, cx: &mut Context<Self>) -> gpui::Stateful<Div> {
         let (count, color) = self.bell();
         let ui = UiFont::get(cx);
         let mut pill = div()
@@ -360,6 +478,7 @@ impl Sidebar {
         }
         div()
             .id("attention")
+            .relative()
             .flex_shrink_0()
             .h(ui.px(28.0))
             .flex()
@@ -367,6 +486,7 @@ impl Sidebar {
             .cursor_pointer()
             .hover(move |style| style.opacity(0.85))
             .child(pill)
+            .child(spot)
             .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(SidebarEvent::Attention)))
     }
 
@@ -384,8 +504,14 @@ impl Sidebar {
         (count, color)
     }
 
-    /// The strip's bell: the header's, as an icon with the count in a small disc on its corner.
-    fn rail_bell(&self, cx: &mut Context<Self>) -> gpui::Stateful<Div> {
+    /// The bell as an icon with the count in a small disc on its corner, `(width, height)` in
+    /// points: the strip's, and the header's in a narrow sidebar. `spot` as in [`Self::head`].
+    fn small_bell(
+        &self,
+        (width, height): (f32, f32),
+        spot: Option<AnyElement>,
+        cx: &mut Context<Self>,
+    ) -> gpui::Stateful<Div> {
         let (count, color) = self.bell();
         let ui = UiFont::get(cx);
         let ground = hsla(self.theme.bg(|t| t.agents_bg), 1.0);
@@ -394,9 +520,8 @@ impl Sidebar {
             .id("attention")
             .relative()
             .flex_shrink_0()
-            .w(ui.px(BUTTON))
-            .h(ui.px(30.0))
-            .mt(ui.px(2.0))
+            .w(ui.px(width))
+            .h(ui.px(height))
             .flex()
             .items_center()
             .justify_center()
@@ -424,6 +549,7 @@ impl Sidebar {
                         .child(count.to_string()),
                 )
             })
+            .children(spot)
             .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(SidebarEvent::Attention)))
     }
 
@@ -442,28 +568,29 @@ impl Sidebar {
         .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(SidebarEvent::Actions)))
     }
 
-    /// The button that collapses the sidebar (`expand` false) or expands the strip.
+    /// The button that collapses the sidebar (`expand` false) or expands the strip, one size
+    /// either way so it stays put in the title bar.
     fn collapse_button(&self, expand: bool, cx: &mut Context<Self>) -> gpui::Stateful<Div> {
         let ui = UiFont::get(cx);
-        let (icon, tip, size) = if expand {
-            (
-                Icon::LeftSidebar,
-                "Expand sidebar (⌘B)",
-                (BUTTON, 30.0, 7.0),
-            )
+        let tip = if expand {
+            "Expand sidebar (⌘B)"
         } else {
-            (
-                Icon::LeftSidebar,
-                "Collapse sidebar (⌘B)",
-                (26.0, 26.0, 6.0),
-            )
+            "Collapse sidebar (⌘B)"
         };
-        button(&self.theme, &ui, "collapse", icon, tip, size, false)
-            .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(SidebarEvent::ToggleCollapse)))
+        button(
+            &self.theme,
+            &ui,
+            "collapse",
+            Icon::LeftSidebar,
+            tip,
+            (TOGGLE, TOGGLE, 6.0),
+            false,
+        )
+        .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(SidebarEvent::ToggleCollapse)))
     }
 
-    /// The collapsed strip: expand, the bell, then a tile for each agent, the projects set apart
-    /// by short rules, and the menu button at the bottom.
+    /// The collapsed strip: the bell, then a tile for each agent, the projects set apart by short
+    /// rules, and the menu button at the bottom.
     fn rail(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let ui = UiFont::get(cx);
         let theme = self.theme.clone();
@@ -526,8 +653,7 @@ impl Sidebar {
             .bg(hsla(theme.bg(|t| t.agents_bg), 1.0))
             .line_height(relative(1.3))
             .pt(ui.px(8.0))
-            .child(self.collapse_button(true, cx))
-            .child(self.rail_bell(cx))
+            .child(self.small_bell((BUTTON, 30.0), None, cx).mt(ui.px(2.0)))
             .child(rule(24.0, 0.0).mt(ui.px(8.0)).mb(ui.px(4.0)))
             .child(tiles)
             .child(
@@ -782,39 +908,6 @@ impl Render for Sidebar {
             .filter(|line| matches!(line, Line::Agent(_)))
             .count();
 
-        let header = div()
-            .flex_shrink_0()
-            .flex()
-            .items_center()
-            .min_h(ui.px(44.0))
-            .pl(px(18.0))
-            .pr(px(PAD))
-            .gap(ui.px(4.0))
-            .child(
-                div()
-                    .flex()
-                    .items_baseline()
-                    .gap(ui.px(7.0))
-                    .child(
-                        div()
-                            .text_size(ui.px(TITLE_SIZE))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(fg(|t| t.agents_text))
-                            .child("Agents"),
-                    )
-                    .when(agents > 0, |title| {
-                        title.child(
-                            div()
-                                .text_size(ui.px(SECOND_SIZE))
-                                .text_color(fg(|t| t.agents_dimmer))
-                                .child(agents.to_string()),
-                        )
-                    }),
-            )
-            .child(div().flex_1())
-            .child(self.badge(cx))
-            .child(self.collapse_button(false, cx));
-
         let mut list = div()
             .id("agents")
             .flex_1()
@@ -862,7 +955,7 @@ impl Render for Sidebar {
             };
             list = list.justify_center().child(quiet);
         }
-        for line in lines.into_iter().filter(|_| agents > 0) {
+        for (index, line) in lines.into_iter().filter(|_| agents > 0).enumerate() {
             list = list.child(match line {
                 // The list corral last gave stays below this.
                 Line::Error(text) => div()
@@ -877,7 +970,8 @@ impl Render for Sidebar {
                     .items_baseline()
                     .gap(ui.px(6.0))
                     .px(px(8.0))
-                    .pt(px(14.0))
+                    // Closer to the top for the first: the window's title bar is over it.
+                    .pt(px(if index == 0 { 10.0 } else { 14.0 }))
                     .pb(px(6.0))
                     .text_size(ui.px(LABEL_SIZE))
                     .font_weight(FontWeight::SEMIBOLD)
@@ -939,7 +1033,6 @@ impl Render for Sidebar {
             .bg(hsla(theme.bg(|t| t.agents_bg), 1.0))
             // Closer than GPUI's default, as in the design.
             .line_height(relative(1.3))
-            .child(header)
             .child(list)
             .children(note)
             .child(footer)
@@ -1648,17 +1741,52 @@ mod tests {
     #[test]
     fn dragging_the_divider_follows_the_mouse_within_reach() {
         // Pressed at x 300 on a 300-point sidebar: the width moves as far as the mouse.
-        assert_eq!(resize(300.0, 300.0, 340.0), 340.0);
-        assert_eq!(resize(300.0, 302.0, 250.0), 248.0);
+        assert_eq!(resize(300.0, 300.0, 340.0, MIN_WIDTH), 340.0);
+        assert_eq!(resize(300.0, 302.0, 250.0, MIN_WIDTH), 248.0);
         // Never narrower than 220 nor wider than 560, however far the mouse goes.
-        assert_eq!(resize(300.0, 300.0, 100.0), MIN_WIDTH);
-        assert_eq!(resize(300.0, 300.0, -50.0), 220.0);
-        assert_eq!(resize(300.0, 300.0, 900.0), MAX_WIDTH);
-        assert_eq!(resize(300.0, 300.0, 560.5), 560.0);
+        assert_eq!(resize(300.0, 300.0, 100.0, MIN_WIDTH), MIN_WIDTH);
+        assert_eq!(resize(300.0, 300.0, -50.0, MIN_WIDTH), 220.0);
+        assert_eq!(resize(300.0, 300.0, 900.0, MIN_WIDTH), MAX_WIDTH);
+        assert_eq!(resize(300.0, 300.0, 560.5, MIN_WIDTH), 560.0);
         // Whole points, for the config file.
-        assert_eq!(resize(300.0, 300.0, 333.4), 333.0);
+        assert_eq!(resize(300.0, 300.0, 333.4, MIN_WIDTH), 333.0);
         // A width set outside the range in Settings comes back into it once dragged.
-        assert_eq!(resize(180.0, 180.0, 181.0), 220.0);
+        assert_eq!(resize(180.0, 180.0, 181.0, MIN_WIDTH), 220.0);
+    }
+
+    #[test]
+    fn the_narrowest_sidebar_still_holds_the_header_row_in_the_title_bar() {
+        // At the base interface size the bell goes compact before the row runs out of room, and
+        // the compact row fits the usual narrowest sidebar.
+        let base = UiFont::default();
+        assert_eq!(min_width(&base), MIN_WIDTH);
+        assert!(compact_bell(MIN_WIDTH, false, &base));
+        assert!(!compact_bell(300.0, false, &base));
+        // Larger interface sizes need a wider sidebar, and dragging keeps to it.
+        let large = UiFont {
+            family: None,
+            size: 16.0,
+        };
+        let larger = UiFont {
+            family: None,
+            size: 20.0,
+        };
+        assert!(min_width(&large) > MIN_WIDTH);
+        assert!(min_width(&larger) > min_width(&large));
+        assert!(compact_bell(min_width(&large), false, &large));
+        assert_eq!(
+            resize(300.0, 300.0, 100.0, min_width(&large)),
+            min_width(&large).round()
+        );
+        // Smaller ones keep 220.
+        let small = UiFont {
+            family: None,
+            size: 11.0,
+        };
+        assert_eq!(min_width(&small), MIN_WIDTH);
+        // In full screen there are no traffic lights: the row has more room.
+        assert!(compact_bell(235.0, false, &base));
+        assert!(!compact_bell(235.0, true, &base));
     }
 
     #[test]
