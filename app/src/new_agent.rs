@@ -332,7 +332,13 @@ mod tests {
                 "/opt/tools/claude --model 'opus[1m]' --effort high",
                 "model=opus[1m]",
                 "effort=high",
-                vec!["/opt/tools/claude", "--model", "opus[1m]", "--effort", "high"],
+                vec![
+                    "/opt/tools/claude",
+                    "--model",
+                    "opus[1m]",
+                    "--effort",
+                    "high",
+                ],
             ),
             (
                 Tool::Claude,
