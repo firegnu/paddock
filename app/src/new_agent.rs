@@ -184,6 +184,42 @@ impl Form {
             "--label".into(),
             role.into(),
         ];
+        let program = words[0].rsplit('/').next().unwrap_or_default();
+        if matches!(program, "claude" | "codex") {
+            let mut model = None;
+            let mut effort = None;
+            let mut command_args = words.iter().skip(1).map(String::as_str);
+            while let Some(arg) = command_args.next() {
+                match arg {
+                    "--" => break,
+                    "--model" => model = command_args.next(),
+                    "-m" if program == "codex" => model = command_args.next(),
+                    "--effort" if program == "claude" => effort = command_args.next(),
+                    "-c" | "--config" if program == "codex" => {
+                        if let Some(value) = command_args
+                            .next()
+                            .and_then(|arg| arg.strip_prefix("model_reasoning_effort="))
+                        {
+                            effort = Some(value.trim_matches(['\'', '"']));
+                        }
+                    }
+                    _ => {
+                        if let Some(value) = arg.strip_prefix("--model=") {
+                            model = Some(value);
+                        } else if program == "claude"
+                            && let Some(value) = arg.strip_prefix("--effort=")
+                        {
+                            effort = Some(value);
+                        }
+                    }
+                }
+            }
+            for (key, value) in [("model", model), ("effort", effort)] {
+                if let Some(value) = value.filter(|value| !value.is_empty()) {
+                    args.extend(["--label".into(), format!("{key}={value}")]);
+                }
+            }
+        }
         if !self.prompt.is_empty() {
             args.extend(["--prompt".into(), self.prompt.clone()]);
         }
@@ -286,6 +322,55 @@ mod tests {
         // A controller is always main, whatever the regular name says.
         form.regular = false;
         assert_eq!(form.full_name(), "demo/main");
+    }
+
+    #[test]
+    fn commands_supply_model_and_effort_labels() {
+        for (tool, command, model, effort, words) in [
+            (
+                Tool::Codex,
+                "/opt/tools/claude --model 'opus[1m]' --effort high",
+                "model=opus[1m]",
+                "effort=high",
+                vec!["/opt/tools/claude", "--model", "opus[1m]", "--effort", "high"],
+            ),
+            (
+                Tool::Claude,
+                r#"/opt/tools/codex --yolo -m gpt-6-astra -c 'model_reasoning_effort="xhigh"'"#,
+                "model=gpt-6-astra",
+                "effort=xhigh",
+                vec![
+                    "/opt/tools/codex",
+                    "--yolo",
+                    "-m",
+                    "gpt-6-astra",
+                    "-c",
+                    r#"model_reasoning_effort="xhigh""#,
+                ],
+            ),
+        ] {
+            let mut form = Form::new("/tmp/demo".into(), Place::Current);
+            form.choose_tool(tool);
+            form.command = command.into();
+            form.prompt = "hello".into();
+            let mut expected = vec![
+                "start",
+                "demo/main",
+                "--cwd",
+                "/tmp/demo",
+                "--label",
+                "role=controller",
+                "--label",
+                model,
+                "--label",
+                effort,
+                "--prompt",
+                "hello",
+                "--",
+            ];
+            expected.extend(words);
+            assert_eq!(form.args().unwrap(), expected, "{command}");
+        }
     }
 
     #[test]
