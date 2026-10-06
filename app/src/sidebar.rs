@@ -484,7 +484,11 @@ impl Sidebar {
             .items_center()
             .child(
                 self.collapse_button(self.collapsed, cx)
-                    .mr(ui.px(if self.collapsed { TOGGLE_GAP } else { TITLE_GAP }))
+                    .mr(ui.px(if self.collapsed {
+                        TOGGLE_GAP
+                    } else {
+                        TITLE_GAP
+                    }))
                     .on_mouse_down(MouseButton::Left, keep),
             );
         if self.collapsed {
