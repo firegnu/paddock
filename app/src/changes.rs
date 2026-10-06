@@ -1081,6 +1081,7 @@ impl ChangesView {
                 let file = &changes.files[f];
                 let last = f + 1 == changes.files.len();
                 div()
+                    .w_full()
                     .px(ui.px(8.0))
                     .when(f == 0, |d| d.pt(ui.px(6.0)))
                     .when(last, |d| d.pb(ui.px(8.0)))
@@ -1101,6 +1102,7 @@ impl ChangesView {
                 let waits = self.waits(file);
                 let (text, action) = note_text(file, waits);
                 div()
+                    .w_full()
                     .flex()
                     .items_center()
                     .gap(ui.px(8.0))
@@ -1186,6 +1188,7 @@ impl ChangesView {
                 let gutter = self.gutter(&ui, digits(file));
                 div()
                     .id(("changes-gap", ix))
+                    .w_full()
                     .flex()
                     .items_center()
                     .h(ui.px(24.0))
@@ -1271,26 +1274,31 @@ impl ChangesView {
         }
     }
 
-    /// A row of file `f` that scrolls the file sideways under a sideways swipe.
+    /// A row of file `f`, as wide as the list, that scrolls the file sideways under a sideways
+    /// swipe.
     fn sideways(&self, f: usize, ui: &UiFont, digits: usize, cx: &mut Context<Self>) -> Div {
         let reach = self.reach_x(f, ui, digits);
-        div().on_scroll_wheel(cx.listener(move |this, event: &ScrollWheelEvent, _, cx| {
-            let delta = event.delta.pixel_delta(px(20.0));
-            let (dx, dy) = (f32::from(delta.x), f32::from(delta.y));
-            // Mostly sideways only: a vertical swipe that wanders leaves the code where it is.
-            if dx.abs() <= dy.abs() {
-                return;
-            }
-            let Some(path) = this.files().get(f).cloned() else {
-                return;
-            };
-            let x = this.scroll_x.entry(path).or_default();
-            let to = (*x - dx).clamp(0.0, reach);
-            if to != *x {
-                *x = to;
-                cx.notify();
-            }
-        }))
+        // A list row is only as wide as its content unless told otherwise: full width, its ground
+        // reaches the edge and side by side its halves are half each.
+        div()
+            .w_full()
+            .on_scroll_wheel(cx.listener(move |this, event: &ScrollWheelEvent, _, cx| {
+                let delta = event.delta.pixel_delta(px(20.0));
+                let (dx, dy) = (f32::from(delta.x), f32::from(delta.y));
+                // Mostly sideways only: a vertical swipe that wanders leaves the code where it is.
+                if dx.abs() <= dy.abs() {
+                    return;
+                }
+                let Some(path) = this.files().get(f).cloned() else {
+                    return;
+                };
+                let x = this.scroll_x.entry(path).or_default();
+                let to = (*x - dx).clamp(0.0, reach);
+                if to != *x {
+                    *x = to;
+                    cx.notify();
+                }
+            }))
     }
 
     /// Code of file `f`, moved by how far it is scrolled sideways, cut at its column's edges.
@@ -1476,6 +1484,7 @@ impl ChangesView {
             })
             .flex()
             .items_center()
+            .w_full()
             .gap(ui.px(8.0))
             .h(ui.px(34.0))
             .pl(ui.px(12.0))
@@ -1591,6 +1600,16 @@ impl Render for ChangesView {
             Some(Read::Changes(changes)) => Some(changes),
             _ => None,
         };
+        // Not a repository, or no directory to read: no scopes to choose between.
+        let repo = follow.cwd.is_some()
+            && match read.as_deref() {
+                Some(Read::NotRepository) => false,
+                Some(_) => true,
+                // Still reading: a repository if the last read here found one.
+                None => place.is_some(),
+            };
+        // No files: nothing to count or fold.
+        let listed = files.filter(|changes| !changes.files.is_empty());
         // Who, on what branch, and how much changed.
         let who = div()
             .flex()
@@ -1723,7 +1742,7 @@ impl Render for ChangesView {
                 &ui,
             ))
             .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.fold_all(cx)));
-        let file_count = files.map(|changes| {
+        let file_count = listed.map(|changes| {
             let n = changes.files.len();
             format!(
                 "{} {}",
@@ -1769,9 +1788,10 @@ impl Render for ChangesView {
                 .pr(ui.px(14.0))
                 .child(who)
                 .child(div().flex_1())
-                .child(scopes)
-                .child(layouts)
-                .when(files.is_some(), |d| d.child(fold))
+                .when(repo, |d| d.child(scopes))
+                // No files to lay out: no layouts to choose between.
+                .when(listed.is_some(), |d| d.child(layouts))
+                .when(listed.is_some(), |d| d.child(fold))
         } else {
             div()
                 .flex_shrink_0()
@@ -1783,26 +1803,28 @@ impl Render for ChangesView {
                 .pl(ui.px(16.0))
                 .pr(ui.px(14.0))
                 .child(who)
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap(ui.px(8.0))
-                        .child(scopes)
-                        .child(div().flex_1())
-                        .when_some(file_count, |d, n| {
-                            d.child(
-                                div()
-                                    .min_w(px(0.0))
-                                    .overflow_hidden()
-                                    .whitespace_nowrap()
-                                    .text_size(ui.px(12.0))
-                                    .text_color(c.dim)
-                                    .child(n),
-                            )
-                        })
-                        .when(files.is_some(), |d| d.child(fold)),
-                )
+                .when(repo, |d| {
+                    d.child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(ui.px(8.0))
+                            .child(scopes)
+                            .child(div().flex_1())
+                            .when_some(file_count, |d, n| {
+                                d.child(
+                                    div()
+                                        .min_w(px(0.0))
+                                        .overflow_hidden()
+                                        .whitespace_nowrap()
+                                        .text_size(ui.px(12.0))
+                                        .text_color(c.dim)
+                                        .child(n),
+                                )
+                            })
+                            .when(listed.is_some(), |d| d.child(fold)),
+                    )
+                })
         };
         let rule = div().flex_shrink_0().h(px(1.0)).bg(c.rule);
         let body: AnyElement = match (follow.cwd.as_ref(), read.as_deref()) {
@@ -2094,9 +2116,9 @@ enum Glyph {
     Open,
     /// A chevron right: a file folded.
     Closed,
-    /// Two chevrons pointing in: fold everything.
+    /// Arrows from above and below meeting at a bar: fold everything.
     FoldAll,
-    /// Two pointing out: unfold everything.
+    /// Arrows leaving a bar up and down: unfold everything.
     UnfoldAll,
     /// Arrows up and down: show the lines between.
     Unfold,
@@ -2150,12 +2172,18 @@ fn glyph_paths(kind: Glyph, origin: Point<Pixels>, size: f32) -> Vec<PathBuilder
         Glyph::Open => vec![line(&[(2.5, 4.25), (6.0, 7.75), (9.5, 4.25)])],
         Glyph::Closed => vec![line(&[(4.25, 2.5), (7.75, 6.0), (4.25, 9.5)])],
         Glyph::FoldAll => vec![
-            line(&[(3.5, 2.5), (6.0, 5.0), (8.5, 2.5)]),
-            line(&[(3.5, 9.5), (6.0, 7.0), (8.5, 9.5)]),
+            line(&[(1.5, 6.0), (10.5, 6.0)]),
+            line(&[(6.0, 0.5), (6.0, 4.0)]),
+            line(&[(4.0, 2.25), (6.0, 4.25), (8.0, 2.25)]),
+            line(&[(6.0, 11.5), (6.0, 8.0)]),
+            line(&[(4.0, 9.75), (6.0, 7.75), (8.0, 9.75)]),
         ],
         Glyph::UnfoldAll => vec![
-            line(&[(3.5, 5.0), (6.0, 2.5), (8.5, 5.0)]),
-            line(&[(3.5, 7.0), (6.0, 9.5), (8.5, 7.0)]),
+            line(&[(1.5, 6.0), (10.5, 6.0)]),
+            line(&[(6.0, 4.0), (6.0, 0.75)]),
+            line(&[(4.0, 2.75), (6.0, 0.75), (8.0, 2.75)]),
+            line(&[(6.0, 8.0), (6.0, 11.25)]),
+            line(&[(4.0, 9.25), (6.0, 11.25), (8.0, 9.25)]),
         ],
         Glyph::Unfold => vec![
             line(&[(3.6, 4.2), (6.0, 1.8), (8.4, 4.2)]),
@@ -2265,6 +2293,48 @@ mod tests {
                 (Some(9), Some(9)),
             ]
         );
+    }
+
+    #[test]
+    fn side_by_side_puts_pure_additions_right_and_pure_deletions_left() {
+        let files = parse(
+            "\
+diff --git a/Cargo.toml b/Cargo.toml
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -1,2 +1,4 @@
+ [dependencies]
++similar = \"2\"
++syntect = \"5\"
+ toml = \"1\"
+diff --git a/new.rs b/new.rs
+new file mode 100644
+--- /dev/null
++++ b/new.rs
+@@ -0,0 +1,2 @@
++fn a() {}
++fn b() {}
+diff --git a/old.rs b/old.rs
+deleted file mode 100644
+--- a/old.rs
++++ /dev/null
+@@ -1,2 +0,0 @@
+-fn a() {}
+-fn b() {}
+",
+        );
+        let pairs = |f: usize| sides(&files[f].hunks[0].lines);
+        assert_eq!(
+            pairs(0),
+            [
+                (Some(0), Some(0)),
+                (None, Some(1)),
+                (None, Some(2)),
+                (Some(3), Some(3)),
+            ]
+        );
+        assert_eq!(pairs(1), [(None, Some(0)), (None, Some(1))]);
+        assert_eq!(pairs(2), [(Some(0), None), (Some(1), None)]);
     }
 
     #[test]
