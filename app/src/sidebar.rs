@@ -11,6 +11,7 @@ use crate::{
     fonts::UiFont,
     footer_icon::{self, Icon},
     git,
+    kind_icon::{self, KindIcon},
     theme::Theme,
     view::hsla,
     viewer::AgentMetadata,
@@ -61,12 +62,13 @@ const LABEL_GAP: f32 = 14.0;
 const TOOL_SHARE: f32 = 0.3;
 /// The share of a card's width a name keeps before the effort, then the tool, give way.
 const NAME_SHARE: f32 = 0.4;
-/// The marks after the name: the gap before each, the unread dot and its hover box, and the
-/// open-here icon.
+/// The marks after the name: the gap before each, the unread dot and its hover box, the
+/// open-here icon, and the kind's icon, as tall as the name's letters.
 const MARK_GAP: f32 = 5.0;
 const UNREAD: f32 = 6.0;
 const UNREAD_BOX: f32 = 10.0;
 const HERE_BOX: f32 = 12.0;
+const KIND_ICON: f32 = 13.0;
 // The type scale (DESIGN §13).
 const TITLE_SIZE: f32 = 15.0;
 const NAME_SIZE: f32 = 13.0;
@@ -732,6 +734,9 @@ impl Render for Sidebar {
                     if card.here {
                         room -= ui.scale(MARK_GAP + HERE_BOX);
                     }
+                    if let Some(icon) = kind_icon_of(card) {
+                        room -= ui.scale(MARK_GAP + KIND_ICON * icon.width);
+                    }
                     room
                 };
                 // The effort and the tool give way before the name gets short; then the name is
@@ -1108,6 +1113,11 @@ impl RenderOnce for AgentCard {
                     ui.scale(HERE_BOX / footer_icon::SIZE),
                 ))
         });
+        let kind_icon = card
+            .brand
+            .as_ref()
+            .zip(kind_icon_of(card))
+            .map(|(brand, icon)| icon.render(ui.px(KIND_ICON), fg(brand.color).opacity(0.85)));
         let name = div()
             .flex()
             .items_center()
@@ -1128,7 +1138,8 @@ impl RenderOnce for AgentCard {
                     .child(card.short.clone()),
             )
             .children(unread)
-            .children(here);
+            .children(here)
+            .children(kind_icon);
         let program = program(card).map(|(text, split, kind)| {
             let dimmer = fg(|t| t.agents_dimmer);
             let kind = kind.map_or(dimmer, |pick| fg(pick).opacity(0.85));
@@ -1428,6 +1439,13 @@ fn program(card: &Card) -> Option<(String, usize, Option<Pick>)> {
         (None, Some(effort)) => Some((effort.clone(), 0, None)),
         (None, None) => None,
     }
+}
+
+/// The icon after the name for the agent's kind; `None` without a kind or for one without an icon.
+fn kind_icon_of(card: &Card) -> Option<KindIcon> {
+    card.brand
+        .as_ref()
+        .and_then(|brand| kind_icon::of(&brand.kind))
 }
 
 /// The tool a working agent uses, then its age, `Bash · 2m`, and where the age starts.
