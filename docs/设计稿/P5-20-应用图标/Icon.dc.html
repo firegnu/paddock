@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>paddock icon</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div style="width:{{px}}px;height:{{px}}px;line-height:0">
+  <svg width="{{px}}" height="{{px}}" viewBox="0 0 1024 1024" role="img" aria-label="paddock">
+    <defs>
+      <linearGradient id="ground-{{ground}}" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="{{top}}"></stop>
+        <stop offset="1" stop-color="{{bottom}}"></stop>
+      </linearGradient>
+      <linearGradient id="sheen" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="#ffffff" stop-opacity=".07"></stop>
+        <stop offset=".35" stop-color="#ffffff" stop-opacity="0"></stop>
+      </linearGradient>
+      <filter id="halo" x="-30%" y="-30%" width="160%" height="160%">
+        <feGaussianBlur stdDeviation="26"></feGaussianBlur>
+      </filter>
+    </defs>
+
+    <!-- The macOS grid square: 824 of 1024, corners 22.5% -->
+    <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#ground-{{ground}})"></rect>
+    <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#sheen)"></rect>
+    <rect x="102" y="102" width="820" height="820" rx="183" fill="none" stroke="#ffffff" stroke-opacity=".09" stroke-width="4"></rect>
+
+    <!-- Halo under the head -->
+    <sc-if value="{{glow}}" hint-placeholder-val="{{true}}">
+      <g filter="url(#halo)" opacity=".26">
+        <g transform="translate(197 226) scale(6.3)">
+          <path fill="#ffffff" fill-rule="evenodd" d="{{head}}"></path>
+        </g>
+      </g>
+    </sc-if>
+
+    <!-- Chromatic split: magenta to the right and a touch down, cyan to the left -->
+    <sc-if value="{{split}}" hint-placeholder-val="{{true}}">
+      <g transform="translate(197 226) scale(6.3)">
+        <g transform="translate({{mx}} {{my}})"><path fill="#ff3bd4" fill-opacity=".92" fill-rule="evenodd" d="{{head}}"></path></g>
+        <g transform="translate({{cx}} 0)"><path fill="#29e6ff" fill-opacity=".92" fill-rule="evenodd" d="{{head}}"></path></g>
+      </g>
+    </sc-if>
+
+    <!-- The head: ears with rounded tips, eyes cut out -->
+    <g transform="translate(197 226) scale(6.3)">
+      <path fill="#f7f7f9" fill-rule="evenodd" d="{{head}}"></path>
+    </g>
+  </svg>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":512,"height":512},"px":{"editor":"int","default":512},"split":{"editor":"range","min":0,"max":2.5,"step":0.1,"default":1},"glow":{"editor":"boolean","default":true},"ground":{"editor":"enum","options":["black","dune"],"default":"black"}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const px = Number(this.props.px ?? 512);
+    const split = Number(this.props.split ?? 1);
+    const glowProp = this.props.glow;
+    const glow = glowProp === undefined ? true : (glowProp === true || glowProp === 'true');
+    const ground = this.props.ground || 'black';
+    const grounds = { black: ['#1c1c21', '#050506'], dune: ['#2a251f', '#12100d'] };
+    const [top, bottom] = grounds[ground] || grounds.black;
+    const head = [
+      'M20 66 L20 40 L22.8 21 Q24 13 30 18 L41 28.5 Q43 30.5 46 30.5 L54 30.5 Q57 30.5 59 28.5',
+      'L70 18 Q76 13 77.2 21 L80 40 L80 66 Q80 81 65 81 L35 81 Q20 81 20 66 Z',
+      'M33.9 56 A4.6 7 0 1 0 43.1 56 A4.6 7 0 1 0 33.9 56 Z',
+      'M56.9 56 A4.6 7 0 1 0 66.1 56 A4.6 7 0 1 0 56.9 56 Z'
+    ].join(' ');
+    return {
+      px, glow, ground, top, bottom, head,
+      split: split > 0,
+      cx: -split, mx: split, my: split * 0.35
+    };
+  }
+}
+</script>
+</body>
+</html>
