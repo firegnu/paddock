@@ -7,9 +7,9 @@
   - 迁移：M0 不再依赖 Saddle 的库，用到的代码迁入 `app/src/`（来源 Saddle `df1c727`）；M1 不再用 ratatui、crossterm。
   - 第二阶段：P2-1 至 P2-4。
   - 第三阶段这一批：P3-1 至 P3-10（设置与 About 独立窗口、关闭 shell 确认、新建/停止 agent、Attention、Go to Agent、终端查找、窗格放大、布局保存与恢复、Diagnostics）。
-  - 第四、五阶段：P4-1 至 P4-3，P5-1 至 P5-18（P5-13 只做了 P5-13a 右侧栏外壳），见下文。
+  - 第四、五阶段：P4-1 至 P4-3，P5-1 至 P5-20（P5-13 只做了 P5-13a 右侧栏外壳，P5-19 只做了 P5-19r 调研），见下文。
   - 207 项测试通过。
-- `~/Applications/paddock.app` 是合并 P5-18 之后的版本（10-06）。重新打包安装：在 `app/` 下 `cargo build --release`，再 `cargo run --release --example bundle -- --install`（编译目录见 AGENTS.md）。
+- `~/Applications/paddock.app` 是合并 P5-20 之后的版本（10-06）。重新打包安装：在 `app/` 下 `cargo build --release`，再 `cargo run --release --example bundle -- --install`（编译目录见 AGENTS.md）。
 - 远程仓库：`origin` = `github.com/firegnu/paddock`（public，10-05 建）。合并后推送；推送前查隐私（gitleaks、trufflehog）。
 - 用户 10-05 定下迁移的整体安排（DESIGN §2、§3“步骤”；原话见 `docs/背景与决策记录.md` §6g–§6j）：
   - 全局只能一份的运行时（corral、遥测、dispatch、插件协议）独立成新仓库 ranch（`../ranch`，GitHub 公开、不加许可证），paddock 主控兼管；Saddle 和 paddock 都只是前端，只调用 ranch 装好的命令。
@@ -39,6 +39,7 @@
   7. **P5-18 已完成（10-06）**：侧栏 agent 卡片改收件箱样式（头像加状态角标、两行预览、位置行、等你带 Reply、分组状态条、展开小药丸和两列小格、Instance 可复制），信息一项不少；空闲时读一次 `corral reply` 作预览。派给 Claude Code，207 项测试通过，已重新安装。截图没截成，样子待用户看。
   8. **P5-19 左侧栏毛玻璃 / 液态玻璃（10-06 定次序）**：用户看过 P5-18 后做 P5-19a 毛玻璃小试验（任务文件已记，未开始）；P5-19r 液态玻璃调研已完成（`docs/调研/P5-19-液态玻璃.md`）：能拿到原生窗口不用改 GPUI，玻璃插在后面机械上可行但偏离 Apple 推荐、效果未实测；用户 10-06 定：原生玻璃试验先不开，先做 P5-19a 毛玻璃，看过不够再说。
   9. **右侧栏 Kanban 标签（10-06 记下）**：右侧栏标签定为 Changes、Browser、Kanban；Kanban 需求待和用户聊（DESIGN §13 末条）。splash 用户说不要了。
+  10. **P5-20 应用图标已完成（10-06）**：白猫头剪影、青／品红色散、光晕、纯黑圆角方块（样稿 `docs/设计稿/P5-20-应用图标/`），派给 Claude Code，已重新安装。待用户在程序坞里看；16px 方块边缘偏软，用户觉得要改再另做。
   - 还待用户试用确认：palette 的三种模式和键盘、卡片详情不再折行、从访达拖图片到 agent 窗格。
 
 - P5-1 侧栏改版、P5-2 窗口与窗格改版并行派给两个 Claude Code，主控集成后合并，已重新安装 paddock.app（10-06）。待用户试用：拖动、双击、全屏、悬停、点击；用户定：宠物回原大小、标题栏宠物开着时 48pt（P5-5 已做）；标签 × 淡入和分屏菜单并进 P5-4；P5-1 的建议改里只补“上次输入”的时间（P5-5 已做），其余因数据拿不到或 GPUI 不支持不做。
