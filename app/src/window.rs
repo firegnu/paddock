@@ -364,20 +364,10 @@ fn bar_left(collapsed: bool, full_screen: bool, sidebar_width: f32, ui: &UiFont)
     }
 }
 
-/// Where the system's sidebar material shows: the left column from the window's top edge to its
-/// bottom, and beside the strip the rest of the title bar's left part, so the traffic lights and
-/// the expand button stand on it whole.
-#[derive(Clone, Copy, Debug, PartialEq)]
-struct Frosted {
-    column: Bounds<Pixels>,
-    /// Right of the strip along the top edge, as tall as the title bar, to the room after the
-    /// expand button; none beside the sidebar.
-    bar: Option<Bounds<Pixels>>,
-}
-
-/// Where the material shows in a window `window` big under a title bar `bar_height` tall: the
-/// column, title bar and all, as wide as the sidebar `sidebar_width`, or the strip and the title
-/// bar's left part when `collapsed`; none in full screen, where the window is opaque.
+/// Where the system's sidebar material shows in a window `window` big under a title bar
+/// `bar_height` tall: the left column as wide as the sidebar `sidebar_width`, from the top edge,
+/// title bar and all, to the bottom; collapsed, the strip from the title bar's bottom edge, the
+/// title bar's row opaque all along; none in full screen, where the window is opaque.
 fn frost_column(
     collapsed: bool,
     full_screen: bool,
@@ -385,21 +375,17 @@ fn frost_column(
     bar_height: f32,
     window: Size<Pixels>,
     ui: &UiFont,
-) -> Option<Frosted> {
-    let width = if collapsed {
-        ui.scale(sidebar::RAIL)
+) -> Option<Bounds<Pixels>> {
+    let (top, width) = if collapsed {
+        (bar_height, ui.scale(sidebar::RAIL))
     } else {
-        sidebar_width
+        (0.0, sidebar_width)
     };
-    let end = bar_left(collapsed, full_screen, sidebar_width, ui);
-    (!full_screen).then(|| Frosted {
-        column: Bounds::new(point(px(0.0), px(0.0)), size(px(width), window.height)),
-        bar: (collapsed && end > width).then(|| {
-            Bounds::new(
-                point(px(width), px(0.0)),
-                size(px(end - width), px(bar_height)),
-            )
-        }),
+    (!full_screen).then(|| {
+        Bounds::new(
+            point(px(0.0), px(top)),
+            size(px(width), window.height - px(top)),
+        )
     })
 }
 
@@ -1761,61 +1747,59 @@ impl PaddockWindow {
     }
 
     /// What lies under everything while the column shows the material: the sidebar's colour,
-    /// faintly, over the column and the title bar's row beside the strip, each once where they
-    /// meet; opaque elsewhere, as under the cards and the rest of the title bar.
-    fn frosted_ground(&self, frosted: Frosted) -> Div {
+    /// faintly, over the column, and opaque elsewhere, as under the cards and the rest of the
+    /// title bar; over the strip the title bar's whole row is opaque, one piece.
+    fn frosted_ground(&self, column: Bounds<Pixels>) -> Div {
         let ground = hsla(self.theme.bg(|t| t.agents_bg), 1.0);
-        let wash = ground.opacity(self.theme.frost().wash);
-        let piece = |bounds: Bounds<Pixels>, color: Hsla| {
-            div()
-                .absolute()
-                .left(bounds.left())
-                .top(bounds.top())
-                .w(bounds.size.width)
-                .h(bounds.size.height)
-                .bg(color)
-        };
-        let column = frosted.column;
-        let below = frosted.bar.map_or(px(0.0), |bar| bar.bottom());
         div()
             .absolute()
             .inset_0()
-            .child(piece(column, wash))
-            .children(frosted.bar.map(|bar| piece(bar, wash)))
+            .child(
+                div()
+                    .absolute()
+                    .left(column.left())
+                    .top(column.top())
+                    .w(column.size.width)
+                    .h(column.size.height)
+                    .bg(ground.opacity(self.theme.frost().wash)),
+            )
+            .when(column.top() > px(0.0), |under| {
+                under.child(
+                    div()
+                        .absolute()
+                        .left_0()
+                        .top_0()
+                        .right_0()
+                        .h(column.top())
+                        .bg(ground),
+                )
+            })
             .child(
                 div()
                     .absolute()
                     .left(column.right())
-                    .top(below)
+                    .top(column.top())
                     .right_0()
                     .bottom_0()
                     .bg(ground),
             )
-            .children(frosted.bar.map(|bar| {
-                div()
-                    .absolute()
-                    .left(bar.right())
-                    .top_0()
-                    .right_0()
-                    .h(bar.size.height)
-                    .bg(ground)
-            }))
     }
 
-    /// Puts the material under the shape GPUI is drawing now, or takes it away; what it gives up
+    /// Puts the material under the column GPUI is drawing now, or takes it away; what it gives up
     /// waits for the next frame, once this one is drawn (see [`Frost::fit`]). Its look follows the
     /// theme: dark under a dark sidebar.
-    fn fit_frost(&mut self, frosted: Option<Frosted>, window: &mut Window, cx: &mut Context<Self>) {
+    fn fit_frost(
+        &mut self,
+        column: Option<Bounds<Pixels>>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let dark = hsla(self.theme.bg(|t| t.agents_bg), 1.0).l < 0.5;
         let Some(frost) = &mut self.frost else { return };
         frost.set_dark(dark);
-        let shape = frosted.map(|frosted| {
-            let column = f32::from(frosted.column.size.width);
-            Shape {
-                column,
-                bar: frosted.bar.map_or(column, |bar| f32::from(bar.right())),
-                bar_height: frosted.bar.map_or(0.0, |bar| f32::from(bar.size.height)),
-            }
+        let shape = column.map(|column| Shape {
+            top: f32::from(column.top()),
+            width: f32::from(column.size.width),
         });
         if frost.fit(shape) {
             cx.on_next_frame(window, |this, _, _| {
@@ -3841,8 +3825,8 @@ impl Render for PaddockWindow {
             self.lights = Some(height);
             window.set_traffic_light_position(traffic_lights(height));
         }
-        // The left column, top to bottom, shows the system's sidebar material while it is there,
-        // and beside the strip the title bar's left part.
+        // The left column shows the system's sidebar material while it is there: top to bottom
+        // beside the sidebar, under the title bar beside the strip.
         let column = if self.frost.is_some() {
             frost_column(
                 self.collapsed,
@@ -4229,50 +4213,36 @@ mod tests {
     }
 
     #[test]
-    fn the_frost_is_the_column_or_an_upside_down_l_and_gone_in_full_screen() {
+    fn the_frost_is_the_column_or_the_strip_under_the_title_bar_and_gone_in_full_screen() {
         let base = UiFont::default();
         let window = size(px(1200.0), px(800.0));
-        let column = |width: f32| Bounds::new(point(px(0.0), px(0.0)), size(px(width), px(800.0)));
-        let bar = |left: f32, right: f32, height: f32| {
+        let column = |top: f32, width: f32| {
             Some(Bounds::new(
-                point(px(left), px(0.0)),
-                size(px(right - left), px(height)),
+                point(px(0.0), px(top)),
+                size(px(width), px(800.0 - top)),
             ))
         };
         // Expanded: one column, the sidebar with the title bar over it, from the window's top edge
         // to its bottom; it follows the divider.
-        let expanded = |width: f32| {
-            Some(Frosted {
-                column: column(width),
-                bar: None,
-            })
-        };
         assert_eq!(
             frost_column(false, false, 300.0, TITLE_BAR, window, &base),
-            expanded(300.0)
+            column(0.0, 300.0)
         );
         assert_eq!(
             frost_column(false, false, 412.0, PET_TITLE_BAR, window, &base),
-            expanded(412.0)
+            column(0.0, 412.0)
         );
-        // Collapsed, an upside-down L: the strip from top to bottom, whatever the sidebar's width,
-        // and right of it the title bar's row, as tall as the bar, to the room after the expand
-        // button (where the title bar's left part ends).
+        // Collapsed: the strip, whatever the sidebar's width, from the title bar's bottom edge to
+        // the window's; the title bar's row is opaque all along.
         assert_eq!(
             frost_column(true, false, 300.0, TITLE_BAR, window, &base),
-            Some(Frosted {
-                column: column(52.0),
-                bar: bar(52.0, 118.0, TITLE_BAR),
-            })
+            column(TITLE_BAR, 52.0)
         );
         assert_eq!(
             frost_column(true, false, 412.0, PET_TITLE_BAR, window, &base),
-            Some(Frosted {
-                column: column(52.0),
-                bar: bar(52.0, 118.0, PET_TITLE_BAR),
-            })
+            column(PET_TITLE_BAR, 52.0)
         );
-        // Both grow with the interface size, the row with the taller title bar.
+        // It grows with the interface size and starts under the taller title bar.
         let large = UiFont {
             family: None,
             size: 19.5,
@@ -4280,10 +4250,7 @@ mod tests {
         let tall = title_bar_height(&large, false);
         assert_eq!(
             frost_column(true, false, 300.0, tall, window, &large),
-            Some(Frosted {
-                column: column(78.0),
-                bar: bar(78.0, 134.0, tall),
-            })
+            column(tall, 78.0)
         );
         // Full screen: none, expanded or collapsed.
         assert_eq!(
