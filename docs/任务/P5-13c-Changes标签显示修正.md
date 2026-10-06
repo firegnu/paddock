@@ -72,3 +72,12 @@
 
 **主控回复后补的**
 - 主控认可第 2 条的测试没能先失败（根因是行宽，测试留着防回归），并要求加宽面板时读不到仓库（Not a git repository、没有目录可读）和 0 个文件时也藏起 Unified／Split 切换：已补，只在有文件时显示。重跑 changes 相关测试（lib 里 `changes::tests` 5 项、`tests/changes.rs` 3 项）和 clippy 均通过；加宽面板（窗口 1700、面板 720）下的 “Not a git repository” 截图看过，顶部只剩窗格名字。
+
+## 主控审查
+
+2026-10-06，paddock/main。可以合并，已合并并安装。
+- 范围符合约定：只改 `app/src/changes.rs` 和本文件。主控看了对方的修后截图（窄面板 Unified、加宽 Split）：行底色、hunk 头、文件头分隔线铺满；Split 中线笔直，纯新增在右栏、左栏留空；折叠图标不再像 ×。
+- 第 2 条的测试没能先失败：根因是行宽（行按文字宽度排，纯新增行的左半缩没了），不是配对，主控当初把原因猜错了；认可，测试留作防回归。
+- 对方问的加宽时 Unified／Split 切换：主控让它在读不到仓库和 0 个文件时也藏起来，已补提交 `b1758cf`。
+- 主控在分支上重跑：`cargo test --all-targets` 共 229 项全过，`cargo clippy --all-targets -- -D warnings` 通过。
+- 建议改（不挡合并）：`cargo fmt --check` 报 `sidebar.rs` 一处格式，是 main 上原有的（P5-22 带进来的），另行补。
