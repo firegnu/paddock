@@ -115,3 +115,11 @@
   - `footer_icon` 的 `Icon::Here` 现在没人用了（模块是 pub 的，不报警告），按任务范围没动。
   - 没改 DESIGN（§13 P5-18 已写了这个样子）；没打包、没安装、没合并、没推送。
 - **审查后补改**：主控审查后又改了三处。在此打开的小点改成空心环（同样的强调色和 5pt 大小，描边 1.5pt），和未读的实心点分开；最后一次回复只在空闲时读，等你时不读，回复测试里加了一个一直在等你的 agent，验证它从没被读过；删掉了没人用的 `footer_icon` `Icon::Here` 及其绘制分支。只跑了直接相关的三个测试，都通过；`cargo clippy --all-targets -- -D warnings` 无警告。
+
+## 主控审查
+
+- 看了 diff（`card.rs`、`sidebar.rs`、`agents.rs`、`corral.rs`、`window.rs`，补改时动了 `footer_icon.rs`）：1–10 条都有实现；「信息清单」每项有测试检查进了卡片或展开明细；读回复走公开的 `corral reply`，按“名字 + instance + 进入状态时间”只读一次，后台单线程、可取消，不阻塞界面和 `ls` 轮询；字段名 `text` 已对照真实 `corral reply` 输出核过。Reply 复用 `Attach`，窗口本来就把焦点放进窗格。
+- 重跑：`cargo test --all-targets` 207 项通过，clippy 无警告，`git diff --check` 干净。删掉的两个旧测试由新测试覆盖。
+- 取舍表态：Starting/Exited 用原 Note 作预览、MODEL 空写“—”、Last input 短格式、时长两个单位——同意。它提的三点由主控定后交回补改（`05219ce`）：在此打开的点改空心环；最后一次回复只在空闲时读（等你时显示的是问题，不读，与任务第 5 条原文不同，以此为准）；删掉没人用的 `Icon::Here`。
+- 截图没截成（同 P5-17），实际样子留给用户看。
+- 结论：合并。
