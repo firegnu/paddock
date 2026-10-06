@@ -1,6 +1,6 @@
 //! The right sidebar: pushed out from the window's right edge, narrowing the terminal rather than
 //! covering it, with two tabs, Changes and Browser, a button to widen it and one to close it. Each
-//! tab holds a quiet placeholder for now. The window draws the divider before it and lays it out;
+//! tab holds a quiet placeholder for now. The window draws the card it sits in and lays it out;
 //! the rules for its width live here, so they can be tested without a window.
 use crate::{
     fonts::UiFont,
@@ -73,7 +73,7 @@ impl Default for Saved {
 }
 
 /// The room it has, in points: the window's width, what else takes width across it (the left
-/// sidebar and the dividers), and its own least width at this interface size.
+/// sidebar and the seams around the cards), and its own least width at this interface size.
 #[derive(Clone, Copy, Debug)]
 pub struct Room {
     pub window: f32,
@@ -161,8 +161,8 @@ impl RightPanel {
         self.resizing.is_some()
     }
 
-    /// Its top row and the active tab's content. `pick` chooses a tab; `widen` and `close` are
-    /// the buttons at the right end.
+    /// Its top row and the active tab's content, on the ground of the card the window puts it in.
+    /// `pick` chooses a tab; `widen` and `close` are the buttons at the right end.
     pub fn render(
         &self,
         theme: &Theme,
@@ -284,7 +284,6 @@ impl RightPanel {
             .size_full()
             .flex()
             .flex_col()
-            .bg(hsla(theme.bg(|t| t.agents_bg), 1.0))
             .child(top)
             .child(placeholder(theme, ui, self.tab))
     }

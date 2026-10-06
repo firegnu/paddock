@@ -1,7 +1,7 @@
 //! The window's root view: the title bar, where the tabs share the traffic lights' row; below it
-//! the Agents sidebar on the left and the active tab's panes on the right, each split pane under a
-//! slim header. `layout.rs` holds the rules; this file draws them and keeps one terminal view per
-//! pane.
+//! the Agents sidebar on the left and the active tab's panes on the right, each a card, a split
+//! pane's header at its top. `layout.rs` holds the rules; this file draws them and keeps one
+//! terminal view per pane.
 use crate::{
     agents::Panel,
     attention::Kind as AttentionKind,
@@ -12,6 +12,7 @@ use crate::{
     find,
     fonts::UiFont,
     footer_icon::{self, Icon},
+    kind_icon,
     layout::{Axis, Direction, Node, PaneId, Placement, Shown, Workspace},
     layout_state::{Content, Layout, Store},
     menu,
@@ -308,22 +309,33 @@ pub const TITLE_BAR: f32 = 40.0;
 /// The title bar with the pet shown: room for it at twice its pixel size, standing on the
 /// terminal's top edge.
 pub const PET_TITLE_BAR: f32 = 48.0;
-/// The line between the sidebar and the panes, and the room on each side of it the mouse can
-/// take it by.
+/// The room between the cards, and between them and the window's right and bottom edges (and the
+/// strip); their corners' radius.
+const CARD_GAP: f32 = 8.0;
+const CARD_RADIUS: f32 = 10.0;
+/// How opaque a card's rim is, drawn in the text's colour; the active pane's among several, a
+/// step brighter.
+const RIM: f32 = 0.05;
+const RIM_ACTIVE: f32 = 0.16;
+/// The line a grip lights up under the mouse and while dragged, and the room on each side of it
+/// the mouse can take it by.
 const DIVIDER: f32 = 1.0;
 const GRIP: f32 = 3.0;
 /// What the dimmed panes are covered with: the terminal's background, this opaque.
 const DIM: f32 = 0.42;
-/// A split pane's header buttons, and the room after the last.
+/// A split pane's header, its buttons, and the room after the last.
+const PANE_HEADER: f32 = 34.0;
 const PANE_BUTTON: f32 = 28.0;
-const PANE_HEADER_END: f32 = 4.0;
+const PANE_HEADER_END: f32 = 6.0;
+/// The kind icon in a tab or a pane's header, and the status dot on its corner.
+const BADGE_ICON: f32 = 13.0;
+const BADGE_DOT: f32 = 6.0;
 /// The title bar's `+` and split icon; the search field's width, and the room between it and the
 /// split icon, besides the bar's own gap.
 const BAR_BUTTON: f32 = 28.0;
 const SEARCH: f32 = 220.0;
 const SPLIT_GAP: f32 = 4.0;
-/// How far under the line below the title bar the strip draws the Attention bell, for the list to
-/// hang from it.
+/// How far under the title bar the strip draws the Attention bell, for the list to hang from it.
 const RAIL_BELL: f32 = 10.0;
 /// The room the title bar keeps after the sidebar's header row, or after the expand button.
 const HEAD_END: f32 = 10.0;
@@ -347,6 +359,33 @@ fn bar_left(collapsed: bool, full_screen: bool, sidebar_width: f32, ui: &UiFont)
         sidebar::head_start(full_screen) + sidebar::toggle_room(ui) + HEAD_END
     } else {
         sidebar_width
+    }
+}
+
+/// Where the cards sit across the window, in points from its left edge.
+#[derive(Debug, PartialEq)]
+struct Across {
+    /// Where the panes' card starts: right against the sidebar, which keeps its own room, or a
+    /// seam after the strip.
+    panes: f32,
+    /// The middle of the seam the sidebar's grip takes; none beside the strip.
+    left_grip: Option<f32>,
+    /// The middle of the seam before the right sidebar's card, when it is open.
+    right_grip: Option<f32>,
+}
+
+/// The cards in a window `window` wide, the sidebar `sidebar` wide (the strip's width when
+/// `collapsed`), and the right sidebar `right` wide when it is open.
+fn across(window: f32, sidebar: f32, collapsed: bool, right: Option<f32>) -> Across {
+    let half = CARD_GAP / 2.0;
+    Across {
+        panes: if collapsed {
+            sidebar + CARD_GAP
+        } else {
+            sidebar
+        },
+        left_grip: (!collapsed).then_some(sidebar - half),
+        right_grip: right.map(|width| window - CARD_GAP - width - half),
     }
 }
 
@@ -702,14 +741,18 @@ impl PaddockWindow {
         let ui = UiFont::get(cx);
         Room {
             window: f32::from(window.viewport_size().width),
-            others: self.sidebar_shown(&ui) + DIVIDER + DIVIDER,
+            // Besides the cards: the sidebar (and the seam after the strip), and the seams before
+            // and after this card.
+            others: across(0.0, self.sidebar_shown(&ui), self.collapsed, None).panes
+                + CARD_GAP
+                + CARD_GAP,
             min: ui.scale(right_panel::MIN_WIDTH).max(right_panel::MIN_WIDTH),
         }
     }
 
-    /// Where the right sidebar's divider is taken by, `width` in from the window's right edge:
+    /// Where the right sidebar is taken by to resize it: the seam before its card, centred on `x`,
     /// as the left one's.
-    fn right_grip(&self, width: f32, cx: &mut Context<Self>) -> Stateful<Div> {
+    fn right_grip(&self, x: f32, cx: &mut Context<Self>) -> Stateful<Div> {
         let bright = self.fg(|t| t.agents_border);
         let bar = div()
             .absolute()
@@ -725,7 +768,7 @@ impl PaddockWindow {
             .absolute()
             .top_0()
             .bottom_0()
-            .right(px(width - GRIP))
+            .left(px(x - GRIP - DIVIDER / 2.0))
             .w(px(GRIP + DIVIDER + GRIP))
             .cursor_col_resize()
             .on_mouse_down(
@@ -757,9 +800,9 @@ impl PaddockWindow {
         }
     }
 
-    /// Where the divider is taken by: a few points either side of the line, which lights up under
-    /// the mouse and while dragged.
-    fn grip(&self, cx: &mut Context<Self>) -> Stateful<Div> {
+    /// Where the sidebar is taken by to resize it: a few points either side of a line in the seam
+    /// before the panes, centred on `x`, which lights up under the mouse and while dragged.
+    fn grip(&self, x: f32, cx: &mut Context<Self>) -> Stateful<Div> {
         let bright = self.fg(|t| t.agents_border);
         let bar = div()
             .absolute()
@@ -775,7 +818,7 @@ impl PaddockWindow {
             .absolute()
             .top_0()
             .bottom_0()
-            .left(px(self.sidebar_width - GRIP))
+            .left(px(x - GRIP - DIVIDER / 2.0))
             .w(px(GRIP + DIVIDER + GRIP))
             .cursor_col_resize()
             .on_mouse_down(
@@ -1549,13 +1592,88 @@ impl PaddockWindow {
         self.fg(dot(self.workspace.shown(pane), agents, now))
     }
 
+    /// A pane's mark in its tab and its header: the icon of an agent's kind, or a terminal for a
+    /// shell, with the status dot on its lower right corner, ringed in `ground` (`hovered` while
+    /// the group is hovered) to stand off the icon; the dot alone where there is no icon.
+    fn badge(
+        &self,
+        pane: PaneId,
+        agents: &[Agent],
+        now: f64,
+        ground: Hsla,
+        hovered: Option<(SharedString, Hsla)>,
+        ui: &UiFont,
+    ) -> AnyElement {
+        let dot = self.dot(pane, agents, now);
+        let icon = match self.workspace.shown(pane) {
+            Shown::Agent(name) => agents
+                .iter()
+                .find(|a| &a.name == name)
+                .and_then(|a| a.kind.as_deref())
+                .and_then(|kind| Some((kind_icon::of(kind)?, card::brand(kind).color)))
+                .map(|(icon, color)| {
+                    icon.render(ui.px(BADGE_ICON), self.fg(color).opacity(0.85))
+                        .into_any_element()
+                }),
+            Shown::Shell => Some(
+                footer_icon::icon(
+                    Icon::NewShell,
+                    self.fg(|t| t.muted),
+                    ui.scale(BADGE_ICON / footer_icon::SIZE),
+                )
+                .into_any_element(),
+            ),
+            Shown::Empty => None,
+        };
+        let Some(icon) = icon else {
+            return div()
+                .flex_shrink_0()
+                .size(ui.px(7.0))
+                .rounded_full()
+                .bg(dot)
+                .into_any_element();
+        };
+        let ring = 2.0;
+        let mark = div()
+            .absolute()
+            .right(px(-(ui.scale(2.0) + ring)))
+            .bottom(px(-(ui.scale(1.0) + ring)))
+            .size(px(ui.scale(BADGE_DOT) + 2.0 * ring))
+            .rounded_full()
+            .border_2()
+            .border_color(ground)
+            .bg(dot);
+        let mark = match hovered {
+            Some((group, color)) => mark.group_hover(group, move |style| style.border_color(color)),
+            None => mark,
+        };
+        div()
+            .relative()
+            .flex_shrink_0()
+            .flex()
+            .items_center()
+            .justify_center()
+            .size(ui.px(BADGE_ICON + 2.0))
+            .child(icon)
+            .child(mark)
+            .into_any_element()
+    }
+
     fn fg(&self, pick: Pick) -> Hsla {
         hsla(self.theme.fg(pick), 1.0)
     }
 
-    /// The dividers' lines, and the one under the title bar.
-    fn rule(&self) -> Hsla {
-        self.fg(|t| t.agents_rule).opacity(0.7)
+    /// A card on the frame: the terminal's ground, rounded, with a faint rim, a step brighter for
+    /// the active pane among several.
+    fn card(&self, bright: bool) -> Div {
+        div()
+            .rounded(px(CARD_RADIUS))
+            .bg(hsla(self.theme.terminal().background, 1.0))
+            .border_1()
+            .border_color(
+                self.fg(|t| t.agents_text)
+                    .opacity(if bright { RIM_ACTIVE } else { RIM }),
+            )
     }
 
     fn highlight(&self) -> Hsla {
@@ -1577,7 +1695,8 @@ impl PaddockWindow {
         let scale = ui.scale(1.0);
         let highlight = self.highlight();
         // A hovered tab's faint ground, solid, so the × drawn over its title can hide the text.
-        let hovered = hsla(self.theme.bg(|t| t.agents_bg), 1.0).blend(highlight.opacity(0.6));
+        let ground = hsla(self.theme.bg(|t| t.agents_bg), 1.0);
+        let hovered = ground.blend(highlight.opacity(0.6));
         let muted = self.theme.fg(|t| t.muted);
         let open = self.workspace.agents();
         let shown_at = Instant::now();
@@ -1624,13 +1743,14 @@ impl PaddockWindow {
                 }));
             let mut item = div()
                 .id(("tab", index))
+                .group(SharedString::from(format!("tab-{index}")))
                 .relative()
                 .max_w(ui.px(220.0))
                 .flex()
                 .items_center()
                 .gap(ui.px(7.0))
                 .h(ui.px(28.0))
-                .pl(ui.px(11.0))
+                .pl(ui.px(9.0))
                 .rounded(px(7.0))
                 .text_size(ui.px(12.5))
                 .cursor_pointer()
@@ -1638,13 +1758,12 @@ impl PaddockWindow {
                 .on_hover(cx.listener(move |this, hovered: &bool, _, cx| {
                     this.hover_tab(index, *hovered, cx)
                 }))
-                .child(
-                    div()
-                        .flex_shrink_0()
-                        .size(ui.px(7.0))
-                        .rounded_full()
-                        .bg(self.dot(tab.active, agents, now)),
-                )
+                .child(if active {
+                    self.badge(tab.active, agents, now, highlight, None, &ui)
+                } else {
+                    let group = SharedString::from(format!("tab-{index}"));
+                    self.badge(tab.active, agents, now, ground, Some((group, hovered)), &ui)
+                })
                 .child(
                     div()
                         .flex_shrink(1.0)
@@ -1753,17 +1872,6 @@ impl PaddockWindow {
                 }
             }))
             .child(left)
-            // The divider's line goes on up to the window's top; over the strip it would cross
-            // the traffic lights.
-            .when(!self.collapsed, |bar| {
-                bar.child(
-                    div()
-                        .flex_shrink_0()
-                        .w(px(DIVIDER))
-                        .h_full()
-                        .bg(self.rule()),
-                )
-            })
             .child(
                 div()
                     .flex_1()
@@ -1956,14 +2064,13 @@ impl PaddockWindow {
                 first,
                 second,
             } => {
-                // The seam between the panes: the split's own colour, one pixel through the gap.
+                // Each pane its own card, a seam of the frame between.
                 let split = div()
                     .flex()
                     .flex_1()
                     .min_w(px(0.0))
                     .min_h(px(0.0))
-                    .gap(px(1.0))
-                    .bg(self.fg(|t| t.agents_rule));
+                    .gap(px(CARD_GAP));
                 let split = match axis {
                     Axis::Row => split.flex_row(),
                     Axis::Column => split.flex_col(),
@@ -1986,9 +2093,15 @@ impl PaddockWindow {
         let active = pane == self.workspace.active_pane();
         let header = header_shown(self.workspace.tab().panes().len());
         let background = hsla(self.theme.terminal().background, 1.0);
-        // Around the terminal: roomier alone, tighter under a header (the view adds 6 itself).
-        let (top, side) = if header { (6.0, 10.0) } else { (8.0, 12.0) };
-        div()
+        let dim = dimmed(shown, active);
+        // Around the terminal, keeping it well off the card's corners (the view adds 6 itself):
+        // roomier alone, tighter under a header, whose own height leaves room above.
+        let (top, bottom, side) = if header {
+            (0.0, 6.0, 10.0)
+        } else {
+            (8.0, 8.0, 12.0)
+        };
+        self.card(shown > 1 && active)
             .id(("pane", pane as usize))
             .group(SharedString::from(format!("pane-{pane}")))
             .relative()
@@ -1998,7 +2111,6 @@ impl PaddockWindow {
             .min_w(px(0.0))
             .min_h(px(0.0))
             .overflow_hidden()
-            .bg(background)
             .capture_any_mouse_down(
                 cx.listener(move |this, _, window, cx| this.focus_pane(pane, window, cx)),
             )
@@ -2015,20 +2127,28 @@ impl PaddockWindow {
                     .min_h(px(0.0))
                     .overflow_hidden()
                     .pt(px(top))
-                    .pb(px(top))
+                    .pb(px(bottom))
                     .px(px(side))
                     .child(self.panes[&pane].clone()),
             )
             .child(self.spot(Spot::Pane(pane)))
-            // A veil rather than a frame: it takes no clicks, so they reach the terminal.
-            .when(dimmed(shown, active), |this| {
-                this.child(div().absolute().inset_0().bg(background.opacity(DIM)))
+            // A veil rather than a frame, rounded as the card: it takes no clicks, so they reach the
+            // terminal.
+            .when(dim, |this| {
+                this.child(
+                    div()
+                        .absolute()
+                        .inset_0()
+                        .rounded(px(CARD_RADIUS))
+                        .bg(background.opacity(DIM)),
+                )
             })
             .into_any_element()
     }
 
-    /// A split pane's slim header: status dot, name, short directory, and icons to split, zoom
-    /// and close, always there on the active pane and on hover on the others.
+    /// A split pane's header, at the top of its card: kind icon with the status dot, name, short
+    /// directory, and icons to split, zoom and close, always there on the active pane and on hover
+    /// on the others.
     fn pane_header(
         &self,
         pane: PaneId,
@@ -2123,19 +2243,18 @@ impl PaddockWindow {
             .flex()
             .items_center()
             .gap(ui.px(8.0))
-            .h(ui.px(28.0))
+            .h(ui.px(PANE_HEADER))
             .pl(ui.px(14.0))
-            .pr(ui.px(4.0))
+            .pr(ui.px(PANE_HEADER_END))
             .text_size(ui.px(12.0))
-            .border_b_1()
-            .border_color(hsla(self.theme.fg(|t| t.agents_rule), 0.6))
-            .child(
-                div()
-                    .flex_shrink_0()
-                    .size(ui.px(7.0))
-                    .rounded_full()
-                    .bg(self.dot(pane, agents, now)),
-            )
+            .child(self.badge(
+                pane,
+                agents,
+                now,
+                hsla(self.theme.terminal().background, 1.0),
+                None,
+                &ui,
+            ))
             .child(
                 div()
                     .flex_shrink(1.0)
@@ -3126,7 +3245,7 @@ impl PaddockWindow {
         let ui = UiFont::get(cx);
         let s = ui.scale(1.0);
         let title = title_bar_height(&ui, self.pet.is_some());
-        let side = self.sidebar_shown(&ui) + DIVIDER;
+        let side = self.sidebar_shown(&ui);
         let viewport = window.viewport_size();
         let rect = |x: f32, y: f32, w: f32, h: f32| Bounds {
             origin: point(px(x), px(y)),
@@ -3151,12 +3270,13 @@ impl PaddockWindow {
                         rect(side, title, width, f32::from(viewport.height) - title)
                     });
                 let (right, top) = (f32::from(pane.right()), f32::from(pane.top()));
-                // The header's split button, first of its three at its right end.
+                // The header's split button, first of its three at its right end, centred on the
+                // header's height.
                 let button = PANE_BUTTON * s;
                 (
                     rect(
                         right - PANE_HEADER_END * s - 3.0 * button,
-                        top,
+                        top + (PANE_HEADER - PANE_BUTTON) * s / 2.0,
                         button,
                         button,
                     ),
@@ -3175,7 +3295,7 @@ impl PaddockWindow {
             _ => {
                 if self.collapsed {
                     (
-                        rect(0.0, title + DIVIDER + RAIL_BELL * s, side, 30.0 * s),
+                        rect(0.0, title + RAIL_BELL * s, side, 30.0 * s),
                         Hang::Beside,
                     )
                 } else {
@@ -3585,37 +3705,30 @@ impl Render for PaddockWindow {
         };
         let agents = self.sidebar.read(cx).agents();
         let now = now();
-        let content = div()
+        // The cards stand on the frame, their tops on the title bar's bottom edge, where the pet
+        // walks; seams between them and along the right and bottom edges, and after the strip.
+        let mut cards = div()
             .flex_1()
             .min_w(px(0.0))
             .h_full()
             .flex()
-            .bg(hsla(self.theme.terminal().background, 1.0))
+            .gap(px(CARD_GAP))
+            .pr(px(CARD_GAP))
+            .pb(px(CARD_GAP))
+            .when(self.collapsed, |cards| cards.pl(px(CARD_GAP)))
             .child(self.node(&root, shown, &agents, cx));
-        let rule = self.rule();
-        // Under the title bar, where the pet stands: from the divider to the right edge, or right
-        // across over the strip.
-        let line = div()
-            .flex_shrink_0()
-            .h(px(DIVIDER))
-            .flex()
-            .when(!self.collapsed, |line| {
-                line.child(div().flex_shrink_0().w(px(self.sidebar_width)))
-            })
-            .child(div().flex_1().bg(rule));
-        let body = div()
-            .relative()
-            .flex_1()
-            .min_h(px(0.0))
-            .flex()
-            .flex_row()
-            .child(self.sidebar.clone())
-            .child(div().flex_shrink_0().w(px(DIVIDER)).h_full().bg(rule))
-            .child(content)
-            .when(!self.collapsed, |body| body.child(self.grip(cx)));
-        // The right sidebar, pushed out from the right edge: the terminal narrows for it.
-        let body = if self.right.open {
-            let width = self.right.shown(self.right_room(window, cx));
+        let right = self
+            .right
+            .open
+            .then(|| self.right.shown(self.right_room(window, cx)));
+        let seams = across(
+            f32::from(window.viewport_size().width),
+            self.sidebar_shown(&ui),
+            self.collapsed,
+            right,
+        );
+        // The right sidebar, a card pushed out from the right edge: the terminal narrows for it.
+        if let Some(width) = right {
             let panel = self.right.render(
                 &self.theme,
                 &ui,
@@ -3630,12 +3743,25 @@ impl Render for PaddockWindow {
                 }),
                 cx.listener(|this, _: &ClickEvent, _, cx| this.toggle_right(cx)),
             );
-            body.child(div().flex_shrink_0().w(px(DIVIDER)).h_full().bg(rule))
-                .child(div().flex_shrink_0().w(px(width)).h_full().child(panel))
-                .child(self.right_grip(width, cx))
-        } else {
-            body
-        };
+            cards = cards.child(
+                self.card(false)
+                    .flex_shrink_0()
+                    .w(px(width))
+                    .h_full()
+                    .overflow_hidden()
+                    .child(panel),
+            );
+        }
+        let body = div()
+            .relative()
+            .flex_1()
+            .min_h(px(0.0))
+            .flex()
+            .flex_row()
+            .child(self.sidebar.clone())
+            .child(cards)
+            .children(seams.left_grip.map(|x| self.grip(x, cx)))
+            .children(seams.right_grip.map(|x| self.right_grip(x, cx)));
         let dialog = match self.popup {
             Some(Popup::Actions) => Some(self.actions_menu(cx)),
             Some(Popup::Attention) => Some(self.attention_panel(window, cx)),
@@ -3762,7 +3888,6 @@ impl Render for PaddockWindow {
                 cx.listener(|this, _: &menu::Cancel, window, cx| this.close_popup(window, cx)),
             )
             .child(self.title_bar(&agents, now, window.is_fullscreen(), cx))
-            .child(line)
             .child(body)
             .children(dialog)
             // While a divider is dragged the cursor keeps its shape, and nothing under it
@@ -3936,6 +4061,37 @@ mod tests {
         };
         assert_eq!(bar_left(true, false, 300.0, &large), 76.0 + 48.0 + 10.0);
         assert_eq!(bar_left(true, true, 300.0, &large), 12.0 + 48.0 + 10.0);
+    }
+
+    #[test]
+    fn the_cards_sit_against_the_sidebar_or_a_seam_in_and_the_grips_take_the_seams() {
+        // Expanded: the panes' card starts at the sidebar, which keeps its own room; the grips
+        // take the middle of the seam before each card.
+        assert_eq!(
+            across(1200.0, 300.0, false, Some(400.0)),
+            Across {
+                panes: 300.0,
+                left_grip: Some(296.0),
+                right_grip: Some(788.0),
+            }
+        );
+        assert_eq!(
+            across(1200.0, 300.0, false, None),
+            Across {
+                panes: 300.0,
+                left_grip: Some(296.0),
+                right_grip: None,
+            }
+        );
+        // Beside the strip: a seam before the card too, and no grip there.
+        assert_eq!(
+            across(1200.0, 52.0, true, Some(400.0)),
+            Across {
+                panes: 60.0,
+                left_grip: None,
+                right_grip: Some(788.0),
+            }
+        );
     }
 
     #[test]
