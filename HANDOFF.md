@@ -11,7 +11,6 @@
   - 203 项测试通过。
 - `~/Applications/paddock.app` 是合并 P5-15 之后的版本（10-06）。重新打包安装：在 `app/` 下 `cargo build --release`，再 `cargo run --release --example bundle -- --install`（编译目录见 AGENTS.md）。
 - 远程仓库：`origin` = `github.com/firegnu/paddock`（public，10-05 建）。合并后推送；推送前查隐私（gitleaks、trufflehog）。
-- 主控 `paddock/main` 自己实现，不再委派（AGENTS.md「开发方式」）。
 - 用户 10-05 定下迁移的整体安排（DESIGN §2、§3“步骤”；原话见 `docs/背景与决策记录.md` §6g–§6j）：
   - 全局只能一份的运行时（corral、遥测、dispatch、插件协议）独立成新仓库 ranch（`../ranch`，GitHub 公开、不加许可证），paddock 主控兼管；Saddle 和 paddock 都只是前端，只调用 ranch 装好的命令。
   - 要有插件系统；插件界面走“乙”（插件描述界面，paddock 用 GPUI 原生画）；paddock 不依赖 ratatui（含插件 SDK）。
