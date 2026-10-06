@@ -5,8 +5,12 @@ use gpui::{Bounds, Hsla, IntoElement, PathBuilder, Pixels, Point, Styled, canvas
 /// The icons' square, in points, at the base interface size.
 pub const SIZE: f32 = 14.0;
 const LINE: f32 = 1.25;
+/// `Copied`'s heavier line.
+const COPIED_LINE: f32 = 1.4;
+/// Where the bell hangs from: it swings about this point.
+const BELL_PIVOT: (f32, f32) = (7.0, 1.8);
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Icon {
     /// An up and a down arrow side by side.
     Sort,
@@ -48,6 +52,8 @@ pub enum Icon {
     Gear,
     /// A tick: a menu item that is on.
     Check,
+    /// A bolder tick: a card's Copy once it has copied.
+    Copied,
     /// A panel with a narrow column of lines on its left: collapse the sidebar. The mirror of
     /// `RightSidebar`.
     LeftSidebar,
@@ -59,12 +65,40 @@ pub enum Icon {
     Browser,
 }
 
+/// How far an icon's parts are from where they rest, for its hover motion (`motion.rs`), in the
+/// icon's own points.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Pose {
+    Rest,
+    /// `Bell`: the body and the clapper turned clockwise about the top, in degrees.
+    Swing {
+        body: f32,
+        clapper: f32,
+    },
+    /// `Copy`: the front square moved up and to the left by this much.
+    Nudge(f32),
+    /// `StopAgent`: the square scaled about the centre, its corners this round before scaling.
+    Press {
+        scale: f32,
+        radius: f32,
+    },
+    /// `Actions`: each knob moved right (left when negative) along its rail, top to bottom.
+    Slide([f32; 3]),
+    /// `Copied`: the tick scaled about the centre.
+    Grow(f32),
+}
+
 /// `icon` in `color`, `SIZE` points square times `scale` (the interface size over the base).
 pub fn icon(icon: Icon, color: Hsla, scale: f32) -> impl IntoElement {
+    posed(icon, Pose::Rest, color, scale)
+}
+
+/// `icon` as [`icon`] draws it, its parts moved as `pose` says.
+pub fn posed(icon: Icon, pose: Pose, color: Hsla, scale: f32) -> impl IntoElement {
     canvas(
         |_, _, _| {},
         move |bounds, _, window, _| {
-            for path in shapes(icon, bounds, scale) {
+            for path in shapes(icon, pose, bounds, scale) {
                 if let Ok(path) = path.build() {
                     window.paint_path(path, color);
                 }
@@ -75,9 +109,9 @@ pub fn icon(icon: Icon, color: Hsla, scale: f32) -> impl IntoElement {
     .size(px(SIZE * scale))
 }
 
-/// The paths for `icon`, laid out in `bounds`; coordinates are drawn for `SIZE` and multiplied by
-/// `scale`.
-fn shapes(icon: Icon, bounds: Bounds<Pixels>, scale: f32) -> Vec<PathBuilder> {
+/// The paths for `icon` in `pose`, laid out in `bounds`; coordinates are drawn for `SIZE` and
+/// multiplied by `scale`.
+fn shapes(icon: Icon, pose: Pose, bounds: Bounds<Pixels>, scale: f32) -> Vec<PathBuilder> {
     let at =
         |x: f32, y: f32| -> Point<Pixels> { bounds.origin + point(px(x * scale), px(y * scale)) };
     let stroke = || PathBuilder::stroke(px(LINE * scale));
@@ -136,13 +170,28 @@ fn shapes(icon: Icon, bounds: Bounds<Pixels>, scale: f32) -> Vec<PathBuilder> {
             vec![square]
         }
         Icon::StopAgent => {
+            let (size, radius) = match pose {
+                Pose::Press { scale, radius } => (scale, radius),
+                _ => (1.0, 2.5),
+            };
+            let (min, max) = (7.0 - 5.25 * size, 7.0 + 5.25 * size);
             let mut square = PathBuilder::fill();
-            rounded_rect(&mut square, at(1.75, 1.75), at(12.25, 12.25), 2.5 * scale);
+            rounded_rect(
+                &mut square,
+                at(min, min),
+                at(max, max),
+                radius * size * scale,
+            );
             vec![square]
         }
         Icon::Copy => {
+            let nudge = match pose {
+                Pose::Nudge(by) => by,
+                _ => 0.0,
+            };
+            let (min, max) = (4.75 - nudge, 12.5 - nudge);
             let mut front = stroke();
-            rounded_rect(&mut front, at(4.75, 4.75), at(12.5, 12.5), 1.75 * scale);
+            rounded_rect(&mut front, at(min, min), at(max, max), 1.75 * scale);
             // Only the back one's top and left show, round its corner.
             let mut back = stroke();
             let r = px(1.75 * scale);
@@ -221,6 +270,20 @@ fn shapes(icon: Icon, bounds: Bounds<Pixels>, scale: f32) -> Vec<PathBuilder> {
             vec![arrows]
         }
         Icon::Bell => {
+            let (body, clapper_turn) = match pose {
+                Pose::Swing { body, clapper } => (body, clapper),
+                _ => (0.0, 0.0),
+            };
+            // A point turned clockwise by `degrees` about the top, where the bell hangs.
+            let turned = |degrees: f32, x: f32, y: f32| {
+                let (sin, cos) = degrees.to_radians().sin_cos();
+                let (dx, dy) = (x - BELL_PIVOT.0, y - BELL_PIVOT.1);
+                at(
+                    BELL_PIVOT.0 + dx * cos - dy * sin,
+                    BELL_PIVOT.1 + dx * sin + dy * cos,
+                )
+            };
+            let at = |x, y| turned(body, x, y);
             let mut bell = stroke();
             let r = px(3.5 * scale);
             bell.move_to(at(3.5, 9.0));
@@ -231,8 +294,8 @@ fn shapes(icon: Icon, bounds: Bounds<Pixels>, scale: f32) -> Vec<PathBuilder> {
             bell.line_to(at(2.25, 10.25));
             bell.close();
             let mut clapper = stroke();
-            clapper.move_to(at(5.75, 12.0));
-            clapper.line_to(at(8.25, 12.0));
+            clapper.move_to(turned(clapper_turn, 5.75, 12.0));
+            clapper.line_to(turned(clapper_turn, 8.25, 12.0));
             vec![bell, clapper]
         }
         Icon::Search => {
@@ -267,8 +330,14 @@ fn shapes(icon: Icon, bounds: Bounds<Pixels>, scale: f32) -> Vec<PathBuilder> {
             vec![chevron]
         }
         Icon::Actions => {
+            let slide = match pose {
+                Pose::Slide(by) => by,
+                _ => [0.0; 3],
+            };
             let mut paths = Vec::new();
-            for (y, knob) in [(3.5, 4.5), (7.0, 9.5), (10.5, 6.0)] {
+            // The rail breaks wherever its knob is, so the knob always covers it.
+            for ((y, knob), by) in [(3.5, 4.5), (7.0, 9.5), (10.5, 6.0)].into_iter().zip(slide) {
+                let knob = knob + by;
                 let mut rail = stroke();
                 rail.move_to(at(1.5, y));
                 rail.line_to(at(knob - 1.5, y));
@@ -304,6 +373,18 @@ fn shapes(icon: Icon, bounds: Bounds<Pixels>, scale: f32) -> Vec<PathBuilder> {
             tick.move_to(at(3.0, 7.5));
             tick.line_to(at(5.75, 10.25));
             tick.line_to(at(11.0, 4.0));
+            vec![tick]
+        }
+        Icon::Copied => {
+            let grow = match pose {
+                Pose::Grow(by) => by,
+                _ => 1.0,
+            };
+            let at = |x: f32, y: f32| at(7.0 + (x - 7.0) * grow, 7.0 + (y - 7.0) * grow);
+            let mut tick = PathBuilder::stroke(px(COPIED_LINE * grow * scale));
+            tick.move_to(at(3.0, 7.4));
+            tick.line_to(at(5.6, 10.0));
+            tick.line_to(at(11.0, 4.4));
             vec![tick]
         }
         Icon::LeftSidebar | Icon::RightSidebar => {

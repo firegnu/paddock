@@ -12,8 +12,9 @@ use crate::{
     card::{self, Card, Click, Ink, Line, Pick, Preview, Tone},
     corral::{Agent, Client, Poller, Replies, Role},
     fonts::UiFont,
-    footer_icon::{self, Icon},
+    footer_icon::{self, Icon, Pose},
     git, kind_icon,
+    motion::{self, Hover, HoverMotion},
     theme::Theme,
     view::hsla,
     viewer::AgentMetadata,
@@ -556,41 +557,44 @@ impl Sidebar {
                 }),
         )
         .child(div().flex_1())
-        .child(bell.on_mouse_down(MouseButton::Left, keep))
+        .child(bell.map(move |bell| bell.on_mouse_down(MouseButton::Left, keep)))
     }
 
     /// The header's bell, always there so the Attention list has a way in: how many rows the list
     /// has, in amber when an agent needs a person, in the accent for new replies only, quiet and
     /// without a number when there is nothing. A click opens the Attention list.
-    fn badge(&self, spot: AnyElement, cx: &mut Context<Self>) -> gpui::Stateful<Div> {
+    fn badge(&self, spot: AnyElement, cx: &mut Context<Self>) -> HoverMotion {
         let (count, color) = self.bell();
         let ui = UiFont::get(cx);
-        let mut pill = div()
-            .flex()
-            .items_center()
-            .gap(ui.px(5.0))
-            .h(ui.px(24.0))
-            .px(ui.px(8.0))
-            .rounded(ui.px(12.0))
-            .text_color(color)
-            .text_size(ui.px(NOTE_SIZE))
-            .font_weight(FontWeight::SEMIBOLD)
-            .child(footer_icon::icon(Icon::Bell, color, ui.scale(1.0)));
-        if count > 0 {
-            pill = pill.bg(color.opacity(0.15)).child(count.to_string());
-        }
-        div()
-            .id("attention")
-            .relative()
-            .flex_shrink_0()
-            .h(ui.px(28.0))
-            .flex()
-            .items_center()
-            .cursor_pointer()
-            .hover(move |style| style.opacity(0.85))
-            .child(pill)
-            .child(spot)
-            .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(SidebarEvent::Attention)))
+        let on_click = cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(SidebarEvent::Attention));
+        motion::hover_motion("attention-motion", motion::RING, move |hover| {
+            let mut pill = div()
+                .flex()
+                .items_center()
+                .gap(ui.px(5.0))
+                .h(ui.px(24.0))
+                .px(ui.px(8.0))
+                .rounded(ui.px(12.0))
+                .text_color(color)
+                .text_size(ui.px(NOTE_SIZE))
+                .font_weight(FontWeight::SEMIBOLD)
+                .child(bell_icon(&ui, color, hover));
+            if count > 0 {
+                pill = pill.bg(color.opacity(0.15)).child(count.to_string());
+            }
+            div()
+                .id("attention")
+                .relative()
+                .flex_shrink_0()
+                .h(ui.px(28.0))
+                .flex()
+                .items_center()
+                .cursor_pointer()
+                .hover(move |style| style.opacity(0.85))
+                .child(pill)
+                .child(spot)
+                .on_click(on_click)
+        })
     }
 
     /// How many rows the Attention list has, and the bell's colour for them.
@@ -609,37 +613,40 @@ impl Sidebar {
 
     /// The strip's bell: the icon, and when the Attention list has rows, their count beside it in
     /// a small pill tinted in the bell's colour, never over the icon.
-    fn rail_bell(&self, cx: &mut Context<Self>) -> gpui::Stateful<Div> {
+    fn rail_bell(&self, cx: &mut Context<Self>) -> HoverMotion {
         let (count, color) = self.bell();
         let ui = UiFont::get(cx);
         let selected = self.grounds().selected;
-        div()
-            .id("attention")
-            .flex_shrink_0()
-            .h(ui.px(RAIL_BELL))
-            .min_w(ui.px(RAIL_BELL))
-            .px(ui.px(RAIL_BELL_X))
-            .flex()
-            .items_center()
-            .justify_center()
-            .gap(ui.px(RAIL_BELL_GAP))
-            .rounded(ui.px(8.0))
-            .cursor_pointer()
-            .text_color(color)
-            .text_size(ui.px(NOTE_SIZE))
-            .font_weight(FontWeight::BOLD)
-            .font_features(tabular())
-            .child(footer_icon::icon(Icon::Bell, color, ui.scale(1.0)))
-            .map(|bell| {
-                if count > 0 {
-                    bell.bg(color.opacity(0.14))
-                        .hover(move |style| style.bg(color.opacity(0.22)))
-                        .child(count.to_string())
-                } else {
-                    bell.hover(move |style| style.bg(selected))
-                }
-            })
-            .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(SidebarEvent::Attention)))
+        let on_click = cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(SidebarEvent::Attention));
+        motion::hover_motion("attention-motion", motion::RING, move |hover| {
+            div()
+                .id("attention")
+                .flex_shrink_0()
+                .h(ui.px(RAIL_BELL))
+                .min_w(ui.px(RAIL_BELL))
+                .px(ui.px(RAIL_BELL_X))
+                .flex()
+                .items_center()
+                .justify_center()
+                .gap(ui.px(RAIL_BELL_GAP))
+                .rounded(ui.px(8.0))
+                .cursor_pointer()
+                .text_color(color)
+                .text_size(ui.px(NOTE_SIZE))
+                .font_weight(FontWeight::BOLD)
+                .font_features(tabular())
+                .child(bell_icon(&ui, color, hover))
+                .map(|bell| {
+                    if count > 0 {
+                        bell.bg(color.opacity(0.14))
+                            .hover(move |style| style.bg(color.opacity(0.22)))
+                            .child(count.to_string())
+                    } else {
+                        bell.hover(move |style| style.bg(selected))
+                    }
+                })
+                .on_click(on_click)
+        })
     }
 
     /// The bell as an icon with the count in a small disc on its corner, `(width, height)` in
@@ -649,61 +656,71 @@ impl Sidebar {
         (width, height): (f32, f32),
         spot: Option<AnyElement>,
         cx: &mut Context<Self>,
-    ) -> gpui::Stateful<Div> {
+    ) -> HoverMotion {
         let (count, color) = self.bell();
         let ui = UiFont::get(cx);
         let ground = hsla(self.theme.bg(|t| t.agents_bg), 1.0);
         let selected = self.grounds().selected;
-        div()
-            .id("attention")
-            .relative()
-            .flex_shrink_0()
-            .w(ui.px(width))
-            .h(ui.px(height))
-            .flex()
-            .items_center()
-            .justify_center()
-            .rounded(ui.px(7.0))
-            .cursor_pointer()
-            .hover(move |style| style.bg(selected))
-            .child(footer_icon::icon(Icon::Bell, color, ui.scale(1.0)))
-            .when(count > 0, |bell| {
-                bell.child(
-                    div()
-                        .absolute()
-                        .top(ui.px(3.0))
-                        .right(ui.px(3.0))
-                        .min_w(ui.px(13.0))
-                        .h(ui.px(13.0))
-                        .px(ui.px(3.0))
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .rounded_full()
-                        .bg(color)
-                        .text_color(ground)
-                        .text_size(ui.px(BADGE_SIZE))
-                        .font_weight(FontWeight::BOLD)
-                        .child(count.to_string()),
-                )
-            })
-            .children(spot)
-            .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(SidebarEvent::Attention)))
+        let on_click = cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(SidebarEvent::Attention));
+        motion::hover_motion("attention-motion", motion::RING, move |hover| {
+            div()
+                .id("attention")
+                .relative()
+                .flex_shrink_0()
+                .w(ui.px(width))
+                .h(ui.px(height))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(ui.px(7.0))
+                .cursor_pointer()
+                .hover(move |style| style.bg(selected))
+                .child(bell_icon(&ui, color, hover))
+                .when(count > 0, |bell| {
+                    bell.child(
+                        div()
+                            .absolute()
+                            .top(ui.px(3.0))
+                            .right(ui.px(3.0))
+                            .min_w(ui.px(13.0))
+                            .h(ui.px(13.0))
+                            .px(ui.px(3.0))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .rounded_full()
+                            .bg(color)
+                            .text_color(ground)
+                            .text_size(ui.px(BADGE_SIZE))
+                            .font_weight(FontWeight::BOLD)
+                            .child(count.to_string()),
+                    )
+                })
+                .children(spot)
+                .on_click(on_click)
+        })
     }
 
-    /// The footer's button for the menu of actions, lit while the menu is open.
-    fn actions_button(&self, cx: &mut Context<Self>) -> gpui::Stateful<Div> {
+    /// The footer's button for the menu of actions, lit while the menu is open; its knobs slide
+    /// as the pointer comes in.
+    fn actions_button(&self, cx: &mut Context<Self>) -> HoverMotion {
         let ui = UiFont::get(cx);
-        button(
-            (&self.theme, self.grounds().selected, |t| t.agents_dim),
-            &ui,
-            "actions",
-            (Icon::Actions, BUTTON_ICON),
-            "Agent actions and settings",
-            (BUTTON, BUTTON, 8.0),
-            self.menu_open,
-        )
-        .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(SidebarEvent::Actions)))
+        let theme = self.theme.clone();
+        let selected = self.grounds().selected;
+        let lit = self.menu_open;
+        let on_click = cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(SidebarEvent::Actions));
+        motion::hover_motion("actions-motion", motion::SLIDE, move |hover| {
+            button(
+                (&theme, selected, |t| t.agents_dim),
+                &ui,
+                "actions",
+                (Icon::Actions, motion::slide(hover.play), BUTTON_ICON),
+                "Agent actions and settings",
+                (BUTTON, BUTTON, 8.0),
+                lit,
+            )
+            .on_click(on_click)
+        })
     }
 
     /// The button that collapses the sidebar (`expand` false) or expands the strip, one size
@@ -733,7 +750,7 @@ impl Sidebar {
             look,
             &ui,
             "collapse",
-            (Icon::LeftSidebar, footer_icon::SIZE),
+            (Icon::LeftSidebar, Pose::Rest, footer_icon::SIZE),
             tip,
             (TOGGLE, TOGGLE, 6.0),
             false,
@@ -807,7 +824,10 @@ impl Sidebar {
             .items_center()
             .line_height(relative(1.3))
             .pt(ui.px(8.0))
-            .child(self.rail_bell(cx).mt(ui.px(2.0)))
+            .child(self.rail_bell(cx).map({
+                let top = ui.px(2.0);
+                move |bell| bell.mt(top)
+            }))
             .child(rule(24.0, 0.0).mt(ui.px(8.0)).mb(ui.px(4.0)))
             .child(tiles)
             .child(
@@ -1381,7 +1401,7 @@ fn button(
     (theme, ground, quiet): (&Theme, Hsla, Pick),
     ui: &UiFont,
     id: &'static str,
-    (icon, glyph): (Icon, f32),
+    (icon, pose, glyph): (Icon, Pose, f32),
     tip: &'static str,
     (width, height, radius): (f32, f32, f32),
     lit: bool,
@@ -1412,11 +1432,17 @@ fn button(
         .when(lit, |button| button.bg(ground))
         .hover(move |style| style.bg(ground))
         .tooltip(move |_, cx| cx.new(|_| tip.clone()).into())
-        .child(footer_icon::icon(
+        .child(footer_icon::posed(
             icon,
+            pose,
             ink,
             ui.scale(glyph / footer_icon::SIZE),
         ))
+}
+
+/// The Attention bell in `color`, swinging as `hover` says.
+fn bell_icon(ui: &UiFont, color: Hsla, hover: Hover) -> impl IntoElement {
+    footer_icon::posed(Icon::Bell, motion::ring(hover.play), color, ui.scale(1.0))
 }
 
 /// A button's hover text.
@@ -1947,12 +1973,9 @@ fn details(
             .text_color(fg(|t| t.agents_dimmer))
             .child(path)
     });
-    // An icon button, quiet until hovered; then on `ground`, its icon in `hot`.
-    let action = |id: &'static str,
-                  icon: Icon,
-                  tip: &'static str,
-                  (ground, hot): (Hsla, Hsla),
-                  on_click: OnClick| {
+    // An icon button with its hover text, quiet until hovered; what it looks like then is the
+    // caller's. Made each frame from its motion's state.
+    let action = |id: &'static str, tip: &'static str| {
         let tip = Tip {
             text: tip.into(),
             size: ui.px(NOTE_SIZE),
@@ -1960,39 +1983,23 @@ fn details(
             background: hsla(theme.bg(|t| t.agents_bg), 1.0),
             border: fg(|t| t.agents_rule),
         };
-        let scale = ui.scale(1.0);
-        div()
-            .id(id)
-            .group(id)
-            .flex_shrink_0()
-            .size(ui.px(CARD_BUTTON))
-            .flex()
-            .items_center()
-            .justify_center()
-            .rounded(ui.px(CARD_BUTTON_RADIUS))
-            .cursor_pointer()
-            .hover(move |style| style.bg(ground))
-            .tooltip(move |_, cx| cx.new(|_| tip.clone()).into())
-            .on_click(on_click)
-            .child(
-                div()
-                    .relative()
-                    .child(
-                        div()
-                            .group_hover(id, |style| style.invisible())
-                            .child(footer_icon::icon(icon, fg(|t| t.agents_dim), scale)),
-                    )
-                    .child(
-                        div()
-                            .absolute()
-                            .top_0()
-                            .left_0()
-                            .invisible()
-                            .group_hover(id, |style| style.visible())
-                            .child(footer_icon::icon(icon, hot, scale)),
-                    ),
-            )
+        let (size, radius) = (ui.px(CARD_BUTTON), ui.px(CARD_BUTTON_RADIUS));
+        move |on_click: OnClick| {
+            div()
+                .id(id)
+                .flex_shrink_0()
+                .size(size)
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(radius)
+                .cursor_pointer()
+                .tooltip(move |_, cx| cx.new(|_| tip.clone()).into())
+                .on_click(on_click)
+        }
     };
+    let scale = ui.scale(1.0);
+    let dim = fg(|t| t.agents_dim);
     let instance = details.instance.clone().map(|instance| {
         div()
             .flex_shrink_0()
@@ -2008,24 +2015,33 @@ fn details(
         .gap(ui.px(MARK_GAP))
         .children(instance)
         .children(copy.map(|copy| {
-            action(
-                "copy",
-                Icon::Copy,
-                "Copy instance ID",
-                (fg(|t| t.agents_text).opacity(0.08), fg(|t| t.agents_dim)),
-                copy,
-            )
+            // It nudges as the pointer comes in, and turns to a green tick for a moment once it
+            // has copied.
+            let button = action("copy", "Copy instance ID");
+            let (ground, green) = (fg(|t| t.agents_text).opacity(0.08), fg(|t| t.agents_green));
+            motion::hover_motion("copy-motion", motion::COPY, move |hover| {
+                let (icon, pose, opacity) = motion::copy(hover);
+                let ink = if icon == Icon::Copied { green } else { dim };
+                button(copy)
+                    .hover(move |style| style.bg(ground))
+                    .child(footer_icon::posed(icon, pose, ink.opacity(opacity), scale))
+            })
         }))
         .child(div().flex_1())
         .child({
+            // It presses in and reddens on a faint red ground while the pointer is over it.
+            let button = action("stop", "Stop agent…");
             let red = fg(|t| t.agents_red);
-            action(
-                "stop",
-                Icon::StopAgent,
-                "Stop agent…",
-                (red.opacity(0.12), red),
-                stop,
-            )
+            motion::hover_motion("stop-motion", motion::PRESS, move |hover| {
+                button(stop)
+                    .bg(red.opacity(motion::PRESSED_GROUND * hover.lit))
+                    .child(footer_icon::posed(
+                        Icon::StopAgent,
+                        motion::press(hover.lit, hover.still),
+                        motion::mix(dim, red, hover.lit),
+                        scale,
+                    ))
+            })
         });
     div()
         .mt(px(8.0))
