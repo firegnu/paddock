@@ -89,7 +89,7 @@ const BUTTON_X: f32 = 9.0;
 const BAR_SHARE: f32 = 12.0;
 const BAR_MAX: f32 = 96.0;
 // The type scale (DESIGN §13).
-const TITLE_SIZE: f32 = 15.0;
+const TITLE_SIZE: f32 = 13.0;
 const CARD_NAME_SIZE: f32 = 14.0;
 const NAME_SIZE: f32 = 13.0;
 const PREVIEW_SIZE: f32 = 12.5;
@@ -118,14 +118,22 @@ pub const MAX_WIDTH: f32 = 560.0;
 /// Neither scales.
 const LIGHTS: f32 = 76.0;
 const FULL_SCREEN: f32 = 12.0;
-/// The collapse (or expand) button, and the room after it.
+/// The collapse (or expand) button, the room after it collapsed to the strip, and the room before
+/// `Agents` past it.
 const TOGGLE: f32 = 26.0;
 const TOGGLE_GAP: f32 = 6.0;
+const TITLE_GAP: f32 = 10.0;
 /// What the header row needs for its words, about as wide as the system font draws them: `Agents`,
-/// the room before its count, and a digit of the count or the bell's.
-const TITLE_WIDTH: f32 = 51.0;
-const COUNT_GAP: f32 = 7.0;
+/// the room before its count, and a digit of the bell's count.
+const TITLE_WIDTH: f32 = 44.0;
+const COUNT_GAP: f32 = 6.0;
 const DIGIT: f32 = 7.8;
+/// The count after `Agents`, in a small pill: its height (the ends round off), sides, type size and
+/// a digit as wide as it draws.
+const COUNT_HEIGHT: f32 = 18.0;
+const COUNT_X: f32 = 5.0;
+const COUNT_SIZE: f32 = 11.0;
+const COUNT_DIGIT: f32 = 6.8;
 /// The bell as a pill (its sides, and the room between the icon and the count) and compact.
 const PILL_X: f32 = 8.0;
 const PILL_GAP: f32 = 5.0;
@@ -153,8 +161,7 @@ pub fn head_start(full_screen: bool) -> f32 {
     if full_screen { FULL_SCREEN } else { LIGHTS }
 }
 
-/// The collapse or expand button and the room after it, where `Agents` starts past
-/// [`head_start`].
+/// The expand button and the room after it, collapsed to the strip, past [`head_start`].
 pub fn toggle_room(ui: &UiFont) -> f32 {
     ui.scale(TOGGLE + TOGGLE_GAP)
 }
@@ -167,11 +174,12 @@ fn head_width(start: f32, compact: bool, ui: &UiFont) -> f32 {
     } else {
         PILL_X + footer_icon::SIZE + PILL_GAP + 2.0 * DIGIT + PILL_X
     };
-    start + toggle_room(ui) + ui.scale(TITLE_WIDTH + COUNT_GAP + 2.0 * DIGIT + bell) + PAD
+    let count = COUNT_X + 2.0 * COUNT_DIGIT + COUNT_X;
+    start + ui.scale(TOGGLE + TITLE_GAP + TITLE_WIDTH + COUNT_GAP + count + bell) + PAD
 }
 
 /// The narrowest the sidebar is dragged to: 220, or wider when the header row with the compact
-/// bell needs it at a larger interface size.
+/// bell needs it.
 pub fn min_width(ui: &UiFont) -> f32 {
     MIN_WIDTH.max(head_width(LIGHTS, true, ui))
 }
@@ -476,7 +484,7 @@ impl Sidebar {
             .items_center()
             .child(
                 self.collapse_button(self.collapsed, cx)
-                    .mr(ui.px(TOGGLE_GAP))
+                    .mr(ui.px(if self.collapsed { TOGGLE_GAP } else { TITLE_GAP }))
                     .on_mouse_down(MouseButton::Left, keep),
             );
         if self.collapsed {
@@ -503,7 +511,7 @@ impl Sidebar {
             div()
                 .flex_shrink_0()
                 .flex()
-                .items_baseline()
+                .items_center()
                 .gap(ui.px(COUNT_GAP))
                 .child(
                     div()
@@ -515,8 +523,18 @@ impl Sidebar {
                 .when(agents > 0, |title| {
                     title.child(
                         div()
-                            .text_size(ui.px(SECOND_SIZE))
-                            .text_color(fg(|t| t.agents_dimmer))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .h(ui.px(COUNT_HEIGHT))
+                            .min_w(ui.px(COUNT_HEIGHT))
+                            .px(ui.px(COUNT_X))
+                            .rounded(ui.px(COUNT_HEIGHT / 2.0))
+                            .bg(fg(|t| t.agents_text).opacity(0.08))
+                            .text_size(ui.px(COUNT_SIZE))
+                            .line_height(ui.px(COUNT_HEIGHT))
+                            .font_features(tabular())
+                            .text_color(fg(|t| t.agents_dim))
                             .child(agents.to_string()),
                     )
                 }),
@@ -2286,10 +2304,11 @@ mod tests {
     #[test]
     fn the_narrowest_sidebar_still_holds_the_header_row_in_the_title_bar() {
         // At the base interface size the bell goes compact before the row runs out of room, and
-        // the compact row fits the usual narrowest sidebar.
+        // the compact row, with its two-digit count in a pill, needs a few points over the usual
+        // narrowest sidebar.
         let base = UiFont::default();
-        assert_eq!(min_width(&base), MIN_WIDTH);
-        assert!(compact_bell(MIN_WIDTH, false, &base));
+        assert_eq!(min_width(&base).round(), 224.0);
+        assert!(compact_bell(min_width(&base), false, &base));
         assert!(!compact_bell(300.0, false, &base));
         // Larger interface sizes need a wider sidebar, and dragging keeps to it.
         let large = UiFont {
