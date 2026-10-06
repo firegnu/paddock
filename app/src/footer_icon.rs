@@ -63,6 +63,14 @@ pub enum Icon {
     Changes,
     /// A globe: the right sidebar's Browser.
     Browser,
+    /// A chevron pointing left: the Browser's Back.
+    Back,
+    /// A chevron pointing right: the Browser's Forward.
+    Forward,
+    /// A circle open at its top right, an arrowhead at the gap: the Browser's Reload.
+    Reload,
+    /// A box with an arrow out of its top right corner: open the page in the default browser.
+    External,
 }
 
 /// How far an icon's parts are from where they rest, for its hover motion (`motion.rs`), in the
@@ -483,6 +491,50 @@ fn shapes(icon: Icon, pose: Pose, bounds: Bounds<Pixels>, scale: f32) -> Vec<Pat
             equator.move_to(at(1.5, 7.0));
             equator.line_to(at(12.5, 7.0));
             vec![ring, meridian, equator]
+        }
+        Icon::Back | Icon::Forward => {
+            let (tip, end) = match icon {
+                Icon::Back => (4.25, 8.75),
+                _ => (9.75, 5.25),
+            };
+            let mut chevron = stroke();
+            chevron.move_to(at(end, 2.5));
+            chevron.line_to(at(tip, 7.0));
+            chevron.line_to(at(end, 11.5));
+            vec![chevron]
+        }
+        Icon::Reload => {
+            // Round from the right, clockwise, almost all the way.
+            let mut arc = stroke();
+            let r = px(4.67 * scale);
+            arc.move_to(at(11.67, 7.0));
+            arc.arc_to(point(r, r), px(0.0), true, true, at(10.27, 3.68));
+            let mut head = stroke();
+            head.move_to(at(11.67, 2.1));
+            head.line_to(at(11.67, 4.9));
+            head.line_to(at(8.87, 4.9));
+            vec![arc, head]
+        }
+        Icon::External => {
+            let mut arrow = stroke();
+            arrow.move_to(at(8.15, 1.75));
+            arrow.line_to(at(12.25, 1.75));
+            arrow.line_to(at(12.25, 5.85));
+            arrow.move_to(at(12.25, 1.75));
+            arrow.line_to(at(7.0, 7.0));
+            // The box, open where the arrow leaves it.
+            let mut open = stroke();
+            let r = px(1.15 * scale);
+            let radii = point(r, r);
+            open.move_to(at(10.5, 8.75));
+            open.line_to(at(10.5, 11.1));
+            open.arc_to(radii, px(0.0), false, true, at(9.35, 12.25));
+            open.line_to(at(2.9, 12.25));
+            open.arc_to(radii, px(0.0), false, true, at(1.75, 11.1));
+            open.line_to(at(1.75, 4.65));
+            open.arc_to(radii, px(0.0), false, true, at(2.9, 3.5));
+            open.line_to(at(5.25, 3.5));
+            vec![arrow, open]
         }
     }
 }

@@ -41,8 +41,9 @@ similar = "2"
 # for putting the system's sidebar material under the sidebar (`frost.rs`).
 raw-window-handle = "0.6"
 objc2 = "0.6"
-# The AppKit classes for that material, at the version GPUI already locks, and the system's
-# Reduce Motion setting (`reduce_motion.rs`).
+# The AppKit classes for that material, at the version GPUI already locks, the system's Reduce
+# Motion setting (`reduce_motion.rs`), and the window's keyboard, which the Browser's page takes
+# and gives back (`browser.rs`).
 objc2-app-kit = { version = "=0.3.2", default-features = false, features = [
     "NSAccessibility",
     "NSAppearance",
@@ -50,7 +51,28 @@ objc2-app-kit = { version = "=0.3.2", default-features = false, features = [
     "NSResponder",
     "NSView",
     "NSVisualEffectView",
+    "NSWindow",
     "NSWorkspace",
+] }
+# The right sidebar's Browser (`browser.rs`, DESIGN P5-28): the system's WKWebView over GPUI's
+# view, and the Foundation types it takes, at the versions the AppKit bindings above lock.
+objc2-foundation = { version = "=0.3.2", default-features = false, features = [
+    "std",
+    "NSError",
+    "NSGeometry",
+    "NSString",
+    "NSURL",
+    "NSURLRequest",
+] }
+objc2-web-kit = { version = "=0.3.2", default-features = false, features = [
+    "std",
+    "objc2-app-kit",
+    "objc2-core-foundation",
+    "WKNavigation",
+    "WKNavigationDelegate",
+    "WKWebView",
+    "WKWebViewConfiguration",
+    "WKWebsiteDataStore",
 ] }
 
 [dev-dependencies]
