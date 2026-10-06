@@ -439,6 +439,8 @@ mod tests {
             open: true,
             width: 512.0,
             tab: right_panel::Tab::Browser,
+            scope: crate::diff::Scope::Branch,
+            split: true,
         };
         store.save(&Layout {
             right_sidebar: right.clone(),
@@ -462,7 +464,7 @@ mod tests {
         let mut part = serde_json::to_value(&layout).unwrap();
         part["right_sidebar"] = serde_json::json!({ "open": true });
         fs::write(&path, serde_json::to_vec(&part).unwrap()).unwrap();
-        let (_, back) = Store::open(Some(path));
+        let (_, back) = Store::open(Some(path.clone()));
         assert_eq!(
             back.unwrap().right_sidebar,
             right_panel::Saved {
@@ -470,6 +472,17 @@ mod tests {
                 ..right_panel::Saved::default()
             }
         );
+        // One from before the Changes tab saved its scope and layout (P5-13a): uncommitted, unified.
+        let mut before = serde_json::to_value(&layout).unwrap();
+        before["right_sidebar"] =
+            serde_json::json!({ "open": true, "width": 500.0, "tab": "changes" });
+        fs::write(&path, serde_json::to_vec(&before).unwrap()).unwrap();
+        let (store, back) = Store::open(Some(path.clone()));
+        assert!(store.problem().is_none());
+        let back = back.unwrap().right_sidebar;
+        assert_eq!((back.open, back.width), (true, 500.0));
+        assert_eq!(back.scope, crate::diff::Scope::Uncommitted);
+        assert!(!back.split);
         fs::remove_dir_all(&dir).unwrap();
     }
 

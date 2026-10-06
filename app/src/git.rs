@@ -1,6 +1,6 @@
 //! Read-only Git summaries of the agents' working trees for the Agents panel. From Saddle
-//! `src/git.rs` at commit `df1c727`, unchanged.
-use crate::command::{Output, run_without_env};
+//! `src/git.rs` at commit `df1c727`; since P5-13b with helpers for the Changes tab added.
+use crate::command::{Output, run_bounded, run_without_env};
 use std::{
     collections::{BTreeSet, HashMap},
     ffi::OsString,
@@ -91,32 +91,7 @@ impl Worktree<'_> {
             .map(|o| String::from_utf8_lossy(&o.stdout).trim_end().to_owned())
     }
     fn summary(&self) -> Summary {
-        let head = match self.run(&["symbolic-ref", "--quiet", "--short", "HEAD"]) {
-            Some(o) if o.status.success() => {
-                Head::Branch(String::from_utf8_lossy(&o.stdout).trim_end().to_owned())
-            }
-            Some(o) if o.status.code() == Some(1) => Head::Detached,
-            _ => Head::Unknown,
-        };
-        let base = match &head {
-            Head::Branch(branch) if branch == "main" => self
-                .text(&[
-                    "rev-parse",
-                    "--abbrev-ref",
-                    "--symbolic-full-name",
-                    "@{upstream}",
-                ])
-                .map(|name| ("@{upstream}", name)),
-            Head::Branch(_) => self
-                .text(&[
-                    "rev-parse",
-                    "--verify",
-                    "--quiet",
-                    "refs/heads/main^{commit}",
-                ])
-                .map(|_| ("refs/heads/main", "main".to_owned())),
-            _ => None,
-        };
+        let (head, base) = self.head_and_base();
         let ahead = base.and_then(|(rev, name)| {
             let count = self.text(&["rev-list", "--count", &format!("{rev}..HEAD")])?;
             Some((count.parse().ok()?, name))
@@ -173,6 +148,37 @@ impl Worktree<'_> {
             untracked,
         }
     }
+    /// HEAD, and the base its branch is measured against with the revision to name it by: local
+    /// main, or the upstream when on main; none when detached or there is no such branch.
+    fn head_and_base(&self) -> (Head, Option<(&'static str, String)>) {
+        let head = match self.run(&["symbolic-ref", "--quiet", "--short", "HEAD"]) {
+            Some(o) if o.status.success() => {
+                Head::Branch(String::from_utf8_lossy(&o.stdout).trim_end().to_owned())
+            }
+            Some(o) if o.status.code() == Some(1) => Head::Detached,
+            _ => Head::Unknown,
+        };
+        let base = match &head {
+            Head::Branch(branch) if branch == "main" => self
+                .text(&[
+                    "rev-parse",
+                    "--abbrev-ref",
+                    "--symbolic-full-name",
+                    "@{upstream}",
+                ])
+                .map(|name| ("@{upstream}", name)),
+            Head::Branch(_) => self
+                .text(&[
+                    "rev-parse",
+                    "--verify",
+                    "--quiet",
+                    "refs/heads/main^{commit}",
+                ])
+                .map(|_| ("refs/heads/main", "main".to_owned())),
+            _ => None,
+        };
+        (head, base)
+    }
 }
 
 // Every call refuses lazy fetches of missing objects (Git 2.45+; older Git rejects the option,
@@ -192,6 +198,68 @@ pub(crate) fn git(program: &str, dir: &Path, args: &[&str], cancel: &AtomicBool)
         .filter(|name| name.as_encoded_bytes().starts_with(b"GIT_"))
         .collect();
     run_without_env(program, &full, Some(dir), &inherited, TIMEOUT, cancel).ok()
+}
+
+/// Like [`git`], with the same options, but keeping at most `limit` bytes of each stream and
+/// saying why it failed: the Changes tab reads whole diffs, and shows the reason when it cannot.
+pub(crate) fn git_bounded(
+    program: &str,
+    dir: &Path,
+    args: &[&str],
+    cancel: &AtomicBool,
+    limit: usize,
+) -> anyhow::Result<Output> {
+    let mut full = vec![
+        "--no-lazy-fetch",
+        "--no-optional-locks",
+        "-c",
+        "core.fsmonitor=false",
+    ];
+    full.extend(args);
+    let inherited: Vec<OsString> = std::env::vars_os()
+        .map(|(name, _)| name)
+        .filter(|name| name.as_encoded_bytes().starts_with(b"GIT_"))
+        .collect();
+    run_bounded(
+        program,
+        &full,
+        Some(dir),
+        &inherited,
+        TIMEOUT,
+        cancel,
+        limit,
+    )
+}
+
+/// The `-c` overrides that block every configured filter driver for the worktree at `top`, as the
+/// summaries do; `None` when the drivers cannot be listed.
+pub(crate) fn filter_overrides(
+    program: &str,
+    top: &Path,
+    cancel: &AtomicBool,
+) -> Option<Vec<String>> {
+    Worktree {
+        program,
+        top: top.to_owned(),
+        cancel,
+    }
+    .blocked_filters()
+}
+
+/// HEAD of the worktree at `top`, and the base its branch is compared with, as the summaries
+/// count commits ahead: the revision to give Git and the name to show.
+pub fn head_and_base(
+    program: &str,
+    top: &Path,
+    cancel: &AtomicBool,
+) -> (Head, Option<(String, String)>) {
+    let (head, base) = Worktree {
+        program,
+        top: top.to_owned(),
+        cancel,
+    }
+    .head_and_base();
+    (head, base.map(|(rev, name)| (rev.to_owned(), name)))
 }
 
 /// Summaries for each cwd; directories in the same worktree share one query per call.
