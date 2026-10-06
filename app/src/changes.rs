@@ -43,6 +43,9 @@ const AHEAD: usize = 48;
 /// Whose changes to show: the focused pane's name, its status colour and its directory.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Follow {
+    /// The group before the name, drawn faint, when another agent in the window has the same
+    /// short name (`window::agent_name`).
+    pub group: Option<String>,
     pub name: String,
     pub dot: Hsla,
     /// `None` for a pane with no directory to read.
@@ -824,7 +827,7 @@ impl ChangesView {
         let code = if split {
             width / 2.0 - number - 1.0
         } else {
-            width - 2.0 * number - ui.scale(SIGN)
+            width - 2.0 * number - self.sign_width(ui)
         };
         let content =
             self.widest.get(f).copied().unwrap_or(0) as f32 * self.advance + ui.scale(16.0);
@@ -834,13 +837,21 @@ impl ChangesView {
     fn number_width(&self, ui: &UiFont, digits: usize) -> f32 {
         digits.max(3) as f32 * self.advance * 11.0 / 12.0 + ui.scale(10.0)
     }
+
+    /// The sign column, unified: one character of the code font, then the room before the code.
+    fn sign_width(&self, ui: &UiFont) -> f32 {
+        self.advance + ui.scale(SIGN_GAP)
+    }
 }
 
 /// What a segment of a segmented control does when clicked.
 type Choose = Box<dyn Fn(&mut ChangesView, &mut Context<ChangesView>)>;
 
-/// The sign column's width.
-const SIGN: f32 = 12.0;
+/// Unified, the room before a line number's right edge: the old one's, and the new one's, which the
+/// sign follows closely; then the room between the sign and the code.
+const NUMBER_PAD: f32 = 6.0;
+const NEW_NUMBER_PAD: f32 = 3.0;
+const SIGN_GAP: f32 = 6.0;
 
 /// A hunk's lines side by side: context on both sides, each run of deletions beside the
 /// additions after it, the longer run against blanks.
@@ -1270,7 +1281,7 @@ impl ChangesView {
         if self.layout().1 {
             self.number_width(ui, digits)
         } else {
-            2.0 * self.number_width(ui, digits) + ui.scale(SIGN)
+            2.0 * self.number_width(ui, digits) + self.sign_width(ui)
         }
     }
 
@@ -1322,13 +1333,14 @@ impl ChangesView {
             .child(code.flex_shrink_0().ml(px(-x)))
     }
 
-    fn number(&self, n: u32, width: f32, color: Hsla, ui: &UiFont) -> Div {
+    /// A line number, `pad` points in from the right of its `width`.
+    fn number(&self, n: u32, (width, pad): (f32, f32), color: Hsla, ui: &UiFont) -> Div {
         div()
             .flex_shrink_0()
             .w(px(width))
             .flex()
             .justify_end()
-            .pr(ui.px(6.0))
+            .pr(ui.px(pad))
             .text_size(ui.px(11.0))
             .text_color(color)
             .when(n > 0, |d| d.child(n.to_string()))
@@ -1359,14 +1371,18 @@ impl ChangesView {
             .font(self.mono.clone())
             .text_size(ui.px(12.0))
             .line_height(ui.px(20.0))
-            .child(self.number(line.old, width, number, ui))
-            .child(self.number(line.new, width, number, ui))
+            .child(self.number(line.old, (width, NUMBER_PAD), number, ui))
+            .child(self.number(line.new, (width, NEW_NUMBER_PAD), number, ui))
+            // The sign centred in one character: `+` and `−` share a column, whatever their widths.
             .child(
-                div()
-                    .flex_shrink_0()
-                    .w(ui.px(SIGN))
-                    .text_color(sign_color)
-                    .child(sign),
+                div().flex_shrink_0().w(px(self.sign_width(ui))).child(
+                    div()
+                        .w(px(self.advance))
+                        .flex()
+                        .justify_center()
+                        .text_color(sign_color)
+                        .child(sign),
+                ),
             )
             .child(self.shifted(f, div().whitespace_nowrap().pr(ui.px(16.0)).child(text)))
             .into_any_element()
@@ -1401,16 +1417,18 @@ impl ChangesView {
                 Kind::Context => (gpui::transparent_black(), c.faint),
             };
             let n = if left { line.old } else { line.new };
-            base.bg(bg).child(self.number(n, width, number, ui)).child(
-                self.shifted(
-                    f,
-                    div()
-                        .whitespace_nowrap()
-                        .pl(ui.px(4.0))
-                        .pr(ui.px(16.0))
-                        .child(text),
-                ),
-            )
+            base.bg(bg)
+                .child(self.number(n, (width, NUMBER_PAD), number, ui))
+                .child(
+                    self.shifted(
+                        f,
+                        div()
+                            .whitespace_nowrap()
+                            .pl(ui.px(4.0))
+                            .pr(ui.px(16.0))
+                            .child(text),
+                    ),
+                )
         };
         let left = half(old, true);
         let right = half(new, false);
@@ -1632,7 +1650,10 @@ impl Render for ChangesView {
                     .whitespace_nowrap()
                     .text_ellipsis()
                     .font_weight(FontWeight::SEMIBOLD)
-                    .child(follow.name.clone()),
+                    .child(crate::window::grouped(
+                        (follow.group.clone(), follow.name.clone()),
+                        c.dim,
+                    )),
             )
             .when_some(place, |d, (_, head, _)| {
                 d.child(

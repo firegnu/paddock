@@ -144,6 +144,11 @@ const FOOTER: f32 = 50.0;
 const BUTTON: f32 = 32.0;
 /// An agent's tile in the strip.
 const TILE: f32 = 34.0;
+/// The strip's bell: its height (and least width), its sides, and the room between the icon and
+/// the count.
+const RAIL_BELL: f32 = 28.0;
+const RAIL_BELL_X: f32 = 6.0;
+const RAIL_BELL_GAP: f32 = 3.0;
 /// Name prefixes that say what kind of work an agent does, not which it is: a tile's letter comes
 /// after them.
 const ROLE_PREFIXES: [&str; 3] = ["dev-", "test-", "review-"];
@@ -595,8 +600,43 @@ impl Sidebar {
         (count, color)
     }
 
+    /// The strip's bell: the icon, and when the Attention list has rows, their count beside it in
+    /// a small pill tinted in the bell's colour, never over the icon.
+    fn rail_bell(&self, cx: &mut Context<Self>) -> gpui::Stateful<Div> {
+        let (count, color) = self.bell();
+        let ui = UiFont::get(cx);
+        let selected = self.grounds().selected;
+        div()
+            .id("attention")
+            .flex_shrink_0()
+            .h(ui.px(RAIL_BELL))
+            .min_w(ui.px(RAIL_BELL))
+            .px(ui.px(RAIL_BELL_X))
+            .flex()
+            .items_center()
+            .justify_center()
+            .gap(ui.px(RAIL_BELL_GAP))
+            .rounded(ui.px(8.0))
+            .cursor_pointer()
+            .text_color(color)
+            .text_size(ui.px(NOTE_SIZE))
+            .font_weight(FontWeight::BOLD)
+            .font_features(tabular())
+            .child(footer_icon::icon(Icon::Bell, color, ui.scale(1.0)))
+            .map(|bell| {
+                if count > 0 {
+                    bell.bg(color.opacity(0.14))
+                        .hover(move |style| style.bg(color.opacity(0.22)))
+                        .child(count.to_string())
+                } else {
+                    bell.hover(move |style| style.bg(selected))
+                }
+            })
+            .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(SidebarEvent::Attention)))
+    }
+
     /// The bell as an icon with the count in a small disc on its corner, `(width, height)` in
-    /// points: the strip's, and the header's in a narrow sidebar. `spot` as in [`Self::head`].
+    /// points: the header's in a narrow sidebar. `spot` as in [`Self::head`].
     fn small_bell(
         &self,
         (width, height): (f32, f32),
@@ -760,7 +800,7 @@ impl Sidebar {
             .items_center()
             .line_height(relative(1.3))
             .pt(ui.px(8.0))
-            .child(self.small_bell((BUTTON, 30.0), None, cx).mt(ui.px(2.0)))
+            .child(self.rail_bell(cx).mt(ui.px(2.0)))
             .child(rule(24.0, 0.0).mt(ui.px(8.0)).mb(ui.px(4.0)))
             .child(tiles)
             .child(
@@ -1671,31 +1711,8 @@ impl RenderOnce for AgentCard {
 /// The avatar: the kind's icon, or the name's letter for a kind without one, on a square tinted in
 /// the kind's colour, with `badge` on its corner.
 fn avatar(theme: &Theme, ui: &UiFont, card: &Card, badge: AnyElement) -> gpui::Stateful<Div> {
-    let kind: Pick = card
-        .brand
-        .as_ref()
-        .map_or(|t| t.agents_dim, |brand| brand.color);
-    let color = hsla(theme.fg(kind), 1.0);
-    let mark = match card
-        .brand
-        .as_ref()
-        .and_then(|brand| kind_icon::of(&brand.kind))
-    {
-        Some(icon) => icon.render(ui.px(AVATAR_ICON), color).into_any_element(),
-        None => {
-            // The short name before it was cut to fit.
-            let short = card
-                .name
-                .split_once('/')
-                .map_or(card.name.as_str(), |(_, s)| s);
-            div()
-                .text_size(ui.px(CARD_NAME_SIZE))
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(color)
-                .child(initial(short))
-                .into_any_element()
-        }
-    };
+    let color = kind_color(theme, card);
+    let mark = kind_mark(ui, card, color, CARD_NAME_SIZE);
     div()
         .id("avatar")
         .relative()
@@ -1709,6 +1726,40 @@ fn avatar(theme: &Theme, ui: &UiFont, card: &Card, badge: AnyElement) -> gpui::S
         .bg(color.opacity(AVATAR_TINT))
         .child(mark)
         .child(badge)
+}
+
+/// The colour of a card's kind, dim for an agent of no known kind.
+fn kind_color(theme: &Theme, card: &Card) -> Hsla {
+    let kind: Pick = card
+        .brand
+        .as_ref()
+        .map_or(|t| t.agents_dim, |brand| brand.color);
+    hsla(theme.fg(kind), 1.0)
+}
+
+/// The kind's icon in `color`, as the avatar and the strip's tile draw it, or for a kind without
+/// one the name's letter, `letter` points.
+fn kind_mark(ui: &UiFont, card: &Card, color: Hsla, letter: f32) -> AnyElement {
+    match card
+        .brand
+        .as_ref()
+        .and_then(|brand| kind_icon::of(&brand.kind))
+    {
+        Some(icon) => icon.render(ui.px(AVATAR_ICON), color).into_any_element(),
+        None => {
+            // The short name before it was cut to fit.
+            let short = card
+                .name
+                .split_once('/')
+                .map_or(card.name.as_str(), |(_, s)| s);
+            div()
+                .text_size(ui.px(letter))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(color)
+                .child(initial(short))
+                .into_any_element()
+        }
+    }
 }
 
 /// The status on the avatar's corner, ringed in the card's ground (the second while the card is
@@ -1938,8 +1989,9 @@ fn details(
         .child(last)
 }
 
-/// An agent in the collapsed strip: its letter on a rounded square, the status dot on the corner;
-/// the one in the active pane on a lit square with a faint edge. Hovering shows who it is.
+/// An agent in the collapsed strip: its kind's icon (or letter) as on the card's avatar, with the
+/// card's status mark on the corner; a waiting one on faint amber with a thin amber edge, the one
+/// in the active pane on a lit square with a faint edge. Hovering shows who it is.
 #[derive(IntoElement)]
 struct Tile {
     card: Card,
@@ -1955,20 +2007,36 @@ impl RenderOnce for Tile {
         let theme = &self.theme;
         let fg = |pick: Pick| hsla(theme.fg(pick), 1.0);
         let card = &self.card;
-        let (ground, selected) = (self.grounds.base, self.grounds.selected);
+        let grounds = self.grounds;
         let tip = self.tip;
-        // The dot sits in a ring of the strip's colour, so it reads apart from the square; over the
-        // system's material there is none to ring it with.
-        let dot = div()
-            .absolute()
-            .right(ui.px(0.0))
-            .bottom(ui.px(0.0))
-            .p(ui.px(2.0))
-            .rounded_full()
-            .bg(ground)
-            .child(status_dot(fg(card.look.color), card.look.breathing, &ui));
+        let waiting = card.status == Status::Waiting;
+        // The tile's ground, as the card's: lit when shown, amber added while waiting.
+        let base = if card.selected {
+            over(grounds.selected, grounds.base)
+        } else {
+            grounds.base
+        };
+        let ground = if waiting {
+            over(grounds.waiting, base)
+        } else {
+            base
+        };
+        let hovered = if card.selected {
+            ground
+        } else {
+            over(grounds.selected.opacity(0.6), ground)
+        };
+        let group = SharedString::from(format!("rail-tile-{}", card.name));
+        let edge = if waiting {
+            fg(|t| t.agents_yellow).opacity(0.22)
+        } else if card.selected {
+            fg(|t| t.agents_border).opacity(0.6)
+        } else {
+            gpui::transparent_black()
+        };
         div()
             .id(ElementId::Name(SharedString::from(card.name.clone())))
+            .group(group.clone())
             .relative()
             .flex_shrink_0()
             .size(ui.px(TILE))
@@ -1978,35 +2046,35 @@ impl RenderOnce for Tile {
             .justify_center()
             .rounded(ui.px(9.0))
             .cursor_pointer()
-            .text_size(ui.px(TILE_SIZE))
-            .font_weight(FontWeight::SEMIBOLD)
-            .when(card.selected, |tile| {
-                tile.bg(selected)
-                    .border_1()
-                    .border_color(fg(|t| t.agents_border).opacity(0.6))
-                    .text_color(fg(|t| t.agents_text))
-            })
+            .bg(ground)
+            .border_1()
+            .border_color(edge)
             .when(!card.selected, |tile| {
-                tile.text_color(fg(|t| t.agents_dim))
-                    .hover(move |style| style.bg(selected.opacity(0.6)))
+                tile.hover(move |style| style.bg(hovered))
             })
             .tooltip(move |_, cx| cx.new(|_| tip.clone()).into())
             .on_click(self.on_click)
-            .child(initial(&card.short))
-            .child(dot)
+            .child(kind_mark(&ui, card, kind_color(theme, card), TILE_SIZE))
+            // The mark hangs over the strip: ringed in the strip's colour.
+            .child(badge(
+                theme,
+                &ui,
+                card,
+                (grounds.base, grounds.base),
+                &group,
+            ))
     }
 }
 
-/// A tile's hover note: the name and program, the status and how long, and the project and
-/// branch.
+/// A tile's hover note: the group, faint, before the short name, and the effort; under them the
+/// status and how long.
 #[derive(Clone)]
 struct RailTip {
+    group: Option<String>,
     name: String,
-    kind: Option<(String, Hsla)>,
+    effort: Option<String>,
     status: (String, Hsla),
-    place: String,
     size: Pixels,
-    small: Pixels,
     text: Hsla,
     dim: Hsla,
     background: Hsla,
@@ -2025,34 +2093,19 @@ impl RailTip {
         } else {
             format!("{state} · {}", card.time)
         };
-        let project = card
+        let group = card
             .name
             .strip_suffix(&card.short)
-            .map(|prefix| prefix.trim_end_matches('/'))
-            .filter(|prefix| !prefix.is_empty());
-        let place = [
-            project.map(str::to_owned),
-            card.place
-                .branch
-                .as_ref()
-                .map(|branch| format!("⎇ {branch}")),
-        ]
-        .into_iter()
-        .flatten()
-        .collect::<Vec<_>>()
-        .join(" · ");
+            .filter(|prefix| !prefix.is_empty())
+            .map(str::to_owned);
         Self {
+            group,
             name: card.short.clone(),
-            kind: card
-                .brand
-                .as_ref()
-                .map(|brand| (brand.kind.clone(), fg(brand.color))),
+            effort: card.effort.clone(),
             status: (status, color),
-            place,
             size: ui.px(SECOND_SIZE),
-            small: ui.px(KIND_SIZE),
             text: fg(|t| t.agents_text),
-            dim: fg(|t| t.agents_dimmer),
+            dim: fg(|t| t.agents_dim),
             background: hsla(theme.bg(|t| t.agents_bg), 1.0),
             border: fg(|t| t.agents_rule),
         }
@@ -2078,21 +2131,24 @@ impl Render for RailTip {
                 div()
                     .flex()
                     .items_baseline()
-                    .gap(px(5.0))
+                    .children(
+                        self.group
+                            .clone()
+                            .map(|group| div().text_color(self.dim).child(group)),
+                    )
                     .child(
                         div()
                             .font_weight(FontWeight::SEMIBOLD)
                             .text_color(self.text)
                             .child(self.name.clone()),
                     )
-                    .children(self.kind.clone().map(|(kind, color)| {
-                        div().text_size(self.small).text_color(color).child(kind)
-                    })),
+                    .children(
+                        self.effort
+                            .clone()
+                            .map(|effort| div().text_color(self.dim).child(format!(" · {effort}"))),
+                    ),
             )
             .child(div().text_color(self.status.1).child(self.status.0.clone()))
-            .when(!self.place.is_empty(), |tip| {
-                tip.child(div().text_color(self.dim).child(self.place.clone()))
-            })
     }
 }
 
