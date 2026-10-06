@@ -2018,6 +2018,8 @@ impl PaddockWindow {
                     .pr(ui.px(6.0))
                     .bg(highlight)
                     .text_color(self.fg(|t| t.agents_text))
+                    // The short name heavier; a faint group before it stays regular.
+                    .font_weight(FontWeight::SEMIBOLD)
             } else {
                 item.flex_shrink(1.0)
                     .min_w(ui.px(56.0))
