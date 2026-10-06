@@ -442,6 +442,7 @@ mod tests {
             scope: crate::diff::Scope::Branch,
             split: true,
             url: Some("http://localhost:5173/settings".into()),
+            kanban_folded: vec![crate::kanban::Column::Queued],
         };
         store.save(&Layout {
             right_sidebar: right.clone(),
@@ -496,6 +497,16 @@ mod tests {
         let back = back.unwrap().right_sidebar;
         assert_eq!(back.tab, right_panel::Tab::Browser);
         assert_eq!(back.url, None);
+        // One from before the Kanban (P5-29a): only its DONE group folded.
+        assert_eq!(back.kanban_folded, [crate::kanban::Column::Done]);
+        let mut kanban = serde_json::to_value(&layout).unwrap();
+        kanban["right_sidebar"] = serde_json::json!({ "open": true, "tab": "kanban" });
+        fs::write(&path, serde_json::to_vec(&kanban).unwrap()).unwrap();
+        let (store, back) = Store::open(Some(path.clone()));
+        assert!(store.problem().is_none());
+        let back = back.unwrap().right_sidebar;
+        assert_eq!(back.tab, right_panel::Tab::Kanban);
+        assert_eq!(back.kanban_folded, [crate::kanban::Column::Done]);
         fs::remove_dir_all(&dir).unwrap();
     }
 

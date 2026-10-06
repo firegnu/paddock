@@ -1,0 +1,359 @@
+//! The Kanban tab's reads, in a throwaway repository with a task in each column: where each lands,
+//! that ids are matched whole, that what cannot be told stays in an earlier column, and that an
+//! agent moves its task as it should.
+mod common;
+use paddock::{
+    agents::Status,
+    kanban::{Board, Column, Read, Seen, board, cache, read},
+};
+use std::{fs, path::Path, process::Command, sync::atomic::AtomicBool};
+
+// Fixture setup only; isolated from the user's Git config so commits never sign or prompt.
+fn git(dir: &Path, args: &[&str]) {
+    let output = Command::new("git")
+        .args(["-c", "user.name=t", "-c", "user.email=t@t", "-c"])
+        .arg("commit.gpgsign=false")
+        .args(args)
+        .current_dir(dir)
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "git {args:?}: {output:?}");
+}
+
+fn commit(dir: &Path, file: &str, text: &str, message: &str) {
+    if let Some(parent) = Path::new(file).parent() {
+        fs::create_dir_all(dir.join(parent)).unwrap();
+    }
+    fs::write(dir.join(file), text).unwrap();
+    git(dir, &["add", file]);
+    git(dir, &["commit", "-q", "-m", message]);
+}
+
+/// A task file with its place, as the convention writes it.
+fn task(title: &str, root: &Path, branch: &str, depends: Option<&str>) -> String {
+    let worktree = root.join(branch);
+    let depends = depends.map_or(String::new(), |d| format!("依赖：{d}\n"));
+    format!(
+        "# 任务：{title}\n\n2026-10-07，paddock/main 交给 paddock/dev-x。\n依据：x\n{depends}\n\
+         ## 在哪里干活\n- worktree：`{}`，分支 `{branch}`（已从 main 建好）。\n",
+        worktree.display()
+    )
+}
+
+/// A column's ids in natural order: cards moved within one second keep no order between them.
+fn ids(board: &Board, column: Column) -> Vec<&str> {
+    let mut ids: Vec<&str> = board.cards(column).iter().map(|c| c.id.as_str()).collect();
+    ids.sort_by(|a, b| paddock::kanban::natural(a, b));
+    ids
+}
+
+#[test]
+fn each_task_lands_in_its_column() {
+    let temp = common::tempdir();
+    let root = temp.path();
+    let repo = root.join("repo");
+    fs::create_dir_all(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    commit(&repo, "README.md", "x\n", "start");
+    let files = [
+        ("P5-1-排队.md", task("排队的活", root, "p5-1", Some("P5-2"))),
+        ("P5-2-在做.md", task("在做的活", root, "p5-2", None)),
+        ("P5-3-待审.md", task("待审的活", root, "p5-3", None)),
+        ("P5-24-已合并.md", task("已合并的活", root, "p5-24", None)),
+        ("P5-24a-已收尾.md", task("已收尾的活", root, "p5-24a", None)),
+        ("P5-5-分支已删.md", task("分支删了", root, "p5-5", None)),
+        ("P5-6r-调研.md", task("调研", root, "p5-6r", None)),
+        (
+            "P5-7-合并没写.md",
+            task("合并时没写编号", root, "p5-7", None),
+        ),
+        ("P5-8-刚开.md", task("刚开的分支", root, "p5-8", None)),
+    ];
+    for (file, text) in &files {
+        commit(
+            &repo,
+            &format!("docs/任务/{file}"),
+            text,
+            &format!("{file}：任务文件"),
+        );
+    }
+    let record = |text: &str| format!("{text}\n## 完成记录\n做完了。\n");
+    // In progress: its worktree, a commit and an edit not committed.
+    git(
+        &repo,
+        &[
+            "worktree",
+            "add",
+            "-q",
+            "-b",
+            "p5-2",
+            root.join("p5-2").to_str().unwrap(),
+        ],
+    );
+    commit(&root.join("p5-2"), "src/a.txt", "1\n2\n3\n", "p5-2 work");
+    fs::write(root.join("p5-2/src/a.txt"), "1\n2\n3\n4\n5\n").unwrap();
+    // To review: its completion record on its branch, no worktree.
+    git(&repo, &["branch", "p5-3"]);
+    git(&repo, &["checkout", "-q", "p5-3"]);
+    commit(
+        &repo,
+        "docs/任务/P5-3-待审.md",
+        &record(&files[2].1),
+        "P5-3 完成记录",
+    );
+    git(&repo, &["checkout", "-q", "main"]);
+    // Merged, its worktree still there.
+    git(
+        &repo,
+        &[
+            "worktree",
+            "add",
+            "-q",
+            "-b",
+            "p5-24",
+            root.join("p5-24").to_str().unwrap(),
+        ],
+    );
+    commit(&root.join("p5-24"), "src/b.txt", "b\n", "p5-24 work");
+    git(
+        &repo,
+        &[
+            "merge",
+            "-q",
+            "--no-ff",
+            "-m",
+            "合并 P5-24：已合并的活",
+            "p5-24",
+        ],
+    );
+    // Done, wrapped up; `P5-24`'s merge does not count for it, nor its wrap-up for `P5-24`.
+    git(
+        &repo,
+        &[
+            "commit",
+            "-q",
+            "--allow-empty",
+            "-m",
+            "收尾: P5-24a 已收尾的活",
+        ],
+    );
+    // A branch with work, deleted without being merged: nothing says where it went.
+    git(&repo, &["branch", "p5-5"]);
+    git(&repo, &["checkout", "-q", "p5-5"]);
+    commit(&repo, "src/c.txt", "c\n", "p5-5 work");
+    git(&repo, &["checkout", "-q", "main"]);
+    git(&repo, &["branch", "-q", "-D", "p5-5"]);
+    // Research: its document copied onto main by hand, not merged; the branch has the record.
+    git(&repo, &["branch", "p5-6r"]);
+    git(&repo, &["checkout", "-q", "p5-6r"]);
+    commit(&repo, "docs/调研/x.md", "调研结论\n", "P5-6r 调研");
+    commit(
+        &repo,
+        "docs/任务/P5-6r-调研.md",
+        &record(&files[6].1),
+        "P5-6r 完成记录",
+    );
+    git(&repo, &["checkout", "-q", "main"]);
+    commit(&repo, "docs/调研/x.md", "调研结论\n", "摘 P5-6r 的调研文档");
+    // Merged without the message saying so: its tip is in main, not on main's own line.
+    git(&repo, &["branch", "p5-7"]);
+    git(&repo, &["checkout", "-q", "p5-7"]);
+    commit(&repo, "src/d.txt", "d\n", "p5-7 work");
+    git(&repo, &["checkout", "-q", "main"]);
+    git(
+        &repo,
+        &["merge", "-q", "--no-ff", "-m", "Merge branch p5-7", "p5-7"],
+    );
+    // A branch just made from main, its worktree open: in progress, not merged.
+    git(
+        &repo,
+        &[
+            "worktree",
+            "add",
+            "-q",
+            "-b",
+            "p5-8",
+            root.join("p5-8").to_str().unwrap(),
+        ],
+    );
+
+    let cache = cache();
+    // Read from a worktree: the board is the main repository's.
+    let Read::Board(facts) = read(
+        "git",
+        root.join("p5-2").to_str().unwrap(),
+        &cache,
+        &AtomicBool::new(false),
+    ) else {
+        panic!("not a board");
+    };
+    assert_eq!(facts.name, "repo");
+    assert_eq!(facts.repo, repo);
+    let board = board(&facts, &[], 2_000_000_000.0);
+    assert_eq!(ids(&board, Column::Queued), ["P5-1", "P5-5"]);
+    assert_eq!(ids(&board, Column::InProgress), ["P5-2", "P5-8"]);
+    assert_eq!(ids(&board, Column::ToReview), ["P5-3", "P5-6r"]);
+    assert_eq!(ids(&board, Column::Merged), ["P5-7", "P5-24"]);
+    assert_eq!(ids(&board, Column::Done), ["P5-24a"]);
+    let card = |id: &str| {
+        Column::ALL
+            .iter()
+            .flat_map(|c| board.cards(*c))
+            .find(|c| c.id == id)
+            .unwrap()
+            .clone()
+    };
+    // Waiting for a task not yet done.
+    assert_eq!(card("P5-1").state.unwrap().0, "Waits for P5-2");
+    assert_eq!(card("P5-5").state, None);
+    // Lines since main, committed and not.
+    assert_eq!(card("P5-2").lines, Some((5, 0)));
+    assert_eq!(card("P5-2").title, "在做的活");
+    assert_eq!(card("P5-2").branch.as_deref(), Some("p5-2"));
+    assert_eq!(
+        card("P5-24").state.unwrap().0,
+        "Merged · worktree still there"
+    );
+    assert_eq!(card("P5-7").state.unwrap().0, "Merged");
+    // DONE is one line: no state, no branch, no agent.
+    let done = card("P5-24a");
+    assert_eq!((done.state, done.branch, done.agent), (None, None, None));
+    assert_eq!(board.count(Column::Done), 1);
+
+    // An agent labelled for a task: an idle one that said DONE sends it to review, a working
+    // one in a worktree keeps it in progress; one for a queued task starts it.
+    let agent = |name: &str, task: Option<&str>, cwd: Option<&Path>, status, said_done| Seen {
+        name: name.into(),
+        kind: Some("claude".into()),
+        cwd: cwd.map(|p| p.to_str().unwrap().to_owned()),
+        task: task.map(str::to_owned),
+        status,
+        said_done,
+        since: None,
+    };
+    let agents = [
+        agent("paddock/dev-a-1", Some("P5-2"), None, Status::Idle, true),
+        agent(
+            "paddock/dev-b",
+            None,
+            Some(&root.join("p5-1")),
+            Status::Working,
+            false,
+        ),
+    ];
+    let with = paddock::kanban::board(&facts, &agents, 2_000_000_000.0);
+    assert_eq!(ids(&with, Column::ToReview), ["P5-2", "P5-3", "P5-6r"]);
+    assert_eq!(ids(&with, Column::InProgress), ["P5-1", "P5-8"]);
+    let p5_1 = with
+        .cards(Column::InProgress)
+        .iter()
+        .find(|c| c.id == "P5-1")
+        .unwrap();
+    assert_eq!(p5_1.agent.as_ref().unwrap().name, "paddock/dev-b");
+    assert_eq!(p5_1.state.as_ref().unwrap().0, "Working");
+    // The task files are read once: a second read finds them in the cache and agrees.
+    let again = read(
+        "git",
+        repo.to_str().unwrap(),
+        &cache,
+        &AtomicBool::new(false),
+    );
+    assert_eq!(again, Read::Board(facts));
+}
+
+#[test]
+fn done_keeps_the_last_five_and_counts_them_all() {
+    let temp = common::tempdir();
+    let repo = temp.path().join("repo");
+    fs::create_dir_all(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    for n in 1..=7 {
+        commit(
+            &repo,
+            &format!("docs/任务/P1-{n}-x.md"),
+            &format!("# 任务：第 {n} 件\n"),
+            "任务文件",
+        );
+    }
+    for n in 1..=7 {
+        // Commit times are whole seconds: set them apart.
+        let date = format!("2026-10-0{n}T12:00:00");
+        let output = Command::new("git")
+            .args(["-c", "user.name=t", "-c", "user.email=t@t", "-c"])
+            .arg("commit.gpgsign=false")
+            .args([
+                "commit",
+                "-q",
+                "--allow-empty",
+                "-m",
+                &format!("收尾: P1-{n} x"),
+            ])
+            .current_dir(&repo)
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_COMMITTER_DATE", &date)
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+    }
+    let Read::Board(facts) = read(
+        "git",
+        repo.to_str().unwrap(),
+        &cache(),
+        &AtomicBool::new(false),
+    ) else {
+        panic!("not a board");
+    };
+    let board = board(&facts, &[], 2_000_000_000.0);
+    assert_eq!(board.count(Column::Done), 7);
+    // Newest first.
+    let done: Vec<&str> = board
+        .cards(Column::Done)
+        .iter()
+        .map(|c| c.id.as_str())
+        .collect();
+    assert_eq!(done, ["P1-7", "P1-6", "P1-5", "P1-4", "P1-3"]);
+}
+
+#[test]
+fn quiet_states_without_a_board() {
+    let temp = common::tempdir();
+    let plain = temp.path().join("plain");
+    fs::create_dir_all(&plain).unwrap();
+    let read_at = |dir: &Path| {
+        read(
+            "git",
+            dir.to_str().unwrap(),
+            &cache(),
+            &AtomicBool::new(false),
+        )
+    };
+    assert_eq!(read_at(&plain), Read::NotRepository);
+    let repo = temp.path().join("repo");
+    fs::create_dir_all(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "trunk"]);
+    commit(&repo, "README.md", "x\n", "start");
+    assert_eq!(
+        read_at(&repo),
+        Read::NoMain {
+            name: "repo".into()
+        }
+    );
+    git(&repo, &["branch", "-m", "main"]);
+    assert_eq!(
+        read_at(&repo),
+        Read::NoTasks {
+            name: "repo".into()
+        }
+    );
+    // Files that are not tasks do not make a board.
+    commit(&repo, "docs/任务/说明.md", "x\n", "notes");
+    assert_eq!(
+        read_at(&repo),
+        Read::NoTasks {
+            name: "repo".into()
+        }
+    );
+}

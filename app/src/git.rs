@@ -334,6 +334,79 @@ pub fn repository(program: &str, cwd: &str, cancel: &AtomicBool) -> Option<(Path
     ))
 }
 
+/// Lines added and deleted in the worktree at `top`, committed or not, since it parted from
+/// `base`: its working tree against the merge base, as the summaries read it (filters blocked,
+/// submodules not entered). `None` when Git cannot tell.
+pub fn lines_since(
+    program: &str,
+    top: &Path,
+    base: &str,
+    cancel: &AtomicBool,
+) -> Option<(u64, u64)> {
+    let worktree = Worktree {
+        program,
+        top: top.to_owned(),
+        cancel,
+    };
+    let fork = worktree.text(&["merge-base", base, "HEAD"])?;
+    let overrides = worktree.blocked_filters()?;
+    let mut args: Vec<&str> = overrides.iter().flat_map(|o| ["-c", o.as_str()]).collect();
+    args.extend([
+        "diff-index",
+        "--numstat",
+        "-z",
+        "--no-ext-diff",
+        "--no-textconv",
+        "--ignore-submodules=dirty",
+        &fork,
+        "--",
+    ]);
+    let output = worktree.run(&args).filter(|o| o.status.success())?;
+    Some(numstat_lines(&output.stdout))
+}
+
+/// Lines added and deleted on `branch` since it parted from `base`, as committed, read in the
+/// repository at `dir`. `None` when Git cannot tell.
+pub fn branch_lines(
+    program: &str,
+    dir: &Path,
+    base: &str,
+    branch: &str,
+    cancel: &AtomicBool,
+) -> Option<(u64, u64)> {
+    let range = format!("{base}...{branch}");
+    let output = git(
+        program,
+        dir,
+        &[
+            "diff",
+            "--numstat",
+            "-z",
+            "--no-ext-diff",
+            "--no-textconv",
+            &range,
+            "--",
+        ],
+        cancel,
+    )
+    .filter(|o| o.status.success())?;
+    Some(numstat_lines(&output.stdout))
+}
+
+/// The lines added and deleted in `--numstat -z` output; binary files count none.
+fn numstat_lines(stdout: &[u8]) -> (u64, u64) {
+    let (mut added, mut deleted) = (0, 0);
+    for record in stdout.split(|b| *b == 0) {
+        let record = String::from_utf8_lossy(record);
+        let mut fields = record.splitn(3, '\t');
+        if let (Some(a), Some(d)) = (fields.next(), fields.next()) {
+            added += a.parse::<u64>().unwrap_or(0);
+            deleted += d.parse::<u64>().unwrap_or(0);
+        }
+    }
+    (added, deleted)
+}
+
 /// Re-reads the watched directories in the background every `every`, and at once when they change.
 pub struct Poller {
     pub updates: mpsc::Receiver<Batch>,

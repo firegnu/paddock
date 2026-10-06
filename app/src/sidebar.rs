@@ -860,6 +860,17 @@ impl Sidebar {
         self.listing.panel.agents.clone()
     }
 
+    /// The agents as the Kanban tab sees them: with their status as the cards show it and, while
+    /// idle, the last reply read.
+    pub fn seen(&self) -> Vec<crate::kanban::Seen> {
+        let (panel, now) = (&self.listing.panel, now());
+        panel
+            .agents
+            .iter()
+            .map(|a| crate::kanban::Seen::of(a, panel.status(a, now), panel.reply(a, now)))
+            .collect()
+    }
+
     /// What needs looking at now, for the Attention list.
     pub fn attention(&self) -> Vec<attention::Item> {
         attention::items(&self.listing.panel, self.listing.error.as_deref(), now())

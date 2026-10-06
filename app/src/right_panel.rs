@@ -1,13 +1,15 @@
 //! The right sidebar: pushed out from the window's right edge, narrowing the terminal rather than
-//! covering it, with two tabs, Changes and Browser, a button to widen it and one to close it.
-//! Changes shows the focused pane's worktree (`changes.rs`); Browser a web page
-//! (`browser_view.rs`). The window draws the card it sits in and lays it out; the rules for its
+//! covering it, with three tabs, Changes, Browser and Kanban, a button to widen it and one to close
+//! it. Changes shows the focused pane's worktree (`changes.rs`); Browser a web page
+//! (`browser_view.rs`); Kanban the task files of the focused pane's repository
+//! (`kanban_view.rs`). The window draws the card it sits in and lays it out; the rules for its
 //! width live here, so they can be tested without a window.
 use crate::{
     browser,
     diff::Scope,
     fonts::UiFont,
     footer_icon::{self, Icon},
+    kanban::{self, Column},
     theme::Theme,
     view::hsla,
 };
@@ -36,15 +38,17 @@ pub enum Tab {
     #[default]
     Changes,
     Browser,
+    Kanban,
 }
 
 impl Tab {
-    pub const ALL: [Tab; 2] = [Tab::Changes, Tab::Browser];
+    pub const ALL: [Tab; 3] = [Tab::Changes, Tab::Browser, Tab::Kanban];
 
     pub fn label(self) -> &'static str {
         match self {
             Tab::Changes => "Changes",
             Tab::Browser => "Browser",
+            Tab::Kanban => "Kanban",
         }
     }
 
@@ -53,13 +57,15 @@ impl Tab {
         match self {
             Tab::Changes => "Changes will show here",
             Tab::Browser => "Open a page",
+            Tab::Kanban => "Tasks will show here",
         }
     }
 }
 
 /// What the layout file keeps of it; files from before it was saved open it closed, at the
 /// default width, on Changes, files from before Changes was made show uncommitted changes,
-/// unified, and files from before the Browser kept its address open it on nothing.
+/// unified, files from before the Browser kept its address open it on nothing, and files from
+/// before the Kanban fold only its DONE group.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Saved {
@@ -72,6 +78,8 @@ pub struct Saved {
     pub split: bool,
     /// The address the Browser tab last showed, which it opens again.
     pub url: Option<String>,
+    /// The Kanban tab's folded groups.
+    pub kanban_folded: Vec<Column>,
 }
 
 impl Default for Saved {
@@ -83,6 +91,7 @@ impl Default for Saved {
             scope: Scope::Uncommitted,
             split: false,
             url: None,
+            kanban_folded: kanban::folded_default(),
         }
     }
 }
@@ -118,6 +127,8 @@ pub struct RightPanel {
     pub split: bool,
     /// The Browser tab's address, as it last said.
     pub url: Option<String>,
+    /// The Kanban tab's folded groups, as it last said.
+    pub kanban_folded: Vec<Column>,
     /// The divider is being dragged: the width shown and the mouse's x when it was pressed.
     resizing: Option<(f32, f32)>,
 }
@@ -132,6 +143,7 @@ impl RightPanel {
             scope: saved.scope,
             split: saved.split,
             url: saved.url.clone(),
+            kanban_folded: saved.kanban_folded.clone(),
             resizing: None,
         }
     }
@@ -144,6 +156,7 @@ impl RightPanel {
             scope: self.scope,
             split: self.split,
             url: self.url.clone(),
+            kanban_folded: self.kanban_folded.clone(),
         }
     }
 
@@ -214,8 +227,12 @@ impl RightPanel {
                     .justify_center()
                     .child("±")
                     .into_any_element(),
-                Tab::Browser => footer_icon::icon(
-                    Icon::Browser,
+                Tab::Browser | Tab::Kanban => footer_icon::icon(
+                    if tab == Tab::Browser {
+                        Icon::Browser
+                    } else {
+                        Icon::Kanban
+                    },
                     if on {
                         fg(|t| t.agents_accent)
                     } else {
@@ -318,6 +335,7 @@ pub fn placeholder(theme: &Theme, ui: &UiFont, tab: Tab) -> Div {
     let icon = match tab {
         Tab::Changes => Icon::Changes,
         Tab::Browser => Icon::Browser,
+        Tab::Kanban => Icon::Kanban,
     };
     div()
         .flex_1()
