@@ -2021,7 +2021,7 @@ fn details(
             let red = fg(|t| t.agents_red);
             action(
                 "stop",
-                Icon::Stop,
+                Icon::StopAgent,
                 "Stop agent…",
                 (red.opacity(0.12), red),
                 stop,

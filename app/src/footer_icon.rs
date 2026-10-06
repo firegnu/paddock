@@ -18,6 +18,8 @@ pub enum Icon {
     NewShell,
     /// A filled square.
     Stop,
+    /// A filled square filling most of the box, as heavy as `Copy` beside it: a card's Stop….
+    StopAgent,
     /// Two rounded squares, one behind and up to the left of the other: copy.
     Copy,
     /// The window's own: a cross, for closing a tab or a pane.
@@ -131,6 +133,11 @@ fn shapes(icon: Icon, bounds: Bounds<Pixels>, scale: f32) -> Vec<PathBuilder> {
         Icon::Stop => {
             let mut square = PathBuilder::fill();
             rounded_rect(&mut square, at(3.0, 3.0), at(11.0, 11.0), 1.5 * scale);
+            vec![square]
+        }
+        Icon::StopAgent => {
+            let mut square = PathBuilder::fill();
+            rounded_rect(&mut square, at(1.75, 1.75), at(12.25, 12.25), 2.5 * scale);
             vec![square]
         }
         Icon::Copy => {
