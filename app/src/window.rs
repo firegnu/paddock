@@ -12,6 +12,7 @@ use crate::{
     find,
     fonts::UiFont,
     footer_icon::{self, Icon},
+    frost::Frost,
     kind_icon,
     layout::{Axis, Direction, Node, PaneId, Placement, Shown, Workspace},
     layout_state::{Content, Layout, Store},
@@ -25,7 +26,7 @@ use crate::{
     settings::{Conflict, Draft, Saved},
     sidebar::{self, Sidebar, SidebarEvent, status_dot},
     text_input::{self, Changed, TextInput},
-    theme::{Backdrop, Theme},
+    theme::Theme,
     view::{Launch, Options, TerminalView, hsla},
     viewer::AgentMetadata,
     windows,
@@ -33,8 +34,9 @@ use crate::{
 use gpui::{
     AnyElement, Bounds, BoxShadow, ClickEvent, Context, Div, DragMoveEvent, Entity, ExternalPaths,
     FocusHandle, Focusable, FontWeight, HighlightStyle, Hsla, MouseButton, MouseDownEvent,
-    MouseMoveEvent, Pixels, Point, PromptLevel, Render, ScrollHandle, SharedString, Stateful,
-    StyledText, Task, Window, canvas, div, point, prelude::*, px, relative,
+    MouseMoveEvent, Pixels, Point, PromptLevel, Render, ScrollHandle, SharedString, Size, Stateful,
+    StyledText, Task, Window, WindowBackgroundAppearance, canvas, div, point, prelude::*, px,
+    relative, size,
 };
 use std::{
     cell::RefCell,
@@ -362,6 +364,24 @@ fn bar_left(collapsed: bool, full_screen: bool, sidebar_width: f32, ui: &UiFont)
     }
 }
 
+/// Where the system's sidebar material shows in a window `window` big: the left column, from the
+/// top edge, title bar and all, to the bottom, as wide as the sidebar `sidebar_width` or the strip
+/// when `collapsed`; none in full screen, where the window is opaque.
+fn frost_column(
+    collapsed: bool,
+    full_screen: bool,
+    sidebar_width: f32,
+    window: Size<Pixels>,
+    ui: &UiFont,
+) -> Option<Bounds<Pixels>> {
+    let width = if collapsed {
+        ui.scale(sidebar::RAIL)
+    } else {
+        sidebar_width
+    };
+    (!full_screen).then(|| Bounds::new(point(px(0.0), px(0.0)), size(px(width), window.height)))
+}
+
 /// Where the cards sit across the window, in points from its left edge.
 #[derive(Debug, PartialEq)]
 struct Across {
@@ -532,6 +552,9 @@ pub struct PaddockWindow {
     lights: Option<f32>,
     /// The window is in full screen, where it is opaque: there is nothing behind it to see.
     full_screen: bool,
+    /// The system's sidebar material under the left column; none when it could not be put there,
+    /// and the window stays opaque.
+    frost: Option<Frost>,
 }
 
 impl PaddockWindow {
@@ -608,18 +631,32 @@ impl PaddockWindow {
             dragging: false,
             lights: None,
             store,
-            // It opens windowed, blurred (`main.rs`).
+            // It opens windowed (`main.rs`).
             full_screen: false,
             config_from_file: crate::config::default_path().exists(),
+            frost: Frost::install(window),
         };
-        // Full screen has nothing behind it to blur: the window turns opaque there, and back after.
+        // The column shows the material through the window, which is see-through for it.
+        if this.frost.is_some() {
+            window.set_background_appearance(WindowBackgroundAppearance::Transparent);
+            this.sidebar
+                .update(cx, |sidebar, cx| sidebar.set_frosted(true, cx));
+        }
+        // Full screen has nothing behind it to show: the window turns opaque there, and back after.
         cx.observe_window_bounds(window, |this, window, cx| {
             let full_screen = window.is_fullscreen();
             if full_screen != this.full_screen {
                 this.full_screen = full_screen;
-                window.set_background_appearance(this.theme.backdrop(full_screen).appearance);
+                if this.frost.is_some() {
+                    window.set_background_appearance(if full_screen {
+                        WindowBackgroundAppearance::Opaque
+                    } else {
+                        WindowBackgroundAppearance::Transparent
+                    });
+                }
+                let frosted = this.frosted();
                 this.sidebar
-                    .update(cx, |sidebar, cx| sidebar.set_full_screen(full_screen, cx));
+                    .update(cx, |sidebar, cx| sidebar.set_frosted(frosted, cx));
                 cx.notify();
             }
         })
@@ -1697,13 +1734,58 @@ impl PaddockWindow {
         hsla(self.theme.bg(|t| t.agent_selected), 1.0)
     }
 
-    fn backdrop(&self) -> Backdrop {
-        self.theme.backdrop(self.full_screen)
+    /// The left column shows the system's sidebar material: it is there, and not in full screen.
+    fn frosted(&self) -> bool {
+        self.frost.is_some() && !self.full_screen
     }
 
-    /// The highlight on the title bar, which lets the desktop through as the sidebar's grounds do.
-    fn bar_highlight(&self) -> Hsla {
-        self.highlight().opacity(self.backdrop().card)
+    /// What lies under everything while the column shows the material: the sidebar's colour,
+    /// faintly, over the column, and opaque right of it, as under the cards and the rest of the
+    /// title bar.
+    fn frosted_ground(&self, column: Bounds<Pixels>) -> Div {
+        let ground = hsla(self.theme.bg(|t| t.agents_bg), 1.0);
+        div()
+            .absolute()
+            .inset_0()
+            .child(
+                div()
+                    .absolute()
+                    .left(column.left())
+                    .top(column.top())
+                    .w(column.size.width)
+                    .h(column.size.height)
+                    .bg(ground.opacity(self.theme.frost().wash)),
+            )
+            .child(
+                div()
+                    .absolute()
+                    .left(column.right())
+                    .top_0()
+                    .right_0()
+                    .bottom_0()
+                    .bg(ground),
+            )
+    }
+
+    /// Puts the material under the column GPUI is drawing now, or takes it away; narrower waits for
+    /// the next frame, once this one is drawn (see [`Frost::fit`]). Its look follows the theme: dark
+    /// under a dark sidebar.
+    fn fit_frost(
+        &mut self,
+        column: Option<Bounds<Pixels>>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let dark = hsla(self.theme.bg(|t| t.agents_bg), 1.0).l < 0.5;
+        let Some(frost) = &mut self.frost else { return };
+        frost.set_dark(dark);
+        if frost.fit(column.map(|column| f32::from(column.size.width))) {
+            cx.on_next_frame(window, |this, _, _| {
+                if let Some(frost) = &mut this.frost {
+                    frost.settle();
+                }
+            });
+        }
     }
 
     /// The title bar: over the sidebar the traffic lights (none in full screen) and the sidebar's
@@ -1723,14 +1805,6 @@ impl PaddockWindow {
         // A hovered tab's faint ground, solid, so the × drawn over its title can hide the text.
         let ground = hsla(self.theme.bg(|t| t.agents_bg), 1.0);
         let hovered = ground.blend(highlight.opacity(0.6));
-        // Off full screen the desktop shows through these a little, as through the sidebar's
-        // grounds, and the title faintly under the ×.
-        let card = self.backdrop().card;
-        let (highlight, ground, hovered) = (
-            highlight.opacity(card),
-            ground.opacity(card),
-            hovered.opacity(card),
-        );
         let muted = self.theme.fg(|t| t.muted);
         let open = self.workspace.agents();
         let shown_at = Instant::now();
@@ -1937,7 +2011,7 @@ impl PaddockWindow {
     /// the sidebar is open.
     fn right_button(&self, cx: &mut Context<Self>) -> Stateful<Div> {
         let ui = UiFont::get(cx);
-        let highlight = self.bar_highlight();
+        let highlight = self.highlight();
         let lit = self.right.open;
         let tip = BarTip {
             text: "Toggle right sidebar",
@@ -1979,7 +2053,7 @@ impl PaddockWindow {
     /// panel hangs from it.
     fn split_button(&self, cx: &mut Context<Self>) -> Stateful<Div> {
         let ui = UiFont::get(cx);
-        let highlight = self.bar_highlight();
+        let highlight = self.highlight();
         let lit = self.split_hanging() == Some(SplitFrom::Bar);
         let tip = BarTip {
             text: "Split pane",
@@ -2024,7 +2098,7 @@ impl PaddockWindow {
     /// before it does.
     fn search_button(&self, cx: &mut Context<Self>) -> Stateful<Div> {
         let ui = UiFont::get(cx);
-        let highlight = self.bar_highlight();
+        let highlight = self.highlight();
         div()
             .id("search")
             .flex_shrink_0()
@@ -3729,6 +3803,19 @@ impl Render for PaddockWindow {
             self.lights = Some(height);
             window.set_traffic_light_position(traffic_lights(height));
         }
+        // The left column, top to bottom, shows the system's sidebar material while it is there.
+        let column = if self.frost.is_some() {
+            frost_column(
+                self.collapsed,
+                self.full_screen,
+                self.sidebar_width,
+                window.viewport_size(),
+                &ui,
+            )
+        } else {
+            None
+        };
+        self.fit_frost(column, window, cx);
         // A zoomed pane fills the tab; the split waits underneath.
         let (root, shown) = match self.workspace.zoomed() {
             Some(pane) => (Node::Pane(pane), 1),
@@ -3813,7 +3900,11 @@ impl Render for PaddockWindow {
             .flex_col()
             // GPUI's default size, scaled, for text nothing else sizes.
             .text_size(ui.px(16.0))
-            .bg(hsla(self.theme.bg(|t| t.agents_bg), self.backdrop().ground))
+            .when(column.is_none(), |root| {
+                root.bg(hsla(self.theme.bg(|t| t.agents_bg), 1.0))
+            })
+            // First, so it lies under the rest.
+            .children(column.map(|column| self.frosted_ground(column)))
             .when(self.popup.is_some(), |root| root.key_context(menu::DIALOG))
             .on_action(
                 cx.listener(|this, _: &menu::NewTab, window, cx| this.toggle_new_tab(window, cx)),
@@ -4095,6 +4186,44 @@ mod tests {
         };
         assert_eq!(bar_left(true, false, 300.0, &large), 76.0 + 48.0 + 10.0);
         assert_eq!(bar_left(true, true, 300.0, &large), 12.0 + 48.0 + 10.0);
+    }
+
+    #[test]
+    fn the_frost_is_the_left_column_top_to_bottom_and_gone_in_full_screen() {
+        let base = UiFont::default();
+        let window = size(px(1200.0), px(800.0));
+        let column = |width: f32| {
+            Some(Bounds::new(
+                point(px(0.0), px(0.0)),
+                size(px(width), px(800.0)),
+            ))
+        };
+        // Expanded: the sidebar, with the title bar over it, from the window's top edge to its
+        // bottom; it follows the divider.
+        assert_eq!(
+            frost_column(false, false, 300.0, window, &base),
+            column(300.0)
+        );
+        assert_eq!(
+            frost_column(false, false, 412.0, window, &base),
+            column(412.0)
+        );
+        // Collapsed: the strip, whatever the sidebar's width; it grows with the interface size.
+        assert_eq!(
+            frost_column(true, false, 300.0, window, &base),
+            column(52.0)
+        );
+        let large = UiFont {
+            family: None,
+            size: 19.5,
+        };
+        assert_eq!(
+            frost_column(true, false, 300.0, window, &large),
+            column(78.0)
+        );
+        // Full screen: none, expanded or collapsed.
+        assert_eq!(frost_column(false, true, 300.0, window, &base), None);
+        assert_eq!(frost_column(true, true, 300.0, window, &base), None);
     }
 
     #[test]

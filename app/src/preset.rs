@@ -72,13 +72,15 @@ pub const AGENTS_BLUE: Color = Color::Rgb(0x7f, 0xa9, 0xea);
 pub const AGENTS_YELLOW: Color = Color::Rgb(0xd9, 0xb2, 0x5f);
 pub const AGENTS_PURPLE: Color = Color::Rgb(0xa5, 0x8b, 0xdc);
 
-/// A preset's opacities over the blurred desktop (P5-19a): `ground` for the window's own ground
-/// (the sidebar, the strip, the title bar and the gaps round the cards), `card` for the grounds
-/// laid on it (the sidebar's cards and tiles, the selected, hovered and waiting grounds).
+/// How a preset's sidebar column lies over the system's sidebar material (P5-19b): `wash`, how
+/// much of the sidebar's own colour is laid over the material; `lit`, how much of the text colour
+/// lights a selected card, tile or button there (a hovered one takes half of it, the strip's rules
+/// as much); `waiting`, how much amber a waiting card takes.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Glass {
-    pub ground: f32,
-    pub card: f32,
+pub struct Frost {
+    pub wash: f32,
+    pub lit: f32,
+    pub waiting: f32,
 }
 
 /// A built-in palette that `[colors]` overrides; `dune` is the original look.
@@ -106,21 +108,29 @@ impl Preset {
             .find(|p| p.name() == value)
             .ok_or_else(|| format!("unknown theme {value:?}: expected dune, tide or lagoon"))
     }
-    /// How opaque the main window's grounds are while the desktop shows blurred through them.
-    pub fn glass(self) -> Glass {
+    /// How the sidebar's column lies over the system's sidebar material. The material is already
+    /// dark and frosted; the wash only leans it to the preset's colour, and the grounds on it step
+    /// up about half again as much as the preset's own selected colour does over its sidebar, as
+    /// they lie on a busier ground.
+    pub fn frost(self) -> Frost {
         match self {
-            Preset::Dune => Glass {
-                ground: 0.80,
-                card: 0.86,
+            // A warm brown, the nearest to the material's grey: the least wash.
+            Preset::Dune => Frost {
+                wash: 0.30,
+                lit: 0.10,
+                waiting: 0.11,
             },
-            // Darker grounds, so a little more of the desktop shows for the same contrast.
-            Preset::Tide => Glass {
-                ground: 0.79,
-                card: 0.85,
+            // Deeper, bluer and greener grounds, a little more of each to keep them; their own
+            // selected colours step further too.
+            Preset::Tide => Frost {
+                wash: 0.34,
+                lit: 0.12,
+                waiting: 0.12,
             },
-            Preset::Lagoon => Glass {
-                ground: 0.77,
-                card: 0.84,
+            Preset::Lagoon => Frost {
+                wash: 0.38,
+                lit: 0.12,
+                waiting: 0.12,
             },
         }
     }

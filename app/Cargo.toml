@@ -33,9 +33,18 @@ unicode-segmentation = "1"
 # Display widths for the Agents panel's monospace lines (already in the lock through GPUI).
 unicode-width = "0.2"
 toml = "1"
-# Only for printing the native window number, so test screenshots capture this window alone.
+# Only for printing the native window number, so test screenshots capture this window alone, and
+# for putting the system's sidebar material under the sidebar (`frost.rs`).
 raw-window-handle = "0.6"
 objc2 = "0.6"
+# The AppKit classes for that material, at the version GPUI already locks.
+objc2-app-kit = { version = "=0.3.2", default-features = false, features = [
+    "NSAppearance",
+    "NSGraphics",
+    "NSResponder",
+    "NSView",
+    "NSVisualEffectView",
+] }
 
 [dev-dependencies]
 # Only for `examples/bundle.rs`, writing the app icon (already in the lock through GPUI).
