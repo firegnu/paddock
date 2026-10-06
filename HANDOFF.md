@@ -2,7 +2,7 @@
 
 ## 现在在哪（2026-10-06 晚）
 
-- main 和 `origin/main`（`github.com/firegnu/paddock`，public）同步。**进行中：P5-23r 截图失败调研**——`paddock/research-shot-1`（Codex，常规）在 worktree `../paddock-worktrees/p5-23r-shot` 里只读调查 agent 为什么截不到 paddock 窗口（用户已把 paddock 加进屏幕录制允许列表仍失败），任务文件 `docs/任务/P5-23r-截图失败调研.md`；主控挂了 `--after` 提醒。
+- main 和 `origin/main`（`github.com/firegnu/paddock`，public）同步。没有进行中的活；corral 里只有主控 `paddock/main`。
 - 225 项测试通过。`~/Applications/paddock.app` 是合并 P5-13b 之后的版本（含 P5-22）。重新打包安装：在 `app/` 下 `cargo build --release`，再 `cargo run --release --example bundle -- --install`（编译目录见 AGENTS.md，主仓库用 `.target/main`）。
 - 已合并：第一至第三阶段、迁移 M0–M3（corral、dispatch 在 `../ranch`；遥测、Drover、插件系统已砍）、P4-1～P4-3、P5-1～P5-22（P5-13 做了 13a 右侧栏外壳和 13b Changes 标签；P5-19 做了 19r 调研、19a～19e 左侧栏磨砂）。每件的范围、完成记录、主控审查在 `docs/任务/`。
 - 上下文：`AGENTS.md`（规矩）、`docs/DESIGN.md`（已定决定，§13 是界面改版的全部决定和用户原话）、`docs/背景与决策记录.md`、`docs/设计稿/`、`docs/调研/`。
@@ -23,10 +23,11 @@
 
 - **P5-22** 侧栏头部：“Agents” 降到 13pt，数量改小胶囊、垂直居中（用户：“Agents太突兀了……数字也没有和agents对齐”，选方向 A）。已合并、安装、推送；截图没截到，观感待用户看。
 - **P5-13b** Changes 标签：只读、实时显示焦点窗格目录的 git 改动（Uncommitted／Branch vs 基准，文件索引、逐文件 diff、语法高亮和改词高亮、加宽后文件树和 Split、特殊文件和空状态）。新依赖 `syntect`、`similar`。已合并、安装、推送；截图没截到，界面和交互全部待用户看。取舍见任务文件的完成记录和主控审查。
+- **P5-23r** 截图失败调研（Codex）：agent 截图的权限算在装好的 `paddock.app` 头上；它是 ad-hoc 签名，授权绑在某次构建的 cdhash 上，每次重新打包安装都失效；`bundle.rs` 也没对整个 app 签名。详见任务文件。
 
 ## 下一步（按优先级）
 
-1. **P5-23r 截图调研出结果后和用户定怎么办**；**等用户看 P5-13b 和 P5-22**。之后是 Changes 第二步（行上评论发给 agent、暂存、撤销，另议）。
+1. **截图问题（P5-23r 结论）等用户定**：先重新授权当前 `paddock.app` 试，还是先做“打包时用钥匙串里的 Apple Development 身份签整个 app”（之后授权一次长期有效）；**等用户看 P5-13b 和 P5-22**。之后是 Changes 第二步（行上评论发给 agent、暂存、撤销，另议）。
 2. **右侧栏 Kanban**（用户 10-06：“kanban往后放一点”）：先和用户聊需求，聊定之前不出样稿、不派活（右侧栏定为 Changes、Browser、Kanban 三个标签）。
 3. **等用户反馈**：P5-22 侧栏头部观感；P5-18 收件箱卡片（角标动画、等你卡片和 Reply、空闲预览、展开布局、空心“在此打开”环是否太小）、P5-20 程序坞图标（16px 边缘偏软）、P5-16 的收起／窄侧栏／全屏／大字号和 Attention 弹出位置。
 4. **磨砂细调（用户说“之后再细细调整”，等用户提）**：三套主题的 wash／lit／waiting 和提亮比例（`preset.rs` `Preset::frost`）、亮壁纸上的可读性、拖宽／收起／全屏时边缘闪不闪；收起时窄条右边那道不透明的缝要不要跟着磨砂或收窄（主控提过，用户没答）；浮动圆角面板和边缘高光没做。
