@@ -3,8 +3,8 @@
 ## 现在在哪（2026-10-06）
 
 - main 干净，和 `origin/main`（`github.com/firegnu/paddock`，public）同步；没有开着的 worktree、任务分支，corral 里只有主控 `paddock/main`。
-- 209 项测试通过。`~/Applications/paddock.app` 是合并 P5-21 之后的版本。重新打包安装：在 `app/` 下 `cargo build --release`，再 `cargo run --release --example bundle -- --install`（编译目录见 AGENTS.md，主仓库用 `.target/main`）。
-- 已合并：第一至第三阶段、迁移 M0–M3（corral、dispatch 在 `../ranch`；遥测、Drover、插件系统已砍）、P4-1～P4-3、P5-1～P5-21（P5-13 只做了 13a 右侧栏外壳，P5-19 只做了 19r 调研）。每件的范围、完成记录、主控审查在 `docs/任务/`。
+- 210 项测试通过。`~/Applications/paddock.app` 是合并 P5-19a 之后的版本。重新打包安装：在 `app/` 下 `cargo build --release`，再 `cargo run --release --example bundle -- --install`（编译目录见 AGENTS.md，主仓库用 `.target/main`）。
+- 已合并：第一至第三阶段、迁移 M0–M3（corral、dispatch 在 `../ranch`；遥测、Drover、插件系统已砍）、P4-1～P4-3、P5-1～P5-21（P5-13 只做了 13a 右侧栏外壳，P5-19 做了 19r 调研和 19a 毛玻璃试验）。每件的范围、完成记录、主控审查在 `docs/任务/`。
 - 上下文：`AGENTS.md`（规矩）、`docs/DESIGN.md`（已定决定，§13 是界面改版的全部决定和用户原话）、`docs/背景与决策记录.md`、`docs/设计稿/`（各件样稿源文件）、`docs/调研/`。
 
 ## 本次会话（10-06 下午）
@@ -23,7 +23,7 @@
 ## 下一步（按优先级）
 
 1. **等用户看效果并反馈**：P5-18 收件箱卡片（角标动画、等你卡片和 Reply、空闲预览、展开布局、空心“在此打开”环是否太小）、P5-20 程序坞图标（16px 方块边缘偏软）、P5-16 的收起/窄侧栏/全屏/大字号和 Attention 弹出位置。这几件 agent 都没截到屏幕图（`screencapture` 报 could not create image from window，可能缺屏幕录制权限）。
-2. **P5-19a 左侧栏毛玻璃小试验**：用户看过 P5-18 后开工。任务文件 `docs/任务/P5-19a-左侧栏毛玻璃试验.md` 是草案，开工前按现在的代码细化并路由。
+2. **P5-19a 毛玻璃试验已装上，等用户在真窗口看**：主窗口 `Blurred`，窗口底（侧栏、窄条、标题栏、卡片间的缝）和侧栏上的底色半透明，终端卡片、右侧栏、弹出框不透明，全屏退回不透明。要看：三套主题的不透明度（窗口底 0.77–0.80、侧栏底色 0.84–0.86，在 `preset.rs` `Preset::glass`）在亮桌面上淡色字够不够清楚、进出全屏切换、标签 × 下透出标题、状态角标的圈。方向对了再另开一件做浮动圆角面板和边缘高光；不够清楚可调不透明度或加透明度设置（要用户定）。
 3. **右侧栏 Kanban**：先和用户聊需求，聊定之前不出样稿、不派活。
 4. 之后：Changes 标签的 diff（P5-13 剩余）、Browser 标签（先调研 WKWebView 嵌进 GPUI）、拖动分隔线调整分屏大小、`paddock ctl`。
 
