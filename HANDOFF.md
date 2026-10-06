@@ -2,7 +2,7 @@
 
 ## 现在在哪（2026-10-06 夜）
 
-- main 和 `origin/main`（`github.com/firegnu/paddock`，public）同步。**进行中：P5-13r Browser 嵌入调研**——`paddock/research-browser-1`（Codex，重）在 worktree `../paddock-worktrees/p5-13r-browser` 里只读调研（可做不合并的原型），结论写进 `docs/调研/P5-13r-Browser嵌入.md`，任务文件 `docs/任务/P5-13r-Browser嵌入调研.md`；主控挂了 `--after` 提醒。原型分支不合并，只合并调研文档和完成记录。
+- main 和 `origin/main`（`github.com/firegnu/paddock`，public）同步。没有进行中的活；corral 里只有主控 `paddock/main`。本地留着一个不推送的分支 `p5-13r-browser`（Browser 原型，提交 `9422921`，正式实现时参考，用完删）。
 - 244 项测试通过，clippy、`cargo fmt --check` 干净。`~/Applications/paddock.app` 是合并 P5-27 之后的版本（含 P5-26、P5-25、P5-24a、P5-24b、P5-13c、P5-23、P5-13b、P5-22），已用本机 Apple Development 证书签名。
 - 重新打包安装：在 `app/` 下 `cargo build --release`，再 `cargo run --release --example bundle -- --install`（编译目录见 AGENTS.md，主仓库用 `.target/main`）。打包默认自动选本机 Apple Development 身份，可用 `PADDOCK_SIGN_IDENTITY` 指定；退回 ad-hoc 时会提示授权会失效。
 - 已合并：第一至第三阶段、迁移 M0–M3（corral、dispatch 在 `../ranch`；遥测、Drover、插件系统已砍）、P4-1～P4-3、P5-1～P5-27（P5-13 做了 13a 外壳、13b／13c Changes 标签；P5-19 做了 19r 调研、19a～19e 左侧栏磨砂；P5-23r 是截图失败调研）。每件的范围、完成记录、主控审查在 `docs/任务/`。
@@ -27,7 +27,7 @@
 
 ## 下一步（按优先级）
 
-0. **用户 10-07：“明天集中精力弄brower和kanban”**。Browser：看 P5-13r 调研结论，和用户定方案、出样稿、拆活。Kanban：先和用户聊需求（卡片代表什么、列怎么分、谁来移动、数据存哪），聊定之前不出样稿。
+0. **用户 10-07：“明天集中精力弄brower和kanban”**。Browser：调研已完成（`docs/调研/P5-13r-Browser嵌入.md`）：推荐直接 `WKWebView`（`objc2-web-kit`），原生网页会盖住 GPUI 浮层，首版浮层／拖动时隐藏网页；焦点和快捷键最难、先做。先和用户定第 8 节五条（依赖、浮层隐藏、页面生命周期和数据、快捷键、网址范围和 Inspector），再出工具栏样稿、按第 7 节拆活。Kanban：先和用户聊需求（卡片代表什么、列怎么分、谁来移动、数据存哪），聊定之前不出样稿。
 1. **等用户在真窗口里看**：Changes 标签（P5-13b／13c）、P5-22 侧栏头部、P5-24a 窄条和名字、P5-24b 的着色强度（0.72／0.62 合不合适；前台、亮壁纸、收起、全屏切换下）、P5-25 的卡片操作图标、P5-26／27 的 9 个图标动效（快慢、幅度；左侧栏开关向外滑时短横稍压外框）。
 2. **Changes 第二步**（另议）：行上评论发给 agent、暂存、撤销。
 3. **右侧栏 Kanban**（用户 10-06：“kanban往后放一点”）：先和用户聊需求，聊定之前不出样稿、不派活。
