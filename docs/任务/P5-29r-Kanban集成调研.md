@@ -48,3 +48,33 @@
 
 ## 做完
 在本文件末尾追加「## 完成记录」（在你的分支里提交）：查到了什么、给出的选项、验证了什么、没做的事，各几句话。回复里只写这几样和要问用户的问题。命令都在前台跑完，全部做完后，回复最后一行写 DONE。
+
+## 完成记录
+
+- **查到了什么**：看了 14 个产品或做法，结论写在 `docs/调研/P5-29r-Kanban集成.md`。
+  - Vibe Kanban、AgentsRoom、Crystal／Nimbalyst、Backlog.md、Conductor、Claude Squad、Sculptor、Paseo。
+  - GitHub Projects＋Copilot、Linear＋agent、OpenAI Symphony。
+  - Claude Code agent view／Projects、Windsurf／Devin、Codex cloud。
+
+  归纳成四种模式：A 看板就是任务队列，B 看板是 agent 状态的视图，C 同步外部 issue 系统，D 仓库文件就是数据。有依据的坑有四类：
+  - “这一轮结束”被当成“做完”：Vibe Kanban 旧版的源码里，出错也进 In Review。
+  - 卡片和 agent 对不上：本仓库就有两例，`--unique` 补的 `-1` 后缀，P5-28a 任务文件里第一处分支名是原型分支。
+  - 数据锁在工具里：Vibe Kanban 关停后云端 issue 下线。
+  - 状态写在分支上，main 看不到：Backlog.md 要跨分支扫描。
+- **给出的选项**：
+  - 方案一：只读的流水线看板，卡片是任务文件，列从任务文件、git、corral 推出来。
+  - 方案二：agent 状态看板。
+  - 方案三：仓库内可拖的任务板，拖动可以派活。
+  - 方案四：接 GitHub Issues／Projects。
+
+  每个都写了卡片、列、数据、和 corral／任务文件／Changes 的配合、要不要改 corral 或 ranch、工作量、风险。四个都不用改 corral 命令；用 `--label task=…` 只是约定，写进派活技能才是 ranch 的任务。主控视角倾向方案一，理由和代价写在报告 §5.5，不是决定。另列了 5 个要问用户的问题，每个带选项。
+- **验证了什么**：
+  - 读了公开文档、更新日志，以及开源仓库的 README 和源码。Vibe Kanban 用 `gh api` 读了 main 和 `v0.0.138` 两个版本的状态变更代码。
+  - 读了 paddock 的 `corral.rs`、`card.rs`、`agents.rs`，66 份任务文件的结构，以及 `corral guide`。
+  - `corral ls` 只看了用到哪些标签键，没有对任何 agent 做操作。
+  - 没有注册、登录或安装任何东西。
+  - 报告里每条都标了已查证、只见营销页、推测或不知道。
+- **没做的事**：
+  - 没出样稿，没写代码。
+  - 没试 corral `stop` 之后 agent 是否还在 `ls` 里：要开自己的测试 agent，任务里没要求。
+  - 有几家只拿到营销页或更新日志，未知项列在报告 §7：AgentsRoom 的存储、Conductor 状态是不是自动推的、Windsurf 看板的列、Linear GitHub 集成文档正文。
