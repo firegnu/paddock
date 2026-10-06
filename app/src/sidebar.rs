@@ -1,6 +1,6 @@
 //! The Agents sidebar: `corral ls` and the agents' Git summaries through the pollers taken from
-//! Saddle, ordered and judged by its Agents panel model, and each idle or waiting agent's last
-//! reply, read once a spell. Each agent is a card read like a conversation (`card.rs` decides what
+//! Saddle, ordered and judged by its Agents panel model, and each idle agent's last reply, read
+//! once a spell. Each agent is a card read like a conversation (`card.rs` decides what
 //! it says): its kind's avatar with the status on its corner, then the name, a preview and where it
 //! works. Clicking a card asks the window to show that agent, and clicking the one shown opens its
 //! details. The footer's one button opens the window's menu of actions; the header row, which the
@@ -72,12 +72,13 @@ const DOT: f32 = 8.0;
 const TIME_PAD: f32 = 4.0;
 /// The share of a card's width a name keeps before the effort gives way.
 const NAME_SHARE: f32 = 0.4;
-/// The marks after the name: the gap before each, the unread dot and the open-here dot, each in
-/// a box to hover.
+/// The marks after the name: the gap before each, the unread dot, and the open-here ring and its
+/// stroke, each in a box to hover.
 const MARK_GAP: f32 = 6.0;
 const UNREAD: f32 = 6.0;
 const UNREAD_BOX: f32 = 10.0;
 const HERE: f32 = 5.0;
+const HERE_RING: f32 = 1.5;
 const HERE_BOX: f32 = 9.0;
 /// The open card: between its cells' columns, and a chip's sides.
 const CELL_GAP: f32 = 12.0;
@@ -265,8 +266,7 @@ impl Listing {
         self.panel.absorb_git(batch);
     }
 
-    /// Asks for the last reply of each agent that has just gone idle or begun waiting; never twice
-    /// in one spell.
+    /// Asks for the last reply of each agent that has just gone idle; never twice in one spell.
     pub fn ask_replies(&mut self, replies: &Replies<Spell>, now: f64) {
         for spell in self.panel.replies_to_read(now) {
             let name = spell.name.clone();
@@ -1353,11 +1353,13 @@ impl RenderOnce for AgentCard {
                 .items_center()
                 .justify_center()
                 .tooltip(move |_, cx| cx.new(|_| tip.clone()).into())
+                // Hollow, so it reads apart from the unread dot.
                 .child(
                     div()
                         .size(ui.px(HERE))
                         .rounded_full()
-                        .bg(fg(|t| t.agents_accent)),
+                        .border(ui.px(HERE_RING))
+                        .border_color(fg(|t| t.agents_accent)),
                 )
         });
         let effort = card.effort.clone().map(|effort| {
@@ -2346,7 +2348,7 @@ mod tests {
     }
 
     #[test]
-    fn a_reply_is_read_once_for_each_spell_of_idling() {
+    fn a_reply_is_read_once_for_each_spell_of_idling_and_never_while_waiting() {
         // Each call is logged and numbered, so a repeated call shows in the next reply.
         let (dir, program) = fake_corral(
             "replies",
@@ -2362,6 +2364,14 @@ esac"#,
         let idle = |since: f64| Agent {
             state_started: Some(since),
             ..agent("p/a", "idle")
+        };
+        // Listed with it all along: an agent waiting since before, whose card shows its question.
+        let with_asking = |a: Agent| {
+            let asking = Agent {
+                state_started: Some(980.0),
+                ..agent("q/ask", "blocked")
+            };
+            Ok(vec![a, asking])
         };
         // Waits until the card shows the reply read for its current spell.
         let shown = |listing: &mut Listing, now: f64| -> String {
@@ -2379,22 +2389,23 @@ esac"#,
         };
         // Listed again and again while it idles: corral is asked once.
         for now in [1000.0, 1001.0, 1002.0] {
-            listing.absorb(Ok(vec![idle(990.0)]), None, now);
+            listing.absorb(with_asking(idle(990.0)), None, now);
             listing.ask_replies(&replies, now);
         }
         assert_eq!(shown(&mut listing, 1002.0), "Reply 1. All green.");
         for now in [1003.0, 1004.0] {
-            listing.absorb(Ok(vec![idle(990.0)]), None, now);
+            listing.absorb(with_asking(idle(990.0)), None, now);
             listing.ask_replies(&replies, now);
         }
         // Another turn ends in a new spell: asked once more, as the second call.
-        listing.absorb(Ok(vec![agent("p/a", "working")]), None, 1005.0);
+        listing.absorb(with_asking(agent("p/a", "working")), None, 1005.0);
         listing.ask_replies(&replies, 1005.0);
         for now in [1010.0, 1011.0] {
-            listing.absorb(Ok(vec![idle(1009.0)]), None, now);
+            listing.absorb(with_asking(idle(1009.0)), None, now);
             listing.ask_replies(&replies, now);
         }
         assert_eq!(shown(&mut listing, 1011.0), "Reply 2. All green.");
+        // Only the idle agent was ever asked.
         let calls = std::fs::read_to_string(dir.join("calls")).unwrap();
         assert_eq!(calls.lines().collect::<Vec<_>>(), ["p/a", "p/a"]);
         drop(replies);

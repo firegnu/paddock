@@ -2,7 +2,7 @@
 //! Saddle `src/agents.rs` at commit `df1c727`. Changed for paddock, which has no list cursor: being
 //! selected no longer counts as read; only the agent shown in the active pane does. The list-wide
 //! fold became each agent's own details, opened from its card, and it keeps the last reply read
-//! for each idle or waiting agent.
+//! for each idle agent.
 use crate::corral::Agent;
 use std::collections::{HashMap, HashSet};
 
@@ -30,8 +30,8 @@ pub struct Panel {
     replies: HashMap<Spell, Option<String>>,
 }
 
-/// A spell of idling or waiting: the agent, its instance and when the state began. Its last reply
-/// is read once for each.
+/// A spell of idling: the agent, its instance and when the state began. Its last reply is read
+/// once for each.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Spell {
     pub name: String,
@@ -109,9 +109,9 @@ impl Panel {
         self.expanded.clear();
     }
 
-    /// The spell an idle or waiting agent is in; `None` in any other state.
+    /// The spell an idle agent is in; `None` in any other state (waiting shows its question).
     fn spell(&self, a: &Agent, now: f64) -> Option<Spell> {
-        matches!(self.status(a, now), Status::Idle | Status::Waiting).then(|| Spell {
+        (self.status(a, now) == Status::Idle).then(|| Spell {
             name: a.name.clone(),
             instance: a.instance.clone(),
             since: a.state_started.map(f64::to_bits),

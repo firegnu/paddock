@@ -541,7 +541,7 @@ pub struct Card {
     pub selected: bool,
     /// The details show below the place line.
     pub expanded: bool,
-    /// Open in one of this window's panes: an accent dot after the name.
+    /// Open in one of this window's panes: an accent ring after the name.
     pub here: bool,
     /// Finished a turn this window hasn't shown yet: an accent dot after the name.
     pub unread: bool,
