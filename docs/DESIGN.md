@@ -261,4 +261,5 @@ paddock 与 Saddle 在代码上完全分开：用到的 Saddle 代码迁入 padd
   - 侧栏底部合成的按钮只放图标，不写字，旁边不写当前排序（用户：“只放图标”）。菜单向上弹出：New Agent…、New Shell、Sort（Status / Name）、Fold、Stop <选中的 agent>…、Settings…。
   - 设置窗口新加的两处英文保留：Fallback fonts 下的说明 “For characters the font lacks, in order”，Mascot 一项写成 “Show the mascot”（用户：“留”）。
   - 收起侧栏要快捷键，用 ⌘B（用户：“要”）。
+  - 标题栏右侧、Search 左边常驻一个分屏图标（用户 10-06：“就是说上一次做的那个split对话框界面上没有入口”，“标题栏放一个常驻的分屏图标”）：单窗格不显示窗格标题，原来分屏按钮跟着没了。P5-14 做。
   - 主控定：收起后的窄条 52pt（首字母方块＋状态点，项目间短线隔开，悬停显示名字、种类、状态、分支）；分割线 1pt 单色，可拖动改宽度。
