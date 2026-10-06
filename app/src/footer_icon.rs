@@ -24,6 +24,8 @@ pub enum Icon {
     Plus,
     /// A frame cut into two equal halves, a plus in the right one: split the pane.
     Split,
+    /// A frame cut into two equal halves: a split tab, after its title.
+    Panes,
     /// Arrows to two corners: zoom the pane.
     Zoom,
     /// Arrows in from two corners: restore the zoomed pane.
@@ -157,6 +159,14 @@ fn shapes(icon: Icon, bounds: Bounds<Pixels>, scale: f32) -> Vec<PathBuilder> {
             plus.move_to(at(8.5, 7.0));
             plus.line_to(at(11.5, 7.0));
             vec![frame, seam, plus]
+        }
+        Icon::Panes => {
+            let mut frame = stroke();
+            rounded_rect(&mut frame, at(1.0, 2.0), at(13.0, 12.0), 2.0 * scale);
+            let mut seam = stroke();
+            seam.move_to(at(7.0, 2.0));
+            seam.line_to(at(7.0, 12.0));
+            vec![frame, seam]
         }
         Icon::Zoom => {
             let mut arrows = stroke();

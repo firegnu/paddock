@@ -439,30 +439,67 @@ fn last_part(path: &str) -> &str {
     }
 }
 
-/// A tab's title, for the pane it shows: an agent by its name without the group prefix, unless
-/// another agent open in the window (`open`) would read the same; a shell as `zsh · paddock`.
-pub fn tab_title(subject: &Subject, open: &[String]) -> String {
-    match subject {
-        Subject::Agent(name) => {
-            let short = name.rsplit('/').next().unwrap_or(name);
+/// An agent's name as the tabs, the split panes' headers and the Changes header show it: the
+/// group before the short name (with its `/`, for drawing faint) only when another agent open in
+/// the window (`open`) has the same short name, then the short name. A name without a group, or
+/// with nothing after it, is shown whole.
+pub fn agent_name(name: &str, open: &[String]) -> (Option<String>, String) {
+    match name.rsplit_once('/') {
+        Some((group, short)) if !group.is_empty() && !short.is_empty() => {
             let clash = open
                 .iter()
                 .any(|other| other != name && other.rsplit('/').next() == Some(short));
-            if clash || short.is_empty() {
-                name.clone()
-            } else {
-                short.to_owned()
-            }
+            (clash.then(|| format!("{group}/")), short.to_owned())
         }
-        Subject::Shell { program, cwd } => format!("{} · {}", last_part(program), last_part(cwd)),
-        Subject::Command(command) => command.clone(),
-        Subject::Empty => "empty".into(),
+        _ => (None, name.to_owned()),
     }
 }
 
-/// The faint count after a tab's title for the panes it holds besides the one named.
+/// A tab's title, for the pane it shows, as the group to draw faint and the rest: an agent as
+/// [`agent_name`] has it; a shell as `zsh · paddock`.
+pub fn tab_label(subject: &Subject, open: &[String]) -> (Option<String>, String) {
+    match subject {
+        Subject::Agent(name) => agent_name(name, open),
+        Subject::Shell { program, cwd } => {
+            (None, format!("{} · {}", last_part(program), last_part(cwd)))
+        }
+        Subject::Command(command) => (None, command.clone()),
+        Subject::Empty => (None, "empty".into()),
+    }
+}
+
+/// A tab's title in one piece, as the command palette lists it.
+pub fn tab_title(subject: &Subject, open: &[String]) -> String {
+    let (group, name) = tab_label(subject, open);
+    group.unwrap_or_default() + &name
+}
+
+/// The faint count after a tab's title in the command palette for the panes it holds besides the
+/// one named.
 pub fn more_panes(panes: usize) -> Option<String> {
     (panes > 1).then(|| format!("+{}", panes - 1))
+}
+
+/// The hover text of the small split icon after a split tab's title: how many panes it holds.
+pub fn panes_tip(panes: usize) -> Option<String> {
+    (panes > 1).then(|| format!("{panes} panes"))
+}
+
+/// A name as [`agent_name`] gives it: the group, when there is one, in `faint` and the regular
+/// weight, then the name as the text around it is drawn.
+pub fn grouped((group, name): (Option<String>, String), faint: Hsla) -> StyledText {
+    let lead = group.as_ref().map_or(0, String::len);
+    let highlight = (lead > 0).then(|| {
+        (
+            0..lead,
+            HighlightStyle {
+                color: Some(faint),
+                font_weight: Some(FontWeight::NORMAL),
+                ..HighlightStyle::default()
+            },
+        )
+    });
+    StyledText::new(group.unwrap_or_default() + &name).with_highlights(highlight)
 }
 
 /// A directory, short: `~` for home, and only the last part of anything deeper, as `~/…/paddock`.
@@ -482,19 +519,25 @@ pub fn short_dir(path: &str, home: Option<&str>) -> String {
     }
 }
 
-/// A split pane's header: the name, in full, and the directory, short, when there is one.
+/// A split pane's header, and the Changes header: the name, an agent's as [`agent_name`] has it
+/// among the agents `open` in the window, and the directory, short, when there is one.
 pub fn pane_name(
     subject: &Subject,
     agent_cwd: Option<&str>,
     home: Option<&str>,
-) -> (String, Option<String>) {
+    open: &[String],
+) -> ((Option<String>, String), Option<String>) {
     match subject {
-        Subject::Agent(name) => (name.clone(), agent_cwd.map(|cwd| short_dir(cwd, home))),
-        Subject::Shell { program, cwd } => {
-            (last_part(program).to_owned(), Some(short_dir(cwd, home)))
-        }
-        Subject::Command(command) => (command.clone(), None),
-        Subject::Empty => ("empty".into(), None),
+        Subject::Agent(name) => (
+            agent_name(name, open),
+            agent_cwd.map(|cwd| short_dir(cwd, home)),
+        ),
+        Subject::Shell { program, cwd } => (
+            (None, last_part(program).to_owned()),
+            Some(short_dir(cwd, home)),
+        ),
+        Subject::Command(command) => ((None, command.clone()), None),
+        Subject::Empty => ((None, "empty".into()), None),
     }
 }
 
@@ -1679,8 +1722,9 @@ impl PaddockWindow {
             Subject::Shell { cwd, .. } => Some(cwd.clone()),
             Subject::Command(_) | Subject::Empty => None,
         };
-        let (name, _) = pane_name(&subject, None, None);
+        let ((group, name), _) = pane_name(&subject, None, None, &self.workspace.agents());
         Some(Follow {
+            group,
             name,
             dot: self.dot(pane, agents, now),
             cwd,
@@ -1941,13 +1985,32 @@ impl PaddockWindow {
                         .overflow_hidden()
                         .whitespace_nowrap()
                         .text_ellipsis()
-                        .child(tab_title(&self.subject(tab.active, cx), &open)),
+                        .child(grouped(
+                            tab_label(&self.subject(tab.active, cx), &open),
+                            self.fg(|t| t.agents_dimmer),
+                        )),
                 )
-                .children(more_panes(tab.panes().len()).map(|more| {
+                .children(panes_tip(tab.panes().len()).map(|text| {
+                    let tip = BarTip {
+                        text: text.into(),
+                        keys: String::new(),
+                        size: ui.px(11.5),
+                        color: self.fg(|t| t.agents_text),
+                        dim: self.fg(|t| t.agents_dim),
+                        background: hsla(self.theme.bg(|t| t.agents_bg), 1.0),
+                        border: self.fg(|t| t.agents_rule),
+                    };
                     div()
+                        .id(("tab-panes", index))
                         .flex_shrink_0()
-                        .text_color(self.fg(|t| t.agents_dim))
-                        .child(more)
+                        .flex()
+                        .items_center()
+                        .tooltip(move |_, cx| cx.new(|_| tip.clone()).into())
+                        .child(footer_icon::icon(
+                            Icon::Panes,
+                            self.fg(|t| t.agents_dim),
+                            scale * 0.9,
+                        ))
                 }));
             // Short of room, the other tabs narrow first; the active one keeps its title.
             item = if active {
@@ -1955,6 +2018,8 @@ impl PaddockWindow {
                     .pr(ui.px(6.0))
                     .bg(highlight)
                     .text_color(self.fg(|t| t.agents_text))
+                    // The short name heavier; a faint group before it stays regular.
+                    .font_weight(FontWeight::SEMIBOLD)
             } else {
                 item.flex_shrink(1.0)
                     .min_w(ui.px(56.0))
@@ -2076,7 +2141,7 @@ impl PaddockWindow {
         let highlight = self.highlight();
         let lit = self.right.open;
         let tip = BarTip {
-            text: "Toggle right sidebar",
+            text: "Toggle right sidebar".into(),
             keys: menu::keys(&menu::ToggleRightSidebar).concat(),
             size: ui.px(11.5),
             color: self.fg(|t| t.agents_text),
@@ -2118,7 +2183,7 @@ impl PaddockWindow {
         let highlight = self.highlight();
         let lit = self.split_hanging() == Some(SplitFrom::Bar);
         let tip = BarTip {
-            text: "Split pane",
+            text: "Split pane".into(),
             keys: menu::keys(&menu::SplitRight).concat(),
             size: ui.px(11.5),
             color: self.fg(|t| t.agents_text),
@@ -2341,6 +2406,7 @@ impl PaddockWindow {
             &self.subject(pane, cx),
             agent_cwd.as_deref(),
             home.as_deref(),
+            &self.workspace.agents(),
         );
         let now = now();
         let splitting = active && self.split_hanging() == Some(SplitFrom::Pane);
@@ -2442,7 +2508,7 @@ impl PaddockWindow {
                     } else {
                         self.fg(|t| t.muted)
                     })
-                    .child(name),
+                    .child(grouped(name, self.fg(|t| t.agents_dimmer))),
             )
             .children(dir.map(|dir| {
                 div()
@@ -3782,10 +3848,10 @@ impl PaddockWindow {
     }
 }
 
-/// A title bar button's hover text, with its shortcut after it.
+/// A title bar hover text, with the shortcut after it when there is one.
 #[derive(Clone)]
 struct BarTip {
-    text: &'static str,
+    text: SharedString,
     keys: String,
     size: Pixels,
     color: Hsla,
@@ -3808,8 +3874,10 @@ impl Render for BarTip {
             .shadow_md()
             .text_size(self.size)
             .text_color(self.color)
-            .child(self.text)
-            .child(div().text_color(self.dim).child(self.keys.clone()))
+            .child(self.text.clone())
+            .when(!self.keys.is_empty(), |tip| {
+                tip.child(div().text_color(self.dim).child(self.keys.clone()))
+            })
     }
 }
 
@@ -4139,6 +4207,44 @@ mod tests {
     }
 
     #[test]
+    fn agents_show_the_short_name_and_the_group_only_when_another_open_agent_shares_it() {
+        let open = |names: &[&str]| names.iter().map(|n| n.to_string()).collect::<Vec<_>>();
+        let short = |s: &str| (None, s.to_owned());
+        let grouped = |g: &str, s: &str| (Some(g.to_owned()), s.to_owned());
+        // Short whenever no other open agent reads the same, including not being open at all.
+        let same_group = open(&["paddock/main", "paddock/dev-fonts"]);
+        assert_eq!(agent_name("paddock/main", &same_group), short("main"));
+        assert_eq!(agent_name("paddock/main", &[]), short("main"));
+        // The same agent in two panes is no clash.
+        let twice = open(&["paddock/main", "paddock/main"]);
+        assert_eq!(agent_name("paddock/main", &twice), short("main"));
+        // Both clashing names get their group, and only they do.
+        let clash = open(&["paddock/main", "ranch/main", "ranch/dev-route"]);
+        assert_eq!(
+            agent_name("paddock/main", &clash),
+            grouped("paddock/", "main")
+        );
+        assert_eq!(agent_name("ranch/main", &clash), grouped("ranch/", "main"));
+        assert_eq!(agent_name("ranch/dev-route", &clash), short("dev-route"));
+        // The group is everything before the last `/`.
+        let deep = open(&["a/b/c", "x/c"]);
+        assert_eq!(agent_name("a/b/c", &deep), grouped("a/b/", "c"));
+        // Without a group, or with nothing after it, the name is shown whole.
+        let solo = open(&["solo", "p/solo"]);
+        assert_eq!(agent_name("solo", &solo), short("solo"));
+        assert_eq!(agent_name("p/solo", &solo), grouped("p/", "solo"));
+        assert_eq!(agent_name("p/", &open(&["p/", "q/"])), short("p/"));
+        // The tab keeps the group apart, to draw it faint.
+        let agent = Subject::Agent("paddock/main".into());
+        assert_eq!(tab_label(&agent, &clash), grouped("paddock/", "main"));
+        assert_eq!(tab_label(&agent, &same_group), short("main"));
+        assert_eq!(
+            tab_label(&shell("/bin/zsh", "/Users/me/paddock"), &clash),
+            short("zsh · paddock")
+        );
+    }
+
+    #[test]
     fn tabs_name_agents_short_unless_that_reads_the_same_as_another() {
         let agent = Subject::Agent("paddock/main".into());
         let open = vec!["paddock/main".to_owned(), "paddock/dev-fonts".to_owned()];
@@ -4174,6 +4280,13 @@ mod tests {
     }
 
     #[test]
+    fn a_split_tab_shows_the_panes_icon_with_how_many_panes_it_holds() {
+        assert_eq!(panes_tip(1), None);
+        assert_eq!(panes_tip(2).as_deref(), Some("2 panes"));
+        assert_eq!(panes_tip(4).as_deref(), Some("4 panes"));
+    }
+
+    #[test]
     fn directories_shorten_to_their_last_part() {
         let home = Some("/Users/me");
         assert_eq!(short_dir("/Users/me", home), "~");
@@ -4187,21 +4300,26 @@ mod tests {
     }
 
     #[test]
-    fn pane_headers_name_in_full_with_the_short_directory() {
+    fn pane_headers_name_agents_as_tabs_do_with_the_short_directory() {
         let home = Some("/Users/me");
         let agent = Subject::Agent("paddock/main".into());
+        let open = vec!["paddock/main".to_owned()];
         assert_eq!(
-            pane_name(&agent, Some("/Users/me/code/paddock"), home),
-            ("paddock/main".into(), Some("~/…/paddock".into()))
+            pane_name(&agent, Some("/Users/me/code/paddock"), home, &open),
+            ((None, "main".into()), Some("~/…/paddock".into()))
         );
-        assert_eq!(pane_name(&agent, None, home), ("paddock/main".into(), None));
+        let clash = vec!["paddock/main".to_owned(), "ranch/main".to_owned()];
         assert_eq!(
-            pane_name(&shell("/bin/zsh", "/Users/me/code"), None, home),
-            ("zsh".into(), Some("~/code".into()))
+            pane_name(&agent, None, home, &clash),
+            ((Some("paddock/".into()), "main".into()), None)
         );
         assert_eq!(
-            pane_name(&Subject::Empty, None, home),
-            ("empty".into(), None)
+            pane_name(&shell("/bin/zsh", "/Users/me/code"), None, home, &clash),
+            ((None, "zsh".into()), Some("~/code".into()))
+        );
+        assert_eq!(
+            pane_name(&Subject::Empty, None, home, &open),
+            ((None, "empty".into()), None)
         );
     }
 
