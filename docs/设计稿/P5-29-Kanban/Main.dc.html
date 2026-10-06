@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>Kanban layouts</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div style="width:2280px;height:980px;box-sizing:border-box;padding:40px;display:flex;gap:60px;background:#0a1212;font-family:-apple-system,'SF Pro Text','Helvetica Neue',sans-serif;color:#d6e6e1">
+  <div style="display:flex;flex-direction:column;gap:12px">
+    <div style="font-size:14px;font-weight:600">A · 窄面板：按列分组的列表（推荐）</div>
+    <div style="font-size:12.5px;color:#83a098;width:500px">五列从上到下排，每组可折叠，DONE 默认收起；悬停卡片出现三个只读入口：打开任务文件、跳到 agent、看改动。</div>
+    <div style="border-radius:12px;overflow:hidden;box-shadow:0 0 0 1px #1f3633">
+      <dc-import name="Board" layout="list" w="500px" h="860px" hint-size="500px,860px"></dc-import>
+    </div>
+  </div>
+  <div style="display:flex;flex-direction:column;gap:12px">
+    <div style="font-size:14px;font-weight:600">B · 窄面板：横向滚动的列</div>
+    <div style="font-size:12.5px;color:#83a098;width:500px">经典看板的样子，但窄面板里一次只看得到两列，要横着滚。</div>
+    <div style="border-radius:12px;overflow:hidden;box-shadow:0 0 0 1px #1f3633">
+      <dc-import name="Board" layout="columns" w="500px" h="860px" hint-size="500px,860px"></dc-import>
+    </div>
+  </div>
+  <div style="display:flex;flex-direction:column;gap:12px">
+    <div style="font-size:14px;font-weight:600">加宽后（窗口一半左右）：五列并排</div>
+    <div style="font-size:12.5px;color:#83a098;width:1040px">和 Changes 一样，面板宽到放得下时换成并排的列；窄的时候用 A。</div>
+    <div style="border-radius:12px;overflow:hidden;box-shadow:0 0 0 1px #1f3633">
+      <dc-import name="Board" layout="wide" w="1040px" h="860px" hint-size="1040px,860px"></dc-import>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":2280,"height":980}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>
