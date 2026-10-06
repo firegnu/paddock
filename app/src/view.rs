@@ -462,15 +462,25 @@ impl TerminalView {
         screen.term.selection_to_string().filter(|s| !s.is_empty())
     }
 
-    /// ⌘C: the selection, when there is one.
-    fn copy(&mut self, _: &menu::Copy, _: &mut Window, cx: &mut Context<Self>) {
+    /// ⌘C: the selection, when there is one. Not while the Browser's page has the keyboard: the
+    /// page copies its own.
+    fn copy(&mut self, _: &menu::Copy, window: &mut Window, cx: &mut Context<Self>) {
+        if crate::browser::page_has_keys(window) {
+            cx.propagate();
+            return;
+        }
         if let Some(text) = self.selection_text() {
             cx.write_to_clipboard(ClipboardItem::new_string(text));
         }
     }
 
-    /// ⌘V: the clipboard's text into the terminal.
-    fn paste_clipboard(&mut self, _: &menu::Paste, _: &mut Window, cx: &mut Context<Self>) {
+    /// ⌘V: the clipboard's text into the terminal. Not while the Browser's page has the keyboard:
+    /// it goes into the page.
+    fn paste_clipboard(&mut self, _: &menu::Paste, window: &mut Window, cx: &mut Context<Self>) {
+        if crate::browser::page_has_keys(window) {
+            cx.propagate();
+            return;
+        }
         if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
             self.paste(&text, cx);
         }
