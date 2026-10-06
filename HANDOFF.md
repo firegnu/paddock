@@ -3,8 +3,8 @@
 ## 现在在哪（2026-10-06）
 
 - main 干净，和 `origin/main`（`github.com/firegnu/paddock`，public）同步；没有开着的 worktree、任务分支，corral 里只有主控 `paddock/main`。
-- 210 项测试通过。`~/Applications/paddock.app` 是合并 P5-19b 之后的版本。重新打包安装：在 `app/` 下 `cargo build --release`，再 `cargo run --release --example bundle -- --install`（编译目录见 AGENTS.md，主仓库用 `.target/main`）。
-- 已合并：第一至第三阶段、迁移 M0–M3（corral、dispatch 在 `../ranch`；遥测、Drover、插件系统已砍）、P4-1～P4-3、P5-1～P5-21（P5-13 只做了 13a 右侧栏外壳，P5-19 做了 19r 调研、19a 试验和 19b 系统毛玻璃）。每件的范围、完成记录、主控审查在 `docs/任务/`。
+- 211 项测试通过。`~/Applications/paddock.app` 是合并 P5-19c 之后的版本。重新打包安装：在 `app/` 下 `cargo build --release`，再 `cargo run --release --example bundle -- --install`（编译目录见 AGENTS.md，主仓库用 `.target/main`）。
+- 已合并：第一至第三阶段、迁移 M0–M3（corral、dispatch 在 `../ranch`；遥测、Drover、插件系统已砍）、P4-1～P4-3、P5-1～P5-21（P5-13 只做了 13a 右侧栏外壳，P5-19 做了 19r 调研、19a 试验、19b 系统毛玻璃、19c 淡色字提亮）。每件的范围、完成记录、主控审查在 `docs/任务/`。
 - 上下文：`AGENTS.md`（规矩）、`docs/DESIGN.md`（已定决定，§13 是界面改版的全部决定和用户原话）、`docs/背景与决策记录.md`、`docs/设计稿/`（各件样稿源文件）、`docs/调研/`。
 
 ## 本次会话（10-06 下午）
@@ -23,7 +23,7 @@
 ## 下一步（按优先级）
 
 1. **等用户看效果并反馈**：P5-18 收件箱卡片（角标动画、等你卡片和 Reply、空闲预览、展开布局、空心“在此打开”环是否太小）、P5-20 程序坞图标（16px 方块边缘偏软）、P5-16 的收起/窄侧栏/全屏/大字号和 Attention 弹出位置。这几件 agent 都没截到屏幕图（`screencapture` 报 could not create image from window，可能缺屏幕录制权限）。
-2. **P5-19b 系统毛玻璃已装上，等用户在真窗口看**：P5-19a（GPUI `Blurred`）在 macOS 27.0.1 上没有模糊、还透到右边，用户否了；19b 只在左边一列（侧栏或窄条，从上到下）垫系统 `NSVisualEffectView`（`app/src/frost.rs`，sidebar 材质），右边恢复不透明。要看：观感、三套主题的 wash/lit/waiting（`preset.rs`）、可读性、拖宽/收起/全屏时边缘闪不闪。待用户定：收起时毛玻璃只有窄条宽（52），红绿灯跨在交界上，要不要改成收起时标题栏左段也磨砂（倒 L 形）。方向对了再另开一件做浮动圆角面板和边缘高光。
+2. **P5-19b 系统毛玻璃用户看过：“效果不错”；淡色字看不清，P5-19c 已提亮并装上，等用户再看**：P5-19a（GPUI `Blurred`）在 macOS 27.0.1 上没有模糊、还透到右边，用户否了；19b 只在左边一列（侧栏或窄条，从上到下）垫系统 `NSVisualEffectView`（`app/src/frost.rs`，sidebar 材质），右边恢复不透明。要看：观感、三套主题的 wash/lit/waiting（`preset.rs`）、可读性、拖宽/收起/全屏时边缘闪不闪。待用户定：收起时毛玻璃只有窄条宽（52），红绿灯跨在交界上，要不要改成收起时标题栏左段也磨砂（倒 L 形）。方向对了再另开一件做浮动圆角面板和边缘高光。
 3. **右侧栏 Kanban**：先和用户聊需求，聊定之前不出样稿、不派活。
 4. 之后：Changes 标签的 diff（P5-13 剩余）、Browser 标签（先调研 WKWebView 嵌进 GPUI）、拖动分隔线调整分屏大小、`paddock ctl`。
 
