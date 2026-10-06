@@ -1477,6 +1477,7 @@ impl Render for Tip {
             .text_size(self.size)
             .text_color(self.color)
             .child(self.text.clone())
+            .child(crate::browser::cover())
     }
 }
 
@@ -2225,6 +2226,7 @@ impl Render for RailTip {
                     ),
             )
             .child(div().text_color(self.status.1).child(self.status.0.clone()))
+            .child(crate::browser::cover())
     }
 }
 

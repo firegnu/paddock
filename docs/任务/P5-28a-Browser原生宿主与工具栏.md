@@ -82,5 +82,11 @@
 - **没做的事**
   - 点网页拿键盘、点终端或地址栏交回、键盘和输入法、拖宽／缩放／全屏时会不会闪或错位、palette／菜单／悬停说明出现时的隐藏、窗口关闭时的释放、“在默认浏览器打开”，都没在真窗口里操作（不能模拟键鼠），留给用户实际用。
   - 给 P5-28b：①网页拿键盘时，⌘C／⌘V／⌘W／⌘P 等组合先到 GPUI 的视图还是 WKWebView、会不会落到终端，未验；②在地址栏输入到一半去点网页，GPUI 焦点还在输入框（光标还画着），键盘却已经在网页；③悬停说明引起的暂时隐藏会让网页丢键盘（见上 3）；④网页拿键盘时 GPUI 内部焦点仍停在原来的终端；⑤动作菜单、Attention 列表不和网页相交时网页照常显示，这时点网页不会关掉菜单（点击被网页接走）。
-  - 给 P5-28c：未打包的二进制能开 `http://localhost`；打包后的 ATS、`127.0.0.1`／`::1`、自签名 HTTPS 都没验。没设 UIDelegate：`target=_blank`／`window.open`、JS 对话框、文件选择、下载目前都不处理；没开 Inspector。
-  - 没登记的悬停说明：`sidebar.rs` 的 `Tip`、`RailTip` 和 `changes.rs` 的 `Tip` 不在可改的文件里。Changes 的只在 Changes 标签出现（那时网页本来就隐藏）；侧栏的出现在窗口左边，只有窗口很窄、终端被挤得比说明还窄时才可能碰到网页。要登记，各加一行 `.child(browser::cover())`。
+  - 给 P5-28c：打包后的 `http://localhost` 和 `http://127.0.0.1` 已验（见下面的补充）；`::1`、局域网 IP、任意 http、自签名 HTTPS 都没验。没设 UIDelegate：`target=_blank`／`window.open`、JS 对话框、文件选择、下载目前都不处理；没开 Inspector。
+  - 没登记的悬停说明：只剩 `changes.rs` 的 `Tip`，它只在 Changes 标签出现，那时网页本来就隐藏。`sidebar.rs` 的两个已按主控同意补上（见下）。
+
+### 补充（主控回复后）
+
+- 主控同意后，`sidebar.rs` 的 `Tip`、`RailTip` 各加了一行 `.child(crate::browser::cover())`，这个文件只改了这两处。`objc2-app-kit` 补 `NSWindow` 特性，主控已接受。
+- 打包验证：在自己的编译目录跑 `cargo run --release --example bundle`（没加 `--install`，没碰 `~/Applications`），打出 `paddock.app`（Apple Development 签名，验签通过；Info.plist 里没有 ATS 项）。直接运行包里的 `Contents/MacOS/paddock`，条件和前面的截图相同。`http://localhost:<端口>/` 和 `http://127.0.0.1:<端口>/` 都正常打开：服务各收到一次 `GET /`，页面 JS 报 396×650。没被 ATS 拦，所以 `bundle.rs` 没改。网站数据落在临时 HOME 的 `Library/WebKit/dev.paddock.app`，说明这次用的是包里的 Info.plist 和 bundle id；真实 `~/Library` 下 `dev.paddock.app` 的 WebKit、HTTPStorages、Caches、Saved Application State 都不存在，`Preferences/dev.paddock.app.plist` 的修改时间没变（运行前后都查过）。
+- 补完后 `app/` 下 `cargo test --all-targets` 249 项全过，`cargo clippy --all-targets -- -D warnings` 无警告，`cargo fmt --check` 通过。
