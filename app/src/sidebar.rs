@@ -626,7 +626,7 @@ impl Sidebar {
     fn actions_button(&self, cx: &mut Context<Self>) -> gpui::Stateful<Div> {
         let ui = UiFont::get(cx);
         button(
-            (&self.theme, self.grounds().selected),
+            (&self.theme, self.grounds().selected, |t| t.agents_dim),
             &ui,
             "actions",
             Icon::Actions,
@@ -646,8 +646,22 @@ impl Sidebar {
         } else {
             "Collapse sidebar (⌘B)"
         };
+        // Expanding, it stands on the title bar's opaque row, in its buttons' colours.
+        let look = if expand {
+            (
+                &*self.given,
+                Grounds::of(&self.given, false).selected,
+                (|t| t.muted) as Pick,
+            )
+        } else {
+            (
+                &*self.theme,
+                self.grounds().selected,
+                (|t| t.agents_dim) as Pick,
+            )
+        };
         button(
-            (&self.theme, self.grounds().selected),
+            look,
             &ui,
             "collapse",
             Icon::LeftSidebar,
@@ -1292,9 +1306,10 @@ fn quiet(
 }
 
 /// An icon button, `(width, height, corner radius)` in points, with what it does shown on hover;
-/// `lit` while what it opens is open. Lit and hovered, it takes `ground`.
+/// `lit` while what it opens is open. Lit and hovered, it takes `ground`; unlit, its icon is in
+/// `quiet`.
 fn button(
-    (theme, ground): (&Theme, Hsla),
+    (theme, ground, quiet): (&Theme, Hsla, Pick),
     ui: &UiFont,
     id: &'static str,
     icon: Icon,
@@ -1313,7 +1328,7 @@ fn button(
     let ink = if lit {
         fg(|t| t.agents_text)
     } else {
-        fg(|t| t.agents_dim)
+        fg(quiet)
     };
     div()
         .id(id)
