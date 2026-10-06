@@ -1,7 +1,8 @@
 //! The Agents list model: ordering, grouping, status and the Git summaries by directory. From
 //! Saddle `src/agents.rs` at commit `df1c727`. Changed for paddock, which has no list cursor: being
 //! selected no longer counts as read; only the agent shown in the active pane does. The list-wide
-//! fold became each agent's own details, opened from its card.
+//! fold became each agent's own details, opened from its card, and it keeps the last reply read
+//! for each idle or waiting agent.
 use crate::corral::Agent;
 use std::collections::{HashMap, HashSet};
 
@@ -24,7 +25,20 @@ pub struct Panel {
     pub stopping: bool,
     /// Git summaries by public cwd, kept apart from corral data; a missing key is still loading.
     pub git: HashMap<String, Option<crate::git::Summary>>,
+    /// Last replies by the spell they were asked for in, kept only while that spell lasts; `None`
+    /// while being read, or when there was none or it could not be read.
+    replies: HashMap<Spell, Option<String>>,
 }
+
+/// A spell of idling or waiting: the agent, its instance and when the state began. Its last reply
+/// is read once for each.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Spell {
+    pub name: String,
+    instance: Option<String>,
+    since: Option<u64>,
+}
+
 impl Panel {
     pub fn absorb(&mut self, agents: Vec<Agent>, showing: Option<&str>, now: f64) {
         for a in &agents {
@@ -93,6 +107,47 @@ impl Panel {
     /// Closes every agent's details.
     pub fn collapse_all(&mut self) {
         self.expanded.clear();
+    }
+
+    /// The spell an idle or waiting agent is in; `None` in any other state.
+    fn spell(&self, a: &Agent, now: f64) -> Option<Spell> {
+        matches!(self.status(a, now), Status::Idle | Status::Waiting).then(|| Spell {
+            name: a.name.clone(),
+            instance: a.instance.clone(),
+            since: a.state_started.map(f64::to_bits),
+        })
+    }
+
+    /// The spells whose reply is still to be asked for, now taken as asked: each is asked once,
+    /// whatever the answer. Spells that have ended are forgotten with their replies.
+    pub fn replies_to_read(&mut self, now: f64) -> Vec<Spell> {
+        let current: HashSet<Spell> = self
+            .agents
+            .iter()
+            .filter_map(|a| self.spell(a, now))
+            .collect();
+        self.replies.retain(|spell, _| current.contains(spell));
+        let mut new: Vec<Spell> = current
+            .into_iter()
+            .filter(|spell| !self.replies.contains_key(spell))
+            .collect();
+        new.sort_by(|a, b| a.name.cmp(&b.name));
+        for spell in &new {
+            self.replies.insert(spell.clone(), None);
+        }
+        new
+    }
+
+    /// A reply read for a spell; dropped when the spell has ended meanwhile.
+    pub fn absorb_reply(&mut self, spell: Spell, text: Option<String>) {
+        if let Some(slot) = self.replies.get_mut(&spell) {
+            *slot = text;
+        }
+    }
+
+    /// The agent's last reply, as read in the spell it is in now.
+    pub fn reply(&self, a: &Agent, now: f64) -> Option<&str> {
+        self.replies.get(&self.spell(a, now)?)?.as_deref()
     }
 
     pub fn select(&mut self, name: Option<String>) {

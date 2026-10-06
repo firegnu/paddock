@@ -1,5 +1,5 @@
 //! The `corral` command: one-off JSON calls and the background `ls`/`status` poller. From Saddle
-//! `src/corral.rs` at commit `df1c727`, unchanged.
+//! `src/corral.rs` at commit `df1c727`; paddock added the background reader of last replies.
 use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 use serde_json::Value;
@@ -140,6 +140,63 @@ impl Client {
         }
         agents.sort_by(|a, b| a.name.cmp(&b.name));
         Ok(agents)
+    }
+
+    /// The agent's last reply as `corral reply` gives it; `None` when it has none yet or it can't
+    /// be read.
+    pub fn reply(&self, name: &str, cancel: &AtomicBool) -> Option<String> {
+        let value = self
+            .json(&["reply", name], Duration::from_secs(15), cancel)
+            .ok()?;
+        value.get("text")?.as_str().map(str::to_owned)
+    }
+}
+
+/// Reads agents' last replies in the background, one at a time, each when asked; `K` says which
+/// request a result answers.
+pub struct Replies<K> {
+    pub updates: mpsc::Receiver<(K, Option<String>)>,
+    asks: Option<mpsc::Sender<(K, String)>>,
+    cancel: Arc<AtomicBool>,
+    worker: Option<thread::JoinHandle<()>>,
+}
+impl<K: Send + 'static> Replies<K> {
+    pub fn start(client: Client) -> Self {
+        let (tx, updates) = mpsc::channel();
+        let (asks, wait) = mpsc::channel::<(K, String)>();
+        let cancel = Arc::new(AtomicBool::new(false));
+        let quitting = cancel.clone();
+        let worker = thread::spawn(move || {
+            for (key, name) in wait {
+                if quitting.load(Ordering::Relaxed) {
+                    break;
+                }
+                if tx.send((key, client.reply(&name, &quitting))).is_err() {
+                    break;
+                }
+            }
+        });
+        Self {
+            updates,
+            asks: Some(asks),
+            cancel,
+            worker: Some(worker),
+        }
+    }
+    /// Reads `name`'s last reply, answered as `key`.
+    pub fn ask(&self, key: K, name: String) {
+        if let Some(asks) = &self.asks {
+            let _ = asks.send((key, name));
+        }
+    }
+}
+impl<K> Drop for Replies<K> {
+    fn drop(&mut self) {
+        self.cancel.store(true, Ordering::Relaxed);
+        self.asks.take();
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
+        }
     }
 }
 

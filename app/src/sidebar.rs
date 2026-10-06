@@ -1,28 +1,29 @@
 //! The Agents sidebar: `corral ls` and the agents' Git summaries through the pollers taken from
-//! Saddle, ordered and judged by its Agents panel model, shown as native two-line cards (`card.rs`
-//! decides what each card says). Clicking a card asks the window to show that agent, and clicking
-//! the one shown opens its details. The footer's one button opens the window's menu of actions;
-//! the header row, which the window puts in its title bar, starts with the button that collapses
-//! the sidebar to a narrow strip of one tile per agent.
+//! Saddle, ordered and judged by its Agents panel model, and each idle or waiting agent's last
+//! reply, read once a spell. Each agent is a card read like a conversation (`card.rs` decides what
+//! it says): its kind's avatar with the status on its corner, then the name, a preview and where it
+//! works. Clicking a card asks the window to show that agent, and clicking the one shown opens its
+//! details. The footer's one button opens the window's menu of actions; the header row, which the
+//! window puts in its title bar, starts with the button that collapses the sidebar to a narrow
+//! strip of one tile per agent.
 use crate::{
-    agents::{Panel, Status},
+    agents::{Panel, Spell, Status},
     attention,
-    card::{self, Card, Click, Face, Ink, Line, Pick, Second, Tone},
-    corral::{Agent, Client, Poller, Role},
+    card::{self, Card, Click, Ink, Line, Pick, Preview, Tone},
+    corral::{Agent, Client, Poller, Replies, Role},
     fonts::UiFont,
     footer_icon::{self, Icon},
-    git,
-    kind_icon::{self, KindIcon},
+    git, kind_icon,
     theme::Theme,
     view::hsla,
     viewer::AgentMetadata,
 };
 use anyhow::Result;
 use gpui::{
-    Animation, AnimationExt, AnyElement, App, BoxShadow, ClickEvent, Context, Div, ElementId,
-    EventEmitter, Font, FontFeatures, FontWeight, HighlightStyle, Hsla, MouseButton,
-    MouseDownEvent, Pixels, Render, RenderOnce, SharedString, StyledText, TextRun, Window, div,
-    ease_in_out, point, prelude::*, px, relative,
+    Animation, AnimationExt, AnyElement, App, BoxShadow, ClickEvent, ClipboardItem, Context, Div,
+    ElementId, EventEmitter, Font, FontFeatures, FontWeight, HighlightStyle, Hsla, MouseButton,
+    MouseDownEvent, Pixels, Render, RenderOnce, SharedString, StyledText, TextRun, Transformation,
+    Window, div, ease_in_out, percentage, point, prelude::*, px, relative, svg,
 };
 use std::{rc::Rc, sync::Arc, time::Duration};
 
@@ -41,6 +42,8 @@ pub enum SidebarEvent {
     Actions,
     /// Collapse to the strip, or expand again.
     ToggleCollapse,
+    /// Stop this agent, after asking (the open card's Stop…).
+    Stop(String),
     /// The agents corral still lists, for panes to let go of one that disappeared.
     Alive(Vec<String>),
 }
@@ -49,37 +52,59 @@ pub enum SidebarEvent {
 const GIT_REFRESH: Duration = Duration::from_secs(5);
 
 // Sizes, in points at the base interface size.
-/// The list's side padding, and a card's own.
+/// The list's side padding.
 const PAD: f32 = 10.0;
-const CARD_X: f32 = 10.0;
-const CARD_Y: f32 = 8.0;
+/// A card's padding (left, right, top and bottom, inside its 1-point edge) and corners.
+const CARD_LEFT: f32 = 10.0;
+const CARD_RIGHT: f32 = 12.0;
+const CARD_Y: f32 = 10.0;
+const CARD_RADIUS: f32 = 12.0;
+/// The avatar: its side, its corners, the room after it, and the kind's icon or letter in it.
+const AVATAR: f32 = 34.0;
+const AVATAR_RADIUS: f32 = 10.0;
+const AVATAR_GAP: f32 = 11.0;
+const AVATAR_ICON: f32 = 16.0;
+/// How strongly the kind's colour tints the avatar, and waiting amber the card.
+const AVATAR_TINT: f32 = 0.13;
+const WAITING_TINT: f32 = 0.07;
 const DOT: f32 = 8.0;
-/// The second line and the details start under the name: the dot and the gap after it.
-const INDENT: f32 = 16.0;
 /// Room kept before the age.
 const TIME_PAD: f32 = 4.0;
-/// Between a detail's label column and its value.
-const LABEL_GAP: f32 = 14.0;
-/// The most of a card's width the working tool takes before it is cut.
-const TOOL_SHARE: f32 = 0.3;
-/// The share of a card's width a name keeps before the effort, then the tool, give way.
+/// The share of a card's width a name keeps before the effort gives way.
 const NAME_SHARE: f32 = 0.4;
-/// The marks after the name: the gap before each, the unread dot and its hover box, the
-/// open-here icon, and the kind's icon, as tall as the name's letters.
-const MARK_GAP: f32 = 5.0;
+/// The marks after the name: the gap before each, the unread dot and the open-here dot, each in
+/// a box to hover.
+const MARK_GAP: f32 = 6.0;
 const UNREAD: f32 = 6.0;
 const UNREAD_BOX: f32 = 10.0;
-const HERE_BOX: f32 = 12.0;
-const KIND_ICON: f32 = 13.0;
+const HERE: f32 = 5.0;
+const HERE_BOX: f32 = 9.0;
+/// The open card: between its cells' columns, and a chip's sides.
+const CELL_GAP: f32 = 12.0;
+const CHIP_X: f32 = 7.0;
+/// A text button's sides.
+const BUTTON_X: f32 = 9.0;
+/// A group's status bar: each agent's share, and the most it grows to.
+const BAR_SHARE: f32 = 12.0;
+const BAR_MAX: f32 = 96.0;
 // The type scale (DESIGN §13).
 const TITLE_SIZE: f32 = 15.0;
+const CARD_NAME_SIZE: f32 = 14.0;
 const NAME_SIZE: f32 = 13.0;
+const PREVIEW_SIZE: f32 = 12.5;
 const SECOND_SIZE: f32 = 12.0;
 const NOTE_SIZE: f32 = 11.5;
 const KIND_SIZE: f32 = 11.0;
 const LABEL_SIZE: f32 = 10.5;
+const CELL_LABEL_SIZE: f32 = 9.5;
 const BADGE_SIZE: f32 = 9.0;
 const TILE_SIZE: f32 = 12.5;
+/// The preview's lines, folded and open.
+const PREVIEW_LINES: usize = 2;
+const PREVIEW_OPEN_LINES: usize = 6;
+/// A working agent's spinner, drawn as a mask: the faint track and the arc that turns.
+const SPIN_TRACK: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12"><circle cx="6" cy="6" r="4.5" fill="none" stroke="#000" stroke-width="2"/></svg>"##;
+const SPIN_ARC: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12"><path d="M6 1.5a4.5 4.5 0 0 1 4.5 4.5" fill="none" stroke="#000" stroke-width="2" stroke-linecap="round"/></svg>"##;
 
 /// The collapsed strip's width, in points at the base interface size.
 pub const RAIL: f32 = 52.0;
@@ -240,6 +265,25 @@ impl Listing {
         self.panel.absorb_git(batch);
     }
 
+    /// Asks for the last reply of each agent that has just gone idle or begun waiting; never twice
+    /// in one spell.
+    pub fn ask_replies(&mut self, replies: &Replies<Spell>, now: f64) {
+        for spell in self.panel.replies_to_read(now) {
+            let name = spell.name.clone();
+            replies.ask(spell, name);
+        }
+    }
+
+    /// Takes the replies read since; whether there were any.
+    pub fn absorb_replies(&mut self, replies: &Replies<Spell>) -> bool {
+        let mut any = false;
+        for (spell, text) in replies.updates.try_iter() {
+            self.panel.absorb_reply(spell, text);
+            any = true;
+        }
+        any
+    }
+
     /// The directories whose Git state the panel shows.
     pub fn cwds(&self) -> Vec<String> {
         let mut cwds: Vec<String> = self
@@ -286,6 +330,8 @@ pub struct Sidebar {
     listing: Listing,
     poller: Poller,
     git: git::Poller,
+    /// Reads last replies for the cards' previews.
+    replies: Replies<Spell>,
     /// The active pane's agent.
     selected: Option<String>,
     /// Every agent open in this window's panes.
@@ -327,6 +373,9 @@ impl Sidebar {
             width,
             mono,
             listing: Listing::default(),
+            replies: Replies::start(Client {
+                program: corral.clone(),
+            }),
             poller: Poller::start(Client { program: corral }, refresh),
             git: git::Poller::start("git".into(), GIT_REFRESH),
             selected: None,
@@ -687,7 +736,7 @@ impl Sidebar {
         self.listing.cwds()
     }
 
-    /// Whether every card is folded to two lines, and sorted by name, for the View menu's ticks.
+    /// Whether every card is folded, and sorted by name, for the View menu's ticks.
     pub fn view_state(&self) -> (bool, bool) {
         (
             self.listing.panel.expanded.is_empty(),
@@ -755,11 +804,13 @@ impl Sidebar {
         }
         if changed {
             self.git.watch(self.listing.cwds());
+            self.listing.ask_replies(&self.replies, now);
         }
         for batch in self.git.updates.try_iter().collect::<Vec<_>>() {
             changed = true;
             self.listing.absorb_git(batch);
         }
+        changed |= self.listing.absorb_replies(&self.replies);
         // Working agents' ages tick; their dots breathe by themselves.
         if changed || self.listing.animating(now) {
             cx.notify();
@@ -770,19 +821,54 @@ impl Sidebar {
     /// details.
     fn click(&mut self, card: &Card, cx: &mut Context<Self>) {
         match card::click(card) {
-            Click::Open => cx.emit(SidebarEvent::Attach {
-                name: card.name.clone(),
-                metadata: AgentMetadata {
-                    cwd: card.cwd.clone(),
-                    instance: card.instance.clone(),
-                },
-            }),
+            Click::Open => show(card, cx),
             Click::Details => {
                 self.listing.panel.toggle_details(&card.name);
                 cx.notify();
             }
         }
     }
+
+    /// What a card's buttons do: Reply shows the agent, Copy copies its instance, Stop… asks the
+    /// window to stop it. Each keeps the click from the card.
+    fn card_actions(&self, card: &Card, cx: &mut Context<Self>) -> CardActions {
+        let reply = {
+            let card = card.clone();
+            cx.listener(move |_, _: &ClickEvent, _, cx| {
+                cx.stop_propagation();
+                show(&card, cx);
+            })
+        };
+        let copy = card.instance.clone().map(|instance| -> OnClick {
+            Box::new(move |_, _, cx: &mut App| {
+                cx.stop_propagation();
+                cx.write_to_clipboard(ClipboardItem::new_string(instance.clone()));
+            })
+        });
+        let stop = {
+            let name = card.name.clone();
+            cx.listener(move |_, _: &ClickEvent, _, cx| {
+                cx.stop_propagation();
+                cx.emit(SidebarEvent::Stop(name.clone()));
+            })
+        };
+        CardActions {
+            reply: Box::new(reply),
+            copy,
+            stop: Box::new(stop),
+        }
+    }
+}
+
+/// Asks the window to show the agent; it puts the keyboard in its pane.
+fn show(card: &Card, cx: &mut Context<Sidebar>) {
+    cx.emit(SidebarEvent::Attach {
+        name: card.name.clone(),
+        metadata: AgentMetadata {
+            cwd: card.cwd.clone(),
+            instance: card.instance.clone(),
+        },
+    });
 }
 
 impl Render for Sidebar {
@@ -794,10 +880,10 @@ impl Render for Sidebar {
         let theme = self.theme.clone();
         let fg = |pick: Pick| hsla(theme.fg(pick), 1.0);
         let now = now();
-        let mut label_width = 0.0f32;
         let lines = {
             // Measured in the interface font: GPUI's own ellipsis misjudges text that shares a
-            // row, so every line of a card is cut here to the room it has, and never wraps.
+            // row, so every one-line text of a card is cut here to the room it has, and never
+            // wraps. Only the preview wraps, and GPUI cuts it, alone on its lines.
             let family = ui.family.clone().unwrap_or_else(|| ".SystemUIFont".into());
             let text = window.text_system();
             let measure = |line: &str, size: f32, font: Font| {
@@ -824,81 +910,79 @@ impl Render for Sidebar {
                 measure(line, size, font)
             };
             let plain = FontFeatures::default();
-            let card_width = self.width - 2.0 * PAD - 2.0 * CARD_X;
-            let gap = ui.scale(INDENT - DOT);
-            let room = card_width - ui.scale(INDENT);
-            let fits = |line: &str| width(line, SECOND_SIZE, FontWeight::NORMAL, &plain) <= room;
+            let normal = |line: &str, size: f32| width(line, size, FontWeight::NORMAL, &plain);
+            let mono = |line: &str| measure(line, KIND_SIZE, self.mono.clone());
+            // The words beside the avatar.
+            let room = words_width(self.width, &ui);
             let mut lines = self.listing.lines(
                 self.selected.as_deref(),
                 &self.here,
                 self.home.as_deref(),
                 now,
             );
-            for line in &lines {
-                let Line::Agent(card) = line else { continue };
-                for detail in card.details.iter().filter(|_| card.expanded) {
-                    label_width =
-                        label_width.max(width(detail.label, NOTE_SIZE, FontWeight::NORMAL, &plain));
-                }
-            }
-            let value_room = room - label_width - ui.scale(LABEL_GAP);
             for line in &mut lines {
                 let Line::Agent(card) = line else { continue };
-                // The tool takes at most a share of the line, so the name keeps some room.
-                if let Some(tool) = &card.tool {
-                    card.tool = Some(card::elide(tool, &|tool| {
-                        width(tool, NOTE_SIZE, FontWeight::NORMAL, &plain)
-                            <= card_width * TOOL_SHARE
-                    }));
-                }
                 // The room the first line leaves the name.
                 let name_room = |card: &Card| {
-                    let mut room = card_width
-                        - ui.scale(DOT)
-                        - gap
-                        - gap
+                    let mut left = room
+                        - ui.scale(MARK_GAP)
                         - TIME_PAD
-                        - width(&trailer(card).0, NOTE_SIZE, FontWeight::NORMAL, &tabular());
-                    if let Some((program, _, _)) = program(card) {
-                        room -= gap + width(&program, KIND_SIZE, FontWeight::NORMAL, &plain);
-                    }
+                        - width(&card.time, NOTE_SIZE, FontWeight::NORMAL, &tabular());
                     if card.unread {
-                        room -= ui.scale(MARK_GAP + UNREAD_BOX);
+                        left -= ui.scale(MARK_GAP + UNREAD_BOX);
                     }
                     if card.here {
-                        room -= ui.scale(MARK_GAP + HERE_BOX);
+                        left -= ui.scale(MARK_GAP + HERE_BOX);
                     }
-                    if let Some(icon) = kind_icon_of(card) {
-                        room -= ui.scale(MARK_GAP + KIND_ICON * icon.width);
+                    if let Some(effort) = &card.effort {
+                        left -= ui.scale(MARK_GAP) + normal(effort, NOTE_SIZE);
                     }
-                    room
+                    left
                 };
-                // The effort and the tool give way before the name gets short; then the name is
-                // cut: the program and the age always show.
+                // The effort gives way before the name gets short; then the name is cut: the age
+                // always shows.
                 let weight = name_weight(card.selected);
                 let floor =
-                    width(&card.short, NAME_SIZE, weight, &plain).min(card_width * NAME_SHARE);
+                    width(&card.short, CARD_NAME_SIZE, weight, &plain).min(room * NAME_SHARE);
                 card::yield_to_name(card, &name_room, floor);
-                let room = name_room(card);
+                let left = name_room(card);
                 card.short = card::elide(&card.short, &|name| {
-                    width(name, NAME_SIZE, weight, &plain) <= room
+                    width(name, CARD_NAME_SIZE, weight, &plain) <= left
                 });
-                card.second = match &card.second {
-                    Second::Note(text, tone) => Second::Note(card::elide(text, &fits), *tone),
-                    Second::Place(place) => Second::Place(place.fit(&fits)),
-                };
-                for detail in card.details.iter_mut().filter(|_| card.expanded) {
-                    let fits = |value: &str| {
-                        let used = match detail.face {
-                            Face::Mono => measure(value, KIND_SIZE, self.mono.clone()),
-                            _ => width(value, NOTE_SIZE, FontWeight::NORMAL, &plain),
-                        };
-                        used <= value_room
-                    };
-                    detail.value = match detail.face {
-                        Face::Path => card::shorten(&detail.value, &fits),
-                        _ => card::elide(&detail.value, &fits),
-                    };
+                card.place = card.place.fit(&|line| normal(line, NOTE_SIZE) <= room);
+                if !card.expanded {
+                    continue;
+                }
+                // A chip too long for the line gives up the end of its branch.
+                let chip_room = room - ui.scale(2.0 * CHIP_X);
+                for chip in &mut card.details.chips {
+                    let others: f32 = chip
+                        .iter()
+                        .filter(|(_, ink)| *ink != Ink::Branch)
+                        .map(|(text, _)| normal(text, NOTE_SIZE))
+                        .sum();
+                    for (text, _) in chip.iter_mut().filter(|(_, ink)| *ink == Ink::Branch) {
+                        *text =
+                            card::elide(text, &|cut| others + normal(cut, NOTE_SIZE) <= chip_room);
+                    }
+                }
+                let column = (room - ui.scale(CELL_GAP)) / 2.0;
+                for cell in &mut card.details.cells {
+                    cell.value =
+                        card::elide(&cell.value, &|value| normal(value, SECOND_SIZE) <= column);
+                }
+                if let Some(path) = &card.details.path {
+                    card.details.path = Some(card::shorten(path, &|path| mono(path) <= room));
+                }
+                // The instance shares its line with Copy and Stop….
+                let buttons = ["Copy", "Stop…"]
+                    .iter()
+                    .map(|label| normal(label, SECOND_SIZE) + ui.scale(2.0 * BUTTON_X))
+                    .sum::<f32>()
+                    + ui.scale(3.0 * MARK_GAP);
+                if let Some(instance) = &card.details.instance {
+                    card.details.instance =
+                        Some(card::elide(instance, &|id| mono(id) <= room - buttons));
                 }
             }
             lines
@@ -965,25 +1049,47 @@ impl Render for Sidebar {
                     .text_color(fg(|t| t.agents_red))
                     .child(text)
                     .into_any_element(),
-                Line::Group(title, count) => div()
+                Line::Group(title, count, bar) => div()
                     .flex()
-                    .items_baseline()
+                    .items_center()
                     .gap(ui.px(6.0))
                     .px(px(8.0))
                     // Closer to the top for the first: the window's title bar is over it.
                     .pt(px(if index == 0 { 10.0 } else { 14.0 }))
                     .pb(px(6.0))
-                    .text_size(ui.px(LABEL_SIZE))
-                    .font_weight(FontWeight::SEMIBOLD)
                     .child(
                         div()
-                            .text_color(fg(|t| t.agents_dimmer))
-                            .child(title.trim_end_matches('/').to_uppercase()),
+                            .flex()
+                            .items_baseline()
+                            .gap(ui.px(6.0))
+                            .text_size(ui.px(LABEL_SIZE))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child(
+                                div()
+                                    .text_color(fg(|t| t.agents_dimmer))
+                                    .child(title.trim_end_matches('/').to_uppercase()),
+                            )
+                            .child(
+                                div()
+                                    .text_color(fg(|t| t.agents_dimmer).opacity(0.6))
+                                    .child(count.to_string()),
+                            ),
                     )
+                    .child(div().flex_1())
+                    // How the group's agents are doing, a short stroke each.
                     .child(
                         div()
-                            .text_color(fg(|t| t.agents_dimmer).opacity(0.6))
-                            .child(count.to_string()),
+                            .flex_shrink_0()
+                            .flex()
+                            .gap(px(2.0))
+                            .w(ui.px((BAR_SHARE * bar.len() as f32).min(BAR_MAX)))
+                            .children(bar.into_iter().map(|status| {
+                                div()
+                                    .flex_1()
+                                    .h(px(3.0))
+                                    .rounded(px(2.0))
+                                    .bg(fg(card::look(status).color))
+                            })),
                     )
                     .into_any_element(),
                 Line::Agent(card) => {
@@ -991,12 +1097,13 @@ impl Render for Sidebar {
                         let card = card.clone();
                         cx.listener(move |this, _: &ClickEvent, _, cx| this.click(&card, cx))
                     };
+                    let actions = self.card_actions(&card, cx);
                     AgentCard {
                         card: *card,
                         theme: theme.clone(),
                         mono: self.mono.clone(),
-                        label_width,
                         on_click: Box::new(on_click),
+                        actions,
                     }
                     .into_any_element()
                 }
@@ -1102,7 +1209,7 @@ fn button(
     let fg = |pick: Pick| hsla(theme.fg(pick), 1.0);
     let selected = hsla(theme.bg(|t| t.agent_selected), 1.0);
     let tip = Tip {
-        text: tip,
+        text: tip.into(),
         size: ui.px(NOTE_SIZE),
         color: fg(|t| t.agents_text),
         background: hsla(theme.bg(|t| t.agents_bg), 1.0),
@@ -1132,7 +1239,7 @@ fn button(
 /// A button's hover text.
 #[derive(Clone)]
 struct Tip {
-    text: &'static str,
+    text: SharedString,
     size: Pixels,
     color: Hsla,
     background: Hsla,
@@ -1151,42 +1258,76 @@ impl Render for Tip {
             .shadow_md()
             .text_size(self.size)
             .text_color(self.color)
-            .child(self.text)
+            .child(self.text.clone())
     }
 }
 
 type OnClick = Box<dyn Fn(&ClickEvent, &mut Window, &mut App)>;
 
-/// One agent: the status dot, name, program and age; the second line; the details when open. Its
-/// own element, so the list never assumes a height.
+/// What a card's buttons do (see [`Sidebar::card_actions`]).
+struct CardActions {
+    reply: OnClick,
+    /// `None` without an instance to copy.
+    copy: Option<OnClick>,
+    stop: OnClick,
+}
+
+/// One agent, read like a conversation: its kind's avatar with the status on the corner; the name,
+/// its marks, the effort and how long; the preview; where it works; Reply while it waits; the
+/// details when open. Its own element, so the list never assumes a height.
 #[derive(IntoElement)]
 struct AgentCard {
     card: Card,
     theme: Rc<Theme>,
     mono: Font,
-    /// The details' label column, as wide as the widest label.
-    label_width: f32,
     on_click: OnClick,
+    actions: CardActions,
 }
 
 impl RenderOnce for AgentCard {
     fn render(self, _: &mut Window, cx: &mut App) -> impl IntoElement {
+        let AgentCard {
+            card,
+            theme,
+            mono,
+            on_click,
+            actions,
+        } = self;
         let ui = UiFont::get(cx);
-        let theme = &self.theme;
         let fg = |pick: Pick| hsla(theme.fg(pick), 1.0);
-        let card = &self.card;
-        let selected = hsla(theme.bg(|t| t.agent_selected), 1.0);
-        let tip = |text: &'static str| Tip {
+        let tip = |text: SharedString| Tip {
             text,
             size: ui.px(NOTE_SIZE),
             color: fg(|t| t.agents_text),
             background: hsla(theme.bg(|t| t.agents_bg), 1.0),
             border: fg(|t| t.agents_rule),
         };
+        let waiting = card.status == Status::Waiting;
+        // Idle and not the one shown: the name and preview a step quieter.
+        let resting = card.status == Status::Idle && !card.selected;
+        // The card's ground, opaque, so the ring round the status badge matches it; waiting adds
+        // an amber tint.
+        let selected = hsla(theme.bg(|t| t.agent_selected), 1.0);
+        let base = if card.selected {
+            selected
+        } else {
+            hsla(theme.bg(|t| t.agents_bg), 1.0)
+        };
+        let ground = if waiting {
+            base.blend(fg(|t| t.agents_yellow).opacity(WAITING_TINT))
+        } else {
+            base
+        };
+        let hovered = if card.selected {
+            ground
+        } else {
+            ground.blend(selected.opacity(0.5))
+        };
+        let group = SharedString::from(format!("agent-card-{}", card.name));
 
-        // Every text comes already cut to its room (see `Sidebar::render`).
+        // Every one-line text comes already cut to its room (see `Sidebar::render`).
         let unread = card.unread.then(|| {
-            let tip = tip("Finished a turn you haven't seen");
+            let tip = tip("Finished a turn you haven't seen".into());
             div()
                 .id("unread")
                 .flex_shrink_0()
@@ -1203,36 +1344,48 @@ impl RenderOnce for AgentCard {
                 )
         });
         let here = card.here.then(|| {
-            let tip = tip("Open in this window");
+            let tip = tip("Open in this window".into());
             div()
                 .id("here")
                 .flex_shrink_0()
+                .size(ui.px(HERE_BOX))
+                .flex()
+                .items_center()
+                .justify_center()
                 .tooltip(move |_, cx| cx.new(|_| tip.clone()).into())
-                .child(footer_icon::icon(
-                    Icon::Here,
-                    fg(|t| t.agents_dimmer),
-                    ui.scale(HERE_BOX / footer_icon::SIZE),
-                ))
+                .child(
+                    div()
+                        .size(ui.px(HERE))
+                        .rounded_full()
+                        .bg(fg(|t| t.agents_accent)),
+                )
         });
-        let kind_icon = card
-            .brand
-            .as_ref()
-            .zip(kind_icon_of(card))
-            .map(|(brand, icon)| icon.render(ui.px(KIND_ICON), fg(brand.color).opacity(0.85)));
-        let name = div()
+        let effort = card.effort.clone().map(|effort| {
+            div()
+                .flex_shrink_0()
+                .whitespace_nowrap()
+                .text_size(ui.px(NOTE_SIZE))
+                .text_color(fg(|t| t.agents_dimmer))
+                .child(effort)
+        });
+        let age = card
+            .time_color
+            .map_or(fg(|t| t.agents_dimmer), |pick| fg(pick).opacity(0.8));
+        let first = div()
             .flex()
             .items_center()
-            .min_w(px(0.0))
             .gap(ui.px(MARK_GAP))
             .child(
                 div()
                     .min_w(px(0.0))
                     .overflow_hidden()
                     .whitespace_nowrap()
-                    .text_size(ui.px(NAME_SIZE))
+                    .text_size(ui.px(CARD_NAME_SIZE))
                     .font_weight(name_weight(card.selected))
                     .text_color(fg(if card.status == Status::Exited {
                         |t| t.agents_dim
+                    } else if resting {
+                        |t| t.agents_branch
                     } else {
                         |t| t.agents_text
                     }))
@@ -1240,30 +1393,7 @@ impl RenderOnce for AgentCard {
             )
             .children(unread)
             .children(here)
-            .children(kind_icon);
-        let program = program(card).map(|(text, split, kind)| {
-            let dimmer = fg(|t| t.agents_dimmer);
-            let kind = kind.map_or(dimmer, |pick| fg(pick).opacity(0.85));
-            div()
-                .flex_shrink_0()
-                .whitespace_nowrap()
-                .text_size(ui.px(KIND_SIZE))
-                .child(styled(
-                    text,
-                    &[(0..split, kind), (split..usize::MAX, dimmer)],
-                ))
-        });
-        let (trailer_text, split) = trailer(card);
-        let age = card
-            .time_color
-            .map_or(fg(|t| t.agents_dimmer), |pick| fg(pick).opacity(0.8));
-        let first = div()
-            .flex()
-            .items_center()
-            .gap(ui.px(INDENT - DOT))
-            .child(status_dot(fg(card.look.color), card.look.breathing, &ui))
-            .child(name)
-            .children(program)
+            .children(effort)
             .child(
                 div()
                     .flex_shrink_0()
@@ -1272,71 +1402,404 @@ impl RenderOnce for AgentCard {
                     .whitespace_nowrap()
                     .text_size(ui.px(NOTE_SIZE))
                     .font_features(tabular())
-                    .child(styled(
-                        trailer_text,
-                        &[
-                            (0..split, fg(|t| t.agents_dimmer)),
-                            (split..usize::MAX, age),
-                        ],
-                    )),
+                    .text_color(age)
+                    .child(card.time.clone()),
             );
 
-        let (text, colors): (String, Vec<(std::ops::Range<usize>, Hsla)>) = match &card.second {
-            Second::Note(text, tone) => {
-                let color = fg(match tone {
-                    Tone::Quiet => |t| t.agents_dim,
-                    Tone::Waiting => |t| t.agents_yellow,
-                    Tone::Problem => |t| t.agents_red,
-                });
-                (text.clone(), vec![(0..text.len(), color)])
-            }
-            Second::Place(place) => {
-                let mut text = String::new();
-                let mut colors = Vec::new();
-                for (piece, ink) in place.spans() {
-                    let color = match ink {
-                        Ink::Dim => fg(|t| t.agents_dim),
-                        Ink::Dimmer => fg(|t| t.agents_dimmer),
-                        Ink::Branch => fg(|t| t.agents_branch).opacity(0.8),
-                        Ink::Added => fg(|t| t.agents_green).opacity(0.9),
-                        Ink::Deleted => fg(|t| t.agents_red).opacity(0.9),
-                        Ink::Ahead => fg(|t| t.agents_yellow).opacity(0.9),
+        // Up to two lines, six when open, cut by GPUI with an ellipsis.
+        let preview = card.preview.as_ref().map(|preview| {
+            let quiet = fg(if resting {
+                |t| t.agents_dim
+            } else {
+                |t| t.agents_branch
+            });
+            let (text, color, lead) = match preview {
+                Preview::Busy { tool, title } => {
+                    let tool = tool.clone().unwrap_or_default();
+                    let lead = tool.len();
+                    let text = match title {
+                        Some(title) if lead > 0 => format!("{tool}  {title}"),
+                        Some(title) => title.clone(),
+                        None => tool,
                     };
-                    colors.push((text.len()..text.len() + piece.len(), color));
-                    text += &piece;
+                    (text, quiet, lead)
                 }
-                (text, colors)
-            }
-        };
-        let second = div()
-            .mt(px(3.0))
-            .pl(ui.px(INDENT))
+                Preview::Note(text, tone) => (text.clone(), fg(tone_color(*tone)), 0),
+                Preview::Reply(text) => (text.clone(), quiet, 0),
+            };
+            // A working agent's tool leads, in the status's colour.
+            let highlights = (lead > 0).then(|| {
+                (
+                    0..lead,
+                    HighlightStyle {
+                        color: Some(fg(card.look.color)),
+                        font_weight: Some(FontWeight::SEMIBOLD),
+                        ..HighlightStyle::default()
+                    },
+                )
+            });
+            div()
+                .min_w(px(0.0))
+                .text_size(ui.px(PREVIEW_SIZE))
+                .line_height(relative(1.42))
+                .text_color(color)
+                .line_clamp(if card.expanded {
+                    PREVIEW_OPEN_LINES
+                } else {
+                    PREVIEW_LINES
+                })
+                .text_ellipsis()
+                .child(StyledText::new(text).with_highlights(highlights))
+        });
+
+        let (text, colors) = pieces(&theme, &card.place.spans());
+        let place = div()
             .min_w(px(0.0))
             .overflow_hidden()
             .whitespace_nowrap()
-            .text_size(ui.px(SECOND_SIZE))
+            .text_size(ui.px(NOTE_SIZE))
             .child(styled(text, &colors));
+
+        // Waiting: answering is one click away.
+        let reply = waiting.then(|| {
+            div().flex().mt(px(6.0)).child(
+                div()
+                    .id("reply")
+                    .flex_shrink_0()
+                    .h(ui.px(24.0))
+                    .px(ui.px(10.0))
+                    .flex()
+                    .items_center()
+                    .rounded(ui.px(7.0))
+                    .bg(fg(|t| t.agents_yellow))
+                    .text_color(hsla(theme.bg(|t| t.agents_bg), 1.0))
+                    .text_size(ui.px(SECOND_SIZE))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .cursor_pointer()
+                    .hover(|style| style.opacity(0.9))
+                    .on_click(actions.reply)
+                    .child("Reply"),
+            )
+        });
+        let details = card
+            .expanded
+            .then(|| details(&theme, &mono, &ui, &card, actions.copy, actions.stop));
+
+        let badge = badge(&theme, &ui, &card, (ground, hovered), &group);
+        let avatar = avatar(&theme, &ui, &card, badge).when_some(
+            card.brand
+                .as_ref()
+                .map(|brand| tip(brand.kind.clone().into())),
+            |avatar, tip| avatar.tooltip(move |_, cx| cx.new(|_| tip.clone()).into()),
+        );
+        let words = div()
+            .flex_1()
+            .min_w(px(0.0))
+            .flex()
+            .flex_col()
+            .gap(px(2.0))
+            .child(first)
+            .children(preview)
+            .child(place)
+            .children(reply)
+            .children(details);
 
         div()
             .id(ElementId::Name(SharedString::from(card.name.clone())))
+            .group(group)
             .flex()
-            .flex_col()
+            .items_start()
+            .gap(ui.px(AVATAR_GAP))
             .w_full()
-            .px(px(CARD_X))
+            .pl(px(CARD_LEFT))
+            .pr(px(CARD_RIGHT))
             .py(px(CARD_Y))
-            .rounded(px(8.0))
-            .when(card.selected, |card| card.bg(selected))
-            .when(!card.selected, |card| {
-                card.hover(move |style| style.bg(selected.opacity(0.5)))
+            .rounded(px(CARD_RADIUS))
+            .border_1()
+            .border_color(if waiting {
+                fg(|t| t.agents_yellow).opacity(0.22)
+            } else {
+                gpui::transparent_black()
+            })
+            .bg(ground)
+            .when(!card.selected, |body| {
+                body.hover(move |style| style.bg(hovered))
             })
             .cursor_pointer()
-            .on_click(self.on_click)
-            .child(first)
-            .child(second)
-            .when(card.expanded, |body| {
-                body.child(details(theme, &self.mono, &ui, self.label_width, card))
-            })
+            .on_click(on_click)
+            .child(avatar)
+            .child(words)
     }
+}
+
+/// The avatar: the kind's icon, or the name's letter for a kind without one, on a square tinted in
+/// the kind's colour, with `badge` on its corner.
+fn avatar(theme: &Theme, ui: &UiFont, card: &Card, badge: AnyElement) -> gpui::Stateful<Div> {
+    let kind: Pick = card
+        .brand
+        .as_ref()
+        .map_or(|t| t.agents_dim, |brand| brand.color);
+    let color = hsla(theme.fg(kind), 1.0);
+    let mark = match card
+        .brand
+        .as_ref()
+        .and_then(|brand| kind_icon::of(&brand.kind))
+    {
+        Some(icon) => icon.render(ui.px(AVATAR_ICON), color).into_any_element(),
+        None => {
+            // The short name before it was cut to fit.
+            let short = card
+                .name
+                .split_once('/')
+                .map_or(card.name.as_str(), |(_, s)| s);
+            div()
+                .text_size(ui.px(CARD_NAME_SIZE))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(color)
+                .child(initial(short))
+                .into_any_element()
+        }
+    };
+    div()
+        .id("avatar")
+        .relative()
+        .flex_shrink_0()
+        .size(ui.px(AVATAR))
+        .mt(px(1.0))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded(ui.px(AVATAR_RADIUS))
+        .bg(color.opacity(AVATAR_TINT))
+        .child(mark)
+        .child(badge)
+}
+
+/// The status on the avatar's corner, ringed in the card's ground (the second while the card is
+/// hovered): an arc turning while it works, an amber dot softly pulsing while it waits, an orange
+/// `!` when stalled, otherwise a small dot in the status's colour.
+fn badge(
+    theme: &Theme,
+    ui: &UiFont,
+    card: &Card,
+    (ground, hovered): (Hsla, Hsla),
+    group: &SharedString,
+) -> AnyElement {
+    let color = hsla(theme.fg(card.look.color), 1.0);
+    // The ring: `inner` points across, `ring` round it, its edge `inset` from the avatar's corner.
+    let ring = |inner: f32, ring: f32, inset: f32| {
+        div()
+            .absolute()
+            .right(ui.px(inset))
+            .bottom(ui.px(inset))
+            .size(ui.px(inner + 2.0 * ring))
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded_full()
+            .bg(ground)
+            .group_hover(group.clone(), move |style| style.bg(hovered))
+    };
+    match card.status {
+        Status::Working => {
+            let spin = ui.px(11.0);
+            let arc = svg()
+                .data(SPIN_ARC)
+                .absolute()
+                .size(spin)
+                .text_color(color)
+                .with_animation(
+                    "spin",
+                    Animation::new(Duration::from_millis(1100))
+                        .repeat_synced()
+                        .with_max_fps(30.0),
+                    |arc, delta| arc.with_transformation(Transformation::rotate(percentage(delta))),
+                );
+            ring(15.0, 0.0, -4.0)
+                .child(
+                    div()
+                        .relative()
+                        .size(spin)
+                        .child(
+                            svg()
+                                .data(SPIN_TRACK)
+                                .absolute()
+                                .size(spin)
+                                .text_color(color.opacity(0.25)),
+                        )
+                        .child(arc),
+                )
+                .into_any_element()
+        }
+        Status::Waiting => {
+            let reach = ui.scale(5.0);
+            let dot = div()
+                .size(ui.px(11.0))
+                .rounded_full()
+                .bg(color)
+                .with_animation(
+                    "pulse",
+                    Animation::new(Duration::from_millis(1800))
+                        .repeat_synced()
+                        .with_max_fps(30.0),
+                    move |dot, delta| {
+                        // A ring widens and fades over most of the beat, then rests.
+                        let out = ease_in_out((delta / 0.7).min(1.0));
+                        dot.shadow(vec![BoxShadow {
+                            color: color.opacity(0.6 * (1.0 - out)),
+                            offset: point(px(0.0), px(0.0)),
+                            blur_radius: px(0.0),
+                            spread_radius: px(reach * out),
+                            inset: false,
+                        }])
+                    },
+                );
+            ring(11.0, 2.5, -5.5).child(dot).into_any_element()
+        }
+        Status::Stalled => ring(14.0, 2.0, -6.0)
+            .child(
+                div()
+                    .size(ui.px(14.0))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded_full()
+                    .bg(color)
+                    .text_size(ui.px(10.0))
+                    .line_height(relative(1.0))
+                    .font_weight(FontWeight::EXTRA_BOLD)
+                    .text_color(hsla(theme.bg(|t| t.agents_bg), 1.0))
+                    .child("!"),
+            )
+            .into_any_element(),
+        _ => ring(8.0, 2.5, -4.5)
+            .child(div().size(ui.px(8.0)).rounded_full().bg(color))
+            .into_any_element(),
+    }
+}
+
+/// The open card under the place line: the branch and changes as chips; the rest in two columns of
+/// cells, a small label over each value; the full path; then the instance with Copy, and Stop… at
+/// the right.
+fn details(
+    theme: &Theme,
+    mono: &Font,
+    ui: &UiFont,
+    card: &Card,
+    copy: Option<OnClick>,
+    stop: OnClick,
+) -> Div {
+    let fg = |pick: Pick| hsla(theme.fg(pick), 1.0);
+    let details = &card.details;
+    let chips = details.chips.iter().map(|chip| {
+        let (text, colors) = pieces(theme, chip);
+        div()
+            .flex_shrink_0()
+            .h(ui.px(21.0))
+            .px(ui.px(CHIP_X))
+            .flex()
+            .items_center()
+            .rounded(ui.px(6.0))
+            .bg(fg(|t| t.agents_text).opacity(0.055))
+            .whitespace_nowrap()
+            .text_size(ui.px(NOTE_SIZE))
+            .child(styled(text, &colors))
+    });
+    let cell = |cell: &card::Cell| {
+        div()
+            .flex_1()
+            .min_w(px(0.0))
+            .flex()
+            .flex_col()
+            .gap(px(1.0))
+            .child(
+                div()
+                    .whitespace_nowrap()
+                    .text_size(ui.px(CELL_LABEL_SIZE))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(fg(|t| t.agents_dimmer))
+                    .child(cell.label.to_uppercase()),
+            )
+            .child(
+                div()
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .text_size(ui.px(SECOND_SIZE))
+                    .text_color(fg(|t| t.agents_text))
+                    .child(cell.value.clone()),
+            )
+    };
+    let cells = div()
+        .flex()
+        .flex_col()
+        .gap(px(10.0))
+        .children(details.cells.chunks(2).map(|pair| {
+            div()
+                .flex()
+                .gap(ui.px(CELL_GAP))
+                .children(pair.iter().map(cell))
+                .when(pair.len() == 1, |row| row.child(div().flex_1()))
+        }));
+    let path = details.path.clone().map(|path| {
+        div()
+            .overflow_hidden()
+            .whitespace_nowrap()
+            .font(mono.clone())
+            .text_size(ui.px(KIND_SIZE))
+            .text_color(fg(|t| t.agents_dimmer))
+            .child(path)
+    });
+    let lit = fg(|t| t.agents_text).opacity(0.08);
+    let action = |id: &'static str, label: &'static str, color: Hsla, on_click: OnClick| {
+        div()
+            .id(id)
+            .flex_shrink_0()
+            .h(ui.px(24.0))
+            .px(ui.px(BUTTON_X))
+            .flex()
+            .items_center()
+            .rounded(ui.px(7.0))
+            .whitespace_nowrap()
+            .text_size(ui.px(SECOND_SIZE))
+            .text_color(color)
+            .cursor_pointer()
+            .hover(move |style| style.bg(lit))
+            .on_click(on_click)
+            .child(label)
+    };
+    let instance = details.instance.clone().map(|instance| {
+        div()
+            .flex_shrink_0()
+            .whitespace_nowrap()
+            .font(mono.clone())
+            .text_size(ui.px(KIND_SIZE))
+            .text_color(fg(|t| t.agents_dim))
+            .child(instance)
+    });
+    let last = div()
+        .flex()
+        .items_center()
+        .gap(ui.px(MARK_GAP))
+        .children(instance)
+        .children(copy.map(|copy| action("copy", "Copy", fg(|t| t.agents_dim), copy)))
+        .child(div().flex_1())
+        .child(action(
+            "stop",
+            "Stop…",
+            fg(|t| t.agents_red).opacity(0.85),
+            stop,
+        ));
+    div()
+        .mt(px(8.0))
+        .flex()
+        .flex_col()
+        .gap(px(10.0))
+        .when(!details.chips.is_empty(), |body| {
+            body.child(div().flex().flex_wrap().gap(ui.px(5.0)).children(chips))
+        })
+        .child(cells)
+        .children(path)
+        .child(last)
 }
 
 /// An agent in the collapsed strip: its letter on a rounded square, the status dot on the corner;
@@ -1415,16 +1878,9 @@ struct RailTip {
 impl RailTip {
     fn of(card: &Card, theme: &Theme, ui: &UiFont) -> Self {
         let fg = |pick: Pick| hsla(theme.fg(pick), 1.0);
-        let (state, color) = match &card.second {
-            Second::Note(text, tone) => (
-                text.clone(),
-                fg(match tone {
-                    Tone::Quiet => |t| t.agents_dim,
-                    Tone::Waiting => |t| t.agents_yellow,
-                    Tone::Problem => |t| t.agents_red,
-                }),
-            ),
-            Second::Place(_) => (card.look.label.to_owned(), fg(card.look.color)),
+        let (state, color) = match &card.preview {
+            Some(Preview::Note(text, tone)) => (text.clone(), fg(tone_color(*tone))),
+            _ => (card.look.label.to_owned(), fg(card.look.color)),
         };
         let status = if card.time.is_empty() {
             state
@@ -1436,17 +1892,12 @@ impl RailTip {
             .strip_suffix(&card.short)
             .map(|prefix| prefix.trim_end_matches('/'))
             .filter(|prefix| !prefix.is_empty());
-        let branch = match &card.second {
-            Second::Place(place) => place.branch.clone(),
-            Second::Note(..) => card
-                .details
-                .iter()
-                .find(|detail| detail.label == "Branch")
-                .and_then(|detail| detail.value.split(" · ").next().map(str::to_owned)),
-        };
         let place = [
             project.map(str::to_owned),
-            branch.map(|branch| format!("⎇ {branch}")),
+            card.place
+                .branch
+                .as_ref()
+                .map(|branch| format!("⎇ {branch}")),
         ]
         .into_iter()
         .flatten()
@@ -1527,38 +1978,41 @@ fn styled(text: String, colors: &[(std::ops::Range<usize>, Hsla)]) -> StyledText
     StyledText::new(text).with_highlights(highlights)
 }
 
-/// The program and the effort after it, `claude · high`, where the program ends, and its colour;
-/// `None` when there is neither.
-fn program(card: &Card) -> Option<(String, usize, Option<Pick>)> {
-    match (&card.brand, &card.effort) {
-        (Some(brand), Some(effort)) => Some((
-            format!("{} · {effort}", brand.kind),
-            brand.kind.len(),
-            Some(brand.color),
-        )),
-        (Some(brand), None) => Some((brand.kind.clone(), brand.kind.len(), Some(brand.color))),
-        (None, Some(effort)) => Some((effort.clone(), 0, None)),
-        (None, None) => None,
+/// Coloured pieces, of the place line or a chip, as one text and the range of each colour.
+fn pieces(
+    theme: &Theme,
+    pieces: &[(String, Ink)],
+) -> (String, Vec<(std::ops::Range<usize>, Hsla)>) {
+    let fg = |pick: Pick| hsla(theme.fg(pick), 1.0);
+    let mut text = String::new();
+    let mut colors = Vec::new();
+    for (piece, ink) in pieces {
+        let color = match ink {
+            Ink::Dim => fg(|t| t.agents_dim),
+            Ink::Dimmer => fg(|t| t.agents_dimmer),
+            Ink::Branch => fg(|t| t.agents_branch).opacity(0.8),
+            Ink::Added => fg(|t| t.agents_green).opacity(0.9),
+            Ink::Deleted => fg(|t| t.agents_red).opacity(0.9),
+            Ink::Ahead => fg(|t| t.agents_yellow).opacity(0.9),
+        };
+        colors.push((text.len()..text.len() + piece.len(), color));
+        text += piece;
+    }
+    (text, colors)
+}
+
+/// A note's colour: dim while starting, amber while waiting, red for errors and exits.
+fn tone_color(tone: Tone) -> Pick {
+    match tone {
+        Tone::Quiet => |t| t.agents_dim,
+        Tone::Waiting => |t| t.agents_yellow,
+        Tone::Problem => |t| t.agents_red,
     }
 }
 
-/// The icon after the name for the agent's kind; `None` without a kind or for one without an icon.
-fn kind_icon_of(card: &Card) -> Option<KindIcon> {
-    card.brand
-        .as_ref()
-        .and_then(|brand| kind_icon::of(&brand.kind))
-}
-
-/// The tool a working agent uses, then its age, `Bash · 2m`, and where the age starts.
-fn trailer(card: &Card) -> (String, usize) {
-    match &card.tool {
-        Some(tool) => {
-            let lead = format!("{tool} · ");
-            let at = lead.len();
-            (lead + &card.time, at)
-        }
-        None => (card.time.clone(), 0),
-    }
+/// How wide a card's words are, beside the avatar, in a sidebar `width` wide.
+fn words_width(width: f32, ui: &UiFont) -> f32 {
+    width - 2.0 * PAD - CARD_LEFT - CARD_RIGHT - 2.0 - ui.scale(AVATAR + AVATAR_GAP)
 }
 
 /// The name's weight: heavier on the card shown in the active pane.
@@ -1610,47 +2064,6 @@ pub(crate) fn status_dot(color: Hsla, breathing: bool, ui: &UiFont) -> AnyElemen
     .into_any_element()
 }
 
-/// The open details: labels and values in two columns under a faint rule, each on one line.
-fn details(theme: &Theme, mono: &Font, ui: &UiFont, label_width: f32, card: &Card) -> Div {
-    let fg = |pick: Pick| hsla(theme.fg(pick), 1.0);
-    div()
-        .mt(px(10.0))
-        .mb(px(2.0))
-        .ml(ui.px(INDENT))
-        .pt(px(10.0))
-        .border_t_1()
-        .border_color(fg(|t| t.agents_rule))
-        .flex()
-        .flex_col()
-        .gap(px(5.0))
-        .text_size(ui.px(NOTE_SIZE))
-        .children(card.details.iter().map(|detail| {
-            div()
-                .flex()
-                .gap(ui.px(LABEL_GAP))
-                .child(
-                    div()
-                        .flex_shrink_0()
-                        .w(px(label_width))
-                        .whitespace_nowrap()
-                        .text_color(fg(|t| t.agents_dimmer))
-                        .child(detail.label),
-                )
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w(px(0.0))
-                        .overflow_hidden()
-                        .whitespace_nowrap()
-                        .text_color(fg(|t| t.agents_branch))
-                        .when(detail.face == Face::Mono, |value| {
-                            value.font(mono.clone()).text_size(ui.px(KIND_SIZE))
-                        })
-                        .child(detail.value.clone()),
-                )
-        }))
-}
-
 fn now() -> f64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -1676,7 +2089,7 @@ mod tests {
             .iter()
             .map(|line| match line {
                 Line::Error(text) => format!("! {text}"),
-                Line::Group(title, count) => format!("# {title} ({count})"),
+                Line::Group(title, count, _) => format!("# {title} ({count})"),
                 Line::Agent(card) => format!("{} {}", card.short, card.look.label),
             })
             .collect()
@@ -1933,6 +2346,62 @@ mod tests {
     }
 
     #[test]
+    fn a_reply_is_read_once_for_each_spell_of_idling() {
+        // Each call is logged and numbered, so a repeated call shows in the next reply.
+        let (dir, program) = fake_corral(
+            "replies",
+            r#"calls="$(dirname "$0")/calls"
+case "$1" in
+reply) echo "$2" >> "$calls"
+  n=$(wc -l < "$calls" | tr -d ' ')
+  printf '{"ok": true, "name": "%s", "text": "Reply %s.\\n\\nAll green.", "at": 1}\n' "$2" "$n" ;;
+esac"#,
+        );
+        let replies = Replies::start(Client { program });
+        let mut listing = Listing::default();
+        let idle = |since: f64| Agent {
+            state_started: Some(since),
+            ..agent("p/a", "idle")
+        };
+        // Waits until the card shows the reply read for its current spell.
+        let shown = |listing: &mut Listing, now: f64| -> String {
+            let deadline = std::time::Instant::now() + Duration::from_secs(20);
+            loop {
+                listing.absorb_replies(&replies);
+                if let Line::Agent(card) = &listing.lines(None, &[], None, now)[1]
+                    && let Some(card::Preview::Reply(text)) = &card.preview
+                {
+                    return text.clone();
+                }
+                assert!(std::time::Instant::now() < deadline, "no reply shown");
+                std::thread::sleep(Duration::from_millis(20));
+            }
+        };
+        // Listed again and again while it idles: corral is asked once.
+        for now in [1000.0, 1001.0, 1002.0] {
+            listing.absorb(Ok(vec![idle(990.0)]), None, now);
+            listing.ask_replies(&replies, now);
+        }
+        assert_eq!(shown(&mut listing, 1002.0), "Reply 1. All green.");
+        for now in [1003.0, 1004.0] {
+            listing.absorb(Ok(vec![idle(990.0)]), None, now);
+            listing.ask_replies(&replies, now);
+        }
+        // Another turn ends in a new spell: asked once more, as the second call.
+        listing.absorb(Ok(vec![agent("p/a", "working")]), None, 1005.0);
+        listing.ask_replies(&replies, 1005.0);
+        for now in [1010.0, 1011.0] {
+            listing.absorb(Ok(vec![idle(1009.0)]), None, now);
+            listing.ask_replies(&replies, now);
+        }
+        assert_eq!(shown(&mut listing, 1011.0), "Reply 2. All green.");
+        let calls = std::fs::read_to_string(dir.join("calls")).unwrap();
+        assert_eq!(calls.lines().collect::<Vec<_>>(), ["p/a", "p/a"]);
+        drop(replies);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
     fn fake_corral_listing_reaches_the_cards() {
         let (dir, program) = fake_corral(
             "listing",
@@ -1951,16 +2420,16 @@ esac"#,
         };
         assert_eq!(card.cwd.as_deref(), Some("/tmp/a"));
         assert_eq!(card.instance.as_deref(), Some("i1"));
-        // Before the first Git round the second line is only the directory.
+        // Before the first Git round the place line is only the directory.
         assert_eq!(
-            card.second,
-            card::Second::Place(card::Place {
+            card.place,
+            card::Place {
                 dir: "/tmp/a".into(),
                 branch: None,
                 changes: None,
                 untracked: 0,
                 ahead: 0,
-            })
+            }
         );
         std::fs::remove_dir_all(&dir).unwrap();
     }
