@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Tab names</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div style="width:1440px;height:520px;box-sizing:border-box;padding:36px 40px;display:flex;flex-direction:column;gap:22px;background:#0b1111;font-family:-apple-system,'SF Pro Text','Helvetica Neue',sans-serif;color:#d6e6e1;font-size:13px">
+
+  <sc-for list="{{rows}}" as="r" hint-placeholder-count="2">
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <div style="font-size:13px;font-weight:600;color:#8aa59e">{{r.caption}}</div>
+      <!-- Title bar strip -->
+      <div style="height:48px;display:flex;align-items:center;gap:4px;padding:0 14px;background:#101a1a;border-radius:10px">
+        <sc-for list="{{r.tabs}}" as="t" hint-placeholder-count="3">
+          <div style="height:32px;display:flex;align-items:center;gap:8px;padding:0 12px;border-radius:8px;background:{{t.bg}};color:{{t.color}};font-weight:{{t.weight}}">
+            <span style="display:flex;color:{{t.iconColor}}">{{t.icon}}</span>
+            <span><span style="color:#668580;font-weight:400">{{t.group}}</span>{{t.name}}</span>
+            <sc-if value="{{t.more}}" hint-placeholder-val="{{false}}"><span style="color:#8aa59e;font-weight:400">{{t.more}}</span></sc-if>
+            <sc-if value="{{t.split}}" hint-placeholder-val="{{false}}">
+              <svg aria-label="2 panes" width="13" height="13" viewBox="0 0 15 15" fill="none" stroke="#8aa59e" stroke-width="1.3" stroke-linejoin="round"><rect x="1.5" y="2.5" width="12" height="10" rx="2"/><path d="M7.5 2.5v10"/></svg>
+            </sc-if>
+          </div>
+        </sc-for>
+        <span style="width:28px;text-align:center;color:#8aa59e;font-size:16px">+</span>
+      </div>
+      <!-- Pane headers and the right panel's header, under the same rule -->
+      <div style="display:flex;gap:16px">
+        <div style="flex:1;height:36px;display:flex;align-items:center;gap:8px;padding:0 14px;background:#0f1a19;border-radius:8px;box-shadow:inset 0 0 0 1px #1f3633">
+          <span style="color:#e48c66">✱</span><span style="font-weight:600"><span style="color:#668580;font-weight:400">{{r.paneGroup}}</span>main</span><span style="color:#668580">· /…/ranch</span>
+        </div>
+        <div style="flex:1;height:36px;display:flex;align-items:center;gap:8px;padding:0 14px;background:#0f1a19;border-radius:8px;box-shadow:inset 0 0 0 1px #1f3633">
+          <span style="color:#8aa59e">›_</span><span>zsh</span><span style="color:#668580">· /…/ranch</span>
+        </div>
+        <div style="width:420px;height:36px;display:flex;align-items:center;gap:8px;padding:0 14px;background:#0f1a19;border-radius:8px;box-shadow:inset 0 0 0 1px #1f3633">
+          <span style="width:7px;height:7px;border-radius:50%;background:#7ea2ee"></span><span style="font-weight:600">{{r.rightName}}</span><span style="color:#668580">⎇ feat/changes-panel</span>
+        </div>
+      </div>
+    </div>
+  </sc-for>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":520}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const tab = (o) => ({ bg: 'transparent', color: '#8aa59e', weight: 400, iconColor: '#e48c66', icon: '✱', group: '', more: '', split: false, ...o });
+    const rows = [
+      {
+        caption: '现状：有的全名有的短名，“+1” 看不懂；窗格标题和右侧栏又各是一种叫法',
+        tabs: [
+          tab({ name: 'paddock/main' }),
+          tab({ name: 'ranch/main', more: '+1', bg: '#1d3833', color: '#d6e6e1', weight: 600 }),
+          tab({ name: 'dev-browser', icon: '›_', iconColor: '#6fd3c2' }),
+          tab({ name: 'dev-changes' })
+        ],
+        paneGroup: 'ranch/',
+        rightName: 'paddock/dev-changes'
+      },
+      {
+        caption: '建议：一律短名（粗细一致）；短名重名时前面加淡色的分组名；“+1” 换成小的分屏图标（悬停说明 “2 panes”）；窗格标题、右侧栏照同一规则',
+        tabs: [
+          tab({ group: 'paddock/', name: 'main' }),
+          tab({ group: 'ranch/', name: 'main', split: true, bg: '#1d3833', color: '#d6e6e1', weight: 600 }),
+          tab({ name: 'dev-browser', icon: '›_', iconColor: '#6fd3c2' }),
+          tab({ name: 'dev-changes' })
+        ],
+        paneGroup: 'ranch/',
+        rightName: 'dev-changes'
+      }
+    ];
+    return { rows };
+  }
+}
+</script>
+</body>
+</html>

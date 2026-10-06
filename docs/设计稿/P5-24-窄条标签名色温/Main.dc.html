@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Collapsed rail</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+.rl-spin{animation:rlspin 1.1s linear infinite;transform-origin:50% 50%}
+@keyframes rlspin{to{transform:rotate(360deg)}}
+</style>
+</helmet>
+<div style="width:900px;height:900px;box-sizing:border-box;padding:40px;display:flex;gap:56px;background:#0b1111;font-family:-apple-system,'SF Pro Text','Helvetica Neue',sans-serif;color:#d6e6e1">
+
+  <!-- Now -->
+  <div style="display:flex;flex-direction:column;gap:14px">
+    <div style="font-size:13px;font-weight:600;color:#8aa59e">现状</div>
+    <div style="width:64px;height:760px;background:#262a2a;border-radius:12px;display:flex;flex-direction:column;align-items:center;padding-top:16px;box-sizing:border-box;gap:6px">
+      <div style="position:relative;width:36px;height:36px;display:flex;align-items:center;justify-content:center;color:#8aa59e">
+        <svg width="18" height="18" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"><path d="M3 8.5V5.5a3 3 0 0 1 6 0v3l1 1H2z"/></svg>
+        <span style="position:absolute;top:2px;right:2px;min-width:16px;height:16px;border-radius:8px;background:#dbbd6e;color:#0c1616;font-size:10.5px;font-weight:700;display:flex;align-items:center;justify-content:center">2</span>
+      </div>
+      <div style="width:28px;height:1px;background:#3a4443;margin:6px 0"></div>
+      <sc-for list="{{now}}" as="a" hint-placeholder-count="6">
+        <sc-if value="{{a.rule}}" hint-placeholder-val="{{false}}"><div style="width:28px;height:1px;background:#3a4443;margin:6px 0"></div></sc-if>
+        <div style="position:relative;width:40px;height:40px;border-radius:9px;display:flex;align-items:center;justify-content:center;background:{{a.bg}};font-size:15px;font-weight:600;color:#c8dad4">{{a.letter}}
+          <span style="position:absolute;right:5px;bottom:6px;width:7px;height:7px;border-radius:50%;background:{{a.dot}}"></span>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+
+  <!-- Proposed -->
+  <div style="display:flex;flex-direction:column;gap:14px">
+    <div style="font-size:13px;font-weight:600;color:#8aa59e">建议</div>
+    <div style="display:flex;gap:18px;align-items:flex-start">
+      <div style="width:64px;height:760px;background:#262a2a;border-radius:12px;display:flex;flex-direction:column;align-items:center;padding-top:16px;box-sizing:border-box;gap:6px">
+        <!-- Bell: the count sits beside the glyph as a small pill, never over it -->
+        <div style="height:36px;display:flex;align-items:center;gap:3px;padding:0 6px;border-radius:9px;background:rgba(219,189,110,.14);color:#dbbd6e">
+          <svg width="15" height="15" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"><path d="M3 8.5V5.5a3 3 0 0 1 6 0v3l1 1H2z"/></svg>
+          <span style="font-size:11.5px;font-weight:700">2</span>
+        </div>
+        <div style="width:28px;height:1px;background:#3a4443;margin:6px 0"></div>
+        <sc-for list="{{next}}" as="a" hint-placeholder-count="6">
+          <sc-if value="{{a.rule}}" hint-placeholder-val="{{false}}"><div style="width:28px;height:1px;background:#3a4443;margin:6px 0"></div></sc-if>
+          <div title="{{a.tip}}" style="position:relative;width:40px;height:40px;border-radius:9px;display:flex;align-items:center;justify-content:center;background:{{a.bg}};box-shadow:{{a.ring}}">
+            <!-- Kind logo, as on the cards -->
+            <sc-if value="{{a.claude}}" hint-placeholder-val="{{true}}">
+              <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="#e48c66" stroke-width="2" stroke-linecap="round"><path d="M9 2v14M2 9h14M4 4l10 10M14 4L4 14"/></svg>
+            </sc-if>
+            <sc-if value="{{a.codex}}" hint-placeholder-val="{{false}}">
+              <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="#6fd3c2" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="14" height="12" rx="3"/><path d="M5.5 7.5L8 9.5 5.5 11.5M9.5 11.5h3"/></svg>
+            </sc-if>
+            <sc-if value="{{a.pi}}" hint-placeholder-val="{{false}}">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="#eef5f2"><path d="M2 2h12v4H10v8H6V6H2z"/></svg>
+            </sc-if>
+            <!-- Status, the same marks as the card avatar: a spinner while working -->
+            <sc-if value="{{a.spin}}" hint-placeholder-val="{{false}}">
+              <svg class="rl-spin" width="12" height="12" viewBox="0 0 12 12" style="position:absolute;right:-2px;bottom:-2px;background:#262a2a;border-radius:50%"><circle cx="6" cy="6" r="4" fill="none" stroke="#3a4443" stroke-width="1.6"/><path d="M6 2a4 4 0 0 1 4 4" fill="none" stroke="#7ea2ee" stroke-width="1.6" stroke-linecap="round"/></svg>
+            </sc-if>
+            <sc-if value="{{a.hasDot}}" hint-placeholder-val="{{true}}">
+              <span style="position:absolute;right:-1px;bottom:-1px;width:9px;height:9px;border-radius:50%;background:{{a.dot}};box-shadow:0 0 0 2px #262a2a"></span>
+            </sc-if>
+          </div>
+        </sc-for>
+      </div>
+
+      <!-- Hover tooltip on the waiting one -->
+      <div style="margin-top:118px;display:flex;flex-direction:column;gap:3px;padding:8px 11px;border-radius:8px;background:#1b2726;box-shadow:0 6px 20px rgba(0,0,0,.45), inset 0 0 0 1px #2f403e;font-size:12.5px;white-space:nowrap">
+        <div><span style="color:#8aa59e">paddock/</span><span style="font-weight:600">main</span><span style="color:#8aa59e"> · high</span></div>
+        <div style="color:#dbbd6e">Waiting for you · 1m</div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":900,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const now = [
+      { letter: 'R', dot: '#a99ae6', bg: 'transparent', rule: false },
+      { letter: 'M', dot: '#dbbd6e', bg: 'transparent', rule: true },
+      { letter: 'B', dot: '#7ea2ee', bg: 'transparent', rule: false },
+      { letter: 'C', dot: '#7ea2ee', bg: 'transparent', rule: false },
+      { letter: 'R', dot: '#e47a74', bg: 'transparent', rule: true },
+      { letter: 'M', dot: '#9cc98e', bg: '#3a4140', rule: false }
+    ];
+    const base = { claude: false, codex: false, pi: false, spin: false, hasDot: true, ring: 'none', bg: 'transparent', rule: false };
+    const next = [
+      { ...base, pi: true, dot: '#a99ae6', tip: 'notes/research · Starting…' },
+      { ...base, claude: true, dot: '#dbbd6e', rule: true, bg: 'rgba(219,189,110,.12)', ring: 'inset 0 0 0 1px rgba(219,189,110,.35)', tip: 'paddock/main · Waiting for you' },
+      { ...base, codex: true, spin: true, hasDot: false, tip: 'paddock/dev-browser · Bash' },
+      { ...base, claude: true, spin: true, hasDot: false, tip: 'paddock/dev-changes · Edit' },
+      { ...base, pi: true, dot: '#e47a74', rule: true, tip: 'ranch/review-route · Not responding' },
+      { ...base, claude: true, dot: '#9cc98e', bg: '#3a4140', tip: 'ranch/main · Done · 48s' }
+    ];
+    return { now, next };
+  }
+}
+</script>
+</body>
+</html>

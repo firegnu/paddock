@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lagoon sidebar tone</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div style="width:1440px;height:560px;box-sizing:border-box;padding:36px 40px;display:grid;grid-template-columns:repeat(3, minmax(0, 1fr));gap:32px;background:#0b1111;font-family:-apple-system,'SF Pro Text','Helvetica Neue',sans-serif;color:#d6e6e1;font-size:13px">
+  <sc-for list="{{cols}}" as="c" hint-placeholder-count="3">
+    <div style="display:flex;flex-direction:column;gap:10px;min-width:0">
+      <div style="font-size:13px;font-weight:600;color:#8aa59e">{{c.caption}}</div>
+      <div style="height:440px;display:flex;border-radius:12px;overflow:hidden;box-shadow:inset 0 0 0 1px #1f3633">
+        <!-- Sidebar over the material -->
+        <div style="width:170px;flex-shrink:0;background:{{c.side}};padding:14px 12px;box-sizing:border-box;display:flex;flex-direction:column;gap:12px">
+          <div style="display:flex;align-items:center;gap:6px"><span style="font-weight:600">Agents</span><span style="font-size:11px;padding:0 6px;border-radius:9px;background:rgba(214,230,225,.08);color:#83a098">6</span></div>
+          <div style="font-size:10.5px;font-weight:600;letter-spacing:.08em;color:#83a098">PADDOCK 3</div>
+          <div style="border-radius:8px;padding:8px;background:{{c.card}}">
+            <div style="display:flex;gap:6px;align-items:center"><span style="color:#e48c66">✱</span><span style="font-weight:600">dev-changes</span></div>
+            <div style="font-size:12px;color:#83a098;margin-top:3px"><span style="color:#7ea2ee">Edit</span> Changes tab</div>
+          </div>
+          <div style="padding:0 8px">
+            <div style="display:flex;gap:6px;align-items:center"><span style="color:#e48c66">✱</span><span>main</span></div>
+            <div style="font-size:12px;color:#dbbd6e;margin-top:3px">Waiting for you</div>
+          </div>
+        </div>
+        <div style="width:1px;background:{{c.rule}}"></div>
+        <!-- Terminal -->
+        <div style="flex:1;background:#0f1a19;padding:14px 16px;font-family:'SF Mono',Menlo,monospace;font-size:12px;line-height:1.6;color:#c8dad4;min-width:0;overflow:hidden">
+          <div><span style="color:#7fd4bf">❯</span> cargo test changes</div>
+          <div style="color:#8aa59e">running 4 tests</div>
+          <div>test changes::lists_scope ... <span style="color:#9cc98e">ok</span></div>
+          <div>test changes::empty_state ... <span style="color:#9cc98e">ok</span></div>
+        </div>
+      </div>
+    </div>
+  </sc-for>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":560}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const cols = [
+      { caption: '现状（测试窗口不在前台时）：中性灰，和青绿的终端冷暖不搭', side: '#2a2d2d', card: '#3a3f3e', rule: '#3a4443' },
+      { caption: '建议 A：Lagoon 的着色加重（约 0.38 → 0.6），磨砂仍透出桌面', side: '#16231f', card: '#1f3430', rule: '#26403b' },
+      { caption: '建议 B：在 A 的基础上，窗口不在前台时磨砂也保持“激活”的样子，不退成灰', side: '#122320', card: '#1d3833', rule: '#26403b' }
+    ];
+    return { cols };
+  }
+}
+</script>
+</body>
+</html>
