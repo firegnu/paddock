@@ -2,8 +2,8 @@
 
 ## 现在在哪（2026-10-06 夜）
 
-- main 和 `origin/main`（`github.com/firegnu/paddock`，public）同步。**进行中：P5-29a Kanban 只读流水线看板**——`paddock/dev-kanban-1`（Claude Code，常规，`--label task=P5-29a`）在 worktree `../paddock-worktrees/p5-29a-kanban`；主控挂了 `--after` 提醒。P5-28a（Browser）已合并安装；P5-28b（焦点和快捷键）等 P5-29a 合并后派（都改 `right_panel.rs`／`window.rs`），再后 P5-28c。本地留着一个不推送的分支 `p5-13r-browser`（Browser 原型，提交 `9422921`，正式实现时参考，用完删）。
-- 249 项测试通过，clippy、`cargo fmt --check` 干净。`~/Applications/paddock.app` 是合并 P5-28a 之后的版本（含 P5-27、P5-26、P5-25、P5-24a、P5-24b、P5-13c、P5-23、P5-13b、P5-22），已用本机 Apple Development 证书签名。
+- main 和 `origin/main`（`github.com/firegnu/paddock`，public）同步。**进行中：P5-28b Browser 焦点与快捷键**——`paddock/dev-browser-keys-1`（Claude Code，重，`--label task=P5-28b`）在 worktree `../paddock-worktrees/p5-28b-browser-keys`；主控挂了 `--after` 提醒。P5-29a（Kanban）已合并安装；之后 P5-28c。本地留着一个不推送的分支 `p5-13r-browser`（Browser 原型，提交 `9422921`，正式实现时参考，用完删）。
+- 258 项测试通过，clippy、`cargo fmt --check` 干净。`~/Applications/paddock.app` 是合并 P5-29a 之后的版本（含 P5-28a、P5-27、P5-26、P5-25、P5-24a、P5-24b、P5-13c、P5-23、P5-13b、P5-22），已用本机 Apple Development 证书签名。
 - 重新打包安装：在 `app/` 下 `cargo build --release`，再 `cargo run --release --example bundle -- --install`（编译目录见 AGENTS.md，主仓库用 `.target/main`）。打包默认自动选本机 Apple Development 身份，可用 `PADDOCK_SIGN_IDENTITY` 指定；退回 ad-hoc 时会提示授权会失效。
 - 已合并：第一至第三阶段、迁移 M0–M3（corral、dispatch 在 `../ranch`；遥测、Drover、插件系统已砍）、P4-1～P4-3、P5-1～P5-27（P5-13 做了 13a 外壳、13b／13c Changes 标签；P5-19 做了 19r 调研、19a～19e 左侧栏磨砂；P5-23r 是截图失败调研）。每件的范围、完成记录、主控审查在 `docs/任务/`。
 - 上下文：`AGENTS.md`（规矩）、`docs/DESIGN.md`（已定决定，§13 是界面改版的全部决定和用户原话）、`docs/背景与决策记录.md`、`docs/设计稿/`、`docs/调研/`。
