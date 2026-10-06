@@ -24,6 +24,8 @@ pub mod highlight;
 pub mod icon;
 pub mod ime;
 pub mod input;
+pub mod kanban;
+pub mod kanban_view;
 pub mod keys;
 pub mod kind_icon;
 pub mod launch;

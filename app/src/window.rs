@@ -16,6 +16,7 @@ use crate::{
     fonts::UiFont,
     footer_icon::{self, Icon},
     frost::{Frost, Shape},
+    kanban_view::{self, KanbanEvent, KanbanView},
     kind_icon,
     layout::{Axis, Direction, Node, PaneId, Placement, Shown, Workspace},
     layout_state::{Content, Layout, Store},
@@ -604,6 +605,8 @@ pub struct PaddockWindow {
     changes: Entity<ChangesView>,
     /// The right sidebar's Browser tab, this window's web page.
     browser: Entity<BrowserView>,
+    /// The right sidebar's Kanban tab, the focused pane's repository's task files.
+    kanban: Entity<KanbanView>,
     /// A press on the title bar's empty part: moving now drags the window.
     dragging: bool,
     /// The title bar height the traffic lights were last centred on.
@@ -665,6 +668,12 @@ impl PaddockWindow {
             this.save_layout(cx);
         })
         .detach();
+        let kanban = {
+            let (theme, mono) = (theme.clone(), mono_font(&options));
+            let folded = right.kanban_folded.clone();
+            cx.new(|cx| KanbanView::new(theme, mono, folded, cx))
+        };
+        cx.subscribe_in(&kanban, window, Self::on_kanban).detach();
         let shown = match &options.launch {
             Launch::Empty => Shown::Empty,
             Launch::Agent { name } => Shown::Agent(name.clone()),
@@ -708,6 +717,7 @@ impl PaddockWindow {
             right,
             changes,
             browser,
+            kanban,
             dragging: false,
             lights: None,
             store,
@@ -1115,6 +1125,35 @@ impl PaddockWindow {
                 for view in self.panes.values() {
                     view.update(cx, |v, _| v.disappeared(&names));
                 }
+            }
+        }
+    }
+
+    /// The Kanban tab's asks: its folds saved with the layout; an agent's pane brought to the
+    /// front as a click on its card in the sidebar does, and for its changes the right sidebar
+    /// turned to Changes, which follows that pane.
+    fn on_kanban(
+        &mut self,
+        _: &Entity<KanbanView>,
+        event: &KanbanEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match event {
+            KanbanEvent::Folded(folded) => {
+                self.right.kanban_folded = folded.clone();
+                self.save_layout(cx);
+            }
+            KanbanEvent::GoTo(name) => {
+                let metadata = self.sidebar.read(cx).metadata(name);
+                self.show_agent(name, metadata, window, cx);
+            }
+            KanbanEvent::Changes(name) => {
+                let metadata = self.sidebar.read(cx).metadata(name);
+                self.show_agent(name, metadata, window, cx);
+                self.right.tab = RightTab::Changes;
+                self.save_layout(cx);
+                cx.notify();
             }
         }
     }
@@ -4053,8 +4092,17 @@ impl Render for PaddockWindow {
             right,
         );
         // The Changes tab follows the focused pane, and reads only while it shows.
+        let follow = self.follow(&agents, now, cx);
+        let kanban = kanban_view::Frame {
+            cwd: follow.as_ref().map(|f| f.cwd.clone()),
+            active: right.is_some() && self.right.tab == RightTab::Kanban,
+            width: right.unwrap_or(0.0),
+            theme: self.theme.clone(),
+            mono: mono_font(&self.template),
+            agents: self.sidebar.read(cx).seen(),
+        };
         let frame = Frame {
-            follow: self.follow(&agents, now, cx),
+            follow,
             active: right.is_some() && self.right.tab == RightTab::Changes,
             width: right.unwrap_or(0.0),
             theme: self.theme.clone(),
@@ -4062,6 +4110,8 @@ impl Render for PaddockWindow {
         };
         self.changes
             .update(cx, |changes, cx| changes.frame(frame, cx));
+        // The Kanban tab follows the same pane's repository, and reads only while it shows.
+        self.kanban.update(cx, |view, cx| view.frame(kanban, cx));
         // The right sidebar, a card pushed out from the right edge: the terminal narrows for it.
         if let Some(width) = right {
             let content = match self.right.tab {
@@ -4069,6 +4119,9 @@ impl Render for PaddockWindow {
                     .cached(StyleRefinement::default().size_full())
                     .into_any_element(),
                 RightTab::Browser => self.browser.clone().into_any_element(),
+                RightTab::Kanban => AnyView::from(self.kanban.clone())
+                    .cached(StyleRefinement::default().size_full())
+                    .into_any_element(),
             };
             let panel = self.right.render(
                 &self.theme,

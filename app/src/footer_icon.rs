@@ -71,6 +71,14 @@ pub enum Icon {
     Reload,
     /// A box with an arrow out of its top right corner: open the page in the default browser.
     External,
+    /// Three rounded bars hanging from one line, of different lengths: the right sidebar's Kanban.
+    Kanban,
+    /// A page with its corner folded and two lines: a Kanban card's task file.
+    Document,
+    /// A folder: the repository the Kanban shows.
+    Folder,
+    /// A chevron pointing down: an open group.
+    Down,
 }
 
 /// How far an icon's parts are from where they rest, for its hover motion (`motion.rs`), in the
@@ -535,6 +543,64 @@ fn shapes(icon: Icon, pose: Pose, bounds: Bounds<Pixels>, scale: f32) -> Vec<Pat
             open.arc_to(radii, px(0.0), false, true, at(2.9, 3.5));
             open.line_to(at(5.25, 3.5));
             vec![arrow, open]
+        }
+        Icon::Kanban => [12.25, 8.75, 10.5]
+            .into_iter()
+            .enumerate()
+            .map(|(i, bottom)| {
+                let left = 1.4 + i as f32 * 4.08;
+                let mut bar = stroke();
+                rounded_rect(
+                    &mut bar,
+                    at(left, 1.75),
+                    at(left + 3.03, bottom),
+                    0.93 * scale,
+                );
+                bar
+            })
+            .collect(),
+        Icon::Document => {
+            let mut page = stroke();
+            page.move_to(at(3.25, 1.6));
+            page.line_to(at(8.1, 1.6));
+            page.line_to(at(10.75, 4.3));
+            page.line_to(at(10.75, 12.4));
+            page.line_to(at(3.25, 12.4));
+            page.close();
+            let mut fold = stroke();
+            fold.move_to(at(8.1, 1.6));
+            fold.line_to(at(8.1, 4.3));
+            fold.line_to(at(10.75, 4.3));
+            let mut lines = stroke();
+            for y in [7.55, 9.7] {
+                lines.move_to(at(5.15, y));
+                lines.line_to(at(8.85, y));
+            }
+            vec![page, fold, lines]
+        }
+        Icon::Folder => {
+            let mut folder = stroke();
+            let r = px(1.08 * scale);
+            let radii = point(r, r);
+            folder.move_to(at(1.6, 3.75));
+            folder.arc_to(radii, px(0.0), false, true, at(2.7, 2.7));
+            folder.line_to(at(5.9, 2.7));
+            folder.line_to(at(7.2, 4.2));
+            folder.line_to(at(11.85, 4.2));
+            folder.arc_to(radii, px(0.0), false, true, at(12.9, 5.3));
+            folder.line_to(at(12.9, 11.3));
+            folder.arc_to(radii, px(0.0), false, true, at(11.85, 12.4));
+            folder.line_to(at(2.7, 12.4));
+            folder.arc_to(radii, px(0.0), false, true, at(1.6, 11.3));
+            folder.close();
+            vec![folder]
+        }
+        Icon::Down => {
+            let mut chevron = stroke();
+            chevron.move_to(at(3.0, 5.0));
+            chevron.line_to(at(7.0, 9.0));
+            chevron.line_to(at(11.0, 5.0));
+            vec![chevron]
         }
     }
 }
