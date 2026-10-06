@@ -286,3 +286,4 @@ paddock 与 Saddle 在代码上完全分开：用到的 Saddle 代码迁入 padd
   - 分两层：毛玻璃 GPUI 现成支持（`WindowBackgroundAppearance::Blurred`，底下是系统的 `NSVisualEffectView`），左侧栏和标题栏底色改半透明、终端卡片保持不透明；真正的液态玻璃（macOS 26 的 `NSGlassEffectView`：折射、边缘高光）GPUI 没有接出来，先调研。
   - 次序：等 P5-18 合并、用户看过后，先做毛玻璃小试验（P5-19a），装上让用户在真窗口里看；方向对了再加浮动圆角面板和边缘高光往液态玻璃靠；同时派 Codex 调研能否接原生 `NSGlassEffectView`（P5-19r，结论给用户看再定）。
   - 要注意：文字可读性靠底色不透明度，三套主题各调，可考虑设置里给透明度；全屏时没有可透的，退回不透明；侧栏卡片的选中底、等你的琥珀底要跟着改半透明。
+- **右侧栏加 Kanban 标签**（用户 10-06：“还有右侧的sidebar再加一个kanban的功能。现在定了有browser，diff，再加一个kanban。需求随后聊”）：右侧栏标签定为 Changes（diff）、Browser、Kanban 三个；Kanban 的需求待和用户聊，聊定之前不出样稿、不派活。同一天用户提过启动 splash（参照 AMP），随后说“splash不要了”，不做。
