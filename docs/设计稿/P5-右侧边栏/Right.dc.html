@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>paddock right sidebar</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;background:#141210}
+.pd-btn{background:none;border:0;padding:0;margin:0;font:inherit;color:inherit;cursor:pointer;text-align:left}
+.pd-ico:hover{background:#2b2621;color:#e8dfcc}
+.pd-rt:hover{color:#e8dfcc}
+.pd-file:hover{background:#24201b}
+.pd-div{position:relative;width:1px;background:#2e2a24;flex-shrink:0;z-index:2}
+.pd-grip{position:absolute;top:0;bottom:0;left:-3px;width:7px;cursor:col-resize}
+.pd-grip:hover{background:linear-gradient(90deg,transparent 2px,#5a5247 2px,#5a5247 5px,transparent 5px)}
+.pd-pulse{animation:pdpulse 1.6s ease-in-out infinite}
+@keyframes pdpulse{0%,100%{box-shadow:0 0 0 0 rgba(127,180,238,.55)}50%{box-shadow:0 0 0 4px rgba(127,180,238,0)}}
+.pd-mono{font-family:'SF Mono',Menlo,monospace}
+</style>
+</helmet>
+<div style="width:1440px;height:860px;box-sizing:border-box;display:flex;flex-direction:column;background:#1b1916;color:#e8dfcc;font-family:-apple-system,'SF Pro Text','Helvetica Neue',sans-serif;font-size:13px;border-radius:12px;overflow:hidden;border:1px solid #3a352e">
+
+  <!-- Title bar -->
+  <div style="height:40px;flex-shrink:0;display:flex;align-items:center;gap:6px;padding:0 10px 0 14px;background:#1d1a16">
+    <div style="display:flex;gap:8px;width:68px;flex-shrink:0">
+      <span style="width:12px;height:12px;border-radius:50%;background:#ff5f57"></span>
+      <span style="width:12px;height:12px;border-radius:50%;background:#febc2e"></span>
+      <span style="width:12px;height:12px;border-radius:50%;background:#28c840"></span>
+    </div>
+    <div style="width:196px;flex-shrink:0"></div>
+    <div style="height:28px;display:flex;align-items:center;gap:7px;padding:0 11px;border-radius:7px;background:#2b2621;font-size:12.5px"><span style="width:7px;height:7px;border-radius:50%;background:#7fb4ee"></span>dev-sidebar</div>
+    <div style="height:28px;display:flex;align-items:center;gap:7px;padding:0 11px;border-radius:7px;color:#8c8374;font-size:12.5px"><span style="width:7px;height:7px;border-radius:50%;background:#9cbd80"></span>zsh · paddock</div>
+    <div style="width:26px;height:26px;display:flex;align-items:center;justify-content:center;color:#8c8374">
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M6 1.5v9M1.5 6h9"/></svg>
+    </div>
+    <div style="flex:1"></div>
+
+    <!-- Split: redrawn — two equal halves and a plus -->
+    <button class="pd-btn pd-ico" aria-label="Split pane" style="width:28px;height:28px;border-radius:7px;display:flex;align-items:center;justify-content:center;color:#8c8374">
+      <svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><rect x="1.5" y="2" width="12" height="11" rx="2"/><path d="M7.5 2v11"/><path d="M10.5 6v3M9 7.5h3"/></svg>
+    </button>
+    <div style="width:6px"></div>
+    <!-- Search -->
+    <div style="width:220px;height:28px;display:flex;align-items:center;gap:8px;padding:0 6px 0 10px;border-radius:7px;box-shadow:inset 0 0 0 1px rgba(58,53,46,.6);background:rgba(43,38,33,.5);color:#8c8374;font-size:12.5px;box-sizing:border-box">
+      <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><circle cx="5.5" cy="5.5" r="4"/><path d="M8.5 8.5l3 3"/></svg>
+      <span style="flex:1">Search</span>
+      <span style="font-size:11px;padding:1px 5px;border-radius:4px;box-shadow:inset 0 0 0 1px #3a352e">⌘P</span>
+    </div>
+    <div style="width:6px"></div>
+    <!-- Right sidebar toggle: the mirror of the left one -->
+    <button class="pd-btn pd-ico" onClick="{{toggle}}" aria-label="Toggle right sidebar" style="width:28px;height:28px;border-radius:7px;display:flex;align-items:center;justify-content:center;color:{{toggleColor}};background:{{toggleBg}}">
+      <svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><rect x="1.5" y="2" width="12" height="11" rx="2"/><path d="M9.5 2v11"/><path d="M11 5h1M11 7h1M11 9h1" stroke-width="1.1"/></svg>
+    </button>
+  </div>
+
+  <div style="flex:1;display:flex;min-height:0">
+    <!-- Left sidebar (as built) -->
+    <div style="width:270px;flex-shrink:0;display:flex;flex-direction:column;background:#1d1a16">
+      <div style="height:44px;flex-shrink:0;display:flex;align-items:center;gap:4px;padding:0 10px 0 18px">
+        <span style="font-size:15px;font-weight:600">Agents</span><span style="color:#756c5e;font-size:12px;margin-left:3px">4</span>
+        <span style="flex:1"></span>
+        <span style="height:24px;padding:0 8px;border-radius:12px;display:flex;align-items:center;gap:5px;background:#3a2f1c;color:#e6b566;font-size:11.5px;font-weight:600">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M3 8.5V5.5a3 3 0 0 1 6 0v3l1 1H2z"/></svg>1</span>
+        <span style="width:26px;height:26px;display:flex;align-items:center;justify-content:center;color:#8c8374">
+          <svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><rect x="1.5" y="2" width="12" height="11" rx="2"/><path d="M5.5 2v11"/><path d="M3 5h1M3 7h1M3 9h1" stroke-width="1.1"/></svg>
+        </span>
+      </div>
+      <div style="padding:2px 10px">
+        <div style="padding:14px 8px 6px;font-size:10.5px;font-weight:600;letter-spacing:.08em;color:#756c5e">PADDOCK</div>
+        <sc-for list="{{cards}}" as="a" hint-placeholder-count="3">
+          <div style="border-radius:8px;padding:8px 10px;margin-bottom:2px;background:{{a.bg}}">
+            <div style="display:flex;align-items:center;gap:8px">
+              <span class="{{a.pulse}}" style="width:8px;height:8px;border-radius:50%;background:{{a.dot}}"></span>
+              <span style="font-weight:{{a.weight}}">{{a.name}}</span>
+              <span style="font-size:11px;color:#e2835e;opacity:.85">claude</span>
+              <span style="flex:1"></span>
+              <span style="font-size:11.5px;color:#756c5e">{{a.age}}</span>
+            </div>
+            <div style="margin:3px 0 0 16px;font-size:12px;white-space:nowrap;overflow:hidden">
+              <span style="color:#8c8374">{{a.dir}}</span><span style="color:#5f574b"> · ⎇ </span><span style="color:#a7a06d">{{a.branch}}</span>
+              <span style="color:#9cbd80;margin-left:6px">{{a.add}}</span><span style="color:#ef8174;margin-left:4px">{{a.del}}</span>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+    <div class="pd-div"></div>
+
+    <!-- Terminal -->
+    <div style="flex:1;min-width:0;background:#181613;padding:14px 18px;line-height:1.55;color:#d9d1bf;overflow:hidden" class="pd-mono">
+      <div style="font-size:13px"><span style="color:#bdb86a">❯</span> Fold the five footer icons into one button with a menu</div>
+      <div style="height:10px"></div>
+      <div style="font-size:13px"><span style="color:#e2835e">⏺</span> Done. The footer is one icon button now.</div>
+      <div style="font-size:13px;color:#8c8374">  ⎿ Edited app/src/sidebar.rs (+38 −22)</div>
+      <div style="font-size:13px;color:#8c8374">  ⎿ Edited app/src/popover.rs (+227)</div>
+      <div style="height:10px"></div>
+      <div style="font-size:13px"><span style="color:#e2835e">⏺</span> Tests pass. Preview: <span style="color:#7fb4ee;text-decoration:underline">http://localhost:5173</span></div>
+      <div style="height:16px"></div>
+      <div style="display:flex;align-items:center;font-size:13px"><span style="color:#bdb86a">❯</span>&nbsp;<span style="display:inline-block;width:8px;height:16px;background:#e8dfcc"></span></div>
+    </div>
+
+    <!-- Right sidebar -->
+    <sc-if value="{{open}}" hint-placeholder-val="{{true}}">
+      <div class="pd-div"><div class="pd-grip" title="Drag to resize"></div></div>
+      <div style="width:470px;flex-shrink:0;display:flex;flex-direction:column;background:#1d1a16;min-height:0">
+        <!-- Panel tabs -->
+        <div style="height:40px;flex-shrink:0;display:flex;align-items:center;gap:2px;padding:0 8px 0 10px">
+          <sc-for list="{{tabs}}" as="t" hint-placeholder-count="2">
+            <button class="pd-btn pd-rt" onClick="{{t.pick}}" style="height:28px;display:flex;align-items:center;gap:7px;padding:0 11px;border-radius:7px;background:{{t.bg}};color:{{t.color}};font-size:12.5px;font-weight:{{t.weight}}">
+              <span style="display:flex;color:{{t.iconColor}}">{{t.glyph}}</span>{{t.label}}
+            </button>
+          </sc-for>
+          <span style="flex:1"></span>
+          <button class="pd-btn pd-ico" aria-label="Wider" style="width:26px;height:26px;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#8c8374">
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 1.5h3.5V5M5 10.5H1.5V7M10.5 1.5L7 5M1.5 10.5L5 7"/></svg>
+          </button>
+          <button class="pd-btn pd-ico" onClick="{{toggle}}" aria-label="Close sidebar" style="width:26px;height:26px;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#8c8374">
+            <svg width="10" height="10" viewBox="0 0 9 9" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M1.5 1.5l6 6M7.5 1.5l-6 6"/></svg>
+          </button>
+        </div>
+
+        <!-- Diff tab -->
+        <sc-if value="{{isDiff}}" hint-placeholder-val="{{true}}">
+          <div style="flex-shrink:0;padding:4px 16px 10px">
+            <div style="display:flex;align-items:center;gap:8px">
+              <span class="pd-pulse" style="width:7px;height:7px;border-radius:50%;background:#7fb4ee"></span>
+              <span style="font-weight:600">dev-sidebar</span>
+              <span style="color:#756c5e;font-size:12px">⎇ p5-10-sidebar</span>
+              <span style="flex:1"></span>
+              <span style="color:#9cbd80;font-size:12px">+303</span><span style="color:#ef8174;font-size:12px">−22</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:6px;margin-top:6px;font-size:11.5px;color:#756c5e">
+              <span>Follows the focused pane</span>
+              <span style="color:#5a5247">·</span>
+              <span>Against</span>
+              <span style="display:flex;background:#161411;border-radius:6px;padding:2px">
+                <span style="padding:1px 7px;border-radius:4px;background:{{baseWorkBg}};color:{{baseWorkColor}}">Uncommitted</span>
+                <span style="padding:1px 7px;border-radius:4px;background:{{baseMainBg}};color:{{baseMainColor}}">main</span>
+              </span>
+            </div>
+          </div>
+          <div style="height:1px;background:#2a2621;flex-shrink:0"></div>
+          <div style="flex:1;overflow:hidden;display:flex;flex-direction:column">
+            <div style="padding:6px 8px">
+              <sc-for list="{{files}}" as="f" hint-placeholder-count="3">
+                <button class="pd-btn pd-file" onClick="{{f.pick}}" style="display:flex;width:100%;align-items:center;gap:8px;height:28px;padding:0 8px;border-radius:6px;box-sizing:border-box;background:{{f.bg}}">
+                  <svg width="8" height="8" viewBox="0 0 8 8" fill="none" stroke="#756c5e" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" style="transform:rotate({{f.rot}}deg)"><path d="M2.5 1.5L5.5 4 2.5 6.5"/></svg>
+                  <span style="color:{{f.mark}};font-size:11px;font-weight:700;width:10px">{{f.st}}</span>
+                  <span style="color:#756c5e;font-size:12px">{{f.dir}}</span><span style="margin-left:-8px">{{f.name}}</span>
+                  <span style="flex:1"></span>
+                  <span style="color:#9cbd80;font-size:11.5px">{{f.add}}</span><span style="color:#ef8174;font-size:11.5px">{{f.del}}</span>
+                </button>
+              </sc-for>
+            </div>
+            <div style="height:1px;background:#2a2621"></div>
+            <div class="pd-mono" style="flex:1;overflow:hidden;font-size:12px;line-height:20px">
+              <div style="padding:6px 16px;color:#7fb4ee;background:rgba(127,180,238,.06);font-size:11.5px">@@ -660,40 +660,12 @@ impl Sidebar</div>
+              <sc-for list="{{lines}}" as="l" hint-placeholder-count="12">
+                <div style="display:flex;background:{{l.bg}}">
+                  <span style="width:38px;flex-shrink:0;text-align:right;padding-right:6px;color:#4f483e;font-size:11px">{{l.a}}</span>
+                  <span style="width:38px;flex-shrink:0;text-align:right;padding-right:8px;color:#4f483e;font-size:11px">{{l.b}}</span>
+                  <span style="width:14px;flex-shrink:0;color:{{l.signColor}}">{{l.sign}}</span>
+                  <span style="white-space:pre;color:{{l.color}}">{{l.text}}</span>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </sc-if>
+
+        <!-- Browser tab -->
+        <sc-if value="{{isBrowser}}" hint-placeholder-val="{{false}}">
+          <div style="flex-shrink:0;display:flex;align-items:center;gap:4px;padding:2px 10px 10px">
+            <span style="width:26px;height:26px;display:flex;align-items:center;justify-content:center;color:#8c8374"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M7.5 2L3.5 6l4 4"/></svg></span>
+            <span style="width:26px;height:26px;display:flex;align-items:center;justify-content:center;color:#5a5247"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 2l4 4-4 4"/></svg></span>
+            <span style="width:26px;height:26px;display:flex;align-items:center;justify-content:center;color:#8c8374"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M10 6a4 4 0 1 1-1.2-2.85M10 1.8v2.4H7.6"/></svg></span>
+            <div style="flex:1;height:28px;display:flex;align-items:center;gap:7px;padding:0 10px;border-radius:7px;background:#14120f;box-shadow:inset 0 0 0 1px #34302a;font-size:12.5px">
+              <span style="color:#756c5e">localhost:</span><span>5173</span><span style="color:#756c5e">/settings</span>
+            </div>
+            <span style="width:26px;height:26px;display:flex;align-items:center;justify-content:center;color:#8c8374" title="Open in default browser"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M7 1.5h3.5V5M10.5 1.5L6 6M9 7.5v2a1 1 0 0 1-1 1H2.5a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h2"/></svg></span>
+          </div>
+          <!-- The page itself (a native web view in the real app) -->
+          <div style="flex:1;margin:0 10px 10px;border-radius:8px;overflow:hidden;background:#fbfaf7;color:#25221d;display:flex;flex-direction:column">
+            <div style="height:44px;display:flex;align-items:center;padding:0 18px;gap:18px;border-bottom:1px solid #ebe6dc;font-size:13px">
+              <span style="font-weight:700">Acme</span><span style="color:#8a8378">Dashboard</span><span>Settings</span><span style="color:#8a8378">Billing</span>
+            </div>
+            <div style="padding:22px 22px">
+              <div style="font-size:20px;font-weight:700">Settings</div>
+              <div style="color:#8a8378;margin-top:4px">Manage how the app behaves.</div>
+              <div style="margin-top:18px;display:flex;flex-direction:column;gap:12px">
+                <div style="height:40px;border-radius:8px;background:#f0ece4"></div>
+                <div style="height:40px;border-radius:8px;background:#f0ece4"></div>
+                <div style="height:40px;border-radius:8px;background:#f0ece4;width:70%"></div>
+              </div>
+              <div style="margin-top:20px;display:inline-block;padding:8px 14px;border-radius:7px;background:#25221d;color:#fbfaf7;font-weight:600">Save changes</div>
+            </div>
+          </div>
+        </sc-if>
+      </div>
+    </sc-if>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":860},"start":{"editor":"enum","options":["closed","diff","browser"],"default":"diff"}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    const start = props.start || 'diff';
+    this.state = { open: start !== 'closed', tab: start === 'browser' ? 'browser' : 'diff', file: 0, base: 'work' };
+  }
+  renderVals() {
+    const s = this.state;
+    const tabDefs = [
+      { id: 'diff', label: 'Changes', glyph: '±' },
+      { id: 'browser', label: 'Browser', glyph: '◎' }
+    ];
+    const tabs = tabDefs.map((t) => {
+      const on = s.tab === t.id;
+      return { ...t, bg: on ? '#2b2621' : 'transparent', color: on ? '#e8dfcc' : '#8c8374', weight: on ? 600 : 400,
+        iconColor: on ? '#bdb86a' : '#756c5e', pick: () => this.setState({ tab: t.id }) };
+    });
+    const fileDefs = [
+      { st: 'M', dir: 'app/src/', name: 'sidebar.rs', add: '+38', del: '−22', mark: '#e6b566' },
+      { st: 'A', dir: 'app/src/', name: 'popover.rs', add: '+227', del: '', mark: '#9cbd80' },
+      { st: 'M', dir: 'app/src/', name: 'menu.rs', add: '+38', del: '', mark: '#e6b566' }
+    ];
+    const files = fileDefs.map((f, i) => ({ ...f, bg: s.file === i ? '#26221d' : 'transparent', rot: s.file === i ? 90 : 0,
+      pick: () => this.setState({ file: i }) }));
+    const raw = [
+      [' ', 660, 660, '            .child('],
+      [' ', 661, 661, '                div()'],
+      ['-', 662, '', '                    .flex()'],
+      ['-', 663, '', '                    .child(chip(&theme, &ui, "sort", Icon::Sort))'],
+      ['-', 664, '', '                    .child(chip(&theme, &ui, "fold", Icon::Fold))'],
+      ['-', 665, '', '                    .child(chip(&theme, &ui, "new-agent", Icon::NewAgent))'],
+      ['+', '', 662, '                    .child(menu_button(&theme, &ui, self.menu_open))'],
+      ['+', '', 663, '                    .on_click(cx.listener(|this, _, _, cx| {'],
+      ['+', '', 664, '                        cx.emit(SidebarEvent::Menu);'],
+      ['+', '', 665, '                    }))'],
+      [' ', 666, 666, '            )'],
+      [' ', 667, 667, '    }'],
+      [' ', 668, 668, ''],
+      [' ', 669, 669, '    /// The footer: one icon button, its menu opens upward.']
+    ];
+    const lines = raw.map(([sign, a, b, text]) => ({
+      sign: sign === ' ' ? '' : (sign === '-' ? '−' : '+'), a, b, text,
+      bg: sign === '+' ? 'rgba(156,189,128,.10)' : sign === '-' ? 'rgba(239,129,116,.10)' : 'transparent',
+      signColor: sign === '+' ? '#9cbd80' : '#ef8174',
+      color: sign === '+' ? '#dfe8d2' : sign === '-' ? '#f0d4cf' : '#a39a89'
+    }));
+    const cards = [
+      { name: 'main', age: '3m', dir: '~/…/paddock', branch: 'main', add: '', del: '', dot: '#9cbd80' },
+      { name: 'dev-sidebar', age: 'Edit · 1m', dir: '…/p5-10-sidebar', branch: 'p5-10', add: '+303', del: '−22', dot: '#7fb4ee', sel: true, pulse: true },
+      { name: 'dev-popups', age: '9m', dir: '…/p5-4c-popups', branch: 'p5-4c', add: '+1266', del: '−312', dot: '#9cbd80' }
+    ].map((c) => ({ ...c, bg: c.sel ? '#2b2621' : 'transparent', weight: c.sel ? 600 : 500, pulse: c.pulse ? 'pd-pulse' : '' }));
+    return {
+      open: s.open, isDiff: s.tab === 'diff', isBrowser: s.tab === 'browser',
+      tabs, files, lines, cards,
+      toggle: () => this.setState({ open: !s.open }),
+      toggleBg: s.open ? '#2b2621' : 'transparent', toggleColor: s.open ? '#e8dfcc' : '#8c8374',
+      baseWorkBg: '#3a352e', baseWorkColor: '#e8dfcc', baseMainBg: 'transparent', baseMainColor: '#8c8374'
+    };
+  }
+}
+</script>
+</body>
+</html>
