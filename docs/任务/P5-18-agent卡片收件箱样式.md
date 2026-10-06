@@ -85,3 +85,33 @@
 
 ## 做完
 在本文件末尾追加「## 完成记录」（在你的分支里提交）：做了什么、验证了什么、拿主意的地方、没做的事，各几句话。回复里只写这几样，加上有没有要主控决定的事。命令都在前台跑完，全部做完后，回复最后一行写 DONE。
+
+## 完成记录
+
+- **做了什么**：
+  - `card.rs`：卡片模型改成收件箱样式。`Preview`：干活中、卡住是工具加终端标题（标题去掉开头的转圈符号和空白，只剩组名时不用）；启动中、等你、出错、退出是原来 `Second::Note` 的文字和颜色；空闲是最后一次回复的开头（换行和空白合成一个空格，最多 800 字）；都没有时为 `None`。`place` 一直有（原位置行）。展开明细换成 `Details`：药丸（⎇ 分支、+增 -删（有二进制文件时接 “, n binary”）、?未跟踪、↑n to push、clean），小格（Status、Model、This turn / Idle for / Waiting for、Up、Windows、Last input），全路径，显示用的 instance。`Line::Group` 多带组内各 agent 的状态，按等你、干活中、卡住、其他、空闲排。`yield_to_name` 只让强度让位（工具不在第一行了）。去掉了 `Second`、`Face`、`Detail`、`branch_details`、`ago`。
+  - `agents.rs`：`Spell`（名字 + instance + `state_started`）和回复表：`replies_to_read` 给出还没问过的空闲或等你时段并记为已问，时段结束就连回复一起忘掉；`absorb_reply` 只收仍在进行的时段；`reply` 取当前时段读到的回复。
+  - `corral.rs`：`Client::reply`（跑 `corral reply <名字>`，取 `text`；出错或没有回复给 `None`）和后台线程 `Replies<K>`：一次读一个，结果走通道，界面线程只 `try_iter`；退出时取消正在跑的命令并收线程。
+  - `sidebar.rs`：新卡片。34pt 头像（种类图标，没有图标的种类用名字首字母，种类色 13% 底，悬停显示种类名），右下角状态角标（干活中转圈的弧、等你琥珀点轻闪、卡住橙色带 “!”、其余小圆点，颜色都取 `look()`；外圈是卡片底色，悬停时跟着变）。第一行：名字 14pt（选中加粗规则不变）、未读点（不变）、在此打开的强调色小点（悬停 “Open in this window”）、强度淡色小字、右边时间（颜色规则不变）。预览由 GPUI 断行，两行省略、展开六行。位置行小一号放第三行，没有预览时上移。等你的卡片底色叠 7% 琥珀、加 22% 琥珀细边、带 Reply 按钮。空闲没选中时名字和预览淡一档。分组头右边状态细条。展开：药丸一行、两列小格、全路径（等宽）、instance 加 Copy、右边 Stop…。轮询拿到 `corral ls` 结果后问回复，读到的回复下一次轮询时取走。窄条提示改从新字段取同样的内容，样子不变。`Tip` 的文字改成 `SharedString`，头像的提示要显示种类名。
+  - `window.rs`：新事件 `SidebarEvent::Stop(name)` 走原来的 `stop_agent`。`stop_agent` 加了一个可选名字参数，菜单和快捷键照旧停当前窗格的 agent。Reply 发的是原来的 `Attach`：`show_agent` 本来就以 `focus_active` 结尾，会把键盘焦点放进窗格，所以没有另加事件；卡片已选中时点卡片只开合明细，点 Reply 照样接入并聚焦。
+- **验证了什么**：
+  - 先写三个测试，在原代码上编译不过（`Preview`、`git_chips`、`Replies`、`replies_to_read`、`ask_replies` 等都不存在），实现后通过：
+    - `the_preview_says_what_it_does_asks_or_last_said`：干活有标题、干活没标题（只有转圈符号加组名）、干活什么都没有、等你、空闲有回复、空闲没回复；
+    - `everything_the_card_showed_is_still_on_it_or_in_its_details`：信息清单每一项；
+    - `a_reply_is_read_once_for_each_spell_of_idling`：假 corral 给每次 reply 编号，同一段空闲里列了五次只调一次，换一段再调一次，日志正好两行。
+  - 旧测试跟着新字段改：第二行改成预览和位置行，工具从预览里取，让位只剩强度。删了已被新测试覆盖的 `details_name_the_internals_in_words`，以及随 `ago` 一起去掉的 `input_ages_read_as_words`。
+  - `app/` 下 `cargo test --all-targets` 全过（共 207 项，库 176 项）；`cargo clippy --all-targets -- -D warnings` 无警告（只有上游 `block v0.1.6` 的提示）；`cargo fmt --check` 通过；`Cargo.lock` 没变。
+  - 用临时 HOME、临时 `XDG_STATE_HOME`、假 corral（六个合成 agent）和 `PADDOCK_NO_ACTIVATE=1` 起了自己的窗口。`screencapture -x -o -l <编号>` 报 “could not create image from window”（同 P5-17），没截到图。进程按 PID 停掉，没有残留。
+- **拿主意的地方**：
+  - 启动中、退出也照旧用原来的 Note（“Starting…”、“Exited”）做预览，信息不丢；未知状态没有预览。等你的问题也用去掉转圈符号后的标题，和干活中用同一套清理。
+  - Reply 放在位置行下面（卡片最底下），这样位置行仍是第三行，也仍在预览下面。
+  - 药丸：增删写 “+25 -3”，减号和位置行一样；未跟踪写 “?3”；领先写 “↑2 to push”；没有改动、也没有未跟踪文件时加 “clean”，可以和领先同时出现（同样稿）。
+  - 小格：Model 没有模型和强度时写 “—”（同样稿）；Up、时间格没有起点时不显示。Windows 写 “none” 或数字，在此窗口打开时加 “ · open here”。Last input 写成 “You · 2m ago” 的短格式，两列里放得下。小格里的时长用两个单位（“4m 12s”、“1h 12m”），第一行的时间仍是原来的短格式。
+  - 等你时也按任务第 5 条读一次回复，但等你的卡片显示的是问题，读到的回复不显示。
+  - 取色：名字 `agents_text`（空闲没选中时 `agents_branch`）；预览 `agents_branch`（空闲没选中时 `agents_dim`）；小格标签 `agents_dimmer`、值 `agents_text`；路径 `agents_dimmer`；药丸底是 `agents_text` 5.5%；Stop… 是 `agents_red` 85%。琥珀底叠在卡片原底色上，选中的等你卡片仍看得出选中。
+  - 尺寸：头像、图标、角标、字号随界面字号缩放；卡片内边距和圆角照现有习惯不缩放。分组状态条每个 agent 12pt，最多 96pt。
+- **没做的事**：
+  - 没截到图。卡片、头像、角标动画、Reply、展开的实际样子要用户在窗口里看；Reply 聚焦、Copy、Stop… 也没实际点过。
+  - `footer_icon` 的 `Icon::Here` 现在没人用了（模块是 pub 的，不报警告），按任务范围没动。
+  - 没改 DESIGN（§13 P5-18 已写了这个样子）；没打包、没安装、没合并、没推送。
+- **审查后补改**：主控审查后又改了三处。在此打开的小点改成空心环（同样的强调色和 5pt 大小，描边 1.5pt），和未读的实心点分开；最后一次回复只在空闲时读，等你时不读，回复测试里加了一个一直在等你的 agent，验证它从没被读过；删掉了没人用的 `footer_icon` `Icon::Here` 及其绘制分支。只跑了直接相关的三个测试，都通过；`cargo clippy --all-targets -- -D warnings` 无警告。

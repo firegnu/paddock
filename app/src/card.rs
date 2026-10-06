@@ -1,7 +1,8 @@
 //! What the Agents panel shows for each agent, worked out apart from drawing so it can be tested.
 //! Ages follow Saddle's Agents panel in `src/ui.rs` at commit `df1c727`; the rest is paddock's own
-//! two-line card (DESIGN §13): a status dot, name, program and age, then one line saying where the
-//! agent works or what it needs, with the internal fields kept for the expanded details.
+//! card, read like a conversation (DESIGN §13 P5-18): the name, effort and how long; a preview of
+//! what the agent is doing, asking or last said; where it works; and, opened, the branch as chips,
+//! the rest in labelled cells, the full path and the instance.
 use crate::{
     agents::{Panel, Status, group},
     corral::Agent,
@@ -73,24 +74,23 @@ pub fn short_time(value: Option<f64>) -> String {
     }
 }
 
-/// How long ago, in words, for the details.
-fn ago(seconds: f64) -> String {
-    let s = seconds.max(0.0);
-    if s < 60.0 {
-        "just now".into()
-    } else if s < 3600.0 {
-        format!("{} min ago", (s / 60.0) as u64)
-    } else if s < 86400.0 {
-        format!("{} hr ago", (s / 3600.0) as u64)
-    } else {
-        match (s / 86400.0) as u64 {
-            1 => "1 day ago".into(),
-            n => format!("{n} days ago"),
-        }
+/// How long, for the details, in two units: `57s`, `4m 12s`, `1h 12m`, `3d 4h`; the second is left
+/// out when it is nought.
+fn how_long(seconds: f64) -> String {
+    let s = seconds.max(0.0) as u64;
+    let ((major, big), (minor, small)) = match s {
+        0..60 => return format!("{s}s"),
+        60..3600 => ((s / 60, 'm'), (s % 60, 's')),
+        3600..86400 => ((s / 3600, 'h'), (s % 3600 / 60, 'm')),
+        _ => ((s / 86400, 'd'), (s % 86400 / 3600, 'h')),
+    };
+    match minor {
+        0 => format!("{major}{big}"),
+        _ => format!("{major}{big} {minor}{small}"),
     }
 }
 
-/// How a note on the second line is coloured.
+/// How a note in the preview is coloured.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tone {
     /// That it is starting: dim.
@@ -101,13 +101,19 @@ pub enum Tone {
     Problem,
 }
 
-/// The card's second line.
+/// What the card says under the name, in up to two lines (six when open).
 #[derive(Clone, Debug, PartialEq)]
-pub enum Second {
+pub enum Preview {
+    /// Working or stalled: the tool, in the status's colour, then what its terminal title says it
+    /// is doing.
+    Busy {
+        tool: Option<String>,
+        title: Option<String>,
+    },
     /// Starting, waiting, an error or an exit, in words.
     Note(String, Tone),
-    /// Where the agent works, for one that is just working or idle.
-    Place(Place),
+    /// Idle: the start of its last reply.
+    Reply(String),
 }
 
 /// How a piece of the place line is coloured.
@@ -231,9 +237,25 @@ impl Place {
     }
 }
 
-/// Starting, waiting, errors and exits say so; otherwise where the agent works.
-fn second(a: &Agent, status: Status, title: Option<&str>, place: impl FnOnce() -> Place) -> Second {
+/// Working or stalled, the tool and the title; starting, waiting, errors and exits say so in words;
+/// idle, the start of the last reply. `None` when there is nothing to say.
+fn preview(
+    a: &Agent,
+    status: Status,
+    title: Option<String>,
+    reply: Option<&str>,
+) -> Option<Preview> {
     let (text, tone) = match status {
+        Status::Working | Status::Stalled => {
+            let tool = a.last_tool.clone();
+            return (tool.is_some() || title.is_some()).then_some(Preview::Busy { tool, title });
+        }
+        Status::Idle => {
+            return reply
+                .map(opening)
+                .filter(|text| !text.is_empty())
+                .map(Preview::Reply);
+        }
         Status::Starting => ("Starting…".to_owned(), Tone::Quiet),
         Status::Waiting => match title {
             Some(title) => (format!("Waiting for you: {title}"), Tone::Waiting),
@@ -248,9 +270,37 @@ fn second(a: &Agent, status: Status, title: Option<&str>, place: impl FnOnce() -
             (text, Tone::Problem)
         }
         Status::Exited => ("Exited".to_owned(), Tone::Problem),
-        _ => return Second::Place(place()),
+        Status::Unknown => return None,
     };
-    Second::Note(text, tone)
+    Some(Preview::Note(text, tone))
+}
+
+/// The terminal title without the spinner or mark a program puts before it; `None` when nothing is
+/// left, or when it only names the group.
+fn title(a: &Agent, prefix: &str) -> Option<String> {
+    let title = a
+        .title
+        .as_deref()?
+        .trim_start_matches(|c: char| c.is_whitespace() || spinner(c))
+        .trim_end();
+    (!title.is_empty() && title != prefix.trim_end_matches('/')).then(|| title.to_owned())
+}
+
+/// Spinner frames and marks before a title: Braille dots, geometric shapes, dingbats such as `✳`.
+fn spinner(c: char) -> bool {
+    matches!(c, '\u{2800}'..='\u{28ff}' | '\u{25a0}'..='\u{25ff}' | '\u{2700}'..='\u{27bf}' | '·' | '•' | '*')
+}
+
+/// The most of a reply a preview keeps; far more than six lines show.
+const OPENING: usize = 800;
+
+/// The start of a reply as one run of text: its lines and spaces each one space.
+fn opening(text: &str) -> String {
+    let words = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    match words.char_indices().nth(OPENING) {
+        Some((at, _)) => words[..at].to_owned(),
+        None => words,
+    }
 }
 
 /// `path` with the home directory written `~`.
@@ -318,7 +368,7 @@ pub fn elide(text: &str, fits: &dyn Fn(&str) -> bool) -> String {
     "…".to_owned()
 }
 
-/// The branch as the second line names it; `None` while Git is unread or unavailable.
+/// The branch as the place line names it; `None` while Git is unread or unavailable.
 fn branch(git: Option<&Option<Summary>>) -> Option<String> {
     match &git?.as_ref()?.head {
         Head::Branch(branch) => Some(branch.clone()),
@@ -327,88 +377,91 @@ fn branch(git: Option<&Option<Summary>>) -> Option<String> {
     }
 }
 
-/// The branch with its uncommitted changes and the commits it is ahead of its base.
-fn branch_details(s: &Summary) -> String {
-    let mut parts = vec![match &s.head {
-        Head::Branch(branch) => branch.clone(),
-        Head::Detached => "detached HEAD".into(),
-        Head::Unknown => "—".into(),
-    }];
+/// A chip of the open card, in coloured pieces.
+pub type Chip = Vec<(String, Ink)>;
+
+/// The branch and its changes as chips: the branch; lines added and deleted, with binary files;
+/// untracked files; commits to push; or that the worktree is clean.
+fn git_chips(s: &Summary) -> Vec<Chip> {
+    let mut chips = Vec::new();
+    let branch = match &s.head {
+        Head::Branch(branch) => Some(branch.clone()),
+        Head::Detached => Some("detached HEAD".into()),
+        Head::Unknown => None,
+    };
+    if let Some(branch) = branch {
+        chips.push(vec![("⎇ ".into(), Ink::Dimmer), (branch, Ink::Branch)]);
+    }
     let mut clean = true;
     if let Some(c) = &s.changes
         && c.added + c.deleted + c.binary > 0
     {
         clean = false;
-        let mut text = format!("+{} -{}", c.added, c.deleted);
+        let mut chip = vec![
+            (format!("+{}", c.added), Ink::Added),
+            (" ".into(), Ink::Dimmer),
+            (format!("-{}", c.deleted), Ink::Deleted),
+        ];
         if c.binary > 0 {
-            text += &format!(", {} binary", c.binary);
+            chip.push((format!(", {} binary", c.binary), Ink::Dimmer));
         }
-        parts.push(text);
+        chips.push(chip);
     }
     if let Some(untracked) = s.untracked
         && untracked > 0
     {
         clean = false;
-        parts.push(format!("{untracked} untracked"));
-    }
-    if clean && s.changes.is_some() && s.untracked.is_some() {
-        parts.push("clean".into());
+        chips.push(vec![(format!("?{untracked}"), Ink::Dimmer)]);
     }
     if let Some((ahead, _)) = &s.ahead
         && *ahead > 0
     {
-        parts.push(format!("{ahead} ahead"));
+        chips.push(vec![(format!("↑{ahead} to push"), Ink::Ahead)]);
     }
-    parts.join(" · ")
+    if clean && s.changes.is_some() && s.untracked.is_some() {
+        chips.push(vec![("clean".into(), Ink::Dimmer)]);
+    }
+    chips
 }
 
-/// How a detail's value is drawn, and where it gives way when too long.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Face {
-    /// Cut at the end.
-    Text,
-    /// A directory: shortened in the middle.
-    Path,
-    /// The instance id, in the terminal font; cut at the end.
-    Mono,
-}
-
-/// One row of the expanded details.
+/// One of the open card's cells: a small label over its value.
 #[derive(Clone, Debug, PartialEq)]
-pub struct Detail {
+pub struct Cell {
     pub label: &'static str,
     pub value: String,
-    pub face: Face,
 }
 
+/// What the open card adds.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Details {
+    /// Empty while Git is unread or unavailable.
+    pub chips: Vec<Chip>,
+    /// Two to a row.
+    pub cells: Vec<Cell>,
+    /// The directory in full, with home written `~`.
+    pub path: Option<String>,
+    /// The instance id as shown; the card keeps it whole.
+    pub instance: Option<String>,
+}
+
+/// `origin` is when what the card's age counts began.
 fn details(
     a: &Agent,
-    look: &Look,
     status: Status,
+    origin: Option<f64>,
     git: Option<&Option<Summary>>,
+    here: bool,
     home: Option<&str>,
     now: f64,
-) -> Vec<Detail> {
-    let row = |label, value: String| Detail {
-        label,
-        value,
-        face: Face::Text,
-    };
-    let mut rows = Vec::new();
+) -> Details {
+    let cell = |label, value: String| Cell { label, value };
+    let mut cells = Vec::new();
+    let word = look(status).label;
     let state = match (status, &a.last_tool) {
-        (Status::Working | Status::Stalled, Some(tool)) => format!("{} · {tool}", look.label),
-        _ => look.label.to_owned(),
+        (Status::Working | Status::Stalled, Some(tool)) => format!("{word} · {tool}"),
+        _ => word.to_owned(),
     };
-    rows.push(row("Status", state));
-    if let Some(cwd) = &a.cwd {
-        rows.push(Detail {
-            face: Face::Path,
-            ..row("Directory", tilde(cwd, home))
-        });
-    }
-    if let Some(Some(summary)) = git {
-        rows.push(row("Branch", branch_details(summary)));
-    }
+    cells.push(cell("Status", state));
     let label = |key: &str| {
         a.labels
             .get(key)
@@ -419,15 +472,35 @@ fn details(
         .into_iter()
         .flatten()
         .collect();
-    if !model.is_empty() {
-        rows.push(row("Model", model.join(" · ")));
+    cells.push(cell(
+        "Model",
+        if model.is_empty() {
+            "—".into()
+        } else {
+            model.join(" · ")
+        },
+    ));
+    if let Some(origin) = origin {
+        let label = match status {
+            Status::Idle => "Idle for",
+            Status::Waiting => "Waiting for",
+            _ => "This turn",
+        };
+        cells.push(cell(label, how_long(now - origin)));
     }
-    rows.push(row(
-        "Attached",
-        match a.attached {
-            0 => "no windows".into(),
-            1 => "1 window".into(),
-            n => format!("{n} windows"),
+    if let Some(started) = a.started {
+        cells.push(cell("Up", how_long(now - started)));
+    }
+    let windows = match a.attached {
+        0 => "none".to_owned(),
+        n => n.to_string(),
+    };
+    cells.push(cell(
+        "Windows",
+        if here {
+            format!("{windows} · open here")
+        } else {
+            windows
         },
     ));
     if let Some(source) = &a.last_input_source {
@@ -437,23 +510,23 @@ fn details(
             "agent" => "agent",
             other => other,
         };
-        let when = a.last_input_at.map(|at| ago(now - at));
-        rows.push(row(
+        cells.push(cell(
             "Last input",
-            match when {
-                Some(when) => format!("{who}, {when}"),
+            match a.last_input_at {
+                Some(at) => format!("{who} · {} ago", short_time(Some(now - at))),
                 None => who.to_owned(),
             },
         ));
     }
-    if let Some(instance) = &a.instance {
-        rows.push(Detail {
-            label: "Instance",
-            value: instance.clone(),
-            face: Face::Mono,
-        });
+    Details {
+        chips: match git {
+            Some(Some(summary)) => git_chips(summary),
+            _ => Vec::new(),
+        },
+        cells,
+        path: a.cwd.as_deref().map(|cwd| tilde(cwd, home)),
+        instance: a.instance.clone(),
     }
-    rows
 }
 
 /// Everything the panel shows for one agent.
@@ -466,35 +539,34 @@ pub struct Card {
     pub look: Look,
     /// Shown in the active pane: highlighted, and a click opens its details instead.
     pub selected: bool,
-    /// The details show below the second line.
+    /// The details show below the place line.
     pub expanded: bool,
-    /// Open in one of this window's panes: a quiet mark after the name.
+    /// Open in one of this window's panes: an accent ring after the name.
     pub here: bool,
     /// Finished a turn this window hasn't shown yet: an accent dot after the name.
     pub unread: bool,
+    /// The kind, in the avatar.
     pub brand: Option<Brand>,
-    /// The `effort` label, written after the program.
+    /// The `effort` label, quiet after the name.
     pub effort: Option<String>,
-    /// The tool a working agent is using, before its age.
-    pub tool: Option<String>,
     pub time: String,
     /// The age's colour: the status's, drawn lighter, while it works, waits or fails; `None` for
     /// the dim default.
     pub time_color: Option<Pick>,
-    pub second: Second,
-    pub details: Vec<Detail>,
+    /// Under the name; `None` when there is nothing to say.
+    pub preview: Option<Preview>,
+    /// Where the agent works, under the preview.
+    pub place: Place,
+    pub details: Details,
     pub instance: Option<String>,
     pub cwd: Option<String>,
 }
 
 /// Keeps the name readable on a tight first line: while `room(card)` leaves the name less than
-/// `floor`, first the effort goes, then the tool. The program and the age always stay.
+/// `floor`, the effort goes (the details still have it). The age always stays.
 pub fn yield_to_name(card: &mut Card, room: &dyn Fn(&Card) -> f32, floor: f32) {
     if room(card) < floor {
         card.effort = None;
-    }
-    if room(card) < floor {
-        card.tool = None;
     }
 }
 
@@ -520,9 +592,21 @@ pub fn click(card: &Card) -> Click {
 pub enum Line {
     /// Why the list could not be read.
     Error(String),
-    /// A group's name and how many agents it has.
-    Group(String, usize),
+    /// A group's name, how many agents it has, and their statuses for its bar: those waiting,
+    /// working, stalled, the rest, then the idle.
+    Group(String, usize, Vec<Status>),
     Agent(Box<Card>),
+}
+
+/// Where a status goes in a group's bar.
+fn bar_rank(status: Status) -> u8 {
+    match status {
+        Status::Waiting => 0,
+        Status::Working => 1,
+        Status::Stalled => 2,
+        Status::Idle => 4,
+        _ => 3,
+    }
 }
 
 /// The panel's lines. `selected` is the active pane's agent and `here` every agent open in this
@@ -544,12 +628,14 @@ pub fn lines(
     for (index, a) in ordered.iter().enumerate() {
         let prefix = group(&a.name);
         if previous != Some(prefix) {
-            let count = ordered[index..]
+            let mut bar: Vec<Status> = ordered[index..]
                 .iter()
                 .take_while(|agent| group(&agent.name) == prefix)
-                .count();
+                .map(|agent| panel.status(agent, now))
+                .collect();
+            bar.sort_by_key(|status| bar_rank(*status));
             let title = if prefix.is_empty() { "agents/" } else { prefix };
-            lines.push(Line::Group(title.to_owned(), count));
+            lines.push(Line::Group(title.to_owned(), bar.len(), bar));
             previous = Some(prefix);
         }
         lines.push(Line::Agent(Box::new(card(
@@ -578,13 +664,8 @@ fn card(
         Status::Idle | Status::Waiting => a.state_started,
         _ => None,
     };
-    let title = a
-        .title
-        .as_deref()
-        .map(str::trim)
-        .filter(|title| !title.is_empty() && *title != prefix.trim_end_matches('/'));
     let git = a.cwd.as_ref().and_then(|cwd| panel.git.get(cwd));
-    let place = || match &a.cwd {
+    let place = match &a.cwd {
         Some(cwd) => Place::new(tilde(cwd, home), git),
         None => Place::new("—".into(), None),
     };
@@ -608,14 +689,11 @@ fn card(
             .and_then(|v| v.as_str())
             .filter(|v| !v.is_empty())
             .map(str::to_owned),
-        tool: match status {
-            Status::Working | Status::Stalled => a.last_tool.clone(),
-            _ => None,
-        },
         time: short_time(origin.map(|v| now - v)),
         time_color,
-        second: second(a, status, title, place),
-        details: details(a, &look, status, git, home, now),
+        preview: preview(a, status, title(a, prefix), panel.reply(a, now)),
+        place,
+        details: details(a, status, origin, git, is_here, home, now),
         look,
         short,
         instance: a.instance.clone(),
@@ -666,7 +744,7 @@ mod tests {
         let groups: Vec<_> = lines
             .iter()
             .filter_map(|line| match line {
-                Line::Group(name, count) => Some((name.as_str(), *count)),
+                Line::Group(name, count, _) => Some((name.as_str(), *count)),
                 _ => None,
             })
             .collect();
@@ -689,7 +767,7 @@ mod tests {
     }
 
     #[test]
-    fn the_second_line_is_the_directory_and_branch_or_what_the_agent_needs() {
+    fn the_place_line_and_notes_say_where_the_agent_works_and_what_it_needs() {
         let working = Agent {
             cwd: Some("/home/me/code/paddock".into()),
             ..agent("p/work", "working")
@@ -729,13 +807,14 @@ mod tests {
             ("/tmp".into(), None),
         ]);
         let lines = lines(&panel, None, None, &[], Some("/home/me"), 100.0);
-        let seconds: Vec<(String, Second)> = cards(&lines)
+        let cards = cards(&lines);
+        let notes: Vec<(String, Option<Preview>)> = cards
             .iter()
-            .map(|c| (c.short.clone(), c.second.clone()))
+            .map(|c| (c.short.clone(), c.preview.clone()))
             .collect();
-        let note = |text: &str, tone| Second::Note(text.into(), tone);
+        let note = |text: &str, tone| Some(Preview::Note(text.into(), tone));
         assert_eq!(
-            seconds,
+            notes,
             [
                 (
                     "ask".into(),
@@ -743,30 +822,33 @@ mod tests {
                 ),
                 ("ask2".into(), note("Waiting for you", Tone::Waiting)),
                 ("broken".into(), note("Error: status failed", Tone::Problem)),
-                (
-                    "work".into(),
-                    Second::Place(Place {
-                        dir: "~/code/paddock".into(),
-                        branch: Some("p2d-render".into()),
-                        changes: Some((1, 0)),
-                        untracked: 3,
-                        ahead: 2,
-                    })
-                ),
+                ("work".into(), None),
                 ("new".into(), note("Starting…", Tone::Quiet)),
-                // No Git there: only the directory, never "git unavailable".
-                (
-                    "plain".into(),
-                    Second::Place(Place {
-                        dir: "/tmp".into(),
-                        branch: None,
-                        changes: None,
-                        untracked: 0,
-                        ahead: 0,
-                    })
-                ),
+                ("plain".into(), None),
                 ("gone".into(), note("Exited", Tone::Problem)),
             ]
+        );
+        let place = |short: &str| &cards.iter().find(|c| c.short == short).unwrap().place;
+        assert_eq!(
+            place("work"),
+            &Place {
+                dir: "~/code/paddock".into(),
+                branch: Some("p2d-render".into()),
+                changes: Some((1, 0)),
+                untracked: 3,
+                ahead: 2,
+            }
+        );
+        // No Git there: only the directory, never "git unavailable".
+        assert_eq!(
+            place("plain"),
+            &Place {
+                dir: "/tmp".into(),
+                branch: None,
+                changes: None,
+                untracked: 0,
+                ahead: 0,
+            }
         );
     }
 
@@ -960,7 +1042,7 @@ mod tests {
     }
 
     #[test]
-    fn the_first_line_names_the_tool_effort_and_colours_the_age() {
+    fn the_card_names_the_tool_effort_and_colours_the_age() {
         let mut labels = serde_json::Map::new();
         labels.insert("effort".into(), "high".into());
         let working = Agent {
@@ -988,7 +1070,10 @@ mod tests {
             .map(|c| {
                 (
                     c.short.clone(),
-                    c.tool.clone(),
+                    match &c.preview {
+                        Some(Preview::Busy { tool, .. }) => tool.clone(),
+                        _ => None,
+                    },
                     c.effort.clone(),
                     c.time_color.map(|pick| pick(&dune)),
                 )
@@ -1010,7 +1095,7 @@ mod tests {
     }
 
     #[test]
-    fn the_effort_then_the_tool_make_room_for_the_name() {
+    fn the_effort_makes_room_for_the_name() {
         let mut labels = serde_json::Map::new();
         labels.insert("effort".into(), "xhigh".into());
         let a = Agent {
@@ -1022,26 +1107,17 @@ mod tests {
         let panel = panel(vec![a]);
         let lines = lines(&panel, None, None, &[], None, 100.0);
         let card = cards(&lines)[0].clone();
-        // 100 of room, less 30 for the effort and 40 for the tool.
-        let room = |c: &Card| {
-            100.0
-                - if c.effort.is_some() { 30.0 } else { 0.0 }
-                - if c.tool.is_some() { 40.0 } else { 0.0 }
-        };
+        // 100 of room, less 30 for the effort.
+        let room = |c: &Card| 100.0 - if c.effort.is_some() { 30.0 } else { 0.0 };
         let kept = |floor: f32| {
             let mut card = card.clone();
             yield_to_name(&mut card, &room, floor);
-            (
-                card.effort.is_some(),
-                card.tool.is_some(),
-                card.brand.is_some(),
-            )
+            (card.effort.is_some(), card.time.clone())
         };
-        assert_eq!(kept(30.0), (true, true, true));
-        assert_eq!(kept(60.0), (false, true, true));
-        assert_eq!(kept(90.0), (false, false, true));
-        // Even when nothing more can go, the program stays; the name is cut instead.
-        assert_eq!(kept(200.0), (false, false, true));
+        assert_eq!(kept(60.0), (true, "—".into()));
+        assert_eq!(kept(90.0), (false, "—".into()));
+        // Even when nothing more can go, the age stays; the name is cut instead.
+        assert_eq!(kept(200.0), (false, "—".into()));
     }
 
     #[test]
@@ -1061,7 +1137,7 @@ mod tests {
                 .map(|c| (c.short.clone(), click(c), c.expanded))
                 .collect()
         };
-        // Every card starts as two lines; the first click only opens the agent.
+        // Every card starts folded; the first click only opens the agent.
         assert_eq!(
             shown(&panel, None),
             [
@@ -1104,60 +1180,170 @@ mod tests {
     }
 
     #[test]
-    fn details_name_the_internals_in_words() {
+    fn the_preview_says_what_it_does_asks_or_last_said() {
+        let titled = Agent {
+            last_tool: Some("Edit".into()),
+            // The spinner a program puts before its title goes.
+            title: Some("⠐ P5-17 pane cards".into()),
+            ..agent("p/titled", "working")
+        };
+        let untitled = Agent {
+            last_tool: Some("Bash".into()),
+            // A title that only names the group says nothing.
+            title: Some("✳ p".into()),
+            ..agent("p/untitled", "working")
+        };
+        let asking = Agent {
+            title: Some("Upgrade the dependencies?".into()),
+            ..agent("p/asking", "blocked")
+        };
+        let answered = Agent {
+            state_started: Some(90.0),
+            ..agent("p/answered", "idle")
+        };
+        let silent = Agent {
+            state_started: Some(90.0),
+            ..agent("p/silent", "idle")
+        };
+        let mut panel = panel(vec![
+            titled,
+            untitled,
+            agent("p/quiet", "working"),
+            asking,
+            answered,
+            silent,
+        ]);
+        for spell in panel.replies_to_read(100.0) {
+            let text = (spell.name == "p/answered")
+                .then(|| "Merged.\n\n  Tests pass,\tclippy is clean.\n".to_owned());
+            panel.absorb_reply(spell, text);
+        }
+        let lines = lines(&panel, None, None, &[], None, 100.0);
+        let previews: Vec<(String, Option<Preview>)> = cards(&lines)
+            .iter()
+            .map(|c| (c.short.clone(), c.preview.clone()))
+            .collect();
+        let busy = |tool: &str, title: Option<&str>| {
+            Some(Preview::Busy {
+                tool: Some(tool.into()),
+                title: title.map(Into::into),
+            })
+        };
+        assert_eq!(
+            previews,
+            [
+                (
+                    "asking".into(),
+                    Some(Preview::Note(
+                        "Waiting for you: Upgrade the dependencies?".into(),
+                        Tone::Waiting
+                    ))
+                ),
+                // Working with neither a tool nor a title: nothing to preview.
+                ("quiet".into(), None),
+                ("titled".into(), busy("Edit", Some("P5-17 pane cards"))),
+                ("untitled".into(), busy("Bash", None)),
+                (
+                    "answered".into(),
+                    Some(Preview::Reply(
+                        "Merged. Tests pass, clippy is clean.".into()
+                    ))
+                ),
+                ("silent".into(), None),
+            ]
+        );
+    }
+
+    #[test]
+    fn everything_the_card_showed_is_still_on_it_or_in_its_details() {
         let mut labels = serde_json::Map::new();
         labels.insert("model".into(), "opus".into());
         labels.insert("effort".into(), "high".into());
         let a = Agent {
+            kind: Some("claude".into()),
             cwd: Some("/Users/me/code/paddock".into()),
             instance: Some("b18cda32ce36".into()),
             attached: 1,
             last_input_source: Some("human".into()),
             last_input_at: Some(100.0 - 150.0),
             last_tool: Some("Bash".into()),
+            turn_started: Some(100.0 - 252.0),
+            started: Some(100.0 - 1320.0),
             labels,
             ..agent("p/a", "working")
         };
-        let mut panel = panel(vec![a, agent("p/b", "idle")]);
+        let b = Agent {
+            state_started: Some(100.0 - 57.0),
+            ..agent("p/b", "idle")
+        };
+        let mut panel = panel(vec![a, b]);
         panel.absorb_git(vec![("/Users/me/code/paddock".into(), summary(25, 3))]);
-        let lines = lines(&panel, None, None, &[], Some("/Users/me"), 100.0);
-        let rows = |card: &Card| -> Vec<(&str, String)> {
+        let here = ["p/a".to_owned()];
+        let lines = lines(&panel, None, None, &here, Some("/Users/me"), 100.0);
+        let cards = cards(&lines);
+        let card = cards[0];
+        // On the card: status, kind, name, effort, open here, how long, the tool and the place.
+        assert_eq!(card.look.label, "Working");
+        assert_eq!(card.brand.as_ref().unwrap().kind, "claude");
+        assert_eq!(card.short, "a");
+        assert_eq!(card.effort.as_deref(), Some("high"));
+        assert!(card.here);
+        assert_eq!(card.time, "4m");
+        assert_eq!(
+            card.preview,
+            Some(Preview::Busy {
+                tool: Some("Bash".into()),
+                title: None
+            })
+        );
+        assert_eq!(
+            card.place.text(),
+            "~/code/paddock · ⎇ p2d-render  +25 -3 ?3 ↑2"
+        );
+        // In its details: the branch and changes, the rest in cells, the full path, the instance.
+        let chips = |card: &Card| -> Vec<String> {
             card.details
+                .chips
                 .iter()
-                .map(|d| (d.label, d.value.clone()))
+                .map(|chip| chip.iter().map(|(text, _)| text.as_str()).collect())
                 .collect()
         };
-        let cards = cards(&lines);
+        let cells = |card: &Card| -> Vec<(&str, String)> {
+            card.details
+                .cells
+                .iter()
+                .map(|cell| (cell.label, cell.value.clone()))
+                .collect()
+        };
+        assert_eq!(chips(card), ["⎇ p2d-render", "+25 -3", "?3", "↑2 to push"]);
         assert_eq!(
-            rows(cards[0]),
+            cells(card),
             [
                 ("Status", "Working · Bash".into()),
-                ("Directory", "~/code/paddock".into()),
-                (
-                    "Branch",
-                    "p2d-render · +25 -3 · 3 untracked · 2 ahead".into()
-                ),
                 ("Model", "opus · high".into()),
-                ("Attached", "1 window".into()),
-                ("Last input", "You, 2 min ago".into()),
-                ("Instance", "b18cda32ce36".into()),
+                ("This turn", "4m 12s".into()),
+                ("Up", "22m".into()),
+                ("Windows", "1 · open here".into()),
+                ("Last input", "You · 2m ago".into()),
             ]
         );
-        assert_eq!(cards[0].details.last().unwrap().face, Face::Mono);
-        assert_eq!(cards[0].details[1].face, Face::Path);
-        // Rows with nothing to say are left out; Git is still loading for this one.
+        assert_eq!(card.details.path.as_deref(), Some("~/code/paddock"));
+        assert_eq!(card.details.instance.as_deref(), Some("b18cda32ce36"));
+        // With less to say: Git still loading, no model, input, start or windows.
+        assert!(chips(cards[1]).is_empty());
         assert_eq!(
-            rows(cards[1]),
+            cells(cards[1]),
             [
                 ("Status", "Idle".into()),
-                ("Directory", "/w/p/b".into()),
-                ("Attached", "no windows".into()),
-                ("Instance", "abcdef123".into()),
+                ("Model", "—".into()),
+                ("Idle for", "57s".into()),
+                ("Windows", "none".into()),
             ]
         );
+        assert_eq!(cards[1].details.path.as_deref(), Some("/w/p/b"));
         let clean = Summary {
             head: Head::Branch("main".into()),
-            ahead: Some((0, "origin/main".into())),
+            ahead: Some((1, "origin/main".into())),
             changes: Some(Changes {
                 added: 0,
                 deleted: 0,
@@ -1165,7 +1351,11 @@ mod tests {
             }),
             untracked: Some(0),
         };
-        assert_eq!(branch_details(&clean), "main · clean");
+        let texts: Vec<String> = git_chips(&clean)
+            .iter()
+            .map(|chip| chip.iter().map(|(text, _)| text.as_str()).collect())
+            .collect();
+        assert_eq!(texts, ["⎇ main", "↑1 to push", "clean"]);
     }
 
     #[test]
@@ -1186,15 +1376,6 @@ mod tests {
             assert_eq!((look.color)(&dune), color, "{status:?}");
             assert_eq!(look.breathing, status == Status::Working, "{status:?}");
         }
-    }
-
-    #[test]
-    fn input_ages_read_as_words() {
-        assert_eq!(ago(20.0), "just now");
-        assert_eq!(ago(150.0), "2 min ago");
-        assert_eq!(ago(2.5 * 3600.0), "2 hr ago");
-        assert_eq!(ago(1.5 * 86400.0), "1 day ago");
-        assert_eq!(ago(3.0 * 86400.0), "3 days ago");
     }
 
     #[test]

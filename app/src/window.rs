@@ -976,6 +976,7 @@ impl PaddockWindow {
                 cx.notify();
             }
             SidebarEvent::ToggleCollapse => self.toggle_sidebar(cx),
+            SidebarEvent::Stop(name) => self.stop_agent(Some(name.clone()), window, cx),
             SidebarEvent::Alive(names) => {
                 let names: Vec<&str> = names.iter().map(String::as_str).collect();
                 for view in self.panes.values() {
@@ -1045,9 +1046,9 @@ impl PaddockWindow {
         self.focus_active(window, cx);
     }
 
-    /// Stops the active pane's agent with `corral stop`, after asking.
-    fn stop_agent(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(name) = self.workspace.active_agent().map(str::to_owned) else {
+    /// Stops `name`, or else the active pane's agent, with `corral stop`, after asking.
+    fn stop_agent(&mut self, name: Option<String>, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(name) = name.or_else(|| self.workspace.active_agent().map(str::to_owned)) else {
             self.sidebar.update(cx, |sidebar, cx| {
                 let text = "Stop acts on the agent in the active pane; open one first.";
                 sidebar.note(text.into(), true, cx)
@@ -2535,7 +2536,7 @@ impl PaddockWindow {
         if can_stop {
             stop = stop.on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                 this.close_popup(window, cx);
-                this.stop_agent(window, cx);
+                this.stop_agent(None, window, cx);
             }));
         }
         let (left, bottom) = sidebar::menu_anchor(self.collapsed, &ui);
@@ -3802,9 +3803,9 @@ impl Render for PaddockWindow {
             .on_action(
                 cx.listener(|this, _: &menu::ClosePane, window, cx| this.close_pane(window, cx)),
             )
-            .on_action(
-                cx.listener(|this, _: &menu::StopAgent, window, cx| this.stop_agent(window, cx)),
-            )
+            .on_action(cx.listener(|this, _: &menu::StopAgent, window, cx| {
+                this.stop_agent(None, window, cx)
+            }))
             .on_action(cx.listener(|this, _: &menu::ShowAttention, window, cx| {
                 this.toggle_attention(window, cx)
             }))
