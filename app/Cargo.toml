@@ -41,13 +41,16 @@ similar = "2"
 # for putting the system's sidebar material under the sidebar (`frost.rs`).
 raw-window-handle = "0.6"
 objc2 = "0.6"
-# The AppKit classes for that material, at the version GPUI already locks.
+# The AppKit classes for that material, at the version GPUI already locks, and the system's
+# Reduce Motion setting (`reduce_motion.rs`).
 objc2-app-kit = { version = "=0.3.2", default-features = false, features = [
+    "NSAccessibility",
     "NSAppearance",
     "NSGraphics",
     "NSResponder",
     "NSView",
     "NSVisualEffectView",
+    "NSWorkspace",
 ] }
 
 [dev-dependencies]
