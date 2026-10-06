@@ -90,3 +90,14 @@
 - 主控同意后，`sidebar.rs` 的 `Tip`、`RailTip` 各加了一行 `.child(crate::browser::cover())`，这个文件只改了这两处。`objc2-app-kit` 补 `NSWindow` 特性，主控已接受。
 - 打包验证：在自己的编译目录跑 `cargo run --release --example bundle`（没加 `--install`，没碰 `~/Applications`），打出 `paddock.app`（Apple Development 签名，验签通过；Info.plist 里没有 ATS 项）。直接运行包里的 `Contents/MacOS/paddock`，条件和前面的截图相同。`http://localhost:<端口>/` 和 `http://127.0.0.1:<端口>/` 都正常打开：服务各收到一次 `GET /`，页面 JS 报 396×650。没被 ATS 拦，所以 `bundle.rs` 没改。网站数据落在临时 HOME 的 `Library/WebKit/dev.paddock.app`，说明这次用的是包里的 Info.plist 和 bundle id；真实 `~/Library` 下 `dev.paddock.app` 的 WebKit、HTTPStorages、Caches、Saved Application State 都不存在，`Preferences/dev.paddock.app.plist` 的修改时间没变（运行前后都查过）。
 - 补完后 `app/` 下 `cargo test --all-targets` 249 项全过，`cargo clippy --all-targets -- -D warnings` 无警告，`cargo fmt --check` 通过。
+
+## 主控审查
+
+2026-10-07，paddock/main。可以合并，已合并并安装。
+- 范围符合约定：新增 `browser.rs`（原生宿主、统一的“网页该不该显示”判断 `cover()`）、`browser_view.rs`（工具栏）；改 `right_panel.rs`、`window.rs`、`layout_state.rs`、`footer_icon.rs`、`lib.rs`；依赖只加用户批准的 `objc2-web-kit =0.3.2` 和直接写出的 `objc2-foundation =0.3.2`，锁文件只多一个包。
+- 主控看了截图：工具栏、地址栏（端口高亮）、圆角网页和样稿一致，JS 正常。
+- 对方问的两件：`sidebar.rs` 的 `Tip`、`RailTip` 登记成浮层，同意并已补（`b5a9ec0`）；`objc2-app-kit` 补 `NSWindow` 特性，同意。
+- 主控要求补的打包验证：用 `bundle` 打出的 app（未安装）里的程序打开 `http://localhost` 和 `http://127.0.0.1` 都正常，没被 ATS 拦，`bundle.rs` 未改；网站数据只落在临时 HOME。
+- 取舍同意：后退前进刷新不加悬停说明（GPUI 说明会压到网页、触发隐藏）；网页隐藏时交还键盘；`*.localhost` 算本机、`0.0.0.0` 和局域网 IP 补 `https://`；页面状态每 50ms 读一次。
+- 主控在分支上重跑：`cargo test --all-targets` 249 项全过，clippy、`cargo fmt --check` 通过。
+- 留给用户和 P5-28b／28c：点击、键盘、输入法、拖宽／全屏是否闪、浮层隐藏、⌘C／⌘V 等走向；`::1`、局域网、自签名证书、弹窗、下载、Inspector。
