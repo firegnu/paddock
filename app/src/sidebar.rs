@@ -646,10 +646,8 @@ impl Sidebar {
         } else {
             "Collapse sidebar (⌘B)"
         };
-        // Expanding, it stands past the strip, on the window's own opaque ground.
-        let ground = Grounds::of(&self.theme, self.frosted && !expand).selected;
         button(
-            (&self.theme, ground),
+            (&self.theme, self.grounds().selected),
             &ui,
             "collapse",
             Icon::LeftSidebar,

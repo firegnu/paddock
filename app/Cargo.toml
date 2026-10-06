@@ -40,7 +40,10 @@ objc2 = "0.6"
 # The AppKit classes for that material, at the version GPUI already locks.
 objc2-app-kit = { version = "=0.3.2", default-features = false, features = [
     "NSAppearance",
+    "NSBitmapImageRep",
     "NSGraphics",
+    "NSImage",
+    "NSImageRep",
     "NSResponder",
     "NSView",
     "NSVisualEffectView",
