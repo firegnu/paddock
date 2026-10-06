@@ -138,10 +138,17 @@ const COUNT_DIGIT: f32 = 6.8;
 const PILL_X: f32 = 8.0;
 const PILL_GAP: f32 = 5.0;
 const COMPACT_BELL: f32 = 28.0;
-/// The footer, and its menu button at the bottom left; in the strip the button is centred, which
-/// puts it as far in.
+/// The footer, and its menu button at the bottom left and the icon in it; in the strip the button
+/// is centred.
 const FOOTER: f32 = 50.0;
 const BUTTON: f32 = 32.0;
+const BUTTON_ICON: f32 = 17.0;
+/// The menu button's left edge, unscaled: in line with the cards' avatars, past the list's side, a
+/// card's edge and its padding.
+const BUTTON_LEFT: f32 = PAD + 1.0 + CARD_LEFT;
+/// A card's icon buttons, Copy and Stop…, and their corners.
+const CARD_BUTTON: f32 = 24.0;
+const CARD_BUTTON_RADIUS: f32 = 7.0;
 /// An agent's tile in the strip.
 const TILE: f32 = 34.0;
 /// The strip's bell: its height (and least width), its sides, and the room between the icon and
@@ -222,7 +229,7 @@ pub fn menu_anchor(collapsed: bool, ui: &UiFont) -> (Pixels, Pixels) {
     let left = if collapsed {
         ui.px((RAIL - BUTTON) / 2.0)
     } else {
-        px(PAD)
+        px(BUTTON_LEFT)
     };
     (left, ui.px((FOOTER - BUTTON) / 2.0 + BUTTON + 6.0))
 }
@@ -691,7 +698,7 @@ impl Sidebar {
             (&self.theme, self.grounds().selected, |t| t.agents_dim),
             &ui,
             "actions",
-            Icon::Actions,
+            (Icon::Actions, BUTTON_ICON),
             "Agent actions and settings",
             (BUTTON, BUTTON, 8.0),
             self.menu_open,
@@ -726,7 +733,7 @@ impl Sidebar {
             look,
             &ui,
             "collapse",
-            Icon::LeftSidebar,
+            (Icon::LeftSidebar, footer_icon::SIZE),
             tip,
             (TOGGLE, TOGGLE, 6.0),
             false,
@@ -1222,7 +1229,7 @@ impl Render for Sidebar {
             .h(ui.px(FOOTER))
             .flex()
             .items_center()
-            .px(px(PAD))
+            .pl(px(BUTTON_LEFT))
             .child(self.actions_button(cx));
         let note = self.note.as_ref().map(|(text, problem)| {
             div()
@@ -1367,14 +1374,14 @@ fn quiet(
         .children(action)
 }
 
-/// An icon button, `(width, height, corner radius)` in points, with what it does shown on hover;
-/// `lit` while what it opens is open. Lit and hovered, it takes `ground`; unlit, its icon is in
-/// `quiet`.
+/// An icon button, `(width, height, corner radius)` in points, its icon `glyph` points square, with
+/// what it does shown on hover; `lit` while what it opens is open. Lit and hovered, it takes
+/// `ground`; unlit, its icon is in `quiet`.
 fn button(
     (theme, ground, quiet): (&Theme, Hsla, Pick),
     ui: &UiFont,
     id: &'static str,
-    icon: Icon,
+    (icon, glyph): (Icon, f32),
     tip: &'static str,
     (width, height, radius): (f32, f32, f32),
     lit: bool,
@@ -1405,7 +1412,11 @@ fn button(
         .when(lit, |button| button.bg(ground))
         .hover(move |style| style.bg(ground))
         .tooltip(move |_, cx| cx.new(|_| tip.clone()).into())
-        .child(footer_icon::icon(icon, ink, ui.scale(1.0)))
+        .child(footer_icon::icon(
+            icon,
+            ink,
+            ui.scale(glyph / footer_icon::SIZE),
+        ))
 }
 
 /// A button's hover text.
@@ -1936,23 +1947,51 @@ fn details(
             .text_color(fg(|t| t.agents_dimmer))
             .child(path)
     });
-    let lit = fg(|t| t.agents_text).opacity(0.08);
-    let action = |id: &'static str, label: &'static str, color: Hsla, on_click: OnClick| {
+    // An icon button, quiet until hovered; then on `ground`, its icon in `hot`.
+    let action = |id: &'static str,
+                  icon: Icon,
+                  tip: &'static str,
+                  (ground, hot): (Hsla, Hsla),
+                  on_click: OnClick| {
+        let tip = Tip {
+            text: tip.into(),
+            size: ui.px(NOTE_SIZE),
+            color: fg(|t| t.agents_text),
+            background: hsla(theme.bg(|t| t.agents_bg), 1.0),
+            border: fg(|t| t.agents_rule),
+        };
+        let scale = ui.scale(1.0);
         div()
             .id(id)
+            .group(id)
             .flex_shrink_0()
-            .h(ui.px(24.0))
-            .px(ui.px(BUTTON_X))
+            .size(ui.px(CARD_BUTTON))
             .flex()
             .items_center()
-            .rounded(ui.px(7.0))
-            .whitespace_nowrap()
-            .text_size(ui.px(SECOND_SIZE))
-            .text_color(color)
+            .justify_center()
+            .rounded(ui.px(CARD_BUTTON_RADIUS))
             .cursor_pointer()
-            .hover(move |style| style.bg(lit))
+            .hover(move |style| style.bg(ground))
+            .tooltip(move |_, cx| cx.new(|_| tip.clone()).into())
             .on_click(on_click)
-            .child(label)
+            .child(
+                div()
+                    .relative()
+                    .child(
+                        div()
+                            .group_hover(id, |style| style.invisible())
+                            .child(footer_icon::icon(icon, fg(|t| t.agents_dim), scale)),
+                    )
+                    .child(
+                        div()
+                            .absolute()
+                            .top_0()
+                            .left_0()
+                            .invisible()
+                            .group_hover(id, |style| style.visible())
+                            .child(footer_icon::icon(icon, hot, scale)),
+                    ),
+            )
     };
     let instance = details.instance.clone().map(|instance| {
         div()
@@ -1968,14 +2007,26 @@ fn details(
         .items_center()
         .gap(ui.px(MARK_GAP))
         .children(instance)
-        .children(copy.map(|copy| action("copy", "Copy", fg(|t| t.agents_dim), copy)))
+        .children(copy.map(|copy| {
+            action(
+                "copy",
+                Icon::Copy,
+                "Copy instance ID",
+                (fg(|t| t.agents_text).opacity(0.08), fg(|t| t.agents_dim)),
+                copy,
+            )
+        }))
         .child(div().flex_1())
-        .child(action(
-            "stop",
-            "Stop…",
-            fg(|t| t.agents_red).opacity(0.85),
-            stop,
-        ));
+        .child({
+            let red = fg(|t| t.agents_red);
+            action(
+                "stop",
+                Icon::StopAgent,
+                "Stop agent…",
+                (red.opacity(0.12), red),
+                stop,
+            )
+        });
     div()
         .mt(px(8.0))
         .flex()
@@ -2428,8 +2479,8 @@ mod tests {
     #[test]
     fn the_menu_opens_over_its_button_in_both_shapes() {
         let base = UiFont::default();
-        // Expanded: in line with the list; collapsed: the button centred in the strip, as far in.
-        assert_eq!(menu_anchor(false, &base), (px(PAD), px(47.0)));
+        // Expanded: in line with the cards' avatars; collapsed: the button centred in the strip.
+        assert_eq!(menu_anchor(false, &base), (px(21.0), px(47.0)));
         assert_eq!(menu_anchor(true, &base), (px(10.0), px(47.0)));
         // A larger interface size moves it with the bigger button.
         let large = UiFont {

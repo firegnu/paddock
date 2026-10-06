@@ -18,6 +18,10 @@ pub enum Icon {
     NewShell,
     /// A filled square.
     Stop,
+    /// A filled square filling most of the box, as heavy as `Copy` beside it: a card's Stop….
+    StopAgent,
+    /// Two rounded squares, one behind and up to the left of the other: copy.
+    Copy,
     /// The window's own: a cross, for closing a tab or a pane.
     Close,
     /// A plus: a new tab.
@@ -130,6 +134,26 @@ fn shapes(icon: Icon, bounds: Bounds<Pixels>, scale: f32) -> Vec<PathBuilder> {
             let mut square = PathBuilder::fill();
             rounded_rect(&mut square, at(3.0, 3.0), at(11.0, 11.0), 1.5 * scale);
             vec![square]
+        }
+        Icon::StopAgent => {
+            let mut square = PathBuilder::fill();
+            rounded_rect(&mut square, at(1.75, 1.75), at(12.25, 12.25), 2.5 * scale);
+            vec![square]
+        }
+        Icon::Copy => {
+            let mut front = stroke();
+            rounded_rect(&mut front, at(4.75, 4.75), at(12.5, 12.5), 1.75 * scale);
+            // Only the back one's top and left show, round its corner.
+            let mut back = stroke();
+            let r = px(1.75 * scale);
+            let radii = point(r, r);
+            back.move_to(at(3.25, 9.25));
+            back.arc_to(radii, px(0.0), false, true, at(1.5, 7.5));
+            back.line_to(at(1.5, 3.25));
+            back.arc_to(radii, px(0.0), false, true, at(3.25, 1.5));
+            back.line_to(at(7.5, 1.5));
+            back.arc_to(radii, px(0.0), false, true, at(9.25, 3.25));
+            vec![front, back]
         }
         Icon::Close => {
             let mut cross = stroke();
