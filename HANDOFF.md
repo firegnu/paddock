@@ -7,8 +7,9 @@
   - 迁移：M0 不再依赖 Saddle 的库，用到的代码迁入 `app/src/`（来源 Saddle `df1c727`）；M1 不再用 ratatui、crossterm。
   - 第二阶段：P2-1 至 P2-4。
   - 第三阶段这一批：P3-1 至 P3-10（设置与 About 独立窗口、关闭 shell 确认、新建/停止 agent、Attention、Go to Agent、终端查找、窗格放大、布局保存与恢复、Diagnostics）。
-  - 147 项测试通过。
-- `~/Applications/paddock.app` 是第三阶段这一批的版本。重新打包安装：在 `app/` 下 `cargo build --release`，再 `cargo run --release --example bundle -- --install`（编译目录见 AGENTS.md）。
+  - 第四、五阶段：P4-1 至 P4-3，P5-1 至 P5-15（P5-13 只做了 P5-13a 右侧栏外壳），见下文。
+  - 203 项测试通过。
+- `~/Applications/paddock.app` 是合并 P5-15 之后的版本（10-06）。重新打包安装：在 `app/` 下 `cargo build --release`，再 `cargo run --release --example bundle -- --install`（编译目录见 AGENTS.md）。
 - 远程仓库：`origin` = `github.com/firegnu/paddock`（public，10-05 建）。合并后推送；推送前查隐私（gitleaks、trufflehog）。
 - 主控 `paddock/main` 自己实现，不再委派（AGENTS.md「开发方式」）。
 - 用户 10-05 定下迁移的整体安排（DESIGN §2、§3“步骤”；原话见 `docs/背景与决策记录.md` §6g–§6j）：
