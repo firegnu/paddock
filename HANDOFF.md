@@ -3,8 +3,8 @@
 ## 现在在哪（2026-10-06）
 
 - main 干净，和 `origin/main`（`github.com/firegnu/paddock`，public）同步；没有开着的 worktree、任务分支，corral 里只有主控 `paddock/main`。
-- 207 项测试通过。`~/Applications/paddock.app` 是合并 P5-20 之后的版本。重新打包安装：在 `app/` 下 `cargo build --release`，再 `cargo run --release --example bundle -- --install`（编译目录见 AGENTS.md，主仓库用 `.target/main`）。
-- 已合并：第一至第三阶段、迁移 M0–M3（corral、dispatch 在 `../ranch`；遥测、Drover、插件系统已砍）、P4-1～P4-3、P5-1～P5-20（P5-13 只做了 13a 右侧栏外壳，P5-19 只做了 19r 调研）。每件的范围、完成记录、主控审查在 `docs/任务/`。
+- 209 项测试通过。`~/Applications/paddock.app` 是合并 P5-21 之后的版本。重新打包安装：在 `app/` 下 `cargo build --release`，再 `cargo run --release --example bundle -- --install`（编译目录见 AGENTS.md，主仓库用 `.target/main`）。
+- 已合并：第一至第三阶段、迁移 M0–M3（corral、dispatch 在 `../ranch`；遥测、Drover、插件系统已砍）、P4-1～P4-3、P5-1～P5-21（P5-13 只做了 13a 右侧栏外壳，P5-19 只做了 19r 调研）。每件的范围、完成记录、主控审查在 `docs/任务/`。
 - 上下文：`AGENTS.md`（规矩）、`docs/DESIGN.md`（已定决定，§13 是界面改版的全部决定和用户原话）、`docs/背景与决策记录.md`、`docs/设计稿/`（各件样稿源文件）、`docs/调研/`。
 
 ## 本次会话（10-06 下午）
@@ -18,6 +18,8 @@
 - **P5-20** 应用图标重画：纯黑圆角方块、白猫头剪影、青／品红色散、光晕；32 及以下去掉色散。主控从装好的 `.icns` 解图看过，和样稿一致。
 - 记下未做：P5-19a 毛玻璃试验（任务文件已写）、右侧栏 Kanban（需求待聊）。用户提过 splash，随后说不要。
 
+- **P5-21**（同日稍后）New Agent 从命令里认出 `--model`／`--effort`（claude）和 `-m`／`-c model_reasoning_effort=`（codex），开 agent 时加 `model=`、`effort=` 标签，卡片 MODEL 格因此有显示；命令没写的仍是 “—”。手动 `corral start` 不带标签的（如现在的 `paddock/main`）不受影响。
+
 ## 下一步（按优先级）
 
 1. **等用户看效果并反馈**：P5-18 收件箱卡片（角标动画、等你卡片和 Reply、空闲预览、展开布局、空心“在此打开”环是否太小）、P5-20 程序坞图标（16px 方块边缘偏软）、P5-16 的收起/窄侧栏/全屏/大字号和 Attention 弹出位置。这几件 agent 都没截到屏幕图（`screencapture` 报 could not create image from window，可能缺屏幕录制权限）。
@@ -30,7 +32,7 @@
 - 键盘、点击、拖动缩放、系统提示框、菜单与快捷键，以及真实 corral 的新建/停止，大多还没经用户实际操作；palette 三种模式、从访达拖图片到 agent 窗格也待试。
 - 从程序坞菜单“退出”或注销时由系统直接结束，不问未保存的设置和运行中的 shell（GPUI 没有提供拦截）。
 - 拖动分隔线调整分屏大小没做。
-- 建议改未排：New Agent 窗口 “Will run” 预览要重开才换字体；About 窗口在很大字号时可能放不下；配置里 `sidebar_width` 小于新最小宽度时不自动加宽；侧栏铃铛紧凑与否按估算字宽判断。
+- 建议改未排：P5-21 的 `--model` 在命令末尾无值时会清掉已认出的模型、`--config=…` 连写不认；DESIGN §13 的 P5-20 条重复了一遍；New Agent 窗口 “Will run” 预览要重开才换字体；About 窗口在很大字号时可能放不下；配置里 `sidebar_width` 小于新最小宽度时不自动加宽；侧栏铃铛紧凑与否按估算字宽判断。
 - `docs/DESIGN.md` §7 其余待定：GPUI 依赖渠道、pre-1.0 是否接受、gpui-component 与首期是否只做 macOS、发布方式。
 - Xcode 缺 Metal 工具链组件，目前靠 `runtime_shaders`；是否安装待用户决定。
 - Saddle 仓库里的 `t76-*` 分支、worktree 和 T76 状态由 Saddle 主控处理。
