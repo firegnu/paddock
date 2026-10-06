@@ -2,7 +2,10 @@
 //! the next start can open the same. Versioned and checked on reading, as Saddle's
 //! `src/layout_state.rs` (commit `df1c727`) is; a file that cannot be read is kept, not
 //! overwritten. Terminal output is not saved and commands are not replayed.
-use crate::layout::{Axis, Node, PaneId, Shown, Workspace};
+use crate::{
+    layout::{Axis, Node, PaneId, Shown, Workspace},
+    right_panel,
+};
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -60,6 +63,10 @@ pub struct Layout {
     /// expanded.
     #[serde(default)]
     pub sidebar_collapsed: bool,
+    /// The right sidebar: open or not, its width and its tab; files from before it was saved open
+    /// it closed, at the default width, on Changes.
+    #[serde(default)]
+    pub right_sidebar: right_panel::Saved,
 }
 
 impl SavedNode {
@@ -127,7 +134,8 @@ impl Layout {
         Ok(())
     }
 
-    /// The workspace's layout, with the sidebar expanded; `content` says what a pane shows in full.
+    /// The workspace's layout, with the sidebar expanded and the right one closed; `content` says
+    /// what a pane shows in full.
     pub fn of(workspace: &Workspace, content: impl Fn(PaneId) -> Content) -> Layout {
         fn node(tree: &Node, places: &HashMap<PaneId, usize>) -> SavedNode {
             match tree {
@@ -166,6 +174,7 @@ impl Layout {
             active_tab: workspace.active_tab,
             tabs,
             sidebar_collapsed: false,
+            right_sidebar: right_panel::Saved::default(),
         }
     }
 
@@ -416,6 +425,51 @@ mod tests {
         let (store, back) = Store::open(Some(path));
         assert!(store.problem().is_none());
         assert_eq!(back, Some(layout));
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn the_right_sidebar_is_saved_and_older_files_open_it_closed() {
+        let (_, layout) = sample();
+        assert_eq!(layout.right_sidebar, right_panel::Saved::default());
+        let dir = std::env::temp_dir().join(format!("paddock-right-test-{}", std::process::id()));
+        let path = dir.join("layout.json");
+        let (mut store, _) = Store::open(Some(path.clone()));
+        let right = right_panel::Saved {
+            open: true,
+            width: 512.0,
+            tab: right_panel::Tab::Browser,
+        };
+        store.save(&Layout {
+            right_sidebar: right.clone(),
+            ..layout.clone()
+        });
+        let (_, back) = Store::open(Some(path.clone()));
+        assert_eq!(back.unwrap().right_sidebar, right);
+        // A file written before the right sidebar was saved has no such field: closed, 420
+        // wide, on Changes.
+        let mut old = serde_json::to_value(&layout).unwrap();
+        old.as_object_mut().unwrap().remove("right_sidebar");
+        fs::write(&path, serde_json::to_vec(&old).unwrap()).unwrap();
+        let (store, back) = Store::open(Some(path.clone()));
+        assert!(store.problem().is_none());
+        let back = back.unwrap().right_sidebar;
+        assert!(!back.open);
+        assert_eq!(back.width, right_panel::DEFAULT_WIDTH);
+        assert_eq!(back.width, 420.0);
+        assert_eq!(back.tab, right_panel::Tab::Changes);
+        // One with only some of its fields keeps those and defaults the rest.
+        let mut part = serde_json::to_value(&layout).unwrap();
+        part["right_sidebar"] = serde_json::json!({ "open": true });
+        fs::write(&path, serde_json::to_vec(&part).unwrap()).unwrap();
+        let (_, back) = Store::open(Some(path));
+        assert_eq!(
+            back.unwrap().right_sidebar,
+            right_panel::Saved {
+                open: true,
+                ..right_panel::Saved::default()
+            }
+        );
         fs::remove_dir_all(&dir).unwrap();
     }
 

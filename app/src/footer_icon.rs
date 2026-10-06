@@ -22,7 +22,7 @@ pub enum Icon {
     Close,
     /// A plus: a new tab.
     Plus,
-    /// A frame cut down the middle: split the pane.
+    /// A frame cut into two equal halves, a plus in the right one: split the pane.
     Split,
     /// Arrows to two corners: zoom the pane.
     Zoom,
@@ -44,10 +44,17 @@ pub enum Icon {
     Gear,
     /// A tick: a menu item that is on.
     Check,
-    /// A panel with its side bar and an arrow into it: collapse the sidebar.
-    Collapse,
-    /// The same panel with the arrow out: expand it again.
+    /// A panel with a narrow column of lines on its left: collapse the sidebar. The mirror of
+    /// `RightSidebar`.
+    LeftSidebar,
+    /// A panel with its side bar on the left and an arrow out: expand the sidebar again.
     Expand,
+    /// A panel with a narrow column of lines on its right: open or close the right sidebar.
+    RightSidebar,
+    /// A plus over a minus: the right sidebar's Changes.
+    Changes,
+    /// A globe: the right sidebar's Browser.
+    Browser,
 }
 
 /// `icon` in `color`, `SIZE` points square times `scale` (the interface size over the base).
@@ -144,11 +151,16 @@ fn shapes(icon: Icon, bounds: Bounds<Pixels>, scale: f32) -> Vec<PathBuilder> {
         }
         Icon::Split => {
             let mut frame = stroke();
-            rounded_rect(&mut frame, at(1.5, 2.0), at(12.5, 12.0), 2.0 * scale);
+            rounded_rect(&mut frame, at(1.0, 2.0), at(13.0, 12.0), 2.0 * scale);
             let mut seam = stroke();
             seam.move_to(at(7.0, 2.0));
             seam.line_to(at(7.0, 12.0));
-            vec![frame, seam]
+            let mut plus = stroke();
+            plus.move_to(at(10.0, 5.5));
+            plus.line_to(at(10.0, 8.5));
+            plus.move_to(at(8.5, 7.0));
+            plus.line_to(at(11.5, 7.0));
+            vec![frame, seam, plus]
         }
         Icon::Zoom => {
             let mut arrows = stroke();
@@ -272,21 +284,60 @@ fn shapes(icon: Icon, bounds: Bounds<Pixels>, scale: f32) -> Vec<PathBuilder> {
             tick.line_to(at(11.0, 4.0));
             vec![tick]
         }
-        Icon::Collapse | Icon::Expand => {
+        Icon::Expand => {
             let mut frame = stroke();
             rounded_rect(&mut frame, at(1.0, 2.0), at(13.0, 12.0), 2.0 * scale);
             let mut side = stroke();
             side.move_to(at(5.0, 2.0));
             side.line_to(at(5.0, 12.0));
-            let (tip, back) = match icon {
-                Icon::Collapse => (8.0, 9.5),
-                _ => (9.5, 8.0),
-            };
             let mut arrow = stroke();
-            arrow.move_to(at(back, 5.5));
-            arrow.line_to(at(tip, 7.0));
-            arrow.line_to(at(back, 8.5));
+            arrow.move_to(at(8.0, 5.5));
+            arrow.line_to(at(9.5, 7.0));
+            arrow.line_to(at(8.0, 8.5));
             vec![frame, side, arrow]
+        }
+        Icon::LeftSidebar | Icon::RightSidebar => {
+            // The column's edge, and its lines across the middle of it.
+            let (edge, from, to) = match icon {
+                Icon::LeftSidebar => (5.0, 2.0, 4.0),
+                _ => (9.0, 10.0, 12.0),
+            };
+            let mut frame = stroke();
+            rounded_rect(&mut frame, at(1.0, 2.0), at(13.0, 12.0), 2.0 * scale);
+            let mut side = stroke();
+            side.move_to(at(edge, 2.0));
+            side.line_to(at(edge, 12.0));
+            let mut lines = stroke();
+            for y in [5.0, 7.0, 9.0] {
+                lines.move_to(at(from, y));
+                lines.line_to(at(to, y));
+            }
+            vec![frame, side, lines]
+        }
+        Icon::Changes => {
+            let mut plus = stroke();
+            plus.move_to(at(7.0, 1.75));
+            plus.line_to(at(7.0, 7.25));
+            plus.move_to(at(4.25, 4.5));
+            plus.line_to(at(9.75, 4.5));
+            let mut minus = stroke();
+            minus.move_to(at(4.25, 10.75));
+            minus.line_to(at(9.75, 10.75));
+            vec![plus, minus]
+        }
+        Icon::Browser => {
+            let mut ring = stroke();
+            circle(&mut ring, at(7.0, 7.0), 5.5 * scale);
+            let mut meridian = stroke();
+            let radii = point(px(2.5 * scale), px(5.5 * scale));
+            meridian.move_to(at(7.0, 1.5));
+            meridian.arc_to(radii, px(0.0), false, true, at(7.0, 12.5));
+            meridian.arc_to(radii, px(0.0), false, true, at(7.0, 1.5));
+            meridian.close();
+            let mut equator = stroke();
+            equator.move_to(at(1.5, 7.0));
+            equator.line_to(at(12.5, 7.0));
+            vec![ring, meridian, equator]
         }
     }
 }

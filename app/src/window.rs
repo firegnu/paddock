@@ -19,6 +19,7 @@ use crate::{
     new_agent_view::Seed,
     pet::PetView,
     popover::{self, Hang, Placed, Tone},
+    right_panel::{self, RightPanel, Room, Tab as RightTab},
     search::{self, Lead, Mode, Target},
     settings::{Conflict, Draft, Saved},
     sidebar::{self, Sidebar, SidebarEvent, status_dot},
@@ -65,6 +66,9 @@ enum Popup {
 
 /// What dragging the divider carries: nothing, only that it is the divider.
 struct SidebarDrag;
+
+/// What dragging the right sidebar's divider carries.
+struct RightDrag;
 
 /// The command palette while it is open.
 struct Palette {
@@ -437,8 +441,8 @@ pub struct PaddockWindow {
     tabs: ScrollHandle,
     /// The pet in the tab strip's spare room, unless turned off.
     pet: Option<Entity<PetView>>,
-    /// The View menu as last set: folded, sorted by name, sidebar collapsed.
-    menu_state: Option<(bool, bool, bool)>,
+    /// The View menu as last set: folded, sorted by name, sidebar collapsed, right sidebar open.
+    menu_state: Option<(bool, bool, bool, bool)>,
     /// The pet as configured: shown, and which.
     pet_setting: (bool, crate::pet::Pet),
     /// A close or quit question is showing.
@@ -466,6 +470,8 @@ pub struct PaddockWindow {
     collapsed: bool,
     /// The divider is being dragged: the width and the mouse's x when it was pressed.
     resizing: Option<(f32, f32)>,
+    /// The right sidebar: open or not, its width, its tab; saved with the layout.
+    right: RightPanel,
     /// A press on the title bar's empty part: moving now drags the window.
     dragging: bool,
     /// The title bar height the traffic lights were last centred on.
@@ -496,6 +502,12 @@ impl PaddockWindow {
             .as_ref()
             .is_some_and(|layout| layout.sidebar_collapsed);
         sidebar.update(cx, |sidebar, cx| sidebar.set_collapsed(collapsed, cx));
+        let right = RightPanel::new(
+            &saved
+                .as_ref()
+                .map(|layout| layout.right_sidebar.clone())
+                .unwrap_or_default(),
+        );
         let shown = match &options.launch {
             Launch::Empty => Shown::Empty,
             Launch::Agent { name } => Shown::Agent(name.clone()),
@@ -536,6 +548,7 @@ impl PaddockWindow {
             sidebar_width: config.sidebar_width,
             collapsed,
             resizing: None,
+            right,
             dragging: false,
             lights: None,
             store,
@@ -643,6 +656,7 @@ impl PaddockWindow {
     pub fn save_layout(&mut self, cx: &gpui::App) {
         let layout = Layout {
             sidebar_collapsed: self.collapsed,
+            right_sidebar: self.right.saved(),
             ..Layout::of(&self.workspace, |pane| self.content(pane, cx))
         };
         self.store.save(&layout);
@@ -659,6 +673,64 @@ impl PaddockWindow {
             .update(cx, |sidebar, cx| sidebar.set_collapsed(collapsed, cx));
         self.save_layout(cx);
         cx.notify();
+    }
+
+    /// ⌥⌘B, the title bar's button and the right sidebar's ×: open or close it.
+    fn toggle_right(&mut self, cx: &mut Context<Self>) {
+        self.right.open = !self.right.open;
+        self.save_layout(cx);
+        cx.notify();
+    }
+
+    /// The room the right sidebar has in the window as it is now.
+    fn right_room(&self, window: &Window, cx: &gpui::App) -> Room {
+        let ui = UiFont::get(cx);
+        Room {
+            window: f32::from(window.viewport_size().width),
+            others: self.sidebar_shown(&ui) + DIVIDER + DIVIDER,
+            min: ui.scale(right_panel::MIN_WIDTH).max(right_panel::MIN_WIDTH),
+        }
+    }
+
+    /// Where the right sidebar's divider is taken by, `width` in from the window's right edge:
+    /// as the left one's.
+    fn right_grip(&self, width: f32, cx: &mut Context<Self>) -> Stateful<Div> {
+        let bright = self.fg(|t| t.agents_border);
+        let bar = div()
+            .absolute()
+            .top_0()
+            .bottom_0()
+            .left(px(GRIP - 1.0))
+            .w(px(DIVIDER + 2.0))
+            .when(self.right.resizing(), |bar| bar.bg(bright))
+            .group_hover("right-divider", move |style| style.bg(bright));
+        div()
+            .id("right-divider")
+            .group("right-divider")
+            .absolute()
+            .top_0()
+            .bottom_0()
+            .right(px(width - GRIP))
+            .w(px(GRIP + DIVIDER + GRIP))
+            .cursor_col_resize()
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, event: &MouseDownEvent, window, cx| {
+                    let room = this.right_room(window, cx);
+                    this.right.press(room, f32::from(event.position.x));
+                    cx.notify();
+                }),
+            )
+            .on_drag(RightDrag, |_, _, _, cx| cx.new(|_| gpui::EmptyView))
+            .child(bar)
+    }
+
+    /// The right sidebar's divider was let go: its width is saved with the layout.
+    fn finish_right_resize(&mut self, cx: &mut Context<Self>) {
+        if self.right.release() {
+            self.save_layout(cx);
+            cx.notify();
+        }
     }
 
     /// How wide the sidebar is drawn now: its width, or the strip's.
@@ -1653,8 +1725,50 @@ impl PaddockWindow {
                             .children(self.pet.clone()),
                     )
                     .child(self.split_button(cx))
-                    .child(self.search_button(cx)),
+                    .child(self.search_button(cx))
+                    .child(self.right_button(cx)),
             )
+    }
+
+    /// The right sidebar's switch, after the search field at the title bar's right end; lit while
+    /// the sidebar is open.
+    fn right_button(&self, cx: &mut Context<Self>) -> Stateful<Div> {
+        let ui = UiFont::get(cx);
+        let highlight = self.highlight();
+        let lit = self.right.open;
+        let tip = BarTip {
+            text: "Toggle right sidebar",
+            keys: menu::keys(&menu::ToggleRightSidebar).concat(),
+            size: ui.px(11.5),
+            color: self.fg(|t| t.agents_text),
+            dim: self.fg(|t| t.agents_dim),
+            background: hsla(self.theme.bg(|t| t.agents_bg), 1.0),
+            border: self.fg(|t| t.agents_rule),
+        };
+        div()
+            .id("right-sidebar")
+            .flex_shrink_0()
+            .flex()
+            .items_center()
+            .justify_center()
+            .size(ui.px(BAR_BUTTON))
+            .ml(ui.px(SPLIT_GAP))
+            .rounded(px(6.0))
+            .cursor_pointer()
+            .when(lit, |button| button.bg(highlight))
+            .hover(move |style| style.bg(highlight))
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .tooltip(move |_, cx| cx.new(|_| tip.clone()).into())
+            .child(footer_icon::icon(
+                Icon::RightSidebar,
+                if lit {
+                    self.fg(|t| t.agents_text)
+                } else {
+                    self.fg(|t| t.muted)
+                },
+                ui.scale(1.0),
+            ))
+            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.toggle_right(cx)))
     }
 
     /// The way into the split panel for the active pane, always before the search field, as a
@@ -3391,10 +3505,10 @@ impl Render for PaddockWindow {
         }
         // The View menu follows the sidebar.
         let (fold, by_name) = self.sidebar.read(cx).view_state();
-        let view_state = (fold, by_name, self.collapsed);
+        let view_state = (fold, by_name, self.collapsed, self.right.open);
         if self.menu_state != Some(view_state) {
             self.menu_state = Some(view_state);
-            cx.set_menus(menu::menus(fold, by_name, self.collapsed));
+            cx.set_menus(menu::menus(fold, by_name, self.collapsed, self.right.open));
         }
         // The menu button stays lit while its menu is open.
         let menu_open = self.popup == Some(Popup::Actions);
@@ -3435,6 +3549,29 @@ impl Render for PaddockWindow {
             .child(div().flex_shrink_0().w(px(DIVIDER)).h_full().bg(rule))
             .child(content)
             .when(!self.collapsed, |body| body.child(self.grip(cx)));
+        // The right sidebar, pushed out from the right edge: the terminal narrows for it.
+        let body = if self.right.open {
+            let width = self.right.shown(self.right_room(window, cx));
+            let panel = self.right.render(
+                &self.theme,
+                &ui,
+                cx.listener(|this, tab: &RightTab, _, cx| {
+                    this.right.tab = *tab;
+                    this.save_layout(cx);
+                    cx.notify();
+                }),
+                cx.listener(|this, _: &ClickEvent, _, cx| {
+                    this.right.wide = !this.right.wide;
+                    cx.notify();
+                }),
+                cx.listener(|this, _: &ClickEvent, _, cx| this.toggle_right(cx)),
+            );
+            body.child(div().flex_shrink_0().w(px(DIVIDER)).h_full().bg(rule))
+                .child(div().flex_shrink_0().w(px(width)).h_full().child(panel))
+                .child(self.right_grip(width, cx))
+        } else {
+            body
+        };
         let dialog = match self.popup {
             Some(Popup::Actions) => Some(self.actions_menu(cx)),
             Some(Popup::Attention) => Some(self.attention_panel(window, cx)),
@@ -3509,16 +3646,33 @@ impl Render for PaddockWindow {
                 cx.notify();
             }))
             .on_action(cx.listener(|this, _: &menu::ToggleSidebar, _, cx| this.toggle_sidebar(cx)))
-            // Dragging the divider: followed wherever the mouse goes, and let go anywhere.
+            .on_action(
+                cx.listener(|this, _: &menu::ToggleRightSidebar, _, cx| this.toggle_right(cx)),
+            )
+            // Dragging the dividers: followed wherever the mouse goes, and let go anywhere.
             .on_drag_move(
                 cx.listener(|this, event: &DragMoveEvent<SidebarDrag>, _, cx| {
                     this.resize_sidebar(f32::from(event.event.position.x), cx)
                 }),
             )
-            .capture_any_mouse_up(cx.listener(|this, _, _, cx| this.finish_resize(cx)))
+            .on_drag_move(
+                cx.listener(|this, event: &DragMoveEvent<RightDrag>, window, cx| {
+                    let room = this.right_room(window, cx);
+                    if this.right.drag(room, f32::from(event.event.position.x)) {
+                        cx.notify();
+                    }
+                }),
+            )
+            .capture_any_mouse_up(cx.listener(|this, _, _, cx| {
+                this.finish_resize(cx);
+                this.finish_right_resize(cx);
+            }))
             .on_mouse_up_out(
                 MouseButton::Left,
-                cx.listener(|this, _, _, cx| this.finish_resize(cx)),
+                cx.listener(|this, _, _, cx| {
+                    this.finish_resize(cx);
+                    this.finish_right_resize(cx);
+                }),
             )
             .on_action(cx.listener(|_, _: &menu::Minimize, window, _| window.minimize_window()))
             .on_action(cx.listener(|_, _: &menu::Zoom, window, _| window.zoom_window()))
@@ -3546,9 +3700,9 @@ impl Render for PaddockWindow {
             .child(self.title_bar(&agents, now, cx))
             .child(body)
             .children(dialog)
-            // While the divider is dragged the cursor keeps its shape, and nothing under it
+            // While a divider is dragged the cursor keeps its shape, and nothing under it
             // reacts.
-            .when(self.resizing.is_some(), |root| {
+            .when(self.resizing.is_some() || self.right.resizing(), |root| {
                 root.child(
                     div()
                         .id("resizing")
