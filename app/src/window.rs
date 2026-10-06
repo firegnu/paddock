@@ -52,7 +52,8 @@ pub struct NewShell {
 enum Popup {
     /// Choose what the new tab shows, from the `+`.
     NewTab,
-    /// Choose the side and what the new pane shows in one go, from the pane's split button.
+    /// Choose the side and what the new pane shows in one go, from the pane's split button or
+    /// the title bar's split icon.
     Split(Direction),
     /// The Attention list.
     Attention,
@@ -186,6 +187,8 @@ fn chooser_child(new_tab: bool, index: usize) -> usize {
 enum Spot {
     /// The title bar's `+`.
     NewTab,
+    /// The title bar's split icon.
+    Split,
     Pane(PaneId),
 }
 
@@ -227,6 +230,8 @@ fn first_choice(query: &str, choices: &[Choice]) -> usize {
 enum SplitAsk {
     /// The pane's split button.
     Button,
+    /// The title bar's split icon.
+    Bar,
     /// A shortcut or menu item for that side.
     Side(Direction),
 }
@@ -236,9 +241,34 @@ enum SplitAsk {
 /// already there.
 fn split_popup(open: Option<Popup>, ask: SplitAsk) -> Option<Popup> {
     match ask {
-        SplitAsk::Button => Some(Popup::Split(Direction::Right)),
+        SplitAsk::Button | SplitAsk::Bar => Some(Popup::Split(Direction::Right)),
         SplitAsk::Side(direction) if open == Some(Popup::Split(direction)) => None,
         SplitAsk::Side(direction) => Some(Popup::Split(direction)),
+    }
+}
+
+/// What the split panel hangs from.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum SplitFrom {
+    /// The title bar's split icon.
+    Bar,
+    /// The active pane's split button, in its header.
+    Pane,
+}
+
+/// What the split panel hangs from after asking for it, `hanging` from where it is when already
+/// open, with or without pane headers: each button from itself; a shortcut or the menu from the
+/// active pane's button, or from the title bar's icon when no pane has a header. Switching the
+/// side of an open panel leaves it where it hangs.
+fn split_from(ask: SplitAsk, hanging: Option<SplitFrom>, header: bool) -> SplitFrom {
+    match ask {
+        SplitAsk::Bar => SplitFrom::Bar,
+        SplitAsk::Button => SplitFrom::Pane,
+        SplitAsk::Side(_) => hanging.unwrap_or(if header {
+            SplitFrom::Pane
+        } else {
+            SplitFrom::Bar
+        }),
     }
 }
 
@@ -274,11 +304,14 @@ const DIVIDER: f32 = 1.0;
 const GRIP: f32 = 3.0;
 /// What the dimmed panes are covered with: the terminal's background, this opaque.
 const DIM: f32 = 0.42;
-/// A split pane's header buttons, and the room after the last; the split panel of a pane without
-/// a header hangs this far in from its right edge.
+/// A split pane's header buttons, and the room after the last.
 const PANE_BUTTON: f32 = 28.0;
 const PANE_HEADER_END: f32 = 4.0;
-const CORNER: f32 = 6.0;
+/// The title bar's `+` and split icon; the search field's width, and the room between it and the
+/// split icon, besides the bar's own gap.
+const BAR_BUTTON: f32 = 28.0;
+const SEARCH: f32 = 220.0;
+const SPLIT_GAP: f32 = 4.0;
 /// Where the sidebar draws the Attention bell, for the list to hang from it: in the strip, this
 /// far under the title bar; in the header, this far in from the right edge (not scaled) and then
 /// the collapse button and the gap before it; a digit of its count about this wide.
@@ -399,6 +432,8 @@ pub struct PaddockWindow {
     template: Options,
     new_shell: NewShell,
     popup: Option<Popup>,
+    /// What the split panel hangs from while it is open.
+    split_from: SplitFrom,
     tabs: ScrollHandle,
     /// The pet in the tab strip's spare room, unless turned off.
     pet: Option<Entity<PetView>>,
@@ -412,7 +447,8 @@ pub struct PaddockWindow {
     attention_index: usize,
     /// The new tab or split panel's field and selected row.
     chooser: Chooser,
-    /// Where the `+` and the panes were last drawn, for the panels that hang from them.
+    /// Where the `+`, the split icon and the panes were last drawn, for the panels that hang from
+    /// them.
     spots: Rc<RefCell<HashMap<Spot, Bounds<Pixels>>>>,
     /// The tab under the mouse and since when, and the one it last left and when: their ×
     /// fades in and out.
@@ -483,6 +519,7 @@ impl PaddockWindow {
             },
             new_shell,
             popup: None,
+            split_from: SplitFrom::Pane,
             tabs: ScrollHandle::new(),
             pet: config
                 .mascot_enabled
@@ -1030,15 +1067,19 @@ impl PaddockWindow {
         cx.notify();
     }
 
-    /// The split button, ⌘D and the other sides' shortcuts: the split panel on the side asked
-    /// for (see [`split_popup`]), hanging from the active pane.
+    /// The split buttons, ⌘D and the other sides' shortcuts: the split panel on the side asked
+    /// for (see [`split_popup`]), hanging from the button asked from or the active pane's (see
+    /// [`split_from`]).
     fn ask_split(&mut self, ask: SplitAsk, window: &mut Window, cx: &mut Context<Self>) {
         let popup = split_popup(self.popup, ask);
         if popup.is_none() {
             self.close_popup(window, cx);
             return;
         }
-        if !matches!(self.popup, Some(Popup::Split(_))) {
+        let splitting = matches!(self.popup, Some(Popup::Split(_)));
+        let header = header_shown(self.workspace.tab().panes().len());
+        self.split_from = split_from(ask, splitting.then_some(self.split_from), header);
+        if !splitting {
             // Another panel's field gives the keys back.
             if self.chooser.input.is_some() || self.palette.is_some() {
                 self.focus_active(window, cx);
@@ -1048,6 +1089,19 @@ impl PaddockWindow {
         }
         self.popup = popup;
         cx.notify();
+    }
+
+    /// What the open split panel hangs from: the title bar's icon once no pane has a header to
+    /// hang it from.
+    fn split_hanging(&self) -> Option<SplitFrom> {
+        if !matches!(self.popup, Some(Popup::Split(_))) {
+            return None;
+        }
+        Some(if header_shown(self.workspace.tab().panes().len()) {
+            self.split_from
+        } else {
+            SplitFrom::Bar
+        })
     }
 
     /// The text typed in the new tab panel's field; nothing for the split panel.
@@ -1526,7 +1580,7 @@ impl PaddockWindow {
             .flex()
             .items_center()
             .justify_center()
-            .size(ui.px(28.0))
+            .size(ui.px(BAR_BUTTON))
             .rounded(px(6.0))
             .cursor_pointer()
             .when(choosing, |button| button.bg(highlight))
@@ -1598,8 +1652,55 @@ impl PaddockWindow {
                             .ml(px(GAP))
                             .children(self.pet.clone()),
                     )
+                    .child(self.split_button(cx))
                     .child(self.search_button(cx)),
             )
+    }
+
+    /// The way into the split panel for the active pane, always before the search field, as a
+    /// lone pane has no header to carry its split button. Quiet until hovered; lit while the
+    /// panel hangs from it.
+    fn split_button(&self, cx: &mut Context<Self>) -> Stateful<Div> {
+        let ui = UiFont::get(cx);
+        let highlight = self.highlight();
+        let lit = self.split_hanging() == Some(SplitFrom::Bar);
+        let tip = BarTip {
+            text: "Split pane",
+            keys: menu::keys(&menu::SplitRight).concat(),
+            size: ui.px(11.5),
+            color: self.fg(|t| t.agents_text),
+            dim: self.fg(|t| t.agents_dim),
+            background: hsla(self.theme.bg(|t| t.agents_bg), 1.0),
+            border: self.fg(|t| t.agents_rule),
+        };
+        div()
+            .id("split-pane")
+            .relative()
+            .flex_shrink_0()
+            .flex()
+            .items_center()
+            .justify_center()
+            .size(ui.px(BAR_BUTTON))
+            .mr(ui.px(SPLIT_GAP))
+            .rounded(px(6.0))
+            .cursor_pointer()
+            .when(lit, |button| button.bg(highlight))
+            .hover(move |style| style.bg(highlight))
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .tooltip(move |_, cx| cx.new(|_| tip.clone()).into())
+            .child(footer_icon::icon(
+                Icon::Split,
+                if lit {
+                    self.fg(|t| t.agents_text)
+                } else {
+                    self.fg(|t| t.muted)
+                },
+                ui.scale(1.0),
+            ))
+            .child(self.spot(Spot::Split))
+            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                this.ask_split(SplitAsk::Bar, window, cx)
+            }))
     }
 
     /// The way into the command palette, always at the title bar's right end: the tabs narrow
@@ -1610,7 +1711,7 @@ impl PaddockWindow {
         div()
             .id("search")
             .flex_shrink_0()
-            .w(ui.px(220.0))
+            .w(ui.px(SEARCH))
             .h(ui.px(28.0))
             .flex()
             .items_center()
@@ -1777,7 +1878,7 @@ impl PaddockWindow {
             home.as_deref(),
         );
         let now = now();
-        let splitting = active && matches!(self.popup, Some(Popup::Split(_)));
+        let splitting = active && self.split_hanging() == Some(SplitFrom::Pane);
         let button = |id: &str, icon: Icon, lit: bool| {
             let group = SharedString::from(format!("{id}-{pane}"));
             div()
@@ -2843,8 +2944,8 @@ impl PaddockWindow {
             }))
     }
 
-    /// Where a panel hangs: from the `+`; from the active pane's split button, or its top-right
-    /// corner when it has no header; from the Attention bell, under it in the sidebar's header or
+    /// Where a panel hangs: from the `+`; from the active pane's split button or the title bar's
+    /// split icon, as [`split_from`] says; from the Attention bell, under it in the sidebar's header or
     /// beside the strip.
     fn placed(&self, popup: Popup, width: f32, window: &Window, cx: &Context<Self>) -> Placed {
         let ui = UiFont::get(cx);
@@ -2866,7 +2967,7 @@ impl PaddockWindow {
                     .unwrap_or_else(|| rect(side + 10.0, 0.0, 0.0, title)),
                 Hang::BelowLeft,
             ),
-            Popup::Split(_) => {
+            Popup::Split(_) if self.split_hanging() == Some(SplitFrom::Pane) => {
                 let pane = spots
                     .get(&Spot::Pane(self.workspace.active_pane()))
                     .copied()
@@ -2875,20 +2976,27 @@ impl PaddockWindow {
                         rect(side, title, width, f32::from(viewport.height) - title)
                     });
                 let (right, top) = (f32::from(pane.right()), f32::from(pane.top()));
-                let anchor = if header_shown(self.workspace.tab().panes().len()) {
-                    // The header's split button, first of its three at its right end.
-                    let button = PANE_BUTTON * s;
+                // The header's split button, first of its three at its right end.
+                let button = PANE_BUTTON * s;
+                (
                     rect(
                         right - PANE_HEADER_END * s - 3.0 * button,
                         top,
                         button,
                         button,
-                    )
-                } else {
-                    rect(right - CORNER * s, top + 2.0 * s, 0.0, 0.0)
-                };
-                (anchor, Hang::BelowRight)
+                    ),
+                    Hang::BelowRight,
+                )
             }
+            Popup::Split(_) => (
+                // Not drawn yet: before the search field at the title bar's right end.
+                spots.get(&Spot::Split).copied().unwrap_or_else(|| {
+                    let button = BAR_BUTTON * s;
+                    let right = f32::from(viewport.width) - 10.0 - SEARCH * s - 4.0 - SPLIT_GAP * s;
+                    rect(right - button, (title - button) / 2.0, button, button)
+                }),
+                Hang::BelowRight,
+            ),
             _ => {
                 let count = self.sidebar.read(cx).attention().len();
                 if self.collapsed {
@@ -2917,8 +3025,8 @@ impl PaddockWindow {
     }
 
     /// The new tab panel (under the `+`: a field, then Shell and Agent…, then the agents that match)
-    /// or the split panel (under the pane's split button: the side, then the same rows). The
-    /// selected row is lit; Esc or a click outside closes it.
+    /// or the split panel (under the split button it hangs from: the side, then the same rows).
+    /// The selected row is lit; Esc or a click outside closes it.
     fn chooser_panel(
         &self,
         popup: Popup,
@@ -3213,6 +3321,37 @@ impl PaddockWindow {
                 this.popup = Some(Popup::Split(direction));
                 cx.notify();
             }))
+    }
+}
+
+/// A title bar button's hover text, with its shortcut after it.
+#[derive(Clone)]
+struct BarTip {
+    text: &'static str,
+    keys: String,
+    size: Pixels,
+    color: Hsla,
+    dim: Hsla,
+    background: Hsla,
+    border: Hsla,
+}
+
+impl Render for BarTip {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .flex()
+            .gap(px(8.0))
+            .px(px(7.0))
+            .py(px(3.0))
+            .rounded(px(6.0))
+            .border_1()
+            .border_color(self.border)
+            .bg(self.background)
+            .shadow_md()
+            .text_size(self.size)
+            .text_color(self.color)
+            .child(self.text)
+            .child(div().text_color(self.dim).child(self.keys.clone()))
     }
 }
 
@@ -3658,6 +3797,33 @@ mod tests {
         assert_eq!(open_where(Left), "OPEN ON THE LEFT");
         assert_eq!(open_where(Up), "OPEN ABOVE");
         assert_eq!(open_where(Down), "OPEN BELOW");
+    }
+
+    #[test]
+    fn the_split_panel_hangs_from_where_it_was_asked_for() {
+        use Direction::*;
+        use SplitFrom::*;
+        // Each button: its own, with headers or without.
+        for header in [false, true] {
+            assert_eq!(split_from(SplitAsk::Bar, None, header), Bar);
+            assert_eq!(split_from(SplitAsk::Bar, Some(Pane), header), Bar);
+        }
+        assert_eq!(split_from(SplitAsk::Button, None, true), Pane);
+        assert_eq!(split_from(SplitAsk::Button, Some(Bar), true), Pane);
+        // A shortcut or the menu: the active pane's button when panes have headers, else the
+        // title bar's icon.
+        for side in [Right, Down, Left, Up] {
+            assert_eq!(split_from(SplitAsk::Side(side), None, true), Pane);
+            assert_eq!(split_from(SplitAsk::Side(side), None, false), Bar);
+        }
+        // Switching the side of an open panel leaves it where it hangs.
+        assert_eq!(split_from(SplitAsk::Side(Down), Some(Bar), true), Bar);
+        assert_eq!(split_from(SplitAsk::Side(Down), Some(Pane), true), Pane);
+        // The title bar's icon opens it on Right, as the pane's button does.
+        assert_eq!(
+            split_popup(Some(Popup::Split(Down)), SplitAsk::Bar),
+            Some(Popup::Split(Right))
+        );
     }
 
     #[test]
