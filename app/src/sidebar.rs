@@ -448,7 +448,11 @@ impl Sidebar {
         let (icon, tip, size) = if expand {
             (Icon::Expand, "Expand sidebar (⌘B)", (BUTTON, 30.0, 7.0))
         } else {
-            (Icon::Collapse, "Collapse sidebar (⌘B)", (26.0, 26.0, 6.0))
+            (
+                Icon::LeftSidebar,
+                "Collapse sidebar (⌘B)",
+                (26.0, 26.0, 6.0),
+            )
         };
         button(&self.theme, &ui, "collapse", icon, tip, size, false)
             .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(SidebarEvent::ToggleCollapse)))

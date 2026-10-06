@@ -31,6 +31,7 @@ pub mod pet;
 pub mod popover;
 pub mod preset;
 pub mod pty;
+pub mod right_panel;
 pub mod rows;
 pub mod search;
 pub mod settings;
