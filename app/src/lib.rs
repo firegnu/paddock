@@ -19,6 +19,7 @@ pub mod icon;
 pub mod ime;
 pub mod input;
 pub mod keys;
+pub mod kind_icon;
 pub mod launch;
 pub mod layout;
 pub mod layout_state;
