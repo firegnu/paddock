@@ -57,3 +57,29 @@
 
 ## 做完
 在本文件末尾追加「## 完成记录」（在你的分支里提交）：做了什么、验证了什么、拿主意的地方、没做的事，各几句话。回复里只写这几样，加上截图路径和有没有要主控决定的事。命令都在前台跑完，全部做完后，回复最后一行写 DONE。
+
+## 完成记录
+
+**做了什么**
+- 新模块：`diff.rs`（只读 git 命令读出两种范围的改动，解析成文件／hunk／行；未跟踪文件直接读文件内容当新增，不碰 index）、`highlight.rs`（`syntect` 分出关键字、函数、类型、字符串、数字、注释、标点；`similar` 算一对删／加行里改了的词）、`changes.rs`（Changes 标签本身）。`tests/changes.rs` 在临时仓库里测两种范围。
+- `git.rs` 只加函数：`git_bounded`（同样的只读选项，限输出大小、带出错原因）、`filter_overrides`、`head_and_base`；`summary` 里认 HEAD 和基准分支的那段原样抽成 `head_and_base` 方法复用，命令和行为不变。
+- `right_panel.rs`：`Saved` 加 `scope`、`split`（serde 默认 Uncommitted、Unified），Changes 标签换成传进来的内容。`window.rs`：建 `ChangesView`，每次画时把焦点窗格（名字、状态点颜色、目录）、开着且停在 Changes、宽度、主题、终端字体交给它；它改了范围／布局时发事件，窗口存布局。`layout_state.rs` 测试补了旧布局读入默认值。
+- 依赖：`syntect = 5`（`default-features = false`，只开 `default-syntaxes` 和 `regex-fancy`，`cargo tree` 里没有 onig、cc 或 `-sys` 包）、`similar = 2`。
+
+**验证了什么**
+- `app/` 下 `cargo test --all-targets` 全过（lib 191 项，其中新增：git 输出解析 4 项（普通修改、新增、删除、改名、二进制、只改权限、带引号的路径）、改词配对和高亮 3 项、左右对照／未改动行区段／数字和大小／特殊文件说明 4 项；`tests/changes.rs` 3 项：Uncommitted 含已暂存、未暂存、未跟踪、删除、改名、二进制前后大小，Branch 只含分叉点以后的、主干在 main 上和上游比、main 没上游给 NoBase、不在仓库、还没提交过的仓库、读完 index 字节不变且没留 index.lock；`layout_state` 的 P5-13a 旧文件读入 Uncommitted／Unified）。`cargo clippy --all-targets -- -D warnings` 无警告，`cargo fmt --check` 通过。
+- 截图：用 release 版、`PADDOCK_NO_ACTIVATE=1`、`GPUI_TERM_WINDOW_ID=1`、scratchpad 里的临时 HOME、假 corral 和一个临时 git 仓库（改名、删除、二进制、锁文件、未跟踪新文件、两处修改）起了自己的窗口，拿到窗口号后 `screencapture -x -o -l <编号>` 两次都报 “could not create image from window”（同一条命令在命令沙箱外也一样），**没有截到图**，按要求没有换别的办法。窗口进程运行中没有报错，用记下的 PID 停掉；临时仓库的 index 没被改。
+
+**拿主意的地方**
+- 当前就在基准分支上：沿用 `git.rs` 的认法，在 main 上和它的上游比，按钮写 “Branch vs origin/main”；main 没有上游、没有 main、HEAD 分离时，Branch 范围给安静的空状态 “No base branch”，按钮只写 “Branch”。
+- 阈值：改动超过 1500 行的文件、锁文件（Cargo.lock、package-lock.json、yarn.lock 等 13 种）、删除的文件默认收起，分别写 “Large diff · N lines”、“Generated file”、“Deleted file”，后面 “Show diff”。未跟踪文件超过 1 MB 只写大小。面板宽到 680pt（随界面字号放大）换成文件树（230pt）并出现 Unified／Split。
+- 实时：开着且停在 Changes 时，每 1.5 秒在单独线程读一次（每 120ms 看一次结果），换焦点或换范围马上读、旧的那次取消；收起或换标签就不读。结果和上次一样不重画；Changes 作为缓存视图嵌进窗口，终端刷新不带着它重画。语法表在读 git 的线程里先加载。
+- 大改动：GPUI `list` 只建看得到的行；高亮按 hunk 惰性算，算到画到的那行再往后 48 行，改词只在画到成对的行时算。
+- 取色（不加新键）：关键字 `agents_purple`、函数 `agents_blue`、类型 `agents_accent`、字符串 `agents_yellow`、数字 `agent_stalled`、注释 `agents_dimmer` 斜体、标点 `agents_dim`、其他 `agents_branch`；加删行整行 `agents_green`／`agents_red` 0.10，改词 0.28／0.30，hunk 头 `agents_blue` 0.07 底。
+- 跟随：agent 窗格用 attach 时的目录，没有再用 corral 列表里的；shell 用打开时的目录；直接跑程序的窗格写 “No directory to read”；空窗格写 “No pane in focus”。shell 的状态点用和窗格标记一样的 `muted`，没用样稿里的绿色。
+- 展开 “N unchanged lines” 读工作区里的文件（两种范围的新的一边都是工作区）。只改权限写 “Mode changed · 100644 → 100755”，新加的空文件写 “Empty file”。行里的 tab 画成四个空格。折叠、展开、横向滚动按路径记，换到别的目录时清掉。
+
+**没做的事**
+- 没有截图（见上）。窄面板 13／18、加宽 Split、空状态、三套主题下的样子，以及点击、滚动、贴顶文件头、折叠、悬停、横向滚动、真实 agent 下的效果，都留给用户实际看。
+- 贴顶文件头被下一个文件头顶上去的位置用的是上一帧的布局，可能慢一帧。`syntect` 自带语法集里没有的文件类型按纯文本显示。
+- 编辑器的 rust-analyzer 在 `app/target` 建了编译目录（已被 `.gitignore` 忽略），我有一次 `cargo test` 忘了带 `CARGO_TARGET_DIR` 也编进了那里；没删（规矩不让用 `rm`），需要的话由主控清。

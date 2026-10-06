@@ -6,6 +6,7 @@ use crate::{
     agents::Panel,
     attention::Kind as AttentionKind,
     card,
+    changes::{self, ChangesView, Follow, Frame},
     config::Config,
     corral::{Agent, Role},
     diagnostics::{Report, Startup},
@@ -32,11 +33,11 @@ use crate::{
     windows,
 };
 use gpui::{
-    AnyElement, Bounds, BoxShadow, ClickEvent, Context, Div, DragMoveEvent, Entity, ExternalPaths,
-    FocusHandle, Focusable, FontWeight, HighlightStyle, Hsla, MouseButton, MouseDownEvent,
-    MouseMoveEvent, Pixels, Point, PromptLevel, Render, ScrollHandle, SharedString, Size, Stateful,
-    StyledText, Task, Window, WindowBackgroundAppearance, canvas, div, point, prelude::*, px,
-    relative, size,
+    AnyElement, AnyView, Bounds, BoxShadow, ClickEvent, Context, Div, DragMoveEvent, Entity,
+    ExternalPaths, FocusHandle, Focusable, FontWeight, HighlightStyle, Hsla, MouseButton,
+    MouseDownEvent, MouseMoveEvent, Pixels, Point, PromptLevel, Render, ScrollHandle, SharedString,
+    Size, Stateful, StyleRefinement, StyledText, Task, Window, WindowBackgroundAppearance, canvas,
+    div, point, prelude::*, px, relative, size,
 };
 use std::{
     cell::RefCell,
@@ -553,6 +554,8 @@ pub struct PaddockWindow {
     resizing: Option<(f32, f32)>,
     /// The right sidebar: open or not, its width, its tab; saved with the layout.
     right: RightPanel,
+    /// The right sidebar's Changes tab, following the focused pane.
+    changes: Entity<ChangesView>,
     /// A press on the title bar's empty part: moving now drags the window.
     dragging: bool,
     /// The title bar height the traffic lights were last centred on.
@@ -594,6 +597,17 @@ impl PaddockWindow {
                 .map(|layout| layout.right_sidebar.clone())
                 .unwrap_or_default(),
         );
+        let changes = {
+            let (theme, mono) = (theme.clone(), mono_font(&options));
+            let (scope, split) = (right.scope, right.split);
+            cx.new(|cx| ChangesView::new("git".into(), theme, mono, scope, split, cx))
+        };
+        cx.subscribe(&changes, |this, changes, _: &changes::Changed, cx| {
+            let changes = changes.read(cx);
+            (this.right.scope, this.right.split) = (changes.scope, changes.split);
+            this.save_layout(cx);
+        })
+        .detach();
         let shown = match &options.launch {
             Launch::Empty => Shown::Empty,
             Launch::Agent { name } => Shown::Agent(name.clone()),
@@ -635,6 +649,7 @@ impl PaddockWindow {
             collapsed,
             resizing: None,
             right,
+            changes,
             dragging: false,
             lights: None,
             store,
@@ -1645,6 +1660,31 @@ impl PaddockWindow {
             }
             Shown::Empty => Subject::Empty,
         }
+    }
+
+    /// Whose changes the Changes tab shows: the focused pane's name and dot, and its directory: an
+    /// agent's as it was attached with (else as listed), a shell's as it opened in.
+    fn follow(&self, agents: &[Agent], now: f64, cx: &Context<Self>) -> Option<Follow> {
+        let pane = self.workspace.active_pane();
+        if matches!(self.workspace.shown(pane), Shown::Empty) {
+            return None;
+        }
+        let subject = self.subject(pane, cx);
+        let cwd = match &subject {
+            Subject::Agent(name) => self
+                .panes
+                .get(&pane)
+                .and_then(|view| view.read(cx).agent_metadata().cwd)
+                .or_else(|| self.sidebar.read(cx).metadata(name).cwd),
+            Subject::Shell { cwd, .. } => Some(cwd.clone()),
+            Subject::Command(_) | Subject::Empty => None,
+        };
+        let (name, _) = pane_name(&subject, None, None);
+        Some(Follow {
+            name,
+            dot: self.dot(pane, agents, now),
+            cwd,
+        })
     }
 
     /// A pane's status dot: an agent's status colour as the sidebar shows it, a neutral one for
@@ -3872,11 +3912,24 @@ impl Render for PaddockWindow {
             self.collapsed,
             right,
         );
+        // The Changes tab follows the focused pane, and reads only while it shows.
+        let frame = Frame {
+            follow: self.follow(&agents, now, cx),
+            active: right.is_some() && self.right.tab == RightTab::Changes,
+            width: right.unwrap_or(0.0),
+            theme: self.theme.clone(),
+            mono: mono_font(&self.template),
+        };
+        self.changes
+            .update(cx, |changes, cx| changes.frame(frame, cx));
         // The right sidebar, a card pushed out from the right edge: the terminal narrows for it.
         if let Some(width) = right {
             let panel = self.right.render(
                 &self.theme,
                 &ui,
+                AnyView::from(self.changes.clone())
+                    .cached(StyleRefinement::default().size_full())
+                    .into_any_element(),
                 cx.listener(|this, tab: &RightTab, _, cx| {
                     this.right.tab = *tab;
                     this.save_layout(cx);

@@ -33,6 +33,10 @@ unicode-segmentation = "1"
 # Display widths for the Agents panel's monospace lines (already in the lock through GPUI).
 unicode-width = "0.2"
 toml = "1"
+# The Changes tab: syntax colours for the diffs (pure-Rust regex engine, the bundled grammars
+# only) and word-level changes within a changed line.
+syntect = { version = "5", default-features = false, features = ["default-syntaxes", "regex-fancy"] }
+similar = "2"
 # Only for printing the native window number, so test screenshots capture this window alone, and
 # for putting the system's sidebar material under the sidebar (`frost.rs`).
 raw-window-handle = "0.6"

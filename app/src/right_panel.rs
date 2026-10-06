@@ -1,14 +1,17 @@
 //! The right sidebar: pushed out from the window's right edge, narrowing the terminal rather than
-//! covering it, with two tabs, Changes and Browser, a button to widen it and one to close it. Each
-//! tab holds a quiet placeholder for now. The window draws the card it sits in and lays it out;
+//! covering it, with two tabs, Changes and Browser, a button to widen it and one to close it.
+//! Changes shows the focused pane's worktree (`changes.rs`); Browser holds a quiet placeholder. The window draws the card it sits in and lays it out;
 //! the rules for its width live here, so they can be tested without a window.
 use crate::{
+    diff::Scope,
     fonts::UiFont,
     footer_icon::{self, Icon},
     theme::Theme,
     view::hsla,
 };
-use gpui::{App, ClickEvent, Div, FontWeight, Hsla, Pixels, Render, Window, div, prelude::*, px};
+use gpui::{
+    AnyElement, App, ClickEvent, Div, FontWeight, Hsla, Pixels, Render, Window, div, prelude::*, px,
+};
 use serde::{Deserialize, Serialize};
 use std::rc::Rc;
 
@@ -53,13 +56,18 @@ impl Tab {
 }
 
 /// What the layout file keeps of it; files from before it was saved open it closed, at the
-/// default width, on Changes.
+/// default width, on Changes, and files from before Changes was made show uncommitted changes,
+/// unified.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Saved {
     pub open: bool,
     pub width: f32,
     pub tab: Tab,
+    /// Which changes the Changes tab shows.
+    pub scope: Scope,
+    /// Widened, the Changes tab shows old and new side by side.
+    pub split: bool,
 }
 
 impl Default for Saved {
@@ -68,6 +76,8 @@ impl Default for Saved {
             open: false,
             width: DEFAULT_WIDTH,
             tab: Tab::Changes,
+            scope: Scope::Uncommitted,
+            split: false,
         }
     }
 }
@@ -98,6 +108,9 @@ pub struct RightPanel {
     /// Widened to about half the window, until widened again or dragged.
     pub wide: bool,
     pub tab: Tab,
+    /// The Changes tab's scope and layout, as it last said.
+    pub scope: Scope,
+    pub split: bool,
     /// The divider is being dragged: the width shown and the mouse's x when it was pressed.
     resizing: Option<(f32, f32)>,
 }
@@ -109,6 +122,8 @@ impl RightPanel {
             width: saved.width,
             wide: false,
             tab: saved.tab,
+            scope: saved.scope,
+            split: saved.split,
             resizing: None,
         }
     }
@@ -118,6 +133,8 @@ impl RightPanel {
             open: self.open,
             width: self.width,
             tab: self.tab,
+            scope: self.scope,
+            split: self.split,
         }
     }
 
@@ -161,12 +178,14 @@ impl RightPanel {
         self.resizing.is_some()
     }
 
-    /// Its top row and the active tab's content, on the ground of the card the window puts it in.
-    /// `pick` chooses a tab; `widen` and `close` are the buttons at the right end.
+    /// Its top row and the active tab's content, on the ground of the card the window puts it in:
+    /// `changes` for Changes. `pick` chooses a tab; `widen` and `close` are the buttons at the right
+    /// end.
     pub fn render(
         &self,
         theme: &Theme,
         ui: &UiFont,
+        changes: AnyElement,
         pick: impl Fn(&Tab, &mut Window, &mut App) + 'static,
         widen: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
         close: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
@@ -285,7 +304,15 @@ impl RightPanel {
             .flex()
             .flex_col()
             .child(top)
-            .child(placeholder(theme, ui, self.tab))
+            .child(match self.tab {
+                Tab::Changes => div()
+                    .flex_1()
+                    .min_h(px(0.0))
+                    .flex()
+                    .flex_col()
+                    .child(changes),
+                Tab::Browser => placeholder(theme, ui, self.tab),
+            })
     }
 }
 
