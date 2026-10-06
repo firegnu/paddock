@@ -58,3 +58,11 @@
 - 验证了什么：新增一条 `commands_supply_model_and_effort_labels` 测试，覆盖 Claude 和 Codex 各一个带模型强度的命令，使用可执行文件路径并让工具开关与命令不同，检查完整参数和原命令保留。先在未改实现时运行，因缺少 model、effort 标签失败（退出码 101），实现后通过。在 `app/` 下各运行一次 `cargo test --all-targets`（209 项通过）和 `cargo clippy --all-targets -- -D warnings`（通过）；所有命令前台运行并等待结束，使用指定独立编译目录。原有测试及其期望未改。Cargo 提示既有依赖 `block v0.1.6` 的未来兼容性警告，本任务未调整依赖。
 - 拿主意的地方：沿用现有 `shell_words` 分词，不引入解析依赖；Codex 强度去掉值两边的单/双引号。遇到命令的 `--` 停止识别选项；最后一个值为空时不生成对应标签。设计未变，无需主控决定的事。
 - 没做的事：按指定范围只新增上述一条测试，未扩展验证；未改卡片、窗口、corral/ranch、依赖或锁文件，未操作真实 agent、启动窗口、截图、打包或安装。仅在任务分支提交，不合并、不推送。
+
+## 主控审查
+
+2026-10-06，paddock/main。实际开出的名字是 paddock/dev-model-label-1（`--unique` 自带后缀）。
+- diff 只动了 `new_agent.rs` 的 `Form::args` 和一条新测试；“不要做”里的一件都没做，`Cargo.lock` 没改，原有测试期望没改。
+- 「要做的」都做到了：按命令首词的路径末段认 claude / codex，两种写法（空格和 `=`）、`-m`、`-c`/`--config model_reasoning_effort=` 去引号、重复取最后、空值不加；认不出时参数和原来一样。测试故意让开关和命令对不上，证明是按命令认的。取舍（沿用 `shell_words`、遇 `--` 停）同意。
+- 重跑 `app/` 的 `cargo test --all-targets`：209 项全过，和对方说的一致；`cargo clippy --all-targets -- -D warnings` 通过。
+- 建议改（不挡合并）：`--model` 是命令最后一个词、后面没有值时，会把前面认出的模型清掉；`--config=model_reasoning_effort=…` 这种连写不认。都是罕见写法。
