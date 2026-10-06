@@ -59,3 +59,16 @@
 
 ## 做完
 在本文件末尾追加「## 完成记录」（在你的分支里提交）：查到了什么（分已查证、推测、不知道）、推荐、验证了什么、拿主意的地方、没做的事，各几句话。回复里只写这几样，加上截图路径和要主控或用户决定的事。命令都在前台跑完，全部做完后，回复最后一行写 DONE。
+
+## 完成记录
+
+2026-10-07，完成调研，结论见 [P5-13r-Browser嵌入](../调研/P5-13r-Browser嵌入.md)。原型单独提交 `9422921`（不合并）；报告与本记录另作纯文档提交，主控取报告时不要连原型一起合入。
+
+- **已查证**：直接 WKWebView 能嵌入当前右侧 Browser 区域，localhost HTTP 页面和 JS 正常；420/620pt 两种初始宽度与网页宽度一致。原生网页会挡住 GPUI palette 和压暗背景；隐藏网页后 palette 完整可见。官方 wry 0.57.0 及 lb-wry 0.53.3 的 macOS 创建路径会主动激活应用；现有 GPUI focus 不等于原生 firstResponder。各方案的许可、维护、依赖兼容和源码位置写入报告。
+- **推测/未知**：可用统一原生视图宿主、焦点协调和可见性规则完成正式集成，但键盘/IME/复制粘贴/拖动/全屏及闪烁仍要用户实际体验；快照替身未验证。未打包原型的 localhost 成功，不代表已安装 app 的所有 ATS 场景已通过；持久 store、确切 cookie 文件位置和 Inspector 也未实测。
+- **推荐**：直接 `objc2-web-kit =0.3.2`；先做焦点与宿主快捷键，再做原生布局/浮层隐藏、工具栏与导航、存储/ATS/Inspector 策略。首版采用隐藏网页避让浮层，快照改进另议。报告给出四件正式任务及一件可选后续，均为建议，不增加本任务验收点。
+- **验证**：前台 `cargo build --manifest-path app/Cargo.toml`（指定 `.target/p5-13r-browser`）成功，最终只有已有 `block 0.1.6` future-incompat 提示。Rust 监督程序用临时 HOME/CFFIXED_USER_HOME/XDG、假 corral、空布局、自建本地 HTTP 服务起自己的窗口；全程 `PADDOCK_NO_ACTIVATE=1`，按日志 window ID 截图并逐张查看。五次自己的应用进程已按 PID 停止并 wait，服务线程已退出；未模拟输入。按任务限定未跑全量 test/clippy；`git diff --check` 干净。
+- **拿主意的地方**：原型选直接 WKWebView，避免 wry 的主动激活；采用非持久 store、只用合成页面；只新增 WebKit 一个锁文件包，Foundation 从现有传递依赖变直接依赖，既有版本不变。原型和报告拆成两个提交，便于主控只取文档。
+- **截图路径**：`/tmp/paddock-browser-research-P3VKdQ/normal.png`、`palette.png`、`hidden.png`、`wide.png`、`normal2.png`；同目录留有 `run_probe.rs`、日志与临时 HOME，不入库。前四次 HTTP 请求日志因监督程序 socket 模式为空，修正后第五次记录了 `GET / HTTP/1.1`，没有将空日志当作请求证据。
+- **要主控/用户决定**：批准哪个正式依赖；是否接受浮层期间隐藏网页；页面随窗口还是项目、持久登录/项目隔离/URL 恢复；快捷键归属；网址范围与公开 Safari Inspector 入口。详细选项在报告 §8，未擅自更新 DESIGN。
+- **没做**：正式 Browser 功能、圆角/工具栏/导航委托/输入转发、持续离屏渲染、快照切换、真实键鼠及登录测试、系统组件安装、打包/安装 app、合并/推送。未修改 main/Saddle、未使用真实 agent、未读写用户真实配置或网站存储；无截图/私人数据入提交。
