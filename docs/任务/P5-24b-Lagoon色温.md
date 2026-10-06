@@ -43,3 +43,21 @@
 
 ## 做完
 在本文件末尾追加「## 完成记录」（在你的分支里提交）：做了什么（新的 wash 值）、验证了什么、拿主意的地方、没做的事，各几句话。回复里只写这几样，加上改前改后截图路径和有没有要主控决定的事。命令都在前台跑完，全部做完后，回复最后一行写 DONE。
+
+## 完成记录
+
+- **做了什么**：
+  - B：`frost.rs` 建 `NSVisualEffectView` 时设 `setState(NSVisualEffectState::Active)`（AppKit 10.10 起就有，`objc2-app-kit` 现有的 `NSVisualEffectView` feature 已包含，`Cargo.toml`、`Cargo.lock` 不变）。窗口不在前台时磨砂不再退成平的灰色。
+  - A：`preset.rs` 的 `Preset::frost`：Lagoon `wash` 0.38 → **0.72**，Tide `wash` 0.34 → **0.62**；Dune 不动；`lit`、`waiting`、`dim`、`dimmer` 都不动。Tide 的注释改写，说明为什么这两套洗得重。
+- **验证了什么**：
+  - `preset.rs` 里没有检查 frost 参数具体值的测试，没有可改的；`sidebar.rs` 的 `quiet_text_reads_on_the_frost_and_stays_in_full_screen` 按固定的灰底（#45494a）算对比度，与 `wash` 无关，照旧通过。
+  - `app/` 下 `cargo test --all-targets` 全过（229 项）；`cargo clippy --all-targets -- -D warnings` 无警告（只有上游 `block v0.1.6` 的提示）；`cargo fmt --check` 通过。
+  - 用 release 构建、`PADDOCK_NO_ACTIVATE=1`、临时 HOME／`XDG_CONFIG_HOME`／`XDG_STATE_HOME`、假 corral（`ls` 给 4 个 agent）起自己的窗口，`screencapture -l` 截到了：改前（main 同一提交的构建）Lagoon、Tide 侧栏都是平的中性灰；只加 B 后侧栏出现透过来的桌面渐变（窗口不在前台，说明 Active 在 macOS 27 上有效）；再加 A，Lagoon 侧栏是深青绿灰，Tide 是蓝灰，和各自终端同一色调，下部仍能看出磨砂透出的渐变；淡色字（路径、分组名、时间）都看得清。每次按记下的 PID 停掉，没有残留进程。
+- **拿主意的地方**：
+  - 试过 Lagoon 0.60／Tide 0.52：截图里仍偏灰，色调只微微偏青／偏蓝，就加到 0.72／0.62。比样稿的约 0.6 重，是因为系统材质在 Active 时比样稿里假设的更亮、更灰，要更多着色才拉到终端的色调。
+  - Tide 和 Lagoon 有同样的问题（中性灰配蓝灰终端），按任务一起调。
+  - P5-19c 的提亮没改：洗得更重后底色更暗，淡色字只会更清楚，截图里看过。
+- **没做的事**：
+  - 没截窗口在前台时的样子（不能让窗口抢前台）；前台时本来就是 Active，B 不改变它，A 的观感前台后台一样。浅色桌面壁纸下透出来多少、收起时窄条、全屏切换的实际观感留给用户在真窗口看（B 只改材质外观，不碰区域和切换逻辑；全屏时磨砂本来就隐藏）。
+  - 没改磨砂区域、形状、`sidebar.rs`、`window.rs`、DESIGN；没打包、没安装、没合并、没推送。
+  - 过程中误在 `paddock-worktrees/` 下建了一个空文件 `p5-24b-frost-edit.tmp`，已移进 scratchpad，没有进提交。

@@ -128,17 +128,19 @@ impl Preset {
                 dim: 0.56,
                 dimmer: 0.48,
             },
-            // Deeper, bluer and greener grounds, a little more of each to keep them; their own
-            // selected colours step further too.
+            // Deeper, bluer and greener grounds, far from the material's grey: washed most of the
+            // way, so the column takes the terminal's hue and the frost only shows through
+            // (P5-24b); their own selected colours step further too. The darker ground keeps the
+            // quiet text at least as readable as on the grey.
             Preset::Tide => Frost {
-                wash: 0.34,
+                wash: 0.62,
                 lit: 0.12,
                 waiting: 0.12,
                 dim: 0.46,
                 dimmer: 0.40,
             },
             Preset::Lagoon => Frost {
-                wash: 0.38,
+                wash: 0.72,
                 lit: 0.12,
                 waiting: 0.12,
                 dim: 0.42,

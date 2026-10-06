@@ -8,7 +8,7 @@ use objc2::{MainThreadMarker, MainThreadOnly, rc::Retained};
 use objc2_app_kit::{
     NSAppearance, NSAppearanceCustomization, NSAppearanceNameAqua, NSAppearanceNameDarkAqua,
     NSAutoresizingMaskOptions, NSView, NSVisualEffectBlendingMode, NSVisualEffectMaterial,
-    NSVisualEffectView, NSWindowOrderingMode,
+    NSVisualEffectState, NSVisualEffectView, NSWindowOrderingMode,
 };
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
@@ -67,6 +67,9 @@ impl Frost {
         let view = NSVisualEffectView::initWithFrame(NSVisualEffectView::alloc(main), frame);
         view.setMaterial(NSVisualEffectMaterial::Sidebar);
         view.setBlendingMode(NSVisualEffectBlendingMode::BehindWindow);
+        // Frosted whether or not the window is in front: left to follow it, the system draws the
+        // material a flat grey behind other windows (P5-24b).
+        view.setState(NSVisualEffectState::Active);
         view.setAutoresizingMask(
             NSAutoresizingMaskOptions::ViewHeightSizable
                 | NSAutoresizingMaskOptions::ViewMaxXMargin,
