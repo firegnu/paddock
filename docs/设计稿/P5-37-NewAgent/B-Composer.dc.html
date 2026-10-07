@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>New Agent — task first</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+a{color:#bdb86a}a:hover{color:#d8d38c}
+.b{all:unset;cursor:pointer;box-sizing:border-box}
+.b:focus-visible{outline:2px solid #bdb86a;outline-offset:2px}
+.chip{transition:background-color .15s ease}
+.chip:hover{background-color:#2e2924}
+.row:hover{background-color:#2a2620}
+.ghost:hover{background-color:#2e2924}
+.primary:hover{filter:brightness(1.07)}
+@keyframes caret{0%,49%{opacity:1}50%,100%{opacity:0}}
+.caret{display:inline-block;width:1.5px;height:17px;background:#bdb86a;vertical-align:-3px;animation:caret 1.1s steps(1) infinite}
+@media (prefers-reduced-motion: reduce){.caret{animation:none}}
+</style>
+</helmet>
+<div style="width: 640px; height: 760px; box-sizing: border-box; padding-top: 28px; display: flex; justify-content: center; align-items: flex-start; background: #141210; font-family: -apple-system, 'SF Pro Text', system-ui, sans-serif; font-size: 13px; color: #e8dfcc">
+  <div style="width: 568px; background: #1d1a16; border: 1px solid #3a352e; border-radius: 14px; box-shadow: 0 24px 60px rgba(0,0,0,.5); overflow: visible">
+    <div style="height: 40px; display: flex; align-items: center; padding: 0 14px; position: relative">
+      <div style="display: flex; gap: 8px"><span style="width: 12px; height: 12px; border-radius: 50%; background: #ff5f57"></span><span style="width: 12px; height: 12px; border-radius: 50%; background: #febc2e"></span><span style="width: 12px; height: 12px; border-radius: 50%; background: #28c840"></span></div>
+      <span style="position: absolute; left: 0; right: 0; text-align: center; font-size: 12.5px; font-weight: 600; color: #a39a89">New Agent</span>
+    </div>
+    <div style="padding: 4px 20px 20px; display: flex; flex-direction: column; gap: 12px">
+      <div style="display: flex; align-items: baseline; gap: 8px; padding: 0 4px">
+        <span style="font-family: 'SF Mono', Menlo, monospace; font-size: 13px"><span style="color: #8c8374">{{project}}/</span>{{name}}</span>
+        <span style="font-size: 11px; color: #5f574b">name · click to rename</span>
+      </div>
+      <div style="border-radius: 12px; background: #14120f; box-shadow: inset 0 0 0 1px #3a352e, 0 0 0 4px rgba(189,184,106,.08); display: flex; flex-direction: column">
+        <div style="min-height: 150px; padding: 14px 16px; font-size: 14px; line-height: 1.55">
+          <span style="color: #e8dfcc">读 docs/任务/P5-35-拖动分隔线调分屏大小.md，照做</span><span class="caret"></span>
+          <div style="margin-top: 10px; font-size: 12px; color: #5f574b">What should it work on? Leave empty to start it idle. ⌘↩ to create.</div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 6px; padding: 8px 10px; border-top: 1px solid #262219; flex-wrap: wrap">
+          <sc-for list="{{chips}}" as="c" hint-placeholder-count="6">
+            <button class="b chip" onClick="{{c.toggle}}" style="height: 28px; padding: 0 10px; border-radius: 7px; display: flex; align-items: center; gap: 6px; background: {{c.bg}}; color: {{c.color}}; font-size: 12px">
+              <span style="width: 8px; height: 8px; border-radius: {{c.round}}; background: {{c.dot}}"></span>{{c.label}}
+              <svg width="8" height="8" viewBox="0 0 8 8" fill="none" stroke="currentColor" stroke-width="1.3" style="opacity: .6"><path d="M1.5 3l2.5 2.5L6.5 3"></path></svg>
+            </button>
+          </sc-for>
+          <span style="flex: 1"></span>
+          <button class="b primary" style="height: 30px; padding: 0 12px; border-radius: 8px; background: #bdb86a; color: #1b1916; font-weight: 600; display: flex; align-items: center; gap: 6px">Create <span style="opacity: .6; font-weight: 400">⌘↩</span></button>
+        </div>
+      </div>
+      <sc-if value="{{hasMenu}}" hint-placeholder-val="{{true}}">
+        <div style="margin-left: {{menuLeft}}px; width: 270px; border-radius: 10px; background: #221e19; box-shadow: 0 0 0 1px #3a352e, 0 14px 34px rgba(0,0,0,.45); padding: 6px">
+          <div style="padding: 4px 8px 6px; font-size: 10.5px; font-weight: 600; letter-spacing: .08em; color: #8c8374">{{menuTitle}}</div>
+          <sc-for list="{{menu}}" as="m" hint-placeholder-count="4">
+            <button class="b row" onClick="{{m.pick}}" style="width: 100%; padding: 7px 8px; border-radius: 7px; display: flex; align-items: center; gap: 10px; background: {{m.bg}}">
+              <span style="width: 14px; color: #bdb86a">{{m.check}}</span>
+              <span style="display: flex; flex-direction: column; gap: 1px">
+                <span style="font-family: {{m.font}}; font-size: 12.5px; color: #e8dfcc">{{m.label}}</span>
+                <span style="font-size: 11px; color: #8c8374">{{m.note}}</span>
+              </span>
+            </button>
+          </sc-for>
+        </div>
+      </sc-if>
+      <div style="display: flex; align-items: center; gap: 10px; padding: 2px 4px; font-size: 11.5px; color: #8c8374">
+        <span>Opens as {{placeText}}</span>
+        <span style="flex: 1"></span>
+        <a href="#cmd">Show command</a>
+        <button class="b ghost" style="height: 26px; padding: 0 10px; border-radius: 6px; color: #cfc6b2">Cancel</button>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":640,"height":760}}'>
+class Component extends DCLogic {
+  constructor(props) { super(props); this.state = { open: 'model', project: 'paddock', tool: 'claude', model: 0, effort: 2, place: 'split', role: 'regular' }; }
+  renderVals() {
+    const s = this.state;
+    const T = {
+      claude: { label: 'Claude', dot: '#e2835e', models: [['opus[1m]', '1M context · deepest'], ['opus', 'Strong, 200K context'], ['sonnet', 'Fast, everyday work']], efforts: ['low', 'medium', 'high', 'xhigh', 'max'] },
+      codex: { label: 'Codex', dot: '#79d4b4', models: [['gpt-6-astra', 'Default for building'], ['gpt-5.6-luna', 'Light, quick checks']], efforts: ['low', 'medium', 'high', 'xhigh'] },
+      pi: { label: 'pi', dot: '#9aa7e6', models: [['default', 'Uses its own settings']], efforts: [] },
+      omp: { label: 'omp', dot: '#d79ad0', models: [['default', 'Uses its own settings']], efforts: [] }
+    };
+    const tool = T[s.tool];
+    const model = Math.min(s.model, tool.models.length - 1);
+    const effort = Math.min(s.effort, Math.max(tool.efforts.length - 1, 0));
+    const projects = [['paddock', 'main · 2 agents'], ['ranch', 'main · 1 agent'], ['cairn', 'main · 1 agent'], ['global-mesh', 'last used 3 days ago']];
+    const places = [['split', 'Split right', 'beside the current pane'], ['tab', 'New tab', 'its own tab'], ['here', 'This pane', 'replaces what it shows']];
+    const roles = [['regular', 'Regular', 'Works on a task'], ['controller', 'Controller', 'Splits work and hands it out']];
+    const tog = (k) => () => this.setState({ open: s.open === k ? null : k });
+    const chip = (k, label, dot, round) => ({ label, dot, round: round || '2px', bg: s.open === k ? '#2e2924' : 'transparent', color: s.open === k ? '#e8dfcc' : '#cfc6b2', toggle: tog(k) });
+    const chips = [
+      chip('project', s.project, '#8c8374'),
+      chip('tool', tool.label, tool.dot, '50%'),
+      chip('model', tool.models[model][0], '#bdb86a', '50%'),
+      ...(tool.efforts.length ? [chip('effort', tool.efforts[effort], '#bdb86a')] : []),
+      chip('place', places.find((p) => p[0] === s.place)[1], '#6f675a'),
+      chip('role', roles.find((r) => r[0] === s.role)[1], '#6f675a')
+    ];
+    const item = (on, label, note, pick, mono) => ({ label, note, bg: on ? '#2e2924' : 'transparent', check: on ? '✓' : '', font: mono ? "'SF Mono', Menlo, monospace" : 'inherit', pick });
+    const menus = {
+      project: ['PROJECT', projects.map(([p, n]) => item(s.project === p, p, n, () => this.setState({ project: p, open: null })))],
+      tool: ['AGENT', Object.keys(T).map((k) => item(s.tool === k, T[k].label, k === 'claude' || k === 'codex' ? 'Model and effort below' : 'Its own defaults', () => this.setState({ tool: k, model: 0, effort: 2, open: null })))],
+      model: ['MODEL', tool.models.map(([m, n], i) => item(i === model, m, n, () => this.setState({ model: i, open: null }), true))],
+      effort: ['EFFORT', tool.efforts.map((e, i) => item(i === effort, e, ['quick answers', 'light tasks', 'normal work', 'hard problems', 'the hardest, costly'][i], () => this.setState({ effort: i, open: null })))],
+      place: ['OPEN IN', places.map(([k, l, n]) => item(s.place === k, l, n, () => this.setState({ place: k, open: null })))],
+      role: ['ROLE', roles.map(([k, l, n]) => item(s.role === k, l, n, () => this.setState({ role: k, open: null })))]
+    };
+    const order = chips.map((c, i) => i);
+    const keys = ['project', 'tool', 'model', ...(tool.efforts.length ? ['effort'] : []), 'place', 'role'];
+    const at = Math.max(0, keys.indexOf(s.open));
+    const menu = s.open ? menus[s.open] : null;
+    return {
+      chips, hasMenu: !!menu, menuTitle: menu ? menu[0] : '', menu: menu ? menu[1] : [],
+      menuLeft: Math.min(at * 84, 268),
+      project: s.project, name: s.tool + '-2',
+      placeText: (places.find((p) => p[0] === s.place)[1]).toLowerCase() + ' · ' + tool.label + (tool.efforts.length ? ' ' + tool.models[model][0] + ' / ' + tool.efforts[effort] : '')
+    };
+  }
+}
+</script>
+</body>
+</html>

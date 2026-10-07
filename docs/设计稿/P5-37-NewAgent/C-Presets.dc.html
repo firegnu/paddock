@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>New Agent — presets</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+a{color:#bdb86a}a:hover{color:#d8d38c}
+.b{all:unset;cursor:pointer;box-sizing:border-box}
+.b:focus-visible{outline:2px solid #bdb86a;outline-offset:2px}
+.row{transition:background-color .15s ease}
+.row:hover{background-color:#2a2620}
+.chip:hover{background-color:#2a2620}
+.ghost:hover{background-color:#2e2924}
+.primary:hover{filter:brightness(1.07)}
+</style>
+</helmet>
+<div style="width: 640px; height: 760px; box-sizing: border-box; padding-top: 28px; display: flex; justify-content: center; align-items: flex-start; background: #141210; font-family: -apple-system, 'SF Pro Text', system-ui, sans-serif; font-size: 13px; color: #e8dfcc">
+  <div style="width: 600px; background: #1d1a16; border: 1px solid #3a352e; border-radius: 14px; box-shadow: 0 24px 60px rgba(0,0,0,.5); overflow: hidden">
+    <div style="height: 40px; display: flex; align-items: center; padding: 0 14px; position: relative">
+      <div style="display: flex; gap: 8px"><span style="width: 12px; height: 12px; border-radius: 50%; background: #ff5f57"></span><span style="width: 12px; height: 12px; border-radius: 50%; background: #febc2e"></span><span style="width: 12px; height: 12px; border-radius: 50%; background: #28c840"></span></div>
+      <span style="position: absolute; left: 0; right: 0; text-align: center; font-size: 12.5px; font-weight: 600; color: #a39a89">New Agent</span>
+    </div>
+    <div style="display: flex; border-top: 1px solid #2a2621">
+      <div style="width: 210px; background: #191612; border-right: 1px solid #2a2621; padding: 10px 8px; display: flex; flex-direction: column; gap: 2px">
+        <span style="padding: 4px 8px 8px; font-size: 10.5px; font-weight: 600; letter-spacing: .08em; color: #8c8374">START FROM</span>
+        <sc-for list="{{presets}}" as="p" hint-placeholder-count="6">
+          <button class="b row" onClick="{{p.pick}}" style="padding: 8px 9px; border-radius: 8px; display: flex; gap: 10px; align-items: flex-start; background: {{p.bg}}; box-shadow: inset 2px 0 0 {{p.bar}}">
+            <span style="width: 22px; height: 22px; border-radius: 6px; background: {{p.dot}}; opacity: .85; flex: none; margin-top: 1px"></span>
+            <span style="display: flex; flex-direction: column; gap: 2px">
+              <span style="font-weight: 600; color: {{p.color}}">{{p.label}}</span>
+              <span style="font-size: 11px; color: #8c8374; font-family: 'SF Mono', Menlo, monospace">{{p.spec}}</span>
+            </span>
+          </button>
+        </sc-for>
+        <span style="flex: 1"></span>
+        <button class="b row" style="padding: 8px 9px; border-radius: 8px; color: #8c8374; font-size: 12px">+ Save current as preset</button>
+      </div>
+      <div style="flex: 1; padding: 16px 20px; display: flex; flex-direction: column; gap: 16px">
+        <div style="display: flex; flex-direction: column; gap: 4px">
+          <span style="font-size: 17px; font-weight: 600">{{title}}</span>
+          <span style="font-size: 12px; color: #8c8374; line-height: 1.5">{{blurb}}</span>
+        </div>
+        <div style="display: flex; gap: 6px; flex-wrap: wrap">
+          <sc-for list="{{tags}}" as="t" hint-placeholder-count="4">
+            <button class="b chip" style="height: 26px; padding: 0 10px; border-radius: 7px; box-shadow: inset 0 0 0 1px #34302a; font-size: 12px; color: #cfc6b2; display: flex; align-items: center; gap: 6px"><span style="color: #8c8374">{{t.k}}</span>{{t.v}}</button>
+          </sc-for>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 7px">
+          <span style="font-size: 10.5px; font-weight: 600; letter-spacing: .08em; color: #8c8374">PROJECT</span>
+          <div style="display: flex; gap: 6px; flex-wrap: wrap">
+            <sc-for list="{{projects}}" as="p" hint-placeholder-count="4">
+              <button class="b chip" onClick="{{p.pick}}" style="height: 28px; padding: 0 11px; border-radius: 7px; background: {{p.bg}}; box-shadow: inset 0 0 0 1px {{p.ring}}; color: {{p.color}}; font-size: 12px">{{p.label}}</button>
+            </sc-for>
+          </div>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 7px">
+          <span style="font-size: 10.5px; font-weight: 600; letter-spacing: .08em; color: #8c8374">FIRST MESSAGE</span>
+          <div style="min-height: 120px; border-radius: 9px; background: #14120f; box-shadow: inset 0 0 0 1px #34302a; padding: 10px 12px; color: #5f574b; line-height: 1.5">{{hint}}</div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px; font-family: 'SF Mono', Menlo, monospace; font-size: 12px"><span style="color: #8c8374">{{project}}/</span>{{name}}</div>
+      </div>
+    </div>
+    <div style="display: flex; align-items: center; gap: 8px; padding: 14px 20px; border-top: 1px solid #2a2621">
+      <span style="flex: 1; font-size: 11.5px; color: #5f574b">Opens split right · <a href="#cmd">Show command</a></span>
+      <button class="b ghost" style="height: 30px; padding: 0 14px; border-radius: 7px; color: #cfc6b2">Cancel</button>
+      <button class="b primary" style="height: 30px; padding: 0 14px; border-radius: 7px; background: #bdb86a; color: #1b1916; font-weight: 600">Create <span style="opacity: .6; font-weight: 400">⌘↩</span></button>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":640,"height":760}}'>
+class Component extends DCLogic {
+  constructor(props) { super(props); this.state = { preset: 1, project: 'paddock' }; }
+  renderVals() {
+    const s = this.state;
+    const P = [
+      { label: 'Controller', dot: '#e2835e', tool: 'Claude', model: 'opus[1m]', effort: 'xhigh', role: 'Controller', name: 'main', blurb: 'Plans the work, writes task files and hands them out to other agents.', hint: 'Optional — e.g. read HANDOFF.md and pick up from there.' },
+      { label: 'Developer', dot: '#e2835e', tool: 'Claude', model: 'opus[1m]', effort: 'high', role: 'Regular', name: 'dev-2', blurb: 'Builds one task in its worktree: design-heavy and interface work.', hint: 'e.g. read docs/任务/P5-35-….md and follow it.' },
+      { label: 'Codex builder', dot: '#79d4b4', tool: 'Codex', model: 'gpt-6-astra', effort: 'high', role: 'Regular', name: 'dev-3', blurb: 'Implements a settled plan, fixes bugs, adds tests.', hint: 'e.g. read docs/任务/P5-36b-….md and follow it.' },
+      { label: 'Quick look', dot: '#e2835e', tool: 'Claude', model: 'sonnet', effort: 'medium', role: 'Regular', name: 'ask-1', blurb: 'A light agent for a question or a quick check.', hint: 'Ask it something.' },
+      { label: 'pi', dot: '#9aa7e6', tool: 'pi', model: 'default', effort: '—', role: 'Regular', name: 'pi-1', blurb: 'Odd jobs outside the code: clean-ups, one-off scripts.', hint: 'Optional.' },
+      { label: 'Custom', dot: '#5f574b', tool: 'Claude', model: 'opus[1m]', effort: 'high', role: 'Regular', name: 'agent-1', blurb: 'Pick every setting yourself.', hint: 'Optional.' }
+    ];
+    const p = P[s.preset];
+    return {
+      presets: P.map((x, i) => ({ label: x.label, dot: x.dot, spec: x.effort === '—' ? x.tool.toLowerCase() : x.model + ' · ' + x.effort, bg: i === s.preset ? '#26221d' : 'transparent', bar: i === s.preset ? '#bdb86a' : 'transparent', color: i === s.preset ? '#e8dfcc' : '#cfc6b2', pick: () => this.setState({ preset: i }) })),
+      title: p.label, blurb: p.blurb, hint: p.hint,
+      tags: [{ k: 'Agent', v: p.tool }, { k: 'Model', v: p.model }, { k: 'Effort', v: p.effort }, { k: 'Role', v: p.role }],
+      projects: ['paddock', 'ranch', 'cairn', 'global-mesh'].map((x) => ({ label: x, bg: s.project === x ? '#2e2924' : 'transparent', ring: s.project === x ? '#bdb86a' : '#2e2a24', color: s.project === x ? '#e8dfcc' : '#a39a89', pick: () => this.setState({ project: x }) })),
+      project: s.project, name: p.name
+    };
+  }
+}
+</script>
+</body>
+</html>

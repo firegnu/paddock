@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>New Agent — refined form</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+a{color:#bdb86a}a:hover{color:#d8d38c}
+.b{all:unset;cursor:pointer;box-sizing:border-box}
+.b:focus-visible{outline:2px solid #bdb86a;outline-offset:2px}
+.tile{transition:background-color .15s ease,box-shadow .15s ease}
+.tile:hover{background-color:#2a2620}
+.chip:hover{background-color:#2a2620}
+.ghost:hover{background-color:#2e2924}
+.primary:hover{filter:brightness(1.07)}
+</style>
+</helmet>
+<div style="width: 640px; height: 760px; box-sizing: border-box; padding-top: 28px; display: flex; justify-content: center; align-items: flex-start; background: #141210; font-family: -apple-system, 'SF Pro Text', system-ui, sans-serif; font-size: 13px; color: #e8dfcc">
+  <div style="width: 568px; background: #1d1a16; border: 1px solid #3a352e; border-radius: 14px; box-shadow: 0 24px 60px rgba(0,0,0,.5); overflow: hidden">
+    <div style="height: 40px; display: flex; align-items: center; padding: 0 14px; position: relative">
+      <div style="display: flex; gap: 8px"><span style="width: 12px; height: 12px; border-radius: 50%; background: #ff5f57"></span><span style="width: 12px; height: 12px; border-radius: 50%; background: #febc2e"></span><span style="width: 12px; height: 12px; border-radius: 50%; background: #28c840"></span></div>
+      <span style="position: absolute; left: 0; right: 0; text-align: center; font-size: 12.5px; font-weight: 600; color: #a39a89">New Agent</span>
+    </div>
+    <div style="padding: 6px 24px 0; display: flex; flex-direction: column; gap: 18px">
+      <div style="display: flex; flex-direction: column; gap: 8px">
+        <span style="font-size: 10.5px; font-weight: 600; letter-spacing: .08em; color: #8c8374">PROJECT</span>
+        <div style="display: flex; gap: 6px; flex-wrap: wrap">
+          <sc-for list="{{projects}}" as="p" hint-placeholder-count="4">
+            <button class="b chip" onClick="{{p.pick}}" style="height: 30px; padding: 0 12px; border-radius: 8px; display: flex; align-items: center; gap: 7px; background: {{p.bg}}; box-shadow: inset 0 0 0 1px {{p.ring}}; color: {{p.color}}">
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2 4.5h4l1.5 1.5H14v6.5H2z"></path></svg>{{p.label}}
+            </button>
+          </sc-for>
+          <button class="b chip" style="height: 30px; padding: 0 12px; border-radius: 8px; color: #8c8374; box-shadow: inset 0 0 0 1px #2e2a24">Other…</button>
+        </div>
+        <span style="font-family: 'SF Mono', Menlo, monospace; font-size: 11.5px; color: #8c8374">{{path}}</span>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 8px">
+        <span style="font-size: 10.5px; font-weight: 600; letter-spacing: .08em; color: #8c8374">AGENT</span>
+        <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px">
+          <sc-for list="{{tools}}" as="t" hint-placeholder-count="4">
+            <button class="b tile" onClick="{{t.pick}}" style="height: 62px; border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; justify-content: space-between; background: {{t.bg}}; box-shadow: inset 0 0 0 {{t.ringW}} {{t.ring}}">
+              <span style="width: 18px; height: 18px; border-radius: 5px; background: {{t.dot}}; opacity: .9"></span>
+              <span style="font-weight: 600; color: {{t.color}}">{{t.label}}</span>
+            </button>
+          </sc-for>
+        </div>
+        <div style="display: flex; gap: 14px; align-items: center; margin-top: 4px">
+          <span style="width: 52px; color: #8c8374">Model</span>
+          <div style="display: flex; background: #14120f; border-radius: 8px; padding: 3px; box-shadow: inset 0 0 0 1px #2e2a24">
+            <sc-for list="{{models}}" as="m" hint-placeholder-count="3">
+              <button class="b" onClick="{{m.pick}}" style="height: 26px; padding: 0 12px; border-radius: 6px; font-family: 'SF Mono', Menlo, monospace; font-size: 11.5px; background: {{m.bg}}; color: {{m.color}}">{{m.label}}</button>
+            </sc-for>
+          </div>
+        </div>
+        <div style="display: flex; gap: 14px; align-items: center">
+          <span style="width: 52px; color: #8c8374">Effort</span>
+          <div style="flex: 1; display: flex; flex-direction: column; gap: 6px">
+            <div style="position: relative; height: 18px; display: flex; align-items: center">
+              <div style="position: absolute; left: 6px; right: 6px; height: 4px; border-radius: 2px; background: #2e2a24"></div>
+              <div style="position: absolute; left: 6px; width: {{fill}}; height: 4px; border-radius: 2px; background: #bdb86a"></div>
+              <div style="position: absolute; left: 0; right: 0; display: flex; justify-content: space-between">
+                <sc-for list="{{efforts}}" as="e" hint-placeholder-count="5">
+                  <button class="b" onClick="{{e.pick}}" aria-label="{{e.label}}" style="width: 12px; height: 12px; border-radius: 50%; background: {{e.knob}}; box-shadow: {{e.glow}}"></button>
+                </sc-for>
+              </div>
+            </div>
+            <div style="display: flex; justify-content: space-between; font-size: 11px">
+              <sc-for list="{{efforts}}" as="e" hint-placeholder-count="5"><span style="color: {{e.color}}">{{e.label}}</span></sc-for>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 8px">
+        <span style="font-size: 10.5px; font-weight: 600; letter-spacing: .08em; color: #8c8374">FIRST MESSAGE</span>
+        <div style="min-height: 64px; border-radius: 9px; background: #14120f; box-shadow: inset 0 0 0 1px #34302a; padding: 9px 11px; color: #5f574b; line-height: 1.5">Optional — what it should start on. Leave empty to start it idle.</div>
+      </div>
+      <div style="display: flex; gap: 16px; align-items: center">
+        <div style="display: flex; align-items: center; gap: 8px; flex: 1">
+          <span style="color: #8c8374">Name</span>
+          <div style="flex: 1; height: 30px; border-radius: 7px; background: #14120f; box-shadow: inset 0 0 0 1px #34302a; display: flex; align-items: center; padding: 0 10px; font-family: 'SF Mono', Menlo, monospace; font-size: 12px"><span style="color: #8c8374">{{group}}/</span>{{name}}</div>
+        </div>
+        <div style="display: flex; background: #14120f; border-radius: 8px; padding: 3px; box-shadow: inset 0 0 0 1px #2e2a24">
+          <sc-for list="{{places}}" as="p" hint-placeholder-count="3">
+            <button class="b" onClick="{{p.pick}}" style="height: 26px; padding: 0 11px; border-radius: 6px; background: {{p.bg}}; color: {{p.color}}">{{p.label}}</button>
+          </sc-for>
+        </div>
+      </div>
+    </div>
+    <div style="margin: 20px 24px 0; padding: 12px; border-radius: 10px; background: #161411; display: flex; align-items: center; gap: 12px">
+      <span style="font-size: 10.5px; font-weight: 600; letter-spacing: .08em; color: #5f574b; width: 56px">PREVIEW</span>
+      <div style="flex: 1; display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 9px; background: #211d18">
+        <span style="width: 28px; height: 28px; border-radius: 8px; background: {{dot}}; opacity: .85"></span>
+        <div style="display: flex; flex-direction: column; gap: 2px">
+          <span style="font-weight: 600">{{name}} <span style="font-weight: 400; font-size: 11px; color: #8c8374">{{tag}}</span></span>
+          <span style="font-size: 11.5px; color: #8c8374">Starting… · ~/…/{{project}}</span>
+        </div>
+      </div>
+      <a href="#cmd" style="font-size: 11.5px">Command</a>
+    </div>
+    <div style="display: flex; align-items: center; gap: 8px; padding: 18px 20px 18px 24px">
+      <span style="flex: 1; font-size: 11.5px; color: #5f574b">Role: Regular · <a href="#role">Controller</a></span>
+      <button class="b ghost" style="height: 30px; padding: 0 14px; border-radius: 7px; color: #cfc6b2">Cancel</button>
+      <button class="b primary" style="height: 30px; padding: 0 14px; border-radius: 7px; background: #bdb86a; color: #1b1916; font-weight: 600">Create <span style="opacity: .6; font-weight: 400">⌘↩</span></button>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":640,"height":760}}'>
+class Component extends DCLogic {
+  constructor(props) { super(props); this.state = { project: 'paddock', tool: 'claude', model: 0, effort: 2, place: 'split' }; }
+  renderVals() {
+    const s = this.state;
+    const seg = (on) => ({ bg: on ? '#2e2924' : 'transparent', color: on ? '#e8dfcc' : '#8c8374' });
+    const T = {
+      claude: { label: 'Claude', dot: '#e2835e', models: ['opus[1m]', 'opus', 'sonnet'], efforts: ['low', 'medium', 'high', 'xhigh', 'max'] },
+      codex: { label: 'Codex', dot: '#79d4b4', models: ['gpt-6-astra', 'gpt-5.6-luna'], efforts: ['low', 'medium', 'high', 'xhigh'] },
+      pi: { label: 'pi', dot: '#9aa7e6', models: ['default'], efforts: [] },
+      omp: { label: 'omp', dot: '#d79ad0', models: ['default'], efforts: [] }
+    };
+    const tool = T[s.tool];
+    const model = Math.min(s.model, tool.models.length - 1);
+    const effort = Math.min(s.effort, Math.max(tool.efforts.length - 1, 0));
+    const projects = ['paddock', 'ranch', 'cairn', 'global-mesh'].map((p) => {
+      const on = s.project === p;
+      return { label: p, bg: on ? '#2e2924' : 'transparent', ring: on ? '#bdb86a' : '#2e2a24', color: on ? '#e8dfcc' : '#a39a89', pick: () => this.setState({ project: p }) };
+    });
+    const tools = Object.keys(T).map((k) => {
+      const on = s.tool === k;
+      return { label: T[k].label, dot: T[k].dot, bg: on ? '#26221d' : '#191612', ring: on ? T[k].dot : '#2e2a24', ringW: on ? '1.5px' : '1px', color: on ? '#e8dfcc' : '#a39a89', pick: () => this.setState({ tool: k, model: 0, effort: 2 }) };
+    });
+    const efforts = tool.efforts.map((e, i) => ({
+      label: e, color: i === effort ? '#e8dfcc' : '#6f675a',
+      knob: i <= effort ? '#bdb86a' : '#3a352e', glow: i === effort ? '0 0 0 4px rgba(189,184,106,.22)' : 'none',
+      pick: () => this.setState({ effort: i })
+    }));
+    const places = [['tab', 'New tab'], ['split', 'Split →'], ['here', 'This pane']].map(([k, l]) => ({ label: l, ...seg(s.place === k), pick: () => this.setState({ place: k }) }));
+    return {
+      projects, tools, efforts, places,
+      models: tool.models.map((m, i) => ({ label: m, ...seg(i === model), pick: () => this.setState({ model: i }) })),
+      fill: tool.efforts.length > 1 ? 'calc((100% - 12px) * ' + (effort / (tool.efforts.length - 1)) + ')' : '0px',
+      path: '~/Developer/personal_projs/' + s.project,
+      project: s.project, group: s.project, name: s.tool + '-2', dot: tool.dot,
+      tag: tool.efforts.length ? tool.models[model] + ' · ' + tool.efforts[effort] : 'default'
+    };
+  }
+}
+</script>
+</body>
+</html>
