@@ -136,6 +136,8 @@ pub struct KanbanView {
     agents: Vec<Seen>,
     /// The groups folded.
     folded: Vec<Column>,
+    /// DONE lists all its cards, not its last few: until the window closes, not in the layout.
+    all_done: bool,
     /// The latest read, for whichever directory it was.
     read: Option<Read>,
     /// What is drawn from it with the agents, kept to tell when it changes.
@@ -172,6 +174,7 @@ impl KanbanView {
             width: 0.0,
             agents: Vec::new(),
             folded,
+            all_done: false,
             read: None,
             board: None,
             pending: None,
@@ -403,7 +406,7 @@ impl KanbanView {
             (Column::InProgress, "in progress", c.blue),
             (Column::ToReview, "to review", c.yellow),
         ] {
-            let n = board.count(column);
+            let n = board.cards(column).len();
             if n > 0 {
                 summary.push((format!("{n} {words}"), color));
             }
@@ -506,20 +509,19 @@ impl KanbanView {
             .pb(ui.px(16.0));
         for column in Column::ALL {
             let open = !self.folded.contains(&column);
-            let note = match column {
-                Column::Done if board.done <= kanban::DONE_KEPT => "",
-                _ => column.note(),
-            };
-            let head = div()
+            // An empty group is one short, faint line.
+            let empty = board.cards(column).is_empty();
+            let mut head = div()
                 .id(("kanban-group", column as usize))
                 .flex_shrink_0()
                 .flex()
                 .items_center()
                 .gap(ui.px(8.0))
-                .h(ui.px(30.0))
-                .mt(ui.px(8.0))
+                .h(ui.px(if empty { 22.0 } else { 30.0 }))
+                .mt(ui.px(if empty { 2.0 } else { 8.0 }))
                 .px(ui.px(8.0))
                 .rounded(px(6.0))
+                .when(empty, |head| head.opacity(0.5))
                 .cursor_pointer()
                 .hover(move |style| style.bg(c.text.opacity(0.05)))
                 .child(footer_icon::icon(
@@ -533,25 +535,21 @@ impl KanbanView {
                     div()
                         .text_size(ui.px(11.0))
                         .text_color(c.dim)
-                        .child(board.count(column).to_string()),
-                )
-                .child(div().flex_1())
-                .child(
-                    div()
-                        .flex_shrink_0()
-                        .text_size(ui.px(11.0))
-                        .text_color(c.dim)
-                        .child(note),
+                        .child(board.count(column, self.all_done)),
                 )
                 .on_click(cx.listener(move |view, _: &ClickEvent, _, cx| view.toggle(column, cx)));
+            if let Some(note) = self.note(board, column) {
+                let tip = Tip::new(note, &self.theme, ui);
+                head = head.tooltip(move |_, cx| cx.new(|_| tip.clone()).into());
+            }
             list = list.child(head);
             // A folded group still shows the cards that need the user.
             let shown: Vec<&Card> = board
-                .cards(column)
-                .iter()
+                .listed(column, self.all_done)
+                .into_iter()
                 .filter(|card| open || card.needs_you)
                 .collect();
-            if open || !shown.is_empty() {
+            if !shown.is_empty() {
                 let mut cards = div()
                     .flex_shrink_0()
                     .flex()
@@ -561,6 +559,12 @@ impl KanbanView {
                     .pb(ui.px(4.0));
                 for card in shown {
                     cards = cards.child(self.row(card, ui, cx));
+                }
+                if open && column == Column::Done {
+                    cards = cards.children(
+                        self.show_all(board, ui, cx)
+                            .map(|more| more.h(ui.px(28.0)).pl(ui.px(26.0))),
+                    );
                 }
                 list = list.child(cards);
             }
@@ -590,9 +594,15 @@ impl KanbanView {
                 .gap(ui.px(6.0))
                 .px(ui.px(6.0))
                 .pb(ui.px(8.0));
-            let cards = board.cards(column);
-            for card in cards {
+            let cards = board.listed(column, self.all_done);
+            for card in &cards {
                 body = body.child(self.tile(card, ui, cx));
+            }
+            if column == Column::Done {
+                body = body.children(
+                    self.show_all(board, ui, cx)
+                        .map(|more| more.h(ui.px(30.0)).justify_center()),
+                );
             }
             if cards.is_empty() {
                 body = body.child(
@@ -631,13 +641,119 @@ impl KanbanView {
                                 div()
                                     .text_size(ui.px(11.0))
                                     .text_color(c.dim)
-                                    .child(board.count(column).to_string()),
+                                    .child(board.count(column, self.all_done)),
                             ),
                     )
                     .child(body),
             );
         }
         row
+    }
+
+    /// What a group's header says when the mouse is on it: DONE's only while it lists its last
+    /// few of more.
+    fn note(&self, board: &Board, column: Column) -> Option<&'static str> {
+        let cut = board.listed(column, self.all_done).len() < board.cards(column).len();
+        Some(column.note()).filter(|note| !note.is_empty() && (column != Column::Done || cut))
+    }
+
+    /// Under DONE's cards when it has more than its last few: Show all, or while all show, Show
+    /// fewer. Kept only until the window closes.
+    fn show_all(
+        &self,
+        board: &Board,
+        ui: &UiFont,
+        cx: &mut Context<Self>,
+    ) -> Option<Stateful<Div>> {
+        let c = self.colors;
+        let total = board.cards(Column::Done).len();
+        if board.listed(Column::Done, false).len() == total {
+            return None;
+        }
+        Some(
+            div()
+                .id("kanban-show-all")
+                .flex_shrink_0()
+                .flex()
+                .items_center()
+                .rounded(px(6.0))
+                .text_size(ui.px(12.0))
+                .text_color(c.muted)
+                .cursor_pointer()
+                .hover(move |style| style.bg(c.text.opacity(0.05)).text_color(c.text))
+                .child(if self.all_done {
+                    "Show fewer".to_owned()
+                } else {
+                    format!("Show all {total}")
+                })
+                .on_click(cx.listener(|view, _: &ClickEvent, _, cx| {
+                    view.all_done = !view.all_done;
+                    cx.notify();
+                })),
+        )
+    }
+
+    /// On a card to review, under its agent, the repository's controller as the agent is drawn:
+    /// its kind and status, its name and status, and that it reviews. A click brings its pane to
+    /// the front, as a click on its card in the sidebar does.
+    fn reviewer(
+        &self,
+        card: &Card,
+        ui: &UiFont,
+        size: f32,
+        cx: &mut Context<Self>,
+    ) -> Option<Stateful<Div>> {
+        let c = self.colors;
+        let agent = card.controller.as_ref()?;
+        let look = card::look(agent.status);
+        let short = agent
+            .name
+            .split_once('/')
+            .map_or(agent.name.as_str(), |(_, s)| s);
+        let name = agent.name.clone();
+        Some(
+            div()
+                .id(SharedString::from(format!("kanban-reviewer-{}", card.file)))
+                .flex()
+                .items_center()
+                .gap(ui.px(7.0))
+                .min_w(px(0.0))
+                .mx(ui.px(-4.0))
+                .px(ui.px(4.0))
+                .rounded(px(5.0))
+                .whitespace_nowrap()
+                .text_color(c.muted)
+                .cursor_pointer()
+                .hover(move |style| style.bg(c.text.opacity(0.06)))
+                .child(self.avatar(agent, ui, size))
+                .child(
+                    div()
+                        .flex_shrink(1.0)
+                        .min_w(px(0.0))
+                        .overflow_hidden()
+                        .text_ellipsis()
+                        .text_color(c.bright)
+                        .child(short.to_owned()),
+                )
+                .child(
+                    div()
+                        .flex_shrink_0()
+                        .text_color(hsla(self.theme.fg(look.color), 1.0))
+                        .child(look.label),
+                )
+                .child(div().flex_1())
+                .child(
+                    div()
+                        .flex_shrink_0()
+                        .text_size(ui.px(10.5))
+                        .text_color(c.dim)
+                        .child("reviewer"),
+                )
+                .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
+                    cx.stop_propagation();
+                    cx.emit(KanbanEvent::GoTo(name.clone()));
+                })),
+        )
     }
 
     fn square(&self, column: Column, ui: &UiFont) -> Div {
@@ -661,7 +777,8 @@ impl KanbanView {
     }
 
     /// A card in the narrow list: its id, title, marks and age; then its agent, state, branch
-    /// and lines, and what the user is waited on for; DONE faded, on one line.
+    /// and lines, the controller when it is to review, and what the user is waited on for; DONE
+    /// faded, on one line.
     fn row(&self, card: &Card, ui: &UiFont, cx: &mut Context<Self>) -> Stateful<Div> {
         let c = self.colors;
         let done = card.column == Column::Done;
@@ -698,6 +815,9 @@ impl KanbanView {
             .then(|| self.meta(card, ui, 18.0, true))
             .flatten()
             .map(|meta| meta.mt(ui.px(5.0)).text_size(ui.px(12.0)));
+        let reviewer = self
+            .reviewer(card, ui, 18.0, cx)
+            .map(|reviewer| reviewer.mt(ui.px(5.0)).text_size(ui.px(12.0)));
         let asks = self
             .asks(card)
             .map(|asks| asks.mt(ui.px(5.0)).text_size(ui.px(12.0)));
@@ -711,12 +831,14 @@ impl KanbanView {
             .hover(move |style| style.bg(c.text.opacity(0.05)))
             .child(first)
             .children(meta)
+            .children(reviewer)
             .children(asks)
             .children(self.actions(card, ui, cx))
     }
 
     /// A card in a widened column: its id and age, the title on up to two lines, its marks, then
-    /// its agent, state and lines, and what the user is waited on for.
+    /// its agent, state and lines, the controller when it is to review, and what the user is waited
+    /// on for.
     fn tile(&self, card: &Card, ui: &UiFont, cx: &mut Context<Self>) -> Stateful<Div> {
         let c = self.colors;
         let done = card.column == Column::Done;
@@ -757,6 +879,9 @@ impl KanbanView {
             .then(|| self.meta(card, ui, 16.0, false))
             .flatten()
             .map(|meta| meta.mt(ui.px(7.0)).text_size(ui.px(11.5)));
+        let reviewer = self
+            .reviewer(card, ui, 16.0, cx)
+            .map(|reviewer| reviewer.mt(ui.px(6.0)).text_size(ui.px(11.5)));
         let asks = self
             .asks(card)
             .map(|asks| asks.mt(ui.px(6.0)).text_size(ui.px(11.5)));
@@ -774,6 +899,7 @@ impl KanbanView {
             .child(title)
             .children(marks)
             .children(meta)
+            .children(reviewer)
             .children(asks)
             .children(self.actions(card, ui, cx))
     }

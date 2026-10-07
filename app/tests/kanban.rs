@@ -220,7 +220,7 @@ fn each_task_lands_in_its_column() {
     // DONE is one line: no state, no branch, no agent.
     let done = card("P5-24a");
     assert_eq!((done.state, done.branch, done.agent), (None, None, None));
-    assert_eq!(board.count(Column::Done), 1);
+    assert_eq!(board.count(Column::Done, false), "1");
 
     // An agent labelled for a task: an idle one that said DONE sends it to review, a working
     // one in a worktree keeps it in progress; one for a queued task starts it.
@@ -232,6 +232,7 @@ fn each_task_lands_in_its_column() {
         status,
         said_done,
         since: None,
+        controller: false,
     };
     let agents = [
         agent("paddock/dev-a-1", Some("P5-2"), None, Status::Idle, true),
@@ -253,6 +254,24 @@ fn each_task_lands_in_its_column() {
         .unwrap();
     assert_eq!(p5_1.agent.as_ref().unwrap().name, "paddock/dev-b");
     assert_eq!(p5_1.state.as_ref().unwrap().0, "Working");
+    // The controller, labelled so and in the main worktree, shows on the cards to review only;
+    // one labelled so in a task's worktree is not this repository's.
+    let controller = |name: &str, cwd: &Path| Seen {
+        controller: true,
+        ..agent(name, None, Some(cwd), Status::Idle, false)
+    };
+    let main = controller("paddock/main", &repo);
+    let mut agents = agents.to_vec();
+    agents.insert(0, controller("other/main", &root.join("p5-8")));
+    agents.push(main.clone());
+    let reviewed = paddock::kanban::board(&facts, &agents, 2_000_000_000.0);
+    for column in Column::ALL {
+        for card in reviewed.cards(column) {
+            let want = (column == Column::ToReview).then_some(&main);
+            assert_eq!(card.controller.as_ref(), want, "{}", card.id);
+        }
+    }
+    assert_eq!(reviewed.cards(Column::ToReview).len(), 3);
     // The task files are read once: a second read finds them in the cache and agrees.
     let again = read(
         "git",
@@ -307,12 +326,12 @@ fn done_keeps_the_last_five_and_counts_what_it_lists() {
         panic!("not a board");
     };
     let board = board(&facts, &[], 2_000_000_000.0);
-    // The header counts what is listed.
-    assert_eq!(board.count(Column::Done), 5);
-    assert_eq!(board.done, 7);
+    // The header counts what is listed, of all.
+    assert_eq!(board.count(Column::Done, false), "5 / 7");
+    assert_eq!(board.cards(Column::Done).len(), 7);
     // Newest first.
     let done: Vec<&str> = board
-        .cards(Column::Done)
+        .listed(Column::Done, false)
         .iter()
         .map(|c| c.id.as_str())
         .collect();
