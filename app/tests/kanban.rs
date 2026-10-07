@@ -464,3 +464,93 @@ fn drafts_dropped_tasks_and_tasks_waiting_on_the_user() {
     assert_eq!(facts.tasks, []);
     assert_eq!(facts.drafts.len(), 1);
 }
+
+#[test]
+fn a_new_draft_is_written_once_and_never_over_a_taken_id() {
+    use paddock::kanban::{Place, Refused, create_draft, next_id, taken};
+    let temp = common::tempdir();
+    let repo = temp.path().join("repo");
+    fs::create_dir_all(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    commit(&repo, "docs/任务/P5-1-在main.md", "# 任务：a\n", "任务文件");
+    // On a branch only, in a worktree of its own.
+    git(
+        &repo,
+        &[
+            "worktree",
+            "add",
+            "-q",
+            "-b",
+            "p5-2",
+            temp.path().join("p5-2").to_str().unwrap(),
+        ],
+    );
+    commit(
+        &temp.path().join("p5-2"),
+        "docs/任务/P5-2-只在分支.md",
+        "# 任务：b\n",
+        "分支上的任务文件",
+    );
+    // In the main worktree only, not committed.
+    let tasks = repo.join("docs/任务");
+    fs::write(tasks.join("P5-3-草稿.md"), "# 任务：c 原样\n").unwrap();
+    let cancel = AtomicBool::new(false);
+    let ids = taken("git", &repo, &cancel).unwrap();
+    assert_eq!(ids["P5-1"], Place::Branch("main".into()));
+    assert_eq!(ids["P5-2"], Place::Branch("p5-2".into()));
+    assert_eq!(ids["P5-3"], Place::Worktree);
+    assert_eq!(
+        next_id(ids.keys().map(String::as_str)).as_deref(),
+        Some("P5-4")
+    );
+
+    let create = |id: &str, title: &str| create_draft("git", &repo, id, title, &cancel);
+    let refused = |id: &str, title: &str| create(id, title).unwrap_err().to_string();
+    assert_eq!(refused("P5-1", "x"), "P5-1 is already on main");
+    assert_eq!(refused("P5-2", "x"), "P5-2 is already on p5-2");
+    assert_eq!(refused("P5-3", "x"), "P5-3 is already in the main worktree");
+    assert_eq!(create("p5-4", "x"), Err(Refused::BadId));
+    assert_eq!(create("P5-4-x", "x"), Err(Refused::BadId));
+    assert_eq!(create("P5-4", "  "), Err(Refused::NoTitle));
+    // Refusals leave the file there as it was, and write nothing.
+    assert_eq!(
+        fs::read_to_string(tasks.join("P5-3-草稿.md")).unwrap(),
+        "# 任务：c 原样\n"
+    );
+    let listed = || {
+        let mut names: Vec<String> = fs::read_dir(&tasks)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().into_string().unwrap())
+            .collect();
+        names.sort();
+        names
+    };
+    assert_eq!(listed(), ["P5-1-在main.md", "P5-3-草稿.md"]);
+
+    // Written: the title line and an empty 「用户原话」, the name made safe, nothing staged.
+    let path = create(" P5-4 ", " Kanban: 新建/草稿 ").unwrap();
+    assert_eq!(path, tasks.join("P5-4-Kanban-新建-草稿.md"));
+    assert_eq!(
+        fs::read_to_string(&path).unwrap(),
+        "# 任务：Kanban: 新建/草稿\n\n## 用户原话\n"
+    );
+    let status = Command::new("git")
+        .args(["status", "--porcelain", "--untracked-files=all"])
+        .current_dir(&repo)
+        .output()
+        .unwrap();
+    let status = String::from_utf8(status.stdout).unwrap();
+    assert!(
+        status.lines().all(|line| line.starts_with("?? ")),
+        "{status}"
+    );
+    // Once only: the same id again is taken now.
+    assert_eq!(
+        refused("P5-4", "again"),
+        "P5-4 is already in the main worktree"
+    );
+    assert_eq!(
+        fs::read_to_string(&path).unwrap(),
+        "# 任务：Kanban: 新建/草稿\n\n## 用户原话\n"
+    );
+}
