@@ -2,7 +2,7 @@
 
 ## 现在在哪（2026-10-07 夜）
 
-- main 和 `origin/main`（`github.com/firegnu/paddock`，public）同步，工作区干净。没有进行中的活，没有开着的 worktree，本地只有 main 一个分支。corral 里是 `paddock/main`（本主控）和用户 10-07 夜让开的 `paddock/codex`、`paddock/pi`、`paddock/omp`（待命，没派活，算用户的）；`ranch/main`、`cairn/main` 已不在。
+- main 和 `origin/main`（`github.com/firegnu/paddock`，public）同步，工作区干净。没有进行中的活，没有开着的 worktree，本地只有 main 一个分支。corral 里只有 `paddock/main`（本主控）（用户 10-07 夜让开的 `paddock/codex`、`paddock/pi`、`paddock/omp` 已按用户要求关掉）；`ranch/main`、`cairn/main` 已不在。
 - 426 项测试通过，clippy、`cargo fmt --check` 干净。`~/Applications/paddock.app` 是合并 P5-41b 之后的版本（含 P5-35～P5-41b、paddock ctl），已用本机 Apple Development 证书签名。
 - **paddock ctl 已部署**（用户 10-07 夜在终端里跑完，主控核对过）：`~/.local/bin/paddock` 链到 app 里的程序；`paddock install-skills` 已装 `~/.claude/skills/paddock`、`~/.agents/skills/paddock`（带归属标记，与仓库源文件一致）；旧的 `~/.claude/skills/saddle` 已删。`paddock ctl instances` 找得到正在跑的窗口，`inspect` 认出 `paddock/main` 是 pane 1。重新打包安装后链接不用重建；技能正文改了要重跑 `paddock install-skills`。已开着的 agent 要重开才看到新技能。
 - 全局 corral 已是 ranch `5c5540c`（支持 pause／resume）。
