@@ -739,10 +739,10 @@ impl Render for ActivityView {
         }
         let glowing =
             breathes(self.active, self.working, still) && !popping && self.shown_at.is_some();
-        // While today breathes, a sweep crosses the grid every few seconds from when the cells
-        // have popped in, drawn as it goes and not again until the next.
+        // In front, a sweep crosses the grid every few seconds from when the cells have popped in,
+        // drawn as it goes and not again until the next; unlike the breath it needs no agent working.
         let sweep = popped
-            .filter(|_| glowing)
+            .filter(|_| sweeps(self.active, still) && !popping && self.shown_at.is_some())
             .map(|end| now.saturating_duration_since(end));
         if let Some(since) = sweep {
             let frame = Duration::from_secs_f32(1.0 / SWEEP_FPS);
@@ -861,6 +861,12 @@ impl Render for ActivityView {
 /// frames, so an idle window is not drawn again and again.
 pub fn breathes(active: bool, working: bool, still: bool) -> bool {
     active && working && !still
+}
+
+/// Whether the sweep crosses the grid: whenever the window is the `active` one, busy agents or not
+/// (between sweeps it asks for no frames), and never with Reduce Motion on (`still`).
+pub fn sweeps(active: bool, still: bool) -> bool {
+    active && !still
 }
 
 /// The clickable header row both shapes start with: `ACTIVITY`, brighter under the mouse.
@@ -1006,5 +1012,13 @@ mod tests {
         assert!(!breathes(false, false, false));
         // Reduce Motion keeps it still even then.
         assert!(!breathes(true, true, true));
+    }
+
+    #[test]
+    fn the_sweep_runs_in_front_whatever_the_agents_do() {
+        assert!(sweeps(true, false));
+        // In the background, or with Reduce Motion on: no sweep.
+        assert!(!sweeps(false, false));
+        assert!(!sweeps(true, true));
     }
 }
