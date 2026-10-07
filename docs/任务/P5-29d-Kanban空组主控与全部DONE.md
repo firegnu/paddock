@@ -49,3 +49,16 @@
 
 ## 做完
 在本文件末尾追加「## 完成记录」（在你的分支里提交）：做了什么、验证了什么、拿主意的地方、没做的事，各几句话。回复里只写这几样，加上截图路径和有没有要主控决定的事。命令都在前台跑完，全部做完后，回复最后一行写 DONE。
+
+## 完成记录
+
+- **做了什么**：
+  - 窄面板空组：没有卡片的组头改矮（22 对 30）、上间距收小、整行淡到 0.5，不再给空组留卡片区的空白；五组位置不变，空组照样能点开合。组头右侧那句说明去掉，改成组头的悬停提示（`Column::note` 改成句首大写：Not started、Not merged、Not wrapped up、Last 5）；IN PROGRESS 没有说明就不出提示，DONE 的 “Last 5” 只在确实只列了最近几件时出。
+  - TO REVIEW 显示主控：`Seen` 多一个 `controller`（标签 `role=controller`，在 `Seen::of` 里读，不碰 `sidebar.rs`）；`kanban::controller_for(repo, agents)` 取第一个没退出、目录是主仓库或在它下面的主控；`board` 只给 TO REVIEW 的卡片填 `Card::controller`。卡片在 dev agent 那行下面多一行：种类图标和状态记号（同一个 `avatar`）、名字、状态（状态色）、右侧小字 “reviewer”；点这一行发 `KanbanEvent::GoTo`，走和左侧栏点卡片一样的 `show_agent`。加宽五列里的卡片同样。悬停三个按钮没动，仍对着 dev agent。
+  - DONE 看全部：`Board` 不再在 `board()` 里把 DONE 截掉（去掉了 `done` 字段），改成 `Board::listed(column, all)` 列出、`Board::count(column, all)` 写组头（`5 / 8`；全部列出时只写一个数）。视图里 `all_done` 只在内存里；DONE 展开且有被截掉的卡时末尾一行 “Show all N”，点了变 “Show fewer”。Needs you 的卡照旧总列出、折起来也列出。加宽五列的 DONE 列同样。
+- **验证了什么**：
+  - 新测试：`the_controller_is_labelled_so_and_works_in_the_repository`（按标签和目录、子目录、只有名字没标签、别的仓库、任务 worktree、已退出、多个取第一个没退出的）、`only_a_card_to_review_shows_the_controller`（五列各一张，只有 TO REVIEW 带主控，卡片自己的 agent 仍是 dev；没主控就没有）；`cards_that_need_the_user_say_so_and_stay_in_sight` 和集成测试 `done_keeps_the_last_five_and_counts_what_it_lists` 改成新接口，断言 `6 / 7`、`5 / 7`、展开后列出全部；集成测试 `each_task_lands_in_its_column` 加了真实 git 仓库路径下的主控（另一个标 controller 但在任务 worktree 里的不算）。
+  - `app/` 下 `cargo test --all-targets`、`cargo clippy --all-targets -- -D warnings`、`cargo fmt --check` 都过。
+  - 截图（release、`PADDOCK_NO_ACTIVATE=1`、临时 HOME／`XDG_STATE_HOME`／`XDG_CONFIG_HOME`、Rust 写的假 corral：一个 `role=controller` 的 codex 主控在仓库里、一个 `task=P1-9` 的 claude dev agent 空闲且回复以 DONE 结尾；预写布局开在 Kanban；临时仓库里 IN PROGRESS、MERGED 是空组，一张 TO REVIEW，8 件 DONE）：Lagoon 13 和 Dune 18 窄面板各一张，自己看过。截图在 scratchpad，没有入库。Tide 主题没截。
+- **拿主意的地方**：主控全都退出了就不加这一行（“取第一个没退出的”，没有就当没找到）；说明小字写 “reviewer”；空组用整体透明度变淡，不新增颜色；组头说明改成句首大写，因为现在是悬停提示。
+- **没做的事**：点击（点主控行跳窗格、Show all／Show fewer、空组开合）和悬停提示没有实际操作过，留给用户实际用。加宽五列没截图。

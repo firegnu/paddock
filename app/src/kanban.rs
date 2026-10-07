@@ -19,7 +19,7 @@ use std::{
 pub const TASKS: &str = "docs/任务";
 /// The branch the task files are read from, and branches are measured against.
 pub const MAIN: &str = "main";
-/// How many DONE cards are kept, newest first.
+/// How many DONE cards are listed, newest first, until all are asked for.
 pub const DONE_KEPT: usize = 5;
 /// How far back main's history is read for merges and wrap-ups.
 const HISTORY: &str = "5000";
@@ -274,14 +274,14 @@ impl Column {
         }
     }
 
-    /// The group's line at the right of its header.
+    /// What the group holds, shown when the mouse is on its header.
     pub fn note(self) -> &'static str {
         match self {
-            Column::Queued => "not started",
+            Column::Queued => "Not started",
             Column::InProgress => "",
-            Column::ToReview => "not merged",
-            Column::Merged => "not wrapped up",
-            Column::Done => "last 5",
+            Column::ToReview => "Not merged",
+            Column::Merged => "Not wrapped up",
+            Column::Done => "Last 5",
         }
     }
 }
@@ -900,6 +900,8 @@ pub struct Seen {
     pub said_done: bool,
     /// When its state began, in seconds since the epoch.
     pub since: Option<f64>,
+    /// Labelled `role=controller`.
+    pub controller: bool,
 }
 
 impl Seen {
@@ -918,6 +920,7 @@ impl Seen {
             said_done: status == Status::Idle
                 && reply.is_some_and(|reply| reply.trim_end().ends_with("DONE")),
             since: agent.state_started,
+            controller: agent.role() == Some(crate::corral::Role::Controller),
         }
     }
 }
@@ -951,6 +954,18 @@ pub fn agent_for<'a>(task: &Task, agents: &'a [Seen]) -> Option<&'a Seen> {
             })
             .collect(),
     )
+}
+
+/// The repository's controller: an agent labelled `role=controller` working in the main worktree
+/// `repo` or a directory under it, the first of them not exited; none without one.
+pub fn controller_for<'a>(repo: &Path, agents: &'a [Seen]) -> Option<&'a Seen> {
+    agents.iter().find(|a| {
+        a.controller
+            && a.status != Status::Exited
+            && a.cwd
+                .as_deref()
+                .is_some_and(|cwd| Path::new(cwd).starts_with(repo))
+    })
 }
 
 /// Where the task stands, judged from the last column back, the first that holds. When it cannot
@@ -989,6 +1004,8 @@ pub struct Card {
     /// How long ago it last moved, as the sidebar writes ages; empty when unknown.
     pub age: String,
     pub agent: Option<Seen>,
+    /// The repository's controller, on a card to review.
+    pub controller: Option<Seen>,
     pub state: Option<(String, Tone)>,
     pub branch: Option<String>,
     pub lines: Option<(u64, u64)>,
@@ -1012,14 +1029,12 @@ pub fn line_words((added, deleted): (u64, u64)) -> (Option<String>, Option<Strin
     )
 }
 
-/// The board: the repository, and the cards in each column, DONE cut to its last few.
+/// The board: the repository, and the cards in each column.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Board {
     pub name: String,
     pub repo: PathBuf,
     pub columns: [Vec<Card>; 5],
-    /// How many are done in all, before the cut.
-    pub done: usize,
 }
 
 impl Board {
@@ -1027,9 +1042,29 @@ impl Board {
         &self.columns[column as usize]
     }
 
-    /// The count a group's header shows: the cards it lists.
-    pub fn count(&self, column: Column) -> usize {
-        self.cards(column).len()
+    /// The cards a group lists: all of them, but DONE only its last few and any that need the
+    /// user, unless `all` asks for every one.
+    pub fn listed(&self, column: Column, all: bool) -> Vec<&Card> {
+        let cards = self.cards(column).iter();
+        if column != Column::Done || all {
+            return cards.collect();
+        }
+        cards
+            .enumerate()
+            .filter(|(at, card)| *at < DONE_KEPT || card.needs_you)
+            .map(|(_, card)| card)
+            .collect()
+    }
+
+    /// The count a group's header shows: how many it lists, and of how many when that is not
+    /// all of them (`5 / 73`).
+    pub fn count(&self, column: Column, all: bool) -> String {
+        let (listed, total) = (self.listed(column, all).len(), self.cards(column).len());
+        if listed == total {
+            total.to_string()
+        } else {
+            format!("{listed} / {total}")
+        }
     }
 
     /// How many cards need the user.
@@ -1045,6 +1080,7 @@ impl Board {
 /// The board for `facts` and the agents now listed, at `now` (seconds since the epoch).
 pub fn board(facts: &Facts, agents: &[Seen], now: f64) -> Board {
     let mut columns: [Vec<Card>; 5] = Default::default();
+    let controller = controller_for(&facts.repo, agents);
     for task in &facts.tasks {
         let agent = agent_for(task, agents);
         let column = column(task, facts, agent);
@@ -1093,6 +1129,7 @@ pub fn board(facts: &Facts, agents: &[Seen], now: f64) -> Board {
             column,
             age: time.map_or_else(String::new, |t| card::short_time(Some(now - t as f64))),
             agent: agent.filter(|_| column != Column::Done).cloned(),
+            controller: controller.filter(|_| column == Column::ToReview).cloned(),
             state,
             branch: task.branch.clone().filter(|_| shows_branch),
             lines: matches!(column, Column::InProgress | Column::ToReview)
@@ -1118,6 +1155,7 @@ pub fn board(facts: &Facts, agents: &[Seen], now: f64) -> Board {
             column: Column::Queued,
             age: String::new(),
             agent: None,
+            controller: None,
             state: None,
             branch: None,
             lines: None,
@@ -1136,18 +1174,10 @@ pub fn board(facts: &Facts, agents: &[Seen], now: f64) -> Board {
             cards.sort_by(|a, b| b.time.cmp(&a.time).then_with(|| natural(&a.id, &b.id)));
         }
     }
-    // DONE keeps its last few, and any that need the user however old.
-    let done = columns[Column::Done as usize].len();
-    let mut at = 0;
-    columns[Column::Done as usize].retain(|card| {
-        at += 1;
-        at <= DONE_KEPT || card.needs_you
-    });
     Board {
         name: facts.name.clone(),
         repo: facts.repo.clone(),
         columns,
-        done,
     }
 }
 
@@ -1301,14 +1331,15 @@ mod tests {
         let agents = [seen("p/dev", None, Some("P2-2"), Status::Waiting)];
         let board = board(&facts, &agents, 1_000.0);
         let done: Vec<&str> = board
-            .cards(Column::Done)
+            .listed(Column::Done, false)
             .iter()
             .map(|c| c.id.as_str())
             .collect();
         assert_eq!(done, ["P1-7", "P1-6", "P1-5", "P1-4", "P1-3", "P1-1"]);
-        // The header counts what is listed.
-        assert_eq!(board.count(Column::Done), 6);
-        assert_eq!(board.done, 7);
+        // The header counts what is listed, of all.
+        assert_eq!(board.count(Column::Done, false), "6 / 7");
+        assert_eq!(board.count(Column::Done, true), "7");
+        assert_eq!(board.listed(Column::Done, true).len(), 7);
         let card = |id: &str| {
             Column::ALL
                 .iter()
@@ -1398,7 +1429,80 @@ mod tests {
             status,
             said_done: false,
             since: None,
+            controller: false,
         }
+    }
+
+    fn controller(name: &str, cwd: &str, status: Status) -> Seen {
+        Seen {
+            controller: true,
+            ..seen(name, Some(cwd), None, status)
+        }
+    }
+
+    #[test]
+    fn the_controller_is_labelled_so_and_works_in_the_repository() {
+        let repo = Path::new("/w/paddock");
+        let main = controller("paddock/main", "/w/paddock/", Status::Idle);
+        let below = controller("paddock/main-1", "/w/paddock/app", Status::Working);
+        // Not a controller by its name alone; not one in another repository or a worktree.
+        let unlabelled = seen("paddock/main", Some("/w/paddock"), None, Status::Idle);
+        let elsewhere = controller("ranch/main", "/w/ranch", Status::Idle);
+        let worktree = controller("x/main", "/w/paddock-worktrees/p5-1", Status::Idle);
+        let exited = controller("paddock/main-2", "/w/paddock", Status::Exited);
+        assert_eq!(
+            controller_for(repo, &[unlabelled.clone(), main.clone()]),
+            Some(&main)
+        );
+        assert_eq!(
+            controller_for(repo, std::slice::from_ref(&below)),
+            Some(&below)
+        );
+        // Of several, the first not exited.
+        assert_eq!(
+            controller_for(repo, &[exited.clone(), below.clone(), main.clone()]),
+            Some(&below)
+        );
+        assert_eq!(
+            controller_for(repo, &[unlabelled, elsewhere, worktree, exited]),
+            None
+        );
+        assert_eq!(controller_for(repo, &[]), None);
+    }
+
+    #[test]
+    fn only_a_card_to_review_shows_the_controller() {
+        let place = |id: &str| Task {
+            worktree: Some(format!("/w/{id}")),
+            branch: Some(id.to_lowercase()),
+            ..bare(id, None)
+        };
+        let mut facts = Facts {
+            repo: PathBuf::from("/w/paddock"),
+            tasks: ["P1-1", "P1-2", "P1-3", "P1-4", "P1-5"].map(place).to_vec(),
+            ..Default::default()
+        };
+        // P1-1 queued; P1-2 in progress; P1-3 to review; P1-4 merged; P1-5 done.
+        facts
+            .worktrees
+            .push(("/w/P1-2".into(), Some("p1-2".into())));
+        facts.records.insert("P1-3".into());
+        facts.merges.insert("P1-4".into(), 10);
+        facts.wrapped.insert("P1-5".into(), 20);
+        let main = controller("paddock/main", "/w/paddock", Status::Idle);
+        let dev = seen("paddock/dev-a", None, Some("P1-3"), Status::Idle);
+        let board = board(&facts, &[main.clone(), dev.clone()], 1_000.0);
+        for column in Column::ALL {
+            let cards = board.cards(column);
+            assert_eq!(cards.len(), 1, "{column:?}");
+            let want = (column == Column::ToReview).then_some(&main);
+            assert_eq!(cards[0].controller.as_ref(), want, "{column:?}");
+        }
+        // The card's own agent stays the dev agent.
+        assert_eq!(board.cards(Column::ToReview)[0].agent.as_ref(), Some(&dev));
+        // No controller, no line.
+        let without = super::board(&facts, std::slice::from_ref(&dev), 1_000.0);
+        assert_eq!(without.cards(Column::ToReview)[0].controller, None);
     }
 
     #[test]
