@@ -15,7 +15,7 @@
 - 代码：`app/src/kanban_view.rs`（顶部一行、“Open task file” 怎么打开文件）、`app/src/kanban.rs`（`task_id`、`natural`、`read`）、`app/src/popover.rs` 和用它的窗口内弹出框（新标签框、分屏框）、`app/src/text_input.rs`（单行输入框）。
 
 ## 在哪里干活
-- worktree：`/Users/firegnu/Developer/personal_projs/paddock-worktrees/p5-29c-kanban`，分支 `p5-29c-kanban`（等 P5-29b 合并后从 main 建好）。
+- worktree：`/Users/firegnu/Developer/personal_projs/paddock-worktrees/p5-29c-kanban`，分支 `p5-29c-kanban`（已从 main 建好）。
 - 编译目录：命令前加 `CARGO_TARGET_DIR=$HOME/Developer/personal_projs/paddock-worktrees/.target/p5-29c-kanban`。
 - 可以改：`kanban.rs`、`kanban_view.rs`、`window.rs`（接线）、`footer_icon.rs`（加图标）；`popover.rs`、`text_input.rs` 只在必要时小改。
 
