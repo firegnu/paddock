@@ -149,6 +149,14 @@ const EASE_IN_OUT: Bezier = Bezier(0.42, 0.0, 0.58, 1.0);
 pub const BUMP: Duration = ms(560.0);
 /// Its size at fractions of that time.
 const BUMP_FRAMES: [(f32, f32); 3] = [(0.0, 1.0), (0.35, 1.3), (1.0, 1.0)];
+/// The light sweeping the activity grid from the top left to the bottom right (P5-34, design C's
+/// `sweep`): one sweep this often, a cell lit this long as it passes, its neighbour along the
+/// diagonal this much later.
+pub const SWEEP_EVERY: Duration = ms(7000.0);
+pub const SWEEP_LIT: Duration = ms(700.0);
+pub const SWEEP_STAGGER: Duration = ms(45.0);
+/// How lit a cell is at fractions of its time: at its brightest at about 0.3 seconds.
+const SWEEP_FRAMES: [(f32, f32); 3] = [(0.0, 0.0), (0.4, 1.0), (1.0, 0.0)];
 
 const fn ms(ms: f32) -> Duration {
     Duration::from_millis(ms as u64)
@@ -477,6 +485,32 @@ pub fn bump(since: Duration) -> f32 {
     )
 }
 
+/// How lit an activity cell `step` diagonals from the top left is, 0 to 1 and back, `since` the
+/// sweeps began.
+pub fn sweep(since: Duration, step: usize) -> f32 {
+    let Some(since) = since.checked_sub(SWEEP_STAGGER * step as u32) else {
+        return 0.0;
+    };
+    let t = millis(since) % millis(SWEEP_EVERY) / millis(SWEEP_LIT);
+    if t >= 1.0 {
+        return 0.0;
+    }
+    keyframes(t, &SWEEP_FRAMES, EASE_IN_OUT)
+}
+
+/// How long until a grid of `steps` diagonals is next drawn, `since` the sweeps began: a `frame`
+/// while the light crosses it, then not until the next sweep starts.
+pub fn sweep_wake(since: Duration, steps: usize, frame: Duration) -> Duration {
+    let crossing = SWEEP_STAGGER * steps.saturating_sub(1) as u32 + SWEEP_LIT;
+    let into = Duration::from_nanos((since.as_nanos() % SWEEP_EVERY.as_nanos()) as u64);
+    // One frame past the end, so the last cell is drawn at rest.
+    if into < crossing + frame {
+        frame
+    } else {
+        SWEEP_EVERY - into
+    }
+}
+
 /// `from` blended `t` of the way to `to`, through red, green and blue as CSS does.
 pub fn mix(from: Hsla, to: Hsla, t: f32) -> Hsla {
     let (from, to) = (Rgba::from(from), Rgba::from(to));
@@ -799,6 +833,27 @@ mod tests {
         assert!(close(bump(after(0.35 * 560.0)), 1.3));
         assert_eq!(bump(BUMP), 1.0);
         assert_eq!(bump(after(5000.0)), 1.0);
+    }
+
+    #[test]
+    fn the_sweep_crosses_the_grid_every_seven_seconds() {
+        // The first cell lights up, brightest at about 0.3 seconds, and is back at rest by 0.7.
+        assert_eq!(sweep(Duration::ZERO, 0), 0.0);
+        assert!(close(sweep(after(280.0), 0), 1.0));
+        assert_eq!(sweep(SWEEP_LIT, 0), 0.0);
+        assert_eq!(sweep(after(3000.0), 0), 0.0);
+        // A cell ten diagonals along lights up 0.45 seconds later, nothing before its turn.
+        assert_eq!(sweep(after(280.0), 10), 0.0);
+        assert!(close(sweep(after(730.0), 10), 1.0));
+        // And again seven seconds on.
+        assert!(close(sweep(after(7280.0), 0), 1.0));
+        assert!(close(sweep(after(7730.0), 10), 1.0));
+        // Drawn every frame while it crosses 30 diagonals, then not until the next sweep.
+        let frame = after(33.0);
+        assert_eq!(sweep_wake(Duration::ZERO, 30, frame), frame);
+        assert_eq!(sweep_wake(after(1900.0), 30, frame), frame);
+        assert_eq!(sweep_wake(after(3000.0), 30, frame), after(4000.0));
+        assert_eq!(sweep_wake(after(10_000.0), 30, frame), after(4000.0));
     }
 
     #[test]

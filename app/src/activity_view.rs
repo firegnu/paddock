@@ -1,9 +1,11 @@
 //! The left sidebar's activity grid (DESIGN §13 P5-32): a small rounded panel under the agents'
 //! list, one cell a day and a column a week, as many weeks as the sidebar is wide for, each cell
-//! darker for more commits that day (`activity.rs`). The first time it shows its cells pop in
-//! along the diagonal, today's cell breathes, a cell whose commits rose at a refresh swells once,
-//! and a hovered day shows its card; clicking the header folds it to one line. With the system's
-//! Reduce Motion on, nothing moves. Colours are the theme's: the accent at five strengths.
+//! hotter for more commits that day (`activity.rs`). The first time it shows its cells pop in
+//! along the diagonal, today's cell breathes and a light sweeps the days with commits every few
+//! seconds (P5-34), a cell whose commits rose at a refresh swells once, and a hovered day shows its
+//! card; clicking the header folds it to one line. With the system's Reduce Motion on, nothing
+//! moves. Colours are the theme's: solid steps from the accent deep in the sidebar's colour to the
+//! accent white-hot, the busiest two glowing.
 use crate::{
     activity::{self, Ask, Counts, Day, Poller},
     fonts::UiFont,
@@ -67,8 +69,22 @@ const MINI_FROM: f32 = 250.0;
 const ROOMY: f32 = 230.0;
 /// How far above its cell a day's card hangs.
 const CARD_LIFT: f32 = 7.0;
-/// The accent's strength at each level above none.
-const LEVELS: [f32; 4] = [0.24, 0.45, 0.7, 1.0];
+/// A day without commits: the text this far into the sidebar's colour, or over the material this
+/// many times its `lit`.
+const EMPTY: f32 = 0.12;
+const EMPTY_FROSTED: f32 = 1.2;
+/// The two deep levels: the accent this far into the sidebar's colour.
+const DEEP: [f32; 2] = [0.3, 0.62];
+/// The busiest level: the accent this far towards the text.
+const HOT: f32 = 0.6;
+/// A cell the sweep lights at its brightest: this far towards [`FLASH`], its glow this much
+/// stronger again.
+const SWEEP_LIFT: f32 = 0.7;
+const SWEEP_BURN: f32 = 0.6;
+/// The sweep's light: the accent this far towards the text, whiter than the busiest level.
+const FLASH: f32 = 0.85;
+/// How often the sweep is drawn as it crosses the grid.
+const SWEEP_FPS: f32 = 30.0;
 /// How often a finished read is looked for.
 const TICK: Duration = Duration::from_millis(250);
 /// The repositories a day's card names before the rest are put together.
@@ -86,9 +102,13 @@ const HALO_WIDTH: f32 = 1.25;
 struct Colors {
     ground: Hsla,
     edge: Hsla,
-    /// A day without commits.
-    empty: Hsla,
+    /// The five levels, no commits to the busiest (see [`ramp`]).
+    levels: [Hsla; 5],
     accent: Hsla,
+    /// The accent white-hot: the busiest level, today's ring.
+    hot: Hsla,
+    /// The sweep's light.
+    flash: Hsla,
     text: Hsla,
     dim: Hsla,
     dimmer: Hsla,
@@ -99,27 +119,23 @@ impl Colors {
         let fg =
             |pick: fn(&crate::preset::Theme) -> crate::preset::Color| hsla(theme.fg(pick), 1.0);
         let text = fg(|t| t.agents_text);
+        let accent = fg(|t| t.agents_accent);
         // Over the material, tints of the text as the sidebar's grounds are; on the sidebar's
         // own colour, its rule for an edge.
-        let (ground, edge, empty) = if frosted {
+        let (ground, edge, frost) = if frosted {
             let lit = theme.frost().lit;
-            (
-                text.opacity(lit * 0.35),
-                text.opacity(lit),
-                text.opacity(lit * 0.8),
-            )
+            (text.opacity(lit * 0.35), text.opacity(lit), Some(lit))
         } else {
-            (
-                text.opacity(0.025),
-                fg(|t| t.agents_rule),
-                text.opacity(0.065),
-            )
+            (text.opacity(0.025), fg(|t| t.agents_rule), None)
         };
+        let levels = ramp(hsla(theme.bg(|t| t.agents_bg), 1.0), accent, text, frost);
         Self {
             ground,
             edge,
-            empty,
-            accent: fg(|t| t.agents_accent),
+            levels,
+            accent,
+            hot: levels[4],
+            flash: motion::mix(accent, text, FLASH),
             text,
             dim: fg(|t| t.agents_dim),
             dimmer: fg(|t| t.agents_dimmer),
@@ -128,11 +144,51 @@ impl Colors {
 
     /// A cell at `level`, 0 (none) to 4.
     fn level(&self, level: usize) -> Hsla {
+        self.levels[level.min(4)]
+    }
+
+    /// The busiest two levels' glow in the accent, the busiest with a thin bright edge as well;
+    /// `lit` (0 to 1) brightens it as the sweep passes and `opacity` fades it in with its cell.
+    fn burn(&self, level: usize, lit: f32, opacity: f32, ui: &UiFont) -> Vec<BoxShadow> {
+        let glow = |color: Hsla, alpha: f32, blur: f32, spread: f32| BoxShadow {
+            color: color.opacity((alpha * (1.0 + SWEEP_BURN * lit)).min(1.0) * opacity),
+            offset: point(px(0.0), px(0.0)),
+            blur_radius: ui.px(blur),
+            spread_radius: ui.px(spread),
+            inset: false,
+        };
         match level {
-            0 => self.empty,
-            n => self.accent.opacity(LEVELS[n.min(4) - 1]),
+            3 => vec![glow(self.accent, 0.45, 6.0, 0.0)],
+            4 => vec![
+                glow(self.accent, 0.75, 9.0, 2.0),
+                glow(self.text, 0.6, 2.0, 0.0),
+            ],
+            _ => Vec::new(),
         }
     }
+}
+
+/// The five levels' colours: a day without commits a little lighter than the ground, so each day
+/// shows as a cell; then solid steps from the accent deep in the sidebar's colour `base`, through
+/// the accent, to the accent white-hot towards the `text`. Over the material (`frost`, its `lit`)
+/// the sidebar's colour is not what lies under a cell, so there the deep steps let the accent
+/// through over whatever does, which mixes it into that all the same.
+fn ramp(base: Hsla, accent: Hsla, text: Hsla, frost: Option<f32>) -> [Hsla; 5] {
+    let empty = match frost {
+        Some(lit) => text.opacity(lit * EMPTY_FROSTED),
+        None => motion::mix(base, text, EMPTY),
+    };
+    let deep = |share: f32| match frost {
+        Some(_) => accent.opacity(share),
+        None => motion::mix(base, accent, share),
+    };
+    [
+        empty,
+        deep(DEEP[0]),
+        deep(DEEP[1]),
+        accent,
+        motion::mix(accent, text, HOT),
+    ]
 }
 
 /// The cells' sizes for this width and interface size.
@@ -170,6 +226,8 @@ pub struct ActivityView {
     shown_at: Option<Instant>,
     /// The days whose commits rose at the latest refresh, and when.
     rose: Option<(Instant, Vec<Day>)>,
+    /// The draw already asked for while the sweep runs, so each is asked for once.
+    wake: Option<Instant>,
 }
 
 impl ActivityView {
@@ -200,6 +258,7 @@ impl ActivityView {
             hovered: None,
             shown_at: None,
             rose: None,
+            wake: None,
         };
         view.weeks = view.sizes(&UiFont::get(cx)).weeks;
         view.ask();
@@ -315,6 +374,26 @@ impl ActivityView {
             self.hovered = now;
             cx.notify();
         }
+    }
+
+    /// Draws again at `at` for the sweep, unless a draw before then is already coming.
+    fn wake(&mut self, at: Instant, now: Instant, cx: &mut Context<Self>) {
+        if self.wake.is_some_and(|wake| wake > now && wake <= at) {
+            return;
+        }
+        self.wake = Some(at);
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(at - now).await;
+            this.update(cx, |view, cx| {
+                // One asked for since, sooner, takes over from this one.
+                if view.wake == Some(at) {
+                    view.wake = None;
+                    cx.notify();
+                }
+            })
+            .ok();
+        })
+        .detach();
     }
 
     /// The room inside the panel.
@@ -444,7 +523,8 @@ impl ActivityView {
             .children(week)
     }
 
-    /// One day's cell: `col` weeks in, `row` days into its week.
+    /// One day's cell: `col` weeks in, `row` days into its week. `sweep` is how long since the
+    /// sweeps began, while they run.
     #[allow(clippy::too_many_arguments)]
     fn cell(
         &self,
@@ -453,7 +533,7 @@ impl ActivityView {
         (col, row): (usize, usize),
         sizes: Sizes,
         (today, busiest): (Day, u32),
-        (now, still, glowing): (Instant, bool, bool),
+        (now, still, glowing, sweep): (Instant, bool, bool, Option<Duration>),
         ui: &UiFont,
         cx: &mut Context<Self>,
     ) -> AnyElement {
@@ -470,7 +550,7 @@ impl ActivityView {
             return slot.into_any_element();
         }
         let commits = counts.map_or(0, |k| k.commits(day));
-        let color = c.level(activity::level(commits, busiest));
+        let level = activity::level(commits, busiest);
         let (mut scale, opacity) = match self.shown_at {
             _ if still => (1.0, 1.0),
             None => motion::cell_in(None),
@@ -487,7 +567,13 @@ impl ActivityView {
         }
         let size = sizes.cell * scale;
         let hovered = self.hovered == Some(day);
-        let mut shadows = Vec::new();
+        // Busy days burn; a day with commits lights up as the sweep passes, but today breathes.
+        let lit = match sweep {
+            Some(since) if level > 0 && day != today => motion::sweep(since, col + row),
+            _ => 0.0,
+        };
+        let color = motion::mix(c.level(level), c.flash, SWEEP_LIFT * lit);
+        let mut shadows = c.burn(level, lit, opacity, ui);
         if hovered {
             shadows.push(ring(c.text.opacity(0.85), ui.scale(1.0)));
         }
@@ -509,17 +595,17 @@ impl ActivityView {
                 .size(px(sizes.cell + 2.0 * reach))
                 .rounded(px(sizes.cell * CELL_ROUND + reach))
                 .border(ui.px(HALO_WIDTH));
-            let accent = c.accent;
+            let hot = c.hot;
             if glowing {
                 let ui = ui.clone();
                 ring.with_animation(
                     "activity-today",
                     Animation::new(motion::GLOW).repeat().with_max_fps(GLOW_FPS),
-                    move |ring, t| halo(ring, accent, motion::glow(t), &ui),
+                    move |ring, t| halo(ring, hot, motion::glow(t), &ui),
                 )
                 .into_any_element()
             } else {
-                halo(ring, accent, STILL_GLOW, ui).into_any_element()
+                halo(ring, hot, STILL_GLOW, ui).into_any_element()
             }
         });
         let card = (hovered && counts.is_some()).then(|| {
@@ -653,6 +739,16 @@ impl Render for ActivityView {
         }
         let glowing =
             breathes(self.active, self.working, still) && !popping && self.shown_at.is_some();
+        // While today breathes, a sweep crosses the grid every few seconds from when the cells
+        // have popped in, drawn as it goes and not again until the next.
+        let sweep = popped
+            .filter(|_| glowing)
+            .map(|end| now.saturating_duration_since(end));
+        if let Some(since) = sweep {
+            let frame = Duration::from_secs_f32(1.0 / SWEEP_FPS);
+            let wait = motion::sweep_wake(since, sizes.weeks + 6, frame);
+            self.wake(now + wait, now, cx);
+        }
         // The total counts up as the cells pop in, on their curve.
         let total = counts.as_ref().map(|k| {
             let total = k.total(first);
@@ -695,7 +791,7 @@ impl Render for ActivityView {
                     (col, row),
                     sizes,
                     (today, busiest),
-                    (now, still, glowing),
+                    (now, still, glowing, sweep),
                     &ui,
                     cx,
                 ));
@@ -743,6 +839,7 @@ impl Render for ActivityView {
                             .size(ui.px(SWATCH))
                             .rounded(ui.px(SWATCH * CELL_ROUND))
                             .bg(c.level(level))
+                            .shadow(c.burn(level, 0.0, 1.0, &ui))
                     }))
                     .when(roomy, |legend| {
                         legend.child(div().ml(ui.px(2.0)).child("More"))
@@ -796,14 +893,15 @@ fn ring(color: Hsla, width: f32) -> BoxShadow {
     }
 }
 
-/// Today's ring, `swell` (0 to 1) of the way through a breath: brighter, and its glow wider.
-fn halo(ring: Div, accent: Hsla, swell: f32, ui: &UiFont) -> Div {
-    ring.border_color(accent.opacity(0.7 + 0.3 * swell))
+/// Today's ring, white-hot (`hot`), `swell` (0 to 1) of the way through a breath: brighter, and
+/// its glow from about 4 points wide to about 14.
+fn halo(ring: Div, hot: Hsla, swell: f32, ui: &UiFont) -> Div {
+    ring.border_color(hot.opacity(0.75 + 0.25 * swell))
         .shadow(vec![BoxShadow {
-            color: accent.opacity(0.25 + 0.35 * swell),
+            color: hot.opacity(0.4 + 0.4 * swell),
             offset: point(px(0.0), px(0.0)),
-            blur_radius: ui.px(3.0 + 8.0 * swell),
-            spread_radius: px(0.0),
+            blur_radius: ui.px(4.0 + 10.0 * swell),
+            spread_radius: ui.px(1.0 + 3.0 * swell),
             inset: false,
         }])
 }
@@ -842,6 +940,60 @@ mod tests {
         assert_eq!(thousands(1_234_567), "1,234,567");
         assert_eq!(plural(1, "commit"), "commit");
         assert_eq!(plural(0, "commit"), "commits");
+    }
+
+    #[test]
+    fn each_level_is_a_step_brighter_than_the_last() {
+        // `top` laid over the opaque `under`.
+        fn over(top: Hsla, under: gpui::Rgba) -> gpui::Rgba {
+            let top = gpui::Rgba::from(top);
+            let at = |t: f32, u: f32| t * top.a + u * (1.0 - top.a);
+            gpui::Rgba {
+                r: at(top.r, under.r),
+                g: at(top.g, under.g),
+                b: at(top.b, under.b),
+                a: 1.0,
+            }
+        }
+        fn luminance(c: gpui::Rgba) -> f32 {
+            let linear = |v: f32| {
+                if v <= 0.04045 {
+                    v / 12.92
+                } else {
+                    ((v + 0.055) / 1.055).powf(2.4)
+                }
+            };
+            0.2126 * linear(c.r) + 0.7152 * linear(c.g) + 0.0722 * linear(c.b)
+        }
+        for name in ["dune", "tide", "lagoon"] {
+            let theme = Theme::from_config(&crate::config::Config {
+                theme: Some(name.into()),
+                ..crate::config::Config::default()
+            })
+            .unwrap();
+            let base = hsla(theme.bg(|t| t.agents_bg), 1.0);
+            // Over the material: about the grey under a selected card, washed with the
+            // sidebar's colour as the column is.
+            let washed = motion::mix(gpui::rgb(0x45494a).into(), base, theme.frost().wash);
+            for (column, frosted) in [(base, false), (washed, true)] {
+                let c = Colors::of(&theme, frosted);
+                let ground = over(c.ground, column.into());
+                // The panel's ground, then the five levels: a day without commits shows as a
+                // cell, and each level stands well apart from the one below.
+                let lum: Vec<f32> = std::iter::once(ground)
+                    .chain(c.levels.iter().map(|&level| over(level, ground)))
+                    .map(luminance)
+                    .collect();
+                let steps: Vec<f32> = lum
+                    .windows(2)
+                    .map(|pair| (pair[1] + 0.05) / (pair[0] + 0.05))
+                    .collect();
+                assert!(
+                    steps.iter().all(|&step| step >= 1.15),
+                    "{name}, frosted {frosted}: {steps:.2?}"
+                );
+            }
+        }
     }
 
     #[test]
