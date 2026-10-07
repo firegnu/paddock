@@ -30,17 +30,90 @@ pub enum Axis {
     Column,
 }
 
+/// A new split's share for its first part: half.
+pub const EVEN: f32 = 0.5;
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum Node {
     Pane(PaneId),
+    /// Named by its second part's first pane, the one just after its seam.
     Split {
         axis: Axis,
+        /// The first part's share, between 0 and 1.
+        ratio: f32,
         first: Box<Node>,
         second: Box<Node>,
     },
 }
 
 impl Node {
+    pub fn first_pane(&self) -> PaneId {
+        match self {
+            Node::Pane(id) => *id,
+            Node::Split { first, .. } => first.first_pane(),
+        }
+    }
+
+    /// The split whose seam comes just before the pane `after`.
+    pub fn split_before(&self, after: PaneId) -> Option<&Node> {
+        match self {
+            Node::Pane(_) => None,
+            Node::Split { first, second, .. } => {
+                if second.first_pane() == after {
+                    Some(self)
+                } else {
+                    first
+                        .split_before(after)
+                        .or_else(|| second.split_before(after))
+                }
+            }
+        }
+    }
+
+    fn ratio_before(&mut self, after: PaneId) -> Option<&mut f32> {
+        match self {
+            Node::Pane(_) => None,
+            Node::Split {
+                ratio,
+                first,
+                second,
+                ..
+            } => {
+                if second.first_pane() == after {
+                    Some(ratio)
+                } else {
+                    first
+                        .ratio_before(after)
+                        .or_else(|| second.ratio_before(after))
+                }
+            }
+        }
+    }
+
+    /// How long the tree must be along `axis` for every pane to keep `pane` (its least width and
+    /// height), with `gap` between neighbours.
+    pub fn least(&self, axis: Axis, pane: (f32, f32), gap: f32) -> f32 {
+        match self {
+            Node::Pane(_) => match axis {
+                Axis::Row => pane.0,
+                Axis::Column => pane.1,
+            },
+            Node::Split {
+                axis: along,
+                first,
+                second,
+                ..
+            } => {
+                let (first, second) = (first.least(axis, pane, gap), second.least(axis, pane, gap));
+                if *along == axis {
+                    first + gap + second
+                } else {
+                    first.max(second)
+                }
+            }
+        }
+    }
+
     fn panes(&self, out: &mut Vec<PaneId>) {
         match self {
             Node::Pane(id) => out.push(*id),
@@ -65,6 +138,7 @@ impl Node {
                 let (first, second) = if new_first { (new, old) } else { (old, new) };
                 *self = Node::Split {
                     axis,
+                    ratio: EVEN,
                     first,
                     second,
                 };
@@ -84,11 +158,13 @@ impl Node {
             Node::Pane(_) => Some(self),
             Node::Split {
                 axis,
+                ratio,
                 first,
                 second,
             } => match (first.remove(id), second.remove(id)) {
                 (Some(first), Some(second)) => Some(Node::Split {
                     axis,
+                    ratio,
                     first: Box::new(first),
                     second: Box::new(second),
                 }),
@@ -96,6 +172,22 @@ impl Node {
                 (None, None) => None,
             },
         }
+    }
+}
+
+/// The share a split `length` long, its seam `gap` wide, may give its first part when asked for
+/// `ratio`: each part keeps at least its least length (`least`). When both cannot, they share in
+/// proportion to those.
+pub fn clamp_ratio(ratio: f32, length: f32, gap: f32, least: (f32, f32)) -> f32 {
+    let room = length - gap;
+    if room <= 0.0 || least.0 + least.1 <= 0.0 {
+        return EVEN;
+    }
+    let (low, high) = (least.0 / room, 1.0 - least.1 / room);
+    if low > high {
+        least.0 / (least.0 + least.1)
+    } else {
+        ratio.clamp(low, high)
     }
 }
 
@@ -239,6 +331,26 @@ impl Workspace {
         pane
     }
 
+    /// Gives the active tab's split before the pane `after` this share for its first part, when it
+    /// is strictly between 0 and 1. Whether it changed.
+    pub fn set_ratio(&mut self, after: PaneId, share: f32) -> bool {
+        if !(share > 0.0 && share < 1.0) {
+            return false;
+        }
+        match self.tabs[self.active_tab].root.ratio_before(after) {
+            Some(ratio) if *ratio != share => {
+                *ratio = share;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Splits the active tab's split before the pane `after` in half again.
+    pub fn even(&mut self, after: PaneId) -> bool {
+        self.set_ratio(after, EVEN)
+    }
+
     /// Fills the tab with its active pane, or back to the split. Only with several panes.
     pub fn toggle_zoom(&mut self) {
         let tab = &mut self.tabs[self.active_tab];
@@ -363,6 +475,7 @@ mod tests {
             w.tab().root,
             Node::Split {
                 axis: Axis::Row,
+                ratio: EVEN,
                 first: Box::new(Node::Pane(first)),
                 second: Box::new(Node::Pane(right)),
             }
@@ -372,9 +485,11 @@ mod tests {
             w.tab().root,
             Node::Split {
                 axis: Axis::Row,
+                ratio: EVEN,
                 first: Box::new(Node::Pane(first)),
                 second: Box::new(Node::Split {
                     axis: Axis::Column,
+                    ratio: EVEN,
                     first: Box::new(Node::Pane(up)),
                     second: Box::new(Node::Pane(right)),
                 }),
@@ -483,5 +598,99 @@ mod tests {
         assert_eq!(w.zoomed(), None);
         w.select_tab(0);
         assert_eq!(w.zoomed(), Some(zoomed));
+    }
+
+    fn ratios(node: &Node, out: &mut Vec<f32>) {
+        if let Node::Split {
+            ratio,
+            first,
+            second,
+            ..
+        } = node
+        {
+            out.push(*ratio);
+            ratios(first, out);
+            ratios(second, out);
+        }
+    }
+
+    #[test]
+    fn moving_a_nested_seam_changes_only_its_split() {
+        // first | (up / right)
+        let (mut w, first) = Workspace::new(Shown::Shell);
+        let right = w.split(Direction::Right, Shown::Empty);
+        let up = w.split(Direction::Up, Shown::Empty);
+        assert_eq!(w.tab().root.split_before(up), Some(&w.tab().root));
+        let mut all = Vec::new();
+        ratios(&w.tab().root, &mut all);
+        assert_eq!(all, [EVEN, EVEN]);
+
+        // The inner seam, between up and right.
+        assert!(w.set_ratio(right, 0.7));
+        let mut all = Vec::new();
+        ratios(&w.tab().root, &mut all);
+        assert_eq!(all, [EVEN, 0.7]);
+        // The outer one, between first and the inner split.
+        assert!(w.set_ratio(up, 0.3));
+        let mut all = Vec::new();
+        ratios(&w.tab().root, &mut all);
+        assert_eq!(all, [0.3, 0.7]);
+
+        // The same share again, no seam before the first pane, or a share out of range: nothing.
+        assert!(!w.set_ratio(up, 0.3));
+        assert!(!w.set_ratio(first, 0.4));
+        assert!(!w.set_ratio(right, 0.0));
+        assert!(!w.set_ratio(right, 1.0));
+        assert!(!w.set_ratio(right, f32::NAN));
+        let mut all = Vec::new();
+        ratios(&w.tab().root, &mut all);
+        assert_eq!(all, [0.3, 0.7]);
+
+        // Closing a pane keeps the other splits' shares.
+        w.close_pane(right);
+        assert_eq!(
+            w.tab().root,
+            Node::Split {
+                axis: Axis::Row,
+                ratio: 0.3,
+                first: Box::new(Node::Pane(first)),
+                second: Box::new(Node::Pane(up)),
+            }
+        );
+    }
+
+    #[test]
+    fn a_double_click_splits_in_half_again() {
+        let (mut w, _) = Workspace::new(Shown::Shell);
+        let right = w.split(Direction::Right, Shown::Empty);
+        let down = w.split(Direction::Down, Shown::Empty);
+        w.set_ratio(right, 0.25);
+        w.set_ratio(down, 0.8);
+        assert!(w.even(down));
+        let mut all = Vec::new();
+        ratios(&w.tab().root, &mut all);
+        assert_eq!(all, [0.25, EVEN]);
+        assert!(!w.even(down));
+    }
+
+    #[test]
+    fn seams_stop_at_each_parts_least_size() {
+        // 1000 long with an 8 seam: 992 to share; each part at least 200.
+        let least = (200.0, 200.0);
+        assert_eq!(clamp_ratio(0.6, 1000.0, 8.0, least), 0.6);
+        assert_eq!(clamp_ratio(0.05, 1000.0, 8.0, least), 200.0 / 992.0);
+        assert_eq!(clamp_ratio(0.99, 1000.0, 8.0, least), 1.0 - 200.0 / 992.0);
+        // Too small for both: they share by their least sizes, never a negative one.
+        assert_eq!(clamp_ratio(0.9, 300.0, 8.0, (100.0, 300.0)), 0.25);
+        assert_eq!(clamp_ratio(0.9, 4.0, 8.0, least), EVEN);
+
+        // A part's least size counts the panes in it along the seam's axis.
+        let (mut w, _) = Workspace::new(Shown::Shell);
+        w.split(Direction::Right, Shown::Empty);
+        w.split(Direction::Down, Shown::Empty);
+        let pane = (150.0, 80.0);
+        let root = &w.tab().root;
+        assert_eq!(root.least(Axis::Row, pane, 8.0), 150.0 + 8.0 + 150.0);
+        assert_eq!(root.least(Axis::Column, pane, 8.0), 80.0 + 8.0 + 80.0);
     }
 }
