@@ -161,6 +161,10 @@ fn main() -> Result<()> {
     };
     let mut config = Config::load(&config::default_path())?;
     config.apply_font_overrides(font_family, fallbacks, font_size, line_height)?;
+    config.sidebar_width = paddock::sidebar::fit_width(
+        config.sidebar_width,
+        &paddock::fonts::UiFont::from_config(&config),
+    );
     let options = Options {
         launch,
         corral: corral.unwrap_or_else(|| config.corral.clone()),

@@ -203,32 +203,67 @@ pub fn toggle_room(ui: &UiFont) -> f32 {
     ui.scale(TOGGLE + TOGGLE_GAP)
 }
 
-/// How wide a sidebar the header row needs, starting at `start`, for a two-digit count, the button
-/// for every agent, and the bell compact or as a pill with a two-digit number.
-fn head_width(start: f32, compact: bool, ui: &UiFont) -> f32 {
+/// What the header row holds, as wide as it is set: `Agents`, the number in its count's pill (none
+/// without agents), whether the button for every agent is there, and the bell's number (none when
+/// the Attention list is empty).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct HeadWords {
+    pub title: f32,
+    pub count: Option<f32>,
+    pub pause_all: bool,
+    pub bell: Option<f32>,
+}
+
+impl HeadWords {
+    /// The row the narrowest sidebar is kept for, about as wide as the system font draws it: a
+    /// two-digit count, and the button for every agent.
+    fn reckoned(ui: &UiFont) -> Self {
+        Self {
+            title: ui.scale(TITLE_WIDTH),
+            count: Some(ui.scale(2.0 * COUNT_DIGIT)),
+            pause_all: true,
+            bell: Some(ui.scale(2.0 * DIGIT)),
+        }
+    }
+}
+
+/// How wide a sidebar the header row with `words` needs, starting at `start`, with the bell
+/// compact or as a pill.
+fn head_width(start: f32, compact: bool, ui: &UiFont, words: &HeadWords) -> f32 {
     let bell = if compact {
-        COMPACT_BELL
+        ui.scale(COMPACT_BELL)
     } else {
-        PILL_X + footer_icon::SIZE + PILL_GAP + 2.0 * DIGIT + PILL_X
+        ui.scale(PILL_X + footer_icon::SIZE + PILL_X)
+            + words.bell.map_or(0.0, |number| ui.scale(PILL_GAP) + number)
     };
-    let count = COUNT_X + 2.0 * COUNT_DIGIT + COUNT_X;
-    start
-        + ui.scale(
-            TOGGLE + TITLE_GAP + TITLE_WIDTH + COUNT_GAP + count + PAUSE_ALL + PAUSE_GAP + bell,
-        )
-        + PAD
+    let count = words.count.map_or(0.0, |number| {
+        ui.scale(COUNT_GAP) + (ui.scale(2.0 * COUNT_X) + number).max(ui.scale(COUNT_HEIGHT))
+    });
+    let pause_all = if words.pause_all {
+        ui.scale(PAUSE_ALL + PAUSE_GAP)
+    } else {
+        0.0
+    };
+    start + ui.scale(TOGGLE + TITLE_GAP) + words.title + count + pause_all + bell + PAD
 }
 
 /// The narrowest the sidebar is dragged to: 220, or wider when the header row with the compact
-/// bell needs it.
+/// bell needs it, in whole points so that a dragged width, rounded, still keeps to it.
 pub fn min_width(ui: &UiFont) -> f32 {
-    MIN_WIDTH.max(head_width(LIGHTS, true, ui))
+    MIN_WIDTH.max(head_width(LIGHTS, true, ui, &HeadWords::reckoned(ui)).ceil())
 }
 
-/// Whether the bell goes compact in a sidebar `width` wide: when the row has no room for it as a
-/// pill.
-pub fn compact_bell(width: f32, full_screen: bool, ui: &UiFont) -> bool {
-    width < head_width(head_start(full_screen), false, ui)
+/// The sidebar's width as drawn for `width` from the config file: one narrower than
+/// [`min_width`], written by hand or before the header row needed it, comes up to it, which the
+/// next drag saves.
+pub fn fit_width(width: f32, ui: &UiFont) -> f32 {
+    width.max(min_width(ui))
+}
+
+/// Whether the bell goes compact in a sidebar `width` wide: when the row, with `words` as wide as
+/// they are set, has no room for it as a pill.
+pub fn compact_bell(width: f32, full_screen: bool, ui: &UiFont, words: &HeadWords) -> bool {
+    width < head_width(head_start(full_screen), false, ui, words)
 }
 
 /// A tile's letter: the agent's short name's first letter or digit, upper case, after a prefix
@@ -555,12 +590,19 @@ impl Sidebar {
         self.poller.refresh();
     }
 
-    /// The header row, in the title bar after the traffic lights: the collapse button, `Agents`
-    /// and how many, and at the right end the button for every agent and the bell, compact when
-    /// told; collapsed to the strip, only the expand button, where the collapse button was. `spot`
-    /// goes in the bell, for the window to hang the Attention list from. A press on a button is not
-    /// the start of a drag.
-    pub fn head(&mut self, compact: bool, spot: AnyElement, cx: &mut Context<Self>) -> Div {
+    /// The header row, in the title bar after the traffic lights (none in `full_screen`): the
+    /// collapse button, `Agents` and how many, and at the right end the button for every agent and
+    /// the bell, compact when the row, measured as it is set, has no room for it as a pill;
+    /// collapsed to the strip, only the expand button, where the collapse button was. `spot` goes
+    /// in the bell, for the window to hang the Attention list from. A press on a button is not the
+    /// start of a drag.
+    pub fn head(
+        &mut self,
+        full_screen: bool,
+        spot: AnyElement,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Div {
         let ui = UiFont::get(cx);
         let keep = |_: &MouseDownEvent, _: &mut Window, cx: &mut App| cx.stop_propagation();
         let gap = ui.px(if self.collapsed {
@@ -593,13 +635,60 @@ impl Sidebar {
             .iter()
             .filter(|line| matches!(line, Line::Agent(_)))
             .count();
+        let pause_all = self.pause_all_button(cx);
+        let family = ui.family.clone().unwrap_or_else(|| ".SystemUIFont".into());
+        let set = |words: String, size: f32, weight: FontWeight, features: FontFeatures| {
+            let run = TextRun {
+                len: words.len(),
+                font: Font {
+                    weight,
+                    features,
+                    ..gpui::font(family.clone())
+                },
+                color: Hsla::default(),
+                background_color: None,
+                underline: None,
+                strikethrough: None,
+            };
+            let line = window
+                .text_system()
+                .shape_line(words.into(), ui.px(size), &[run], None);
+            f32::from(line.width)
+        };
+        let (count, _) = self.bell();
+        let words = HeadWords {
+            title: set(
+                "Agents".into(),
+                TITLE_SIZE,
+                FontWeight::SEMIBOLD,
+                FontFeatures::default(),
+            ),
+            count: (agents > 0).then(|| {
+                set(
+                    agents.to_string(),
+                    COUNT_SIZE,
+                    FontWeight::NORMAL,
+                    tabular(),
+                )
+            }),
+            pause_all: pause_all.is_some(),
+            bell: (count > 0).then(|| {
+                set(
+                    count.to_string(),
+                    NOTE_SIZE,
+                    FontWeight::SEMIBOLD,
+                    FontFeatures::default(),
+                )
+            }),
+        };
+        let compact = compact_bell(self.width, full_screen, &ui, &words);
         let bell = if compact {
             self.small_bell((COMPACT_BELL, COMPACT_BELL), Some(spot), cx)
         } else {
             self.badge(spot, cx)
         };
         let pause_gap = ui.px(PAUSE_GAP);
-        let pause_all = self.pause_all_button(cx).map(|button| {
+        let pause_all = pause_all.map(|button| {
             button.map(move |button| button.mr(pause_gap).on_mouse_down(MouseButton::Left, keep))
         });
         row.child(
@@ -2901,8 +2990,18 @@ mod tests {
         // before the bell, needs more than the usual narrowest sidebar.
         let base = UiFont::default();
         assert_eq!(min_width(&base).round(), 254.0);
-        assert!(compact_bell(min_width(&base), false, &base));
-        assert!(!compact_bell(300.0, false, &base));
+        assert!(compact_bell(
+            min_width(&base),
+            false,
+            &base,
+            &HeadWords::reckoned(&base)
+        ));
+        assert!(!compact_bell(
+            300.0,
+            false,
+            &base,
+            &HeadWords::reckoned(&base)
+        ));
         // Larger interface sizes need a wider sidebar, and dragging keeps to it.
         let large = UiFont {
             family: None,
@@ -2914,7 +3013,12 @@ mod tests {
         };
         assert!(min_width(&large) > MIN_WIDTH);
         assert!(min_width(&larger) > min_width(&large));
-        assert!(compact_bell(min_width(&large), false, &large));
+        assert!(compact_bell(
+            min_width(&large),
+            false,
+            &large,
+            &HeadWords::reckoned(&large)
+        ));
         assert_eq!(
             resize(300.0, 300.0, 100.0, min_width(&large)),
             min_width(&large).round()
@@ -2931,8 +3035,90 @@ mod tests {
         };
         assert_eq!(min_width(&smaller), MIN_WIDTH);
         // In full screen there are no traffic lights: the row has more room.
-        assert!(compact_bell(235.0, false, &base));
-        assert!(!compact_bell(235.0, true, &base));
+        assert!(compact_bell(
+            235.0,
+            false,
+            &base,
+            &HeadWords::reckoned(&base)
+        ));
+        assert!(!compact_bell(
+            235.0,
+            true,
+            &base,
+            &HeadWords::reckoned(&base)
+        ));
+    }
+
+    #[test]
+    fn a_config_width_narrower_than_the_header_row_shows_at_the_narrowest() {
+        let base = UiFont::default();
+        let large = UiFont {
+            family: None,
+            size: 18.0,
+        };
+        // Narrower than the row needs: drawn at the narrowest, in whole points.
+        assert_eq!(fit_width(200.0, &base), 254.0);
+        assert_eq!(fit_width(253.0, &base), 254.0);
+        assert_eq!(fit_width(254.0, &large), min_width(&large));
+        assert!(fit_width(254.0, &large) > 254.0);
+        // Wide enough: as written.
+        assert_eq!(fit_width(254.0, &base), 254.0);
+        assert_eq!(fit_width(300.5, &base), 300.5);
+        // A drag from there keeps to the range, and what it saves is no narrower.
+        for ui in [&base, &large] {
+            let fitted = fit_width(100.0, ui);
+            let dragged = resize(fitted, 400.0, 399.0, min_width(ui));
+            assert!(dragged >= min_width(ui), "{dragged}");
+            assert_eq!(dragged, dragged.round());
+        }
+    }
+
+    #[test]
+    fn the_bell_goes_compact_by_its_words_as_set() {
+        for size in [13.0, 18.0] {
+            let ui = UiFont { family: None, size };
+            // Digits about as wide as the system font sets them, at this size.
+            let digits = |n: usize| ui.scale(7.0) * n as f32;
+            let words = |count: usize, bell: usize, pause_all: bool| HeadWords {
+                title: ui.scale(43.0),
+                count: (count > 0).then(|| digits(count)),
+                pause_all,
+                bell: (bell > 0).then(|| digits(bell)),
+            };
+            let need = |words: &HeadWords| head_width(LIGHTS, false, &ui, words);
+            // The bell is a pill exactly while the row has room for everything in it.
+            for words in [
+                words(1, 1, true),
+                words(2, 2, true),
+                words(3, 3, true),
+                words(0, 0, false),
+            ] {
+                let width = need(&words);
+                assert!(!compact_bell(width, false, &ui, &words), "{size} {words:?}");
+                assert!(
+                    compact_bell(width - 0.5, false, &ui, &words),
+                    "{size} {words:?}"
+                );
+            }
+            // A longer number needs as much more room as it is wider.
+            let (one, three) = (need(&words(1, 1, true)), need(&words(1, 3, true)));
+            assert!((three - one - digits(2)).abs() < 1e-3, "{size}");
+            // With one digit each the pill fits where two were reckoned for, and with three it no
+            // longer fits where the reckoning said it would.
+            let reckoned = HeadWords::reckoned(&ui);
+            let at = need(&reckoned);
+            assert!(!compact_bell(at - 1.0, false, &ui, &words(1, 1, true)));
+            assert!(compact_bell(at, false, &ui, &words(2, 3, true)));
+            // Without agents there is no count and no button for every agent: more room still.
+            assert!(need(&words(0, 0, false)) < need(&words(1, 0, true)));
+            assert!(
+                (need(&words(1, 0, true))
+                    - need(&words(1, 0, false))
+                    - ui.scale(PAUSE_ALL + PAUSE_GAP))
+                .abs()
+                    < 1e-3
+            );
+        }
     }
 
     #[test]

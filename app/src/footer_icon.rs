@@ -465,8 +465,10 @@ fn shapes(icon: Icon, pose: Pose, bounds: Bounds<Pixels>, scale: f32) -> Vec<Pat
                 Icon::LeftSidebar => (5.0, 2.0, 4.0),
                 _ => (9.0, 10.0, 12.0),
             };
+            // Moved toward the frame, the lines go no further than they rest next to it (2, or 12
+            // on the right) and shorten instead, so they stay inside it.
             let (edge, from, to) = match pose {
-                Pose::Shift(by) => (edge + by, from + by, to + by),
+                Pose::Shift(by) => (edge + by, (from + by).max(2.0), (to + by).min(12.0)),
                 _ => (edge, from, to),
             };
             let mut frame = stroke();

@@ -139,22 +139,20 @@ impl Render for AboutView {
         let fg = |pick: fn(&crate::preset::Theme) -> crate::preset::Color| {
             hsla(self.theme.fg(pick), 1.0)
         };
-        ui.apply(div())
-            .key_context(CONTEXT)
-            .track_focus(&self.focus)
-            .on_action(cx.listener(|_, _: &menu::CloseWindow, window, _| window.remove_window()))
-            .size_full()
+        // Under the title bar, scrolling when the window is too small for it, as at large
+        // interface sizes: a little room above the icon, then the rest.
+        let body = div()
+            .id("about-body")
+            .flex_1()
+            .min_h(px(0.0))
+            .overflow_y_scroll()
             .flex()
             .flex_col()
             .items_center()
             .text_center()
             .px(ui.px(36.0))
+            .pt(ui.px(8.0))
             .pb(ui.px(26.0))
-            .bg(hsla(self.theme.bg(|t| t.agents_bg), 1.0))
-            .text_size(ui.px(13.0))
-            .text_color(fg(|t| t.agents_text))
-            // The title bar, then a little room above the icon.
-            .child(div().flex_shrink_0().h(px(bar) + ui.px(8.0)))
             .child(self.icon(&ui))
             .child(
                 div()
@@ -196,6 +194,18 @@ impl Render for AboutView {
                          Clawd is Claude Code's mascot, from Anthropic; the cat and the \
                          capybara are Saddle originals.",
                     ),
-            )
+            );
+        ui.apply(div())
+            .key_context(CONTEXT)
+            .track_focus(&self.focus)
+            .on_action(cx.listener(|_, _: &menu::CloseWindow, window, _| window.remove_window()))
+            .size_full()
+            .flex()
+            .flex_col()
+            .bg(hsla(self.theme.bg(|t| t.agents_bg), 1.0))
+            .text_size(ui.px(13.0))
+            .text_color(fg(|t| t.agents_text))
+            .child(div().flex_shrink_0().h(px(bar)))
+            .child(body)
     }
 }
