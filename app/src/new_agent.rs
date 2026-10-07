@@ -192,9 +192,24 @@ impl Form {
             while let Some(arg) = command_args.next() {
                 match arg {
                     "--" => break,
-                    "--model" => model = command_args.next(),
-                    "-m" if program == "codex" => model = command_args.next(),
-                    "--effort" if program == "claude" => effort = command_args.next(),
+                    "--model" => {
+                        model = command_args
+                            .next()
+                            .filter(|value| !value.is_empty())
+                            .or(model)
+                    }
+                    "-m" if program == "codex" => {
+                        model = command_args
+                            .next()
+                            .filter(|value| !value.is_empty())
+                            .or(model)
+                    }
+                    "--effort" if program == "claude" => {
+                        effort = command_args
+                            .next()
+                            .filter(|value| !value.is_empty())
+                            .or(effort)
+                    }
                     "-c" | "--config" if program == "codex" => {
                         if let Some(value) = command_args
                             .next()
@@ -205,11 +220,21 @@ impl Form {
                     }
                     _ => {
                         if let Some(value) = arg.strip_prefix("--model=") {
-                            model = Some(value);
+                            model = Some(value).filter(|value| !value.is_empty()).or(model);
+                        } else if program == "codex"
+                            && let Some(value) = arg.strip_prefix("-m")
+                        {
+                            let value = value.strip_prefix('=').unwrap_or(value);
+                            model = Some(value).filter(|value| !value.is_empty()).or(model);
+                        } else if program == "codex"
+                            && let Some(value) =
+                                arg.strip_prefix("--config=model_reasoning_effort=")
+                        {
+                            effort = Some(value.trim_matches(['\'', '"']));
                         } else if program == "claude"
                             && let Some(value) = arg.strip_prefix("--effort=")
                         {
-                            effort = Some(value);
+                            effort = Some(value).filter(|value| !value.is_empty()).or(effort);
                         }
                     }
                 }
@@ -376,6 +401,73 @@ mod tests {
             ];
             expected.extend(words);
             assert_eq!(form.args().unwrap(), expected, "{command}");
+        }
+    }
+
+    #[test]
+    fn missing_values_keep_the_last_valid_command_labels() {
+        for (command, label) in [
+            ("claude --model opus --model", "model=opus"),
+            ("claude --effort high --effort", "effort=high"),
+            ("codex -m gpt-6-astra -m", "model=gpt-6-astra"),
+            ("codex --model gpt-6-astra --model", "model=gpt-6-astra"),
+            ("claude --model opus --model=", "model=opus"),
+            ("claude --effort high --effort ''", "effort=high"),
+        ] {
+            let mut form = Form::new("/tmp/demo".into(), Place::Current);
+            form.command = command.into();
+            let args = form.args().unwrap();
+            let separator = args.iter().position(|arg| arg == "--").unwrap();
+            assert!(
+                args[..separator].iter().any(|arg| arg == label),
+                "{command}: {args:?}"
+            );
+            assert_eq!(args[separator + 1..], shell_words::split(command).unwrap());
+        }
+    }
+
+    #[test]
+    fn attached_command_options_supply_labels() {
+        for (command, labels) in [
+            (
+                r#"codex --config=model_reasoning_effort=\"high\""#,
+                vec!["effort=high"],
+            ),
+            (
+                r#"codex --config='model_reasoning_effort="xhigh"'"#,
+                vec!["effort=xhigh"],
+            ),
+            ("codex -mgpt-6-astra", vec!["model=gpt-6-astra"]),
+            ("codex -m=gpt-6-astra", vec!["model=gpt-6-astra"]),
+            (
+                "codex --model=gpt-6-astra --config=model_reasoning_effort=high",
+                vec!["model=gpt-6-astra", "effort=high"],
+            ),
+            (
+                "codex -c model_reasoning_effort=low --config=model_reasoning_effort=high --config=other=value",
+                vec!["effort=high"],
+            ),
+            (
+                "claude --model=opus --effort=high",
+                vec!["model=opus", "effort=high"],
+            ),
+            ("claude --config=model_reasoning_effort=high", vec![]),
+            (
+                "codex -- --config=model_reasoning_effort=high -mgpt-6-astra",
+                vec![],
+            ),
+        ] {
+            let mut form = Form::new("/tmp/demo".into(), Place::Current);
+            form.command = command.into();
+            let args = form.args().unwrap();
+            let separator = args.iter().position(|arg| arg == "--").unwrap();
+            let actual: Vec<_> = args[..separator]
+                .windows(2)
+                .filter(|pair| pair[0] == "--label" && !pair[1].starts_with("role="))
+                .map(|pair| pair[1].as_str())
+                .collect();
+            assert_eq!(actual, labels, "{command}");
+            assert_eq!(args[separator + 1..], shell_words::split(command).unwrap());
         }
     }
 
