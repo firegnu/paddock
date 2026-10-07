@@ -664,7 +664,7 @@ impl PaddockWindow {
             cx.new(|cx| BrowserView::new(theme, url, cx))
         };
         cx.subscribe(&browser, |this, _, visited: &Visited, cx| {
-            this.right.url = Some(visited.0.clone());
+            this.right.url = visited.0.clone();
             this.save_layout(cx);
         })
         .detach();

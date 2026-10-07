@@ -36,3 +36,10 @@
 - 不配快捷键，⌘W 照旧关终端分屏（用户定）。
 - 不做“清除网站数据”；不改工具栏已有按钮的样子和顺序。
 - 截图、模拟按键鼠标、测试窗口照 AGENTS.md「桌面窗口测试」。
+
+## 完成记录
+
+- **做了什么**：工具栏最右加 ×（`Icon::Close`，悬停 “Close page”），只在打开过网页时能点。点了以后 `BrowserView::close()` 丢掉网页、马上新建一个空白的隐藏网页（轮询循环沿用原来的，不另起），清掉状态、失败、查找栏、下载提示，回到 “Open a page”。`Visited` 改成 `Option<String>`，关闭时发 `Visited(None)`，`window.rs` 据此把布局里的 `right.url` 清掉。`Keys::close()` 把键盘记录交还 paddock，Browser 原来有键盘时发 `Handoff::ToPane`，由窗口交给当前分屏（和右侧栏收起时同一条路）。网站数据不碰。
+- **验证了什么**：新测试 `closing_the_page_gives_its_keyboard_to_the_pane`（从网页、地址栏、查找栏关闭，键盘都回到分屏；终端有键盘时不动）。先用返回 `false` 的空实现跑，失败在“键盘仍记在网页上”，实现后通过。`app/` 下 `cargo test --all-targets`（库 234 项）、`cargo clippy --all-targets -- -D warnings`、`cargo fmt --check` 都过。用临时 HOME、`PADDOCK_NO_ACTIVATE=1` 起 debug 版，预写布局开在 example.com，截了自己的窗口：× 在“在默认浏览器打开”右边，样子和别的按钮一致。截图在 scratchpad，不入库。
+- **拿主意的地方**：关闭时立刻新建空白网页，而不是等下次输入地址时再建，这样轮询循环不会多起一个；“布局记的网址清掉”没有单独写单元测试：这是视图到窗口的接线（`Visited(None)` → `right.url = None`），仓库里没有 GPUI 视图测试的设施，靠类型改动保证，`right.url` 为空的存取已有测试。
+- **没做的事**：点 × 这一步没在真窗口里点（不能模拟点击），留给用户。注意：这个 × 正好在右侧栏右上角那个 ×（收起右侧栏）的正下方，两个 × 上下挨着，用户实际看看会不会混。

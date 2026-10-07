@@ -41,8 +41,9 @@ const SAVED: Duration = Duration::from_secs(6);
 
 type Pick = fn(&crate::preset::Theme) -> crate::preset::Color;
 
-/// Sent when the address the toolbar shows changes, for the layout to keep.
-pub struct Visited(pub String);
+/// Sent when the address the toolbar shows changes, for the layout to keep; none once the page
+/// is closed.
+pub struct Visited(pub Option<String>);
 
 /// Sent when the keyboard's record needs the window to do something.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -279,7 +280,7 @@ impl BrowserView {
         {
             let url = url.to_owned();
             self.visited = Some(url.clone());
-            cx.emit(Visited(url));
+            cx.emit(Visited(Some(url)));
         }
         self.settle(window, cx);
     }
@@ -472,7 +473,27 @@ impl BrowserView {
         }
     }
 
-    /// Back, forward, reload or stop, the address, and open in the default browser.
+    /// ×: back to the empty state. The page goes and a blank one takes its place, so nothing of it
+    /// runs on and its history goes with it; the layout forgets its address, and the active pane
+    /// takes the keyboard if the Browser had it. Sites' data stays.
+    fn close(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.page = None;
+        self.page = Page::new(window, f64::from(RADIUS - 1.0));
+        self.state = State::default();
+        self.opened = false;
+        self.pending = None;
+        self.refused = None;
+        self.find = None;
+        self.saved = None;
+        self.visited = None;
+        cx.emit(Visited(None));
+        if self.keys.close() {
+            cx.emit(Handoff::ToPane);
+        }
+        cx.notify();
+    }
+
+    /// Back, forward, reload or stop, the address, open in the default browser, and close.
     fn toolbar(&self, window: &Window, ui: &UiFont, cx: &mut Context<Self>) -> Div {
         let theme = &*self.theme;
         let fg = |pick: Pick| hsla(theme.fg(pick), 1.0);
@@ -512,9 +533,11 @@ impl BrowserView {
                 cx.open_url(url);
             }
         });
+        let on_close = cx.listener(|this, _: &ClickEvent, window, cx| this.close(window, cx));
         let reloads = self.page.is_some() && self.opened;
         let opens = self.shown_url().is_some();
         let tip = Tip::new("Open in default browser", theme, ui);
+        let close_tip = Tip::new("Close page", theme, ui);
         div()
             .flex_shrink_0()
             .flex()
@@ -551,6 +574,12 @@ impl BrowserView {
                 button("browser-open", Icon::External, opens).when(opens, |b| {
                     b.tooltip(move |_, cx| cx.new(|_| tip.clone()).into())
                         .on_click(on_open)
+                }),
+            )
+            .child(
+                button("browser-close", Icon::Close, self.opened).when(self.opened, |b| {
+                    b.tooltip(move |_, cx| cx.new(|_| close_tip.clone()).into())
+                        .on_click(on_close)
                 }),
             )
     }
