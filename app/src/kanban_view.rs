@@ -495,6 +495,13 @@ impl Render for KanbanView {
 }
 
 impl KanbanView {
+    /// A card is asking whether to clear its task.
+    pub fn confirming(&self) -> bool {
+        self.clears
+            .values()
+            .any(|clearing| *clearing == Clearing::Asking)
+    }
+
     /// The repository, main, how many need the user, are in progress and to review, and New task.
     fn top(&self, board: &Board, ui: &UiFont, cx: &mut Context<Self>) -> Div {
         let c = self.colors;

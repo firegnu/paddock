@@ -56,10 +56,12 @@ use std::{
     time::{Duration, Instant},
 };
 
-/// What "New shell" and the `Shell` choice start.
+/// What "New shell" and the `Shell` choice start, and the `paddock ctl` instance their
+/// `PADDOCK_INSTANCE` names.
 pub struct NewShell {
     pub program: String,
     pub cwd: String,
+    pub instance: String,
 }
 
 /// When the latest normal-window resize is ready to save.
@@ -764,7 +766,12 @@ pub struct PaddockWindow {
     /// The system's sidebar material under the left column; none when it could not be put there,
     /// and the window stays opaque.
     frost: Option<Frost>,
+    /// What `paddock ctl` asked for and is still under way.
+    ctl: ctl::Ctl,
 }
+
+#[path = "window_ctl.rs"]
+mod ctl;
 
 impl PaddockWindow {
     pub fn new(
@@ -844,7 +851,7 @@ impl PaddockWindow {
         cx.subscribe_in(&kanban, window, Self::on_kanban).detach();
         let shown = match &options.launch {
             Launch::Empty => Shown::Empty,
-            Launch::Agent { name } => Shown::Agent(name.clone()),
+            Launch::Agent { name, .. } => Shown::Agent(name.clone()),
             Launch::Shell { .. } | Launch::Command { .. } => Shown::Shell,
         };
         let (workspace, restored) = match &saved {
@@ -902,6 +909,7 @@ impl PaddockWindow {
             full_screen: false,
             config_from_file: crate::config::default_path().exists(),
             frost: Frost::install(window),
+            ctl: ctl::Ctl::default(),
         };
         // The column shows the material through the window, which is see-through for it.
         if this.frost.is_some() {
@@ -955,7 +963,7 @@ impl PaddockWindow {
             Some(contents) => this.restore(contents, window, cx),
             None => {
                 let first = this.workspace.active_pane();
-                let view = this.view(options.launch, window, cx);
+                let view = this.view(first, options.launch, window, cx);
                 this.panes.insert(first, view);
             }
         }
@@ -980,10 +988,11 @@ impl PaddockWindow {
                 Content::Shell { cwd } => Launch::Shell {
                     program: self.new_shell.program.clone(),
                     cwd: cwd.clone(),
+                    env: Vec::new(),
                 },
                 Content::Empty | Content::Agent { .. } => Launch::Empty,
             };
-            let view = self.view(launch, window, cx);
+            let view = self.view(pane, launch, window, cx);
             self.panes.insert(pane, view);
             if let Content::Agent {
                 name,
@@ -1237,12 +1246,17 @@ impl PaddockWindow {
         }
     }
 
+    /// The terminal for `pane`; a shell gets the pane's identity.
     fn view(
         &self,
-        launch: Launch,
+        pane: PaneId,
+        mut launch: Launch,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Entity<TerminalView> {
+        if let Launch::Shell { env, .. } = &mut launch {
+            *env = self.identity(pane);
+        }
         let options = Options {
             launch,
             ..self.template.clone()
@@ -1255,6 +1269,7 @@ impl PaddockWindow {
         Launch::Shell {
             program: self.new_shell.program.clone(),
             cwd: self.new_shell.cwd.clone(),
+            env: Vec::new(),
         }
     }
 
@@ -1278,7 +1293,7 @@ impl PaddockWindow {
             .filter(|pane| !self.panes.contains_key(pane))
             .collect();
         for pane in missing {
-            let view = self.view(Launch::Empty, window, cx);
+            let view = self.view(pane, Launch::Empty, window, cx);
             self.panes.insert(pane, view);
         }
     }
@@ -1448,7 +1463,7 @@ impl PaddockWindow {
             Place::Split(direction) => self.workspace.split(direction, shown),
         };
         if !self.panes.contains_key(&pane) {
-            let view = self.view(Launch::Empty, window, cx);
+            let view = self.view(pane, Launch::Empty, window, cx);
             self.panes.insert(pane, view);
         }
         let metadata = AgentMetadata {
@@ -1702,13 +1717,19 @@ impl PaddockWindow {
     fn new_shell(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let active = self.workspace.active_pane();
         if self.workspace.shown(active) == &Shown::Empty {
-            let NewShell { program, cwd } = &self.new_shell;
-            let (program, cwd) = (program.clone(), cwd.clone());
-            self.panes[&active].update(cx, |v, cx| v.start_shell(program, cwd, cx));
-            self.workspace.set_shown(active, Shown::Shell);
+            // A fresh pane ID: a process left from a shell that once ran here keeps the old one.
+            let pane = self.workspace.renew(active, Shown::Shell);
+            let view = self
+                .panes
+                .remove(&active)
+                .expect("the active pane has a view");
+            self.panes.insert(pane, view.clone());
+            let NewShell { program, cwd, .. } = &self.new_shell;
+            let (program, cwd, env) = (program.clone(), cwd.clone(), self.identity(pane));
+            view.update(cx, |v, cx| v.start_shell(program, cwd, env, cx));
         } else {
             let pane = self.workspace.new_tab(Shown::Shell);
-            let view = self.view(self.shell(), window, cx);
+            let view = self.view(pane, self.shell(), window, cx);
             self.panes.insert(pane, view);
         }
         self.focus_active(window, cx);
@@ -1868,7 +1889,7 @@ impl PaddockWindow {
             }
             Placement::NewTab => {
                 let pane = self.workspace.new_tab(Shown::Agent(name.to_owned()));
-                let view = self.view(Launch::Empty, window, cx);
+                let view = self.view(pane, Launch::Empty, window, cx);
                 self.panes.insert(pane, view);
                 self.attach(pane, name, metadata, cx);
             }
@@ -1876,7 +1897,16 @@ impl PaddockWindow {
         self.focus_active(window, cx);
     }
 
-    fn attach(&self, pane: PaneId, name: &str, metadata: AgentMetadata, cx: &mut Context<Self>) {
+    /// Attaches `pane` to `name`: a new attach is new content, so the pane's revision rises and
+    /// `paddock ctl` requests and close confirmations about what it showed before end.
+    fn attach(
+        &mut self,
+        pane: PaneId,
+        name: &str,
+        metadata: AgentMetadata,
+        cx: &mut Context<Self>,
+    ) {
+        self.workspace.touch(pane);
         let paused = self.sidebar.read(cx).paused(name);
         let name = name.to_owned();
         self.panes[&pane].update(cx, |v, cx| {
@@ -1946,7 +1976,7 @@ impl PaddockWindow {
             None => self.workspace.new_tab(shown),
             Some(direction) => self.workspace.split(direction, shown),
         };
-        let view = self.view(launch, window, cx);
+        let view = self.view(pane, launch, window, cx);
         self.panes.insert(pane, view);
         if let Choice::Agent(name) = &choice {
             let metadata = self.sidebar.read(cx).metadata(name);
