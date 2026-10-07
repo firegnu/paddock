@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Theme candidates</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+a{color:#bdb86a}a:hover{color:#d8d38c}
+</style>
+</helmet>
+<div style="width: 1360px; height: 900px; box-sizing: border-box; padding: 24px; background: #101010; font-family: -apple-system, 'SF Pro Text', system-ui, sans-serif; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px">
+  <sc-for list="{{themes}}" as="t" hint-placeholder-count="8">
+    <div style="border-radius: 14px; overflow: hidden; background: {{t.bg}}; box-shadow: 0 0 0 1px {{t.edge}}; display: flex; flex-direction: column; color: {{t.text}}">
+      <div style="padding: 12px 14px 8px; display: flex; align-items: baseline; justify-content: space-between">
+        <span style="font-weight: 650; font-size: 14px">{{t.name}}</span>
+        <span style="font-size: 11px; color: {{t.dim}}">{{t.kind}}</span>
+      </div>
+      <div style="display: flex; flex: 1; border-top: 1px solid {{t.edge}}">
+        <div style="width: 118px; background: {{t.side}}; border-right: 1px solid {{t.edge}}; padding: 10px 8px; display: flex; flex-direction: column; gap: 8px">
+          <span style="font-size: 10px; font-weight: 600; letter-spacing: .06em; color: {{t.dim}}">PADDOCK 2</span>
+          <div style="display: flex; gap: 7px; align-items: center; padding: 6px; border-radius: 8px; background: {{t.sel}}">
+            <span style="width: 20px; height: 20px; border-radius: 6px; background: {{t.claude}}"></span>
+            <span style="display: flex; flex-direction: column; gap: 1px"><span style="font-size: 11.5px; font-weight: 600">main</span><span style="font-size: 10px; color: {{t.blue}}">Working</span></span>
+          </div>
+          <div style="display: flex; gap: 7px; align-items: center; padding: 6px">
+            <span style="width: 20px; height: 20px; border-radius: 6px; background: {{t.codex}}"></span>
+            <span style="display: flex; flex-direction: column; gap: 1px"><span style="font-size: 11.5px">dev-ui</span><span style="font-size: 10px; color: {{t.green}}">Idle</span></span>
+          </div>
+          <span style="flex: 1"></span>
+          <div style="display: flex; gap: 2px">
+            <sc-for list="{{t.ramp}}" as="c" hint-placeholder-count="5"><span style="width: 9px; height: 9px; border-radius: 2px; background: {{c}}"></span></sc-for>
+          </div>
+        </div>
+        <div style="flex: 1; padding: 10px 11px; font-family: 'SF Mono', Menlo, monospace; font-size: 10.5px; line-height: 1.65; display: flex; flex-direction: column; min-width: 0">
+          <span><span style="color: {{t.green}}">➜</span> <span style="color: {{t.blue}}">~/paddock</span> <span style="color: {{t.purple}}">git:(main)</span> cargo test</span>
+          <span style="color: {{t.dim}}">   Compiling paddock v0.1</span>
+          <span><span style="color: {{t.green}}">test result: ok.</span> 355 passed</span>
+          <span><span style="color: {{t.yellow}}">warning:</span> unused var</span>
+          <span><span style="color: {{t.red}}">error[E0308]:</span> mismatch</span>
+          <span><span style="color: {{t.cyan}}">"string"</span> <span style="color: {{t.orange}}">42</span> <span style="color: {{t.accent}}">fn</span> main()</span>
+          <span style="flex: 1"></span>
+          <div style="display: flex; gap: 3px">
+            <sc-for list="{{t.ansi}}" as="c" hint-placeholder-count="8"><span style="flex: 1; height: 10px; border-radius: 2px; background: {{c}}"></span></sc-for>
+          </div>
+        </div>
+      </div>
+      <div style="padding: 8px 14px 11px; font-size: 11px; color: {{t.dim}}; line-height: 1.45; border-top: 1px solid {{t.edge}}">{{t.note}}</div>
+    </div>
+  </sc-for>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1360,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const hex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+    const mix = (a, b, t) => { const x = hex(a), y = hex(b); return 'rgb(' + x.map((v, i) => Math.round(v + (y[i] - v) * t)).join(',') + ')'; };
+    const T = [
+      { name: 'Catppuccin Mocha', kind: 'dark · pastel', bg: '#1e1e2e', side: '#181825', sel: '#313244', edge: '#313244', text: '#cdd6f4', dim: '#7f849c', accent: '#cba6f7', blue: '#89b4fa', green: '#a6e3a1', red: '#f38ba8', yellow: '#f9e2af', purple: '#cba6f7', cyan: '#94e2d5', orange: '#fab387', claude: '#fab387', codex: '#89b4fa', note: 'The 2026 favourite: soft pastels on a cool violet-grey. Easy on the eyes for long sessions. MIT.' },
+      { name: 'Tokyo Night', kind: 'dark · neon', bg: '#1a1b26', side: '#16161e', sel: '#283457', edge: '#292e42', text: '#c0caf5', dim: '#565f89', accent: '#7aa2f7', blue: '#7aa2f7', green: '#9ece6a', red: '#f7768e', yellow: '#e0af68', purple: '#bb9af7', cyan: '#7dcfff', orange: '#ff9e64', claude: '#ff9e64', codex: '#7dcfff', note: 'City lights at night: deep navy, vivid blue and violet. Ported to nearly every editor and terminal. MIT.' },
+      { name: 'Rosé Pine', kind: 'dark · muted', bg: '#191724', side: '#1f1d2e', sel: '#26233a', edge: '#26233a', text: '#e0def4', dim: '#6e6a86', accent: '#ebbcba', blue: '#9ccfd8', green: '#31748f', red: '#eb6f92', yellow: '#f6c177', purple: '#c4a7e7', cyan: '#9ccfd8', orange: '#f6c177', claude: '#ebbcba', codex: '#9ccfd8', note: 'Low-contrast, almost no blue light: rose, gold and pine on aubergine. Calm and elegant. MIT.' },
+      { name: 'Kanagawa', kind: 'dark · ink', bg: '#1f1f28', side: '#16161d', sel: '#2a2a37', edge: '#2a2a37', text: '#dcd7ba', dim: '#727169', accent: '#e6c384', blue: '#7e9cd8', green: '#98bb6c', red: '#e46876', yellow: '#e6c384', purple: '#957fb8', cyan: '#7aa89f', orange: '#ffa066', claude: '#ffa066', codex: '#7aa89f', note: 'After Hokusai’s Great Wave: ink greys, parchment text, muted blues and golds. Timeless. MIT.' },
+      { name: 'Dracula', kind: 'dark · vivid', bg: '#282a36', side: '#21222c', sel: '#44475a', edge: '#44475a', text: '#f8f8f2', dim: '#6272a4', accent: '#bd93f9', blue: '#8be9fd', green: '#50fa7b', red: '#ff5555', yellow: '#f1fa8c', purple: '#bd93f9', cyan: '#8be9fd', orange: '#ffb86c', claude: '#ffb86c', codex: '#8be9fd', note: 'The classic: high-contrast neon purple, pink and green. Loud, very readable. MIT.' },
+      { name: 'One Dark', kind: 'dark · neutral', bg: '#282c34', side: '#21252b', sel: '#2c313a', edge: '#3e4451', text: '#abb2bf', dim: '#5c6370', accent: '#61afef', blue: '#61afef', green: '#98c379', red: '#e06c75', yellow: '#e5c07b', purple: '#c678dd', cyan: '#56b6c2', orange: '#d19a66', claude: '#d19a66', codex: '#56b6c2', note: 'Atom’s default, still among the most used: neutral grey-blue, balanced colours. MIT.' },
+      { name: 'Catppuccin Latte', kind: 'light', bg: '#eff1f5', side: '#e6e9ef', sel: '#ccd0da', edge: '#ccd0da', text: '#4c4f69', dim: '#8c8fa1', accent: '#8839ef', blue: '#1e66f5', green: '#40a02b', red: '#d20f39', yellow: '#df8e1d', purple: '#8839ef', cyan: '#179299', orange: '#fe640b', claude: '#fe640b', codex: '#1e66f5', note: 'Catppuccin’s light flavour, matching Mocha. A light theme needs extra work in paddock (see reply). MIT.' },
+      { name: 'Rosé Pine Dawn', kind: 'light', bg: '#faf4ed', side: '#fffaf3', sel: '#f2e9e1', edge: '#f2e9e1', text: '#575279', dim: '#9893a5', accent: '#d7827e', blue: '#56949f', green: '#286983', red: '#b4637a', yellow: '#ea9d34', purple: '#907aa9', cyan: '#56949f', orange: '#ea9d34', claude: '#d7827e', codex: '#56949f', note: 'Rosé Pine’s warm paper-white daytime version. Same caveat as other light themes. MIT.' }
+    ];
+    return {
+      themes: T.map((t) => ({
+        ...t,
+        ramp: [mix(t.bg, t.text, 0.08), mix(t.bg, t.accent, 0.3), mix(t.bg, t.accent, 0.62), t.accent, mix(t.accent, t.text, 0.6)],
+        ansi: [t.red, t.orange, t.yellow, t.green, t.cyan, t.blue, t.purple, t.dim]
+      }))
+    };
+  }
+}
+</script>
+</body>
+</html>
