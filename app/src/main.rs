@@ -20,13 +20,15 @@ const HELP: &str = "paddock [--attach NAME] [--corral PROGRAM] [--cwd DIR] [--fo
 Without --attach or a program it starts $SHELL -i in --cwd (default: the current directory).
 --attach shows an existing corral agent with `corral attach NAME`, as Saddle does.
 --stats prints frame timing to stderr once a second.
-Settings are read from ~/.config/paddock/config.toml.";
+Settings are read from ~/.config/paddock/config.toml.\nHeadless commands: paddock ctl --help; paddock install-skills --help.";
 
 /// Identity this process may have inherited (for example when started from a Corral agent or a Claude
 /// Code session) that must not reach the programs in the pane. Saddle's `spawn_shell` strips the
-/// first five for shells; `Session::spawn` takes no environment, so paddock clears them for every
-/// launch. Only these names: other `CLAUDE_CODE_*` variables are the user's own settings.
-const INHERITED: [&str; 17] = [
+/// Corral/Saddle identity for shells; `Session::spawn` takes no environment, so paddock clears
+/// these for every launch. Only these names: other `CLAUDE_CODE_*` variables are the user's own settings.
+const INHERITED: [&str; 19] = [
+    "PADDOCK_INSTANCE",
+    "PADDOCK_PANE",
     "CORRAL_NAME",
     "CORRAL_INSTANCE",
     "SADDLE_INSTANCE",
@@ -47,6 +49,13 @@ const INHERITED: [&str; 17] = [
 ];
 
 fn main() -> Result<()> {
+    // Headless commands keep caller identity and skip desktop PATH/config/window setup.
+    let mut command_args = std::env::args().skip(1);
+    match command_args.next().as_deref() {
+        Some("ctl") => std::process::exit(paddock::control::run(command_args.collect())),
+        Some("install-skills") => std::process::exit(paddock::skills::run(command_args.collect())),
+        _ => {}
+    }
     for key in INHERITED {
         // SAFETY: first thing in main, before any other thread exists.
         unsafe { std::env::remove_var(key) };
@@ -176,6 +185,11 @@ fn main() -> Result<()> {
     };
     let theme = Theme::from_config(&config)?;
 
+    // Kept outside the event loop too, so both normal quit and startup unwind clean up.
+    let control = std::rc::Rc::new(std::cell::RefCell::new(Some(
+        paddock::control::Server::start()?,
+    )));
+    let ui_control = control.clone();
     gpui_platform::application().run(move |cx: &mut App| {
         let bounds = match window {
             Some((x, y, w, h)) => Bounds::new(point(px(x), px(y)), size(px(w), px(h))),
@@ -233,11 +247,38 @@ fn main() -> Result<()> {
             )
             .expect("open window");
         windows::set_main(main, cx);
+        let quitting = ui_control.clone();
+        cx.on_app_quit(move |_| {
+            // Drop unlinks the registration and joins bounded transport workers.
+            quitting.borrow_mut().take();
+            async {}
+        })
+        .detach();
+        let executor = cx.background_executor().clone();
+        cx.spawn(async move |cx| {
+            loop {
+                executor.timer(std::time::Duration::from_millis(10)).await;
+                let alive = cx.update(|_| {
+                    let mut server = ui_control.borrow_mut();
+                    let Some(server) = server.as_mut() else {
+                        return false;
+                    };
+                    // P5-39b: replace this handler with main.update(...) on this UI thread.
+                    server.process_pending(paddock::control::unsupported);
+                    true
+                });
+                if !alive {
+                    break;
+                }
+            }
+        })
+        .detach();
         // Test and screenshot runs set PADDOCK_NO_ACTIVATE so the window does not take the
         // keyboard from the app the user is typing in.
         if std::env::var_os("PADDOCK_NO_ACTIVATE").is_none() {
             cx.activate(true);
         }
     });
+    drop(control);
     Ok(())
 }

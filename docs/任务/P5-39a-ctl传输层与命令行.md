@@ -52,3 +52,35 @@
 
 ## 做完
 在本文件末尾追加「## 完成记录」（在你的分支里提交）：做了什么、验证了什么、拿主意的地方、没做的事，各几句话，并写清给 P5-39b 的接口。回复里只写这几样，加上有没有要主控决定的事。命令都在前台跑完，全部做完后，回复最后一行写 DONE。
+
+## 完成记录
+
+### 做了什么
+
+- 从 Saddle `f7d1bbafc84102edfef49b47bf49d5df90e2b2e3` 迁入传输层和 CLI，文件头保留来源与差异；无新增依赖。每实例随机 ID／独立 Unix socket，运行目录取 `$XDG_RUNTIME_DIR/paddock`，否则 `$TMPDIR/paddock`；检查私有基目录和 paddock 目录的当前用户归属、0700，拒绝符号链接或权限不符，不替用户修权限。socket 为 0600，客户端连接前也检查归属、类型和权限，路径达到 macOS 104 字节边界时拒绝并提示使用较短的私有 XDG 目录。
+- 保留 64 KiB 消息上限、2 秒读写超时、500 ms 连接等待、4 个工作线程、8 个候选连接、32 项界面队列和 1 秒界面回复等待。超时返回 `uncertain` 与原 ID；自动 ID 在进入界面队列前生成。socket 本身作为实例登记，探测不可连接的残留并忽略；正常退出删除本实例 socket，等待线程结束，不删其他实例文件。
+- 请求账本由 `control` 管理，最多 256 条且不淘汰；相同 ID／参数／身份重放返回原结果，不重复执行；改变参数或身份返回 `request_conflict`。记录已满拒绝新修改，原记录仍可查。界面返回 `busy` 时不消费 ID；状态由界面处理结果写入，后续可更新。
+- 程序入口在清理继承环境、读取 GUI 配置及启动窗口之前分流 `ctl`／`install-skills`，保留并发送四个调用者身份变量。实现 JSON 帮助、退出码 0／1，以及方案中的六条 ctl 命令。`browse` 复用 Browser 本地地址补全和已有 GPUI 重导出的 URL 校验；原始 JSON 也只接受带 http／https scheme 的地址。
+- `main.rs` 接上监听、GPUI 线程顺序消费与退出清理；`inspect`／`open`／`close`／`browse` 统一返回 `unsupported`（暂不支持），修改的失败结果可用 `request` 查询。`instances` 不依赖界面处理者。
+- `install-skills` 内嵌占位技能，固定写 `.claude/skills/paddock/SKILL.md` 和 `.agents/skills/paddock/SKILL.md`；支持预览、列文件确认、`--yes`、`--remove`，只覆盖／删除有归属标记的文件。外来文件、二进制文件、符号链接及非普通文件报告并跳过；确认后再次检查归属，避免按过期计划覆盖外来文件。
+
+### 验证了什么
+
+- 保留真实 RED → GREEN：原迁入逻辑擅自修正 0755 目录；请求账本缺少同 ID 冲突保护；CLI 尚不识别 `browse`；技能安装逻辑会覆盖无标记文件；程序入口尚不识别 `ctl`；原始 JSON 的非 web 地址能到达处理者。分别用对应行为断言复现，再修复通过；编译错误不算 RED 证据。
+- 新增 15 个 control 单测、3 个技能安装单测、3 个真实 CLI 子进程测试，覆盖目录／socket 权限、外来目录归属、符号链接／占位文件、路径过长、坏消息／超长消息／未知字段、读超时／界面超时、满队列、256 条记录与重放／冲突／状态更新、三种 open 内容互斥、browse 的 scheme 限制、两个实例与残留发现／清理、技能安装 dry-run／拒绝／确认／归属标记／移除和环境身份转发。全部使用独立临时夹具，未使用真实 agent 或用户技能、运行目录。
+- 在 `app/` 下、独立 `.target/p5-39a-ctl` 中完成 `cargo test --all-targets`（最终 376 项全部通过）、`cargo clippy --all-targets -- -D warnings`、`cargo fmt --check`；`git diff --check` 通过。上游 `block 0.1.6` 仍有已有的 future-incompatibility 提示，无本次 Clippy 警告。
+- CLI 身份测试夹具最初在 macOS 临时目录多嵌套一层，触发真实路径长度拒绝；改用短的私有 `/tmp/pctl-<随机值>`，未放宽产品边界。没有启动桌面窗口，GPUI 启停接线经编译检查，传输服务启动／Drop 清理用无窗口测试验证。
+
+### 拿主意的地方与 P5-39b 接口
+
+- 选择有界通道，界面不接触 socket。`Server::start()` 返回实例 `id`；`main.rs` 的 GPUI 前台任务每 10 ms 调用 `Server::process_pending(handler)`，每轮最多消费 32 条，按入队顺序处理。P5-39b 将当前 `control::unsupported` 替换为通过 `main.update(...)` 操作 `PaddockWindow` 的闭包即可。
+- 处理者签名为 `FnMut(&Message, &Records) -> serde_json::Value`，必须返回 JSON 对象；传输层处理 `instances`、`request`、ID 重放／冲突／容量，处理者负责其余命令的目标定位、用户忙碌状态、shell 关闭确认与实际界面动作。返回值放 `ok`、`state`、`pane`、`revision` 等业务字段；传输层补齐 `instance`／`request_id`。异步动作先返回 `accepted`／`starting`，完成后在界面线程调用 `server.records.update(id, value)`；该方法保留请求身份。`Records::get(id)` 查询原结果，`Records::values()` 只读遍历已有结果，供关闭确认 token 查找及目标检查。
+- 协议中的 `Caller` 只带 `name`、`corral_instance`、`paddock_instance`、`pane`，缺失或解析不了的字段留空；不带 Saddle revision。P5-39b 注入 shell 的实例／pane，并按公开 Corral 身份验证调用者。`Place` 仅有 tab／left／right／up／down，`CloseTarget` 仅有 pane／tab。
+- 实例发现走独立 `instances` 消息，不把未接入的 `inspect` 当作实例存活条件。CLI 遇多个实例且有 Corral 身份时再逐个 `inspect` 尝试解析自己的 pane，无法唯一定位则返回 `ambiguous_instance`；不按时间或名字猜。
+- 沿用 Saddle 不淘汰请求的规则及进程内幂等边界，重启后不承诺原记录存在。残留 socket 忽略而不主动清掉。没有改变已批准的设计，也没有需要主控另行决定的事项。
+
+### 没做的事
+
+- 未改 `window.rs`，未实现界面动作、shell 环境注入、正式技能正文；分别留给 P5-39b／P5-39c。未运行真实 GUI 交互或真实 agent 实测。
+- 未修改 Saddle／ranch，未增加或升级依赖，未改 Cargo 清单／锁文件；未安装技能到用户目录、未卸载 Saddle 技能、未打包安装应用、未改全局链接。
+- 只在本任务分支提交；未合并 main、未推送。交叉审查留给主控另行安排。
