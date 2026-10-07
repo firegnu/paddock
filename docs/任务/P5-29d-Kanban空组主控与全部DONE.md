@@ -62,3 +62,10 @@
   - 截图（release、`PADDOCK_NO_ACTIVATE=1`、临时 HOME／`XDG_STATE_HOME`／`XDG_CONFIG_HOME`、Rust 写的假 corral：一个 `role=controller` 的 codex 主控在仓库里、一个 `task=P1-9` 的 claude dev agent 空闲且回复以 DONE 结尾；预写布局开在 Kanban；临时仓库里 IN PROGRESS、MERGED 是空组，一张 TO REVIEW，8 件 DONE）：Lagoon 13 和 Dune 18 窄面板各一张，自己看过。截图在 scratchpad，没有入库。Tide 主题没截。
 - **拿主意的地方**：主控全都退出了就不加这一行（“取第一个没退出的”，没有就当没找到）；说明小字写 “reviewer”；空组用整体透明度变淡，不新增颜色；组头说明改成句首大写，因为现在是悬停提示。
 - **没做的事**：点击（点主控行跳窗格、Show all／Show fewer、空组开合）和悬停提示没有实际操作过，留给用户实际用。加宽五列没截图。
+
+## 主控审查
+
+- diff 只动 `kanban.rs`、`kanban_view.rs`、`tests/kanban.rs` 和本文件，没碰 `sidebar.rs`、`window.rs`；`git diff --check` 干净。
+- 主控重跑 `cargo test --all-targets`（共 285 项通过）、clippy `-D warnings`、`cargo fmt --check`，都过。看了 Lagoon 13 截图：空组矮且淡、TO REVIEW 卡片下多一行 “main · Idle · reviewer”、DONE 组头 `5 / 8` 和 “Show all 8”，agent 行和悬停按钮还在。
+- 取舍：主控都已退出就不显示、标 “reviewer”、空组用透明度变淡、悬停说明首字母大写，都同意。
+- 完成回复是英文写的（项目里讨论用中文），不影响结果，记一笔。点击、悬停和加宽五列留给用户实际看。
