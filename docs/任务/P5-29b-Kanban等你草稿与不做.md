@@ -78,3 +78,11 @@
 - **没做的事**
   - 没写任何文件，没新建卡片，没做拖动和排序；没加主题颜色键和依赖；没改 Changes、Browser 标签和左侧栏卡片；`git.rs` 没动。
   - 加宽的五列没有截图（标记在加宽卡片里单独占一行，在标题下面）。
+
+## 主控审查
+
+- diff 只动 `kanban.rs`、`kanban_view.rs`、`tests/kanban.rs` 和本文件，没写文件、没加依赖和主题键；`git diff --check` 干净。
+- 主控重跑 `cargo test --all-targets`（共 280 项通过）、clippy `-D warnings`、`cargo fmt --check`，都过。看了 Tide 13 号 DONE 收起的截图：Needs you、DRAFT、Dropped、`待用户：` 的事由、顶部 “2 need you” 都对。
+- 取舍：收起的组里仍列出 Needs you 的卡、Waiting 的 agent 在任何列都标 Needs you、Needs you 的卡不变淡，都同意。
+- 建议改（不挡合并，告诉用户）：DONE 收起时组头写 6、只露出 1 张、右边又写 “last 5”，三个数放一起有点绕；要不要改由用户看过真窗口再定。
+- agent 误建的空文件 `paddock-worktrees/.target/.x` 已由主控删掉。
