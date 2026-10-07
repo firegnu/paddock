@@ -8,22 +8,29 @@
 //! The keyboard is AppKit's to give to the page and GPUI's to give within paddock; [`Keys`] keeps
 //! one record of who has it and brings the two in line, and [`route`] says where a shortcut goes.
 use crate::menu;
+use block2::{DynBlock, RcBlock};
 use gpui::{
     Bounds, IntoElement, Keystroke, Modifiers, Pixels, Styled, Window, WindowId, canvas, px,
 };
 use objc2::{
-    ClassType, DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send,
+    ClassType, DefinedClass, MainThreadMarker, MainThreadOnly, Message, define_class, msg_send,
     rc::{Retained, Weak},
-    runtime::{AnyObject, NSObject, NSObjectProtocol, ProtocolObject},
+    runtime::{AnyObject, Bool, NSObject, NSObjectProtocol, ProtocolObject},
     sel,
 };
 use objc2_app_kit::{
-    NSApplication, NSEvent, NSEventModifierFlags, NSResponder, NSView, NSWindowOrderingMode,
-    NSWorkspace,
+    NSAlert, NSAlertFirstButtonReturn, NSApplication, NSEvent, NSEventModifierFlags,
+    NSModalResponse, NSModalResponseOK, NSOpenPanel, NSResponder, NSTextField, NSView,
+    NSWindowOrderingMode, NSWorkspace,
 };
-use objc2_foundation::{NSError, NSPoint, NSRect, NSSize, NSString, NSURL, NSURLRequest};
+use objc2_foundation::{
+    NSArray, NSData, NSError, NSHTTPURLResponse, NSPoint, NSRect, NSSize, NSString, NSURL,
+    NSURLRequest, NSURLResponse, ns_string,
+};
 use objc2_web_kit::{
-    WKNavigation, WKNavigationAction, WKNavigationDelegate, WKUIDelegate, WKWebView,
+    WKDownload, WKDownloadDelegate, WKFindConfiguration, WKFindResult, WKFrameInfo, WKNavigation,
+    WKNavigationAction, WKNavigationActionPolicy, WKNavigationDelegate, WKNavigationResponse,
+    WKNavigationResponsePolicy, WKOpenPanelParameters, WKUIDelegate, WKWebView,
     WKWebViewConfiguration, WKWebsiteDataStore, WKWindowFeatures,
 };
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
@@ -31,6 +38,7 @@ use std::{
     cell::{Cell, RefCell},
     collections::HashMap,
     path::{Path, PathBuf},
+    ptr::{self, NonNull},
     rc::Rc,
 };
 
@@ -362,12 +370,16 @@ const INTERRUPTED: isize = 102;
 /// a site whose certificate the system does not trust.
 const UNTRUSTED: [isize; 4] = [-1201, -1202, -1203, -1204];
 
-/// What the navigation delegate has heard.
+/// What the page's delegate has heard.
 #[derive(Default)]
 struct Heard {
     /// Where the load under way set out for.
     attempt: Option<String>,
     failure: Option<Failure>,
+    /// Downloads under way, and where each is being saved.
+    downloads: Vec<(Retained<WKDownload>, PathBuf)>,
+    /// Where a download that finished was saved, until the toolbar takes it.
+    saved: Option<PathBuf>,
 }
 
 define_class!(
@@ -412,6 +424,92 @@ define_class!(
                 certificate: false,
             });
         }
+
+        // Where the page is about to go: a download, an address another app takes, or the page.
+        #[unsafe(method(webView:decidePolicyForNavigationAction:decisionHandler:))]
+        fn decide_action(
+            &self,
+            _view: &WKWebView,
+            action: &WKNavigationAction,
+            decide: &DynBlock<dyn Fn(WKNavigationActionPolicy)>,
+        ) {
+            decide.call((action_policy(action),));
+        }
+
+        // What came back: a download when it cannot be shown or asks to be saved.
+        #[unsafe(method(webView:decidePolicyForNavigationResponse:decisionHandler:))]
+        fn decide_response(
+            &self,
+            _view: &WKWebView,
+            response: &WKNavigationResponse,
+            decide: &DynBlock<dyn Fn(WKNavigationResponsePolicy)>,
+        ) {
+            decide.call((response_policy(response),));
+        }
+
+        #[unsafe(method(webView:navigationAction:didBecomeDownload:))]
+        fn action_became_download(
+            &self,
+            _view: &WKWebView,
+            _action: &WKNavigationAction,
+            download: &WKDownload,
+        ) {
+            self.follow(download);
+        }
+
+        #[unsafe(method(webView:navigationResponse:didBecomeDownload:))]
+        fn response_became_download(
+            &self,
+            _view: &WKWebView,
+            _response: &WKNavigationResponse,
+            download: &WKDownload,
+        ) {
+            self.follow(download);
+        }
+    }
+
+    // SAFETY: each method has the signature WKDownloadDelegate gives it.
+    unsafe impl WKDownloadDelegate for Delegate {
+        // Saved in ~/Downloads under the page's name, never over a file already there.
+        #[unsafe(method(download:decideDestinationUsingResponse:suggestedFilename:completionHandler:))]
+        fn decide_destination(
+            &self,
+            download: &WKDownload,
+            _response: &NSURLResponse,
+            suggested: &NSString,
+            done: &DynBlock<dyn Fn(*mut NSURL)>,
+        ) {
+            // No place for it (nil): the download stops.
+            match self.destination(download, &suggested.to_string()) {
+                Some(url) => done.call((Retained::as_ptr(&url).cast_mut(),)),
+                None => done.call((ptr::null_mut(),)),
+            }
+        }
+
+        #[unsafe(method(downloadDidFinish:))]
+        fn download_did_finish(&self, download: &WKDownload) {
+            let mut heard = self.ivars().borrow_mut();
+            if let Some(at) = heard
+                .downloads
+                .iter()
+                .position(|(each, _)| ptr::eq(&**each, download))
+            {
+                heard.saved = Some(heard.downloads.remove(at).1);
+            }
+        }
+
+        #[unsafe(method(download:didFailWithError:resumeData:))]
+        fn download_did_fail(
+            &self,
+            download: &WKDownload,
+            _error: &NSError,
+            _resume: Option<&NSData>,
+        ) {
+            self.ivars()
+                .borrow_mut()
+                .downloads
+                .retain(|(each, _)| !ptr::eq(&**each, download));
+        }
     }
 
     // SAFETY: the method has the signature WKUIDelegate gives it.
@@ -429,6 +527,85 @@ define_class!(
             // SAFETY: a plain getter on the main thread.
             open_elsewhere(view, &*unsafe { action.request() });
             None
+        }
+
+        // `alert()`, `confirm()` and `prompt()`: the system's alert as a sheet on the window.
+        #[unsafe(method(webView:runJavaScriptAlertPanelWithMessage:initiatedByFrame:completionHandler:))]
+        fn alert(
+            &self,
+            view: &WKWebView,
+            message: &NSString,
+            _frame: &WKFrameInfo,
+            done: &DynBlock<dyn Fn()>,
+        ) {
+            let done = done.copy();
+            ask(view, message, false, None, move |_, _| done.call(()));
+        }
+
+        #[unsafe(method(webView:runJavaScriptConfirmPanelWithMessage:initiatedByFrame:completionHandler:))]
+        fn confirm(
+            &self,
+            view: &WKWebView,
+            message: &NSString,
+            _frame: &WKFrameInfo,
+            done: &DynBlock<dyn Fn(Bool)>,
+        ) {
+            let done = done.copy();
+            ask(view, message, true, None, move |ok, _| {
+                done.call((Bool::new(ok),))
+            });
+        }
+
+        #[unsafe(method(webView:runJavaScriptTextInputPanelWithPrompt:defaultText:initiatedByFrame:completionHandler:))]
+        fn prompt(
+            &self,
+            view: &WKWebView,
+            prompt: &NSString,
+            default: Option<&NSString>,
+            _frame: &WKFrameInfo,
+            done: &DynBlock<dyn Fn(*mut NSString)>,
+        ) {
+            let done = done.copy();
+            let default = NSString::from_str(&default.map(NSString::to_string).unwrap_or_default());
+            ask(view, prompt, true, Some(&default), move |ok, typed| {
+                match typed.filter(|_| ok) {
+                    Some(typed) => done.call((Retained::as_ptr(&typed).cast_mut(),)),
+                    None => done.call((ptr::null_mut(),)),
+                }
+            });
+        }
+
+        // `<input type=file>`: the system's open panel as a sheet on the window.
+        #[unsafe(method(webView:runOpenPanelWithParameters:initiatedByFrame:completionHandler:))]
+        fn choose_files(
+            &self,
+            view: &WKWebView,
+            parameters: &WKOpenPanelParameters,
+            _frame: &WKFrameInfo,
+            done: &DynBlock<dyn Fn(*mut NSArray<NSURL>)>,
+        ) {
+            let done = done.copy();
+            let Some(window) = view.window() else {
+                done.call((ptr::null_mut(),));
+                return;
+            };
+            let panel = NSOpenPanel::openPanel(self.mtm());
+            panel.setCanChooseFiles(true);
+            // SAFETY: plain getters on the main thread.
+            unsafe {
+                panel.setCanChooseDirectories(parameters.allowsDirectories());
+                panel.setAllowsMultipleSelection(parameters.allowsMultipleSelection());
+            }
+            let chosen = panel.clone();
+            let closed = RcBlock::new(move |response: NSModalResponse| {
+                if response == NSModalResponseOK {
+                    let urls = chosen.URLs();
+                    done.call((Retained::as_ptr(&urls).cast_mut(),));
+                } else {
+                    done.call((ptr::null_mut(),));
+                }
+            });
+            panel.beginSheetModalForWindow_completionHandler(&window, &closed);
         }
     }
 );
@@ -564,7 +741,130 @@ impl Delegate {
             certificate: domain == "NSURLErrorDomain" && UNTRUSTED.contains(&code),
         });
     }
+
+    /// Hears how `download` goes from here.
+    fn follow(&self, download: &WKDownload) {
+        // SAFETY: WebKit keeps the delegate weakly; the page keeps it as long as the web view.
+        unsafe { download.setDelegate(Some(ProtocolObject::from_ref(self))) };
+    }
+
+    /// Where `download`, which the page calls `suggested`, is saved: in ~/Downloads under its own
+    /// name ([`download_name`]), or the first free numbered one ([`download_path`]), counting
+    /// those taken by downloads still under way; none when there is no such folder to save in.
+    fn destination(&self, download: &WKDownload, suggested: &str) -> Option<Retained<NSURL>> {
+        let folder = PathBuf::from(std::env::var_os("HOME")?).join("Downloads");
+        std::fs::create_dir_all(&folder).ok()?;
+        let mut heard = self.ivars().borrow_mut();
+        let path = download_path(&folder, &download_name(suggested), |path| {
+            path.symlink_metadata().is_ok() || heard.downloads.iter().any(|(_, at)| at == path)
+        });
+        let url = NSURL::fileURLWithPath(&NSString::from_str(path.to_str()?));
+        heard.downloads.push((download.retain(), path));
+        Some(url)
+    }
 }
+
+/// What the page does about going to what `action` asks for: download it when asked to; give an
+/// address another app takes ([`opens`]) to the system when the page itself goes there, and not
+/// open it from a frame inside the page; go anywhere else.
+fn action_policy(action: &WKNavigationAction) -> WKNavigationActionPolicy {
+    // SAFETY: plain getters on the main thread.
+    unsafe {
+        if action.shouldPerformDownload() {
+            return WKNavigationActionPolicy::Download;
+        }
+        let request = action.request();
+        let Some(url) = request.URL() else {
+            return WKNavigationActionPolicy::Allow;
+        };
+        let scheme = url.scheme().map(|scheme| scheme.to_string());
+        if opens(scheme.as_deref().unwrap_or_default()) != Opens::System {
+            return WKNavigationActionPolicy::Allow;
+        }
+        // No frame: a new window, which the page would not get anyway (see `create_web_view`).
+        if action.targetFrame().is_none_or(|frame| frame.isMainFrame()) {
+            NSWorkspace::sharedWorkspace().openURL(&url);
+        }
+        WKNavigationActionPolicy::Cancel
+    }
+}
+
+/// What the page does with what came back: saves it as a download when it cannot show it or the
+/// server asks for it to be saved (`Content-Disposition: attachment`); else shows it.
+fn response_policy(response: &WKNavigationResponse) -> WKNavigationResponsePolicy {
+    // SAFETY: plain getters on the main thread.
+    let (shows, response) = unsafe { (response.canShowMIMEType(), response.response()) };
+    let attachment = response
+        .downcast::<NSHTTPURLResponse>()
+        .ok()
+        .and_then(|http| http.valueForHTTPHeaderField(ns_string!("Content-Disposition")))
+        .is_some_and(|value| {
+            value
+                .to_string()
+                .trim_start()
+                .to_ascii_lowercase()
+                .starts_with("attachment")
+        });
+    if shows && !attachment {
+        WKNavigationResponsePolicy::Allow
+    } else {
+        WKNavigationResponsePolicy::Download
+    }
+}
+
+/// Shows a page's `message` in the system's alert, as a sheet on the page's window, with OK, and
+/// Cancel when the page `cancels`, and a field holding `field` for a prompt; `answer` hears once
+/// whether OK was chosen, and what the field held then. Without a window, answered as cancelled.
+fn ask(
+    view: &WKWebView,
+    message: &NSString,
+    cancels: bool,
+    field: Option<&NSString>,
+    answer: impl Fn(bool, Option<Retained<NSString>>) + 'static,
+) {
+    let Some(window) = view.window() else {
+        answer(false, None);
+        return;
+    };
+    let main = view.mtm();
+    let alert = NSAlert::new(main);
+    alert.setMessageText(message);
+    alert.addButtonWithTitle(ns_string!("OK"));
+    if cancels {
+        // AppKit gives a button called Cancel the Esc key.
+        alert.addButtonWithTitle(ns_string!("Cancel"));
+    }
+    let field = field.map(|text| {
+        let field = NSTextField::textFieldWithString(text, main);
+        field.setFrame(NSRect::new(NSPoint::ZERO, NSSize::new(260.0, 24.0)));
+        alert.setAccessoryView(Some(&field));
+        field
+    });
+    // The handler keeps the alert, and with it the field, until the sheet closes.
+    let shown = alert.clone();
+    let closed = RcBlock::new(move |response: NSModalResponse| {
+        let typed = shown
+            .accessoryView()
+            .and_then(|view| view.downcast::<NSTextField>().ok())
+            .map(|field| field.stringValue());
+        answer(response == NSAlertFirstButtonReturn, typed);
+    });
+    alert.beginSheetModalForWindow_completionHandler(&window, Some(&closed));
+    if let Some(field) = field {
+        alert.window().makeFirstResponder(Some(&field));
+    }
+}
+
+/// Shows `path` selected in a Finder window.
+pub fn reveal(path: &Path) {
+    if let Some(path) = path.to_str() {
+        NSWorkspace::sharedWorkspace()
+            .selectFile_inFileViewerRootedAtPath(Some(&NSString::from_str(path)), ns_string!(""));
+    }
+}
+
+/// Moves the page's selection to where it starts, if it has one.
+const COLLAPSE: &str = "(s => s && s.rangeCount && s.collapseToStart())(getSelection())";
 
 /// Which way the find bar looks through the page.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -696,12 +996,39 @@ impl Page {
     /// Looks through the page for `query`, ignoring case and going round past either end, and
     /// selects the match; whether there was one comes from [`Page::found`] once WebKit says.
     pub fn find(&self, query: &str, look: Look) {
-        let _ = (query, look, &self.found);
+        let found = self.found.clone();
+        let done = RcBlock::new(move |result: NonNull<WKFindResult>| {
+            // SAFETY: WebKit's result, alive while it calls this.
+            found.set(Some(unsafe { result.as_ref().matchFound() }));
+        });
+        // SAFETY: on the main thread; both run in the page in the order sent.
+        unsafe {
+            if look == Look::Again {
+                // A search starts after what is selected: from where the match shown starts
+                // instead, so a match that grows as more is typed stays where it is.
+                self.view
+                    .evaluateJavaScript_completionHandler(ns_string!(COLLAPSE), None);
+            }
+            let config = WKFindConfiguration::new(self.view.mtm());
+            config.setBackwards(look == Look::Previous);
+            config.setCaseSensitive(false);
+            config.setWraps(true);
+            self.view.findString_withConfiguration_completionHandler(
+                &NSString::from_str(query),
+                Some(&config),
+                &done,
+            );
+        }
     }
 
     /// Whether the last search found anything, once, after it has said.
     pub fn found(&self) -> Option<bool> {
         self.found.take()
+    }
+
+    /// Where a download that finished since the last call was saved.
+    pub fn saved(&self) -> Option<PathBuf> {
+        self.delegate.ivars().borrow_mut().saved.take()
     }
 
     /// Gives the page the keyboard, when it shows.

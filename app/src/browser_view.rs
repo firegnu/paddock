@@ -23,12 +23,21 @@ use gpui::{
     HighlightStyle, KeyDownEvent, MouseButton, Pixels, Render, Stateful, StyledText, Subscription,
     Window, canvas, div, prelude::*, px, relative,
 };
-use std::{cell::Cell, net::IpAddr, ops::Range, rc::Rc, time::Duration};
+use std::{
+    cell::Cell,
+    net::IpAddr,
+    ops::Range,
+    path::{Path, PathBuf},
+    rc::Rc,
+    time::{Duration, Instant},
+};
 
 /// The page area's corners; the page sits inside its 1-point rim.
 const RADIUS: f32 = 8.0;
 /// How often the page's state is read.
 const POLL: Duration = Duration::from_millis(50);
+/// How long the toolbar shows a download that finished.
+const SAVED: Duration = Duration::from_secs(6);
 
 type Pick = fn(&crate::preset::Theme) -> crate::preset::Color;
 
@@ -73,6 +82,8 @@ pub struct BrowserView {
     showing: Showing,
     /// A popup was open at the last frame.
     dialog: bool,
+    /// A download that finished, and when, while the toolbar shows it.
+    saved: Option<(PathBuf, Instant)>,
 }
 
 struct FindBar {
@@ -86,10 +97,11 @@ impl EventEmitter<Visited> for BrowserView {}
 impl EventEmitter<Handoff> for BrowserView {}
 
 impl BrowserView {
-    /// The tab, to open `url` when it first shows.
+    /// The tab, to open `url` when it first shows, as if typed ([`reachable`]).
     pub fn new(theme: Rc<Theme>, url: Option<String>, cx: &mut Context<Self>) -> Self {
         let colors = colors(&theme);
         let address = cx.new(|cx| TextInput::new("", "Enter an address", colors, cx));
+        let url = url.map(|url| reachable(&url));
         BrowserView {
             theme,
             page: None,
@@ -106,6 +118,7 @@ impl BrowserView {
             keys: Keys::default(),
             showing: Showing::default(),
             dialog: false,
+            saved: None,
         }
     }
 
@@ -230,14 +243,16 @@ impl BrowserView {
     }
 
     /// Reads the page's state: drawn again when it changed, and the layout told when the address
-    /// shown did. The keyboard's record settles too, as a click on the page shows only here
-    /// while nothing else is drawn.
+    /// shown did; and whether a search found anything, and a download that finished, which the
+    /// toolbar shows for a while. The keyboard's record settles too, as a click on the page shows
+    /// only here while nothing else is drawn.
     fn poll(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(page) = &self.page else {
             return;
         };
         let state = page.state();
         let found = page.found();
+        let saved = page.saved();
         if state != self.state {
             self.state = state;
             cx.notify();
@@ -246,6 +261,17 @@ impl BrowserView {
             && let Some(bar) = &mut self.find
         {
             bar.missed = !found && !bar.input.read(cx).text().is_empty();
+            cx.notify();
+        }
+        if let Some(path) = saved {
+            self.saved = Some((path, Instant::now()));
+            cx.notify();
+        } else if self
+            .saved
+            .as_ref()
+            .is_some_and(|(_, at)| at.elapsed() >= SAVED)
+        {
+            self.saved = None;
             cx.notify();
         }
         if let Some(url) = self.shown_url()
@@ -518,12 +544,56 @@ impl BrowserView {
                 .when(reloads, |b| b.on_click(on_reload)),
             )
             .child(self.address_field(window, ui, cx))
+            .when_some(self.saved.as_ref(), |row, (path, _)| {
+                row.child(self.saved_file(path, ui))
+            })
             .child(
                 button("browser-open", Icon::External, opens).when(opens, |b| {
                     b.tooltip(move |_, cx| cx.new(|_| tip.clone()).into())
                         .on_click(on_open)
                 }),
             )
+    }
+
+    /// A download that finished, by name, for a few seconds after: clicked, shown in Finder.
+    fn saved_file(&self, path: &Path, ui: &UiFont) -> Stateful<Div> {
+        let theme = &*self.theme;
+        let highlight = hsla(theme.bg(|t| t.agent_selected), 1.0);
+        let name = path
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let path = path.to_owned();
+        div()
+            .id("browser-saved")
+            .flex_shrink_0()
+            .max_w(ui.px(160.0))
+            .h(ui.px(26.0))
+            .px(ui.px(8.0))
+            .flex()
+            .items_center()
+            .gap(ui.px(4.0))
+            .rounded(px(6.0))
+            .bg(highlight.opacity(0.5))
+            .text_size(ui.px(12.0))
+            .cursor_pointer()
+            .hover(move |style| style.bg(highlight))
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .text_color(hsla(theme.fg(|t| t.agents_accent), 1.0))
+                    .child("↓"),
+            )
+            .child(
+                div()
+                    .min_w(px(0.0))
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .text_ellipsis()
+                    .text_color(hsla(theme.fg(|t| t.agents_text), 1.0))
+                    .child(name),
+            )
+            .on_click(move |_, _, _| browser::reveal(&path))
     }
 
     /// The address: the page's while not typing, a local server's port or else the host bright;
@@ -807,8 +877,9 @@ fn colors(theme: &Theme) -> text_input::Colors {
 }
 
 /// What typing `typed` in the address field opens: as typed when it names its scheme (`…://`);
-/// else `http://` before a local server's address (see `local`) and `https://`
-/// before anything else. Nothing for nothing typed, or for words with spaces between them.
+/// else `http://` before a local server's address (see `local`) and `https://` before anything
+/// else; either way with an address that listens everywhere made [`reachable`]. Nothing for
+/// nothing typed, or for words with spaces between them.
 pub fn address(typed: &str) -> Option<String> {
     let typed = typed.trim();
     if typed.is_empty() || typed.contains(char::is_whitespace) {
@@ -817,7 +888,7 @@ pub fn address(typed: &str) -> Option<String> {
     if let Some((scheme, _)) = typed.split_once("://")
         && is_scheme(scheme)
     {
-        return Some(typed.to_owned());
+        return Some(reachable(typed));
     }
     let authority = &typed[..typed.find(['/', '?', '#']).unwrap_or(typed.len())];
     let scheme = if local(host_port(authority).0) {
@@ -825,7 +896,32 @@ pub fn address(typed: &str) -> Option<String> {
     } else {
         "https"
     };
-    Some(format!("{scheme}://{typed}"))
+    Some(reachable(&format!("{scheme}://{typed}")))
+}
+
+/// `url` with a web page's host that listens everywhere, `0.0.0.0` or `[::]`, put as this
+/// machine's loopback address, `127.0.0.1` or `[::1]`, all else kept: WebKit will not open the
+/// first, and a server listening everywhere answers on the second.
+pub fn reachable(url: &str) -> String {
+    let Some((scheme, rest)) = url.split_once("://") else {
+        return url.to_owned();
+    };
+    if !(scheme.eq_ignore_ascii_case("http") || scheme.eq_ignore_ascii_case("https")) {
+        return url.to_owned();
+    }
+    let (authority, tail) = rest.split_at(rest.find(['/', '?', '#']).unwrap_or(rest.len()));
+    let (user, host) = match authority.rsplit_once('@') {
+        Some((user, host)) => (format!("{user}@"), host),
+        None => (String::new(), authority),
+    };
+    let (host, port) = host_port(host);
+    let loopback = match host.parse::<IpAddr>() {
+        Ok(IpAddr::V4(ip)) if ip.is_unspecified() => "127.0.0.1",
+        Ok(IpAddr::V6(ip)) if ip.is_unspecified() => "[::1]",
+        _ => return url.to_owned(),
+    };
+    let port = port.map(|port| format!(":{port}")).unwrap_or_default();
+    format!("{scheme}://{user}{loopback}{port}{tail}")
 }
 
 /// The address as the toolbar shows it while not typing: without `http://` or `https://`, or a
@@ -927,12 +1023,18 @@ mod tests {
             Some("http://[::1]:3000/")
         );
         assert_eq!(address("[::1]").as_deref(), Some("http://[::1]"));
-        // What a development server prints when it listens everywhere.
+        // What a development server prints when it listens everywhere, which WebKit will not
+        // open: this machine's loopback address instead, port and path kept.
         assert_eq!(
             address("0.0.0.0:8000").as_deref(),
-            Some("http://0.0.0.0:8000")
+            Some("http://127.0.0.1:8000")
         );
-        assert_eq!(address("[::]:8000/").as_deref(), Some("http://[::]:8000/"));
+        assert_eq!(
+            address("0.0.0.0/app?x=1#top").as_deref(),
+            Some("http://127.0.0.1/app?x=1#top")
+        );
+        assert_eq!(address("[::]:8000/").as_deref(), Some("http://[::1]:8000/"));
+        assert_eq!(address("[::]").as_deref(), Some("http://[::1]"));
         // This machine's addresses on the local network, the private ranges.
         assert_eq!(
             address("192.168.1.20:3000").as_deref(),
@@ -1016,6 +1118,32 @@ mod tests {
         assert_eq!(
             address("file:///tmp/index.html").as_deref(),
             Some("file:///tmp/index.html")
+        );
+        // Pasted as a development server prints it: the loopback address all the same.
+        assert_eq!(
+            address("http://0.0.0.0:3000/").as_deref(),
+            Some("http://127.0.0.1:3000/")
+        );
+        assert_eq!(
+            address("HTTPS://user@0.0.0.0:8443/a").as_deref(),
+            Some("HTTPS://user@127.0.0.1:8443/a")
+        );
+        assert_eq!(
+            address("http://[::]:8000/x?to=http://0.0.0.0").as_deref(),
+            Some("http://[::1]:8000/x?to=http://0.0.0.0")
+        );
+        // Only the host as a whole, and only for web pages.
+        assert_eq!(
+            address("http://0.0.0.0.nip.io:3000").as_deref(),
+            Some("http://0.0.0.0.nip.io:3000")
+        );
+        assert_eq!(
+            address("http://10.0.0.0:3000").as_deref(),
+            Some("http://10.0.0.0:3000")
+        );
+        assert_eq!(
+            address("ftp://0.0.0.0/file").as_deref(),
+            Some("ftp://0.0.0.0/file")
         );
         // `://` further on is not a scheme.
         assert_eq!(

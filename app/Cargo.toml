@@ -41,16 +41,28 @@ similar = "2"
 # for putting the system's sidebar material under the sidebar (`frost.rs`).
 raw-window-handle = "0.6"
 objc2 = "0.6"
+# The completion handlers WebKit and AppKit take and give (the Browser's dialogs, file choosing,
+# downloads and finding, `browser.rs`), at the version GPUI already locks.
+block2 = "=0.6.2"
 # The AppKit classes for that material, at the version GPUI already locks, the system's Reduce
-# Motion setting (`reduce_motion.rs`), and the window's keyboard, which the Browser's page takes
-# and gives back, and the shortcuts and standard edits it passes on (`browser.rs`).
+# Motion setting (`reduce_motion.rs`), the window's keyboard, which the Browser's page takes
+# and gives back, and the shortcuts and standard edits it passes on, and the sheets it shows for
+# a page's dialogs and file choosing (`browser.rs`).
 objc2-app-kit = { version = "=0.3.2", default-features = false, features = [
+    "block2",
     "NSAccessibility",
+    "NSAlert",
     "NSAppearance",
     "NSApplication",
+    "NSButton",
+    "NSControl",
     "NSEvent",
     "NSGraphics",
+    "NSOpenPanel",
+    "NSPanel",
     "NSResponder",
+    "NSSavePanel",
+    "NSTextField",
     "NSView",
     "NSVisualEffectView",
     "NSWindow",
@@ -60,19 +72,30 @@ objc2-app-kit = { version = "=0.3.2", default-features = false, features = [
 # view, and the Foundation types it takes, at the versions the AppKit bindings above lock.
 objc2-foundation = { version = "=0.3.2", default-features = false, features = [
     "std",
+    "NSArray",
+    "NSData",
     "NSError",
     "NSGeometry",
     "NSString",
     "NSURL",
     "NSURLRequest",
+    "NSURLResponse",
 ] }
 objc2-web-kit = { version = "=0.3.2", default-features = false, features = [
     "std",
+    "block2",
     "objc2-app-kit",
     "objc2-core-foundation",
+    "WKDownload",
+    "WKDownloadDelegate",
+    "WKFindConfiguration",
+    "WKFindResult",
+    "WKFrameInfo",
     "WKNavigation",
     "WKNavigationAction",
     "WKNavigationDelegate",
+    "WKNavigationResponse",
+    "WKOpenPanelParameters",
     "WKUIDelegate",
     "WKWebView",
     "WKWebViewConfiguration",
