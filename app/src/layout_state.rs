@@ -3,7 +3,7 @@
 //! `src/layout_state.rs` (commit `df1c727`) is; a file that cannot be read is kept, not
 //! overwritten. Terminal output is not saved and commands are not replayed.
 use crate::{
-    layout::{Axis, Node, PaneId, Shown, Workspace},
+    layout::{self, Axis, Node, PaneId, Shown, Workspace},
     right_panel,
 };
 use anyhow::{Context, Result, ensure};
@@ -67,6 +67,9 @@ pub enum SavedNode {
     Split {
         /// `row`: side by side; `column`: one above the other.
         axis: String,
+        /// The first part's share; files from before it was saved split in half.
+        #[serde(default = "even")]
+        ratio: f32,
         first: Box<SavedNode>,
         second: Box<SavedNode>,
     },
@@ -101,16 +104,22 @@ pub struct Layout {
     pub window_size: WindowSize,
 }
 
+fn even() -> f32 {
+    layout::EVEN
+}
+
 impl SavedNode {
     fn leaves(&self, out: &mut Vec<usize>) -> Result<()> {
         match self {
             SavedNode::Pane { pane } => out.push(*pane),
             SavedNode::Split {
                 axis,
+                ratio,
                 first,
                 second,
             } => {
                 ensure!(axis == "row" || axis == "column", "invalid split");
+                ensure!(*ratio > 0.0 && *ratio < 1.0, "invalid split ratio");
                 first.leaves(out)?;
                 second.leaves(out)?;
             }
@@ -174,6 +183,7 @@ impl Layout {
                 Node::Pane(pane) => SavedNode::Pane { pane: places[pane] },
                 Node::Split {
                     axis,
+                    ratio,
                     first,
                     second,
                 } => SavedNode::Split {
@@ -182,6 +192,7 @@ impl Layout {
                         Axis::Column => "column",
                     }
                     .into(),
+                    ratio: *ratio,
                     first: Box::new(node(first, places)),
                     second: Box::new(node(second, places)),
                 },
@@ -220,6 +231,7 @@ impl Layout {
                 SavedNode::Pane { pane } => Node::Pane(ids[*pane]),
                 SavedNode::Split {
                     axis,
+                    ratio,
                     first,
                     second,
                 } => Node::Split {
@@ -228,6 +240,7 @@ impl Layout {
                     } else {
                         Axis::Column
                     },
+                    ratio: *ratio,
                     first: Box::new(node(first, ids)),
                     second: Box::new(node(second, ids)),
                 },
@@ -437,6 +450,45 @@ mod tests {
         let mut restored = restored;
         let new = restored.new_tab(Shown::Empty);
         assert!(contents.iter().all(|(id, _)| *id != new));
+    }
+
+    #[test]
+    fn split_ratios_are_saved_and_older_files_split_in_half() {
+        let (mut w, _) = sample();
+        let tab = &w.tabs[0];
+        let (outer, inner) = (tab.panes()[1], tab.panes()[2]);
+        w.set_ratio(outer, 0.3);
+        w.set_ratio(inner, 0.65);
+        let layout = Layout::of(&w, |_| Content::Empty);
+        let dir = std::env::temp_dir().join(format!("paddock-ratio-test-{}", std::process::id()));
+        let path = dir.join("layout.json");
+        let (mut store, _) = Store::open(Some(path.clone()));
+        store.save(&layout);
+        let (store, back) = Store::open(Some(path.clone()));
+        assert!(store.problem().is_none());
+        let (restored, _) = back.unwrap().workspace();
+        assert_eq!(restored.tabs[0].root, w.tabs[0].root);
+
+        // A file written before splits kept their share has none: every split is even.
+        let mut old = serde_json::to_value(&layout).unwrap();
+        old["tabs"][0]["tree"]
+            .as_object_mut()
+            .unwrap()
+            .remove("ratio");
+        old["tabs"][0]["tree"]["second"]
+            .as_object_mut()
+            .unwrap()
+            .remove("ratio");
+        fs::write(&path, serde_json::to_vec(&old).unwrap()).unwrap();
+        let (store, back) = Store::open(Some(path));
+        assert!(store.problem().is_none());
+        let (restored, _) = back.unwrap().workspace();
+        let Node::Split { ratio, second, .. } = &restored.tabs[0].root else {
+            panic!("a split")
+        };
+        assert_eq!(*ratio, layout::EVEN);
+        assert!(matches!(**second, Node::Split { ratio, .. } if ratio == layout::EVEN));
+        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
@@ -675,10 +727,19 @@ mod tests {
         let mut bad = good.clone();
         bad.tabs[1].tree = SavedNode::Split {
             axis: "row".into(),
+            ratio: layout::EVEN,
             first: Box::new(SavedNode::Pane { pane: 0 }),
             second: Box::new(SavedNode::Pane { pane: 0 }),
         };
         cases.push(bad);
+        for ratio in [0.0, 1.0, -0.2, f32::NAN] {
+            let mut bad = good.clone();
+            let SavedNode::Split { ratio: r, .. } = &mut bad.tabs[0].tree else {
+                unreachable!()
+            };
+            *r = ratio;
+            cases.push(bad);
+        }
         let mut bad = good.clone();
         bad.tabs[0].panes[0] = Content::Shell {
             cwd: "relative".into(),

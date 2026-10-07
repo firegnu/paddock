@@ -18,7 +18,7 @@ use crate::{
     frost::{Frost, Shape},
     kanban_view::{self, KanbanEvent, KanbanView, NewTask, NewTaskEvent},
     kind_icon,
-    layout::{Axis, Direction, Node, PaneId, Placement, Shown, Workspace},
+    layout::{self, Axis, Direction, Node, PaneId, Placement, Shown, Workspace},
     layout_state::{Content, Layout, Store, WindowSize},
     menu,
     motion::{self, HoverMotion},
@@ -157,6 +157,21 @@ fn finish_sidebar_width(width: &mut f32) -> String {
 /// What dragging the right sidebar's divider carries.
 struct RightDrag;
 
+/// What dragging the seam between split panes carries.
+struct SplitDrag;
+
+/// A seam between split panes being dragged: its split, named by the pane after it.
+struct Splitting {
+    after: PaneId,
+    axis: Axis,
+    /// The first part's share and the mouse along the axis when it was pressed.
+    from: f32,
+    grab: f32,
+    /// The split's length along the axis, and the least each part may keep.
+    length: f32,
+    least: (f32, f32),
+}
+
 /// The command palette while it is open.
 struct Palette {
     input: Entity<TextInput>,
@@ -273,7 +288,7 @@ fn chooser_child(new_tab: bool, index: usize) -> usize {
     }
 }
 
-/// What a panel can hang from, as last drawn.
+/// What a panel can hang from, or a seam is dragged across, as last drawn.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 enum Spot {
     /// The title bar's `+`.
@@ -285,6 +300,8 @@ enum Spot {
     /// The Kanban tab's New task.
     NewTask,
     Pane(PaneId),
+    /// The split whose seam comes just before this pane.
+    Seam(PaneId),
 }
 
 /// Every word of `query` in the agent's full name (its project, then its own), ignoring case.
@@ -684,6 +701,8 @@ pub struct PaddockWindow {
     activity_folded: bool,
     /// The divider is being dragged: the width and the mouse's x when it was pressed.
     resizing: Option<(f32, f32)>,
+    /// A seam between split panes is being dragged.
+    splitting: Option<Splitting>,
     /// The right sidebar: open or not, its width, its tab; saved with the layout.
     right: RightPanel,
     /// The right sidebar's Changes tab, following the focused pane.
@@ -821,6 +840,7 @@ impl PaddockWindow {
             collapsed,
             activity_folded,
             resizing: None,
+            splitting: None,
             right,
             changes,
             browser,
@@ -2730,26 +2750,176 @@ impl PaddockWindow {
             Node::Pane(pane) => self.pane(*pane, shown, agents, cx),
             Node::Split {
                 axis,
+                ratio,
                 first,
                 second,
             } => {
-                // Each pane its own card, a seam of the frame between.
+                // Each pane its own card, a seam of the frame between, which shares the split out
+                // by its ratio.
+                let axis = *axis;
+                let after = second.first_pane();
+                let part = |node: AnyElement, share: f32| {
+                    let part = div()
+                        .flex()
+                        .flex_basis(px(0.0))
+                        .flex_grow(share)
+                        .min_w(px(0.0))
+                        .min_h(px(0.0));
+                    match axis {
+                        Axis::Row => part.flex_row(),
+                        Axis::Column => part.flex_col(),
+                    }
+                    .child(node)
+                };
                 let split = div()
+                    .relative()
                     .flex()
                     .flex_1()
                     .min_w(px(0.0))
                     .min_h(px(0.0))
-                    .gap(px(CARD_GAP));
-                let split = match axis {
+                    // Where the split is, for its seam to know how far the mouse moves it.
+                    .child(self.spot(Spot::Seam(after)));
+                match axis {
                     Axis::Row => split.flex_row(),
                     Axis::Column => split.flex_col(),
-                };
-                split
-                    .child(self.node(first, shown, agents, cx))
-                    .child(self.node(second, shown, agents, cx))
-                    .into_any_element()
+                }
+                .child(part(self.node(first, shown, agents, cx), *ratio))
+                .child(self.seam(after, axis, cx))
+                .child(part(self.node(second, shown, agents, cx), 1.0 - ratio))
+                .into_any_element()
             }
         }
+    }
+
+    /// The seam before the pane `after` in a split along `axis`: taken by the mouse it shares the
+    /// split out, and a line in it lights up under the mouse and while dragged; a double click
+    /// splits it in half again.
+    fn seam(&self, after: PaneId, axis: Axis, cx: &mut Context<Self>) -> Stateful<Div> {
+        let accent = self.fg(|t| t.agents_accent);
+        let group = SharedString::from(format!("seam-{after}"));
+        let held = self.splitting.as_ref().is_some_and(|s| s.after == after);
+        let across = (CARD_GAP - DIVIDER) / 2.0 - 1.0;
+        let line = div().absolute();
+        let line = match axis {
+            Axis::Row => line
+                .top_0()
+                .bottom_0()
+                .left(px(across))
+                .w(px(DIVIDER + 2.0)),
+            Axis::Column => line.left_0().right_0().top(px(across)).h(px(DIVIDER + 2.0)),
+        }
+        .when(held, |line| line.bg(accent))
+        .group_hover(group.clone(), move |style| style.bg(accent));
+        let seam = div()
+            .id(("seam", after as usize))
+            .group(group)
+            .relative()
+            .flex_shrink_0();
+        match axis {
+            Axis::Row => seam.w(px(CARD_GAP)).cursor_col_resize(),
+            Axis::Column => seam.h(px(CARD_GAP)).cursor_row_resize(),
+        }
+        .on_mouse_down(
+            MouseButton::Left,
+            cx.listener(move |this, event: &MouseDownEvent, window, cx| {
+                if event.click_count >= 2 {
+                    this.splitting = None;
+                    if this.workspace.even(after) {
+                        this.save_layout(cx);
+                    }
+                } else {
+                    this.press_seam(after, axis, event.position, window, cx);
+                }
+                cx.notify();
+            }),
+        )
+        .on_drag(SplitDrag, |_, _, _, cx| cx.new(|_| gpui::EmptyView))
+        .child(line)
+    }
+
+    /// A seam was pressed: how far it may go is worked out now, from where its split was painted.
+    fn press_seam(
+        &mut self,
+        after: PaneId,
+        axis: Axis,
+        at: Point<Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let pane = self.least_pane(window, cx);
+        let Some(bounds) = self.spots.borrow().get(&Spot::Seam(after)).copied() else {
+            return;
+        };
+        let Some(Node::Split {
+            ratio,
+            first,
+            second,
+            ..
+        }) = self.workspace.tab().root.split_before(after)
+        else {
+            return;
+        };
+        let (grab, length) = match axis {
+            Axis::Row => (at.x, bounds.size.width),
+            Axis::Column => (at.y, bounds.size.height),
+        };
+        self.splitting = Some(Splitting {
+            after,
+            axis,
+            from: *ratio,
+            grab: f32::from(grab),
+            length: f32::from(length),
+            least: (
+                first.least(axis, pane, CARD_GAP),
+                second.least(axis, pane, CARD_GAP),
+            ),
+        });
+    }
+
+    /// The seam moved: its split follows at once, each part keeping its least size.
+    fn drag_seam(&mut self, at: Point<Pixels>, cx: &mut Context<Self>) {
+        let Some(s) = &self.splitting else {
+            return;
+        };
+        let along = f32::from(match s.axis {
+            Axis::Row => at.x,
+            Axis::Column => at.y,
+        });
+        let wanted = s.from + (along - s.grab) / (s.length - CARD_GAP);
+        let ratio = layout::clamp_ratio(wanted, s.length, CARD_GAP, s.least);
+        if self.workspace.set_ratio(s.after, ratio) {
+            cx.notify();
+        }
+    }
+
+    /// The seam was let go: the split's share is saved with the layout.
+    fn finish_seam(&mut self, cx: &mut Context<Self>) {
+        if self.splitting.take().is_some() {
+            self.save_layout(cx);
+            cx.notify();
+        }
+    }
+
+    /// The least width and height of a split pane's card: 20 columns by 5 rows of the terminal
+    /// font, with the room `pane` leaves around the terminal under a header.
+    fn least_pane(&self, window: &mut Window, cx: &mut Context<Self>) -> (f32, f32) {
+        let ui = UiFont::get(cx);
+        let font_size = self.template.font_size;
+        let text = window.text_system();
+        let cell = text
+            .advance(
+                text.resolve_font(&mono_font(&self.template)),
+                px(font_size),
+                'm',
+            )
+            .map_or(font_size * 0.6, |advance| f32::from(advance.width));
+        let line = (font_size * self.template.line_height).round();
+        // Beside the terminal, the card's 10 and the view's 6 on each side; above and below it,
+        // the header, the card's 6 under it and the view's 6 on each side.
+        (
+            20.0 * cell + 2.0 * (10.0 + 6.0),
+            5.0 * line + ui.scale(PANE_HEADER) + 6.0 + 2.0 * 6.0,
+        )
     }
 
     fn pane(
@@ -4489,7 +4659,7 @@ impl Render for PaddockWindow {
             .right
             .open
             .then(|| self.right.shown(self.right_room(window, cx)));
-        let dragging = self.resizing.is_some() || self.right.resizing();
+        let dragging = self.resizing.is_some() || self.right.resizing() || self.splitting.is_some();
         let seams = across(
             f32::from(window.viewport_size().width),
             self.sidebar_shown(&ui),
@@ -4661,15 +4831,22 @@ impl Render for PaddockWindow {
                     }
                 }),
             )
+            .on_drag_move(
+                cx.listener(|this, event: &DragMoveEvent<SplitDrag>, _, cx| {
+                    this.drag_seam(event.event.position, cx)
+                }),
+            )
             .capture_any_mouse_up(cx.listener(|this, _, _, cx| {
                 this.finish_resize(cx);
                 this.finish_right_resize(cx);
+                this.finish_seam(cx);
             }))
             .on_mouse_up_out(
                 MouseButton::Left,
                 cx.listener(|this, _, _, cx| {
                     this.finish_resize(cx);
                     this.finish_right_resize(cx);
+                    this.finish_seam(cx);
                 }),
             )
             .on_action(cx.listener(|_, _: &menu::Minimize, window, _| window.minimize_window()))
@@ -4707,7 +4884,10 @@ impl Render for PaddockWindow {
                         .absolute()
                         .inset_0()
                         .occlude()
-                        .cursor_col_resize(),
+                        .map(|cover| match self.splitting.as_ref().map(|s| s.axis) {
+                            Some(Axis::Column) => cover.cursor_row_resize(),
+                            _ => cover.cursor_col_resize(),
+                        }),
                 )
             })
             .child(self.place_page(right.is_some(), dragging))
