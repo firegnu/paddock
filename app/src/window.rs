@@ -1358,6 +1358,7 @@ impl PaddockWindow {
             mono: self.template.font_family.clone().into(),
             projects,
             project,
+            names: sidebar.agent_names(),
         }
     }
 

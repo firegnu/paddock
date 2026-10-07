@@ -135,6 +135,8 @@ pub fn bindings() -> Vec<KeyBinding> {
             Some(crate::new_agent_view::CONTEXT),
         ),
         KeyBinding::new("cmd-w", CloseWindow, Some(crate::new_agent_view::CONTEXT)),
+        KeyBinding::new("escape", Cancel, Some(crate::new_agent_view::CONTEXT)),
+        KeyBinding::new("enter", OpenSelected, Some(crate::new_agent_view::FIELD)),
         KeyBinding::new("cmd-l", FocusAddress, Some(BROWSER)),
         KeyBinding::new("cmd-r", ReloadPage, Some(BROWSER)),
     ]

@@ -33,6 +33,8 @@ pub struct Config {
     pub refresh_ms: u64,
     /// The corral program; `--corral` overrides it for one run.
     pub corral: String,
+    /// The New Agent window's presets; `None` (not written) is the default four.
+    pub agent_presets: Option<Vec<crate::new_agent::Preset>>,
 }
 
 impl Default for Config {
@@ -58,6 +60,7 @@ impl Default for Config {
             mascot: crate::pet::Pet::Clawd,
             refresh_ms: 1000,
             corral: "corral".into(),
+            agent_presets: None,
         }
     }
 }
