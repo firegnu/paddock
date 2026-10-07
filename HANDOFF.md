@@ -3,7 +3,7 @@
 ## 现在在哪（2026-10-07 晚）
 
 - main 和 `origin/main`（`github.com/firegnu/paddock`，public）同步。没有进行中的活，没有开着的 worktree；corral 里只有主控 `paddock/main`。本地只有 main 一个分支（Browser 调研原型分支 `p5-13r-browser` 已按用户同意删掉，最后提交 `716afc2`，短期内可从 reflog 找回）。
-- 324 项测试通过，clippy、`cargo fmt --check` 干净。`~/Applications/paddock.app` 是合并 P5-33 之后的版本（含 P5-29b～f Kanban 加强、P5-30 底部提示、P5-31 记住窗口大小、P5-32 活动格子图、P5-33 agent 暂停），已用本机 Apple Development 证书签名。
+- 328 项测试通过，clippy、`cargo fmt --check` 干净。`~/Applications/paddock.app` 是合并 P5-33 之后的版本（含 P5-29b～f Kanban 加强、P5-30 底部提示、P5-31 记住窗口大小、P5-32 活动格子图、P5-33 agent 暂停、P5-33b 暂停状态处处一致），已用本机 Apple Development 证书签名。
 - 重新打包安装：在 `app/` 下 `cargo build --release`，再 `cargo run --release --example bundle -- --install`（编译目录见 AGENTS.md，主仓库用 `.target/main`）。打包默认自动选本机 Apple Development 身份，可用 `PADDOCK_SIGN_IDENTITY` 指定；退回 ad-hoc 时会提示授权会失效。
 - 已合并：第一至第三阶段、迁移 M0–M3（corral、dispatch 在 `../ranch`；遥测、Drover、插件系统已砍）、P4-1～P4-3、P5-1～P5-29（P5-13 做了 13a 外壳、13b／13c Changes；P5-19 磨砂；P5-23r、P5-13r、P5-29r、P5-29r2 是调研；P5-28 做了 28a、28b、28c、28d；P5-29 做了 29a～29f；P5-30～P5-32）。每件的范围、完成记录、主控审查在 `docs/任务/`。
 - 上下文：`AGENTS.md`（规矩，含「开发方式」里的**看板约定**）、`docs/DESIGN.md`（已定决定，§13 是界面改版的全部决定和用户原话）、`docs/背景与决策记录.md`、`docs/设计稿/`、`docs/调研/`。
@@ -31,7 +31,7 @@
 2. **等用户在真窗口里看**：Browser、Kanban（状态推得对不对）、Changes、P5-22 侧栏头部、P5-24a 窄条和名字、P5-24b 着色强度、P5-25 卡片操作图标、P5-26／27 的 9 个图标动效。
 3. **Kanban 加强已做完（10-07）**：P5-29r2 调研后用户选 1a～5a 和 `待用户：` 约定（DESIGN §13 P5-29「基本看板功能」），P5-29b（Needs you、DRAFT、Dropped、两处小修）、P5-29c（New task 小弹框建草稿并打开）已合并安装；9 件老任务已补收尾空提交；P5-28c、P5-28d 已标 `待用户：`。之后用户看真窗口又定了几条：P5-29d（空组变矮变淡、TO REVIEW 显示主控 reviewer 行、DONE 组头 `列出 / 全部` 和 Show all）、P5-30（左侧栏底部提示并到设置图标右边、成功提示 4 秒后淡出）、P5-31（主窗口记住大小，Codex 做，返工一次改成拖动停下 0.5 秒再存），都已合并安装。**等用户在真窗口里看**这几件；没有任务文件的仓库也显示 New task 已做（P5-29e，缺 `docs/任务/` 就先建）；P5-31 的最小尺寸用户确认是自己选的。
 4. **左侧栏活动格子图已做完（P5-32，10-07）**：样稿 A（`docs/设计稿/P5-32-活动格子图/`），今天那格只在前台且有 agent 干活时呼吸（用户选）；另做了 P5-29e（空仓库也能 New task）、P5-29f（待用户 卡片可以自己 Clear，看板第一次提交，只限这一个动作）。都已合并安装，**等用户在真窗口里看**（格子图的动画、悬停卡片、折叠；Clear 的确认）。建议改未排：Kanban 悬停按钮条盖住 Needs you 标记后半截。
-5. **agent 暂停（冻结）已做完（10-07）**：ranch R1 给 corral 加 `pause`／`resume`（冻结 agent 的子孙和会话内进程，逐个确认停住；两轮 Codex 交叉审查；用户接受“冻结那一刻自己另开会话的守护进程会漏”的限制，同意部署次序），用户在场部署（切链接、`corral upgrade --all`、装技能，主控核对无旧版 wait／提醒）；paddock P5-33 接界面（卡片 Paused、卡片和左下角菜单单个 Pause／Resume、侧栏头部铃铛左边一键暂停／继续、暂停的窗格不接受输入并浮 Resume），已合并安装。设计见 DESIGN §13「agent 暂停（冻结）」和 ranch DESIGN §6。**等用户在真窗口里试**（点击、确认、动效、真实冻结和继续）。代价：侧栏最小宽度 224→254（头部多一个按钮）。建议改未排（P5-33 agent 提的，交用户定）：窗格标签点／命令面板／铃铛计数仍按 corral 的 state，暂停中的 idle 标签点还是绿的；活动格子图今天那格在暂停中的 working agent 下仍呼吸。
+5. **agent 暂停（冻结）已做完（10-07）**：ranch R1 给 corral 加 `pause`／`resume`（冻结 agent 的子孙和会话内进程，逐个确认停住；两轮 Codex 交叉审查；用户接受“冻结那一刻自己另开会话的守护进程会漏”的限制，同意部署次序），用户在场部署（切链接、`corral upgrade --all`、装技能，主控核对无旧版 wait／提醒）；paddock P5-33 接界面（卡片 Paused、卡片和左下角菜单单个 Pause／Resume、侧栏头部铃铛左边一键暂停／继续、暂停的窗格不接受输入并浮 Resume），已合并安装。设计见 DESIGN §13「agent 暂停（冻结）」和 ranch DESIGN §6。**等用户在真窗口里试**（点击、确认、动效、真实冻结和继续）。代价：侧栏最小宽度 224→254（头部多一个按钮）。P5-33 agent 提的两件（标签点／命令面板／铃铛按暂停显示、暂停中的 working 不让格子图呼吸）用户 10-07 同意，P5-33b 已做完安装。
 6. 之后：Changes 第二步（行上评论发给 agent、暂存、撤销，另议）、拖动分隔线调整分屏大小、`paddock ctl`；Kanban 能动手的（新建草稿、拖来纠正，用户：排在后面）；Servo 作 Browser 备选（不做）。
 
 ## 悬着
