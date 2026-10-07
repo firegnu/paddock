@@ -15,6 +15,7 @@ use crate::{
     footer_icon::{self, Icon, Pose},
     git, kind_icon,
     motion::{self, Hover, HoverMotion},
+    reduce_motion,
     theme::Theme,
     view::hsla,
     viewer::AgentMetadata,
@@ -26,7 +27,11 @@ use gpui::{
     MouseDownEvent, Pixels, Render, RenderOnce, Rgba, SharedString, StyledText, TextRun,
     Transformation, Window, div, ease_in_out, percentage, point, prelude::*, px, relative, svg,
 };
-use std::{rc::Rc, sync::Arc, time::Duration};
+use std::{
+    rc::Rc,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 /// What the sidebar asks of the window.
 pub enum SidebarEvent {
@@ -147,6 +152,9 @@ const BUTTON_ICON: f32 = 17.0;
 /// The menu button's left edge, unscaled: in line with the cards' avatars, past the list's side, a
 /// card's edge and its padding.
 const BUTTON_LEFT: f32 = PAD + 1.0 + CARD_LEFT;
+/// How long a note of a start or stop that went well stays whole, and then how long it fades.
+const NOTE_HOLD: Duration = Duration::from_secs(4);
+const NOTE_FADE: Duration = Duration::from_millis(600);
 /// A card's icon buttons, Copy and Stop…, and their corners.
 const CARD_BUTTON: f32 = 24.0;
 const CARD_BUTTON_RADIUS: f32 = 7.0;
@@ -362,8 +370,8 @@ pub struct Sidebar {
     here: Vec<String>,
     /// Written `~` in directories.
     home: Option<String>,
-    /// The result of the last start or stop, and whether it is a problem.
-    note: Option<(String, bool)>,
+    /// The result of the last start or stop, until it fades.
+    note: Option<Note>,
     /// Collapsed to the narrow strip.
     collapsed: bool,
     /// The menu of actions is open: its button stays lit.
@@ -471,9 +479,22 @@ impl Sidebar {
         }
     }
 
-    /// A line above the footer about the last start or stop.
+    /// A line beside the footer's button about the last start or stop, in place of the one
+    /// before. One that went well fades after a few seconds; a problem stays.
     pub fn note(&mut self, text: String, problem: bool, cx: &mut Context<Self>) {
-        self.note = Some((text, problem));
+        self.note = Some(Note::new(
+            text,
+            problem,
+            Instant::now(),
+            reduce_motion::on(),
+        ));
+        if !problem {
+            cx.spawn(async move |this, cx| {
+                cx.background_executor().timer(NOTE_HOLD).await;
+                this.update(cx, |_, cx| cx.notify()).ok();
+            })
+            .detach();
+        }
         cx.notify();
     }
 
@@ -1026,7 +1047,15 @@ impl Render for Sidebar {
         let grounds = self.grounds();
         let fg = |pick: Pick| hsla(theme.fg(pick), 1.0);
         let now = now();
-        let lines = {
+        // The note while it shows, drawn again each frame as it fades and dropped once gone.
+        let instant = Instant::now();
+        let shown = self.note.as_ref().and_then(|note| note.opacity(instant));
+        if shown.is_none() {
+            self.note = None;
+        } else if self.note.as_ref().is_some_and(|note| note.fading(instant)) {
+            window.request_animation_frame();
+        }
+        let (lines, note) = {
             // Measured in the interface font: GPUI's own ellipsis misjudges text that shares a
             // row, so every one-line text of a card is cut here to the room it has, and never
             // wraps. Only the preview wraps, and GPUI cuts it, alone on its lines.
@@ -1131,7 +1160,12 @@ impl Render for Sidebar {
                         Some(card::elide(instance, &|id| mono(id) <= room - buttons));
                 }
             }
-            lines
+            // The note beside the footer's button, in line with the words beside the avatars.
+            let note = self.note.as_ref().zip(shown).map(|(note, opacity)| {
+                let text = card::elide(&note.text, &|cut| normal(cut, NOTE_SIZE) <= room);
+                (text, note.problem, opacity)
+            });
+            (lines, note)
         };
         let agents = lines
             .iter()
@@ -1264,26 +1298,29 @@ impl Render for Sidebar {
             });
         }
 
+        let note = note.map(|(text, problem, opacity)| {
+            div()
+                .min_w(px(0.0))
+                .ml(ui.px(AVATAR + AVATAR_GAP - BUTTON))
+                .whitespace_nowrap()
+                .overflow_hidden()
+                .text_size(ui.px(NOTE_SIZE))
+                .text_color(if problem {
+                    fg(|t| t.agents_red)
+                } else {
+                    fg(|t| t.agents_dim)
+                })
+                .opacity(opacity)
+                .child(text)
+        });
         let footer = div()
             .flex_shrink_0()
             .h(ui.px(FOOTER))
             .flex()
             .items_center()
             .pl(px(BUTTON_LEFT))
-            .child(self.actions_button(cx));
-        let note = self.note.as_ref().map(|(text, problem)| {
-            div()
-                .flex_shrink_0()
-                .px(px(18.0))
-                .pt(px(6.0))
-                .text_size(ui.px(NOTE_SIZE))
-                .text_color(if *problem {
-                    fg(|t| t.agents_red)
-                } else {
-                    fg(|t| t.agents_dim)
-                })
-                .child(text.clone())
-        });
+            .child(self.actions_button(cx))
+            .children(note);
 
         div()
             .flex_shrink_0()
@@ -1294,9 +1331,52 @@ impl Render for Sidebar {
             // Closer than GPUI's default, as in the design.
             .line_height(relative(1.3))
             .child(list)
-            .children(note)
             .child(footer)
             .into_any_element()
+    }
+}
+
+/// The footer's note about the last start or stop.
+struct Note {
+    text: String,
+    /// A problem: it stays, in red, until the next note.
+    problem: bool,
+    /// When it came.
+    at: Instant,
+    /// The system's Reduce Motion then: it goes at once rather than fading.
+    still: bool,
+}
+
+impl Note {
+    fn new(text: String, problem: bool, at: Instant, still: bool) -> Self {
+        Self {
+            text,
+            problem,
+            at,
+            still,
+        }
+    }
+
+    /// How much of it shows `now`: all of it while it holds, less as it fades, `None` once gone.
+    fn opacity(&self, now: Instant) -> Option<f32> {
+        if self.problem {
+            return Some(1.0);
+        }
+        let Some(fading) = now
+            .saturating_duration_since(self.at)
+            .checked_sub(NOTE_HOLD)
+        else {
+            return Some(1.0);
+        };
+        if self.still || fading >= NOTE_FADE {
+            return None;
+        }
+        Some(1.0 - fading.as_secs_f32() / NOTE_FADE.as_secs_f32())
+    }
+
+    /// Whether it is fading `now`, and needs drawing every frame.
+    fn fading(&self, now: Instant) -> bool {
+        !self.problem && now >= self.at + NOTE_HOLD && self.opacity(now).is_some()
     }
 }
 
@@ -2376,6 +2456,33 @@ mod tests {
                 Line::Agent(card) => format!("{} {}", card.short, card.look.label),
             })
             .collect()
+    }
+
+    #[test]
+    fn notes_that_went_well_fade_and_problems_stay() {
+        let start = Instant::now();
+        let secs = |s: f64| start + Duration::from_millis((s * 1000.0).round() as u64);
+        let started = Note::new("Started a".into(), false, start, false);
+        // Whole for the hold, then fading, then gone.
+        assert_eq!(started.opacity(secs(3.9)), Some(1.0));
+        assert!(!started.fading(secs(3.9)));
+        let half = started.opacity(secs(4.3)).unwrap();
+        assert!(half > 0.0 && half < 1.0, "{half}");
+        assert!(started.fading(secs(4.3)));
+        assert_eq!(started.opacity(secs(4.6)), None);
+        assert!(!started.fading(secs(4.6)));
+        // With Reduce Motion it goes at once when the hold ends.
+        let still = Note::new("Stopped a".into(), false, start, true);
+        assert_eq!(still.opacity(secs(3.9)), Some(1.0));
+        assert_eq!(still.opacity(secs(4.0)), None);
+        // A problem stays until the next note replaces it.
+        let failed = Note::new("no such agent".into(), true, start, false);
+        assert_eq!(failed.opacity(secs(600.0)), Some(1.0));
+        assert!(!failed.fading(secs(600.0)));
+        // A new note counts from when it came: still whole after the first one has gone.
+        let next = Note::new("Stopping a…".into(), false, secs(3.0), false);
+        assert_eq!(next.opacity(secs(5.0)), Some(1.0));
+        assert_eq!(next.opacity(secs(7.6)), None);
     }
 
     #[test]
