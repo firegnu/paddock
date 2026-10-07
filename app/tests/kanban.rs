@@ -366,7 +366,8 @@ fn quiet_states_without_a_board() {
     assert_eq!(
         read_at(&repo),
         Read::NoTasks {
-            name: "repo".into()
+            name: "repo".into(),
+            repo: repo.clone(),
         }
     );
     // Files that are not tasks do not make a board.
@@ -374,7 +375,8 @@ fn quiet_states_without_a_board() {
     assert_eq!(
         read_at(&repo),
         Read::NoTasks {
-            name: "repo".into()
+            name: "repo".into(),
+            repo: repo.clone(),
         }
     );
 }
@@ -572,4 +574,63 @@ fn a_new_draft_is_written_once_and_never_over_a_taken_id() {
         fs::read_to_string(&path).unwrap(),
         "# 任务：Kanban: 新建/草稿\n\n## 用户原话\n"
     );
+}
+
+#[test]
+fn a_new_draft_makes_the_missing_task_folder_but_never_over_a_file() {
+    use paddock::kanban::{create_draft, next_id, taken};
+    let temp = common::tempdir();
+    let cancel = AtomicBool::new(false);
+    let status = |dir: &Path| {
+        let out = Command::new("git")
+            .args(["-c", "core.quotePath=false", "status", "--porcelain"])
+            .arg("--untracked-files=all")
+            .current_dir(dir)
+            .output()
+            .unwrap();
+        String::from_utf8(out.stdout).unwrap()
+    };
+
+    // No docs/ at all: no id to offer, and the folders are made for the draft.
+    let repo = temp.path().join("bare");
+    fs::create_dir_all(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    commit(&repo, "README.md", "x\n", "start");
+    let ids = taken("git", &repo, &cancel).unwrap();
+    assert!(ids.is_empty());
+    assert_eq!(next_id(ids.keys().map(String::as_str)), None);
+    let path = create_draft("git", &repo, "P1-1", "第一件", &cancel).unwrap();
+    assert_eq!(path, repo.join("docs/任务/P1-1-第一件.md"));
+    assert_eq!(
+        fs::read_to_string(&path).unwrap(),
+        "# 任务：第一件\n\n## 用户原话\n"
+    );
+    assert_eq!(status(&repo), "?? docs/任务/P1-1-第一件.md\n");
+    // The draft alone makes a board now.
+    assert!(matches!(
+        read("git", repo.to_str().unwrap(), &cache(), &cancel),
+        Read::Board(_)
+    ));
+
+    // docs/ there, docs/任务 a plain file: refused and said so, the file left as it was.
+    let repo = temp.path().join("file");
+    fs::create_dir_all(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    commit(&repo, "docs/任务", "不是目录\n", "start");
+    let refused = create_draft("git", &repo, "P1-1", "x", &cancel).unwrap_err();
+    assert_eq!(refused.to_string(), "docs/任务 is a file, not a folder");
+    assert_eq!(
+        fs::read_to_string(repo.join("docs/任务")).unwrap(),
+        "不是目录\n"
+    );
+    assert_eq!(status(&repo), "");
+
+    // docs a plain file: the same, naming docs.
+    let repo = temp.path().join("docs-file");
+    fs::create_dir_all(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    commit(&repo, "docs", "x\n", "start");
+    let refused = create_draft("git", &repo, "P1-1", "x", &cancel).unwrap_err();
+    assert_eq!(refused.to_string(), "docs is a file, not a folder");
+    assert_eq!(fs::read_to_string(repo.join("docs")).unwrap(), "x\n");
 }

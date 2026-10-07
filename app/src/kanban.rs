@@ -357,9 +357,10 @@ pub enum Read {
     NoMain {
         name: String,
     },
-    /// Main has no task files.
+    /// Main has no task files; `repo` is the main worktree, where New task writes the first.
     NoTasks {
         name: String,
+        repo: PathBuf,
     },
     Board(Box<Facts>),
     /// Git could not be run or failed.
@@ -489,7 +490,7 @@ pub fn read(program: &str, cwd: &str, cache: &Cache, cancel: &AtomicBool) -> Rea
         return if cancel.load(Ordering::Relaxed) {
             Read::Failed
         } else {
-            Read::NoTasks { name }
+            Read::NoTasks { name, repo }
         };
     }
     tasks.sort_by(|a, b| natural(&a.id, &b.id).then_with(|| a.file.cmp(&b.file)));
@@ -824,6 +825,8 @@ pub enum Refused {
     NoTitle,
     Taken(String, Place),
     Exists(String),
+    /// A file where a folder of `docs/任务` should be, as a path under the repository.
+    NotFolder(String),
     NoGit,
     Write(String),
 }
@@ -838,6 +841,7 @@ impl std::fmt::Display for Refused {
                 write!(f, "{id} is already in the main worktree")
             }
             Refused::Exists(file) => write!(f, "{file} already exists"),
+            Refused::NotFolder(path) => write!(f, "{path} is a file, not a folder"),
             Refused::NoGit => write!(f, "Git couldn't be read, so nothing was created"),
             Refused::Write(why) => write!(f, "Couldn't write the file: {why}"),
         }
@@ -847,7 +851,8 @@ impl std::fmt::Display for Refused {
 /// Writes a new task file for `id` and `title` in the main worktree `repo`'s `docs/任务/`, holding
 /// only [`draft_text`]: not added to Git, and never over a file that is there. Refused for an id
 /// [`task_id`] would not read whole, an empty title, or an id that a task file has on any local
-/// branch or in the main worktree. The new file's path.
+/// branch or in the main worktree. The folders of `docs/任务` that are missing are made first; a
+/// file in their place is refused. The new file's path.
 pub fn create_draft(
     program: &str,
     repo: &Path,
@@ -871,6 +876,19 @@ pub fn create_draft(
     let ids = taken(program, repo, cancel).ok_or(Refused::NoGit)?;
     if let Some(place) = ids.get(id) {
         return Err(Refused::Taken(id.to_owned(), place.clone()));
+    }
+    // Only the missing levels, one at a time, so a file in the way is told by its path.
+    let mut dir = repo.to_path_buf();
+    for part in TASKS.split('/') {
+        dir.push(part);
+        match std::fs::metadata(&dir) {
+            Ok(meta) if meta.is_dir() => {}
+            Ok(_) => {
+                let at = dir.strip_prefix(repo).unwrap_or(&dir);
+                return Err(Refused::NotFolder(at.display().to_string()));
+            }
+            Err(_) => std::fs::create_dir(&dir).map_err(|e| Refused::Write(e.to_string()))?,
+        }
     }
     let file = draft_file(id, title);
     let path = repo.join(TASKS).join(&file);
