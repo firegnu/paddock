@@ -89,3 +89,11 @@
   - 仓库有 main 但还没有任何任务文件（看板显示 “No task files”）时没有顶部一行，所以也没有 New task；要的话再定。
   - 建完不立即重读看板，等下一轮（≤3 秒）。
   - 截图专用的程序编在 `.target/p5-29c-kanban/shot`（在本 worktree 的编译子目录下），清 worktree 时会一起删掉。
+
+## 主控审查
+
+- diff 只动 `kanban.rs`、`kanban_view.rs`、`window.rs`、`tests/kanban.rs` 和本文件；`tests/kanban.rs` 不在“可以改”里，但只是加测试，认可。`git diff --check` 干净。
+- 核对写文件：`create_draft` 先查编号格式、标题、main／工作区／所有本地分支有无同编号，再用 `create_new` 新建，已存在就失败，不会覆盖；不暂存、不提交。查撞号只用只读 git 命令。
+- 主控重跑 `cargo test --all-targets`（共 283 项通过）、clippy `-D warnings`、`cargo fmt --check`，都过。看了 Lagoon 13 的弹框截图，和用户选的样子一致。
+- 取舍：预填编号取最高系列加一（现在是 `P5-30`），同意；标题会被读成编号一部分时文件名只写编号，同意。
+- 待用户定（不挡合并）：还没有任务文件的仓库看不到 New task。主控倾向加上，方便新项目建第一张卡，等用户答。
