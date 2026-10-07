@@ -132,6 +132,7 @@ paddock 与 Saddle 在代码上完全分开：用到的 Saddle 代码迁入 padd
 2. 生产用 GPUI 依赖渠道：固定官方仓库提交，还是继续 `gpui-pre` 快照。
 3. pre-1.0 的 GPUI 是否符合“只用成熟、活跃维护的库”；是否接受工具链跟随最新稳定版 Rust。
 4. ~~迁移路线~~：已定为全部用 GPUI 重做（10-05）。仍待定：是否引入 gpui-component；首期是否只做 macOS。
+   - 组件库（用户 10-07 看到 Ely，问是否用；主控评估后用户：“记一笔吧”）：**暂不引入**。看过两家：Longbridge 的 gpui-component；Ely（github.com/ZacharyZhang-NY/Ely-GPUI-Components，MIT，2026-09-30 建，0.1.1、未发 crates.io，依赖 Zed 提交 `1a28cff` 的 GPUI）。原因：一个程序里只能有一份 GPUI，用它就得把 paddock 从固定的 `gpui-pre =0.3.8`（Zed `279fe07`）整体换到它的版本；Ely 刚一周、接口还在大改；依赖重且与现有做法重叠（`wry` 对 `WKWebView`、老 `objc` 对 `objc2`）；paddock 需要的组件已自己写好、按设计稿调过。可以参考它的代码（MIT，借用要注明出处），以后它稳定（发到 crates.io、接口不再大改）且 paddock 正好要升级 GPUI 时再评估。
 5. ~~插件界面~~：插件系统已取消（用户 10-05）。
 6. ~~paddock 与 Saddle TUI 同时运行时 Drover 的持有权~~：已定由 paddock 持有（§3 第 8 步，全部切换后）。布局文件各用各的（§12 P3-9）。
 7. 许可（paddock 和 Saddle 都还没有）、应用名与标识、签名公证，以及何时建远程仓库。Clawd 是 Claude Code 的吉祥物形象：用户 10-05 选定公开仓库照原样带着它（“照原样公开”）；猫和卡皮巴拉是 Saddle 原创。远程仓库已建（10-05，`github.com/firegnu/paddock`，public）；不加许可证（用户 10-05：“不加许可证。”），即保留所有权利。
