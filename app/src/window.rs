@@ -24,6 +24,7 @@ use crate::{
     motion::{self, HoverMotion},
     new_agent::{self, Place, Started},
     new_agent_view::Seed,
+    pause,
     pet::PetView,
     popover::{self, Hang, Placed, Tone},
     right_panel::{self, RightPanel, Room, Tab as RightTab},
@@ -404,6 +405,8 @@ const DIVIDER: f32 = 1.0;
 const GRIP: f32 = 3.0;
 /// What the dimmed panes are covered with: the terminal's background, this opaque.
 const DIM: f32 = 0.42;
+/// How far down a paused agent's pane its Paused panel hangs, as a share of the pane.
+const PAUSED_AT: f32 = 0.58;
 /// A split pane's header, its buttons, and the room after the last.
 const PANE_HEADER: f32 = 34.0;
 const PANE_BUTTON: f32 = 28.0;
@@ -1262,11 +1265,13 @@ impl PaddockWindow {
             }
             SidebarEvent::ToggleCollapse => self.toggle_sidebar(cx),
             SidebarEvent::Stop(name) => self.stop_agent(Some(name.clone()), window, cx),
+            SidebarEvent::Pause(request) => self.pause_agents(request.clone(), window, cx),
             SidebarEvent::Alive(names) => {
                 let names: Vec<&str> = names.iter().map(String::as_str).collect();
                 for view in self.panes.values() {
                     view.update(cx, |v, _| v.disappeared(&names));
                 }
+                self.sync_paused(cx);
             }
             SidebarEvent::ActivityFolded(folded) => {
                 self.activity_folded = *folded;
@@ -1442,6 +1447,130 @@ impl PaddockWindow {
             });
         })
         .detach();
+    }
+
+    /// Pauses or resumes the agents with corral in the background, first asking when the request
+    /// says, and says in the footer how it went; the list is read again at once.
+    fn pause_agents(
+        &mut self,
+        request: pause::Request,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let pause::Request { names, pause, ask } = request;
+        if names.is_empty() || self.asking {
+            return;
+        }
+        let answer = ask.map(|ask| {
+            self.asking = true;
+            window.prompt(PromptLevel::Warning, &ask, None, &["Pause", "Cancel"], cx)
+        });
+        let corral = self.template.corral.clone();
+        cx.spawn_in(window, async move |this, cx| {
+            if let Some(answer) = answer {
+                let go = matches!(answer.await, Ok(0));
+                let _ = this.update(cx, |this, _| this.asking = false);
+                if !go {
+                    return;
+                }
+            }
+            let _ = this.update(cx, |this, cx| {
+                this.sidebar.update(cx, |sidebar, cx| {
+                    sidebar.note(pause::doing(&names, pause), false, cx)
+                })
+            });
+            let results = {
+                let names = names.clone();
+                cx.background_spawn(async move { pause::run(&corral, &names, pause) })
+                    .await
+            };
+            let _ = this.update(cx, |this, cx| {
+                this.sidebar.update(cx, |sidebar, cx| {
+                    let (text, problem) = pause::summary(&results, pause);
+                    sidebar.note(text, problem, cx);
+                    sidebar.refresh();
+                })
+            });
+        })
+        .detach();
+    }
+
+    /// The menu's Pause or Resume for the active pane's agent; pausing one in a turn asks first.
+    fn pause_active(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(name) = self.workspace.active_agent().map(str::to_owned) else {
+            return;
+        };
+        let agents = self.sidebar.read(cx).agents();
+        let agent = agents.iter().find(|a| a.name == name);
+        let pause = !agent.is_some_and(|a| a.paused);
+        let working = agent.is_some_and(|a| a.state.as_deref() == Some("working"));
+        let names = vec![name];
+        let ask = if pause && working {
+            pause::question(&agents, &names)
+        } else {
+            None
+        };
+        self.pause_agents(pause::Request { names, pause, ask }, window, cx);
+    }
+
+    /// Over a paused agent's pane, a little below the middle: that it is paused, and Resume. The
+    /// rest of the pane still takes the mouse, to select and scroll back.
+    fn paused_overlay(&self, pane: PaneId, cx: &mut Context<Self>) -> Option<Div> {
+        let view = self.panes[&pane].read(cx);
+        if !view.paused() {
+            return None;
+        }
+        let name = view.target()?.to_owned();
+        let ui = UiFont::get(cx);
+        let theme = &*self.theme;
+        let on_resume = cx.listener(move |this, _: &ClickEvent, window, cx| {
+            let request = pause::Request {
+                names: vec![name.clone()],
+                pause: false,
+                ask: None,
+            };
+            this.pause_agents(request, window, cx)
+        });
+        let accent = self.fg(|t| t.agents_accent);
+        let panel = popover::panel(theme, &ui)
+            .id(("paused", pane as usize))
+            .occlude()
+            .flex_row()
+            .items_center()
+            .gap(ui.px(10.0))
+            .pl(ui.px(12.0))
+            .child(footer_icon::icon(
+                Icon::Pause,
+                self.fg(|t| t.agents_dim),
+                ui.scale(1.0),
+            ))
+            .child(div().font_weight(FontWeight::SEMIBOLD).child("Paused"))
+            .child(
+                div()
+                    .id(("resume", pane as usize))
+                    .h(ui.px(26.0))
+                    .px(ui.px(12.0))
+                    .flex()
+                    .items_center()
+                    .rounded(ui.px(6.0))
+                    .bg(accent)
+                    .text_color(hsla(theme.bg(|t| t.agents_bg), 1.0))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .cursor_pointer()
+                    .hover(|style| style.opacity(0.9))
+                    .child("Resume")
+                    .on_click(on_resume),
+            );
+        Some(
+            div()
+                .absolute()
+                .inset_0()
+                .flex()
+                .flex_col()
+                .items_center()
+                .child(div().h(relative(PAUSED_AT)))
+                .child(panel),
+        )
     }
 
     /// The colours in use, for the Settings and About windows.
@@ -1683,8 +1812,34 @@ impl PaddockWindow {
     }
 
     fn attach(&self, pane: PaneId, name: &str, metadata: AgentMetadata, cx: &mut Context<Self>) {
+        let paused = self.sidebar.read(cx).paused(name);
         let name = name.to_owned();
-        self.panes[&pane].update(cx, |v, cx| v.attach(name, metadata, cx));
+        self.panes[&pane].update(cx, |v, cx| {
+            v.attach(name, metadata, cx);
+            v.set_paused(paused, cx);
+        });
+    }
+
+    /// Tells each pane whether its agent is paused, as corral last said: a paused one takes no
+    /// input and offers Resume.
+    fn sync_paused(&mut self, cx: &mut Context<Self>) {
+        let sidebar = self.sidebar.read(cx);
+        let changes: Vec<(Entity<TerminalView>, bool)> = self
+            .panes
+            .values()
+            .filter_map(|view| {
+                let pane = view.read(cx);
+                let paused = pane.target().is_some_and(|name| sidebar.paused(name));
+                (paused != pane.paused()).then(|| (view.clone(), paused))
+            })
+            .collect();
+        if changes.is_empty() {
+            return;
+        }
+        for (view, paused) in changes {
+            view.update(cx, |v, cx| v.set_paused(paused, cx));
+        }
+        cx.notify();
     }
 
     /// A choice from the new tab or split panel. An agent already open elsewhere moves here.
@@ -2645,6 +2800,7 @@ impl PaddockWindow {
                     .px(px(side))
                     .child(self.panes[&pane].clone()),
             )
+            .children(self.paused_overlay(pane, cx))
             .child(self.spot(Spot::Pane(pane)))
             // A veil rather than a frame, rounded as the card: it takes no clicks, so they reach the
             // terminal.
@@ -3028,13 +3184,18 @@ impl PaddockWindow {
     }
 
     /// The sidebar's menu of actions, opening upward from its button: new agent and shell, the
-    /// list's order and folding, stopping the active pane's agent, and Settings. Choosing closes
-    /// it, as do Esc and a click outside.
+    /// list's order and folding, pausing (or resuming) and stopping the active pane's agent, and
+    /// Settings. Choosing closes it, as do Esc and a click outside.
     fn actions_menu(&self, cx: &mut Context<Self>) -> Stateful<Div> {
         let ui = UiFont::get(cx);
         let theme = &*self.theme;
         let (fold, by_name) = self.sidebar.read(cx).view_state();
         let (stop, can_stop) = sidebar::stop_item(self.workspace.active_agent());
+        let paused = self
+            .workspace
+            .active_agent()
+            .is_some_and(|name| self.sidebar.read(cx).paused(name));
+        let (pause, can_pause) = sidebar::pause_item(self.workspace.active_agent(), paused);
         let keys = |action: &dyn gpui::Action| popover::keys(theme, &ui, &menu::keys(action));
         let sort = |this: &mut Self, by_name: bool, window: &mut Window, cx: &mut Context<Self>| {
             this.close_popup(window, cx);
@@ -3052,6 +3213,20 @@ impl PaddockWindow {
             stop = stop.on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                 this.close_popup(window, cx);
                 this.stop_agent(None, window, cx);
+            }));
+        }
+        let mut pause = popover::row(
+            theme,
+            &ui,
+            "menu-pause",
+            if paused { Icon::Resume } else { Icon::Pause },
+            pause,
+            if can_pause { Tone::Plain } else { Tone::Off },
+        );
+        if can_pause {
+            pause = pause.on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                this.close_popup(window, cx);
+                this.pause_active(window, cx);
             }));
         }
         let (left, bottom) = sidebar::menu_anchor(self.collapsed, &ui);
@@ -3127,6 +3302,7 @@ impl PaddockWindow {
                 })),
             )
             .child(popover::rule(theme, &ui))
+            .child(pause)
             .child(stop)
             .child(popover::rule(theme, &ui))
             .child(

@@ -102,3 +102,80 @@ esac
     assert!(viewer.showing.is_none());
     assert!(!events().contains("stop "));
 }
+
+#[test]
+fn a_paused_agent_gets_no_input_and_none_is_kept_for_later() {
+    let temp = common::tempdir();
+    let program = common::script(
+        temp.path(),
+        "corral",
+        r#"#!/bin/sh
+root=$(dirname "$0")
+case "$1" in
+  attach)
+    stty raw -echo
+    printf READY
+    exec cat > "$root/typed"
+    ;;
+  *) echo '{"ok":false,"error":"unexpected_command"}'; exit 1 ;;
+esac
+"#,
+    );
+    let size = Size { rows: 10, cols: 40 };
+    let mut viewer = Viewer::new(program);
+    viewer.select("p/a".into()).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(3);
+    let ready = |viewer: &Viewer| {
+        viewer.session.as_ref().is_some_and(|session| {
+            let screen = session.screen.lock().unwrap();
+            let text: String = screen.term.grid().display_iter().map(|c| c.c).collect();
+            text.contains("READY")
+        })
+    };
+    while viewer.showing.as_deref() != Some("p/a") || !ready(&viewer) {
+        assert!(Instant::now() < deadline);
+        viewer.tick(size).unwrap();
+        thread::sleep(Duration::from_millis(10));
+    }
+    // Paused: what is typed goes nowhere.
+    viewer.paused = true;
+    assert!(!viewer.send(b"lost".to_vec()).unwrap());
+    // Resumed: typing reaches the agent again, and nothing typed while paused comes with it.
+    viewer.paused = false;
+    assert!(viewer.send(b"kept".to_vec()).unwrap());
+    let typed = temp.path().join("typed");
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while std::fs::read_to_string(&typed).unwrap_or_default() != "kept" {
+        assert!(
+            Instant::now() < deadline,
+            "{:?}",
+            std::fs::read_to_string(&typed)
+        );
+        thread::sleep(Duration::from_millis(10));
+    }
+}
+
+#[test]
+fn input_flows_again_once_the_pane_shows_something_else() {
+    use paddock::viewer::Shell;
+    let mut viewer = Viewer::new("unused".into());
+    viewer.select("p/a".into()).unwrap();
+    viewer.paused = true;
+    // Choosing it again keeps it paused; another agent, a shell or nothing takes input.
+    viewer.select("p/a".into()).unwrap();
+    assert!(viewer.paused);
+    viewer.select("p/b".into()).unwrap();
+    assert!(!viewer.paused);
+    viewer.paused = true;
+    viewer.start_shell(Shell {
+        program: "/bin/sh".into(),
+        cwd: "/".into(),
+        state: "starting",
+        exit_code: None,
+        env: Vec::new(),
+    });
+    assert!(!viewer.paused);
+    viewer.paused = true;
+    viewer.close().unwrap();
+    assert!(!viewer.paused);
+}

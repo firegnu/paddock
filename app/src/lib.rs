@@ -38,6 +38,7 @@ pub mod motion;
 pub mod new_agent;
 pub mod new_agent_view;
 pub mod palette;
+pub mod pause;
 pub mod pet;
 pub mod popover;
 pub mod preset;

@@ -31,6 +31,7 @@ pub fn look(status: Status) -> Look {
         Status::Starting => ("Starting", |t| t.agent_starting),
         Status::Unknown => ("Unknown", |t| t.agents_dim),
         Status::Idle => ("Idle", |t| t.agents_green),
+        Status::Paused => ("Paused", |t| t.agents_dim),
         Status::Exited => ("Exited", |t| t.agents_red),
     };
     Look {
@@ -257,6 +258,7 @@ fn preview(
                 .map(Preview::Reply);
         }
         Status::Starting => ("Starting…".to_owned(), Tone::Quiet),
+        Status::Paused => ("Paused".to_owned(), Tone::Quiet),
         Status::Waiting => match title {
             Some(title) => (format!("Waiting for you: {title}"), Tone::Waiting),
             None => ("Waiting for you".to_owned(), Tone::Waiting),
@@ -483,6 +485,7 @@ fn details(
     if let Some(origin) = origin {
         let label = match status {
             Status::Idle => "Idle for",
+            Status::Paused => "Paused for",
             Status::Waiting => "Waiting for",
             _ => "This turn",
         };
@@ -560,6 +563,10 @@ pub struct Card {
     pub details: Details,
     pub instance: Option<String>,
     pub cwd: Option<String>,
+    /// Paused by corral, whatever the status shows: its button resumes it.
+    pub paused: bool,
+    /// In a turn, as corral says: pausing it from the card asks first.
+    pub working: bool,
 }
 
 /// Keeps the name readable on a tight first line: while `room(card)` leaves the name less than
@@ -605,6 +612,7 @@ fn bar_rank(status: Status) -> u8 {
         Status::Working => 1,
         Status::Stalled => 2,
         Status::Idle => 4,
+        Status::Paused => 5,
         _ => 3,
     }
 }
@@ -631,7 +639,7 @@ pub fn lines(
             let mut bar: Vec<Status> = ordered[index..]
                 .iter()
                 .take_while(|agent| group(&agent.name) == prefix)
-                .map(|agent| panel.status(agent, now))
+                .map(|agent| panel.shown(agent, now))
                 .collect();
             bar.sort_by_key(|status| bar_rank(*status));
             let title = if prefix.is_empty() { "agents/" } else { prefix };
@@ -654,7 +662,7 @@ fn card(
     home: Option<&str>,
     now: f64,
 ) -> Card {
-    let status = panel.status(a, now);
+    let status = panel.shown(a, now);
     let look = look(status);
     let short = a.name.strip_prefix(prefix).unwrap_or(&a.name).to_owned();
     let origin = match status {
@@ -662,6 +670,7 @@ fn card(
             a.turn_started
         }
         Status::Idle | Status::Waiting => a.state_started,
+        Status::Paused => a.paused_at,
         _ => None,
     };
     let git = a.cwd.as_ref().and_then(|cwd| panel.git.get(cwd));
@@ -698,6 +707,8 @@ fn card(
         short,
         instance: a.instance.clone(),
         cwd: a.cwd.clone(),
+        paused: a.paused,
+        working: a.state.as_deref() == Some("working"),
     }
 }
 
@@ -850,6 +861,77 @@ mod tests {
                 ahead: 0,
             }
         );
+    }
+
+    #[test]
+    fn paused_cards_say_so_and_sort_after_the_idle() {
+        let paused = |a: Agent| Agent {
+            paused: true,
+            paused_at: Some(55.0),
+            ..a
+        };
+        let panel = panel(vec![
+            paused(Agent {
+                last_tool: Some("Bash".into()),
+                turn_started: Some(10.0),
+                ..agent("p/busy", "working")
+            }),
+            paused(agent("p/asking", "blocked")),
+            agent("p/idle", "idle"),
+            agent("p/work", "working"),
+            paused(agent("p/gone", "exited")),
+            paused(Agent {
+                error: Some("status failed".into()),
+                ..agent("p/broken", "idle")
+            }),
+        ]);
+        let lines = lines(&panel, None, None, &[], None, 100.0);
+        let shown: Vec<(&str, &str)> = cards(&lines)
+            .iter()
+            .map(|c| (c.short.as_str(), c.look.label))
+            .collect();
+        // In place of what it was doing; an error or an exit still says so.
+        assert_eq!(
+            shown,
+            [
+                ("broken", "Error"),
+                ("work", "Working"),
+                ("idle", "Idle"),
+                ("asking", "Paused"),
+                ("busy", "Paused"),
+                ("gone", "Exited"),
+            ]
+        );
+        let cards = cards(&lines);
+        let busy = cards.iter().find(|c| c.short == "busy").unwrap();
+        assert_eq!(
+            busy.preview,
+            Some(Preview::Note("Paused".into(), Tone::Quiet))
+        );
+        assert!(!busy.look.breathing);
+        // How long it has been paused, in the dim default.
+        assert_eq!(busy.time, "45s");
+        assert!(busy.time_color.is_none());
+        assert_eq!(busy.details.cells[0].value, "Paused");
+        assert_eq!(busy.details.cells[2].label, "Paused for");
+        // The group's bar puts them after the idle.
+        let Line::Group(_, _, bar) = &lines[0] else {
+            panic!()
+        };
+        assert_eq!(
+            bar,
+            &[
+                Status::Working,
+                Status::Error,
+                Status::Exited,
+                Status::Idle,
+                Status::Paused,
+                Status::Paused
+            ]
+        );
+        // Everything else reads the state as corral gives it.
+        let busy = panel.agents.iter().find(|a| a.name == "p/busy").unwrap();
+        assert_eq!(panel.status(busy, 100.0), Status::Working);
     }
 
     fn place(dir: &str, branch: Option<&str>) -> Place {

@@ -2,10 +2,11 @@
 //! swings, a card's Copy nudges and shows a tick once clicked, its Stop presses in and reddens, the
 //! menu button's knobs slide. The title bar's way in to things too (P5-27): a sidebar switch's
 //! edge slides the way its click goes, the new tab `+` turns, Split parts, Search's magnifier
-//! tilts. A motion plays once as the pointer comes in, never loops, and asks for no frames once it
-//! is still. With the system's Reduce Motion on, nothing moves: colours and grounds still change
-//! and the tick still shows. The timings and curves are the approved demo's
-//! (`docs/设计稿/P5-26-图标动效/`), and in its manner for the title bar's (DESIGN §13).
+//! tilts. Pause's bars dip together, and Resume's triangle slides the way it plays (P5-33). A
+//! motion plays once as the pointer comes in, never loops, and asks for no frames once it is still.
+//! With the system's Reduce Motion on, nothing moves: colours and grounds still change and the tick
+//! still shows. The timings and curves are the approved demo's (`docs/设计稿/P5-26-图标动效/`),
+//! and in its manner for the title bar's and Pause's (DESIGN §13).
 use crate::{
     footer_icon::{Icon, Pose},
     reduce_motion,
@@ -75,6 +76,12 @@ pub const TILT: Timing = Timing {
     fade: Duration::ZERO,
     flash: Duration::ZERO,
 };
+/// Pause's bars pressed down together and back (P5-33).
+pub const DIP: Timing = Timing {
+    play: ms(DIP_MS),
+    fade: Duration::ZERO,
+    flash: Duration::ZERO,
+};
 
 const RING_MS: f32 = 520.0;
 const CLAPPER_DELAY_MS: f32 = 40.0;
@@ -124,6 +131,9 @@ const TILT_MS: f32 = 420.0;
 const TILT_FRAMES: [(f32, f32); 4] = [(0.0, 0.0), (0.3, -14.0), (0.65, 8.0), (1.0, 0.0)];
 /// The bell's curve.
 const TILT_EASE: Bezier = RING_EASE;
+const DIP_MS: f32 = 320.0;
+/// How far Pause's bars go down, at fractions of its time.
+const DIP_FRAMES: [(f32, f32); 3] = [(0.0, 0.0), (0.4, 1.5), (1.0, 0.0)];
 /// The activity grid's cells popping in one after another along the diagonal from the top left
 /// (P5-32, the design's `cellIn`): each takes this long, growing from [`CELL_FROM`] of its size
 /// as it fades in, its neighbour this much later.
@@ -434,6 +444,15 @@ pub fn tilt(play: Option<Duration>) -> Pose {
     Pose::Turn(keyframes(t, &TILT_FRAMES, TILT_EASE))
 }
 
+/// Pause's bars `play` into their dip.
+pub fn dip(play: Option<Duration>) -> Pose {
+    let Some(play) = play else {
+        return Pose::Rest;
+    };
+    let t = (millis(play) / DIP_MS).min(1.0);
+    Pose::Dip(keyframes(t, &DIP_FRAMES, SLIDE_EASE))
+}
+
 /// An activity cell's size (a share of its whole) and opacity `since` its turn to pop in came;
 /// `None` before it, when it is not there yet.
 pub fn cell_in(since: Option<Duration>) -> (f32, f32) {
@@ -680,6 +699,26 @@ mod tests {
         assert!(close(degrees(273.0), 8.0));
         assert!(close(degrees(420.0), 0.0));
         assert_eq!(tilt(None), Pose::Rest);
+    }
+
+    #[test]
+    fn pause_bars_dip_together_and_come_back() {
+        let by = |play: f32| match dip(Some(after(play))) {
+            Pose::Dip(by) => by,
+            pose => panic!("{pose:?}"),
+        };
+        // 40% of 320ms: the whole 1.5 points down, back up by the end.
+        assert!(close(by(128.0), 1.5));
+        let early = by(40.0);
+        assert!(early > 0.0 && early < 1.5, "{early}");
+        assert!(close(by(320.0), 0.0));
+        assert_eq!(dip(None), Pose::Rest);
+        // With Reduce Motion it never plays.
+        let start = Instant::now();
+        let mut state = State::default();
+        state.hover(true, start, true, DIP);
+        let (hover, next) = state.at(start + after(100.0), DIP);
+        assert_eq!((dip(hover.play), next), (Pose::Rest, Next::Idle));
     }
 
     #[test]

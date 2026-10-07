@@ -37,6 +37,10 @@ pub struct Agent {
     pub started: Option<f64>,
     pub error: Option<String>,
     pub labels: serde_json::Map<String, Value>,
+    /// Frozen by `corral pause` (DESIGN §13 P5-33); an older corral without the field never is.
+    pub paused: bool,
+    /// When it was paused.
+    pub paused_at: Option<f64>,
 }
 
 /// Effort explicitly labelled when the agent was delegated; not the runtime's actual effort.

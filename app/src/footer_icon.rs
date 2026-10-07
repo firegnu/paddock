@@ -79,6 +79,10 @@ pub enum Icon {
     Folder,
     /// A chevron pointing down: an open group.
     Down,
+    /// Two upright bars: pause an agent, or every agent.
+    Pause,
+    /// A triangle pointing right: resume a paused agent, or every agent.
+    Resume,
 }
 
 /// How far an icon's parts are from where they rest, for its hover motion (`motion.rs`), in the
@@ -103,12 +107,14 @@ pub enum Pose {
     /// `Copied`: the tick scaled about the centre.
     Grow(f32),
     /// `LeftSidebar`, `RightSidebar`: the column's edge and its lines moved right (left when
-    /// negative).
+    /// negative); `Resume`: the triangle moved right.
     Shift(f32),
     /// `Plus` about its centre, `Search` about the lens: turned clockwise, in degrees.
     Turn(f32),
     /// `Split`: cut at the seam, each half moved this far out, the plus with the right one.
     Part(f32),
+    /// `Pause`: both bars moved down by this much.
+    Dip(f32),
 }
 
 /// `icon` in `color`, `SIZE` points square times `scale` (the interface size over the base).
@@ -601,6 +607,38 @@ fn shapes(icon: Icon, pose: Pose, bounds: Bounds<Pixels>, scale: f32) -> Vec<Pat
             chevron.line_to(at(7.0, 9.0));
             chevron.line_to(at(11.0, 5.0));
             vec![chevron]
+        }
+        Icon::Pause => {
+            let by = match pose {
+                Pose::Dip(by) => by,
+                _ => 0.0,
+            };
+            [3.75, 8.25]
+                .into_iter()
+                .map(|left| {
+                    let mut bar = PathBuilder::fill();
+                    rounded_rect(
+                        &mut bar,
+                        at(left, 2.5 + by),
+                        at(left + 2.0, 11.5 + by),
+                        scale,
+                    );
+                    bar
+                })
+                .collect()
+        }
+        Icon::Resume => {
+            let by = match pose {
+                Pose::Shift(by) => by,
+                _ => 0.0,
+            };
+            // Its middle a little right of the box's, so it looks centred.
+            let mut triangle = PathBuilder::fill();
+            triangle.move_to(at(4.25 + by, 2.5));
+            triangle.line_to(at(11.75 + by, 7.0));
+            triangle.line_to(at(4.25 + by, 11.5));
+            triangle.close();
+            vec![triangle]
         }
     }
 }
