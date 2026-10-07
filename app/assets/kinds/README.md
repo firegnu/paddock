@@ -3,6 +3,11 @@
 The sidebar draws one of these after an agent's name, tinted with the theme's colour for its kind.
 They are compiled into the program (`src/kind_icon.rs`).
 
+On a machine with its own originals in `~/.config/paddock/icons/` (`claude`, `codex`, `pi`, `omp`;
+`.svg` or `.png`, the SVG when both are there), those are drawn instead, in their own colours, with
+their transparent margins cut away; one that is missing or cannot be read falls back to the
+silhouette here. That folder stays on the machine: its files are never added to this repository.
+
 | File | Source | Licence |
 | --- | --- | --- |
 | `pi.svg` | `https://pi.dev/favicon.svg`, downloaded 2026-10-06, unchanged. From the pi press kit (`https://pi.dev/press-kit`), intended for compact badges. | The pi site's footer says “MIT License”; the press kit states no other terms. |

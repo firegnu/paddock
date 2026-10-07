@@ -135,6 +135,10 @@ pub fn open_settings(cx: &mut App) {
             config.sidebar_width =
                 crate::sidebar::fit_width(config.sidebar_width, &UiFont::from_config(&config));
             main.apply(&config, cx);
+            // An open New Agent window follows too.
+            if let Some(new_agent) = cx.default_global::<Windows>().new_agent {
+                let _ = new_agent.update(cx, |view, _, cx| view.restyle(&config, cx));
+            }
         })
         .detach()
     });
@@ -164,7 +168,7 @@ pub fn open_new_agent(place: Place, cx: &mut App) {
     };
     let ui = UiFont::get(cx);
     let bar = title_bar(crate::new_agent_view::TITLE_BAR, &ui);
-    let options = options("New Agent", ui.scale(580.0), ui.scale(630.0), true, bar, cx);
+    let options = options("New Agent", ui.scale(640.0), ui.scale(600.0), true, bar, cx);
     let Some((handle, view)) = open(options, move |_, cx| NewAgentView::new(seed, place, cx), cx)
     else {
         return;
