@@ -58,3 +58,12 @@
 - **截图**：release 程序，`PADDOCK_NO_ACTIVATE=1`、临时 HOME／`CFFIXED_USER_HOME`／`XDG_STATE_HOME`／`XDG_CONFIG_HOME`、假 corral（sh 脚本，`ls` 返回空列表）、预写的布局（右侧栏开在 Kanban、宽 400），临时仓库三件活（一件 IN PROGRESS 带 `待用户：`）。悬停截不到，临时加了一个只在截图时用的环境变量开关（`PADDOCK_SHOT_CLEAR`，让第一张可清的卡片显示成悬停并且在问），截完已撤掉，没有提交。只截自己的窗口（`GPUI_TERM_WINDOW_ID=1`），截完按记下的 PID 停掉。我看过：按钮条里有 ✓，卡片下方是问句和 Cancel／Clear。第一张截出来时窄面板里的两个按钮在换行时被拆开了，改成两个按钮放在一组里一起换行，重截确认。加宽五列那张没截成：布局里侧栏宽 400，达不到五列并排的阈值。
 - **拿主意的地方**：按钮图标用现有的 ✓（`Icon::Check`），不新增图标；确认按钮用 Needs you 标记同一套黄色（主题里已有的 `agents_yellow`），没加颜色键。卡片上显示的那句和 main 上的那行要对得上才删，免得删掉用户没看见的新内容。提交照常跑仓库的钩子和签名配置（没加 `--no-verify`），所以超时放到 30 秒。原因显示到鼠标离开卡片为止。
 - **没做的事**：真实点击、确认、取消、鼠标移开收回、后台做的时候按钮消失，都没有实际操作过，留给用户实际用。加宽五列没截图。实现是先写的，测试后写，测试没有先跑出失败。
+
+## 主控审查
+
+- diff 只动 `git.rs`（加 `git_write`）、`kanban.rs`、`kanban_view.rs`、`tests/kanban.rs` 和本文件，没碰 `sidebar.rs`、`layout_state.rs`、`motion.rs`、`window.rs`；`git diff --check` 干净。
+- 核对写操作：先查当前分支是 main、没有合并／变基／cherry-pick／revert 进行中、这份文件在工作区和暂存区都没有别的改动、main 上那行还在且和卡片上看到的一致；再改文件，用 `commit --only -- <文件>` 只提交这一个文件；提交失败把文件原样写回。不推送。
+- 主控重跑 `cargo test --all-targets`（共 296 项通过）、clippy `-D warnings`、`cargo fmt --check`，都过。看了截图：✓ 按钮、确认行和 Cancel／Clear 都在。
+- 主控定：提交照常跑仓库的钩子和签名（不加 `--no-verify`），尊重仓库自己的设置；30 秒超时失败会写回，够用。
+- 建议改（不挡合并）：悬停按钮条盖住了卡片标题行右侧的 Needs you 标记后半截（截图里只露出 “Needs”）。
+- 记一笔：实现先写、测试后写，没有先跑出失败；测试覆盖面足够，认可。点击、确认、取消留给用户实际用。
