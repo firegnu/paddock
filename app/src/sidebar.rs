@@ -6,7 +6,8 @@
 //! details. Under the list the activity grid (`activity_view.rs`) shows the agents' repositories'
 //! commits a day. The footer's one button opens the window's menu of actions; the header row, which
 //! the window puts in its title bar, starts with the button that collapses the sidebar to a narrow
-//! strip of one tile per agent.
+//! strip of one tile per agent, and before its bell has a button that pauses or resumes every agent
+//! (P5-33).
 use crate::{
     activity_view::{self, ActivityView, Folded},
     agents::{Panel, Spell, Status},
@@ -17,7 +18,7 @@ use crate::{
     footer_icon::{self, Icon, Pose},
     git, kind_icon,
     motion::{self, Hover, HoverMotion},
-    reduce_motion,
+    pause, reduce_motion,
     theme::Theme,
     view::hsla,
     viewer::AgentMetadata,
@@ -53,6 +54,9 @@ pub enum SidebarEvent {
     ToggleCollapse,
     /// Stop this agent, after asking (the open card's Stop…).
     Stop(String),
+    /// Pause or resume agents with corral, asking first when it says: a card's Pause or Resume,
+    /// or the button for every agent.
+    Pause(pause::Request),
     /// The agents corral still lists, for panes to let go of one that disappeared.
     Alive(Vec<String>),
     /// The activity panel was folded (`true`) or opened: save it with the layout.
@@ -149,6 +153,9 @@ const COUNT_DIGIT: f32 = 6.8;
 const PILL_X: f32 = 8.0;
 const PILL_GAP: f32 = 5.0;
 const COMPACT_BELL: f32 = 28.0;
+/// The button that pauses or resumes every agent, before the bell, and the room between them.
+const PAUSE_ALL: f32 = 28.0;
+const PAUSE_GAP: f32 = 2.0;
 /// The footer, and its menu button at the bottom left and the icon in it; in the strip the button
 /// is centred.
 const FOOTER: f32 = 50.0;
@@ -160,9 +167,13 @@ const BUTTON_LEFT: f32 = PAD + 1.0 + CARD_LEFT;
 /// How long a note of a start or stop that went well stays whole, and then how long it fades.
 const NOTE_HOLD: Duration = Duration::from_secs(4);
 const NOTE_FADE: Duration = Duration::from_millis(600);
-/// A card's icon buttons, Copy and Stop…, and their corners.
+/// A card's icon buttons, Copy, Pause (or Resume) and Stop…, and their corners.
 const CARD_BUTTON: f32 = 24.0;
 const CARD_BUTTON_RADIUS: f32 = 7.0;
+/// How strongly a paused agent's card and tile show.
+const PAUSED_OPACITY: f32 = 0.55;
+/// What a card asks before pausing an agent in a turn.
+const PAUSE_WORKING: &str = "Working \u{2014} pause anyway?";
 /// An agent's tile in the strip.
 const TILE: f32 = 34.0;
 /// The strip's bell: its height (and least width), its sides, and the room between the icon and
@@ -192,8 +203,8 @@ pub fn toggle_room(ui: &UiFont) -> f32 {
     ui.scale(TOGGLE + TOGGLE_GAP)
 }
 
-/// How wide a sidebar the header row needs, starting at `start`, for a two-digit count with the
-/// bell compact or as a pill with a two-digit number.
+/// How wide a sidebar the header row needs, starting at `start`, for a two-digit count, the button
+/// for every agent, and the bell compact or as a pill with a two-digit number.
 fn head_width(start: f32, compact: bool, ui: &UiFont) -> f32 {
     let bell = if compact {
         COMPACT_BELL
@@ -201,7 +212,11 @@ fn head_width(start: f32, compact: bool, ui: &UiFont) -> f32 {
         PILL_X + footer_icon::SIZE + PILL_GAP + 2.0 * DIGIT + PILL_X
     };
     let count = COUNT_X + 2.0 * COUNT_DIGIT + COUNT_X;
-    start + ui.scale(TOGGLE + TITLE_GAP + TITLE_WIDTH + COUNT_GAP + count + bell) + PAD
+    start
+        + ui.scale(
+            TOGGLE + TITLE_GAP + TITLE_WIDTH + COUNT_GAP + count + PAUSE_ALL + PAUSE_GAP + bell,
+        )
+        + PAD
 }
 
 /// The narrowest the sidebar is dragged to: 220, or wider when the header row with the compact
@@ -234,6 +249,16 @@ pub fn stop_item(selected: Option<&str>) -> (String, bool) {
     match selected {
         Some(name) => (format!("Stop {name}…"), true),
         None => ("Stop Agent…".to_owned(), false),
+    }
+}
+
+/// The menu's Pause item for the active pane's agent, `paused` or not: what it says, and whether
+/// it can be chosen.
+pub fn pause_item(selected: Option<&str>, paused: bool) -> (String, bool) {
+    match selected {
+        Some(name) if paused => (format!("Resume {name}"), true),
+        Some(name) => (format!("Pause {name}"), true),
+        None => ("Pause Agent".to_owned(), false),
     }
 }
 
@@ -381,6 +406,8 @@ pub struct Sidebar {
     collapsed: bool,
     /// The menu of actions is open: its button stays lit.
     menu_open: bool,
+    /// The card asking whether to pause its agent in a turn, until the mouse leaves it.
+    asking: Option<String>,
     /// Its column shows the system's sidebar material: its grounds are tints over it.
     frosted: bool,
     /// The activity grid over the footer (P5-32).
@@ -434,6 +461,7 @@ impl Sidebar {
             note: None,
             collapsed: false,
             menu_open: false,
+            asking: None,
             frosted: false,
             activity,
         }
@@ -526,9 +554,10 @@ impl Sidebar {
     }
 
     /// The header row, in the title bar after the traffic lights: the collapse button, `Agents`
-    /// and how many, and the bell at the right end, compact when told; collapsed to the strip,
-    /// only the expand button, where the collapse button was. `spot` goes in the bell, for the
-    /// window to hang the Attention list from. A press on a button is not the start of a drag.
+    /// and how many, and at the right end the button for every agent and the bell, compact when
+    /// told; collapsed to the strip, only the expand button, where the collapse button was. `spot`
+    /// goes in the bell, for the window to hang the Attention list from. A press on a button is not
+    /// the start of a drag.
     pub fn head(&mut self, compact: bool, spot: AnyElement, cx: &mut Context<Self>) -> Div {
         let ui = UiFont::get(cx);
         let keep = |_: &MouseDownEvent, _: &mut Window, cx: &mut App| cx.stop_propagation();
@@ -567,6 +596,10 @@ impl Sidebar {
         } else {
             self.badge(spot, cx)
         };
+        let pause_gap = ui.px(PAUSE_GAP);
+        let pause_all = self.pause_all_button(cx).map(|button| {
+            button.map(move |button| button.mr(pause_gap).on_mouse_down(MouseButton::Left, keep))
+        });
         row.child(
             div()
                 .flex_shrink_0()
@@ -600,7 +633,67 @@ impl Sidebar {
                 }),
         )
         .child(div().flex_1())
+        .children(pause_all)
         .child(bell.map(move |bell| bell.on_mouse_down(MouseButton::Left, keep)))
+    }
+
+    /// The button for every agent, before the bell and in the strip under it: it pauses them all
+    /// while any live agent is not paused, and resumes them once all are; `None` with no live
+    /// agent. Its bars dip, or its triangle slides on, as the pointer comes in.
+    fn pause_all_button(&self, cx: &mut Context<Self>) -> Option<HoverMotion> {
+        let pause = pause::all(&self.listing.panel.agents)?;
+        let ui = UiFont::get(cx);
+        let theme = self.theme.clone();
+        let selected = self.grounds().selected;
+        let on_click = cx.listener(|this, _: &ClickEvent, _, cx| this.ask_pause_all(cx));
+        let size = (PAUSE_ALL, PAUSE_ALL, 7.0);
+        Some(if pause {
+            motion::hover_motion("pause-all-motion", motion::DIP, move |hover| {
+                button(
+                    (&theme, selected, |t| t.agents_dim),
+                    &ui,
+                    "pause-all",
+                    (Icon::Pause, motion::dip(hover.play), footer_icon::SIZE),
+                    "Pause all agents",
+                    size,
+                    false,
+                )
+                .on_click(on_click)
+            })
+        } else {
+            motion::hover_motion("resume-all-motion", motion::SHIFT, move |hover| {
+                button(
+                    (&theme, selected, |t| t.agents_dim),
+                    &ui,
+                    "resume-all",
+                    (
+                        Icon::Resume,
+                        motion::shift(hover.play, true),
+                        footer_icon::SIZE,
+                    ),
+                    "Resume all agents",
+                    size,
+                    false,
+                )
+                .on_click(on_click)
+            })
+        })
+    }
+
+    /// The button for every agent was clicked (see [`pause::every`]).
+    fn ask_pause_all(&mut self, cx: &mut Context<Self>) {
+        if let Some(request) = pause::every(&self.listing.panel.agents) {
+            cx.emit(SidebarEvent::Pause(request));
+        }
+    }
+
+    /// Whether corral last said `name` is paused.
+    pub fn paused(&self, name: &str) -> bool {
+        self.listing
+            .panel
+            .agents
+            .iter()
+            .any(|a| a.name == name && a.paused)
     }
 
     /// The header's bell, always there so the Attention list has a way in: how many rows the list
@@ -810,8 +903,8 @@ impl Sidebar {
         })
     }
 
-    /// The collapsed strip: the bell, then a tile for each agent, the projects set apart by short
-    /// rules, and the menu button at the bottom.
+    /// The collapsed strip: the bell and the button for every agent, then a tile for each agent,
+    /// the projects set apart by short rules, and the menu button at the bottom.
     fn rail(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let ui = UiFont::get(cx);
         let theme = self.theme.clone();
@@ -879,6 +972,10 @@ impl Sidebar {
             .child(self.rail_bell(cx).map({
                 let top = ui.px(2.0);
                 move |bell| bell.mt(top)
+            }))
+            .children(self.pause_all_button(cx).map(|button| {
+                let top = ui.px(4.0);
+                button.map(move |button| button.mt(top))
             }))
             .child(rule(24.0, 0.0).mt(ui.px(8.0)).mb(ui.px(4.0)))
             .child(tiles)
@@ -1042,9 +1139,59 @@ impl Sidebar {
                 cx.emit(SidebarEvent::Stop(name.clone()));
             })
         };
+        // Pausing an agent in a turn asks on the card first; resuming never asks.
+        let pause = {
+            let (name, paused, working) = (card.name.clone(), card.paused, card.working);
+            cx.listener(move |this, _: &ClickEvent, _, cx| {
+                cx.stop_propagation();
+                if !paused && working {
+                    this.asking = Some(name.clone());
+                    cx.notify();
+                } else {
+                    this.asking = None;
+                    cx.emit(SidebarEvent::Pause(pause::Request {
+                        names: vec![name.clone()],
+                        pause: !paused,
+                        ask: None,
+                    }));
+                }
+            })
+        };
+        let confirm = {
+            let name = card.name.clone();
+            cx.listener(move |this, _: &ClickEvent, _, cx| {
+                cx.stop_propagation();
+                this.asking = None;
+                cx.emit(SidebarEvent::Pause(pause::Request {
+                    names: vec![name.clone()],
+                    pause: true,
+                    ask: None,
+                }));
+                cx.notify();
+            })
+        };
+        let cancel = cx.listener(|this, _: &ClickEvent, _, cx| {
+            cx.stop_propagation();
+            this.asking = None;
+            cx.notify();
+        });
+        // Leaving the card takes the question back.
+        let leave = {
+            let name = card.name.clone();
+            cx.listener(move |this, hovered: &bool, _, cx| {
+                if !hovered && this.asking.as_ref() == Some(&name) {
+                    this.asking = None;
+                    cx.notify();
+                }
+            })
+        };
         CardActions {
             reply: Box::new(reply),
             copy,
+            pause: Box::new(pause),
+            confirm: Box::new(confirm),
+            cancel: Box::new(cancel),
+            leave: Box::new(leave),
             stop: Box::new(stop),
         }
     }
@@ -1173,12 +1320,13 @@ impl Render for Sidebar {
                 if let Some(path) = &card.details.path {
                     card.details.path = Some(card::shorten(path, &|path| mono(path) <= room));
                 }
-                // The instance shares its line with Copy and Stop….
+                // The instance shares its line with Copy, Pause and Stop….
                 let buttons = ["Copy", "Stop…"]
                     .iter()
                     .map(|label| normal(label, SECOND_SIZE) + ui.scale(2.0 * BUTTON_X))
                     .sum::<f32>()
-                    + ui.scale(3.0 * MARK_GAP);
+                    + ui.scale(3.0 * MARK_GAP)
+                    + ui.scale(CARD_BUTTON + MARK_GAP);
                 if let Some(instance) = &card.details.instance {
                     card.details.instance =
                         Some(card::elide(instance, &|id| mono(id) <= room - buttons));
@@ -1187,7 +1335,9 @@ impl Render for Sidebar {
             // The note beside the footer's button, in line with the words beside the avatars.
             let note = self.note.as_ref().zip(shown).map(|(note, opacity)| {
                 let text = card::elide(&note.text, &|cut| normal(cut, NOTE_SIZE) <= room);
-                (text, note.problem, opacity)
+                // Cut short (agents that could not be paused, say), it shows whole on hover.
+                let whole = (text != note.text).then(|| note.text.clone());
+                (text, whole, note.problem, opacity)
             });
             (lines, note)
         };
@@ -1310,6 +1460,7 @@ impl Render for Sidebar {
                     };
                     let actions = self.card_actions(&card, cx);
                     AgentCard {
+                        asking: self.asking.as_ref() == Some(&card.name),
                         card: *card,
                         theme: theme.clone(),
                         mono: self.mono.clone(),
@@ -1322,8 +1473,19 @@ impl Render for Sidebar {
             });
         }
 
-        let note = note.map(|(text, problem, opacity)| {
+        let note = note.map(|(text, whole, problem, opacity)| {
+            let tip = whole.map(|whole| Tip {
+                text: whole.into(),
+                size: ui.px(NOTE_SIZE),
+                color: fg(|t| t.agents_text),
+                background: hsla(theme.bg(|t| t.agents_bg), 1.0),
+                border: fg(|t| t.agents_rule),
+            });
             div()
+                .id("footer-note")
+                .when_some(tip, |note, tip| {
+                    note.tooltip(move |_, cx| cx.new(|_| tip.clone()).into())
+                })
                 .min_w(px(0.0))
                 .ml(ui.px(AVATAR + AVATAR_GAP - BUTTON))
                 .whitespace_nowrap()
@@ -1610,18 +1772,27 @@ impl Render for Tip {
 }
 
 type OnClick = Box<dyn Fn(&ClickEvent, &mut Window, &mut App)>;
+/// Told whether the pointer is over the element.
+type OnHover = Box<dyn Fn(&bool, &mut Window, &mut App)>;
 
 /// What a card's buttons do (see [`Sidebar::card_actions`]).
 struct CardActions {
     reply: OnClick,
     /// `None` without an instance to copy.
     copy: Option<OnClick>,
+    /// Pause or Resume; for an agent in a turn, the question first.
+    pause: OnClick,
+    /// The question's two answers.
+    confirm: OnClick,
+    cancel: OnClick,
+    /// The pointer came over the card or left it.
+    leave: OnHover,
     stop: OnClick,
 }
 
 /// One agent, read like a conversation: its kind's avatar with the status on the corner; the name,
 /// its marks, the effort and how long; the preview; where it works; Reply while it waits; the
-/// details when open. Its own element, so the list never assumes a height.
+/// details when open. Faded while paused. Its own element, so the list never assumes a height.
 #[derive(IntoElement)]
 struct AgentCard {
     card: Card,
@@ -1630,6 +1801,8 @@ struct AgentCard {
     on_click: OnClick,
     actions: CardActions,
     grounds: Grounds,
+    /// It asks whether to pause its agent in a turn.
+    asking: bool,
 }
 
 impl RenderOnce for AgentCard {
@@ -1641,6 +1814,7 @@ impl RenderOnce for AgentCard {
             on_click,
             actions,
             grounds,
+            asking,
         } = self;
         let ui = UiFont::get(cx);
         let fg = |pick: Pick| hsla(theme.fg(pick), 1.0);
@@ -1832,9 +2006,15 @@ impl RenderOnce for AgentCard {
                     .child("Reply"),
             )
         });
-        let details = card
-            .expanded
-            .then(|| details(&theme, &mono, &ui, &card, actions.copy, actions.stop));
+        let details = card.expanded.then(|| {
+            let buttons = Buttons {
+                copy: actions.copy,
+                pause: actions.pause,
+                stop: actions.stop,
+                asking: asking.then_some((actions.confirm, actions.cancel)),
+            };
+            details(&theme, &mono, &ui, &card, buttons)
+        });
 
         let badge = badge(&theme, &ui, &card, (ground, hovered), &group);
         let avatar = avatar(&theme, &ui, &card, badge).when_some(
@@ -1878,6 +2058,10 @@ impl RenderOnce for AgentCard {
             })
             .cursor_pointer()
             .on_click(on_click)
+            .on_hover(actions.leave)
+            .when(card.status == Status::Paused, |body| {
+                body.opacity(PAUSED_OPACITY)
+            })
             .child(avatar)
             .child(words)
     }
@@ -2040,17 +2224,26 @@ fn badge(
     }
 }
 
-/// The open card under the place line: the branch and changes as chips; the rest in two columns of
-/// cells, a small label over each value; the full path; then the instance with Copy, and Stop… at
-/// the right.
-fn details(
-    theme: &Theme,
-    mono: &Font,
-    ui: &UiFont,
-    card: &Card,
+/// The open card's buttons, and while it asks whether to pause its agent in a turn, the answers.
+struct Buttons {
     copy: Option<OnClick>,
+    /// Pause, or Resume for a paused agent.
+    pause: OnClick,
     stop: OnClick,
-) -> Div {
+    /// Pause anyway, and Cancel.
+    asking: Option<(OnClick, OnClick)>,
+}
+
+/// The open card under the place line: the branch and changes as chips; the rest in two columns of
+/// cells, a small label over each value; the full path; then the instance with Copy, and Pause (or
+/// Resume) and Stop… at the right; under them the question before pausing an agent in a turn.
+fn details(theme: &Theme, mono: &Font, ui: &UiFont, card: &Card, buttons: Buttons) -> Div {
+    let Buttons {
+        copy,
+        pause,
+        stop,
+        asking,
+    } = buttons;
     let fg = |pick: Pick| hsla(theme.fg(pick), 1.0);
     let details = &card.details;
     let chips = details.chips.iter().map(|chip| {
@@ -2167,6 +2360,36 @@ fn details(
         }))
         .child(div().flex_1())
         .child({
+            // Its bars dip together as the pointer comes in; a paused agent's triangle slides the
+            // way it plays.
+            let lit = fg(|t| t.agents_text).opacity(0.08);
+            if card.paused {
+                let button = action("resume", "Resume agent");
+                motion::hover_motion("resume-motion", motion::SHIFT, move |hover| {
+                    button(pause)
+                        .hover(move |style| style.bg(lit))
+                        .child(footer_icon::posed(
+                            Icon::Resume,
+                            motion::shift(hover.play, true),
+                            dim,
+                            scale,
+                        ))
+                })
+            } else {
+                let button = action("pause", "Pause agent");
+                motion::hover_motion("pause-motion", motion::DIP, move |hover| {
+                    button(pause)
+                        .hover(move |style| style.bg(lit))
+                        .child(footer_icon::posed(
+                            Icon::Pause,
+                            motion::dip(hover.play),
+                            dim,
+                            scale,
+                        ))
+                })
+            }
+        })
+        .child({
             // It presses in and reddens on a faint red ground while the pointer is over it.
             let button = action("stop", "Stop agent…");
             let red = fg(|t| t.agents_red);
@@ -2181,6 +2404,63 @@ fn details(
                     ))
             })
         });
+    // Pausing an agent in a turn: the question, and its two answers kept together when it wraps.
+    let question = asking.map(|(confirm, cancel)| {
+        let answer = |id: &'static str, label: &'static str| {
+            div()
+                .id(id)
+                .flex_shrink_0()
+                .px(ui.px(8.0))
+                .h(ui.px(20.0))
+                .flex()
+                .items_center()
+                .rounded(px(5.0))
+                .border_1()
+                .cursor_pointer()
+                .child(label)
+        };
+        let (text, rule, yellow) = (
+            fg(|t| t.agents_text),
+            fg(|t| t.agents_rule),
+            fg(|t| t.agents_yellow),
+        );
+        div()
+            .flex()
+            .flex_wrap()
+            .items_center()
+            .gap(ui.px(6.0))
+            .text_size(ui.px(SECOND_SIZE))
+            .child(
+                div()
+                    .flex_shrink(1.0)
+                    .min_w(px(0.0))
+                    .text_color(text)
+                    .child(PAUSE_WORKING),
+            )
+            .child(div().flex_1())
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .flex()
+                    .gap(ui.px(6.0))
+                    .child(
+                        answer("pause-cancel", "Cancel")
+                            .border_color(rule)
+                            .text_color(dim)
+                            .hover(move |style| style.bg(text.opacity(0.09)))
+                            .on_click(cancel),
+                    )
+                    .child(
+                        answer("pause-confirm", "Pause")
+                            .bg(yellow.opacity(0.16))
+                            .border_color(yellow.opacity(0.5))
+                            .text_color(yellow)
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .hover(move |style| style.bg(yellow.opacity(0.26)))
+                            .on_click(confirm),
+                    ),
+            )
+    });
     div()
         .mt(px(8.0))
         .flex()
@@ -2192,11 +2472,13 @@ fn details(
         .child(cells)
         .children(path)
         .child(last)
+        .children(question)
 }
 
 /// An agent in the collapsed strip: its kind's icon (or letter) as on the card's avatar, with the
 /// card's status mark on the corner; a waiting one on faint amber with a thin amber edge, the one
-/// in the active pane on a lit square with a faint edge. Hovering shows who it is.
+/// in the active pane on a lit square with a faint edge, a paused one faded. Hovering shows who it
+/// is.
 #[derive(IntoElement)]
 struct Tile {
     card: Card,
@@ -2259,6 +2541,9 @@ impl RenderOnce for Tile {
             })
             .tooltip(move |_, cx| cx.new(|_| tip.clone()).into())
             .on_click(self.on_click)
+            .when(card.status == Status::Paused, |tile| {
+                tile.opacity(PAUSED_OPACITY)
+            })
             .child(kind_mark(&ui, card, kind_color(theme, card), TILE_SIZE))
             // The mark hangs over the strip: ringed in the strip's colour.
             .child(badge(
@@ -2597,10 +2882,10 @@ mod tests {
     #[test]
     fn the_narrowest_sidebar_still_holds_the_header_row_in_the_title_bar() {
         // At the base interface size the bell goes compact before the row runs out of room, and
-        // the compact row, with its two-digit count in a pill, needs a few points over the usual
-        // narrowest sidebar.
+        // the compact row, with its two-digit count in a pill and the button for every agent
+        // before the bell, needs more than the usual narrowest sidebar.
         let base = UiFont::default();
-        assert_eq!(min_width(&base).round(), 224.0);
+        assert_eq!(min_width(&base).round(), 254.0);
         assert!(compact_bell(min_width(&base), false, &base));
         assert!(!compact_bell(300.0, false, &base));
         // Larger interface sizes need a wider sidebar, and dragging keeps to it.
@@ -2619,12 +2904,17 @@ mod tests {
             resize(300.0, 300.0, 100.0, min_width(&large)),
             min_width(&large).round()
         );
-        // Smaller ones keep 220.
+        // Smaller ones need less, down to 220.
         let small = UiFont {
             family: None,
             size: 11.0,
         };
-        assert_eq!(min_width(&small), MIN_WIDTH);
+        assert!(min_width(&small) < min_width(&base));
+        let smaller = UiFont {
+            family: None,
+            size: 10.0,
+        };
+        assert_eq!(min_width(&smaller), MIN_WIDTH);
         // In full screen there are no traffic lights: the row has more room.
         assert!(compact_bell(235.0, false, &base));
         assert!(!compact_bell(235.0, true, &base));
@@ -2656,6 +2946,19 @@ mod tests {
             ("Stop paddock/main…".to_owned(), true)
         );
         assert_eq!(stop_item(None), ("Stop Agent…".to_owned(), false));
+    }
+
+    #[test]
+    fn pause_names_the_active_agent_and_resumes_a_paused_one() {
+        assert_eq!(
+            pause_item(Some("paddock/main"), false),
+            ("Pause paddock/main".to_owned(), true)
+        );
+        assert_eq!(
+            pause_item(Some("paddock/main"), true),
+            ("Resume paddock/main".to_owned(), true)
+        );
+        assert_eq!(pause_item(None, false), ("Pause Agent".to_owned(), false));
     }
 
     #[test]

@@ -183,7 +183,7 @@ impl Panel {
                     if self.by_name {
                         std::cmp::Ordering::Equal
                     } else {
-                        self.status(a, now).cmp(&self.status(b, now))
+                        self.shown(a, now).cmp(&self.shown(b, now))
                     }
                 })
                 .then_with(|| a.name.cmp(&b.name))
@@ -226,6 +226,17 @@ impl Panel {
             _ => Status::Unknown,
         }
     }
+
+    /// The status the cards show and sort by: `Paused` in place of what a paused agent was
+    /// doing, unless it failed or exited. Everything else (the Kanban, Attention) reads
+    /// [`Self::status`], the state as corral gives it.
+    pub fn shown(&self, a: &Agent, now: f64) -> Status {
+        match self.status(a, now) {
+            status @ (Status::Error | Status::Exited) => status,
+            _ if a.paused => Status::Paused,
+            status => status,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -237,6 +248,8 @@ pub enum Status {
     Starting,
     Unknown,
     Idle,
+    /// Frozen by `corral pause`: only the cards show it (see [`Panel::shown`]).
+    Paused,
     Exited,
 }
 

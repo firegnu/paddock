@@ -1,5 +1,6 @@
 //! The shell / `corral attach` lifecycle of one terminal pane. From Saddle `src/viewer.rs` at
-//! commit `df1c727`, without the `remembered` field that only Saddle's layout saving uses.
+//! commit `df1c727`, without the `remembered` field that only Saddle's layout saving uses; paddock
+//! added `paused` and `send`, which drops input for a paused agent (DESIGN §13 P5-33).
 use crate::{pty::Session, terminal::Size};
 use anyhow::Result;
 use std::thread::{self, JoinHandle};
@@ -25,6 +26,9 @@ pub struct Viewer {
     pub shell: Option<Shell>,
     pub metadata: AgentMetadata,
     pub exit_code: Option<u32>,
+    /// The agent shown is paused (DESIGN §13 P5-33), as the window last heard from corral: its input
+    /// is dropped.
+    pub paused: bool,
     failed: bool,
     closing: bool,
     pending: Option<(String, AgentMetadata)>,
@@ -44,6 +48,7 @@ impl Viewer {
             shell: None,
             metadata: AgentMetadata::default(),
             exit_code: None,
+            paused: false,
             failed: false,
             closing: false,
             note: "Select an agent on the left, then press Enter or click.".into(),
@@ -66,6 +71,10 @@ impl Viewer {
                 .is_some_and(|session| !session.is_stopping())
         {
             return Ok(());
+        }
+        // Another agent's input flows until the window says it is paused too.
+        if self.target() != Some(name.as_str()) {
+            self.paused = false;
         }
         self.cancel_pending();
         self.pending = Some((name, metadata));
@@ -115,6 +124,7 @@ impl Viewer {
     }
     pub fn close(&mut self) -> Result<()> {
         self.closing = true;
+        self.paused = false;
         self.cancel_pending();
         if let Some(session) = &mut self.session {
             session.interrupt()?;
@@ -264,6 +274,7 @@ impl Viewer {
     pub fn start_shell(&mut self, shell: Shell) {
         self.cancel_pending();
         self.closing = false;
+        self.paused = false;
         self.metadata = AgentMetadata {
             cwd: Some(shell.cwd.clone()),
             instance: None,
@@ -273,6 +284,19 @@ impl Viewer {
         self.showing = None;
         self.shell = Some(shell);
         self.note = "Starting terminal…".into();
+    }
+    /// Sends input to what the pane shows, unless its agent is paused: then the input is dropped,
+    /// never kept to send later, as corral drops what is typed into a paused agent. Whether it was
+    /// sent.
+    pub fn send(&self, bytes: Vec<u8>) -> Result<bool> {
+        let Some(session) = &self.session else {
+            anyhow::bail!("no running session");
+        };
+        if self.paused {
+            return Ok(false);
+        }
+        session.send(bytes)?;
+        Ok(true)
     }
     pub fn shell_live(&self) -> bool {
         self.shell

@@ -413,9 +413,31 @@ impl TerminalView {
             .map_or(TermMode::empty(), |s| *s.screen.lock().unwrap().term.mode())
     }
 
-    /// Typed input: back to the live bottom, selection cleared, bytes to the PTY.
+    /// Whether the agent shown is paused: the pane keeps its screen and takes no input.
+    pub fn paused(&self) -> bool {
+        self.viewer.paused
+    }
+
+    /// The agent shown was paused or resumed, as the window last heard from corral.
+    pub fn set_paused(&mut self, paused: bool, cx: &mut Context<Self>) {
+        if self.viewer.paused != paused {
+            self.viewer.paused = paused;
+            cx.notify();
+        }
+    }
+
+    /// Bytes for the program; the viewer's drop them while its agent is paused.
+    fn send(&self, bytes: Vec<u8>) -> anyhow::Result<()> {
+        match &self.direct {
+            Some(session) => session.send(bytes),
+            None => self.viewer.send(bytes).map(drop),
+        }
+    }
+
+    /// Typed input: back to the live bottom, selection cleared, bytes to the PTY. Nothing while
+    /// the agent is paused, not even the view moving.
     fn write(&mut self, bytes: Vec<u8>, cx: &mut Context<Self>) {
-        if bytes.is_empty() {
+        if bytes.is_empty() || self.paused() {
             return;
         }
         let Some(session) = self.session() else {
@@ -427,7 +449,7 @@ impl TerminalView {
             screen.term.selection = None;
             screen.term.scroll_display(ViewScroll::Bottom);
         }
-        if let Err(error) = session.send(bytes) {
+        if let Err(error) = self.send(bytes) {
             self.note = format!("{error:#}");
         }
         cx.notify();
@@ -663,7 +685,8 @@ impl TerminalView {
         ))
     }
 
-    /// Reports a mouse event through `input::encode_mouse` when the program asked for the mouse.
+    /// Reports a mouse event through `input::encode_mouse` when the program asked for the mouse,
+    /// unless its agent is paused: then the mouse selects, as without reporting.
     fn report_mouse(
         &mut self,
         kind: crate::input::MouseEventKind,
@@ -672,7 +695,7 @@ impl TerminalView {
         cx: &mut Context<Self>,
     ) -> bool {
         let mode = self.mode();
-        if !mode.intersects(TermMode::MOUSE_MODE) {
+        if !mode.intersects(TermMode::MOUSE_MODE) || self.paused() {
             return false;
         }
         let Some((col, row, ..)) = self.locate(position) else {
@@ -690,10 +713,8 @@ impl TerminalView {
         };
         let area = crate::input::Area::new(0, 0, self.size.cols, self.size.rows);
         let bytes = crate::input::encode_mouse(event, area, mode);
-        if let Some(session) = self.session()
-            && !bytes.is_empty()
-        {
-            let _ = session.send(bytes);
+        if !bytes.is_empty() {
+            let _ = self.send(bytes);
         }
         cx.notify();
         true
@@ -780,7 +801,9 @@ impl TerminalView {
         }
         use crate::input::MouseEventKind as K;
         let mode = self.mode();
-        if mode.intersects(TermMode::MOUSE_MODE) && !event.modifiers.shift {
+        // A paused agent takes no wheel either: the view scrolls its history.
+        let paused = self.paused();
+        if mode.intersects(TermMode::MOUSE_MODE) && !event.modifiers.shift && !paused {
             let kind = if lines > 0 {
                 K::ScrollUp
             } else {
@@ -789,7 +812,7 @@ impl TerminalView {
             for _ in 0..lines.unsigned_abs().min(20) {
                 self.report_mouse(kind, event.position, event.modifiers, cx);
             }
-        } else if mode.contains(TermMode::ALT_SCREEN | TermMode::ALTERNATE_SCROLL) {
+        } else if mode.contains(TermMode::ALT_SCREEN | TermMode::ALTERNATE_SCROLL) && !paused {
             // Full-screen programs without mouse reporting scroll with arrow keys.
             let arrow: &[u8] = match (lines > 0, mode.contains(TermMode::APP_CURSOR)) {
                 (true, true) => b"\x1bOA",
@@ -798,9 +821,7 @@ impl TerminalView {
                 (false, false) => b"\x1b[B",
             };
             let bytes = arrow.repeat(lines.unsigned_abs().min(20) as usize);
-            if let Some(session) = self.session() {
-                let _ = session.send(bytes);
-            }
+            let _ = self.send(bytes);
         } else if let Some(session) = self.session() {
             session
                 .screen

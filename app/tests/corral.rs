@@ -92,6 +92,37 @@ esac
 }
 
 #[test]
+fn paused_is_read_and_an_older_corral_without_it_means_running() {
+    let temp = common::tempdir();
+    let program = common::script(
+        temp.path(),
+        "corral",
+        r##"#!/bin/sh
+case "$1:$2" in
+  ls:) echo '{"agents":[{"name":"p/frozen","paused":true,"paused_at":50.0},{"name":"p/old"},{"name":"p/new","paused":false},{"name":"p/boot","starting":true,"paused":true}]}' ;;
+  status:p/frozen) echo '{"ok":true,"state":"working","paused":true,"paused_at":50.0}' ;;
+  status:p/old) echo '{"ok":true,"state":"idle"}' ;;
+  status:p/new) echo '{"ok":true,"state":"idle","paused":false,"paused_at":null}' ;;
+  *) echo '{"ok":false,"error":"unexpected_command"}'; exit 1 ;;
+esac
+"##,
+    );
+    let agents = Client { program }.collect().unwrap();
+    let paused = |name: &str| {
+        let a = agents.iter().find(|a| a.name == name).unwrap();
+        (a.paused, a.paused_at)
+    };
+    assert_eq!(paused("p/frozen"), (true, Some(50.0)));
+    // The state stays what it was: paused is apart from it.
+    assert_eq!(agents[1].state.as_deref(), Some("working"));
+    assert_eq!(paused("p/old"), (false, None));
+    assert_eq!(paused("p/new"), (false, None));
+    // No status while starting: the listing's word stands.
+    assert_eq!(paused("p/boot"), (true, None));
+    assert!(agents.iter().all(|a| a.error.is_none()));
+}
+
+#[test]
 fn start_reads_the_started_name_and_stop_runs_the_public_command() {
     use paddock::new_agent::{Form, Place, Started, start, stop};
     let temp = common::tempdir();
