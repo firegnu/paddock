@@ -26,7 +26,7 @@ const KEYS: f32 = 12.0;
 const CHOICE: f32 = 11.5;
 
 /// What a row's hover brightens: this name on each row, for its shortcut.
-const ROW_GROUP: &str = "popover-row";
+pub const ROW_GROUP: &str = "popover-row";
 
 /// The panel's colours, all from the theme.
 struct Colors {
@@ -357,6 +357,11 @@ pub fn lead_row(
                 .justify_center()
                 .child(lead),
         )
+}
+
+/// The panel's ground.
+pub fn ground(theme: &Theme) -> Hsla {
+    Colors::of(theme).ground
 }
 
 /// The ground of a row that is selected, or under the mouse.
