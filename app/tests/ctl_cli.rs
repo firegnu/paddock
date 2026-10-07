@@ -49,12 +49,12 @@ fn help_and_errors_are_headless_json() {
     assert_eq!(output.status.code(), Some(1));
     let value: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(value["error"]["code"], "invalid_request");
-    assert!(!home.join("paddock").exists());
+    assert!(!home.join(paddock::control::DIR).exists());
 }
 #[test]
 fn caller_identity_is_forwarded_before_gui_environment_cleanup() {
     let home = sandbox();
-    let runtime = home.join("paddock");
+    let runtime = home.join(paddock::control::DIR);
     fs::DirBuilder::new().mode(0o700).create(&runtime).unwrap();
     let socket = runtime.join("0123456789abcdef.sock");
     let listener = UnixListener::bind(&socket).unwrap();

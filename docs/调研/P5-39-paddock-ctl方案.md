@@ -21,7 +21,7 @@
 
 ## 3. 怎么实现
 
-- **传输层和命令行照搬 Saddle**（DESIGN §3 第 5 步已定）：每个实例一个私有 Unix 套接字（目录 0700、套接字 0600，只有你本人的进程能连），JSON 消息，有长度、超时和队列上限；最多记 256 次修改。目录用 paddock 自己的（`$XDG_RUNTIME_DIR/paddock`，没有时退到用户私有临时目录），不碰 Saddle 的。迁入的文件开头注明“From Saddle …”。
+- **传输层和命令行照搬 Saddle**（DESIGN §3 第 5 步已定）：每个实例一个私有 Unix 套接字（目录 0700、套接字 0600，只有你本人的进程能连），JSON 消息，有长度、超时和队列上限；最多记 256 次修改。目录用 paddock 自己的（`$XDG_RUNTIME_DIR/paddock-ctl`，没有时退到用户私有临时目录），不碰 Saddle 的。迁入的文件开头注明“From Saddle …”。
 - **界面端对着 paddock 重写**：窗格／标签页／分屏用 paddock 的 `layout.rs`；新开 agent 复用 New Agent 的“开好再放到指定位置”；`browse` 复用 Browser 的打开网址。
 - **认出“调用者是谁”**：corral 开的 agent 用 corral 已经设置的 `CORRAL_NAME`、`CORRAL_INSTANCE`；paddock 里开的普通 shell，由 paddock 注入 `PADDOCK_INSTANCE`、`PADDOCK_PANE`。认不出时，依赖“自己的位置”的操作直接报错，不猜。
 - **命令放在哪**：`paddock ctl` 是 paddock 程序本身的一个子命令（不起窗口，只发一条消息就退出）。agent 要能在命令行里直接敲 `paddock`，需要在 `~/.local/bin/paddock` 放一个指向 `~/Applications/paddock.app` 里程序的链接——这是改全局位置，由你在终端里跑一次（主控没有权限，见 HANDOFF“悬着”第一条）。

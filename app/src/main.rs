@@ -141,15 +141,23 @@ fn main() -> Result<()> {
         .filter(|s| !s.is_empty())
         .unwrap_or("/bin/sh".into());
     // Kept outside the event loop too, so both normal quit and startup unwind clean up.
-    let control = std::rc::Rc::new(std::cell::RefCell::new(Some(
-        paddock::control::Server::start()?,
-    )));
+    // paddock ctl is a helper: when it cannot start, paddock still opens and says why.
+    let (server, ctl_problem) = match paddock::control::Server::start() {
+        Ok(server) => (Some(server), None),
+        Err(error) => (None, Some(format!("paddock ctl unavailable: {error:#}"))),
+    };
+    let control = std::rc::Rc::new(std::cell::RefCell::new(server));
     // The sidebar's "new shell" starts the same shell in the same directory; shells carry this
     // instance for `paddock ctl`.
     let new_shell = NewShell {
         program: program.clone(),
         cwd: cwd.clone(),
-        instance: control.borrow().as_ref().expect("started").id.clone(),
+        instance: control
+            .borrow()
+            .as_ref()
+            .map(|server| server.id.clone())
+            .unwrap_or_default(),
+        ctl_problem,
     };
     let launch = if !command.is_empty() {
         Launch::Command {

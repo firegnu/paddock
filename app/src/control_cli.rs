@@ -16,7 +16,7 @@ const HELP: &str = "paddock ctl (JSON output)\n\
         [--confirmation TOKEN --confirm-shells]\n\n\
 Self uses CORRAL_NAME + CORRAL_INSTANCE, or shell PADDOCK_INSTANCE/PANE.\n\
 Poll request with the returned instance and request_id. Retry uncertain operations with the SAME request ID and arguments.\n\
-Runtime: $XDG_RUNTIME_DIR/paddock, otherwise $TMPDIR/paddock (private base required).";
+Runtime: $XDG_RUNTIME_DIR/paddock-ctl, otherwise $TMPDIR/paddock-ctl (private base required).";
 
 pub fn run(args: Vec<String>) -> i32 {
     if args.is_empty() || args == ["--help"] || args == ["-h"] {
