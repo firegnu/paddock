@@ -19,6 +19,30 @@ pub struct AgentMetadata {
     pub instance: Option<String>,
 }
 
+/// What public corral says about `name` before `paddock --attach NAME` attaches to it: the instance
+/// to attach to (the attach checks it again, as for any agent with a known instance). Nothing
+/// when corral cannot say; the pane then attaches as before, but cannot stand for its agent in
+/// `paddock ctl`.
+pub fn public_metadata(corral: &str, name: &str) -> AgentMetadata {
+    let status = crate::corral::Client {
+        program: corral.to_owned(),
+    }
+    .json(
+        &["status", name],
+        std::time::Duration::from_secs(5),
+        &std::sync::atomic::AtomicBool::new(false),
+    );
+    AgentMetadata {
+        cwd: None,
+        instance: status.ok().and_then(|status| {
+            status["instance"]
+                .as_str()
+                .filter(|instance| !instance.is_empty())
+                .map(str::to_owned)
+        }),
+    }
+}
+
 pub struct Viewer {
     pub session: Option<Session>,
     pub showing: Option<String>,

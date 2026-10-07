@@ -46,24 +46,21 @@ impl PaddockWindow {
     }
 
     /// What the user is in the middle of, when a change from `paddock ctl` would get in the way.
-    fn ctl_busy(&self, cx: &gpui::App) -> Option<&'static str> {
-        if self.resizing.is_some()
-            || self.right.resizing()
-            || self.splitting.is_some()
-            || self.dragging
-        {
-            Some("dragging a divider or the window")
-        } else if self.asking {
-            Some("answering a question")
-        } else if self.popup.is_some() {
-            Some("using a panel or menu")
-        } else if windows::new_agent_busy(cx) {
-            Some("creating an agent in New Agent")
-        } else if windows::quitting(cx) {
-            Some("quitting paddock")
-        } else {
-            None
-        }
+    /// Read from the window as it is now: requests and late `corral start` results both ask here.
+    fn ctl_busy(&self, window: &Window, cx: &gpui::App) -> Option<&'static str> {
+        control_ui::busy_reason(&control_ui::Activity {
+            dragging: self.resizing.is_some()
+                || self.right.resizing()
+                || self.splitting.is_some()
+                || self.dragging,
+            asking: self.asking,
+            // A page's alert, confirm or prompt and its file chooser are sheets on this window.
+            sheet: native_window(window).is_some_and(|native| native.attachedSheet().is_some()),
+            popup: self.popup.is_some(),
+            kanban_confirming: self.kanban.read(cx).confirming(),
+            creating: windows::new_agent_busy(cx),
+            quitting: windows::quitting(cx),
+        })
     }
 
     fn pane_facts(&self, cx: &gpui::App) -> HashMap<PaneId, Facts> {
@@ -103,7 +100,7 @@ impl PaddockWindow {
             facts: &facts,
             listed: &listed,
             startup_cwd: &self.new_shell.cwd,
-            busy: self.ctl_busy(cx),
+            busy: self.ctl_busy(window, cx),
         };
         if matches!(message.operation, Operation::Inspect) {
             return control_ui::inspect(&model, &message.caller);
@@ -139,7 +136,7 @@ impl PaddockWindow {
                     "pane": pane, "revision": self.workspace.revision(pane),
                     "cwd": cwd, "cwd_source": cwd_source, "relative_to": relative_to,
                 });
-                self.track(request, pane, None, &value);
+                self.track(request, pane, None, &value, cx);
                 value
             }
             Plan::Attach {
@@ -169,7 +166,7 @@ impl PaddockWindow {
                     "pane": pane, "revision": self.workspace.revision(pane),
                     "agent": name, "cwd": cwd, "relative_to": relative_to,
                 });
-                self.track(request, pane, Some(name), &value);
+                self.track(request, pane, Some(name), &value, cx);
                 value
             }
             Plan::Move {
@@ -202,7 +199,7 @@ impl PaddockWindow {
                     "agent": name, "moved": moved, "relative_to": relative_to,
                 });
                 if !attached {
-                    self.track(request, pane, Some(name), &value);
+                    self.track(request, pane, Some(name), &value, cx);
                 }
                 value
             }
@@ -276,11 +273,25 @@ impl PaddockWindow {
         }
     }
 
-    fn track(&mut self, request: String, pane: PaneId, agent: Option<String>, value: &Value) {
+    /// Follows `request` until `pane` shows what it asked for: this revision of the pane and, for
+    /// an agent, the instance its attach is for.
+    fn track(
+        &mut self,
+        request: String,
+        pane: PaneId,
+        agent: Option<String>,
+        value: &Value,
+        cx: &gpui::App,
+    ) {
+        let instance = agent
+            .as_ref()
+            .and_then(|_| self.panes.get(&pane))
+            .and_then(|view| view.read(cx).facts().instance);
         self.ctl.tracks.push(Track {
             request,
             pane,
             revision: self.workspace.revision(pane).unwrap_or_default(),
+            instance,
             agent,
             value: value.clone(),
         });
@@ -336,7 +347,7 @@ impl PaddockWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Vec<(String, Value)> {
-        let busy = self.ctl_busy(cx).is_some();
+        let busy = self.ctl_busy(window, cx).is_some();
         let (ready, waiting): (Vec<Starting>, Vec<Starting>) =
             std::mem::take(&mut self.ctl.starting)
                 .into_iter()
@@ -398,25 +409,50 @@ impl PaddockWindow {
             self.ctl.updates.push((request, value));
             return;
         }
+        // Shown meanwhile (from the sidebar, or `--agent`): that very instance moves beside the
+        // anchor and is followed; another instance under the name is not this request's agent.
+        let facts = self.pane_facts(cx);
+        let landing =
+            control_ui::landing(&self.workspace, &facts, &name, started.instance.as_deref());
         let before = window.focused(cx);
-        let pane = self
-            .workspace
-            .open_at(anchor, at, Shown::Agent(name.clone()))
-            .expect("anchor is open");
-        let view = self.view(pane, Launch::Empty, window, cx);
-        self.panes.insert(pane, view);
-        let metadata = AgentMetadata {
-            cwd: Some(cwd),
-            instance: started.instance,
+        let pane = match landing {
+            control_ui::Landing::Conflict(pane) => {
+                value["ok"] = json!(false);
+                value["state"] = json!("failed");
+                value["pty"] = json!("not_started");
+                value["error"] = json!({
+                    "code": "agent_conflict",
+                    "message": format!("pane {pane} already shows another instance of {name}; the created agent keeps running"),
+                });
+                self.ctl.updates.push((request, value));
+                return;
+            }
+            control_ui::Landing::Reuse(pane) => {
+                self.workspace.move_pane(pane, anchor, at);
+                pane
+            }
+            control_ui::Landing::Open => {
+                let pane = self
+                    .workspace
+                    .open_at(anchor, at, Shown::Agent(name.clone()))
+                    .expect("anchor is open");
+                let view = self.view(pane, Launch::Empty, window, cx);
+                self.panes.insert(pane, view);
+                let metadata = AgentMetadata {
+                    cwd: Some(cwd),
+                    instance: started.instance,
+                };
+                self.attach(pane, &name, metadata, cx);
+                pane
+            }
         };
-        self.attach(pane, &name, metadata, cx);
         self.opened(pane, focus, before, window, cx);
         value["state"] = json!("attaching");
         value["pty"] = json!("pending");
         value["pane"] = json!(pane);
         value["revision"] = json!(self.workspace.revision(pane));
         self.ctl.updates.push((request.clone(), value.clone()));
-        self.track(request, pane, Some(name), &value);
+        self.track(request, pane, Some(name), &value, cx);
     }
 }
 

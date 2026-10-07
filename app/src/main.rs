@@ -157,7 +157,10 @@ fn main() -> Result<()> {
             cwd: Some(cwd.into()),
         }
     } else if let Some(name) = attach {
-        Launch::Agent { name }
+        Launch::Agent {
+            name,
+            metadata: Default::default(),
+        }
     } else {
         Launch::Shell {
             program,
@@ -184,7 +187,7 @@ fn main() -> Result<()> {
         config.sidebar_width,
         &paddock::fonts::UiFont::from_config(&config),
     );
-    let options = Options {
+    let mut options = Options {
         launch,
         corral: corral.unwrap_or_else(|| config.corral.clone()),
         font_family: config.font.clone(),
@@ -193,6 +196,11 @@ fn main() -> Result<()> {
         line_height: config.line_height,
         stats,
     };
+    // `--attach NAME`: the instance to attach to, from public corral, so the pane can stand for
+    // its agent in `paddock ctl`.
+    if let Launch::Agent { name, metadata } = &mut options.launch {
+        *metadata = paddock::viewer::public_metadata(&options.corral, name);
+    }
     let theme = Theme::from_config(&config)?;
 
     let ui_control = control.clone();

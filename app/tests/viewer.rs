@@ -179,3 +179,71 @@ fn input_flows_again_once_the_pane_shows_something_else() {
     viewer.close().unwrap();
     assert!(!viewer.paused);
 }
+
+/// `paddock --attach NAME` (`Launch::Agent`): the pane's agent can be the caller of `paddock ctl`,
+/// known by the instance public corral gave before the attach.
+#[test]
+fn an_agent_attached_at_startup_is_known_by_its_instance() {
+    use paddock::{
+        control::Caller,
+        control_ui::{Facts, Listed, Model, caller_pane},
+        layout::{Shown, Workspace},
+        viewer::public_metadata,
+    };
+    let temp = common::tempdir();
+    let program = common::script(
+        temp.path(),
+        "corral",
+        r#"#!/bin/sh
+case "$1" in
+  status) echo '{"ok":true,"name":"p/start","state":"idle","attached":0,"instance":"i-start"}' ;;
+  attach) trap 'exit 0' INT; printf READY; while :; do sleep 1 & wait $!; done ;;
+  *) echo '{"ok":false,"error":"unexpected_command"}'; exit 1 ;;
+esac
+"#,
+    );
+    let size = Size { rows: 10, cols: 40 };
+    let mut viewer = Viewer::new(program.clone());
+    viewer
+        .select_agent("p/start".into(), public_metadata(&program, "p/start"))
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while viewer.state() != "running" {
+        assert!(Instant::now() < deadline, "{}", viewer.note);
+        viewer.tick(size).unwrap();
+        thread::sleep(Duration::from_millis(10));
+    }
+    // As `TerminalView::facts` reads it.
+    let facts = Facts {
+        state: viewer.state().into(),
+        attached: viewer.showing.clone(),
+        instance: viewer.target_metadata().instance.clone(),
+        ..Facts::default()
+    };
+    let (workspace, pane) = Workspace::new(Shown::Agent("p/start".into()));
+    let listed = [Listed {
+        name: "p/start".into(),
+        instance: Some("i-start".into()),
+        ..Listed::default()
+    }];
+    let model = Model {
+        instance: "0123456789abcdef",
+        workspace: &workspace,
+        facts: &[(pane, facts)].into_iter().collect(),
+        listed: &listed,
+        startup_cwd: "/",
+        busy: None,
+    };
+    let caller = Caller {
+        name: Some("p/start".into()),
+        corral_instance: Some("i-start".into()),
+        ..Caller::default()
+    };
+    assert_eq!(caller_pane(&model, &caller), Ok(pane));
+    viewer.close().unwrap();
+    while !viewer.closed() {
+        assert!(Instant::now() < deadline + Duration::from_secs(5));
+        viewer.tick(size).unwrap();
+        thread::sleep(Duration::from_millis(10));
+    }
+}

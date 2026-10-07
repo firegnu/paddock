@@ -99,8 +99,12 @@ pub enum Launch {
         cwd: String,
         env: Vec<(String, String)>,
     },
-    /// `corral attach NAME` through Saddle's viewer.
-    Agent { name: String },
+    /// `corral attach NAME` through Saddle's viewer, for the instance public corral named
+    /// (`viewer::public_metadata`), when it did.
+    Agent {
+        name: String,
+        metadata: AgentMetadata,
+    },
     /// Any program, straight on a PTY (synthetic output tests).
     Command {
         argv: Vec<String>,
@@ -199,8 +203,8 @@ impl TerminalView {
                 });
                 (format!("{program} · {cwd}"), format!("shell · {cwd}"))
             }
-            Launch::Agent { name } => {
-                if let Err(error) = viewer.select_agent(name.clone(), AgentMetadata::default()) {
+            Launch::Agent { name, metadata } => {
+                if let Err(error) = viewer.select_agent(name.clone(), metadata) {
                     note = format!("{error:#}");
                 }
                 (format!("corral attach {name}"), name)

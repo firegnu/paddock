@@ -319,6 +319,14 @@ impl Workspace {
         }
     }
 
+    /// What the pane shows starts again (an agent attached anew): a new revision, as when it is
+    /// set.
+    pub fn touch(&mut self, pane: PaneId) {
+        if self.shown.contains_key(&pane) {
+            *self.changes.entry(pane).or_default() += 1;
+        }
+    }
+
     /// The pane's revision: it goes up each time what the pane shows is set, so a request about
     /// what it showed before can tell. `None` for a pane that is not open.
     pub fn revision(&self, pane: PaneId) -> Option<u64> {

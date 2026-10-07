@@ -111,6 +111,71 @@ pub fn failed(code: &str, message: impl ToString) -> Value {
     value
 }
 
+/// What the user may be in the middle of in the main window, as it is now.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Activity {
+    /// A divider, a seam or the window is being dragged.
+    pub dragging: bool,
+    /// paddock's own question (closing shells, stopping, pausing) is showing.
+    pub asking: bool,
+    /// A system sheet is on the window: a page's alert, confirm or prompt, its file chooser.
+    pub sheet: bool,
+    /// A panel or menu is open.
+    pub popup: bool,
+    /// Kanban is asking whether to clear a task.
+    pub kanban_confirming: bool,
+    /// New Agent is creating an agent.
+    pub creating: bool,
+    pub quitting: bool,
+}
+
+/// Why a change from `paddock ctl` would get in the user's way now, if it would.
+pub fn busy_reason(activity: &Activity) -> Option<&'static str> {
+    if activity.dragging {
+        Some("dragging a divider or the window")
+    } else if activity.asking || activity.sheet || activity.kanban_confirming {
+        Some("answering a question")
+    } else if activity.popup {
+        Some("using a panel or menu")
+    } else if activity.creating {
+        Some("creating an agent in New Agent")
+    } else if activity.quitting {
+        Some("quitting paddock")
+    } else {
+        None
+    }
+}
+
+/// Where the pane of an agent `corral start` has started goes, as the window is when it answers.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Landing {
+    /// Not shown yet: a new pane beside the anchor.
+    Open,
+    /// This pane already shows that very instance: it moves there and is followed.
+    Reuse(PaneId),
+    /// This pane shows another instance under the name.
+    Conflict(PaneId),
+}
+
+/// [`Landing`] for `name`, started as `instance`.
+pub fn landing(
+    workspace: &Workspace,
+    facts: &HashMap<PaneId, Facts>,
+    name: &str,
+    instance: Option<&str>,
+) -> Landing {
+    match workspace.find(name) {
+        None => Landing::Open,
+        Some(pane)
+            if instance.is_some()
+                && facts.get(&pane).and_then(|f| f.instance.as_deref()) == instance =>
+        {
+            Landing::Reuse(pane)
+        }
+        Some(pane) => Landing::Conflict(pane),
+    }
+}
+
 /// Not done because the user is in the middle of something; the same request may come again.
 pub fn busy(what: &str) -> Value {
     let mut value = control::error(
@@ -292,6 +357,11 @@ pub fn close_targets(model: &Model, panes: &[PaneId]) -> Value {
                     "program": facts.program,
                     "agent": match model.workspace.shown(pane) {
                         Shown::Agent(name) => Some(name),
+                        _ => None,
+                    },
+                    // Another instance under the same name is another target.
+                    "corral_instance": match model.workspace.shown(pane) {
+                        Shown::Agent(_) => facts.instance.as_deref(),
                         _ => None,
                     },
                 })
@@ -562,6 +632,8 @@ pub struct Track {
     pub revision: u64,
     /// The agent it attaches, for an agent.
     pub agent: Option<String>,
+    /// The corral instance that attach is for, when known.
+    pub instance: Option<String>,
     /// The result as recorded so far.
     pub value: Value,
 }
@@ -571,8 +643,13 @@ pub struct Track {
 /// was closed or given something else first. `None` while it is still on its way.
 pub fn progress(track: &Track, workspace: &Workspace, facts: Option<&Facts>) -> Option<Value> {
     let mut value = track.value.clone();
-    let invalid = workspace.revision(track.pane) != Some(track.revision);
     let facts = facts.cloned().unwrap_or_default();
+    // Attached under its name, but to another instance than the one this request attached.
+    let other_instance = track.agent.is_some()
+        && track.instance.is_some()
+        && facts.attached == track.agent
+        && facts.instance != track.instance;
+    let invalid = workspace.revision(track.pane) != Some(track.revision) || other_instance;
     if invalid {
         let created = value["agent_created"].is_object();
         value["ok"] = json!(false);

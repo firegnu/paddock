@@ -89,3 +89,14 @@
 - 没改传输层和命令行约定、技能文字（P5-39c）；没加依赖；没改 DESIGN（实现没有偏离已定设计，上面第一条请主控定是否写进 §13）。
 - busy 的各种用户状态（拖分隔线、对话框、New Agent 创建中）只做了纯函数测试，没有实测（实测需要模拟鼠标键盘，按规矩不做）；`--focus` 时键盘的去向、关闭后焦点的去向同样留给用户实际体验。
 - 没合并、没推送，只在 `p5-39b-ctlui` 分支提交。
+
+### 交叉审查后的修改
+
+依据主控认可的审查 R1、R2、R3（必须改）和 R4（建议改）。每条先写测试、对着当时的行为跑出断言失败（为了能编译，先加了保持旧行为的空壳：`Track.instance`、`Workspace::touch`、`busy_reason`／`Activity`、`landing`、`viewer::public_metadata`），再实现转绿。
+
+- **R1 重新接入是新的一代**：窗口的 `attach` 每次都先 `Workspace::touch` 提升窗格 revision（ctl 的 `--agent` 重连、侧栏点击重连、新开窗格的首次接入都走它）；纯移动（`move_pane`，沿用原接入）不变。关闭确认清单的每个 agent 窗格带 `corral_instance`；在途请求记下当次接入的实例，同一窗格接上同名别的实例时记 `target_invalid`，revision 变了也一样。RED：同名新实例、同目录、同窗格、同 revision 时，旧凭据仍得到 `Close`；旧请求被新实例记为 `complete`。
+- **R2 busy 读主窗口的实际确认状态**：busy 改为纯函数 `control_ui::busy_reason(&Activity)`，窗口按当下状态填：主窗口挂着系统 sheet（`NSWindow.attachedSheet`，覆盖 Browser 的 JS alert／confirm／prompt 和文件选择器，也包括 paddock 自己的确认框）、Kanban 有卡片在问 Clear（新增 `KanbanView::confirming`），以及原有的拖动、`asking`、面板／菜单、New Agent 创建中、退出中。新请求和晚到 start 的落位都用这一个判断。RED：`sheet`／`kanban_confirming` 为真时确认关闭仍得到 `Close`；测试同时核对 busy 时凭据没花掉、布局没变。sheet 的读取本身要真窗口，没有实测。
+- **R3 `paddock --attach` 的实例**：`Launch::Agent` 带上 metadata；启动时先经公开 `corral status NAME`（5 秒上限，`viewer::public_metadata`）取实例交给 Viewer，接入前照常核验（未退出、实例一致、没在别处接着）。`caller_pane` 的实例检查没有放宽；corral 答不出时照旧接入，只是这个窗格不能当 ctl 的调用者。RED：`tests/viewer.rs` 按 `Launch::Agent` 的同一流程用假 corral 接入到 running 后，`caller_pane` 返回 caller_unresolved（实例为 None）。注意两点行为变化：带 `--attach` 启动多一次 `corral status`（最多等 5 秒才开窗）；拿到实例后，若该 agent 已在别处接着，启动接入会像侧栏点击一样被拒。
+- **R4 晚到的 start**：落位前用 `control_ui::landing` 按名字＋实例重查：没显示就新开窗格；已显示同一实例就把那个窗格挪到锚点旁并跟踪；显示的是别的实例（或 corral 没给实例）就记 `failed`／`agent_conflict`，说明创建的 agent 仍在跑。RED：已显示同一实例时仍判为新开。
+
+验证：在 `app/`、`.target/p5-39b-ctlui` 下前台跑 `cargo test --all-targets`（423 项全过，新增 5 项）、`cargo clippy --all-targets -- -D warnings`、`cargo fmt --check`，`git diff --check` 通过。这一轮没有重新做桌面实测；sheet／Kanban 确认时的 busy、`--attach` 启动的实际效果留给用户体验。没改传输层、命令行约定和技能文字。

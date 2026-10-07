@@ -639,6 +639,7 @@ fn a_request_in_progress_ends_complete_failed_or_target_invalid() {
         pane,
         revision: f.workspace.revision(pane).unwrap(),
         agent: Some("p/b".into()),
+        instance: None,
         value: json!({"ok": true, "state": "attaching", "pane": pane}),
     };
     let mut facts = Facts {
@@ -676,6 +677,7 @@ fn a_request_in_progress_ends_complete_failed_or_target_invalid() {
         pane,
         revision: 1,
         agent: None,
+        instance: None,
         value: json!({"ok": true, "state": "starting", "agent_created": {"name": "p/new"}}),
     };
     let starting = Facts {
@@ -693,5 +695,142 @@ fn a_request_in_progress_ends_complete_failed_or_target_invalid() {
             .as_str()
             .unwrap()
             .contains("keeps running")
+    );
+}
+
+#[test]
+fn a_confirmation_is_void_once_its_agent_is_another_instance_of_the_same_name() {
+    let mut f = Fixture::new();
+    let tab = CloseTarget::Tab(f.workspace.tabs[0].id);
+    let mut used = HashSet::new();
+    let asked = reply(f.plan_used(close(tab, None), Caller::default(), &[], &mut used));
+    let token = asked["confirmation"].as_str().unwrap().to_owned();
+    // p/a ended and its new instance, same name and directory, shows in the same pane.
+    f.facts.get_mut(&2).unwrap().instance = Some("i-new".into());
+    let changed = reply(f.plan_used(
+        close(tab, Some(&token)),
+        Caller::default(),
+        &[asked],
+        &mut used,
+    ));
+    assert_eq!(changed["error"]["code"], "confirmation_invalid");
+}
+
+#[test]
+fn a_request_follows_only_the_instance_it_attached() {
+    let mut f = Fixture::new();
+    let pane = f
+        .workspace
+        .open_at(1, At::Side(Direction::Down), Shown::Agent("p/b".into()))
+        .unwrap();
+    let track = Track {
+        request: "r".into(),
+        pane,
+        revision: f.workspace.revision(pane).unwrap(),
+        agent: Some("p/b".into()),
+        instance: Some("i-old".into()),
+        value: json!({"ok": true, "state": "attaching", "agent_created": {"name": "p/b", "instance": "i-old"}}),
+    };
+    // The same pane now shows another instance under the name: not this request's result.
+    let other = Facts {
+        state: "running".into(),
+        attached: Some("p/b".into()),
+        instance: Some("i-new".into()),
+        ..Facts::default()
+    };
+    let value = progress(&track, &f.workspace, Some(&other)).unwrap();
+    assert_eq!(value["state"], "target_invalid");
+    // A new attach is a new revision, so a request about the old one ends there too.
+    f.workspace.touch(pane);
+    let mut same = other.clone();
+    same.instance = Some("i-old".into());
+    assert_eq!(
+        progress(&track, &f.workspace, Some(&same)).unwrap()["state"],
+        "target_invalid"
+    );
+}
+
+#[test]
+fn the_main_windows_sheets_and_kanban_confirmations_make_it_busy() {
+    for activity in [
+        Activity {
+            sheet: true,
+            ..Activity::default()
+        },
+        Activity {
+            kanban_confirming: true,
+            ..Activity::default()
+        },
+        Activity {
+            dragging: true,
+            ..Activity::default()
+        },
+        Activity {
+            asking: true,
+            ..Activity::default()
+        },
+        Activity {
+            popup: true,
+            ..Activity::default()
+        },
+        Activity {
+            creating: true,
+            ..Activity::default()
+        },
+        Activity {
+            quitting: true,
+            ..Activity::default()
+        },
+    ] {
+        let mut f = Fixture::new();
+        let tab = CloseTarget::Tab(f.workspace.tabs[0].id);
+        let asked = reply(f.plan(close(tab, None), Caller::default(), &[]));
+        let token = asked["confirmation"].as_str().unwrap().to_owned();
+        f.busy = busy_reason(&activity);
+        let mut used = HashSet::new();
+        let value = reply(f.plan_used(
+            close(tab, Some(&token)),
+            Caller::default(),
+            &[asked],
+            &mut used,
+        ));
+        assert_eq!(value["state"], "busy", "{activity:?}");
+        assert!(used.is_empty(), "{activity:?}");
+        assert_eq!(f.workspace.tabs[0].panes(), [1, 2], "{activity:?}");
+    }
+    assert_eq!(busy_reason(&Activity::default()), None);
+}
+
+#[test]
+fn a_late_start_reuses_the_pane_of_that_instance_and_refuses_another() {
+    let mut f = Fixture::new();
+    assert_eq!(
+        landing(&f.workspace, &f.facts, "p/new", Some("i-new")),
+        Landing::Open
+    );
+    // While corral was starting it, the agent was opened here (from the sidebar or `--agent`).
+    let pane = f
+        .workspace
+        .open_at(3, At::Tab, Shown::Agent("p/new".into()))
+        .unwrap();
+    f.facts.insert(
+        pane,
+        Facts {
+            state: "attaching".into(),
+            instance: Some("i-new".into()),
+            ..Facts::default()
+        },
+    );
+    assert_eq!(
+        landing(&f.workspace, &f.facts, "p/new", Some("i-new")),
+        Landing::Reuse(pane)
+    );
+    assert_eq!(
+        landing(&f.workspace, &f.facts, "p/new", Some("i-other")),
+        Landing::Conflict(pane)
+    );
+    assert_eq!(
+        landing(&f.workspace, &f.facts, "p/new", None),
+        Landing::Conflict(pane)
     );
 }

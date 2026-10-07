@@ -851,7 +851,7 @@ impl PaddockWindow {
         cx.subscribe_in(&kanban, window, Self::on_kanban).detach();
         let shown = match &options.launch {
             Launch::Empty => Shown::Empty,
-            Launch::Agent { name } => Shown::Agent(name.clone()),
+            Launch::Agent { name, .. } => Shown::Agent(name.clone()),
             Launch::Shell { .. } | Launch::Command { .. } => Shown::Shell,
         };
         let (workspace, restored) = match &saved {
@@ -1897,7 +1897,16 @@ impl PaddockWindow {
         self.focus_active(window, cx);
     }
 
-    fn attach(&self, pane: PaneId, name: &str, metadata: AgentMetadata, cx: &mut Context<Self>) {
+    /// Attaches `pane` to `name`: a new attach is new content, so the pane's revision rises and
+    /// `paddock ctl` requests and close confirmations about what it showed before end.
+    fn attach(
+        &mut self,
+        pane: PaneId,
+        name: &str,
+        metadata: AgentMetadata,
+        cx: &mut Context<Self>,
+    ) {
+        self.workspace.touch(pane);
         let paused = self.sidebar.read(cx).paused(name);
         let name = name.to_owned();
         self.panes[&pane].update(cx, |v, cx| {
