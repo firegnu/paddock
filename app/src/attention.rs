@@ -77,7 +77,8 @@ pub fn items(panel: &Panel, corral_error: Option<&str>, now: f64) -> Vec<Item> {
         for a in panel
             .agents
             .iter()
-            .filter(|a| panel.status(a, now) == wanted)
+            // As the cards show it: a paused agent asks nothing until it is resumed.
+            .filter(|a| panel.shown(a, now) == wanted)
         {
             let incompatible = a
                 .incompatible
@@ -176,6 +177,31 @@ mod tests {
         // The bell counts every row and takes the colour of the most urgent.
         assert_eq!(bell(&items), (4, Urgency::Needs));
         assert_eq!((items[0].mark(), items[3].mark()), ("?", "•"));
+    }
+
+    #[test]
+    fn a_paused_agent_waits_without_ringing_but_an_error_still_does() {
+        let mut panel = Panel::default();
+        panel.absorb(
+            vec![
+                Agent {
+                    paused: true,
+                    ..agent("p/ask", "blocked")
+                },
+                Agent {
+                    paused: true,
+                    error: Some("status failed".into()),
+                    ..agent("p/broken", "error")
+                },
+            ],
+            None,
+            100.0,
+        );
+        let rows: Vec<(Kind, String)> = items(&panel, None, 100.0)
+            .iter()
+            .map(|i| (i.kind, i.label.clone()))
+            .collect();
+        assert_eq!(rows, [(Kind::Error, "p/broken".to_owned())]);
     }
 
     #[test]

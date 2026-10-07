@@ -121,7 +121,7 @@ pub fn agents(agents: &[Agent], now: f64, home: Option<&str>) -> Vec<Row> {
     agents
         .into_iter()
         .map(|agent| {
-            let look = card::look(Panel::default().status(agent, now));
+            let look = card::look(Panel::default().shown(agent, now));
             let detail = match agent.cwd.as_deref().filter(|cwd| !cwd.is_empty()) {
                 Some(cwd) => format!("{} · {}", look.label, short_dir(cwd, home)),
                 None => look.label.to_owned(),
@@ -436,6 +436,22 @@ mod tests {
         let groups = everything(&agents, &[], &[], &[], "");
         assert_eq!(groups[0].label, "AGENTS");
         assert_eq!(groups[0].note, "3");
+    }
+
+    #[test]
+    fn a_paused_agent_says_paused_and_does_not_breathe() {
+        let mut paused = agent("paddock/main", "/Users/me/code/paddock");
+        paused.state = Some("working".into());
+        paused.paused = true;
+        let rows = agents(&[paused], 0.0, Some("/Users/me"));
+        assert_eq!(rows[0].detail, "Paused · ~/…/paddock");
+        assert!(matches!(
+            rows[0].lead,
+            Lead::Dot {
+                breathing: false,
+                ..
+            }
+        ));
     }
 
     #[test]

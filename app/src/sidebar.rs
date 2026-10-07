@@ -373,11 +373,13 @@ impl Listing {
         )
     }
 
+    /// An agent is working, as the cards show it: a paused one is not, for the spinners and the
+    /// activity glow alike.
     fn animating(&self, now: f64) -> bool {
         self.panel
             .agents
             .iter()
-            .any(|a| self.panel.status(a, now) == Status::Working)
+            .any(|a| self.panel.shown(a, now) == Status::Working)
     }
 }
 
@@ -2767,6 +2769,19 @@ mod tests {
             instance: Some(format!("i-{name}")),
             ..Agent::default()
         }
+    }
+
+    #[test]
+    fn a_paused_working_agent_is_not_working_for_spinners_or_the_activity_glow() {
+        let mut listing = Listing::default();
+        let paused = Agent {
+            paused: true,
+            ..agent("p/a", "working")
+        };
+        let _ = listing.absorb(Ok(vec![paused]), None, 1000.0);
+        assert!(!listing.animating(1000.0));
+        let _ = listing.absorb(Ok(vec![agent("p/a", "working")]), None, 1000.0);
+        assert!(listing.animating(1000.0));
     }
 
     fn shown(lines: &[Line]) -> Vec<String> {
