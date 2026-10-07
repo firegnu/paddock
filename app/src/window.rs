@@ -19,7 +19,7 @@ use crate::{
     kanban_view::{self, KanbanEvent, KanbanView, NewTask, NewTaskEvent},
     kind_icon,
     layout::{Axis, Direction, Node, PaneId, Placement, Shown, Workspace},
-    layout_state::{Content, Layout, Store},
+    layout_state::{Content, Layout, Store, WindowSize},
     menu,
     motion::{self, HoverMotion},
     new_agent::{self, Place, Started},
@@ -43,6 +43,9 @@ use gpui::{
     Size, Stateful, StyleRefinement, StyledText, Task, Window, WindowBackgroundAppearance, canvas,
     div, point, prelude::*, px, relative, size,
 };
+use objc2::{MainThreadMarker, rc::Retained};
+use objc2_app_kit::{NSView, NSWindow};
+use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use std::{
     cell::RefCell,
     collections::HashMap,
@@ -55,6 +58,49 @@ use std::{
 pub struct NewShell {
     pub program: String,
     pub cwd: String,
+}
+
+/// GPUI does not expose the native minimum size or miniaturized state.
+fn native_window(window: &Window) -> Option<Retained<NSWindow>> {
+    MainThreadMarker::new()?;
+    let handle = HasWindowHandle::window_handle(window).ok()?;
+    let RawWindowHandle::AppKit(appkit) = handle.as_raw() else {
+        return None;
+    };
+    // SAFETY: GPUI's live NSView, read on the main thread while `window` is borrowed.
+    let view = unsafe { appkit.ns_view.cast::<NSView>().as_ref() };
+    view.window()
+}
+
+/// Restores only the main window's size, centred in its screen's usable area. Explicit
+/// `--bounds` bypasses this. Keep AppKit's existing minimum rather than setting a new one.
+pub fn restore_size(window: &mut Window, saved: WindowSize, cx: &mut gpui::App) {
+    let Some(native) = native_window(window) else {
+        return;
+    };
+    let Some(screen) = native.screen() else {
+        return;
+    };
+    let available = screen.visibleFrame();
+    let minimum = native.minSize();
+    let restored = saved.for_startup(
+        WindowSize {
+            width: available.size.width as f32,
+            height: available.size.height as f32,
+        },
+        WindowSize {
+            width: minimum.width as f32,
+            height: minimum.height as f32,
+        },
+    );
+    let mut frame = native.frame();
+    frame.size.width = restored.width as f64;
+    frame.size.height = restored.height as f64;
+    frame.origin.x = available.origin.x + (available.size.width - frame.size.width) / 2.0;
+    frame.origin.y = available.origin.y + (available.size.height - frame.size.height) / 2.0;
+    native.setFrame_display(frame, false);
+    // The native resize happened during construction, before GPUI can dispatch to this window.
+    window.bounds_changed(cx);
 }
 
 /// The small panel open over the window.
@@ -596,6 +642,8 @@ pub struct PaddockWindow {
     tab_left: Option<(usize, Instant)>,
     /// Where the layout is saved.
     store: Store,
+    /// Last normal window size, kept while fullscreen or miniaturized.
+    window_size: WindowSize,
     /// The config came from its file at startup, rather than defaults.
     config_from_file: bool,
     /// The command palette while it is open.
@@ -745,6 +793,10 @@ impl PaddockWindow {
             dragging: false,
             lights: None,
             store,
+            window_size: WindowSize {
+                width: window.bounds().size.width.into(),
+                height: window.bounds().size.height.into(),
+            },
             // It opens windowed (`main.rs`).
             full_screen: false,
             config_from_file: crate::config::default_path().exists(),
@@ -759,6 +811,20 @@ impl PaddockWindow {
         // Full screen has nothing behind it to show: the window turns opaque there, and back after.
         cx.observe_window_bounds(window, |this, window, cx| {
             let full_screen = window.is_fullscreen();
+            if !full_screen
+                && !window.is_simple_fullscreen()
+                && native_window(window).is_some_and(|native| !native.isMiniaturized())
+            {
+                let size = window.bounds().size;
+                let size = WindowSize {
+                    width: size.width.into(),
+                    height: size.height.into(),
+                };
+                if size != this.window_size {
+                    this.window_size = size;
+                    this.save_layout(cx);
+                }
+            }
             if full_screen != this.full_screen {
                 this.full_screen = full_screen;
                 if this.frost.is_some() {
@@ -876,6 +942,7 @@ impl PaddockWindow {
     /// Saves the layout when it changed since the last save.
     pub fn save_layout(&mut self, cx: &gpui::App) {
         let layout = Layout {
+            window_size: self.window_size,
             sidebar_collapsed: self.collapsed,
             right_sidebar: self.right.saved(),
             ..Layout::of(&self.workspace, |pane| self.content(pane, cx))

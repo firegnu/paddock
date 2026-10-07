@@ -149,8 +149,13 @@ fn main() -> Result<()> {
     // Started plainly, paddock opens the saved layout; asked for an agent or a program, it opens
     // that and leaves the saved layout alone.
     let path = paddock::layout_state::default_path();
+    let (store, saved) = Store::open(path.clone());
+    let window_size = saved
+        .as_ref()
+        .map(|layout| layout.window_size)
+        .unwrap_or_default();
     let layout = if matches!(launch, Launch::Shell { .. }) {
-        Store::open(path)
+        (store, saved)
     } else {
         (Store::skip(path), None)
     };
@@ -170,7 +175,11 @@ fn main() -> Result<()> {
     gpui_platform::application().run(move |cx: &mut App| {
         let bounds = match window {
             Some((x, y, w, h)) => Bounds::new(point(px(x), px(y)), size(px(w), px(h))),
-            None => Bounds::centered(None, size(px(1280.0), px(800.0)), cx),
+            None => Bounds::centered(
+                None,
+                size(px(window_size.width), px(window_size.height)),
+                cx,
+            ),
         };
         cx.set_global(startup);
         cx.set_global(paddock::fonts::UiFont::from_config(&config));
@@ -206,7 +215,12 @@ fn main() -> Result<()> {
                     app_owns_titlebar_drag: true,
                     ..Default::default()
                 },
-                |window, cx| {
+                |main_window, cx| {
+                    if window.is_none() {
+                        // The native minimum is available only after the window is created.
+                        paddock::window::restore_size(main_window, window_size, cx);
+                    }
+                    let window = main_window;
                     windows::announce(window);
                     cx.new(|cx| {
                         PaddockWindow::new(&config, theme, options, new_shell, layout, window, cx)
