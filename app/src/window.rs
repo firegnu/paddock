@@ -4400,7 +4400,7 @@ impl Render for BarTip {
 fn dot(shown: &Shown, agents: &[Agent], now: f64) -> Pick {
     match shown {
         Shown::Agent(name) => match agents.iter().find(|a| &a.name == name) {
-            Some(agent) => card::look(Panel::default().status(agent, now)).color,
+            Some(agent) => card::look(Panel::default().shown(agent, now)).color,
             None => |t| t.agents_faint,
         },
         Shown::Shell => |t| t.muted,
@@ -4717,6 +4717,20 @@ impl Render for PaddockWindow {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_paused_agents_dot_is_the_cards_paused_colour() {
+        let agent = Agent {
+            name: "p/a".into(),
+            state: Some("idle".into()),
+            paused: true,
+            ..Default::default()
+        };
+        let theme = crate::preset::Theme::default();
+        let pick = dot(&Shown::Agent("p/a".into()), &[agent], 0.0);
+        let paused = card::look(crate::agents::Status::Paused).color;
+        assert_eq!(pick(&theme), paused(&theme));
+    }
 
     #[test]
     fn continuous_window_size_changes_save_once_after_the_last_change() {
