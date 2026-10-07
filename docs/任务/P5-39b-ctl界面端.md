@@ -111,3 +111,4 @@
 ### 复核后的修改（S1）
 
 - `KanbanView::confirming()` 只算 Kanban 页签正在显示、且卡片还在当前看板上的 Clear 询问（纯函数 `kanban_view::confirming`）：确认中的任务文件被外部删掉、看板重读后卡片消失，留下的 Asking 不再让 ctl 一直 busy；真正显示中的询问照旧挡住。先写测试“确认中的卡片被刷新移除后 confirming 变回 false”，在原代码上断言失败，修后通过；`app/` 下 `cargo test --all-targets`（424 项全过）、clippy、fmt 通过。
+- 复核 S1（建议改，主控决定修）：Kanban 只把“还在看板上、Kanban 正在显示”的 Clear 询问算作确认中，卡片被刷新移除后 ctl 不再一直 busy；测试先在旧代码上失败。主控看过 diff，分支上重跑 424 项全过、clippy、fmt。
