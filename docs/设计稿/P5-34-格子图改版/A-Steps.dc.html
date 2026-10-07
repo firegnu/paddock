@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Activity grid — clear steps</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+a{color:#bdb86a}a:hover{color:#d8d38c}
+@keyframes cellIn{from{opacity:0;transform:scale(.2)}to{opacity:1;transform:scale(1)}}
+@keyframes todayRing{0%,100%{box-shadow:0 0 0 1.5px currentColor,0 0 3px 0 currentColor}50%{box-shadow:0 0 0 1.5px currentColor,0 0 10px 2px currentColor}}
+.cell{width:11px;height:11px;border-radius:3px;animation:cellIn .5s cubic-bezier(.2,.8,.2,1) both;transition:transform .15s ease,background-color .15s ease}
+.cell:hover{transform:scale(1.35)}
+.today{animation:cellIn .5s cubic-bezier(.2,.8,.2,1) both,todayRing 2.6s ease-in-out 1s infinite}
+@media (prefers-reduced-motion: reduce){.cell,.today{animation:none}}
+</style>
+</helmet>
+<div style="width: 380px; height: 330px; box-sizing: border-box; padding: 18px; background: {{bg}}; color: {{text}}; font-family: -apple-system, 'SF Pro Text', system-ui, sans-serif; display: flex; flex-direction: column">
+  <div style="border-radius: 12px; background: {{panel}}; border: 1px solid {{edge}}; padding: 14px 16px 12px; display: flex; flex-direction: column; gap: 10px">
+    <div style="display: flex; align-items: baseline; justify-content: space-between; font-size: 11px">
+      <span style="letter-spacing: .08em; font-weight: 600; color: {{dim}}">ACTIVITY</span>
+      <span style="font-variant-numeric: tabular-nums; color: {{dim}}">{{headline}}</span>
+    </div>
+    <div style="position: relative; height: 12px; font-size: 10px; color: {{dimmer}}">
+      <sc-for list="{{months}}" as="m" hint-placeholder-count="5">
+        <span style="position: absolute; left: {{m.left}}px; top: 0">{{m.label}}</span>
+      </sc-for>
+    </div>
+    <div style="display: grid; grid-template-rows: repeat(7, 11px); grid-auto-flow: column; grid-auto-columns: 11px; gap: 3px">
+      <sc-for list="{{cells}}" as="c" hint-placeholder-count="154">
+        <div class="{{c.cls}}" style="background-color: {{c.bg}}; color: {{c.ring}}; animation-delay: {{c.delay}}" onMouseEnter="{{c.enter}}" onMouseLeave="{{leave}}"></div>
+      </sc-for>
+    </div>
+    <div style="display: flex; align-items: center; justify-content: space-between; font-size: 10px; color: {{dimmer}}">
+      <span style="font-variant-numeric: tabular-nums">{{streak}}</span>
+      <div style="display: flex; align-items: center; gap: 3px">
+        <span style="margin-right: 3px">Less</span>
+        <sc-for list="{{legend}}" as="l" hint-placeholder-count="5">
+          <div style="width: 10px; height: 10px; border-radius: 3px; background-color: {{l.bg}}"></div>
+        </sc-for>
+        <span style="margin-left: 3px">More</span>
+      </div>
+    </div>
+  </div>
+  <p style="margin: 14px 2px 0; font-size: 11px; line-height: 1.5; color: {{dimmer}}">Solid steps mixed from the accent, empty days clearly drawn, no glow except today.</p>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["Dune","Lagoon","Tide"],"default":"Dune"},"$preview":{"width":380,"height":330}}'>
+class Component extends DCLogic {
+  constructor(props) { super(props); this.state = { hover: null }; }
+  renderVals() {
+    const T = {
+      Dune: { bg: '#1d1a16', accent: '#bdb86a', text: '#e6e0d2' },
+      Lagoon: { bg: '#0c1616', accent: '#7fd4bf', text: '#d6e6e1' },
+      Tide: { bg: '#151b23', accent: '#86c1e6', text: '#dae3ec' }
+    }[this.props.theme ?? 'Dune'] || { bg: '#1d1a16', accent: '#bdb86a', text: '#e6e0d2' };
+    const hex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+    const mix = (a, b, t) => { const x = hex(a), y = hex(b); return 'rgb(' + x.map((v, i) => Math.round(v + (y[i] - v) * t)).join(',') + ')'; };
+    const rgba = (h, a) => 'rgba(' + hex(h).join(',') + ',' + a + ')';
+    const weeks = 22, today = 3;
+    let seed = 7;
+    const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+    const counts = [];
+    for (let w = 0; w < weeks; w++) for (let d = 0; d < 7; d++) {
+      const future = w === weeks - 1 && d > today;
+      const p = w < 11 ? 0.14 : w < 17 ? 0.5 : 0.92;
+      const top = w < 11 ? 3 : w < 17 ? 10 : 42;
+      counts.push(future ? -1 : rnd() < p ? 1 + Math.floor(rnd() * top) : 0);
+    }
+    const max = Math.max(8, ...counts);
+    const level = (n) => n <= 0 ? 0 : n <= max / 4 ? 1 : n <= max / 2 ? 2 : n <= max * 3 / 4 ? 3 : 4;
+    const ramp = [mix(T.bg, '#ffffff', 0.07), mix(T.bg, T.accent, 0.24), mix(T.bg, T.accent, 0.46), mix(T.bg, T.accent, 0.7), T.accent];
+    const names = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const cells = counts.map((n, i) => {
+      const w = Math.floor(i / 7), d = i % 7, last = w === weeks - 1 && d === today;
+      return {
+        cls: last ? 'cell today' : 'cell',
+        bg: n < 0 ? 'transparent' : ramp[level(n)],
+        ring: T.accent,
+        delay: ((w + d) * 14) + 'ms',
+        enter: () => this.setState({ hover: { n, w, d } })
+      };
+    });
+    const total = counts.reduce((s, n) => s + Math.max(n, 0), 0);
+    const h = this.state.hover;
+    let streak = 0;
+    for (let i = (weeks - 1) * 7 + today; i >= 0 && counts[i] > 0; i--) streak++;
+    return {
+      bg: T.bg, text: T.text, panel: mix(T.bg, '#ffffff', 0.025), edge: mix(T.bg, '#ffffff', 0.08),
+      dim: rgba(T.text.replace('#', '#'), 0.62), dimmer: rgba(T.text, 0.42),
+      headline: h ? (h.n > 0 ? h.n + ' commits' : 'No commits') + ' · ' + names[h.d] + ', week ' + (h.w + 1) : total.toLocaleString('en') + ' commits · ' + weeks + ' weeks',
+      months: [['May', 0], ['Jun', 4], ['Jul', 9], ['Aug', 13], ['Sep', 17], ['Oct', 21]].map(([label, w]) => ({ label, left: w * 14 })),
+      cells, leave: () => this.setState({ hover: null }),
+      streak: streak + '-day streak',
+      legend: ramp.map((bg) => ({ bg }))
+    };
+  }
+}
+</script>
+</body>
+</html>
