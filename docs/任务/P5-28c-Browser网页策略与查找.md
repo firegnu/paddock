@@ -97,3 +97,13 @@
   6. Safari 调试：Safari 设置 → 高级 → 勾“显示网页开发者功能”；Safari 的“开发”菜单 → 本机 → paddock 下面有这个网页，点开出现 Web Inspector。
   7. 证书：地址栏打开 `https://self-signed.badssl.com/`、`https://expired.badssl.com/`：显示 “Can’t open this page” 和 “This site’s certificate is not trusted.”，有 Retry 和 Open in default browser；点后者在默认浏览器里打开同一地址；paddock 里没有任何“继续”的办法。
   8. 查找：点网页后按 ⌘F：工具栏下方出现查找栏，网页往下让、不被盖住，输入框有光标；打一个页面里有的词：网页里选中第一个并滚过去；⏎ 或 ⌘G 下一个，⇧⏎ 或 ⇧⌘G 上一个，↑ ↓ 按钮同样；打一个没有的词：红色 “No match”；Esc：查找栏关掉，接着打字进网页。点地址栏后 ⌘F 同样打开；查找栏开着时点网页，栏还在，⌘G 继续找；终端有键盘时 ⌘F 打开的是终端自己的查找栏。
+
+## 主控审查
+
+2026-10-07，paddock/main。可以合并，已合并。
+- 中途停下问的两件按规定报上来，用户都选了建议：`0.0.0.0`／`[::]` 换成回环地址；`block2 =0.6.2` 作直接依赖（锁文件只多两行指向已有包，主控核对过）。两条已补进 DESIGN §13（`34cc61d`）。
+- 范围符合约定：改 `browser.rs`、`browser_view.rs`、`menu.rs`、`bundle.rs`（只加 `NSAllowsLocalNetworking`）、`Cargo.toml`／`Cargo.lock`；`window.rs` 没改；没加别的库，没用私有接口。
+- 主控看了要害处：下载文件名只取最后一段、空／`.`／`..` 改成 `download`，路径不出 `~/Downloads`，同名不覆盖；没有实现证书质询回调，WebKit 照默认拒绝；对话框、上传面板每条路径都调用一次完成回调。
+- 主控在分支上重跑：`cargo test --all-targets` 273 项全过，clippy、`cargo fmt --check` 通过。
+- 取舍都同意，包括 ⌘F／⌘G 在网页有键盘时改给 Browser 查找栏（第 7 条本来要求的），`::` 算本地，嵌入框架不能拉起别的 app。
+- 第 2 到 7 条要用户照上面 8 条清单实测。
