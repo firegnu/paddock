@@ -2,8 +2,9 @@
 //! groups one above another, each folding; widened, five columns side by side. Git is read in the
 //! background every few seconds while the tab shows (`kanban::read`), the agents come from the
 //! left sidebar each frame, and the board is drawn again only when it changed. A hovered card
-//! offers its task file, its agent and the agent's changes, nothing that changes the work; the one
-//! thing it makes is a new draft task file, from New task (DESIGN §13 P5-29).
+//! offers its task file, its agent and the agent's changes, nothing that changes the work; the
+//! things it writes are a new draft task file, from New task, and, on a card its task file says
+//! needs the user, Clear: that line taken out and committed once confirmed (DESIGN §13 P5-29).
 use crate::{
     agents::Status,
     card, changes,
@@ -23,6 +24,7 @@ use gpui::{
 };
 use std::{
     cell::Cell,
+    collections::HashMap,
     path::PathBuf,
     rc::Rc,
     sync::{
@@ -77,6 +79,18 @@ struct Pending {
     cwd: String,
     cancel: Arc<AtomicBool>,
     out: Arc<Mutex<Option<Read>>>,
+}
+
+/// Where a card's Clear stands.
+#[derive(Clone, Debug, PartialEq)]
+enum Clearing {
+    /// Asking to confirm, while the mouse stays on the card.
+    Asking,
+    Running,
+    /// Committed: until the board is read again.
+    Done,
+    /// Nothing was changed, and why; until the mouse leaves the card.
+    Refused(String),
 }
 
 /// The theme's colours the tab uses.
@@ -152,6 +166,8 @@ pub struct KanbanView {
     wide_at: f32,
     /// Where New task was last drawn, for its panel to hang from.
     new_task_at: Rc<Cell<Option<Bounds<Pixels>>>>,
+    /// The cards being cleared of `待用户：` or asked to be, by task file.
+    clears: HashMap<String, Clearing>,
 }
 
 impl KanbanView {
@@ -183,6 +199,7 @@ impl KanbanView {
             hovered: None,
             wide_at: changes::WIDE,
             new_task_at: Rc::default(),
+            clears: HashMap::new(),
         }
     }
 
@@ -244,6 +261,13 @@ impl KanbanView {
                 let cwd = pending.cwd.clone();
                 self.pending = None;
                 self.last = Some(Instant::now());
+                // Begun after the commit, so the board it gives no longer has the line.
+                let before = self.clears.len();
+                self.clears
+                    .retain(|_, clearing| *clearing != Clearing::Done);
+                if self.clears.len() != before {
+                    cx.notify();
+                }
                 // A failed round keeps what is shown, unless there is nothing yet.
                 let current = self.cwd.as_ref().and_then(Option::as_ref) == Some(&cwd);
                 if current && (read != Read::Failed || self.read.is_none()) && self.accept(read) {
@@ -318,6 +342,16 @@ impl KanbanView {
     }
 
     fn hover(&mut self, file: &str, hovered: bool, cx: &mut Context<Self>) {
+        // Leaving takes back the question, or why it was not cleared.
+        if !hovered
+            && matches!(
+                self.clears.get(file),
+                Some(Clearing::Asking | Clearing::Refused(_))
+            )
+        {
+            self.clears.remove(file);
+            cx.notify();
+        }
         let now = if hovered {
             Some(file.to_owned())
         } else if self.hovered.as_deref() == Some(file) {
@@ -329,6 +363,54 @@ impl KanbanView {
             self.hovered = now;
             cx.notify();
         }
+    }
+
+    /// Clear on a card: ask first, unless it is being cleared already.
+    fn ask_clear(&mut self, file: &str, cx: &mut Context<Self>) {
+        if matches!(
+            self.clears.get(file),
+            Some(Clearing::Running | Clearing::Done)
+        ) {
+            return;
+        }
+        self.clears.insert(file.to_owned(), Clearing::Asking);
+        cx.notify();
+    }
+
+    /// Confirmed: the line taken out and committed in the background, and the board read again
+    /// once it is.
+    fn clear(&mut self, file: &str, asks: &str, cx: &mut Context<Self>) {
+        if self.clears.get(file) != Some(&Clearing::Asking) {
+            return;
+        }
+        let Some(repo) = self.board.as_ref().map(|board| board.repo.clone()) else {
+            return;
+        };
+        self.clears.insert(file.to_owned(), Clearing::Running);
+        let (name, asks) = (file.to_owned(), asks.to_owned());
+        let task = cx.background_spawn(async move {
+            kanban::clear_asks("git", &repo, &name, &asks, &AtomicBool::new(false))
+        });
+        let file = file.to_owned();
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |view, cx| {
+                match result {
+                    Ok(()) => {
+                        view.clears.insert(file, Clearing::Done);
+                        // A read begun before the commit would bring the line back for a while.
+                        view.cancel();
+                        view.last = None;
+                    }
+                    Err(why) => {
+                        view.clears.insert(file, Clearing::Refused(why.to_string()));
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+        cx.notify();
     }
 
     fn new_task(&mut self, cx: &mut Context<Self>) {
@@ -862,6 +944,9 @@ impl KanbanView {
         let asks = self
             .asks(card)
             .map(|asks| asks.mt(ui.px(5.0)).text_size(ui.px(12.0)));
+        let clearing = self
+            .clearing(card, ui, cx)
+            .map(|row| row.mt(ui.px(6.0)).text_size(ui.px(12.0)));
         self.hoverable(card, cx)
             .rounded(px(8.0))
             .pt(ui.px(8.0))
@@ -874,6 +959,7 @@ impl KanbanView {
             .children(meta)
             .children(reviewer)
             .children(asks)
+            .children(clearing)
             .children(self.actions(card, ui, cx))
     }
 
@@ -926,6 +1012,9 @@ impl KanbanView {
         let asks = self
             .asks(card)
             .map(|asks| asks.mt(ui.px(6.0)).text_size(ui.px(11.5)));
+        let clearing = self
+            .clearing(card, ui, cx)
+            .map(|row| row.mt(ui.px(7.0)).text_size(ui.px(11.5)));
         self.hoverable(card, cx)
             .flex_shrink_0()
             .rounded(px(8.0))
@@ -942,6 +1031,7 @@ impl KanbanView {
             .children(meta)
             .children(reviewer)
             .children(asks)
+            .children(clearing)
             .children(self.actions(card, ui, cx))
     }
 
@@ -1213,7 +1303,8 @@ impl KanbanView {
     }
 
     /// While the mouse is on the card, its ways out at the top right: the task file, and with an
-    /// agent, its pane and its changes. Nothing that changes the work.
+    /// agent, its pane and its changes; on a card its task file says needs the user, Clear, which
+    /// asks first.
     fn actions(&self, card: &Card, ui: &UiFont, cx: &mut Context<Self>) -> Option<Div> {
         if self.hovered.as_deref() != Some(card.file.as_str()) {
             return None;
@@ -1283,7 +1374,103 @@ impl KanbanView {
                     )),
                 );
         }
+        let busy = matches!(
+            self.clears.get(&card.file),
+            Some(Clearing::Running | Clearing::Done)
+        );
+        if card.clearable() && !busy {
+            let file = card.file.clone();
+            bar = bar.child(
+                button(
+                    "kanban-clear",
+                    Icon::Check,
+                    "Clear \u{201c}Needs you\u{201d}",
+                )
+                .on_click(cx.listener(move |view, _: &ClickEvent, _, cx| {
+                    cx.stop_propagation();
+                    view.ask_clear(&file, cx);
+                })),
+            );
+        }
         Some(bar)
+    }
+
+    /// Under a card being cleared: the question with Cancel and Clear, then that it is clearing,
+    /// or why it was not.
+    fn clearing(&self, card: &Card, ui: &UiFont, cx: &mut Context<Self>) -> Option<Div> {
+        let c = self.colors;
+        let row = div()
+            .flex()
+            .flex_wrap()
+            .items_center()
+            .gap(ui.px(6.0))
+            .min_w(px(0.0));
+        let words = |words: String, color: Hsla| {
+            div()
+                .flex_shrink(1.0)
+                .min_w(px(0.0))
+                .whitespace_normal()
+                .text_color(color)
+                .child(words)
+        };
+        Some(match self.clears.get(&card.file)? {
+            Clearing::Asking => {
+                let (file, asks) = (card.file.clone(), card.asks.clone().unwrap_or_default());
+                let leave = card.file.clone();
+                let button = |id: &'static str, words: &'static str| {
+                    div()
+                        .id(id)
+                        .flex_shrink_0()
+                        .px(ui.px(8.0))
+                        .h(ui.px(20.0))
+                        .flex()
+                        .items_center()
+                        .rounded(px(5.0))
+                        .border_1()
+                        .cursor_pointer()
+                        .child(words)
+                };
+                row.child(words(
+                    "Clear \u{201c}Needs you\u{201d}? Commits to main.".into(),
+                    c.text,
+                ))
+                .child(div().flex_1())
+                // The two buttons stay together when the row wraps.
+                .child(
+                    div()
+                        .flex_shrink_0()
+                        .flex()
+                        .gap(ui.px(6.0))
+                        .child(
+                            button("kanban-clear-cancel", "Cancel")
+                                .border_color(c.rule)
+                                .text_color(c.muted)
+                                .hover(move |style| style.bg(c.text.opacity(0.09)))
+                                .on_click(cx.listener(move |view, _: &ClickEvent, _, cx| {
+                                    cx.stop_propagation();
+                                    if view.clears.remove(&leave).is_some() {
+                                        cx.notify();
+                                    }
+                                })),
+                        )
+                        .child(
+                            button("kanban-clear-confirm", "Clear")
+                                .bg(c.yellow.opacity(0.16))
+                                .border_color(c.yellow.opacity(0.5))
+                                .text_color(c.yellow)
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .hover(move |style| style.bg(c.yellow.opacity(0.26)))
+                                .on_click(cx.listener(move |view, _: &ClickEvent, _, cx| {
+                                    cx.stop_propagation();
+                                    view.clear(&file, &asks, cx);
+                                })),
+                        ),
+                )
+            }
+            Clearing::Running => row.child(words("Clearing\u{2026}".into(), c.dim)),
+            Clearing::Done => row.child(words("Cleared".into(), c.dim)),
+            Clearing::Refused(why) => row.child(words(format!("Not cleared: {why}"), c.red)),
+        })
     }
 }
 

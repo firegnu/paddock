@@ -634,3 +634,227 @@ fn a_new_draft_makes_the_missing_task_folder_but_never_over_a_file() {
     assert_eq!(refused.to_string(), "docs is a file, not a folder");
     assert_eq!(fs::read_to_string(repo.join("docs")).unwrap(), "x\n");
 }
+
+/// Git's word on `repo`, as text: for checking what a commit did.
+fn said(dir: &Path, args: &[&str]) -> String {
+    let output = Command::new("git")
+        .args(["-c", "core.quotePath=false"])
+        .args(args)
+        .current_dir(dir)
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "git {args:?}: {output:?}");
+    String::from_utf8(output.stdout).unwrap()
+}
+
+/// A repository whose task file waits on the user, committing as its own config says: the commit
+/// the board makes runs without the test's environment, so the user's identity, signing and hooks
+/// are overridden here.
+fn waiting_repo(root: &Path, name: &str) -> (std::path::PathBuf, String) {
+    let repo = root.join(name);
+    fs::create_dir_all(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    let hooks = root.join(format!("{name}-hooks"));
+    fs::create_dir_all(&hooks).unwrap();
+    for (key, value) in [
+        ("user.name", "t"),
+        ("user.email", "t@t"),
+        ("commit.gpgsign", "false"),
+        ("core.hooksPath", hooks.to_str().unwrap()),
+    ] {
+        git(&repo, &["config", key, value]);
+    }
+    let text = "# 任务：等用户的活\n\n依据：x\n依赖：P1-0\n待用户：实测 hover 的样子\n\n\
+                ## 要做的\n待用户：只是引用\n- 不动这里  \n"
+        .to_owned();
+    commit(&repo, "docs/任务/P1-1-等用户.md", &text, "任务文件");
+    commit(&repo, "notes.txt", "a\n", "notes");
+    (repo, text)
+}
+
+const WAITING: &str = "docs/任务/P1-1-等用户.md";
+
+#[test]
+fn clearing_takes_the_line_out_and_commits_that_file_alone() {
+    use paddock::kanban::clear_asks;
+    let temp = common::tempdir();
+    let (repo, text) = waiting_repo(temp.path(), "repo");
+    let cancel = AtomicBool::new(false);
+    // Something else staged, and something else changed but not staged: neither goes in.
+    fs::write(repo.join("staged.txt"), "s\n").unwrap();
+    git(&repo, &["add", "staged.txt"]);
+    fs::write(repo.join("notes.txt"), "a\nb\n").unwrap();
+    let head = said(&repo, &["rev-parse", "HEAD"]);
+
+    assert_eq!(
+        clear_asks("git", &repo, "P1-1-等用户.md", "实测 hover 的样子", &cancel),
+        Ok(())
+    );
+    // Only that line went, its end with it; the quote in a section and the rest stay byte for byte.
+    assert_eq!(
+        fs::read_to_string(repo.join(WAITING)).unwrap(),
+        text.replace("待用户：实测 hover 的样子\n", "")
+    );
+    assert_eq!(said(&repo, &["rev-parse", "HEAD~1"]), head);
+    // The message as stored: the subject, then the line word for word.
+    let stored = said(&repo, &["cat-file", "commit", "HEAD"]);
+    assert_eq!(
+        stored.split_once("\n\n").unwrap().1,
+        "P1-1：用户已处理 待用户\n\n待用户：实测 hover 的样子\n"
+    );
+    assert_eq!(
+        said(&repo, &["show", "--name-only", "--format=", "HEAD"]),
+        format!("{WAITING}\n")
+    );
+    // What was staged is still, and the rest still not.
+    assert_eq!(
+        said(&repo, &["diff", "--cached", "--name-only"]),
+        "staged.txt\n"
+    );
+    assert_eq!(said(&repo, &["diff", "--name-only"]), "notes.txt\n");
+    assert_eq!(said(&repo, &["status", "--porcelain", "--", WAITING]), "");
+    // Nothing pushed: no remote was there to push to, and none was added.
+    assert_eq!(said(&repo, &["remote"]), "");
+    // The board read again no longer needs the user.
+    let Read::Board(facts) = read("git", repo.to_str().unwrap(), &cache(), &cancel) else {
+        panic!("not a board");
+    };
+    let board = board(&facts, &[], 2_000_000_000.0);
+    assert_eq!(board.need_you(), 0);
+    assert!(!board.cards(Column::Queued)[0].clearable());
+
+    // Again: the line is no longer there, and nothing changes.
+    let after = said(&repo, &["rev-parse", "HEAD"]);
+    let refused = clear_asks("git", &repo, "P1-1-等用户.md", "实测 hover 的样子", &cancel)
+        .unwrap_err()
+        .to_string();
+    assert_eq!(refused, format!("{WAITING} on main no longer has the line"));
+    assert_eq!(said(&repo, &["rev-parse", "HEAD"]), after);
+}
+
+#[test]
+fn clearing_is_refused_with_nothing_changed() {
+    use paddock::kanban::{NotCleared, clear_asks};
+    let temp = common::tempdir();
+    let cancel = AtomicBool::new(false);
+    // Each refusal leaves the file, HEAD and the index as they were.
+    let unchanged = |repo: &Path, text: &str, head: &str, index: &str| {
+        assert_eq!(fs::read_to_string(repo.join(WAITING)).unwrap(), text);
+        assert_eq!(said(repo, &["rev-parse", "HEAD"]), head);
+        assert_eq!(said(repo, &["diff", "--cached", "--name-only"]), index);
+    };
+    let clear = |repo: &Path, asks: &str| clear_asks("git", repo, "P1-1-等用户.md", asks, &cancel);
+    let asks = "实测 hover 的样子";
+
+    // Not on main.
+    let (repo, text) = waiting_repo(temp.path(), "branch");
+    git(&repo, &["checkout", "-q", "-b", "other"]);
+    let head = said(&repo, &["rev-parse", "HEAD"]);
+    assert_eq!(
+        clear(&repo, asks),
+        Err(NotCleared::NotMain(Some("other".into())))
+    );
+    assert_eq!(
+        clear(&repo, asks).unwrap_err().to_string(),
+        "The main worktree is on other, not main"
+    );
+    unchanged(&repo, &text, &head, "");
+    git(&repo, &["checkout", "-q", "--detach"]);
+    assert_eq!(clear(&repo, asks), Err(NotCleared::NotMain(None)));
+
+    // A merge in progress, stopped on a conflict.
+    let (repo, text) = waiting_repo(temp.path(), "merging");
+    git(&repo, &["checkout", "-q", "-b", "side"]);
+    commit(&repo, "notes.txt", "side\n", "side");
+    git(&repo, &["checkout", "-q", "main"]);
+    commit(&repo, "notes.txt", "main\n", "main");
+    let merge = Command::new("git")
+        .args(["merge", "-q", "side"])
+        .current_dir(&repo)
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .output()
+        .unwrap();
+    assert!(!merge.status.success(), "the merge was to conflict");
+    let head = said(&repo, &["rev-parse", "HEAD"]);
+    assert_eq!(clear(&repo, asks), Err(NotCleared::Busy("merge")));
+    unchanged(&repo, &text, &head, "notes.txt\n");
+
+    // The task file changed, not staged and then staged.
+    let (repo, text) = waiting_repo(temp.path(), "changed");
+    let edited = format!("{text}多一行\n");
+    fs::write(repo.join(WAITING), &edited).unwrap();
+    let head = said(&repo, &["rev-parse", "HEAD"]);
+    assert_eq!(clear(&repo, asks), Err(NotCleared::Changed(WAITING.into())));
+    unchanged(&repo, &edited, &head, "");
+    git(&repo, &["add", WAITING]);
+    assert_eq!(clear(&repo, asks), Err(NotCleared::Changed(WAITING.into())));
+    unchanged(&repo, &edited, &head, &format!("{WAITING}\n"));
+
+    // The line no longer there, or saying something else than the card did.
+    let (repo, text) = waiting_repo(temp.path(), "gone");
+    let head = said(&repo, &["rev-parse", "HEAD"]);
+    assert_eq!(
+        clear(&repo, "别的事"),
+        Err(NotCleared::Gone(WAITING.into()))
+    );
+    unchanged(&repo, &text, &head, "");
+    let without = text.replace("待用户：实测 hover 的样子\n", "");
+    commit(&repo, WAITING, &without, "主控删了");
+    let head = said(&repo, &["rev-parse", "HEAD"]);
+    assert_eq!(clear(&repo, asks), Err(NotCleared::Gone(WAITING.into())));
+    unchanged(&repo, &without, &head, "");
+
+    // Git fails to commit: the index is locked. The file is put back as it was.
+    let (repo, text) = waiting_repo(temp.path(), "locked");
+    fs::write(repo.join(".git/index.lock"), "").unwrap();
+    let head = said(&repo, &["rev-parse", "HEAD"]);
+    assert!(matches!(clear(&repo, asks), Err(NotCleared::Commit(_))));
+    fs::remove_file(repo.join(".git/index.lock")).unwrap();
+    unchanged(&repo, &text, &head, "");
+}
+
+#[test]
+fn only_a_task_file_waiting_on_the_user_can_be_cleared() {
+    let temp = common::tempdir();
+    let (repo, _) = waiting_repo(temp.path(), "repo");
+    commit(
+        &repo,
+        "docs/任务/P1-2-x.md",
+        "# 任务：agent 在等\n",
+        "任务文件",
+    );
+    let Read::Board(facts) = read(
+        "git",
+        repo.to_str().unwrap(),
+        &cache(),
+        &AtomicBool::new(false),
+    ) else {
+        panic!("not a board");
+    };
+    // P1-2's agent waits on the user: it needs them, but there is no line to clear.
+    let agents = [Seen {
+        name: "paddock/dev-a".into(),
+        kind: Some("claude".into()),
+        cwd: None,
+        task: Some("P1-2".into()),
+        status: Status::Waiting,
+        said_done: false,
+        since: None,
+        controller: false,
+    }];
+    let board = board(&facts, &agents, 2_000_000_000.0);
+    let card = |id: &str| {
+        Column::ALL
+            .iter()
+            .flat_map(|c| board.cards(*c))
+            .find(|c| c.id == id)
+            .unwrap()
+    };
+    assert!(card("P1-2").needs_you);
+    assert!(!card("P1-2").clearable());
+    assert!(card("P1-1").needs_you);
+    assert!(card("P1-1").clearable());
+}
