@@ -1281,6 +1281,19 @@ mod tests {
     }
 
     #[test]
+    fn a_field_with_lines_keeps_pasted_line_breaks_as_one_step() {
+        let mut edit = EditState::new("".into());
+        let now = Instant::now();
+        edit.paste(0..0, "first\r\nsecond\n", true, now);
+        assert_eq!(edit.content.as_ref(), "first\nsecond\n");
+        edit.replace(edit.selected_range.clone(), "\n", now);
+        edit.undo();
+        assert_eq!(edit.content.as_ref(), "first\nsecond\n");
+        edit.undo();
+        assert_eq!(edit.content.as_ref(), "");
+    }
+
+    #[test]
     fn typing_after_undo_clears_redo() {
         let mut edit = EditState::new("prefix".into());
         let now = Instant::now();

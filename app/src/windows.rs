@@ -165,7 +165,7 @@ pub fn open_new_agent(place: Place, cx: &mut App) {
     };
     let ui = UiFont::get(cx);
     let bar = title_bar(crate::new_agent_view::TITLE_BAR, &ui);
-    let options = options("New Agent", ui.scale(600.0), ui.scale(620.0), true, bar, cx);
+    let options = options("New Agent", ui.scale(640.0), ui.scale(600.0), true, bar, cx);
     let Some((handle, view)) = open(options, move |_, cx| NewAgentView::new(seed, place, cx), cx)
     else {
         return;

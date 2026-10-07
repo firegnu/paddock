@@ -529,12 +529,6 @@ impl NewAgentView {
         for (index, preset) in self.presets.iter().enumerate() {
             let on = self.form.matches(preset);
             let group: SharedString = format!("preset-{index}").into();
-            let spec = match (&preset.model, &preset.effort) {
-                _ if !preset.kind.has_models() => preset.kind.label().to_owned(),
-                (Some(model), Some(effort)) => format!("{model} · {effort}"),
-                (Some(model), None) => model.clone(),
-                _ => preset.kind.label().to_owned(),
-            };
             let delete = div()
                 .id(ElementId::NamedInteger(
                     "preset-delete".into(),
@@ -575,13 +569,6 @@ impl NewAgentView {
                         .whitespace_nowrap()
                         .font_weight(FontWeight::MEDIUM)
                         .child(preset.name.clone()),
-                )
-                .child(
-                    div()
-                        .whitespace_nowrap()
-                        .text_size(ui.px(11.0))
-                        .text_color(self.fg(|t| t.agents_dimmer))
-                        .child(spec),
                 )
                 .child(delete)
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.apply(index, cx)));
@@ -755,7 +742,7 @@ impl NewAgentView {
             .relative()
             .flex_shrink_0()
             .h(ui.px(CHIP))
-            .px(ui.px(10.0))
+            .px(ui.px(8.0))
             .flex()
             .items_center()
             .gap(ui.px(6.0))
@@ -1437,9 +1424,7 @@ impl Render for NewAgentView {
                     .py(ui.px(8.0))
                     .border_t_1()
                     .border_color(rule.opacity(0.6))
-                    .children(self.chips(&ui, cx))
-                    .child(div().flex_1())
-                    .child(create),
+                    .children(self.chips(&ui, cx)),
             );
 
         let status: AnyElement = if let Some(error) = self.error.clone() {
@@ -1491,8 +1476,12 @@ impl Render for NewAgentView {
             )
             .child(
                 self.ghost("cancel", "Cancel", &ui)
+                    .h(ui.px(BUTTON))
+                    .px(ui.px(12.0))
+                    .text_size(ui.px(13.0))
                     .on_click(cx.listener(|_, _: &ClickEvent, window, _| window.remove_window())),
-            );
+            )
+            .child(create);
 
         let body = div()
             .id("new-agent-body")
