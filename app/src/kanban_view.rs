@@ -24,7 +24,7 @@ use gpui::{
 };
 use std::{
     cell::Cell,
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     path::PathBuf,
     rc::Rc,
     sync::{
@@ -497,9 +497,13 @@ impl Render for KanbanView {
 impl KanbanView {
     /// A card is asking whether to clear its task.
     pub fn confirming(&self) -> bool {
-        self.clears
-            .values()
-            .any(|clearing| *clearing == Clearing::Asking)
+        let files: HashSet<&str> = self
+            .board
+            .iter()
+            .flat_map(|board| board.columns.iter().flatten())
+            .map(|card| card.file.as_str())
+            .collect();
+        confirming(&self.clears, self.active, &files)
     }
 
     /// The repository, main, how many need the user, are in progress and to review, and New task.
@@ -1852,4 +1856,35 @@ fn root_empty(title: &str, sub: &str, c: &Colors, ui: &UiFont) -> Div {
                 .text_center()
                 .child(sub.to_owned()),
         )
+}
+
+/// Whether a Clear question is up for the user: one of `clears` asking about a card still among
+/// the board's `files`, with the tab showing (`active`).
+/// A question left about a card the board no longer has can be neither answered nor taken back
+/// by leaving the card, so it does not count.
+fn confirming(clears: &HashMap<String, Clearing>, active: bool, files: &HashSet<&str>) -> bool {
+    active
+        && clears
+            .iter()
+            .any(|(file, clearing)| *clearing == Clearing::Asking && files.contains(file.as_str()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_question_about_a_card_the_board_no_longer_has_is_not_up() {
+        let clears = HashMap::from([("docs/任务/P1-a.md".to_owned(), Clearing::Asking)]);
+        let before = HashSet::from(["docs/任务/P1-a.md", "docs/任务/P1-b.md"]);
+        assert!(confirming(&clears, true, &before));
+        // The task file went away while asking, and the board was read again without it.
+        let after = HashSet::from(["docs/任务/P1-b.md"]);
+        assert!(!confirming(&clears, true, &after));
+        // Not on show: no one can answer it.
+        assert!(!confirming(&clears, false, &before));
+        // Being cleared, or refused: not a question.
+        let running = HashMap::from([("docs/任务/P1-a.md".to_owned(), Clearing::Running)]);
+        assert!(!confirming(&running, true, &before));
+    }
 }

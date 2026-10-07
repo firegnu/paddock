@@ -107,3 +107,8 @@
 - 交叉审查（Codex xhigh）3 条必须改（R1 同名不同实例重新接入不换代次，旧凭据和在途请求可误认新实例；R2 busy 没读 Browser 原生 sheet 和 Kanban Clear 确认；R3 `--attach` 启动的 agent 缺实例、认不出自己）、1 条建议改（R4 晚到 start 可能重复显示），主控都认可、都交回改。修改后主控核对：每次接入都换代次、关闭快照带实例、在途请求绑定当次实例；busy 改为读主窗口 `attachedSheet` 和 Kanban 确认状态，新请求和异步落位共用；`--attach` 经公开 `corral status` 取实例（最多 5 秒）；晚到 start 落位前重核名字和实例。每条先有失败的测试。主控在分支上重跑 `cargo test --all-targets`（423 项全过）、clippy、fmt。
 - 和 P5-39a 一样，先合并，审查员在后台复核；复核若有必须改，由 dev-ctlui 补修再合入。
 - 留给用户试：Browser／Kanban 确认时的 busy、真实 `--attach` 启动、焦点与键盘去向。
+
+### 复核后的修改（S1）
+
+- `KanbanView::confirming()` 只算 Kanban 页签正在显示、且卡片还在当前看板上的 Clear 询问（纯函数 `kanban_view::confirming`）：确认中的任务文件被外部删掉、看板重读后卡片消失，留下的 Asking 不再让 ctl 一直 busy；真正显示中的询问照旧挡住。先写测试“确认中的卡片被刷新移除后 confirming 变回 false”，在原代码上断言失败，修后通过；`app/` 下 `cargo test --all-targets`（424 项全过）、clippy、fmt 通过。
+- 复核 S1（建议改，主控决定修）：Kanban 只把“还在看板上、Kanban 正在显示”的 Clear 询问算作确认中，卡片被刷新移除后 ctl 不再一直 busy；测试先在旧代码上失败。主控看过 diff，分支上重跑 424 项全过、clippy、fmt。
