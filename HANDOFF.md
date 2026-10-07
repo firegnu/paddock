@@ -18,6 +18,9 @@
   - **P5-28b**：统一的“键盘归谁”（`browser::Keys`）、`PaddockWebView` 只重写 `performKeyEquivalent:`、⌘L／⌘R、编辑键跟着键盘、paddock 快捷键在网页有键盘时只生效一次、不带 ⌘ 的键不碰（输入法不经过 paddock）。**10-07 用户按清单实测全部正常**。
   - **P5-28c**（10-07 中午）：本地开发地址一定能打开（`0.0.0.0`／`[::]` 换成回环，局域网私有 IP、`*.local` 补 `http://`，ATS 只加 `NSAllowsLocalNetworking`，打包后七种地址实测都开）；新窗口同面板、对话框和上传用系统 sheet、下载存 `~/Downloads`（同名改名）、证书失败提示、Safari 调试、⌘F 查找栏。新直接依赖 `block2 =0.6.2`（用户批准，锁文件不多包）。不交叉审查（用户“不要在细节的里面绕太多”）。**第 2–7 条待用户按任务文件末尾 8 条清单实测**。
   - **P5-28d**（10-07 下午，用户提出）：工具栏最右加 ×（“Close page”），点了回到空白页：丢掉网页再建一个空白的，前进后退记录、布局记的网址一起清掉，网站数据保留，键盘交回分屏；不配快捷键（用户选）。主控自己做，没派 agent。**待用户实际点一下**；这个 × 在右侧栏右上角 ×（收起右侧栏）正下方，看会不会混。
+    - 关键做法：系统没有只清前进后退记录的接口，所以关闭＝丢掉 `Page` 并立刻新建空白的（不等下次输入，免得多起一个轮询循环）；`Visited` 改成 `Option<String>`，`Visited(None)` 让窗口清掉 `right.url`；`Keys::close()` 说 Browser 有没有键盘，有就发 `Handoff::ToPane`。DESIGN §13 P5-28 记为第 3 条“只隐藏、不销毁”的例外。
+    - 文件：`app/src/browser_view.rs`（`close()`、工具栏）、`app/src/browser.rs`（`Keys::close()` 和测试）、`app/src/window.rs`（一行接线）、`docs/任务/P5-28d-Browser关闭页面.md`。
+    - 没测到：“布局网址清掉”没有单元测试（仓库没有 GPUI 视图测试设施，靠类型改动保证）；点 × 不能模拟。
 - **Kanban（P5-29）**：P5-29r 调研（`docs/调研/P5-29r-Kanban集成.md`）；主控推荐只读流水线看板，用户：“可以，按你的推荐出样稿”“按你的推荐，窄面板用 A，加宽用并排的列”，并认可“等于在界面里重做一个主控……越来越像已经砍掉的 Drover”。
   - **P5-29a**：卡片 = 任务文件；五列 QUEUED／IN PROGRESS／TO REVIEW／MERGED／DONE 全由任务文件、git、corral 推出，只读；窄面板分组列表、加宽五列；悬停只读入口。
   - **看板约定**写进 AGENTS.md「开发方式」：任务文件 worktree／分支一行、`依赖：`、`--label task=<编号>`、合并／收尾提交首行带编号。主控从 P5-29a 起照做。
@@ -40,4 +43,4 @@
 - `docs/DESIGN.md` §7 其余待定：GPUI 依赖渠道、pre-1.0 是否接受、gpui-component 与首期是否只做 macOS、发布方式（P5-23 只做了本机签名，仍不公证、不分发）。
 - Xcode 缺 Metal 工具链组件，目前靠 `runtime_shaders`；是否安装待用户决定。
 - Saddle 仓库里的 `t76-*` 分支、worktree 和 T76 状态由 Saddle 主控处理。
-- 主控教训：派活时写明“命令里不用 `rm`、不用 `sh -c` 包长命令”；`corral start --unique` 会给名字加 `-1`，后续 wait／send／stop 用返回的名字；关 agent 前确认它是 idle 且 `attached` 为 0；release 构建很快结束时，核对产物时间晚于合并再安装；测试 agent 截图用临时 HOME、假 corral、`--bounds` 和预写的布局文件，能摆出大多数场景；调研类只把文档摘到 main（`git cherry-pick`），原型分支不合并。
+- 主控教训：派活时写明“命令里不用 `rm`、不用 `sh -c` 包长命令”；`corral start --unique` 会给名字加 `-1`，后续 wait／send／stop 用返回的名字；关 agent 前确认它是 idle 且 `attached` 为 0；release 构建很快结束时，核对产物时间晚于合并再安装；测试 agent 截图用临时 HOME、假 corral、`--bounds` 和预写的布局文件，能摆出大多数场景（主控自己的简便做法：临时 `HOME`／`CFFIXED_USER_HOME`／`XDG_STATE_HOME`／`XDG_CONFIG_HOME` 加 `PADDOCK_NO_ACTIVATE=1 GPUI_TERM_WINDOW_ID=1` 先起一次 debug 版，让它写出 `layout.json`，用记下的 PID 停掉，改 `right_sidebar` 再起，截图后同样按 PID 停）；调研类只把文档摘到 main（`git cherry-pick`），原型分支不合并。
