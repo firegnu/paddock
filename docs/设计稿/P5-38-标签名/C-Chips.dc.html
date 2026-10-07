@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Tabs — icon chips</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+a{color:#bdb86a}a:hover{color:#d8d38c}
+</style>
+</helmet>
+<div style="width: 1060px; height: 330px; box-sizing: border-box; padding: 22px 28px; background: #141210; font-family: -apple-system, 'SF Pro Text', system-ui, sans-serif; color: #e8dfcc; display: flex; flex-direction: column; gap: 18px">
+  <sc-for list="{{rows}}" as="r" hint-placeholder-count="3">
+    <div style="display: flex; flex-direction: column; gap: 6px; position: relative">
+      <span style="font-size: 11px; color: #8c8374">{{r.caption}}</span>
+      <div style="width: {{r.w}}px; height: 40px; box-sizing: border-box; padding: 0 6px; border-radius: 9px; background: #1d1a16; box-shadow: inset 0 0 0 1px #2e2a24; display: flex; align-items: center; gap: 4px">
+        <sc-for list="{{r.tabs}}" as="t" hint-placeholder-count="7">
+          <div style="position: relative; flex: none">
+            <sc-if value="{{t.chip}}" hint-placeholder-val="{{false}}">
+              <div style="width: 32px; height: 28px; border-radius: 7px; background: {{t.chipBg}}; box-shadow: inset 0 0 0 1px {{t.chipRing}}; display: flex; align-items: center; justify-content: center; position: relative; font-size: 11.5px; font-weight: 600; color: #cfc6b2; letter-spacing: .02em">
+                {{t.mono}}
+                <span style="position: absolute; right: 3px; bottom: 3px; width: 6px; height: 6px; border-radius: 2px; background: {{t.badge}}; box-shadow: inset 0 0 0 1px {{t.badgeRing}}"></span>
+              </div>
+            </sc-if>
+            <sc-if value="{{t.full}}" hint-placeholder-val="{{true}}">
+              <div style="width: {{t.w}}px; height: 28px; box-sizing: border-box; padding: 0 9px; border-radius: 7px; background: {{t.bg}}; display: flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: {{t.weight}}; color: {{t.color}}; overflow: hidden; white-space: nowrap">
+                <span style="flex: none; width: 15px; height: 15px; border-radius: 4px; background: {{t.badge}}; box-shadow: inset 0 0 0 1px {{t.badgeRing}}"></span>
+                <span><span style="color: #6f675a; font-weight: 400">{{t.pre}}</span>{{t.main}}</span>
+              </div>
+            </sc-if>
+            <sc-if value="{{t.tip}}" hint-placeholder-val="{{false}}">
+              <div style="position: absolute; left: -20px; top: 34px; padding: 5px 9px; border-radius: 7px; background: #221e19; box-shadow: 0 0 0 1px #3a352e, 0 8px 20px rgba(0,0,0,.4); font-size: 12px; white-space: nowrap; z-index: 2"><span style="color: #6f675a">{{t.pre}}</span>{{t.main}}</div>
+            </sc-if>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+  </sc-for>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1060,"height":330}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const TABS = [
+      { kind: 'claude', pre: 'paddock/', main: 'main', mono: 'Pa' },
+      { kind: 'claude', pre: '', main: 'dev-newagent', mono: 'Ne' },
+      { kind: 'claude', pre: '', main: 'dev-fixes', mono: 'Fi', active: true },
+      { kind: 'shell', pre: '', main: 'zsh · paddock', mono: 'Pa' },
+      { kind: 'claude', pre: 'ranch/', main: 'main', mono: 'Ra' },
+      { kind: 'claude', pre: 'cairn/', main: 'main', mono: 'Ca' },
+      { kind: 'shell', pre: '', main: 'zsh · global-mesh', mono: 'Gl' }
+    ];
+    const CW = 7.1, CHROME = 43, MAX = 220, GAP = 4;
+    const nat = (t) => Math.min(MAX, Math.round(CHROME + (t.pre + t.main).length * CW));
+    const badge = (t) => ({ badge: t.kind === 'claude' ? '#e2835e' : 'transparent', badgeRing: t.kind === 'claude' ? '#e2835e' : '#8c8374' });
+    const row = (W, caption, tipAt) => {
+      const total = TABS.reduce((s, t) => s + nat(t), 0) + GAP * (TABS.length - 1);
+      const crowded = total > W - 12;
+      return {
+        caption, w: W,
+        tabs: TABS.map((t, i) => {
+          const chip = crowded && !t.active;
+          return {
+            chip, full: !chip, tip: chip && i === tipAt,
+            w: nat(t), pre: t.pre, main: t.main, mono: t.mono,
+            bg: t.active ? '#2e2924' : 'transparent', weight: t.active ? 600 : 400, color: t.active ? '#e8dfcc' : '#a39a89',
+            chipBg: i === tipAt ? '#2e2924' : '#221e19', chipRing: '#34302a', ...badge(t)
+          };
+        })
+      };
+    };
+    return { rows: [row(1000, 'Roomy · 1000 px — full names, as today', -1), row(720, 'Medium · 720 px — the others fold into chips: two letters and a kind mark; hover shows the full name', 4), row(520, 'Narrow · 520 px — still room for the current tab’s whole name', -1)] };
+  }
+}
+</script>
+</body>
+</html>

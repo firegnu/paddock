@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Tabs — overflow menu</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+a{color:#bdb86a}a:hover{color:#d8d38c}
+</style>
+</helmet>
+<div style="width: 1060px; height: 400px; box-sizing: border-box; padding: 22px 28px; background: #141210; font-family: -apple-system, 'SF Pro Text', system-ui, sans-serif; color: #e8dfcc; display: flex; flex-direction: column; gap: 18px">
+  <sc-for list="{{rows}}" as="r" hint-placeholder-count="3">
+    <div style="display: flex; flex-direction: column; gap: 6px; position: relative">
+      <span style="font-size: 11px; color: #8c8374">{{r.caption}}</span>
+      <div style="width: {{r.w}}px; height: 40px; box-sizing: border-box; padding: 0 6px; border-radius: 9px; background: #1d1a16; box-shadow: inset 0 0 0 1px #2e2a24; display: flex; align-items: center; gap: 4px">
+        <sc-for list="{{r.tabs}}" as="t" hint-placeholder-count="7">
+          <div style="flex: none; width: {{t.w}}px; height: 28px; box-sizing: border-box; padding: 0 9px; border-radius: 7px; background: {{t.bg}}; display: flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: {{t.weight}}; color: {{t.color}}; overflow: hidden; white-space: nowrap">
+            <span style="flex: none; width: 15px; height: 15px; border-radius: 4px; background: {{t.badge}}; box-shadow: inset 0 0 0 1px {{t.badgeRing}}"></span>
+            <span style="overflow: hidden; text-overflow: ellipsis"><span style="color: #6f675a; font-weight: 400">{{t.pre}}</span>{{t.main}}</span>
+          </div>
+        </sc-for>
+        <sc-if value="{{r.hasMore}}" hint-placeholder-val="{{true}}">
+          <button style="all: unset; cursor: pointer; flex: none; height: 26px; padding: 0 9px; border-radius: 7px; display: flex; align-items: center; gap: 5px; font-size: 12px; color: #cfc6b2; background: {{r.moreBg}}; box-shadow: inset 0 0 0 1px #34302a">{{r.more}}<svg width="9" height="9" viewBox="0 0 8 8" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M1.5 3l2.5 2.5L6.5 3"></path></svg></button>
+        </sc-if>
+      </div>
+      <sc-if value="{{r.menu}}" hint-placeholder-val="{{false}}">
+        <div style="position: absolute; left: {{r.menuLeft}}px; top: 70px; width: 230px; border-radius: 10px; background: #221e19; box-shadow: 0 0 0 1px #3a352e, 0 14px 34px rgba(0,0,0,.45); padding: 5px; z-index: 2">
+          <sc-for list="{{r.hidden}}" as="h" hint-placeholder-count="3">
+            <div style="padding: 7px 9px; border-radius: 7px; display: flex; align-items: center; gap: 9px; font-size: 12.5px; color: #e8dfcc">
+              <span style="width: 13px; height: 13px; border-radius: 3px; background: {{h.badge}}; box-shadow: inset 0 0 0 1px {{h.badgeRing}}"></span>
+              <span><span style="color: #6f675a">{{h.pre}}</span>{{h.main}}</span>
+            </div>
+          </sc-for>
+        </div>
+      </sc-if>
+    </div>
+  </sc-for>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1060,"height":400}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const TABS = [
+      { kind: 'claude', pre: 'paddock/', main: 'main' },
+      { kind: 'claude', pre: '', main: 'dev-newagent' },
+      { kind: 'claude', pre: '', main: 'dev-fixes', active: true },
+      { kind: 'shell', pre: '', main: 'zsh · paddock' },
+      { kind: 'claude', pre: 'ranch/', main: 'main' },
+      { kind: 'claude', pre: 'cairn/', main: 'main' },
+      { kind: 'shell', pre: '', main: 'zsh · global-mesh' }
+    ];
+    const CW = 7.1, CHROME = 43, MAX = 220, MIN = 118, GAP = 4, MORE = 52;
+    const nat = (t) => Math.min(MAX, Math.round(CHROME + (t.pre + t.main).length * CW));
+    const badge = (t) => ({ badge: t.kind === 'claude' ? '#e2835e' : 'transparent', badgeRing: t.kind === 'claude' ? '#e2835e' : '#8c8374' });
+    const row = (W, caption, menu) => {
+      const inner = W - 12;
+      let widths = TABS.map(nat);
+      let total = widths.reduce((s, w) => s + w, 0) + GAP * (TABS.length - 1);
+      let shown = TABS.map((t, i) => i);
+      if (total > inner) {
+        widths = TABS.map((t) => Math.min(nat(t), Math.max(MIN, nat(t))));
+        widths = widths.map((w, i) => TABS[i].active ? nat(TABS[i]) : Math.max(MIN, Math.min(w, MIN + 20)));
+        shown = [];
+        let used = MORE;
+        const ai = TABS.findIndex((t) => t.active);
+        used += widths[ai] + GAP;
+        for (let i = 0; i < TABS.length; i++) {
+          if (i === ai) { shown.push(i); continue; }
+          if (used + widths[i] + GAP <= inner) { shown.push(i); used += widths[i] + GAP; }
+        }
+      }
+      const hidden = TABS.map((t, i) => i).filter((i) => !shown.includes(i));
+      const tabs = shown.map((i) => {
+        const t = TABS[i];
+        return { w: widths[i], pre: t.pre, main: t.main, bg: t.active ? '#2e2924' : 'transparent', weight: t.active ? 600 : 400, color: t.active ? '#e8dfcc' : '#a39a89', ...badge(t) };
+      });
+      const usedW = tabs.reduce((s, t) => s + t.w + GAP, 0);
+      return {
+        caption, w: W, tabs, hasMore: hidden.length > 0, more: '+' + hidden.length, moreBg: menu ? '#2e2924' : 'transparent',
+        menu: menu && hidden.length > 0, menuLeft: Math.min(usedW + 6, W - 230),
+        hidden: hidden.map((i) => ({ pre: TABS[i].pre, main: TABS[i].main, ...badge(TABS[i]) }))
+      };
+    };
+    return { rows: [row(1000, 'Roomy · 1000 px — full names, as today', false), row(720, 'Medium · 720 px — each tab keeps at least ~10 letters; the rest wait behind “+2”', false), row(520, 'Narrow · 520 px — the menu lists the tabs that did not fit (shown open)', true)] };
+  }
+}
+</script>
+</body>
+</html>

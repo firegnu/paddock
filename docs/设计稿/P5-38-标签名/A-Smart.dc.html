@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Tabs — smart shortening</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+a{color:#bdb86a}a:hover{color:#d8d38c}
+</style>
+</helmet>
+<div style="width: 1060px; height: 330px; box-sizing: border-box; padding: 22px 28px; background: #141210; font-family: -apple-system, 'SF Pro Text', system-ui, sans-serif; color: #e8dfcc; display: flex; flex-direction: column; gap: 18px">
+  <sc-for list="{{rows}}" as="r" hint-placeholder-count="3">
+    <div style="display: flex; flex-direction: column; gap: 6px">
+      <span style="font-size: 11px; color: #8c8374">{{r.caption}}</span>
+      <div style="width: {{r.w}}px; height: 40px; box-sizing: border-box; padding: 0 6px; border-radius: 9px; background: #1d1a16; box-shadow: inset 0 0 0 1px #2e2a24; display: flex; align-items: center; gap: 4px; overflow: hidden">
+        <sc-for list="{{r.tabs}}" as="t" hint-placeholder-count="7">
+          <div style="flex: none; width: {{t.w}}px; height: 28px; box-sizing: border-box; padding: 0 9px; border-radius: 7px; background: {{t.bg}}; display: flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: {{t.weight}}; color: {{t.color}}; overflow: hidden; white-space: nowrap">
+            <span style="flex: none; width: 15px; height: 15px; border-radius: 4px; background: {{t.badge}}; box-shadow: inset 0 0 0 1px {{t.badgeRing}}"></span>
+            <span style="overflow: hidden"><span style="color: #6f675a; font-weight: 400">{{t.pre}}</span>{{t.main}}</span>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+  </sc-for>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1060,"height":330}}'>
+class Component extends DCLogic {
+  renderVals() {
+    // short: the part that tells this tab from the others.
+    const TABS = [
+      { kind: 'claude', pre: 'paddock/', main: 'main', short: 'paddock' },
+      { kind: 'claude', pre: '', main: 'dev-newagent', short: 'newagent' },
+      { kind: 'claude', pre: '', main: 'dev-fixes', short: 'fixes', active: true },
+      { kind: 'shell', pre: '', main: 'zsh · paddock', short: 'paddock' },
+      { kind: 'claude', pre: 'ranch/', main: 'main', short: 'ranch' },
+      { kind: 'claude', pre: 'cairn/', main: 'main', short: 'cairn' },
+      { kind: 'shell', pre: '', main: 'zsh · global-mesh', short: 'global-mesh' }
+    ];
+    const CW = 7.1, CHROME = 43, MAX = 220, MIN = 78, GAP = 4;
+    const nat = (t) => Math.min(MAX, Math.round(CHROME + (t.pre + t.main).length * CW));
+    const middle = (s, n) => s.length <= n ? s : s.slice(0, Math.ceil((n - 1) / 2)) + '…' + s.slice(s.length - Math.floor((n - 1) / 2));
+    const fit = (t, w) => {
+      const room = Math.floor((w - CHROME) / CW);
+      if ((t.pre + t.main).length <= room) return { pre: t.pre, main: t.main };
+      return { pre: '', main: middle(t.short, Math.max(3, room)) };
+    };
+    const row = (W, caption) => {
+      const inner = W - 12;
+      const widths = TABS.map(nat);
+      const total = widths.reduce((s, w) => s + w, 0) + GAP * (TABS.length - 1);
+      if (total > inner) {
+        const ai = TABS.findIndex((t) => t.active);
+        const rest = inner - widths[ai] - GAP * (TABS.length - 1);
+        const each = Math.max(MIN, Math.floor(rest / (TABS.length - 1)));
+        TABS.forEach((t, i) => { if (i !== ai) widths[i] = Math.min(widths[i], Math.max(each, Math.min(nat({ pre: '', main: t.short }), each + 18))); });
+      }
+      return {
+        caption, w: W,
+        tabs: TABS.map((t, i) => {
+          const f = fit(t, widths[i]);
+          return {
+            w: widths[i], pre: f.pre, main: f.main,
+            bg: t.active ? '#2e2924' : 'transparent', weight: t.active ? 600 : 400, color: t.active ? '#e8dfcc' : '#a39a89',
+            badge: t.kind === 'claude' ? '#e2835e' : 'transparent', badgeRing: t.kind === 'claude' ? '#e2835e' : '#8c8374'
+          };
+        })
+      };
+    };
+    return { rows: [row(1000, 'Roomy · 1000 px — full names, as today'), row(720, 'Medium · 720 px — keep the part that tells them apart: “paddock”, “newagent”, “ranch”'), row(520, 'Narrow · 520 px — at least 78 px each, shortened in the middle: “new…ent”, “glo…esh”')] };
+  }
+}
+</script>
+</body>
+</html>
