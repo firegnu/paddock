@@ -22,6 +22,11 @@ const KINDS: [&str; 4] = ["claude", "codex", "pi", "omp"];
 const PROBE: u32 = 256;
 /// How opaque a pixel must be to count as the picture rather than its margin or shadow.
 const SOLID: u8 = 128;
+/// How much of its cut a picture must cover to count as a tile: a rounded square, even a macOS
+/// squircle, covers well over this; a glyph such as pi's well under.
+const TILE_COVER: f32 = 0.85;
+/// How far from square a tile may be, as width over height.
+const TILE_ASPECT: std::ops::RangeInclusive<f32> = 0.9..=1.1;
 
 /// A kind's icon and how wide it is drawn for its height.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -46,6 +51,9 @@ pub struct Picture {
     document: Vec<u8>,
     /// Width over height.
     aspect: f32,
+    /// Whether it brings its own ground: squarish and opaque nearly to the edges of its cut, like
+    /// an app icon, rather than a glyph meant to sit on something.
+    pub tile: bool,
 }
 
 /// The icon for `kind`: this machine's original when it has a good one, else the silhouette;
@@ -145,8 +153,10 @@ fn picture(renderer: &SvgRenderer, kind: usize, extension: &str, bytes: &[u8]) -
     let (columns, rows) = (shape.width.0 as usize, shape.height.0 as usize);
     let pixels = probe.as_bytes(0)?;
     let (mut left, mut top, mut right, mut bottom) = (columns, rows, 0, 0);
+    let mut solid = 0;
     for (index, pixel) in pixels.chunks_exact(4).enumerate() {
         if pixel[3] >= SOLID {
+            solid += 1;
             let (x, y) = (index % columns, index / columns);
             left = left.min(x);
             right = right.max(x + 1);
@@ -164,10 +174,13 @@ fn picture(renderer: &SvgRenderer, kind: usize, extension: &str, bytes: &[u8]) -
         (right - left) as f32 * unit,
         (bottom - top) as f32 * unit,
     );
+    let aspect = cut.2 / cut.3;
+    let cover = solid as f32 / ((right - left) * (bottom - top)) as f32;
     Some(Picture {
         kind,
         document: wrap(&href, cut, (width, height)).into_bytes(),
-        aspect: cut.2 / cut.3,
+        aspect,
+        tile: TILE_ASPECT.contains(&aspect) && cover >= TILE_COVER,
     })
 }
 
@@ -226,6 +239,27 @@ impl KindIcon {
     /// The icon `height` tall, centred in its width: a silhouette in `color`, an original in its
     /// own colours.
     pub fn render(self, height: Pixels, color: Hsla) -> AnyElement {
+        self.draw(height, color, Pixels::ZERO)
+    }
+
+    /// Whether this is one of this machine's originals rather than a silhouette.
+    pub fn original(self) -> bool {
+        matches!(self.look, Look::Picture(_))
+    }
+
+    /// Whether this is an original that brings its own ground (see [`Picture::tile`]).
+    pub fn tile(self) -> bool {
+        matches!(self.look, Look::Picture(picture) if picture.tile)
+    }
+
+    /// A [tile](Self::tile) drawn `side` square with its corners rounded `radius`, to stand in for
+    /// a square of that size.
+    pub fn render_tile(self, side: Pixels, radius: Pixels) -> AnyElement {
+        let icon = KindIcon { width: 1.0, ..self };
+        icon.draw(side, gpui::transparent_black(), radius)
+    }
+
+    fn draw(self, height: Pixels, color: Hsla, radius: Pixels) -> AnyElement {
         match self.look {
             Look::Mask(data) => svg()
                 .data(data)
@@ -239,8 +273,8 @@ impl KindIcon {
                 move |bounds, _, window, cx| {
                     let pixels = f32::from(bounds.size.height) * window.scale_factor();
                     if let Some(image) = raster(picture, pixels.round().max(1.0) as u32, cx) {
-                        let _ =
-                            window.paint_image(bounds, bounds, Corners::default(), image, 0, false);
+                        let corners = Corners::all(radius);
+                        let _ = window.paint_image(bounds, bounds, corners, image, 0, false);
                     }
                 },
             )
@@ -364,6 +398,28 @@ mod tests {
         // A broken SVG beside a good PNG: the PNG.
         std::fs::write(dir.join("claude.png"), png()).unwrap();
         assert!(load(&dir, 0).is_some());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn only_a_squarish_picture_with_its_own_ground_is_a_tile() {
+        let rounded = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="12" fill="#0f0a14"/><path fill="#9b4dff" d="M14 16h36v8H14z"/></svg>"##;
+        // pi's logo: three coloured pieces with no ground of their own.
+        let glyph = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 800"><path fill="#F09082" d="M165.29 165.29H517.36V400H400V282.65H165.29Z"/><path fill="#4D9ABF" d="M165.29 282.65H282.65V400H400V517.36H282.65V634.72H165.29Z"/><path fill="#F1BE58" d="M517.36 400H634.72V634.72H517.36Z"/></svg>"##;
+        let dir = folder(
+            "tile",
+            &[
+                ("claude.svg", rounded),
+                ("codex.svg", SVG.as_bytes()),
+                ("pi.svg", glyph),
+                ("omp.png", &png()),
+            ],
+        );
+        let tile = |kind| load(&dir, kind).unwrap().tile;
+        assert!(tile(0), "a rounded square");
+        assert!(!tile(1), "solid but twice as wide as tall");
+        assert!(!tile(2), "a glyph");
+        assert!(tile(3), "solid once its margin is cut away");
         std::fs::remove_dir_all(dir).unwrap();
     }
 

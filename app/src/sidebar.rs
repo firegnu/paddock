@@ -79,6 +79,8 @@ const AVATAR: f32 = 34.0;
 const AVATAR_RADIUS: f32 = 10.0;
 const AVATAR_GAP: f32 = 11.0;
 const AVATAR_ICON: f32 = 16.0;
+/// An original without a ground of its own (pi's logo) in the avatar, leaving a margin of tint.
+const AVATAR_PICTURE: f32 = 24.0;
 /// How strongly the kind's colour tints the avatar, and waiting amber the card.
 const AVATAR_TINT: f32 = 0.13;
 const WAITING_TINT: f32 = 0.07;
@@ -2159,10 +2161,21 @@ impl RenderOnce for AgentCard {
 }
 
 /// The avatar: the kind's icon, or the name's letter for a kind without one, on a square tinted in
-/// the kind's colour, with `badge` on its corner.
+/// the kind's colour, with `badge` on its corner. An original that brings its own ground fills the
+/// square instead of the tint; one without (pi's logo) is drawn larger than a silhouette.
 fn avatar(theme: &Theme, ui: &UiFont, card: &Card, badge: AnyElement) -> gpui::Stateful<Div> {
     let color = kind_color(theme, card);
-    let mark = kind_mark(ui, card, color, CARD_NAME_SIZE);
+    let icon = card
+        .brand
+        .as_ref()
+        .and_then(|brand| kind_icon::of(&brand.kind))
+        .filter(|icon| icon.original());
+    let tile = icon.is_some_and(|icon| icon.tile());
+    let mark = match icon {
+        Some(icon) if tile => icon.render_tile(ui.px(AVATAR), ui.px(AVATAR_RADIUS)),
+        Some(icon) => icon.render(ui.px(AVATAR_PICTURE), color),
+        None => kind_mark(ui, card, color, CARD_NAME_SIZE),
+    };
     div()
         .id("avatar")
         .relative()
@@ -2173,7 +2186,7 @@ fn avatar(theme: &Theme, ui: &UiFont, card: &Card, badge: AnyElement) -> gpui::S
         .items_center()
         .justify_center()
         .rounded(ui.px(AVATAR_RADIUS))
-        .bg(color.opacity(AVATAR_TINT))
+        .when(!tile, |avatar| avatar.bg(color.opacity(AVATAR_TINT)))
         .child(mark)
         .child(badge)
 }
