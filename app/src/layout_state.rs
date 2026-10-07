@@ -17,6 +17,32 @@ use std::{
 
 const VERSION: u32 = 1;
 
+/// The main window's normal size in logical pixels; no position or fullscreen state.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct WindowSize {
+    pub width: f32,
+    pub height: f32,
+}
+
+impl Default for WindowSize {
+    fn default() -> Self {
+        Self {
+            width: 1280.0,
+            height: 800.0,
+        }
+    }
+}
+
+impl WindowSize {
+    /// Fits a restored size to the current display's usable area and the window's minimum.
+    pub fn for_startup(self, available: Self, minimum: Self) -> Self {
+        Self {
+            width: self.width.max(minimum.width).min(available.width),
+            height: self.height.max(minimum.height).min(available.height),
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Content {
@@ -67,6 +93,8 @@ pub struct Layout {
     /// it closed, at the default width, on Changes.
     #[serde(default)]
     pub right_sidebar: right_panel::Saved,
+    #[serde(default)]
+    pub window_size: WindowSize,
 }
 
 impl SavedNode {
@@ -175,6 +203,7 @@ impl Layout {
             tabs,
             sidebar_collapsed: false,
             right_sidebar: right_panel::Saved::default(),
+            window_size: WindowSize::default(),
         }
     }
 
@@ -403,6 +432,97 @@ mod tests {
         let mut restored = restored;
         let new = restored.new_tab(Shown::Empty);
         assert!(contents.iter().all(|(id, _)| *id != new));
+    }
+
+    #[test]
+    fn window_size_round_trips_through_the_layout_store() {
+        let (_, layout) = sample();
+        let mut value = serde_json::to_value(layout).unwrap();
+        value["window_size"] = serde_json::json!({ "width": 1100.0, "height": 720.0 });
+        let layout: Layout = serde_json::from_value(value).unwrap();
+        let dir = std::env::temp_dir().join(format!("paddock-window-size-{}", std::process::id()));
+        let path = dir.join("layout.json");
+        let (mut store, _) = Store::open(Some(path.clone()));
+        store.save(&layout);
+        let (store, back) = Store::open(Some(path));
+        assert!(store.problem().is_none());
+        let back = serde_json::to_value(back.unwrap()).unwrap();
+        assert_eq!(
+            back["window_size"],
+            serde_json::json!({ "width": 1100.0, "height": 720.0 })
+        );
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn old_layouts_default_to_the_original_window_size() {
+        let (_, layout) = sample();
+        let mut old = serde_json::to_value(layout).unwrap();
+        old.as_object_mut().unwrap().remove("window_size");
+        let dir =
+            std::env::temp_dir().join(format!("paddock-old-window-size-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("layout.json");
+        fs::write(&path, serde_json::to_vec(&old).unwrap()).unwrap();
+        let (store, back) = Store::open(Some(path));
+        assert!(store.problem().is_none());
+        assert_eq!(
+            back.unwrap().window_size,
+            WindowSize {
+                width: 1280.0,
+                height: 800.0,
+            }
+        );
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn startup_window_size_fits_the_usable_screen() {
+        let available = WindowSize {
+            width: 1440.0,
+            height: 850.0,
+        };
+        let minimum = WindowSize {
+            width: 300.0,
+            height: 200.0,
+        };
+        assert_eq!(
+            WindowSize {
+                width: 2200.0,
+                height: 1400.0,
+            }
+            .for_startup(available, minimum),
+            available
+        );
+        let normal = WindowSize {
+            width: 1100.0,
+            height: 720.0,
+        };
+        assert_eq!(normal.for_startup(available, minimum), normal);
+    }
+
+    #[test]
+    fn startup_window_size_respects_the_native_minimum() {
+        assert_eq!(
+            WindowSize {
+                width: 40.0,
+                height: 50.0,
+            }
+            .for_startup(
+                WindowSize {
+                    width: 1440.0,
+                    height: 850.0,
+                },
+                WindowSize {
+                    width: 300.0,
+                    height: 200.0,
+                },
+            ),
+            WindowSize {
+                width: 300.0,
+                height: 200.0,
+            }
+        );
     }
 
     #[test]
