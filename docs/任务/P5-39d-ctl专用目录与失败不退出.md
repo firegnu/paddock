@@ -1,0 +1,18 @@
+# 任务：paddock ctl 换专用运行目录；ctl 起不来时照常启动、只提示
+
+2026-10-07，paddock/main 自己做（急修）。
+类型：Bug 修复
+依据：用户 10-07 退出后 paddock 打不开：Browser 的 WebKit 先在 `$TMPDIR/paddock` 建了 0755 的缓存文件夹，ctl 要求同名文件夹 0700 而拒绝启动，`main.rs` 又在 ctl 启动失败时退出整个程序。本轮只改这两处。
+依赖：P5-39b
+提示：依据证据定位并修复导致问题的原因，保持无关行为不变。
+
+## 在哪里干活
+- worktree：`/Users/firegnu/Developer/personal_projs/paddock-worktrees/p5-39d-ctlfix`，分支 `p5-39d-ctlfix`（已从 main 建好）。
+
+## 要做的
+用户 10-07 同意主控的两条：
+1. ctl 的运行目录换成专用的 `paddock-ctl`（`$XDG_RUNTIME_DIR/paddock-ctl`，否则 `$TMPDIR/paddock-ctl`），服务端和命令行用同一处，不再和 WebKit 的 `paddock` 文件夹共用；权限和身份检查照旧。
+2. ctl 起不来时 paddock 照常启动，左下角提示“paddock ctl 不可用”和原因（界面文字英文）；其他功能不受影响。
+
+## 怎么算做完
+- 两条达到；测试：运行目录名、`$TMPDIR/paddock` 已被别人以 0755 占用时 ctl 照常在 `paddock-ctl` 起来；ctl 启动失败时不退出（能测的部分抽成函数测）。`app/` 下 `cargo test --all-targets`、clippy、fmt。帮助文字、方案文档、DESIGN 里的目录名一起改。
