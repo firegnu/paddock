@@ -8,24 +8,39 @@
 //! The keyboard is AppKit's to give to the page and GPUI's to give within paddock; [`Keys`] keeps
 //! one record of who has it and brings the two in line, and [`route`] says where a shortcut goes.
 use crate::menu;
+use block2::{DynBlock, RcBlock};
 use gpui::{
     Bounds, IntoElement, Keystroke, Modifiers, Pixels, Styled, Window, WindowId, canvas, px,
 };
 use objc2::{
-    ClassType, DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send,
+    ClassType, DefinedClass, MainThreadMarker, MainThreadOnly, Message, define_class, msg_send,
     rc::{Retained, Weak},
-    runtime::{AnyObject, NSObject, NSObjectProtocol, ProtocolObject},
+    runtime::{AnyObject, Bool, NSObject, NSObjectProtocol, ProtocolObject},
     sel,
 };
 use objc2_app_kit::{
-    NSApplication, NSEvent, NSEventModifierFlags, NSResponder, NSView, NSWindowOrderingMode,
+    NSAlert, NSAlertFirstButtonReturn, NSApplication, NSEvent, NSEventModifierFlags,
+    NSModalResponse, NSModalResponseOK, NSOpenPanel, NSResponder, NSTextField, NSView,
+    NSWindowOrderingMode, NSWorkspace,
 };
-use objc2_foundation::{NSError, NSPoint, NSRect, NSSize, NSString, NSURL, NSURLRequest};
+use objc2_foundation::{
+    NSArray, NSData, NSError, NSHTTPURLResponse, NSPoint, NSRect, NSSize, NSString, NSURL,
+    NSURLRequest, NSURLResponse, ns_string,
+};
 use objc2_web_kit::{
-    WKNavigation, WKNavigationDelegate, WKWebView, WKWebViewConfiguration, WKWebsiteDataStore,
+    WKDownload, WKDownloadDelegate, WKFindConfiguration, WKFindResult, WKFrameInfo, WKNavigation,
+    WKNavigationAction, WKNavigationActionPolicy, WKNavigationDelegate, WKNavigationResponse,
+    WKNavigationResponsePolicy, WKOpenPanelParameters, WKUIDelegate, WKWebView,
+    WKWebViewConfiguration, WKWebsiteDataStore, WKWindowFeatures,
 };
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
-use std::{cell::RefCell, collections::HashMap};
+use std::{
+    cell::{Cell, RefCell},
+    collections::HashMap,
+    path::{Path, PathBuf},
+    ptr::{self, NonNull},
+    rc::Rc,
+};
 
 /// What decides where the page shows in a frame, if anywhere.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -104,12 +119,13 @@ pub fn appkit_frame(bounds: Bounds<Pixels>, host: NSRect, flipped: bool) -> NSRe
 }
 
 /// Who has the keyboard in a window: a pane or anything else of paddock's, the Browser's address
-/// field, or its page.
+/// field, its find field, or its page.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Owner {
     #[default]
     Paddock,
     Address,
+    Find,
     Page,
 }
 
@@ -128,7 +144,8 @@ pub enum Showing {
 /// The window as the record finds it.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Seen {
-    /// What GPUI's focus is on: the page's focus handle, the address field, or else paddock's.
+    /// What GPUI's focus is on: the page's focus handle, the address or find field, or else
+    /// paddock's.
     pub focus: Owner,
     /// AppKit's keyboard is in the page.
     pub native: bool,
@@ -152,9 +169,9 @@ pub struct Moves {
 
 /// The one record of who has a window's keyboard. Brought up to date each frame and while the page
 /// is polled ([`Keys::settle`]): a click on the page shows as AppKit's keyboard moving into it, a
-/// click on a pane, the address field, ⌘L, switching panes or tabs as GPUI's focus moving, closing
-/// the right sidebar or switching its tab as the Browser going [`Showing::Away`], and anything
-/// drawn over the page as it hiding for a while.
+/// click on a pane, the address field, ⌘L, ⌘F, Esc in the find field, switching panes or tabs as
+/// GPUI's focus moving, closing the right sidebar or switching its tab as the Browser going
+/// [`Showing::Away`], and anything drawn over the page as it hiding for a while.
 #[derive(Clone, Debug, Default)]
 pub struct Keys {
     owner: Owner,
@@ -228,16 +245,18 @@ impl Keys {
 pub enum Route {
     /// One of paddock's menu commands: the window or the app runs it, whoever has the keyboard.
     Paddock,
-    /// ⌘L or ⌘R while the Browser has the keyboard: its address field, or loading the page again.
+    /// ⌘L, ⌘R, ⌘F, ⌘G or ⇧⌘G while the Browser has the keyboard: its address field, loading the
+    /// page again, or its find bar.
     Browser,
-    /// What has the keyboard: copying, pasting and the other standard edits, finding, and any
-    /// shortcut paddock does not bind, such as a page's own.
+    /// What has the keyboard: copying, pasting and the other standard edits, finding in a pane, and
+    /// any shortcut paddock does not bind, such as a page's own.
     Keyboard(Owner),
 }
 
 /// Where `keystroke` goes while `owner` has the keyboard, by paddock's shortcuts (`menu.rs`).
 pub fn route(owner: Owner, keystroke: &Keystroke) -> Route {
     let modifiers = |m: &Modifiers| (m.control, m.alt, m.shift, m.platform);
+    let browser = owner != Owner::Paddock;
     for binding in menu::bindings() {
         let [bound] = binding.keystrokes() else {
             continue;
@@ -250,13 +269,15 @@ pub fn route(owner: Owner, keystroke: &Keystroke) -> Route {
         }
         let action = binding.action();
         if binding.predicate().is_none() {
-            return if menu::follows_keyboard(action) {
+            return if browser && menu::finds(action) {
+                Route::Browser
+            } else if menu::follows_keyboard(action) {
                 Route::Keyboard(owner)
             } else {
                 Route::Paddock
             };
         }
-        if menu::browser(action) && owner != Owner::Paddock {
+        if menu::browser(action) && browser {
             return Route::Browser;
         }
     }
@@ -322,6 +343,8 @@ pub struct Failure {
     pub url: Option<String>,
     /// What the system says went wrong, a sentence.
     pub reason: String,
+    /// The site's certificate is not trusted: self-signed, expired, for another name.
+    pub certificate: bool,
 }
 
 /// The page as the toolbar shows it.
@@ -343,13 +366,20 @@ const CANCELLED: isize = -999;
 /// `WebKitErrorFrameLoadInterruptedByPolicyChange`: a load the page itself turned into something
 /// else, such as a download.
 const INTERRUPTED: isize = 102;
+/// `NSURLErrorServerCertificateHasBadDate`, `…Untrusted`, `…HasUnknownRoot` and `…NotYetValid`:
+/// a site whose certificate the system does not trust.
+const UNTRUSTED: [isize; 4] = [-1201, -1202, -1203, -1204];
 
-/// What the navigation delegate has heard.
+/// What the page's delegate has heard.
 #[derive(Default)]
 struct Heard {
     /// Where the load under way set out for.
     attempt: Option<String>,
     failure: Option<Failure>,
+    /// Downloads under way, and where each is being saved.
+    downloads: Vec<(Retained<WKDownload>, PathBuf)>,
+    /// Where a download that finished was saved, until the toolbar takes it.
+    saved: Option<PathBuf>,
 }
 
 define_class!(
@@ -391,7 +421,191 @@ define_class!(
             self.ivars().borrow_mut().failure = Some(Failure {
                 url: url_of(view),
                 reason: "The page stopped unexpectedly.".into(),
+                certificate: false,
             });
+        }
+
+        // Where the page is about to go: a download, an address another app takes, or the page.
+        #[unsafe(method(webView:decidePolicyForNavigationAction:decisionHandler:))]
+        fn decide_action(
+            &self,
+            _view: &WKWebView,
+            action: &WKNavigationAction,
+            decide: &DynBlock<dyn Fn(WKNavigationActionPolicy)>,
+        ) {
+            decide.call((action_policy(action),));
+        }
+
+        // What came back: a download when it cannot be shown or asks to be saved.
+        #[unsafe(method(webView:decidePolicyForNavigationResponse:decisionHandler:))]
+        fn decide_response(
+            &self,
+            _view: &WKWebView,
+            response: &WKNavigationResponse,
+            decide: &DynBlock<dyn Fn(WKNavigationResponsePolicy)>,
+        ) {
+            decide.call((response_policy(response),));
+        }
+
+        #[unsafe(method(webView:navigationAction:didBecomeDownload:))]
+        fn action_became_download(
+            &self,
+            _view: &WKWebView,
+            _action: &WKNavigationAction,
+            download: &WKDownload,
+        ) {
+            self.follow(download);
+        }
+
+        #[unsafe(method(webView:navigationResponse:didBecomeDownload:))]
+        fn response_became_download(
+            &self,
+            _view: &WKWebView,
+            _response: &WKNavigationResponse,
+            download: &WKDownload,
+        ) {
+            self.follow(download);
+        }
+    }
+
+    // SAFETY: each method has the signature WKDownloadDelegate gives it.
+    unsafe impl WKDownloadDelegate for Delegate {
+        // Saved in ~/Downloads under the page's name, never over a file already there.
+        #[unsafe(method(download:decideDestinationUsingResponse:suggestedFilename:completionHandler:))]
+        fn decide_destination(
+            &self,
+            download: &WKDownload,
+            _response: &NSURLResponse,
+            suggested: &NSString,
+            done: &DynBlock<dyn Fn(*mut NSURL)>,
+        ) {
+            // No place for it (nil): the download stops.
+            match self.destination(download, &suggested.to_string()) {
+                Some(url) => done.call((Retained::as_ptr(&url).cast_mut(),)),
+                None => done.call((ptr::null_mut(),)),
+            }
+        }
+
+        #[unsafe(method(downloadDidFinish:))]
+        fn download_did_finish(&self, download: &WKDownload) {
+            let mut heard = self.ivars().borrow_mut();
+            if let Some(at) = heard
+                .downloads
+                .iter()
+                .position(|(each, _)| ptr::eq(&**each, download))
+            {
+                heard.saved = Some(heard.downloads.remove(at).1);
+            }
+        }
+
+        #[unsafe(method(download:didFailWithError:resumeData:))]
+        fn download_did_fail(
+            &self,
+            download: &WKDownload,
+            _error: &NSError,
+            _resume: Option<&NSData>,
+        ) {
+            self.ivars()
+                .borrow_mut()
+                .downloads
+                .retain(|(each, _)| !ptr::eq(&**each, download));
+        }
+    }
+
+    // SAFETY: the method has the signature WKUIDelegate gives it.
+    unsafe impl WKUIDelegate for Delegate {
+        // A link with `target=_blank`, or `window.open`: opened in the page itself instead, or
+        // by the system (see `open_elsewhere`); no second web view is made.
+        #[unsafe(method_id(webView:createWebViewWithConfiguration:forNavigationAction:windowFeatures:))]
+        fn create_web_view(
+            &self,
+            view: &WKWebView,
+            _configuration: &WKWebViewConfiguration,
+            action: &WKNavigationAction,
+            _features: &WKWindowFeatures,
+        ) -> Option<Retained<WKWebView>> {
+            // SAFETY: a plain getter on the main thread.
+            open_elsewhere(view, &*unsafe { action.request() });
+            None
+        }
+
+        // `alert()`, `confirm()` and `prompt()`: the system's alert as a sheet on the window.
+        #[unsafe(method(webView:runJavaScriptAlertPanelWithMessage:initiatedByFrame:completionHandler:))]
+        fn alert(
+            &self,
+            view: &WKWebView,
+            message: &NSString,
+            _frame: &WKFrameInfo,
+            done: &DynBlock<dyn Fn()>,
+        ) {
+            let done = done.copy();
+            ask(view, message, false, None, move |_, _| done.call(()));
+        }
+
+        #[unsafe(method(webView:runJavaScriptConfirmPanelWithMessage:initiatedByFrame:completionHandler:))]
+        fn confirm(
+            &self,
+            view: &WKWebView,
+            message: &NSString,
+            _frame: &WKFrameInfo,
+            done: &DynBlock<dyn Fn(Bool)>,
+        ) {
+            let done = done.copy();
+            ask(view, message, true, None, move |ok, _| {
+                done.call((Bool::new(ok),))
+            });
+        }
+
+        #[unsafe(method(webView:runJavaScriptTextInputPanelWithPrompt:defaultText:initiatedByFrame:completionHandler:))]
+        fn prompt(
+            &self,
+            view: &WKWebView,
+            prompt: &NSString,
+            default: Option<&NSString>,
+            _frame: &WKFrameInfo,
+            done: &DynBlock<dyn Fn(*mut NSString)>,
+        ) {
+            let done = done.copy();
+            let default = NSString::from_str(&default.map(NSString::to_string).unwrap_or_default());
+            ask(view, prompt, true, Some(&default), move |ok, typed| {
+                match typed.filter(|_| ok) {
+                    Some(typed) => done.call((Retained::as_ptr(&typed).cast_mut(),)),
+                    None => done.call((ptr::null_mut(),)),
+                }
+            });
+        }
+
+        // `<input type=file>`: the system's open panel as a sheet on the window.
+        #[unsafe(method(webView:runOpenPanelWithParameters:initiatedByFrame:completionHandler:))]
+        fn choose_files(
+            &self,
+            view: &WKWebView,
+            parameters: &WKOpenPanelParameters,
+            _frame: &WKFrameInfo,
+            done: &DynBlock<dyn Fn(*mut NSArray<NSURL>)>,
+        ) {
+            let done = done.copy();
+            let Some(window) = view.window() else {
+                done.call((ptr::null_mut(),));
+                return;
+            };
+            let panel = NSOpenPanel::openPanel(self.mtm());
+            panel.setCanChooseFiles(true);
+            // SAFETY: plain getters on the main thread.
+            unsafe {
+                panel.setCanChooseDirectories(parameters.allowsDirectories());
+                panel.setAllowsMultipleSelection(parameters.allowsMultipleSelection());
+            }
+            let chosen = panel.clone();
+            let closed = RcBlock::new(move |response: NSModalResponse| {
+                if response == NSModalResponseOK {
+                    let urls = chosen.URLs();
+                    done.call((Retained::as_ptr(&urls).cast_mut(),));
+                } else {
+                    done.call((ptr::null_mut(),));
+                }
+            });
+            panel.beginSheetModalForWindow_completionHandler(&window, &closed);
         }
     }
 );
@@ -510,7 +724,8 @@ impl Delegate {
         unsafe { msg_send![super(this), init] }
     }
 
-    /// A load failed: noted, unless it was only stopped or gave way to another.
+    /// A load failed: noted, unless it was only stopped or gave way to another. A certificate the
+    /// system does not trust is left at that: nothing here lets such a site through.
     fn failed(&self, error: &NSError) {
         let (domain, code) = (error.domain().to_string(), error.code());
         if (domain == "NSURLErrorDomain" && code == CANCELLED)
@@ -523,8 +738,141 @@ impl Delegate {
         heard.failure = Some(Failure {
             url,
             reason: error.localizedDescription().to_string(),
+            certificate: domain == "NSURLErrorDomain" && UNTRUSTED.contains(&code),
         });
     }
+
+    /// Hears how `download` goes from here.
+    fn follow(&self, download: &WKDownload) {
+        // SAFETY: WebKit keeps the delegate weakly; the page keeps it as long as the web view.
+        unsafe { download.setDelegate(Some(ProtocolObject::from_ref(self))) };
+    }
+
+    /// Where `download`, which the page calls `suggested`, is saved: in ~/Downloads under its own
+    /// name ([`download_name`]), or the first free numbered one ([`download_path`]), counting
+    /// those taken by downloads still under way; none when there is no such folder to save in.
+    fn destination(&self, download: &WKDownload, suggested: &str) -> Option<Retained<NSURL>> {
+        let folder = PathBuf::from(std::env::var_os("HOME")?).join("Downloads");
+        std::fs::create_dir_all(&folder).ok()?;
+        let mut heard = self.ivars().borrow_mut();
+        let path = download_path(&folder, &download_name(suggested), |path| {
+            path.symlink_metadata().is_ok() || heard.downloads.iter().any(|(_, at)| at == path)
+        });
+        let url = NSURL::fileURLWithPath(&NSString::from_str(path.to_str()?));
+        heard.downloads.push((download.retain(), path));
+        Some(url)
+    }
+}
+
+/// What the page does about going to what `action` asks for: download it when asked to; give an
+/// address another app takes ([`opens`]) to the system when the page itself goes there, and not
+/// open it from a frame inside the page; go anywhere else.
+fn action_policy(action: &WKNavigationAction) -> WKNavigationActionPolicy {
+    // SAFETY: plain getters on the main thread.
+    unsafe {
+        if action.shouldPerformDownload() {
+            return WKNavigationActionPolicy::Download;
+        }
+        let request = action.request();
+        let Some(url) = request.URL() else {
+            return WKNavigationActionPolicy::Allow;
+        };
+        let scheme = url.scheme().map(|scheme| scheme.to_string());
+        if opens(scheme.as_deref().unwrap_or_default()) != Opens::System {
+            return WKNavigationActionPolicy::Allow;
+        }
+        // No frame: a new window, which the page would not get anyway (see `create_web_view`).
+        if action.targetFrame().is_none_or(|frame| frame.isMainFrame()) {
+            NSWorkspace::sharedWorkspace().openURL(&url);
+        }
+        WKNavigationActionPolicy::Cancel
+    }
+}
+
+/// What the page does with what came back: saves it as a download when it cannot show it or the
+/// server asks for it to be saved (`Content-Disposition: attachment`); else shows it.
+fn response_policy(response: &WKNavigationResponse) -> WKNavigationResponsePolicy {
+    // SAFETY: plain getters on the main thread.
+    let (shows, response) = unsafe { (response.canShowMIMEType(), response.response()) };
+    let attachment = response
+        .downcast::<NSHTTPURLResponse>()
+        .ok()
+        .and_then(|http| http.valueForHTTPHeaderField(ns_string!("Content-Disposition")))
+        .is_some_and(|value| {
+            value
+                .to_string()
+                .trim_start()
+                .to_ascii_lowercase()
+                .starts_with("attachment")
+        });
+    if shows && !attachment {
+        WKNavigationResponsePolicy::Allow
+    } else {
+        WKNavigationResponsePolicy::Download
+    }
+}
+
+/// Shows a page's `message` in the system's alert, as a sheet on the page's window, with OK, and
+/// Cancel when the page `cancels`, and a field holding `field` for a prompt; `answer` hears once
+/// whether OK was chosen, and what the field held then. Without a window, answered as cancelled.
+fn ask(
+    view: &WKWebView,
+    message: &NSString,
+    cancels: bool,
+    field: Option<&NSString>,
+    answer: impl Fn(bool, Option<Retained<NSString>>) + 'static,
+) {
+    let Some(window) = view.window() else {
+        answer(false, None);
+        return;
+    };
+    let main = view.mtm();
+    let alert = NSAlert::new(main);
+    alert.setMessageText(message);
+    alert.addButtonWithTitle(ns_string!("OK"));
+    if cancels {
+        // AppKit gives a button called Cancel the Esc key.
+        alert.addButtonWithTitle(ns_string!("Cancel"));
+    }
+    let field = field.map(|text| {
+        let field = NSTextField::textFieldWithString(text, main);
+        field.setFrame(NSRect::new(NSPoint::ZERO, NSSize::new(260.0, 24.0)));
+        alert.setAccessoryView(Some(&field));
+        field
+    });
+    // The handler keeps the alert, and with it the field, until the sheet closes.
+    let shown = alert.clone();
+    let closed = RcBlock::new(move |response: NSModalResponse| {
+        let typed = shown
+            .accessoryView()
+            .and_then(|view| view.downcast::<NSTextField>().ok())
+            .map(|field| field.stringValue());
+        answer(response == NSAlertFirstButtonReturn, typed);
+    });
+    alert.beginSheetModalForWindow_completionHandler(&window, Some(&closed));
+    if let Some(field) = field {
+        alert.window().makeFirstResponder(Some(&field));
+    }
+}
+
+/// Shows `path` selected in a Finder window.
+pub fn reveal(path: &Path) {
+    if let Some(path) = path.to_str() {
+        NSWorkspace::sharedWorkspace()
+            .selectFile_inFileViewerRootedAtPath(Some(&NSString::from_str(path)), ns_string!(""));
+    }
+}
+
+/// Moves the page's selection to where it starts, if it has one.
+const COLLAPSE: &str = "(s => s && s.rangeCount && s.collapseToStart())(getSelection())";
+
+/// Which way the find bar looks through the page.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Look {
+    /// The text was typed: from where the match shown starts, so it grows in place.
+    Again,
+    Next,
+    Previous,
 }
 
 /// The page: the web view, owned here besides its place in the window's view, and what its
@@ -535,6 +883,8 @@ pub struct Page {
     delegate: Retained<Delegate>,
     /// Where it shows; none while hidden.
     shown: Option<NSRect>,
+    /// Whether the last search found anything, once it has said, until read.
+    found: Rc<Cell<Option<bool>>>,
 }
 
 impl Page {
@@ -556,7 +906,15 @@ impl Page {
         };
         let delegate = Delegate::new(main);
         // SAFETY: the delegate is kept as long as the view (see `Drop`).
-        unsafe { view.setNavigationDelegate(Some(ProtocolObject::from_ref(&*delegate))) };
+        unsafe {
+            view.setNavigationDelegate(Some(ProtocolObject::from_ref(&*delegate)));
+            view.setUIDelegate(Some(ProtocolObject::from_ref(&*delegate)));
+        }
+        // Safari's Develop menu can inspect the page where the system lets it (macOS 13.3 on).
+        if view.respondsToSelector(sel!(setInspectable:)) {
+            // SAFETY: a plain setter on the main thread, there since macOS 13.3.
+            unsafe { view.setInspectable(true) };
+        }
         view.setHidden(true);
         round(&view, radius);
         parent.addSubview_positioned_relativeTo(&view, NSWindowOrderingMode::Above, Some(&gpui));
@@ -564,6 +922,7 @@ impl Page {
             view,
             delegate,
             shown: None,
+            found: Rc::default(),
         })
     }
 
@@ -634,6 +993,44 @@ impl Page {
         self.shown = frame;
     }
 
+    /// Looks through the page for `query`, ignoring case and going round past either end, and
+    /// selects the match; whether there was one comes from [`Page::found`] once WebKit says.
+    pub fn find(&self, query: &str, look: Look) {
+        let found = self.found.clone();
+        let done = RcBlock::new(move |result: NonNull<WKFindResult>| {
+            // SAFETY: WebKit's result, alive while it calls this.
+            found.set(Some(unsafe { result.as_ref().matchFound() }));
+        });
+        // SAFETY: on the main thread; both run in the page in the order sent.
+        unsafe {
+            if look == Look::Again {
+                // A search starts after what is selected: from where the match shown starts
+                // instead, so a match that grows as more is typed stays where it is.
+                self.view
+                    .evaluateJavaScript_completionHandler(ns_string!(COLLAPSE), None);
+            }
+            let config = WKFindConfiguration::new(self.view.mtm());
+            config.setBackwards(look == Look::Previous);
+            config.setCaseSensitive(false);
+            config.setWraps(true);
+            self.view.findString_withConfiguration_completionHandler(
+                &NSString::from_str(query),
+                Some(&config),
+                &done,
+            );
+        }
+    }
+
+    /// Whether the last search found anything, once, after it has said.
+    pub fn found(&self) -> Option<bool> {
+        self.found.take()
+    }
+
+    /// Where a download that finished since the last call was saved.
+    pub fn saved(&self) -> Option<PathBuf> {
+        self.delegate.ivars().borrow_mut().saved.take()
+    }
+
     /// Gives the page the keyboard, when it shows.
     pub fn focus(&self) {
         if self.shown.is_none() {
@@ -680,6 +1077,7 @@ impl Drop for Page {
         // SAFETY: on the main thread, where it was made.
         unsafe {
             self.view.setNavigationDelegate(None);
+            self.view.setUIDelegate(None);
             self.view.stopLoading();
         }
         // The window's view lets go of it too; a window already closed has nothing to remove from.
@@ -713,6 +1111,76 @@ fn gpui_view(window: &Window) -> Option<Retained<NSView>> {
     };
     // SAFETY: GPUI's live NSView, retained on the main thread while `window` is borrowed.
     unsafe { Retained::retain(appkit.ns_view.as_ptr().cast::<NSView>()) }
+}
+
+/// Where an address a page opens in a new window goes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Opens {
+    /// A web page: in the page itself, which can go back to where it came from.
+    Here,
+    /// An address another app takes, such as `mailto:` or `tel:`: to the system.
+    System,
+    /// Anything else, such as `about:blank` or `javascript:`: not opened.
+    Nowhere,
+}
+
+/// Where an address with `scheme` goes when a page opens it in a new window.
+pub fn opens(scheme: &str) -> Opens {
+    match scheme.to_ascii_lowercase().as_str() {
+        "http" | "https" => Opens::Here,
+        "" | "about" | "blob" | "data" | "javascript" | "file" => Opens::Nowhere,
+        _ => Opens::System,
+    }
+}
+
+/// Opens what `request` asks for as [`opens`] says, `view` being the page.
+fn open_elsewhere(view: &WKWebView, request: &NSURLRequest) {
+    let Some(url) = request.URL() else {
+        return;
+    };
+    let scheme = url.scheme().map(|scheme| scheme.to_string());
+    match opens(scheme.as_deref().unwrap_or_default()) {
+        // SAFETY: a plain load on the main thread.
+        Opens::Here => unsafe {
+            view.loadRequest(request);
+        },
+        Opens::System => {
+            NSWorkspace::sharedWorkspace().openURL(&url);
+        }
+        Opens::Nowhere => {}
+    }
+}
+
+/// What a download is saved as: the name the page gives it without any folders in it, and with
+/// nothing that cannot be typed; `download` when that leaves no name.
+pub fn download_name(suggested: &str) -> String {
+    let last = suggested.rsplit(['/', '\\']).next().unwrap_or_default();
+    let name: String = last.chars().filter(|c| !c.is_control()).collect();
+    match name.trim() {
+        "" | "." | ".." => "download".to_owned(),
+        name => name.to_owned(),
+    }
+}
+
+/// Where a download named `name` (as [`download_name`] gives it) is saved in `folder`: under that
+/// name, else `name-2.ext`, `name-3.ext` and so on, the first that `taken` says is free, so
+/// nothing already there is written over.
+pub fn download_path(folder: &Path, name: &str, taken: impl Fn(&Path) -> bool) -> PathBuf {
+    let (stem, extension) = match name.rsplit_once('.') {
+        Some((stem, extension)) if !stem.is_empty() && !extension.is_empty() => {
+            (stem, Some(extension))
+        }
+        _ => (name, None),
+    };
+    let numbered = (2u64..).map(|n| match extension {
+        Some(extension) => format!("{stem}-{n}.{extension}"),
+        None => format!("{stem}-{n}"),
+    });
+    std::iter::once(name.to_owned())
+        .chain(numbered)
+        .map(|name| folder.join(name))
+        .find(|path| !taken(path))
+        .expect("a free name")
 }
 
 /// The web view's address now.
@@ -949,6 +1417,13 @@ mod tests {
             self.focus(Owner::Address)
         }
 
+        /// ⌘F from the page or the address field: AppKit's keyboard first, then GPUI's focus to
+        /// the find field.
+        fn open_find(&mut self) -> Moves {
+            self.native = false;
+            self.focus(Owner::Find)
+        }
+
         fn show(&mut self, showing: Showing) -> Moves {
             self.showing = showing;
             self.settle()
@@ -1123,6 +1598,167 @@ mod tests {
     }
 
     #[test]
+    fn the_find_field_takes_the_keyboard_from_the_page_and_esc_gives_it_back() {
+        // ⌘F from the page: AppKit's keyboard back to GPUI's view, then the find field has it.
+        let mut desk = Desk::new();
+        desk.click_page();
+        assert_eq!(desk.open_find(), Moves::default());
+        assert_eq!(desk.owner(), Owner::Find);
+        assert!(!desk.native && desk.focus == Owner::Find);
+        assert_eq!(desk.settle(), Moves::default());
+        // ⏎ and ⌘G look on in the field; Esc closes the bar and the page has it back.
+        assert_eq!(desk.focus(Owner::Page), native(true));
+        assert_eq!(desk.owner(), Owner::Page);
+        // ⌘F from the address field.
+        desk.edit();
+        assert_eq!(desk.open_find(), Moves::default());
+        assert_eq!(desk.owner(), Owner::Find);
+        // A click on the page while finding: the field gives the keyboard up, the bar stays.
+        let clicked = desk.click_page();
+        assert_eq!(
+            clicked,
+            Moves {
+                focus_page: true,
+                ..Moves::default()
+            }
+        );
+        assert_eq!(desk.owner(), Owner::Page);
+        // ⌘L from the find field, and back with ⌘F.
+        desk.open_find();
+        desk.edit();
+        assert_eq!(desk.owner(), Owner::Address);
+        desk.open_find();
+        assert_eq!(desk.owner(), Owner::Find);
+        // The page hidden for a while (a hover text over it): the field keeps the keyboard, and
+        // the page does not take it back when it shows again.
+        assert_eq!(desk.show(Showing::Hidden), Moves::default());
+        assert_eq!(desk.show(Showing::Shown), Moves::default());
+        assert_eq!(desk.owner(), Owner::Find);
+        // A click on the terminal from the find field: the terminal has it.
+        assert_eq!(desk.focus(Owner::Paddock), Moves::default());
+        assert_eq!(desk.owner(), Owner::Paddock);
+        // The right sidebar closed from the find field: the pane has it.
+        desk.click_page();
+        desk.open_find();
+        let away = desk.show(Showing::Away);
+        assert_eq!(
+            away,
+            Moves {
+                to_pane: true,
+                ..Moves::default()
+            }
+        );
+        assert_eq!(desk.owner(), Owner::Paddock);
+    }
+
+    #[test]
+    fn finding_is_the_browsers_while_it_has_the_keyboard_and_the_panes_otherwise() {
+        for source in ["cmd-f", "cmd-g", "cmd-shift-g"] {
+            for owner in [Owner::Page, Owner::Address, Owner::Find] {
+                assert_eq!(route(owner, &key(source)), Route::Browser, "{source}");
+            }
+            // The terminal's find bar, as before.
+            assert_eq!(
+                route(Owner::Paddock, &key(source)),
+                Route::Keyboard(Owner::Paddock),
+                "{source}"
+            );
+        }
+        // In the find field, ⏎, ⇧⏎ and Esc are its own, and the others as in the address field.
+        for source in ["enter", "shift-enter", "escape", "cmd-c", "cmd-v", "cmd-a"] {
+            assert_eq!(
+                route(Owner::Find, &key(source)),
+                Route::Keyboard(Owner::Find),
+                "{source}"
+            );
+        }
+        for source in ["cmd-l", "cmd-r"] {
+            assert_eq!(route(Owner::Find, &key(source)), Route::Browser);
+        }
+        for source in ["cmd-w", "cmd-t", "cmd-p", "alt-cmd-b"] {
+            assert_eq!(route(Owner::Find, &key(source)), Route::Paddock);
+        }
+    }
+
+    #[test]
+    fn downloads_keep_the_pages_name_without_its_folders() {
+        assert_eq!(download_name("report.pdf"), "report.pdf");
+        assert_eq!(
+            download_name("Quarterly report 2026.xlsx"),
+            "Quarterly report 2026.xlsx"
+        );
+        assert_eq!(download_name("数据.csv"), "数据.csv");
+        // Folders named, up or down, either way round.
+        assert_eq!(download_name("../../.zshrc"), ".zshrc");
+        assert_eq!(download_name("/etc/passwd"), "passwd");
+        assert_eq!(download_name("assets/img/logo.png"), "logo.png");
+        assert_eq!(download_name("..\\..\\evil.sh"), "evil.sh");
+        assert_eq!(download_name("C:\\Users\\me\\notes.txt"), "notes.txt");
+        // Nothing that cannot be typed, nor blanks round it.
+        assert_eq!(download_name(" bad\u{0}na\nme.txt "), "badname.txt");
+        // No name left: a plain one.
+        for suggested in ["", "  ", ".", "..", "a/..", "a/b/", "../", "\u{7}"] {
+            assert_eq!(download_name(suggested), "download", "{suggested:?}");
+        }
+    }
+
+    #[test]
+    fn downloads_never_write_over_a_file_already_there() {
+        let folder = Path::new("/Users/someone/Downloads");
+        let taken = |names: &'static [&'static str]| {
+            move |path: &Path| {
+                assert_eq!(path.parent(), Some(folder));
+                names
+                    .iter()
+                    .any(|name| path.file_name() == Some(name.as_ref()))
+            }
+        };
+        assert_eq!(
+            download_path(folder, "report.pdf", taken(&[])),
+            folder.join("report.pdf")
+        );
+        assert_eq!(
+            download_path(folder, "report.pdf", taken(&["report.pdf"])),
+            folder.join("report-2.pdf")
+        );
+        assert_eq!(
+            download_path(
+                folder,
+                "report.pdf",
+                taken(&["report.pdf", "report-2.pdf", "report-3.pdf"])
+            ),
+            folder.join("report-4.pdf")
+        );
+        // Another file's numbered name is no reason to number this one.
+        assert_eq!(
+            download_path(folder, "report.pdf", taken(&["report-2.pdf"])),
+            folder.join("report.pdf")
+        );
+        // No extension, a hidden file, several dots.
+        assert_eq!(
+            download_path(folder, "README", taken(&["README"])),
+            folder.join("README-2")
+        );
+        assert_eq!(
+            download_path(folder, ".env", taken(&[".env"])),
+            folder.join(".env-2")
+        );
+        assert_eq!(
+            download_path(folder, "site.tar.gz", taken(&["site.tar.gz"])),
+            folder.join("site.tar-2.gz")
+        );
+        assert_eq!(
+            download_path(folder, "download", taken(&["download"])),
+            folder.join("download-2")
+        );
+        // Whatever the page called it, it stays in the folder.
+        for suggested in ["../../x", "/tmp/y", "..", "a\\..\\..\\z"] {
+            let path = download_path(folder, &download_name(suggested), taken(&[]));
+            assert_eq!(path.parent(), Some(folder), "{suggested}");
+        }
+    }
+
+    #[test]
     fn a_click_on_the_page_closes_an_open_popup() {
         // The sidebar's menu, opened from the terminal.
         let mut desk = Desk::new();
@@ -1157,7 +1793,7 @@ mod tests {
 
     #[test]
     fn paddocks_shortcuts_are_paddocks_whoever_has_the_keyboard() {
-        for owner in [Owner::Page, Owner::Address, Owner::Paddock] {
+        for owner in [Owner::Page, Owner::Address, Owner::Find, Owner::Paddock] {
             for source in [
                 "cmd-w",
                 "cmd-t",
@@ -1184,12 +1820,14 @@ mod tests {
             }
         }
         // Every menu shortcut outside dialogs and fields, but the ones that act on what has
-        // the keyboard.
+        // the keyboard, and finding, which the Browser does in its find bar.
         for binding in menu::bindings().iter().filter(|b| b.predicate().is_none()) {
             let [keystroke] = binding.keystrokes() else {
                 continue;
             };
-            let expected = if menu::follows_keyboard(binding.action()) {
+            let expected = if menu::finds(binding.action()) {
+                Route::Browser
+            } else if menu::follows_keyboard(binding.action()) {
                 Route::Keyboard(Owner::Page)
             } else {
                 Route::Paddock
@@ -1205,7 +1843,7 @@ mod tests {
 
     #[test]
     fn l_and_r_are_the_browsers_while_it_has_the_keyboard_and_the_panes_otherwise() {
-        for owner in [Owner::Page, Owner::Address] {
+        for owner in [Owner::Page, Owner::Address, Owner::Find] {
             assert_eq!(route(owner, &key("cmd-l")), Route::Browser);
             assert_eq!(route(owner, &key("cmd-r")), Route::Browser);
         }
@@ -1228,24 +1866,13 @@ mod tests {
     #[test]
     fn copying_pasting_and_editing_go_to_what_has_the_keyboard() {
         for source in ["cmd-c", "cmd-v", "cmd-x", "cmd-a", "cmd-z", "cmd-shift-z"] {
-            for owner in [Owner::Page, Owner::Address, Owner::Paddock] {
+            for owner in [Owner::Page, Owner::Address, Owner::Find, Owner::Paddock] {
                 assert_eq!(
                     route(owner, &key(source)),
                     Route::Keyboard(owner),
                     "{source}"
                 );
             }
-        }
-        // Finding in the terminal is the pane's own: the page has ⌘F for itself.
-        for source in ["cmd-f", "cmd-g", "cmd-shift-g"] {
-            assert_eq!(
-                route(Owner::Page, &key(source)),
-                Route::Keyboard(Owner::Page)
-            );
-            assert_eq!(
-                route(Owner::Paddock, &key(source)),
-                Route::Keyboard(Owner::Paddock)
-            );
         }
         // The page's own shortcuts, such as a search box's ⌘K, and plain keys.
         for source in [

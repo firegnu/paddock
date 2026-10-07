@@ -1,32 +1,43 @@
 //! The right sidebar's Browser tab (DESIGN §13, P5-28): the toolbar from the design (back,
 //! forward, reload or stop while loading, the address, open in the default browser) over the page
 //! (`browser.rs`), which it lays out. Before anything is opened it shows a quiet empty state; after
-//! a load fails, a quiet error with Retry in the page's place.
+//! a load fails, a quiet error with Retry in the page's place, and for a site whose certificate is
+//! not trusted, a way to open it in the default browser. ⌘F opens a find bar under the toolbar,
+//! as a pane's, that looks through the page.
 //!
 //! It keeps the window's keyboard record ([`Keys`]): the page has a focus handle of its own, so
-//! GPUI's focus says when the page has the keyboard as AppKit's does, and ⌘L and ⌘R are the
-//! Browser's there and in the address field.
+//! GPUI's focus says when the page has the keyboard as AppKit's does, and ⌘L, ⌘R, ⌘F, ⌘G and ⇧⌘G
+//! are the Browser's there and in its address and find fields.
 use crate::{
-    browser::{self, Failure, Keys, Owner, Page, Scene, Seen, Showing, State},
+    browser::{self, Failure, Keys, Look, Owner, Page, Scene, Seen, Showing, State},
     fonts::UiFont,
     footer_icon::{self, Icon},
     menu,
     right_panel::{self, Tab, Tip},
-    text_input::{self, TextInput},
+    text_input::{self, Changed, TextInput},
     theme::Theme,
     view::hsla,
 };
 use gpui::{
     Bounds, ClickEvent, Context, Div, Entity, EventEmitter, FocusHandle, Focusable, FontWeight,
-    HighlightStyle, KeyDownEvent, MouseButton, Pixels, Render, Stateful, StyledText, Window,
-    canvas, div, prelude::*, px, relative,
+    HighlightStyle, KeyDownEvent, MouseButton, Pixels, Render, Stateful, StyledText, Subscription,
+    Window, canvas, div, prelude::*, px, relative,
 };
-use std::{cell::Cell, net::IpAddr, ops::Range, rc::Rc, time::Duration};
+use std::{
+    cell::Cell,
+    net::IpAddr,
+    ops::Range,
+    path::{Path, PathBuf},
+    rc::Rc,
+    time::{Duration, Instant},
+};
 
 /// The page area's corners; the page sits inside its 1-point rim.
 const RADIUS: f32 = 8.0;
 /// How often the page's state is read.
 const POLL: Duration = Duration::from_millis(50);
+/// How long the toolbar shows a download that finished.
+const SAVED: Duration = Duration::from_secs(6);
 
 type Pick = fn(&crate::preset::Theme) -> crate::preset::Color;
 
@@ -57,7 +68,9 @@ pub struct BrowserView {
     /// The address last sent as [`Visited`].
     visited: Option<String>,
     address: Entity<TextInput>,
-    /// The address field's text is to be selected once it shows (⌘L).
+    /// The find bar, while it is open.
+    find: Option<FindBar>,
+    /// The text of the field taking the keyboard is to be selected once it shows (⌘L, ⌘F).
     select: bool,
     /// Where the page goes as laid out this frame, until [`BrowserView::place`] takes it.
     area: Rc<Cell<Option<Bounds<Pixels>>>>,
@@ -69,16 +82,26 @@ pub struct BrowserView {
     showing: Showing,
     /// A popup was open at the last frame.
     dialog: bool,
+    /// A download that finished, and when, while the toolbar shows it.
+    saved: Option<(PathBuf, Instant)>,
+}
+
+struct FindBar {
+    input: Entity<TextInput>,
+    /// The last search found nothing.
+    missed: bool,
+    _subscription: Subscription,
 }
 
 impl EventEmitter<Visited> for BrowserView {}
 impl EventEmitter<Handoff> for BrowserView {}
 
 impl BrowserView {
-    /// The tab, to open `url` when it first shows.
+    /// The tab, to open `url` when it first shows, as if typed ([`reachable`]).
     pub fn new(theme: Rc<Theme>, url: Option<String>, cx: &mut Context<Self>) -> Self {
         let colors = colors(&theme);
         let address = cx.new(|cx| TextInput::new("", "Enter an address", colors, cx));
+        let url = url.map(|url| reachable(&url));
         BrowserView {
             theme,
             page: None,
@@ -88,12 +111,14 @@ impl BrowserView {
             pending: url,
             refused: None,
             address,
+            find: None,
             select: false,
             area: Rc::default(),
             page_focus: cx.focus_handle(),
             keys: Keys::default(),
             showing: Showing::default(),
             dialog: false,
+            saved: None,
         }
     }
 
@@ -158,6 +183,8 @@ impl BrowserView {
             Owner::Page
         } else if self.address.read(cx).focus_handle(cx).is_focused(window) {
             Owner::Address
+        } else if self.finding(window, cx) {
+            Owner::Find
         } else {
             Owner::Paddock
         };
@@ -216,15 +243,35 @@ impl BrowserView {
     }
 
     /// Reads the page's state: drawn again when it changed, and the layout told when the address
-    /// shown did. The keyboard's record settles too, as a click on the page shows only here
-    /// while nothing else is drawn.
+    /// shown did; and whether a search found anything, and a download that finished, which the
+    /// toolbar shows for a while. The keyboard's record settles too, as a click on the page shows
+    /// only here while nothing else is drawn.
     fn poll(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(page) = &self.page else {
             return;
         };
         let state = page.state();
+        let found = page.found();
+        let saved = page.saved();
         if state != self.state {
             self.state = state;
+            cx.notify();
+        }
+        if let Some(found) = found
+            && let Some(bar) = &mut self.find
+        {
+            bar.missed = !found && !bar.input.read(cx).text().is_empty();
+            cx.notify();
+        }
+        if let Some(path) = saved {
+            self.saved = Some((path, Instant::now()));
+            cx.notify();
+        } else if self
+            .saved
+            .as_ref()
+            .is_some_and(|(_, at)| at.elapsed() >= SAVED)
+        {
+            self.saved = None;
             cx.notify();
         }
         if let Some(url) = self.shown_url()
@@ -259,6 +306,7 @@ impl BrowserView {
                     self.refused = Some(Failure {
                         url: Some(url),
                         reason: "This address cannot be opened.".into(),
+                        certificate: false,
                     });
                 }
             }
@@ -309,6 +357,87 @@ impl BrowserView {
             self.refused = None;
             cx.notify();
         }
+    }
+
+    /// The find field has the keyboard.
+    fn finding(&self, window: &Window, cx: &Context<Self>) -> bool {
+        self.find
+            .as_ref()
+            .is_some_and(|bar| bar.input.read(cx).focus_handle(cx).is_focused(window))
+    }
+
+    /// ⌘F: the find bar, its field taking the keyboard with what it holds selected; AppKit's
+    /// keyboard first, after this event, as for the address field. Nothing before a page is
+    /// opened.
+    fn open_find(&mut self, _: &menu::Find, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.opened {
+            return;
+        }
+        if self.find.is_none() {
+            let input = cx.new(|cx| TextInput::new("", "Find", colors(&self.theme), cx));
+            // Typing looks again from where the match shown starts.
+            let subscription = cx.subscribe(&input, |this, _, _: &Changed, cx| {
+                this.run_find(Look::Again, cx)
+            });
+            self.find = Some(FindBar {
+                input,
+                missed: false,
+                _subscription: subscription,
+            });
+        }
+        cx.defer_in(window, |this, window, cx| {
+            let Some(bar) = &this.find else {
+                return;
+            };
+            browser::take_keys(window);
+            let focus = bar.input.read(cx).focus_handle(cx);
+            window.focus(&focus, cx);
+            this.select = true;
+            cx.notify();
+        });
+    }
+
+    /// ⏎ or ⌘G: the next match, the bar opened first if it is not.
+    fn find_next(&mut self, _: &menu::FindNext, window: &mut Window, cx: &mut Context<Self>) {
+        if self.find.is_none() {
+            self.open_find(&menu::Find, window, cx);
+        }
+        self.run_find(Look::Next, cx);
+    }
+
+    /// ⇧⏎ or ⇧⌘G: the match before.
+    fn find_previous(
+        &mut self,
+        _: &menu::FindPrevious,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.find.is_none() {
+            self.open_find(&menu::Find, window, cx);
+        }
+        self.run_find(Look::Previous, cx);
+    }
+
+    /// Looks through the page for what the find field holds; whether it found anything comes back
+    /// as the page is polled.
+    fn run_find(&mut self, look: Look, cx: &mut Context<Self>) {
+        let (Some(bar), Some(page)) = (&mut self.find, &self.page) else {
+            return;
+        };
+        let query = bar.input.read(cx).text().to_owned();
+        if query.is_empty() {
+            bar.missed = false;
+        } else {
+            page.find(&query, look);
+        }
+        cx.notify();
+    }
+
+    /// Esc or ×: the bar goes and the page has the keyboard back.
+    fn close_find(&mut self, _: &menu::CloseFind, window: &mut Window, cx: &mut Context<Self>) {
+        self.find = None;
+        window.focus(&self.page_focus, cx);
+        cx.notify();
     }
 
     fn back(&mut self, cx: &mut Context<Self>) {
@@ -415,12 +544,56 @@ impl BrowserView {
                 .when(reloads, |b| b.on_click(on_reload)),
             )
             .child(self.address_field(window, ui, cx))
+            .when_some(self.saved.as_ref(), |row, (path, _)| {
+                row.child(self.saved_file(path, ui))
+            })
             .child(
                 button("browser-open", Icon::External, opens).when(opens, |b| {
                     b.tooltip(move |_, cx| cx.new(|_| tip.clone()).into())
                         .on_click(on_open)
                 }),
             )
+    }
+
+    /// A download that finished, by name, for a few seconds after: clicked, shown in Finder.
+    fn saved_file(&self, path: &Path, ui: &UiFont) -> Stateful<Div> {
+        let theme = &*self.theme;
+        let highlight = hsla(theme.bg(|t| t.agent_selected), 1.0);
+        let name = path
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let path = path.to_owned();
+        div()
+            .id("browser-saved")
+            .flex_shrink_0()
+            .max_w(ui.px(160.0))
+            .h(ui.px(26.0))
+            .px(ui.px(8.0))
+            .flex()
+            .items_center()
+            .gap(ui.px(4.0))
+            .rounded(px(6.0))
+            .bg(highlight.opacity(0.5))
+            .text_size(ui.px(12.0))
+            .cursor_pointer()
+            .hover(move |style| style.bg(highlight))
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .text_color(hsla(theme.fg(|t| t.agents_accent), 1.0))
+                    .child("↓"),
+            )
+            .child(
+                div()
+                    .min_w(px(0.0))
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .text_ellipsis()
+                    .text_color(hsla(theme.fg(|t| t.agents_text), 1.0))
+                    .child(name),
+            )
+            .on_click(move |_, _, _| browser::reveal(&path))
     }
 
     /// The address: the page's while not typing, a local server's port or else the host bright;
@@ -506,6 +679,59 @@ impl BrowserView {
         })
     }
 
+    /// Under the toolbar while finding, the page shrunk to make room: a pane's find bar, laid out
+    /// across the tab, with ↑ for the match before and ↓ for the next.
+    fn find_bar(&self, bar: &FindBar, ui: &UiFont, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = &*self.theme;
+        let fg = |pick: Pick| hsla(theme.fg(pick), 1.0);
+        let highlight = hsla(theme.bg(|t| t.agent_selected), 1.0);
+        let button = |id: &'static str, label: &'static str| {
+            div()
+                .id(id)
+                .px(ui.px(5.0))
+                .rounded(px(4.0))
+                .text_color(fg(|t| t.muted))
+                .cursor_pointer()
+                .hover(move |style| style.bg(highlight))
+                .child(label)
+        };
+        div()
+            .id("browser-find-bar")
+            .key_context(menu::FIND)
+            .flex_shrink_0()
+            .mx(ui.px(10.0))
+            .mb(ui.px(10.0))
+            .flex()
+            .items_center()
+            .gap(ui.px(6.0))
+            .px(ui.px(8.0))
+            .py(ui.px(4.0))
+            .rounded(px(7.0))
+            .border_1()
+            .border_color(fg(|t| t.focus))
+            .bg(hsla(theme.bg(|t| t.agents_bg), 1.0))
+            .text_size(ui.px(12.0))
+            .on_action(cx.listener(Self::close_find))
+            .child(div().flex_1().min_w(px(0.0)).child(bar.input.clone()))
+            .when(bar.missed, |row| {
+                row.child(
+                    div()
+                        .flex_shrink_0()
+                        .text_color(fg(|t| t.agents_red))
+                        .child("No match"),
+                )
+            })
+            .child(button("browser-find-previous", "↑").on_click(cx.listener(
+                |this, _, window, cx| this.find_previous(&menu::FindPrevious, window, cx),
+            )))
+            .child(button("browser-find-next", "↓").on_click(
+                cx.listener(|this, _, window, cx| this.find_next(&menu::FindNext, window, cx)),
+            ))
+            .child(button("browser-find-close", "×").on_click(
+                cx.listener(|this, _, window, cx| this.close_find(&menu::CloseFind, window, cx)),
+            ))
+    }
+
     /// Under the toolbar: the empty state before anything is opened, the error after a failed
     /// load, else the area the page shows in, a faint rim round it. The page's focus handle is on
     /// the last two, so ⌘L and ⌘R stay the Browser's while its page is in error; a click on the
@@ -531,11 +757,35 @@ impl BrowserView {
             .child(canvas(move |bounds, _, _| area.set(Some(bounds)), |_, _, _, _| {}).size_full())
     }
 
-    /// The error in the page's place: a line saying so, the system's reason, and Retry.
+    /// The error in the page's place: a line saying so, the system's reason, and Retry; for a site
+    /// whose certificate is not trusted, that reason, and a way to open it in the default browser
+    /// instead, as it is not let through here.
     fn failed(&self, failure: &Failure, ui: &UiFont, cx: &mut Context<Self>) -> Div {
         let theme = &*self.theme;
         let fg = |pick: Pick| hsla(theme.fg(pick), 1.0);
         let highlight = hsla(theme.bg(|t| t.agent_selected), 1.0);
+        let button = |id: &'static str, label: &'static str| {
+            div()
+                .id(id)
+                .h(ui.px(26.0))
+                .px(ui.px(12.0))
+                .flex()
+                .items_center()
+                .rounded(px(6.0))
+                .border_1()
+                .border_color(fg(|t| t.agents_rule))
+                .text_size(ui.px(12.5))
+                .text_color(fg(|t| t.agents_text))
+                .cursor_pointer()
+                .hover(move |style| style.bg(highlight))
+                .child(label)
+        };
+        let reason = if failure.certificate {
+            "This site’s certificate is not trusted.".to_owned()
+        } else {
+            failure.reason.clone()
+        };
+        let external = failure.url.clone().filter(|_| failure.certificate);
         div()
             .flex_1()
             .min_h(px(0.0))
@@ -558,25 +808,25 @@ impl BrowserView {
                     .text_size(ui.px(12.0))
                     .text_center()
                     .text_color(fg(|t| t.agents_dim))
-                    .child(failure.reason.clone()),
+                    .child(reason),
             )
             .child(
                 div()
-                    .id("browser-retry")
                     .mt(ui.px(8.0))
-                    .h(ui.px(26.0))
-                    .px(ui.px(12.0))
                     .flex()
-                    .items_center()
-                    .rounded(px(6.0))
-                    .border_1()
-                    .border_color(fg(|t| t.agents_rule))
-                    .text_size(ui.px(12.5))
-                    .text_color(fg(|t| t.agents_text))
-                    .cursor_pointer()
-                    .hover(move |style| style.bg(highlight))
-                    .child("Retry")
-                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.reload(cx))),
+                    .flex_wrap()
+                    .justify_center()
+                    .gap(ui.px(8.0))
+                    .child(
+                        button("browser-retry", "Retry")
+                            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.reload(cx))),
+                    )
+                    .when_some(external, |row, url| {
+                        row.child(
+                            button("browser-external", "Open in default browser")
+                                .on_click(move |_, _, cx| cx.open_url(&url)),
+                        )
+                    }),
             )
     }
 }
@@ -587,8 +837,11 @@ impl Render for BrowserView {
         if self.page.is_none() {
             cx.defer_in(window, |this, window, cx| this.open_page(window, cx));
         }
-        // ⌘L's selection, once the field it selects in is drawn.
-        if self.select && self.address.read(cx).focus_handle(cx).is_focused(window) {
+        // ⌘L's or ⌘F's selection, once the field it selects in is drawn.
+        if self.select
+            && (self.address.read(cx).focus_handle(cx).is_focused(window)
+                || self.finding(window, cx))
+        {
             self.select = false;
             cx.defer_in(window, |_, window, cx| {
                 window.dispatch_action(Box::new(text_input::SelectAll), cx)
@@ -604,7 +857,11 @@ impl Render for BrowserView {
                 cx.listener(|this, _: &menu::FocusAddress, window, cx| this.edit(true, window, cx)),
             )
             .on_action(cx.listener(|this, _: &menu::ReloadPage, _, cx| this.reload_page(cx)))
+            .on_action(cx.listener(Self::open_find))
+            .on_action(cx.listener(Self::find_next))
+            .on_action(cx.listener(Self::find_previous))
             .child(self.toolbar(window, &ui, cx))
+            .children(self.find.as_ref().map(|bar| self.find_bar(bar, &ui, cx)))
             .child(self.content(&ui, cx))
     }
 }
@@ -620,8 +877,9 @@ fn colors(theme: &Theme) -> text_input::Colors {
 }
 
 /// What typing `typed` in the address field opens: as typed when it names its scheme (`…://`);
-/// else `http://` before a local server's address (localhost or a loopback IP) and `https://`
-/// before anything else. Nothing for nothing typed, or for words with spaces between them.
+/// else `http://` before a local server's address (see `local`) and `https://` before anything
+/// else; either way with an address that listens everywhere made [`reachable`]. Nothing for
+/// nothing typed, or for words with spaces between them.
 pub fn address(typed: &str) -> Option<String> {
     let typed = typed.trim();
     if typed.is_empty() || typed.contains(char::is_whitespace) {
@@ -630,7 +888,7 @@ pub fn address(typed: &str) -> Option<String> {
     if let Some((scheme, _)) = typed.split_once("://")
         && is_scheme(scheme)
     {
-        return Some(typed.to_owned());
+        return Some(reachable(typed));
     }
     let authority = &typed[..typed.find(['/', '?', '#']).unwrap_or(typed.len())];
     let scheme = if local(host_port(authority).0) {
@@ -638,7 +896,32 @@ pub fn address(typed: &str) -> Option<String> {
     } else {
         "https"
     };
-    Some(format!("{scheme}://{typed}"))
+    Some(reachable(&format!("{scheme}://{typed}")))
+}
+
+/// `url` with a web page's host that listens everywhere, `0.0.0.0` or `[::]`, put as this
+/// machine's loopback address, `127.0.0.1` or `[::1]`, all else kept: WebKit will not open the
+/// first, and a server listening everywhere answers on the second.
+pub fn reachable(url: &str) -> String {
+    let Some((scheme, rest)) = url.split_once("://") else {
+        return url.to_owned();
+    };
+    if !(scheme.eq_ignore_ascii_case("http") || scheme.eq_ignore_ascii_case("https")) {
+        return url.to_owned();
+    }
+    let (authority, tail) = rest.split_at(rest.find(['/', '?', '#']).unwrap_or(rest.len()));
+    let (user, host) = match authority.rsplit_once('@') {
+        Some((user, host)) => (format!("{user}@"), host),
+        None => (String::new(), authority),
+    };
+    let (host, port) = host_port(host);
+    let loopback = match host.parse::<IpAddr>() {
+        Ok(IpAddr::V4(ip)) if ip.is_unspecified() => "127.0.0.1",
+        Ok(IpAddr::V6(ip)) if ip.is_unspecified() => "[::1]",
+        _ => return url.to_owned(),
+    };
+    let port = port.map(|port| format!(":{port}")).unwrap_or_default();
+    format!("{scheme}://{user}{loopback}{port}{tail}")
 }
 
 /// The address as the toolbar shows it while not typing: without `http://` or `https://`, or a
@@ -687,12 +970,19 @@ fn host_port(authority: &str) -> (&str, Option<&str>) {
     }
 }
 
-/// A name for this machine: `localhost` or a name under it, or a loopback IP.
+/// An address a development server prints for itself: `localhost` or a name under it, a name on
+/// the local network (`*.local`), a loopback IP, `0.0.0.0` or `::`, or a private IPv4 address on
+/// the local network.
 fn local(host: &str) -> bool {
     let host = host.to_ascii_lowercase();
     host == "localhost"
         || host.ends_with(".localhost")
-        || host.parse::<IpAddr>().is_ok_and(|ip| ip.is_loopback())
+        || host.ends_with(".local")
+        || host.parse::<IpAddr>().is_ok_and(|ip| {
+            ip.is_loopback()
+                || ip.is_unspecified()
+                || matches!(ip, IpAddr::V4(ip) if ip.is_private())
+        })
 }
 
 #[cfg(test)]
@@ -732,6 +1022,45 @@ mod tests {
             address("[::1]:3000/").as_deref(),
             Some("http://[::1]:3000/")
         );
+        assert_eq!(address("[::1]").as_deref(), Some("http://[::1]"));
+        // What a development server prints when it listens everywhere, which WebKit will not
+        // open: this machine's loopback address instead, port and path kept.
+        assert_eq!(
+            address("0.0.0.0:8000").as_deref(),
+            Some("http://127.0.0.1:8000")
+        );
+        assert_eq!(
+            address("0.0.0.0/app?x=1#top").as_deref(),
+            Some("http://127.0.0.1/app?x=1#top")
+        );
+        assert_eq!(address("[::]:8000/").as_deref(), Some("http://[::1]:8000/"));
+        assert_eq!(address("[::]").as_deref(), Some("http://[::1]"));
+        // This machine's addresses on the local network, the private ranges.
+        assert_eq!(
+            address("192.168.1.20:3000").as_deref(),
+            Some("http://192.168.1.20:3000")
+        );
+        assert_eq!(
+            address("10.0.0.5:5173/app?x=1").as_deref(),
+            Some("http://10.0.0.5:5173/app?x=1")
+        );
+        assert_eq!(
+            address("172.16.0.1:8080").as_deref(),
+            Some("http://172.16.0.1:8080")
+        );
+        assert_eq!(
+            address("172.31.255.254").as_deref(),
+            Some("http://172.31.255.254")
+        );
+        // Names on the local network.
+        assert_eq!(
+            address("my-mac.local:3000/").as_deref(),
+            Some("http://my-mac.local:3000/")
+        );
+        assert_eq!(
+            address("Printer.LOCAL").as_deref(),
+            Some("http://Printer.LOCAL")
+        );
         // Anything else, near misses too.
         assert_eq!(
             address("example.com").as_deref(),
@@ -750,13 +1079,26 @@ mod tests {
             Some("https://127.0.0.1.nip.io")
         );
         assert_eq!(
-            address("192.168.1.20:3000").as_deref(),
-            Some("https://192.168.1.20:3000")
-        );
-        assert_eq!(
             address("[2001:db8::1]:3000").as_deref(),
             Some("https://[2001:db8::1]:3000")
         );
+        for public in [
+            "172.15.0.1",
+            "172.32.0.1",
+            "192.169.1.20:3000",
+            "11.0.0.1",
+            "8.8.8.8",
+            "0.0.0.1",
+            "local",
+            "my-mac.local.example.com",
+            "example.localdomain",
+        ] {
+            assert_eq!(
+                address(public),
+                Some(format!("https://{public}")),
+                "{public}"
+            );
+        }
     }
 
     #[test]
@@ -776,6 +1118,32 @@ mod tests {
         assert_eq!(
             address("file:///tmp/index.html").as_deref(),
             Some("file:///tmp/index.html")
+        );
+        // Pasted as a development server prints it: the loopback address all the same.
+        assert_eq!(
+            address("http://0.0.0.0:3000/").as_deref(),
+            Some("http://127.0.0.1:3000/")
+        );
+        assert_eq!(
+            address("HTTPS://user@0.0.0.0:8443/a").as_deref(),
+            Some("HTTPS://user@127.0.0.1:8443/a")
+        );
+        assert_eq!(
+            address("http://[::]:8000/x?to=http://0.0.0.0").as_deref(),
+            Some("http://[::1]:8000/x?to=http://0.0.0.0")
+        );
+        // Only the host as a whole, and only for web pages.
+        assert_eq!(
+            address("http://0.0.0.0.nip.io:3000").as_deref(),
+            Some("http://0.0.0.0.nip.io:3000")
+        );
+        assert_eq!(
+            address("http://10.0.0.0:3000").as_deref(),
+            Some("http://10.0.0.0:3000")
+        );
+        assert_eq!(
+            address("ftp://0.0.0.0/file").as_deref(),
+            Some("ftp://0.0.0.0/file")
         );
         // `://` further on is not a scheme.
         assert_eq!(

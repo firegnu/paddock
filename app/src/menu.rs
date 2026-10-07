@@ -141,7 +141,8 @@ pub fn bindings() -> Vec<KeyBinding> {
 }
 
 /// The menu commands that act on what has the keyboard rather than on the window: the pane
-/// copies, pastes and finds in itself, the Browser's page in itself.
+/// copies, pastes and finds in itself, the Browser's page copies and pastes in itself (and finds
+/// in its find bar, see [`finds`]).
 pub fn follows_keyboard(action: &dyn Action) -> bool {
     [
         &Copy as &dyn Action,
@@ -157,6 +158,14 @@ pub fn follows_keyboard(action: &dyn Action) -> bool {
 /// The Browser's own commands, ⌘L and ⌘R.
 pub fn browser(action: &dyn Action) -> bool {
     action.partial_eq(&FocusAddress) || action.partial_eq(&ReloadPage)
+}
+
+/// Finding, ⌘F, ⌘G and ⇧⌘G: in the Browser's own find bar while its page or one of its fields has
+/// the keyboard, in the pane otherwise.
+pub fn finds(action: &dyn Action) -> bool {
+    [&Find as &dyn Action, &FindNext, &FindPrevious]
+        .into_iter()
+        .any(|find| action.partial_eq(find))
 }
 
 /// The menu bar; `fold` and `by_name` tick the View items as the sidebar has them, and
