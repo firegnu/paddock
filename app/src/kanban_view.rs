@@ -17,8 +17,8 @@ use crate::{
 };
 use gpui::{
     Animation, AnimationExt, AnyElement, ClickEvent, Context, Div, EventEmitter, Font, FontWeight,
-    Hsla, IntoElement, Render, SharedString, Stateful, Transformation, Window, div, percentage,
-    prelude::*, px, svg,
+    Hsla, IntoElement, Pixels, Render, SharedString, Stateful, Transformation, Window, div,
+    percentage, prelude::*, px, svg,
 };
 use std::{
     rc::Rc,
@@ -136,7 +136,7 @@ pub struct KanbanView {
     /// When the last read finished, or `None` to read at once.
     last: Option<Instant>,
     cache: Arc<Cache>,
-    /// The card under the mouse, by id.
+    /// The card under the mouse, by task file: a draft may have no id, or another's.
     hovered: Option<String>,
     /// The width from which it is widened, at this interface size.
     wide_at: f32,
@@ -303,10 +303,10 @@ impl KanbanView {
         cx.notify();
     }
 
-    fn hover(&mut self, id: &str, hovered: bool, cx: &mut Context<Self>) {
+    fn hover(&mut self, file: &str, hovered: bool, cx: &mut Context<Self>) {
         let now = if hovered {
-            Some(id.to_owned())
-        } else if self.hovered.as_deref() == Some(id) {
+            Some(file.to_owned())
+        } else if self.hovered.as_deref() == Some(file) {
             None
         } else {
             return;
@@ -374,9 +374,10 @@ impl Render for KanbanView {
 }
 
 impl KanbanView {
-    /// The repository, main, and how many are in progress and to review.
+    /// The repository, main, and how many need the user, are in progress and to review.
     fn top(&self, board: &Board, ui: &UiFont) -> Div {
         let c = self.colors;
+        let need_you = board.need_you();
         let mut summary = Vec::new();
         for (column, words, color) in [
             (Column::InProgress, "in progress", c.blue),
@@ -393,11 +394,13 @@ impl KanbanView {
             .items_center()
             .gap(ui.px(6.0))
             .text_size(ui.px(12.0));
-        if summary.is_empty() {
+        if need_you > 0 {
+            right = right.child(self.needs_you(format!("{need_you} need you"), ui));
+        } else if summary.is_empty() {
             right = right.text_color(c.dim).child("Nothing in progress");
         }
         for (n, (words, color)) in summary.into_iter().enumerate() {
-            if n > 0 {
+            if n > 0 || need_you > 0 {
                 right = right.child(div().text_color(c.faint).child("·"));
             }
             right = right.child(div().text_color(color).child(words));
@@ -492,7 +495,13 @@ impl KanbanView {
                 )
                 .on_click(cx.listener(move |view, _: &ClickEvent, _, cx| view.toggle(column, cx)));
             list = list.child(head);
-            if open {
+            // A folded group still shows the cards that need the user.
+            let shown: Vec<&Card> = board
+                .cards(column)
+                .iter()
+                .filter(|card| open || card.needs_you)
+                .collect();
+            if open || !shown.is_empty() {
                 let mut cards = div()
                     .flex_shrink_0()
                     .flex()
@@ -500,7 +509,7 @@ impl KanbanView {
                     .gap(ui.px(2.0))
                     .pt(ui.px(2.0))
                     .pb(ui.px(4.0));
-                for card in board.cards(column) {
+                for card in shown {
                     cards = cards.child(self.row(card, ui, cx));
                 }
                 list = list.child(cards);
@@ -601,17 +610,18 @@ impl KanbanView {
             .child(column.label())
     }
 
-    /// A card in the narrow list: its id, title and age; then its agent, state, branch and
-    /// lines; DONE faded, on one line.
+    /// A card in the narrow list: its id, title, marks and age; then its agent, state, branch
+    /// and lines, and what the user is waited on for; DONE faded, on one line.
     fn row(&self, card: &Card, ui: &UiFont, cx: &mut Context<Self>) -> Stateful<Div> {
         let c = self.colors;
         let done = card.column == Column::Done;
-        let first = div()
+        let first = self
+            .first(card, ui)
             .flex()
             .items_center()
             .gap(ui.px(8.0))
             .min_w(px(0.0))
-            .child(self.id(card, ui))
+            .children(self.id(card, ui))
             .child(
                 div()
                     .flex_1()
@@ -626,6 +636,7 @@ impl KanbanView {
                     })
                     .child(card.title.clone()),
             )
+            .children(self.marks(card, ui))
             .child(
                 div()
                     .flex_shrink_0()
@@ -637,29 +648,34 @@ impl KanbanView {
             .then(|| self.meta(card, ui, 18.0, true))
             .flatten()
             .map(|meta| meta.mt(ui.px(5.0)).text_size(ui.px(12.0)));
+        let asks = self
+            .asks(card)
+            .map(|asks| asks.mt(ui.px(5.0)).text_size(ui.px(12.0)));
         self.hoverable(card, cx)
             .rounded(px(8.0))
             .pt(ui.px(8.0))
             .pb(ui.px(8.0))
             .pl(ui.px(26.0))
             .pr(ui.px(10.0))
-            .when(done, |row| row.opacity(0.62))
+            .opacity(fade(card))
             .hover(move |style| style.bg(c.text.opacity(0.05)))
             .child(first)
             .children(meta)
+            .children(asks)
             .children(self.actions(card, ui, cx))
     }
 
-    /// A card in a widened column: its id and age, the title on up to two lines, then its agent,
-    /// state and lines.
+    /// A card in a widened column: its id and age, the title on up to two lines, its marks, then
+    /// its agent, state and lines, and what the user is waited on for.
     fn tile(&self, card: &Card, ui: &UiFont, cx: &mut Context<Self>) -> Stateful<Div> {
         let c = self.colors;
         let done = card.column == Column::Done;
-        let first = div()
+        let first = self
+            .first(card, ui)
             .flex()
             .items_center()
             .gap(ui.px(6.0))
-            .child(self.id(card, ui))
+            .children(self.id(card, ui))
             .child(div().flex_1())
             .child(
                 div()
@@ -678,10 +694,22 @@ impl KanbanView {
                 FontWeight::MEDIUM
             })
             .child(card.title.clone());
+        let marks = self.marks(card, ui);
+        let marks = (!marks.is_empty()).then(|| {
+            div()
+                .mt(ui.px(6.0))
+                .flex()
+                .flex_wrap()
+                .gap(ui.px(4.0))
+                .children(marks)
+        });
         let meta = (!done)
             .then(|| self.meta(card, ui, 16.0, false))
             .flatten()
             .map(|meta| meta.mt(ui.px(7.0)).text_size(ui.px(11.5)));
+        let asks = self
+            .asks(card)
+            .map(|asks| asks.mt(ui.px(6.0)).text_size(ui.px(11.5)));
         self.hoverable(card, cx)
             .flex_shrink_0()
             .rounded(px(8.0))
@@ -690,31 +718,116 @@ impl KanbanView {
             .bg(c.faint.opacity(0.22))
             .border_1()
             .border_color(c.rule)
-            .when(done, |tile| tile.opacity(0.62))
+            .opacity(fade(card))
             .hover(move |style| style.bg(c.faint.opacity(0.32)))
             .child(first)
             .child(title)
+            .children(marks)
             .children(meta)
+            .children(asks)
             .children(self.actions(card, ui, cx))
     }
 
     /// A card's ground that knows when the mouse is on it.
     fn hoverable(&self, card: &Card, cx: &mut Context<Self>) -> Stateful<Div> {
-        let id = card.id.clone();
+        let file = card.file.clone();
         div()
-            .id(SharedString::from(format!("kanban-card-{}", card.id)))
+            .id(SharedString::from(format!("kanban-card-{}", card.file)))
             .relative()
             .flex_shrink_0()
-            .on_hover(cx.listener(move |view, hovered: &bool, _, cx| view.hover(&id, *hovered, cx)))
+            .on_hover(
+                cx.listener(move |view, hovered: &bool, _, cx| view.hover(&file, *hovered, cx)),
+            )
     }
 
-    fn id(&self, card: &Card, ui: &UiFont) -> Div {
+    /// A card's first line, which tells why when the mouse is on a dropped one.
+    fn first(&self, card: &Card, ui: &UiFont) -> Stateful<Div> {
+        let first = div().id(SharedString::from(format!("kanban-first-{}", card.file)));
+        let Some(why) = &card.dropped else {
+            return first;
+        };
+        let note = Note::new(
+            if why.is_empty() {
+                "Dropped".into()
+            } else {
+                format!("Dropped: {why}").into()
+            },
+            &self.theme,
+            ui,
+        );
+        first.tooltip(move |_, cx| cx.new(|_| note.clone()).into())
+    }
+
+    /// The id, for a card that has one.
+    fn id(&self, card: &Card, ui: &UiFont) -> Option<Div> {
+        (!card.id.is_empty()).then(|| {
+            div()
+                .flex_shrink_0()
+                .font(self.mono.clone())
+                .text_size(ui.px(11.0))
+                .text_color(self.colors.muted)
+                .child(card.id.clone())
+        })
+    }
+
+    /// The words that mark a card: DRAFT, Dropped, Needs you.
+    fn marks(&self, card: &Card, ui: &UiFont) -> Vec<Div> {
+        let c = self.colors;
+        let quiet = |words: &'static str| {
+            div()
+                .flex_shrink_0()
+                .px(ui.px(5.0))
+                .rounded(px(4.0))
+                .border_1()
+                .border_color(c.rule)
+                .text_size(ui.px(10.5))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(c.dim)
+                .child(words)
+        };
+        let mut marks = Vec::new();
+        if card.draft {
+            marks.push(quiet("DRAFT"));
+        }
+        if card.dropped.is_some() {
+            marks.push(quiet("Dropped"));
+        }
+        if card.needs_you {
+            marks.push(
+                self.needs_you("Needs you".into(), ui)
+                    .text_size(ui.px(10.5)),
+            );
+        }
+        marks
+    }
+
+    /// The mark of what needs the user, in the colour of an agent waiting on them.
+    fn needs_you(&self, words: String, ui: &UiFont) -> Div {
+        let c = self.colors;
         div()
             .flex_shrink_0()
-            .font(self.mono.clone())
-            .text_size(ui.px(11.0))
-            .text_color(self.colors.muted)
-            .child(card.id.clone())
+            .px(ui.px(6.0))
+            .rounded(px(4.0))
+            .bg(c.yellow.opacity(0.16))
+            .border_1()
+            .border_color(c.yellow.opacity(0.5))
+            .font_weight(FontWeight::SEMIBOLD)
+            .text_color(c.yellow)
+            .child(words)
+    }
+
+    /// What the task file says the user is waited on for, under the rest.
+    fn asks(&self, card: &Card) -> Option<Div> {
+        let asks = card.asks.as_ref().filter(|asks| !asks.is_empty())?;
+        Some(
+            div()
+                .min_w(px(0.0))
+                .overflow_hidden()
+                .whitespace_nowrap()
+                .text_ellipsis()
+                .text_color(self.colors.muted)
+                .child(asks.clone()),
+        )
     }
 
     /// The second line: the agent's kind and status, its name (in the list), the state, the
@@ -781,14 +894,15 @@ impl KanbanView {
                 );
         }
         meta = meta.child(div().flex_1());
-        if let Some((added, deleted)) = card.lines {
+        if let Some(lines) = card.lines {
+            let (added, deleted) = kanban::line_words(lines);
             meta = meta.child(
                 div()
                     .flex_shrink_0()
                     .flex()
                     .gap(ui.px(4.0))
-                    .child(div().text_color(c.green).child(format!("+{added}")))
-                    .child(div().text_color(c.red).child(format!("−{deleted}"))),
+                    .children(added.map(|added| div().text_color(c.green).child(added)))
+                    .children(deleted.map(|deleted| div().text_color(c.red).child(deleted))),
             );
         }
         Some(meta)
@@ -884,7 +998,7 @@ impl KanbanView {
     /// While the mouse is on the card, its ways out at the top right: the task file, and with an
     /// agent, its pane and its changes. Nothing that changes the work.
     fn actions(&self, card: &Card, ui: &UiFont, cx: &mut Context<Self>) -> Option<Div> {
-        if self.hovered.as_deref() != Some(card.id.as_str()) {
+        if self.hovered.as_deref() != Some(card.file.as_str()) {
             return None;
         }
         let c = self.colors;
@@ -953,6 +1067,60 @@ impl KanbanView {
                 );
         }
         Some(bar)
+    }
+}
+
+/// How faded a card is: a draft most, DONE less, one that needs the user not at all.
+fn fade(card: &Card) -> f32 {
+    if card.needs_you {
+        1.0
+    } else if card.draft {
+        0.55
+    } else if card.column == Column::Done {
+        0.62
+    } else {
+        1.0
+    }
+}
+
+/// A hover text whose words are not fixed, drawn as the right sidebar's [`Tip`].
+#[derive(Clone)]
+struct Note {
+    text: SharedString,
+    size: Pixels,
+    color: Hsla,
+    background: Hsla,
+    border: Hsla,
+}
+
+impl Note {
+    fn new(text: SharedString, theme: &Theme, ui: &UiFont) -> Self {
+        Note {
+            text,
+            size: ui.px(11.5),
+            color: hsla(theme.fg(|t| t.agents_text), 1.0),
+            background: hsla(theme.bg(|t| t.agents_bg), 1.0),
+            border: hsla(theme.fg(|t| t.agents_rule), 1.0),
+        }
+    }
+}
+
+impl Render for Note {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .relative()
+            .max_w(self.size * 32.0)
+            .px(px(7.0))
+            .py(px(3.0))
+            .rounded(px(6.0))
+            .border_1()
+            .border_color(self.border)
+            .bg(self.background)
+            .shadow_md()
+            .text_size(self.size)
+            .text_color(self.color)
+            .child(self.text.clone())
+            .child(crate::browser::cover())
     }
 }
 

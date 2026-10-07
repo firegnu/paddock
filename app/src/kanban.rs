@@ -37,6 +37,8 @@ pub struct Task {
     pub branch: Option<String>,
     /// From an optional `依赖：` line: the task this one waits for.
     pub depends: Option<String>,
+    /// From an optional `待用户：` line at the head of the file: what the user is waited on for.
+    pub asks: Option<String>,
 }
 
 /// What a task file's text gives, apart from its name.
@@ -46,6 +48,7 @@ pub struct Text {
     worktree: Option<String>,
     branch: Option<String>,
     depends: Option<String>,
+    asks: Option<String>,
     /// It has a `## 完成记录` section.
     record: bool,
 }
@@ -92,7 +95,15 @@ pub fn parse(file: &str, text: &str) -> Option<Task> {
 }
 
 fn task(file: &str, text: &Text) -> Option<Task> {
-    let id = task_id(file)?;
+    task_id(file).map(|id| entry(file, id, text))
+}
+
+/// A draft: shown even when its name has no id, then with an empty id and its name for a title.
+pub fn draft(file: &str, text: &str) -> Task {
+    entry(file, task_id(file).unwrap_or_default(), &read_text(text))
+}
+
+fn entry(file: &str, id: String, text: &Text) -> Task {
     let title = text.title.clone().unwrap_or_else(|| {
         let stem = file.strip_suffix(".md").unwrap_or(file);
         let rest = stem[id.len()..].trim_start_matches('-');
@@ -102,14 +113,15 @@ fn task(file: &str, text: &Text) -> Option<Task> {
             rest.to_owned()
         }
     });
-    Some(Task {
+    Task {
         id,
         title,
         file: file.to_owned(),
         worktree: text.worktree.clone(),
         branch: text.branch.clone(),
         depends: text.depends.clone(),
-    })
+        asks: text.asks.clone(),
+    }
 }
 
 /// Whether the file has a completion record: a `## 完成记录` heading.
@@ -146,6 +158,16 @@ fn read_text(text: &str) -> Text {
                 .take_while(|c| c.is_ascii_alphanumeric() || *c == '-')
                 .collect();
             out.depends = task_id(token.trim_end_matches('-'));
+            continue;
+        }
+        // Only at the head, before any section: a record that quotes the line does not count.
+        if section.is_empty()
+            && out.asks.is_none()
+            && let Some(rest) = line
+                .strip_prefix("待用户：")
+                .or_else(|| line.strip_prefix("待用户:"))
+        {
+            out.asks = Some(rest.trim().to_owned());
             continue;
         }
         // The first worktree line of 「在哪里干活」: an earlier mention, such as a prototype's
@@ -204,6 +226,16 @@ fn subject_id<'a>(subject: &'a str, prefixes: &[&str]) -> Option<&'a str> {
 /// The id a wrap-up commit (`收尾: <id> …`) is for.
 pub fn wrapped_id(subject: &str) -> Option<&str> {
     subject_id(subject, &["收尾:", "收尾："])
+}
+
+/// Why a wrap-up commit drops its task (`收尾: <id> 不做：<why>`), when it does.
+pub fn dropped(subject: &str) -> Option<&str> {
+    let id = wrapped_id(subject)?;
+    let rest = subject[subject.find(id)? + id.len()..].trim_start();
+    let why = rest
+        .strip_prefix("不做：")
+        .or_else(|| rest.strip_prefix("不做:"))?;
+    Some(why.trim())
 }
 
 /// The id a merge commit (`合并 <id>：…`) is for.
@@ -277,8 +309,13 @@ pub struct Facts {
     pub name: String,
     /// The task files on main, in natural order of their ids.
     pub tasks: Vec<Task>,
+    /// Task files in the main worktree that main does not have, untracked or only staged, in
+    /// natural order of their ids.
+    pub drafts: Vec<Task>,
     /// Ids with a wrap-up commit on main, and its time.
     pub wrapped: HashMap<String, i64>,
+    /// Ids whose latest wrap-up drops them (`收尾: <id> 不做：<why>`), and why.
+    pub dropped: HashMap<String, String>,
     /// Ids with a merge commit on main, and its time.
     pub merges: HashMap<String, i64>,
     pub branches: HashMap<String, Branch>,
@@ -335,9 +372,10 @@ pub fn cache() -> Cache {
     Mutex::new(HashMap::new())
 }
 
-/// Reads the repository `cwd` is in: its main worktree's task files on main, main's merges and
-/// wrap-ups, its branches and worktrees, and for each task not yet merged its completion record
-/// and changed lines. Only read-only Git commands, through [`git::git`]'s options.
+/// Reads the repository `cwd` is in: its main worktree's task files on main and its drafts, main's
+/// merges and wrap-ups, its branches and worktrees, and for each task not yet merged its
+/// completion record and changed lines. Only read-only Git commands, through [`git::git`]'s
+/// options; the drafts are read from disk.
 pub fn read(program: &str, cwd: &str, cache: &Cache, cancel: &AtomicBool) -> Read {
     let Some((top, _)) = git::repository(program, cwd, cancel) else {
         return Read::NotRepository;
@@ -417,7 +455,36 @@ pub fn read(program: &str, cwd: &str, cache: &Cache, cancel: &AtomicBool) -> Rea
             tasks.push(task);
         }
     }
-    if tasks.is_empty() {
+    // Drafts: the main worktree's task files main does not have, read as they are on disk. A
+    // main worktree Git cannot list (a bare repository) has none.
+    let on_main: HashSet<&str> = files.iter().map(|(file, _)| file.as_str()).collect();
+    let listed = run(
+        &repo,
+        &[
+            "ls-files",
+            "-z",
+            "--cached",
+            "--others",
+            "--exclude-standard",
+            "--",
+            &format!("{TASKS}/"),
+        ],
+    )
+    .unwrap_or_default();
+    let mut drafts: Vec<Task> = listed
+        .split(|b| *b == 0)
+        .filter_map(|path| {
+            let path = std::str::from_utf8(path).ok()?;
+            let file = path.strip_prefix(TASKS)?.strip_prefix('/')?;
+            if !file.ends_with(".md") || file.contains('/') || on_main.contains(file) {
+                return None;
+            }
+            let text = std::fs::read_to_string(repo.join(path)).ok()?;
+            Some(draft(file, &text))
+        })
+        .collect();
+    drafts.sort_by(|a, b| natural(&a.id, &b.id).then_with(|| a.file.cmp(&b.file)));
+    if tasks.is_empty() && drafts.is_empty() {
         return if cancel.load(Ordering::Relaxed) {
             Read::Failed
         } else {
@@ -441,7 +508,8 @@ pub fn read(program: &str, cwd: &str, cache: &Cache, cancel: &AtomicBool) -> Rea
         return Read::Failed;
     };
     let mut line = HashSet::new();
-    let (mut wrapped, mut merges) = (HashMap::new(), HashMap::new());
+    let (mut wrapped, mut merges, mut dropped_ids) =
+        (HashMap::new(), HashMap::new(), HashMap::new());
     for record in log.split('\x1e') {
         let mut fields = record.trim_start_matches('\n').splitn(3, '\x1f');
         let (Some(hash), Some(time), Some(subject)) = (fields.next(), fields.next(), fields.next())
@@ -450,8 +518,14 @@ pub fn read(program: &str, cwd: &str, cache: &Cache, cancel: &AtomicBool) -> Rea
         };
         let time: i64 = time.parse().unwrap_or(0);
         line.insert(hash.to_owned());
-        if let Some(id) = wrapped_id(subject) {
-            wrapped.entry(id.to_owned()).or_insert(time);
+        // Newest first: the latest wrap-up says whether it was dropped.
+        if let Some(id) = wrapped_id(subject)
+            && !wrapped.contains_key(id)
+        {
+            wrapped.insert(id.to_owned(), time);
+            if let Some(why) = dropped(subject) {
+                dropped_ids.insert(id.to_owned(), why.to_owned());
+            }
         }
         if let Some(id) = merged_id(subject) {
             merges.entry(id.to_owned()).or_insert(time);
@@ -492,7 +566,9 @@ pub fn read(program: &str, cwd: &str, cache: &Cache, cancel: &AtomicBool) -> Rea
         repo: repo.clone(),
         name,
         tasks,
+        drafts,
         wrapped,
+        dropped: dropped_ids,
         merges,
         branches,
         worktrees,
@@ -703,8 +779,24 @@ pub struct Card {
     pub state: Option<(String, Tone)>,
     pub branch: Option<String>,
     pub lines: Option<(u64, u64)>,
+    /// A task file not yet on main.
+    pub draft: bool,
+    /// Its agent is waiting on the user, or its task file says what the user is waited on for.
+    pub needs_you: bool,
+    /// What its task file's `待用户：` line says the user is waited on for.
+    pub asks: Option<String>,
+    /// Wrapped up without being done, and why.
+    pub dropped: Option<String>,
     /// When it last moved, for ordering.
     time: i64,
+}
+
+/// The words for lines added and deleted: a side with none is left out, never `+0` or `−0`.
+pub fn line_words((added, deleted): (u64, u64)) -> (Option<String>, Option<String>) {
+    (
+        (added > 0).then(|| format!("+{added}")),
+        (deleted > 0).then(|| format!("−{deleted}")),
+    )
 }
 
 /// The board: the repository, and the cards in each column, DONE cut to its last few.
@@ -722,12 +814,18 @@ impl Board {
         &self.columns[column as usize]
     }
 
-    /// The count a group's header shows.
+    /// The count a group's header shows: the cards it lists.
     pub fn count(&self, column: Column) -> usize {
-        match column {
-            Column::Done => self.done,
-            _ => self.cards(column).len(),
-        }
+        self.cards(column).len()
+    }
+
+    /// How many cards need the user.
+    pub fn need_you(&self) -> usize {
+        self.columns
+            .iter()
+            .flatten()
+            .filter(|c| c.needs_you)
+            .count()
     }
 }
 
@@ -787,17 +885,51 @@ pub fn board(facts: &Facts, agents: &[Seen], now: f64) -> Board {
             lines: matches!(column, Column::InProgress | Column::ToReview)
                 .then(|| facts.lines.get(&task.id).copied())
                 .flatten(),
+            draft: false,
+            needs_you: task.asks.is_some() || agent.is_some_and(|a| a.status == Status::Waiting),
+            asks: task.asks.clone(),
+            dropped: facts
+                .dropped
+                .get(&task.id)
+                .filter(|_| column == Column::Done)
+                .cloned(),
             time: time.unwrap_or(0),
         });
     }
+    // Drafts are not dispatched: no agent, nothing on main to wait on the user.
+    for task in &facts.drafts {
+        columns[Column::Queued as usize].push(Card {
+            id: task.id.clone(),
+            title: task.title.clone(),
+            file: task.file.clone(),
+            column: Column::Queued,
+            age: String::new(),
+            agent: None,
+            state: None,
+            branch: None,
+            lines: None,
+            draft: true,
+            needs_you: false,
+            asks: None,
+            dropped: None,
+            time: 0,
+        });
+    }
     for (column, cards) in Column::ALL.iter().zip(columns.iter_mut()) {
-        // Queued in the order of their ids; the rest most recent first.
-        if *column != Column::Queued {
+        // Queued in the order of their ids, drafts first; the rest most recent first.
+        if *column == Column::Queued {
+            cards.sort_by_key(|c| !c.draft);
+        } else {
             cards.sort_by(|a, b| b.time.cmp(&a.time).then_with(|| natural(&a.id, &b.id)));
         }
     }
+    // DONE keeps its last few, and any that need the user however old.
     let done = columns[Column::Done as usize].len();
-    columns[Column::Done as usize].truncate(DONE_KEPT);
+    let mut at = 0;
+    columns[Column::Done as usize].retain(|card| {
+        at += 1;
+        at <= DONE_KEPT || card.needs_you
+    });
     Board {
         name: facts.name.clone(),
         repo: facts.repo.clone(),
@@ -849,6 +981,7 @@ mod tests {
                 worktree: Some("/w/p5-29a-kanban".into()),
                 branch: Some("p5-29a-kanban".into()),
                 depends: Some("P5-28a".into()),
+                asks: None,
             }
         );
         assert!(!has_record(text));
@@ -886,6 +1019,116 @@ mod tests {
         assert_eq!(merged_id("合并P5-28a：x"), Some("P5-28a"));
         assert_eq!(merged_id("收尾: P5-28a"), None);
         assert_ne!(wrapped_id("收尾: P5-24a 窄条"), Some("P5-24"));
+    }
+
+    #[test]
+    fn a_line_at_the_head_says_what_the_user_is_waited_on_for() {
+        let head = "# 任务：x\n\n依据：y\n依赖：P5-1\n待用户：实测 hover 的样子\n\n## 要做的\n";
+        let task = parse("P5-2-x.md", head).unwrap();
+        assert_eq!(task.asks.as_deref(), Some("实测 hover 的样子"));
+        assert_eq!(
+            parse("P5-2-x.md", "# 任务：x\n待用户: 回答 Q1\n")
+                .unwrap()
+                .asks
+                .as_deref(),
+            Some("回答 Q1")
+        );
+        // None at the head, though a section quotes it at a line's start.
+        let quoted = "# 任务：x\n依据：y\n\n## 完成记录\n待用户：只是举例\n";
+        assert_eq!(parse("P5-2-x.md", quoted).unwrap().asks, None);
+        assert_eq!(parse("P5-2-x.md", "# 任务：x\n").unwrap().asks, None);
+    }
+
+    #[test]
+    fn a_wrap_up_can_drop_its_task() {
+        assert_eq!(
+            dropped("收尾: P5-7 不做：已被 P5-9 取代"),
+            Some("已被 P5-9 取代")
+        );
+        assert_eq!(dropped("收尾：P5-7 不做: 重复"), Some("重复"));
+        assert_eq!(dropped("收尾: P5-7 做完了"), None);
+        assert_eq!(dropped("合并 P5-7：不做：x"), None);
+        assert_eq!(wrapped_id("收尾: P5-7 不做：x"), Some("P5-7"));
+    }
+
+    #[test]
+    fn a_side_with_no_lines_is_left_out() {
+        assert_eq!(line_words((3, 0)), (Some("+3".into()), None));
+        assert_eq!(line_words((0, 2)), (None, Some("−2".into())));
+        assert_eq!(line_words((4, 1)), (Some("+4".into()), Some("−1".into())));
+    }
+
+    fn bare(id: &str, asks: Option<&str>) -> Task {
+        Task {
+            id: id.into(),
+            title: id.into(),
+            file: format!("{id}-x.md"),
+            worktree: None,
+            branch: None,
+            depends: None,
+            asks: asks.map(str::to_owned),
+        }
+    }
+
+    #[test]
+    fn cards_that_need_the_user_say_so_and_stay_in_sight() {
+        // Seven done, the oldest waiting on the user; one queued whose agent is waiting; a draft.
+        let mut facts = Facts {
+            tasks: (1..=7)
+                .map(|n| bare(&format!("P1-{n}"), (n == 1).then_some("看一眼")))
+                .chain([bare("P2-1", None), bare("P2-2", None)])
+                .collect(),
+            drafts: vec![draft("P3-1-新的.md", "# 任务：新的活\n")],
+            ..Default::default()
+        };
+        for n in 1..=7 {
+            facts.wrapped.insert(format!("P1-{n}"), 100 + n);
+        }
+        facts.dropped.insert("P1-7".into(), "重复了".into());
+        let agents = [seen("p/dev", None, Some("P2-2"), Status::Waiting)];
+        let board = board(&facts, &agents, 1_000.0);
+        let done: Vec<&str> = board
+            .cards(Column::Done)
+            .iter()
+            .map(|c| c.id.as_str())
+            .collect();
+        assert_eq!(done, ["P1-7", "P1-6", "P1-5", "P1-4", "P1-3", "P1-1"]);
+        // The header counts what is listed.
+        assert_eq!(board.count(Column::Done), 6);
+        assert_eq!(board.done, 7);
+        let card = |id: &str| {
+            Column::ALL
+                .iter()
+                .flat_map(|c| board.cards(*c))
+                .find(|c| c.id == id)
+                .unwrap()
+        };
+        assert!(card("P1-1").needs_you);
+        assert_eq!(card("P1-1").asks.as_deref(), Some("看一眼"));
+        assert_eq!(card("P1-7").dropped.as_deref(), Some("重复了"));
+        assert_eq!(card("P1-6").dropped, None);
+        // The waiting agent starts its task, and it needs the user.
+        assert_eq!(card("P2-2").column, Column::InProgress);
+        assert!(card("P2-2").needs_you);
+        assert_eq!(card("P2-2").asks, None);
+        assert!(!card("P2-1").needs_you);
+        assert_eq!(board.need_you(), 2);
+        // The draft first in QUEUED.
+        let queued: Vec<(&str, bool)> = board
+            .cards(Column::Queued)
+            .iter()
+            .map(|c| (c.id.as_str(), c.draft))
+            .collect();
+        assert_eq!(queued, [("P3-1", true), ("P2-1", false)]);
+    }
+
+    #[test]
+    fn a_draft_without_an_id_goes_by_its_name() {
+        let task = draft("想法.md", "随手记的\n");
+        assert_eq!((task.id.as_str(), task.title.as_str()), ("", "想法"));
+        let titled = draft("想法.md", "# 任务：整理右侧栏\n");
+        assert_eq!(titled.title, "整理右侧栏");
+        assert_eq!(draft("P9-1-x.md", "# 任务：y\n").id, "P9-1");
     }
 
     #[test]

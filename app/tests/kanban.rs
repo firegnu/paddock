@@ -264,7 +264,7 @@ fn each_task_lands_in_its_column() {
 }
 
 #[test]
-fn done_keeps_the_last_five_and_counts_them_all() {
+fn done_keeps_the_last_five_and_counts_what_it_lists() {
     let temp = common::tempdir();
     let repo = temp.path().join("repo");
     fs::create_dir_all(&repo).unwrap();
@@ -307,7 +307,9 @@ fn done_keeps_the_last_five_and_counts_them_all() {
         panic!("not a board");
     };
     let board = board(&facts, &[], 2_000_000_000.0);
-    assert_eq!(board.count(Column::Done), 7);
+    // The header counts what is listed.
+    assert_eq!(board.count(Column::Done), 5);
+    assert_eq!(board.done, 7);
     // Newest first.
     let done: Vec<&str> = board
         .cards(Column::Done)
@@ -356,4 +358,109 @@ fn quiet_states_without_a_board() {
             name: "repo".into()
         }
     );
+}
+
+#[test]
+fn drafts_dropped_tasks_and_tasks_waiting_on_the_user() {
+    let temp = common::tempdir();
+    let repo = temp.path().join("repo");
+    fs::create_dir_all(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    commit(
+        &repo,
+        "docs/任务/P1-1-做完.md",
+        "# 任务：做完的活\n依据：x\n待用户：实测一下\n",
+        "任务文件",
+    );
+    commit(
+        &repo,
+        "docs/任务/P1-2-不做.md",
+        "# 任务：不做的活\n",
+        "任务文件",
+    );
+    commit(
+        &repo,
+        "docs/任务/P1-3-排队.md",
+        "# 任务：排队的活\n",
+        "任务文件",
+    );
+    git(
+        &repo,
+        &["commit", "-q", "--allow-empty", "-m", "收尾: P1-1 做完"],
+    );
+    git(
+        &repo,
+        &[
+            "commit",
+            "-q",
+            "--allow-empty",
+            "-m",
+            "收尾: P1-2 不做：被 P1-3 取代",
+        ],
+    );
+    // Drafts: one untracked, one staged, one without an id; an edit to a committed file is not.
+    let tasks = repo.join("docs/任务");
+    fs::write(tasks.join("P1-5-没跟踪.md"), "# 任务：没跟踪的草稿\n").unwrap();
+    fs::write(tasks.join("P1-4-已暂存.md"), "# 任务：暂存的草稿\n").unwrap();
+    git(&repo, &["add", "docs/任务/P1-4-已暂存.md"]);
+    fs::write(tasks.join("想法.md"), "随手记\n").unwrap();
+    fs::write(tasks.join("P1-3-排队.md"), "# 任务：改过的标题\n").unwrap();
+    fs::write(tasks.join("notes.txt"), "x\n").unwrap();
+
+    let Read::Board(facts) = read(
+        "git",
+        repo.to_str().unwrap(),
+        &cache(),
+        &AtomicBool::new(false),
+    ) else {
+        panic!("not a board");
+    };
+    let board = board(&facts, &[], 2_000_000_000.0);
+    let queued: Vec<(&str, &str, bool)> = board
+        .cards(Column::Queued)
+        .iter()
+        .map(|c| (c.id.as_str(), c.title.as_str(), c.draft))
+        .collect();
+    assert_eq!(
+        queued,
+        [
+            ("", "想法", true),
+            ("P1-4", "暂存的草稿", true),
+            ("P1-5", "没跟踪的草稿", true),
+            ("P1-3", "排队的活", false),
+        ]
+    );
+    let done = |id: &str| {
+        board
+            .cards(Column::Done)
+            .iter()
+            .find(|c| c.id == id)
+            .unwrap()
+            .clone()
+    };
+    // Done, and still waiting on the user.
+    assert!(done("P1-1").needs_you);
+    assert_eq!(done("P1-1").asks.as_deref(), Some("实测一下"));
+    assert_eq!(done("P1-1").dropped, None);
+    // Dropped: in DONE, with the reason.
+    assert_eq!(done("P1-2").dropped.as_deref(), Some("被 P1-3 取代"));
+    assert!(!done("P1-2").needs_you);
+    assert_eq!(board.need_you(), 1);
+
+    // Drafts alone make a board.
+    let fresh = temp.path().join("fresh");
+    fs::create_dir_all(fresh.join("docs/任务")).unwrap();
+    git(&fresh, &["init", "-q", "-b", "main"]);
+    commit(&fresh, "README.md", "x\n", "start");
+    fs::write(fresh.join("docs/任务/P1-1-x.md"), "# 任务：第一件\n").unwrap();
+    let Read::Board(facts) = read(
+        "git",
+        fresh.to_str().unwrap(),
+        &cache(),
+        &AtomicBool::new(false),
+    ) else {
+        panic!("not a board");
+    };
+    assert_eq!(facts.tasks, []);
+    assert_eq!(facts.drafts.len(), 1);
 }
