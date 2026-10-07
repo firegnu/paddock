@@ -3,10 +3,12 @@
 //! once a spell. Each agent is a card read like a conversation (`card.rs` decides what
 //! it says): its kind's avatar with the status on its corner, then the name, a preview and where it
 //! works. Clicking a card asks the window to show that agent, and clicking the one shown opens its
-//! details. The footer's one button opens the window's menu of actions; the header row, which the
-//! window puts in its title bar, starts with the button that collapses the sidebar to a narrow
+//! details. Under the list the activity grid (`activity_view.rs`) shows the agents' repositories'
+//! commits a day. The footer's one button opens the window's menu of actions; the header row, which
+//! the window puts in its title bar, starts with the button that collapses the sidebar to a narrow
 //! strip of one tile per agent.
 use crate::{
+    activity_view::{self, ActivityView, Folded},
     agents::{Panel, Spell, Status},
     attention,
     card::{self, Card, Click, Ink, Line, Pick, Preview, Tone},
@@ -23,9 +25,10 @@ use crate::{
 use anyhow::Result;
 use gpui::{
     Animation, AnimationExt, AnyElement, App, BoxShadow, ClickEvent, ClipboardItem, Context, Div,
-    ElementId, EventEmitter, Font, FontFeatures, FontWeight, HighlightStyle, Hsla, MouseButton,
-    MouseDownEvent, Pixels, Render, RenderOnce, Rgba, SharedString, StyledText, TextRun,
-    Transformation, Window, div, ease_in_out, percentage, point, prelude::*, px, relative, svg,
+    ElementId, Entity, EventEmitter, Font, FontFeatures, FontWeight, HighlightStyle, Hsla,
+    MouseButton, MouseDownEvent, Pixels, Render, RenderOnce, Rgba, SharedString, StyledText,
+    TextRun, Transformation, Window, div, ease_in_out, percentage, point, prelude::*, px, relative,
+    svg,
 };
 use std::{
     rc::Rc,
@@ -52,6 +55,8 @@ pub enum SidebarEvent {
     Stop(String),
     /// The agents corral still lists, for panes to let go of one that disappeared.
     Alive(Vec<String>),
+    /// The activity panel was folded (`true`) or opened: save it with the layout.
+    ActivityFolded(bool),
 }
 
 /// How often the agents' worktrees are summarised, as in Saddle.
@@ -378,6 +383,8 @@ pub struct Sidebar {
     menu_open: bool,
     /// Its column shows the system's sidebar material: its grounds are tints over it.
     frosted: bool,
+    /// The activity grid over the footer (P5-32).
+    activity: Entity<ActivityView>,
 }
 
 impl EventEmitter<SidebarEvent> for Sidebar {}
@@ -402,6 +409,14 @@ impl Sidebar {
             }
         })
         .detach();
+        let activity = {
+            let (theme, mono) = (theme.clone(), mono.clone());
+            cx.new(|cx| ActivityView::new(theme, mono, width, cx))
+        };
+        cx.subscribe(&activity, |_, _, folded: &Folded, cx| {
+            cx.emit(SidebarEvent::ActivityFolded(folded.0))
+        })
+        .detach();
         Self {
             given: theme.clone(),
             theme,
@@ -420,6 +435,7 @@ impl Sidebar {
             collapsed: false,
             menu_open: false,
             frosted: false,
+            activity,
         }
     }
 
@@ -469,6 +485,12 @@ impl Sidebar {
             self.collapsed = collapsed;
             cx.notify();
         }
+    }
+
+    /// The activity panel folded to one line, as the layout saved it.
+    pub fn set_activity_folded(&mut self, folded: bool, cx: &mut Context<Self>) {
+        self.activity
+            .update(cx, |activity, cx| activity.set_folded(folded, cx));
     }
 
     /// Whether the menu of actions is open, for its button.
@@ -970,6 +992,8 @@ impl Sidebar {
         }
         if changed {
             self.git.watch(self.listing.cwds());
+            let cwds = self.listing.cwds();
+            self.activity.update(cx, |activity, _| activity.watch(cwds));
             self.listing.ask_replies(&self.replies, now);
         }
         for batch in self.git.updates.try_iter().collect::<Vec<_>>() {
@@ -1321,6 +1345,14 @@ impl Render for Sidebar {
             .pl(px(BUTTON_LEFT))
             .child(self.actions_button(cx))
             .children(note);
+        let activity = activity_view::Frame {
+            width: self.width,
+            theme: self.theme.clone(),
+            frosted: self.frosted,
+            mono: self.mono.clone(),
+        };
+        self.activity
+            .update(cx, |view, cx| view.frame(activity, cx));
 
         div()
             .flex_shrink_0()
@@ -1331,6 +1363,8 @@ impl Render for Sidebar {
             // Closer than GPUI's default, as in the design.
             .line_height(relative(1.3))
             .child(list)
+            // Under the list, which scrolls on its own; the strip has none.
+            .child(self.activity.clone())
             .child(footer)
             .into_any_element()
     }

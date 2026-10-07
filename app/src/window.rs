@@ -677,6 +677,8 @@ pub struct PaddockWindow {
     sidebar_width: f32,
     /// The sidebar is collapsed to its strip; saved with the layout.
     collapsed: bool,
+    /// The sidebar's activity panel is folded to one line; saved with the layout.
+    activity_folded: bool,
     /// The divider is being dragged: the width and the mouse's x when it was pressed.
     resizing: Option<(f32, f32)>,
     /// The right sidebar: open or not, its width, its tab; saved with the layout.
@@ -722,6 +724,10 @@ impl PaddockWindow {
             .as_ref()
             .is_some_and(|layout| layout.sidebar_collapsed);
         sidebar.update(cx, |sidebar, cx| sidebar.set_collapsed(collapsed, cx));
+        let activity_folded = saved.as_ref().is_some_and(|layout| layout.activity_folded);
+        sidebar.update(cx, |sidebar, cx| {
+            sidebar.set_activity_folded(activity_folded, cx)
+        });
         let right = RightPanel::new(
             &saved
                 .as_ref()
@@ -810,6 +816,7 @@ impl PaddockWindow {
             palette: None,
             sidebar_width: config.sidebar_width,
             collapsed,
+            activity_folded,
             resizing: None,
             right,
             changes,
@@ -980,6 +987,7 @@ impl PaddockWindow {
         let layout = Layout {
             window_size: self.window_size,
             sidebar_collapsed: self.collapsed,
+            activity_folded: self.activity_folded,
             right_sidebar: self.right.saved(),
             ..Layout::of(&self.workspace, |pane| self.content(pane, cx))
         };
@@ -1259,6 +1267,10 @@ impl PaddockWindow {
                 for view in self.panes.values() {
                     view.update(cx, |v, _| v.disappeared(&names));
                 }
+            }
+            SidebarEvent::ActivityFolded(folded) => {
+                self.activity_folded = *folded;
+                self.save_layout(cx);
             }
         }
     }
