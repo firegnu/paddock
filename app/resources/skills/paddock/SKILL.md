@@ -48,9 +48,9 @@ paddock ctl browse http://localhost:5173
 paddock ctl request REQUEST --instance INSTANCE
 ```
 
-- `accepted` 只表示收到；`starting` 表示还在进行；`complete` 表示显示好了，**不代表模型已经就绪**。
+- `accepted` 只表示收到；`starting`、`attaching` 表示还在进行（新开 agent 时先 `corral start`，此时 `pane` 还是空的，接入后才有）；`complete` 表示显示好了，**不代表模型已经就绪**。
 - `failed`、`target_invalid`、`uncertain` 必须如实报告。目标关了，新开的 agent 仍可能已经存在：继续查原请求，不要自动停掉或重建。
-- `busy` 表示用户正在拖分隔线、开着对话框或确认框：等用户操作完再试，不要催、不要反复刷。
+- `busy` 表示用户正在操作（拖分隔线、开着确认框、弹出菜单或面板、New Agent 正在创建，或 paddock 正在退出），此时什么都没改：等用户操作完再试，不要催、不要反复刷。
 - 超时或拿不到回执时，先用原 `request_id` 查询；需要重试时用**同一个** `--request-id`、相同参数，绝不换新 ID 重发。同一 ID 换了参数会报冲突。实例最多记 256 次修改，满了会拒绝新修改。
 
 ## 关闭显示
