@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Activity grid — commits</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+a{color:#7fd4bf}a:hover{color:#a6e6d6}
+@keyframes cellIn{from{opacity:0;transform:scale(.3)}to{opacity:1;transform:scale(1)}}
+@keyframes todayGlow{0%,100%{box-shadow:0 0 0 1.5px #7fd4bf,0 0 4px 1px rgba(127,212,191,.45)}50%{box-shadow:0 0 0 1.5px #7fd4bf,0 0 12px 3px rgba(127,212,191,.75)}}
+.cell{width:11px;height:11px;border-radius:3px;animation:cellIn .45s cubic-bezier(.2,.8,.2,1) both}
+.today{animation:cellIn .45s cubic-bezier(.2,.8,.2,1) both,todayGlow 2.4s ease-in-out .8s infinite}
+@media (prefers-reduced-motion: reduce){.cell,.today{animation:none}}
+</style>
+</helmet>
+<div style="width: 380px; height: 540px; box-sizing: border-box; background: #0c1616; color: #d6e6e1; font-family: -apple-system, 'SF Pro Text', system-ui, sans-serif; display: flex; flex-direction: column; overflow: hidden">
+  <div style="padding: 14px 16px 0; display: flex; flex-direction: column; gap: 8px; opacity: 0.55">
+    <div style="display: flex; gap: 12px; align-items: center; padding: 10px 12px; border-radius: 10px; background: #13211f">
+      <div style="width: 30px; height: 30px; border-radius: 8px; background: #1b2c2a; display: flex; align-items: center; justify-content: center; color: #7fd4bf; font-family: ui-monospace, 'SF Mono', monospace; font-size: 13px">&gt;_</div>
+      <div style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 14px">main</span><span style="font-size: 12px; color: #7ea2ee">Working</span></div>
+    </div>
+    <div style="display: flex; gap: 12px; align-items: center; padding: 10px 12px; border-radius: 10px">
+      <div style="width: 30px; height: 30px; border-radius: 8px; background: #2a1d17; display: flex; align-items: center; justify-content: center; color: #e08a5f; font-size: 18px">*</div>
+      <div style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 14px">dev-kanban-e</span><span style="font-size: 12px; color: #83a098">Idle</span></div>
+    </div>
+  </div>
+  <div style="flex-grow: 1"></div>
+  <section style="margin: 0 16px; padding: 14px 14px 12px; border-radius: 12px; background: #0f1d1c; border: 1px solid #1f3633; display: flex; flex-direction: column; gap: 9px">
+    <div style="display: flex; align-items: baseline; justify-content: space-between">
+      <span style="font-size: 11px; font-weight: 600; letter-spacing: .08em; color: #83a098">ACTIVITY</span>
+      <span style="font-size: 12px; color: #83a098"><span style="color: #d6e6e1; font-family: ui-monospace, 'SF Mono', monospace">{{total}}</span> commits · {{weeks}} weeks</span>
+    </div>
+    <div style="display: flex; gap: 3px; font-size: 10px; color: #668580; height: 12px">
+      <sc-for list="{{months}}" as="m" hint-placeholder-count="5">
+        <span style="width: {{m.width}}px; flex-shrink: 0">{{m.label}}</span>
+      </sc-for>
+    </div>
+    <div style="position: relative; display: flex; gap: 3px">
+      <sc-for list="{{columns}}" as="col" hint-placeholder-count="22">
+        <div style="display: flex; flex-direction: column; gap: 3px">
+          <sc-for list="{{col.cells}}" as="cell" hint-placeholder-count="7">
+            <div class="{{cell.cls}}" style="background: {{cell.bg}}; animation-delay: {{cell.delay}}"></div>
+          </sc-for>
+        </div>
+      </sc-for>
+      <div style="position: absolute; right: -6px; top: -46px; padding: 6px 9px; border-radius: 8px; background: #1b2c2a; border: 1px solid #2c4844; box-shadow: 0 6px 18px rgba(0,0,0,.45); font-size: 11px; line-height: 1.35; white-space: nowrap">
+        <div style="color: #d6e6e1">Wed, Oct 7 · <span style="font-family: ui-monospace, 'SF Mono', monospace">{{todayCount}}</span> commits</div>
+        <div style="color: #83a098">paddock 24 · ranch 5 · 6 tasks wrapped</div>
+      </div>
+    </div>
+    <div style="display: flex; align-items: center; justify-content: space-between; font-size: 10px; color: #668580">
+      <span>{{streak}}-day streak</span>
+      <span style="display: flex; align-items: center; gap: 3px">Less
+        <sc-for list="{{legend}}" as="l" hint-placeholder-count="5"><span style="width: 9px; height: 9px; border-radius: 2px; background: {{l}}"></span></sc-for>
+      More</span>
+    </div>
+  </section>
+  <footer style="height: 50px; flex-shrink: 0; display: flex; align-items: center; gap: 12px; padding-left: 17px">
+    <button aria-label="Agent actions and settings" style="width: 32px; height: 32px; border: 0; border-radius: 8px; background: transparent; color: #83a098; display: flex; align-items: center; justify-content: center; padding: 0">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"></path><circle cx="9" cy="7" r="2" fill="#0c1616"></circle><circle cx="15" cy="12" r="2" fill="#0c1616"></circle><circle cx="9" cy="17" r="2" fill="#0c1616"></circle></svg>
+    </button>
+    <span style="font-size: 12px; color: #83a098">Started paddock/dev-kanban-e</span>
+  </footer>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"weeks":{"editor":"int","default":22,"min":12,"max":22},"$preview":{"width":380,"height":540}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const weeks = Math.max(12, Math.min(22, this.props.weeks ?? 22));
+    const rnd = (i) => { const x = Math.sin(i * 12.9898 + 4.1) * 43758.5453; return x - Math.floor(x); };
+    const levels = ['#142423', 'rgba(127,212,191,.24)', 'rgba(127,212,191,.45)', 'rgba(127,212,191,.7)', '#7fd4bf'];
+    const todayDay = 3;
+    let total = 0, todayCount = 0;
+    const counts = [];
+    for (let w = 0; w < weeks; w++) {
+      for (let d = 0; d < 7; d++) {
+        const i = w * 7 + d;
+        const ramp = 0.35 + 0.65 * (w / (weeks - 1));
+        const weekend = d === 0 || d === 6 ? 0.35 : 1;
+        let n = Math.floor(rnd(i) * 34 * ramp * weekend);
+        if (rnd(i + 900) < 0.18) n = 0;
+        if (w === weeks - 1 && d > todayDay) n = -1;
+        if (w === weeks - 1 && d === todayDay) n = 29;
+        counts.push(n);
+      }
+    }
+    const columns = [];
+    for (let w = 0; w < weeks; w++) {
+      const cells = [];
+      for (let d = 0; d < 7; d++) {
+        const n = counts[w * 7 + d];
+        const future = n < 0;
+        if (n > 0) total += n;
+        const today = w === weeks - 1 && d === todayDay;
+        if (today) todayCount = n;
+        const level = n <= 0 ? 0 : n < 6 ? 1 : n < 13 ? 2 : n < 21 ? 3 : 4;
+        cells.push({
+          cls: today ? 'cell today' : 'cell',
+          bg: future ? 'transparent' : levels[level],
+          delay: ((w + d) * 0.018).toFixed(3) + 's',
+        });
+      }
+      columns.push({ cells });
+    }
+    const names = ['May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct'];
+    const months = [];
+    let left = weeks;
+    for (let k = names.length - 1; k >= 0 && left > 0; k--) {
+      const span = Math.min(k === names.length - 1 ? 1 : 4.35, left);
+      months.unshift({ label: span >= 2 ? names[k] : '', width: Math.round(span * 14 - 3) });
+      left -= span;
+    }
+    let streak = 0;
+    for (let i = (weeks - 1) * 7 + todayDay; i >= 0 && counts[i] > 0; i--) streak++;
+    return { columns, months, weeks, total: total.toLocaleString('en-US'), todayCount, streak, legend: levels };
+  }
+}
+</script>
+</body>
+</html>
