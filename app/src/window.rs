@@ -60,6 +60,29 @@ pub struct NewShell {
     pub cwd: String,
 }
 
+/// When the latest normal-window resize is ready to save.
+const WINDOW_SIZE_SAVE_PAUSE: Duration = Duration::from_millis(500);
+
+#[derive(Default)]
+struct WindowSizeSave {
+    due: Option<Instant>,
+}
+
+impl WindowSizeSave {
+    fn changed(&mut self, now: Instant) {
+        self.due = Some(now + WINDOW_SIZE_SAVE_PAUSE);
+    }
+
+    fn take_due(&mut self, now: Instant) -> bool {
+        if self.due.is_some_and(|due| now >= due) {
+            self.due = None;
+            true
+        } else {
+            false
+        }
+    }
+}
+
 /// GPUI does not expose the native minimum size or miniaturized state.
 fn native_window(window: &Window) -> Option<Retained<NSWindow>> {
     MainThreadMarker::new()?;
@@ -644,6 +667,8 @@ pub struct PaddockWindow {
     store: Store,
     /// Last normal window size, kept while fullscreen or miniaturized.
     window_size: WindowSize,
+    window_size_save: WindowSizeSave,
+    window_size_save_task: Option<Task<()>>,
     /// The config came from its file at startup, rather than defaults.
     config_from_file: bool,
     /// The command palette while it is open.
@@ -797,6 +822,8 @@ impl PaddockWindow {
                 width: window.bounds().size.width.into(),
                 height: window.bounds().size.height.into(),
             },
+            window_size_save: WindowSizeSave::default(),
+            window_size_save_task: None,
             // It opens windowed (`main.rs`).
             full_screen: false,
             config_from_file: crate::config::default_path().exists(),
@@ -822,7 +849,16 @@ impl PaddockWindow {
                 };
                 if size != this.window_size {
                     this.window_size = size;
-                    this.save_layout(cx);
+                    this.window_size_save.changed(Instant::now());
+                    // Replacing the task cancels the previous wait; only the last resize saves.
+                    this.window_size_save_task = Some(cx.spawn(async move |this, cx| {
+                        cx.background_executor().timer(WINDOW_SIZE_SAVE_PAUSE).await;
+                        let _ = this.update(cx, |this, cx| {
+                            if this.window_size_save.take_due(Instant::now()) {
+                                this.save_layout(cx);
+                            }
+                        });
+                    }));
                 }
             }
             if full_screen != this.full_screen {
@@ -4493,6 +4529,23 @@ impl Render for PaddockWindow {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn continuous_window_size_changes_save_once_after_the_last_change() {
+        let start = Instant::now();
+        let mut pending = WindowSizeSave::default();
+        let mut saves = Vec::new();
+        for millis in [0, 100, 300, 600, 1099, 1100, 1600] {
+            let now = start + Duration::from_millis(millis);
+            if millis <= 600 {
+                pending.changed(now);
+            }
+            if pending.take_due(now) {
+                saves.push(millis);
+            }
+        }
+        assert_eq!(saves, [1100]);
+    }
 
     #[test]
     fn released_sidebar_width_is_the_same_integer_in_config_and_view() {
