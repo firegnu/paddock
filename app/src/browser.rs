@@ -238,6 +238,11 @@ impl Keys {
         self.last = Some((focus, page));
         moves
     }
+
+    /// The page was closed: true when the Browser had the keyboard, for the active pane to take.
+    pub fn close(&mut self) -> bool {
+        std::mem::replace(&mut self.owner, Owner::Paddock) != Owner::Paddock
+    }
 }
 
 /// Where a shortcut goes.
@@ -1429,6 +1434,18 @@ mod tests {
             self.settle()
         }
 
+        /// A click on the toolbar's ×: the page goes, with AppKit's keyboard if it had it, and the
+        /// tab shows its empty state; the active pane takes the keyboard if the record says so.
+        fn close_page(&mut self) -> Moves {
+            self.native = false;
+            self.settle();
+            if self.keys.close() {
+                self.focus = Owner::Paddock;
+            }
+            self.native = false;
+            self.show(Showing::Hidden)
+        }
+
         /// A popup opens, its field taking GPUI's focus or not.
         fn open_popup(&mut self, field: bool) -> Moves {
             self.dialog = true;
@@ -1785,6 +1802,24 @@ mod tests {
         // A click on the page with nothing open closes nothing.
         desk.focus(Owner::Paddock);
         assert!(!desk.click_page().dismiss);
+    }
+
+    #[test]
+    fn closing_the_page_gives_its_keyboard_to_the_pane() {
+        // From the page, the address field or the find field: the pane has it after.
+        for take in [Desk::click_page, Desk::edit, Desk::open_find] {
+            let mut desk = Desk::new();
+            take(&mut desk);
+            assert_ne!(desk.owner(), Owner::Paddock);
+            assert_eq!(desk.close_page(), Moves::default());
+            assert_eq!(desk.owner(), Owner::Paddock);
+            assert_eq!((desk.focus, desk.native), (Owner::Paddock, false));
+            assert_eq!(desk.settle(), Moves::default());
+        }
+        // The terminal had it: it keeps it.
+        let mut desk = Desk::new();
+        assert_eq!(desk.close_page(), Moves::default());
+        assert_eq!((desk.owner(), desk.focus), (Owner::Paddock, Owner::Paddock));
     }
 
     fn key(source: &str) -> Keystroke {
