@@ -93,6 +93,10 @@ pub struct Layout {
     /// it closed, at the default width, on Changes.
     #[serde(default)]
     pub right_sidebar: right_panel::Saved,
+    /// The activity panel over the sidebar's footer is folded to one line; files from before it
+    /// was saved open it unfolded.
+    #[serde(default)]
+    pub activity_folded: bool,
     #[serde(default)]
     pub window_size: WindowSize,
 }
@@ -203,6 +207,7 @@ impl Layout {
             tabs,
             sidebar_collapsed: false,
             right_sidebar: right_panel::Saved::default(),
+            activity_folded: false,
             window_size: WindowSize::default(),
         }
     }
@@ -546,6 +551,27 @@ mod tests {
         assert!(store.problem().is_none());
         assert_eq!(back, Some(layout));
         fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn the_folded_activity_panel_is_saved_and_older_files_open_it() {
+        let (_, layout) = sample();
+        assert!(!layout.activity_folded);
+        let folded = Layout {
+            activity_folded: true,
+            ..layout.clone()
+        };
+        let text = serde_json::to_string(&folded).unwrap();
+        assert!(
+            serde_json::from_str::<Layout>(&text)
+                .unwrap()
+                .activity_folded
+        );
+        // A file written before the panel has no such field.
+        let mut old = serde_json::to_value(&layout).unwrap();
+        old.as_object_mut().unwrap().remove("activity_folded");
+        let back: Layout = serde_json::from_value(old).unwrap();
+        assert_eq!(back, layout);
     }
 
     #[test]

@@ -1,6 +1,8 @@
 //! paddock, a GPUI desktop app for corral agents and Saddle's interface. The pure pieces live here
 //! so they can be tested without a window.
 pub mod about;
+pub mod activity;
+pub mod activity_view;
 pub mod agents;
 pub mod attention;
 pub mod browser;

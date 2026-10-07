@@ -124,6 +124,21 @@ const TILT_MS: f32 = 420.0;
 const TILT_FRAMES: [(f32, f32); 4] = [(0.0, 0.0), (0.3, -14.0), (0.65, 8.0), (1.0, 0.0)];
 /// The bell's curve.
 const TILT_EASE: Bezier = RING_EASE;
+/// The activity grid's cells popping in one after another along the diagonal from the top left
+/// (P5-32, the design's `cellIn`): each takes this long, growing from [`CELL_FROM`] of its size
+/// as it fades in, its neighbour this much later.
+pub const CELL_IN: Duration = ms(450.0);
+pub const CELL_STAGGER: Duration = ms(18.0);
+const CELL_FROM: f32 = 0.3;
+const CELL_EASE: Bezier = Bezier(0.2, 0.8, 0.2, 1.0);
+/// Today's cell breathing: one breath in and out.
+pub const GLOW: Duration = ms(2400.0);
+/// The CSS `ease-in-out` curve.
+const EASE_IN_OUT: Bezier = Bezier(0.42, 0.0, 0.58, 1.0);
+/// A cell whose commits rose at a refresh swells this long and settles.
+pub const BUMP: Duration = ms(560.0);
+/// Its size at fractions of that time.
+const BUMP_FRAMES: [(f32, f32); 3] = [(0.0, 1.0), (0.35, 1.3), (1.0, 1.0)];
 
 const fn ms(ms: f32) -> Duration {
     Duration::from_millis(ms as u64)
@@ -419,6 +434,30 @@ pub fn tilt(play: Option<Duration>) -> Pose {
     Pose::Turn(keyframes(t, &TILT_FRAMES, TILT_EASE))
 }
 
+/// An activity cell's size (a share of its whole) and opacity `since` its turn to pop in came;
+/// `None` before it, when it is not there yet.
+pub fn cell_in(since: Option<Duration>) -> (f32, f32) {
+    let Some(since) = since else {
+        return (CELL_FROM, 0.0);
+    };
+    let t = CELL_EASE.at(millis(since) / millis(CELL_IN));
+    (CELL_FROM + (1.0 - CELL_FROM) * t, t.clamp(0.0, 1.0))
+}
+
+/// How far today's glow has swelled, 0 to 1 and back, `t` (0 to 1) through a breath.
+pub fn glow(t: f32) -> f32 {
+    EASE_IN_OUT.at(1.0 - (2.0 * t.clamp(0.0, 1.0) - 1.0).abs())
+}
+
+/// The size of a cell whose commits rose, `since` they did: it swells and settles.
+pub fn bump(since: Duration) -> f32 {
+    keyframes(
+        (millis(since) / millis(BUMP)).min(1.0),
+        &BUMP_FRAMES,
+        EASE_OUT,
+    )
+}
+
 /// `from` blended `t` of the way to `to`, through red, green and blue as CSS does.
 pub fn mix(from: Hsla, to: Hsla, t: f32) -> Hsla {
     let (from, to) = (Rgba::from(from), Rgba::from(to));
@@ -695,6 +734,32 @@ mod tests {
         let (hover, next) = state.at(start + after(10.0), COPY);
         assert_eq!(copy(hover), (Icon::Copied, Pose::Grow(1.0), 1.0));
         assert_eq!(next, Next::At(start + COPY.flash));
+    }
+
+    #[test]
+    fn activity_cells_pop_in_then_breathe_and_swell() {
+        // Not there before its turn; then growing from 0.3 as it fades in, whole at the end.
+        assert_eq!(cell_in(None), (0.3, 0.0));
+        assert_eq!(cell_in(Some(Duration::ZERO)), (0.3, 0.0));
+        let (size, opacity) = cell_in(Some(after(150.0)));
+        assert!(
+            size > 0.6 && size < 1.0 && opacity > 0.5,
+            "{size} {opacity}"
+        );
+        for done in [CELL_IN, after(2000.0)] {
+            let (size, opacity) = cell_in(Some(done));
+            assert!(close(size, 1.0) && close(opacity, 1.0), "{size} {opacity}");
+        }
+        // Today's glow rests at the ends of a breath and is fullest halfway.
+        assert_eq!(glow(0.0), 0.0);
+        assert_eq!(glow(1.0), 0.0);
+        assert!(close(glow(0.5), 1.0));
+        assert!(close(glow(0.25), glow(0.75)));
+        // A cell that rose swells to 1.3 and settles back.
+        assert_eq!(bump(Duration::ZERO), 1.0);
+        assert!(close(bump(after(0.35 * 560.0)), 1.3));
+        assert_eq!(bump(BUMP), 1.0);
+        assert_eq!(bump(after(5000.0)), 1.0);
     }
 
     #[test]
