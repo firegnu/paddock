@@ -3393,7 +3393,7 @@ esac"#,
         let frost = luminance((0x45, 0x49, 0x4a));
         let contrast = |color| (luminance(color) + 0.05) / (frost + 0.05);
 
-        for name in ["dune", "tide", "lagoon"] {
+        for name in crate::preset::Preset::ALL.map(crate::preset::Preset::name) {
             let given = Rc::new(
                 Theme::from_config(&crate::config::Config {
                     theme: Some(name.into()),

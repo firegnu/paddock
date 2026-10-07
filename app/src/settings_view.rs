@@ -6,6 +6,7 @@ use crate::{
     diagnostics::{self, Checks, Report, clock},
     fonts::{self, Installed, UiFont},
     menu,
+    preset::Preset,
     settings::{Conflict, Draft, Field, Kind, Page, Saved},
     text_input::{self, TextInput},
     theme::Theme,
@@ -15,7 +16,7 @@ use gpui::{
     AnyElement, ClickEvent, Context, Div, ElementId, Entity, EventEmitter, FocusHandle, Focusable,
     FontWeight, Hsla, MouseButton, Pixels, PromptLevel, Render, ScrollStrategy, SharedString,
     Stateful, Subscription, Task, TextRun, UniformListScrollHandle, Window, anchored, deferred,
-    div, prelude::*, px, relative, uniform_list,
+    div, prelude::*, px, uniform_list,
 };
 use std::{collections::HashMap, path::PathBuf, rc::Rc};
 
@@ -1313,12 +1314,7 @@ impl SettingsView {
                 )
                 .into_any_element(),
             Kind::Theme => self
-                .segments(
-                    &key,
-                    &[("dune", "Dune"), ("tide", "Tide"), ("lagoon", "Lagoon")],
-                    ui,
-                    cx,
-                )
+                .segments(&key, &Preset::ALL.map(|p| (p.name(), p.label())), ui, cx)
                 .into_any_element(),
             Kind::Color => self
                 .color_control(field, drafted, &group, window, ui, cx)
@@ -1442,12 +1438,27 @@ impl SettingsView {
         self.cards(groups, first, ui)
     }
 
-    /// The three themes as small pictures of the window in their own colours.
+    /// The themes as a list, each by its name and a few of its own colours: its ground with "Aa"
+    /// in its text, then its accent and three of its terminal colours. The drafted one is raised
+    /// and ticked; a click drafts another.
     fn theme_picker(&self, ui: &UiFont, cx: &mut Context<Self>) -> Div {
         let current = self.draft.theme_name();
-        let accent = self.fg(|t| t.agents_accent);
-        let mut choices = div().flex().gap(px(12.0));
-        for (value, label) in [("dune", "Dune"), ("tide", "Tide"), ("lagoon", "Lagoon")] {
+        let highlight = hsla(self.theme.bg(|t| t.agent_selected), 1.0);
+        let (text, check) = (self.fg(|t| t.agents_text), self.fg(|t| t.agents_accent));
+        let edge = hsla(self.theme.fg(|t| t.agents_text), 0.1);
+        let ground = hsla(self.theme.bg(|t| t.agents_bg), 1.0)
+            .blend(hsla(self.theme.fg(|t| t.agents_text), 0.025));
+        let mut list = div()
+            .flex()
+            .flex_col()
+            .gap(px(2.0))
+            .p(px(4.0))
+            .rounded(px(10.0))
+            .border_1()
+            .border_color(self.rule(0.55))
+            .bg(ground);
+        for preset in Preset::ALL {
+            let value = preset.name();
             let config = Config {
                 theme: Some(value.into()),
                 ..Config::default()
@@ -1456,82 +1467,77 @@ impl SettingsView {
                 continue;
             };
             let on = current == value;
-            let color = |pick: Pick| hsla(theme.fg(pick), 1.0);
-            let (text, own_accent) = (color(|t| t.agents_text), color(|t| t.agents_accent));
-            let side = hsla(theme.bg(|t| t.agents_bg), 1.0).blend(text.opacity(0.05));
-            let bar = |color: Hsla, width: f32, height: f32| {
+            let terminal = theme.terminal();
+            let sample = div()
+                .flex_shrink_0()
+                .w(ui.px(44.0))
+                .h(ui.px(26.0))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(px(6.0))
+                .border_1()
+                .border_color(edge)
+                .bg(hsla(terminal.background, 1.0))
+                .text_size(ui.px(12.0))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(hsla(terminal.foreground, 1.0))
+                .child("Aa");
+            let dot = |color: Hsla| {
                 div()
-                    .h(px(height))
-                    .w(relative(width))
-                    .rounded(px(height / 2.0))
+                    .flex_shrink_0()
+                    .size(ui.px(12.0))
+                    .rounded_full()
                     .bg(color)
             };
-            let picture = div()
-                .h(ui.px(74.0))
+            let colors = div()
+                .flex_shrink_0()
                 .flex()
+                .items_center()
+                .gap(ui.px(5.0))
+                .child(dot(hsla(theme.fg(|t| t.agents_accent), 1.0)))
+                .children([1, 2, 4].map(|i| dot(hsla(terminal.ansi[i], 1.0))));
+            let row = div()
+                .id(ElementId::Name(format!("theme-{value}").into()))
+                .min_h(ui.px(40.0))
+                .px(px(10.0))
+                .py(px(5.0))
+                .flex()
+                .items_center()
+                .gap(px(12.0))
                 .rounded(px(7.0))
-                .overflow_hidden()
-                .bg(hsla(theme.terminal().background, 1.0))
-                .child(
-                    div()
-                        .w(relative(0.34))
-                        .h_full()
-                        .flex()
-                        .flex_col()
-                        .gap(px(5.0))
-                        .px(px(7.0))
-                        .py(px(9.0))
-                        .bg(side)
-                        .child(bar(own_accent, 0.8, 5.0))
-                        .child(bar(color(|t| t.agent_blocked), 0.6, 5.0))
-                        .child(bar(color(|t| t.agent_working), 0.7, 5.0)),
-                )
+                .cursor_pointer()
+                .child(sample)
                 .child(
                     div()
                         .flex_1()
-                        .flex()
-                        .flex_col()
-                        .gap(px(5.0))
-                        .px(px(8.0))
-                        .py(px(9.0))
-                        .child(bar(text.opacity(0.7), 0.7, 4.0))
-                        .child(bar(text.opacity(0.4), 0.45, 4.0))
-                        .child(bar(own_accent.opacity(0.8), 0.55, 4.0)),
-                );
-            let rule = self.rule(1.0);
-            let choice = div()
-                .id(ElementId::Name(format!("theme-{value}").into()))
-                .flex_1()
-                .min_w(px(0.0))
-                .p(px(6.0))
-                .rounded(px(10.0))
-                .border_1()
-                .cursor_pointer()
-                .child(picture)
+                        .min_w(px(0.0))
+                        .overflow_hidden()
+                        .whitespace_nowrap()
+                        .text_ellipsis()
+                        .child(preset.label()),
+                )
+                .child(colors)
                 .child(
                     div()
-                        .pt(px(7.0))
-                        .px(px(3.0))
-                        .text_size(ui.px(12.5))
-                        .text_color(if on {
-                            self.fg(|t| t.agents_text)
-                        } else {
-                            hsla(self.theme.fg(|t| t.agents_text), 0.7)
-                        })
-                        .child(label),
+                        .w(ui.px(14.0))
+                        .flex_shrink_0()
+                        .text_color(check)
+                        .child(if on { "✓" } else { "" }),
                 )
                 .on_click(
                     cx.listener(move |this, _: &ClickEvent, _, cx| this.set("theme", value, cx)),
                 );
-            choices = choices.child(if on {
-                choice.border_color(accent)
+            list = list.child(if on {
+                row.bg(highlight)
+                    .text_color(text)
+                    .font_weight(FontWeight::SEMIBOLD)
             } else {
-                choice
-                    .border_color(self.rule(0.6))
-                    .hover(move |style| style.border_color(rule))
+                row.text_color(text.opacity(0.8))
+                    .hover(move |style| style.bg(highlight.opacity(0.6)))
             });
         }
-        choices
+        list
     }
 
     fn page_items(&self, window: &Window, ui: &UiFont, cx: &mut Context<Self>) -> Vec<AnyElement> {

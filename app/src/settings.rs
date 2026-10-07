@@ -506,8 +506,8 @@ fn value(field: &Field, text: &str) -> Result<Value> {
             Value::from(text)
         }
         Kind::Theme => {
-            if !matches!(text, "dune" | "tide" | "lagoon") {
-                bail!("{label} must be dune, tide or lagoon");
+            if Preset::parse(text).is_err() {
+                bail!("{label} must be {}", Preset::expected());
             }
             Value::from(text)
         }
