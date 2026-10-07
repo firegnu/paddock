@@ -65,6 +65,8 @@ fn caller_identity_is_forwarded_before_gui_environment_cleanup() {
         loop {
             match listener.accept() {
                 Ok((mut stream, _)) => {
+                    // On macOS an accepted socket inherits the listener's non-blocking mode.
+                    stream.set_nonblocking(false).unwrap();
                     stream
                         .set_read_timeout(Some(std::time::Duration::from_secs(2)))
                         .unwrap();
