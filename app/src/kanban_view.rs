@@ -332,12 +332,15 @@ impl KanbanView {
     }
 
     fn new_task(&mut self, cx: &mut Context<Self>) {
-        if let Some(board) = &self.board {
-            cx.emit(KanbanEvent::NewTask {
-                repo: board.repo.clone(),
-                anchor: self.new_task_at.get(),
-            });
-        }
+        let repo = match (&self.board, &self.read) {
+            (Some(board), _) => board.repo.clone(),
+            (_, Some(Read::NoTasks { repo, .. })) => repo.clone(),
+            _ => return,
+        };
+        cx.emit(KanbanEvent::NewTask {
+            repo,
+            anchor: self.new_task_at.get(),
+        });
     }
 }
 
@@ -373,7 +376,9 @@ impl Render for KanbanView {
                 Some(("No main branch", "Task files are read from main"))
             }
             (_, Some(Read::NoTasks { .. })) => {
-                Some(("No task files", "Task files go in docs/任务 on main"))
+                let sub = "Task files go in docs/任务 on main. New task writes a draft to \
+                           docs/任务 in the main worktree, making the folder if it's missing.";
+                return root.child(empty("No task files", sub).child(self.first_task(&ui, cx)));
             }
             (_, Some(Read::Failed)) => Some(("Git couldn't be read", "Trying again shortly")),
             _ => None,
@@ -492,6 +497,42 @@ impl KanbanView {
             .child(div().flex_1())
             .child(right)
             .child(new_task)
+    }
+
+    /// New task under the empty state of a repository without task files.
+    fn first_task(&self, ui: &UiFont, cx: &mut Context<Self>) -> Stateful<Div> {
+        let c = self.colors;
+        let at = self.new_task_at.clone();
+        div()
+            .id("kanban-first-task")
+            .relative()
+            .mt(ui.px(4.0))
+            .flex()
+            .items_center()
+            .gap(ui.px(6.0))
+            .h(ui.px(26.0))
+            .px(ui.px(12.0))
+            .rounded(ui.px(6.0))
+            .border_1()
+            .border_color(c.rule)
+            .text_size(ui.px(12.0))
+            .text_color(c.text)
+            .cursor_pointer()
+            .hover(move |style| style.bg(c.text.opacity(0.09)))
+            .child(footer_icon::icon(
+                Icon::Plus,
+                c.muted,
+                ui.scale(13.0 / footer_icon::SIZE),
+            ))
+            .child("New task")
+            .child(
+                canvas(move |bounds, _, _| at.set(Some(bounds)), |_, _, _, _| {})
+                    .absolute()
+                    .top_0()
+                    .left_0()
+                    .size_full(),
+            )
+            .on_click(cx.listener(|view, _: &ClickEvent, _, cx| view.new_task(cx)))
     }
 
     /// Narrow: the five groups one above another, each folding.

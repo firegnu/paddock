@@ -48,3 +48,22 @@
 
 ## 做完
 在本文件末尾追加「## 完成记录」（在你的分支里提交）：做了什么、验证了什么、拿主意的地方、没做的事，各几句话。回复里只写这几样，加上截图路径和有没有要主控决定的事。命令都在前台跑完，全部做完后，回复最后一行写 DONE。
+
+## 完成记录
+
+- 做了什么：
+  - `kanban.rs`：`Read::NoTasks` 带上主 worktree 路径 `repo`，空仓库也知道草稿写到哪里。`create_draft` 在写文件前按层检查 `docs`、`docs/任务`：已是目录就跳过，缺的那一层用 `create_dir` 建（只建缺的），是普通文件就拒绝，新加 `Refused::NotFolder`，提示 “docs/任务 is a file, not a folder”（`docs` 是文件时说 `docs`）。检查放在编号和标题校验、撞号检查之后，被拒的情况不会留下空目录。之后照旧用 `create_new` 只新建文件，不提交、不暂存。
+  - `kanban_view.rs`：“No task files” 空状态下面加一个带 `+` 的描边按钮 “New task”，说明改为 “Task files go in docs/任务 on main. New task writes a draft to docs/任务 in the main worktree, making the folder if it's missing.”。按钮用和顶部 `+` 同一个锚点格子，弹框挂在它下面；`new_task` 在没有看板时从 `Read::NoTasks` 取仓库路径。颜色只用已有的 `rule`、`text`、`muted`。
+  - 弹框没改：没有任何编号时 `next_id` 返回 `None`，编号框本来就不预填；格式例子仍在编号不对时的提示 “Not a task ID: use the form P5-30” 里。
+  - 不在仓库里、没有 main、Git 读失败的空状态照旧，没有 New task。`window.rs` 没改。
+- 验证了什么：
+  - 先写测试 `a_new_draft_makes_the_missing_task_folder_but_never_over_a_file`，看它因为 “No such file or directory” 失败，再实现：没有 `docs/` 时不预填编号，建草稿会建出 `docs/任务/` 和文件，`git status` 只有一行 `??`，读出来变成看板；`docs/任务` 是普通文件时拒绝并说明，文件原样，工作区没变化；`docs` 是普通文件时同样拒绝并点名 `docs`。已有任务目录的老测试 `a_new_draft_is_written_once_and_never_over_a_taken_id` 原样通过；`quiet_states_without_a_board` 改为带 `repo` 比较。
+  - 在 `app/` 下：`cargo test --all-targets` 全过，`cargo clippy --all-targets -- -D warnings` 无警告，`cargo fmt --check` 通过。
+  - 截图：release 程序、`PADDOCK_NO_ACTIVATE=1`、临时 HOME／`CFFIXED_USER_HOME`／`XDG_CONFIG_HOME`／`XDG_STATE_HOME`、假 corral（sh 脚本，`ls` 返回空列表）、预写的布局（右侧栏开在 Kanban），在只有一条空提交的临时仓库里启动，只截自己的窗口（窗口号来自 `GPUI_TERM_WINDOW_ID=1`），看过后按记下的 PID 停掉。画面：Kanban 图标、“No task files”、两行半说明、下面 “+ New task” 按钮，风格和左侧栏空状态一致。截图在 scratchpad，没入库。
+- 拿主意的地方：
+  - 选在空状态里放按钮，不显示顶部一行和 `+`：顶部一行要有看板数据（摘要、⎇ main），空仓库没有可摘要的东西，按钮也更显眼。
+  - 建目录在所有校验之后、写文件之前，只建缺的那几层；建目录本身失败（比如没有权限）时沿用 `Refused::Write`，提示 “Couldn't write the file: …”。
+  - 测试里的 `git status` 加了 `-c core.quotePath=false`，中文路径才不会被转义。
+- 没做的事：
+  - 点击和输入留给用户实际用：点空状态的 New task 弹框出现的位置；空仓库编号框为空，填一个编号（例如 P1-1）和标题后建出 `docs/任务/` 和草稿，看板随后从空状态变成一张 DRAFT 卡，并在编辑器里打开；`docs/任务` 是文件时弹框里出红字、不关弹框。
+  - 弹框的编号占位文字还是 “ID”，没加格式例子（任务说弹框照旧，例子已在拒绝提示里）。
