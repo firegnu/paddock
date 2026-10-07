@@ -92,8 +92,13 @@ mod tests {
 pub enum Launch {
     /// Nothing yet: a hint until an agent or shell is opened here.
     Empty,
-    /// The user's shell, as Saddle starts plain terminals.
-    Shell { program: String, cwd: String },
+    /// The user's shell, as Saddle starts plain terminals, with the identity `paddock ctl` knows
+    /// it by (`PADDOCK_INSTANCE`, `PADDOCK_PANE`) in its environment.
+    Shell {
+        program: String,
+        cwd: String,
+        env: Vec<(String, String)>,
+    },
     /// `corral attach NAME` through Saddle's viewer.
     Agent { name: String },
     /// Any program, straight on a PTY (synthetic output tests).
@@ -184,13 +189,13 @@ impl TerminalView {
                 viewer.note = EMPTY_NOTE.into();
                 ("empty".to_owned(), String::new())
             }
-            Launch::Shell { program, cwd } => {
+            Launch::Shell { program, cwd, env } => {
                 viewer.start_shell(Shell {
                     program: program.clone(),
                     cwd: cwd.clone(),
                     state: "starting",
                     exit_code: None,
-                    env: Vec::new(),
+                    env,
                 });
                 (format!("{program} · {cwd}"), format!("shell · {cwd}"))
             }
@@ -300,7 +305,13 @@ impl TerminalView {
     }
 
     /// Ends what the pane runs and starts an interactive shell once it is gone.
-    pub fn start_shell(&mut self, program: String, cwd: String, cx: &mut Context<Self>) {
+    pub fn start_shell(
+        &mut self,
+        program: String,
+        cwd: String,
+        env: Vec<(String, String)>,
+        cx: &mut Context<Self>,
+    ) {
         self.retire_direct();
         if let Err(error) = self.viewer.close() {
             self.note = format!("{error:#}");
@@ -312,7 +323,7 @@ impl TerminalView {
             cwd,
             state: "starting",
             exit_code: None,
-            env: Vec::new(),
+            env,
         });
         cx.notify();
     }
@@ -320,6 +331,52 @@ impl TerminalView {
     /// A shell runs here, or is about to.
     pub fn shell_live(&self) -> bool {
         self.queued_shell.is_some() || self.viewer.shell_live()
+    }
+
+    /// What `paddock ctl` reads of the pane.
+    pub fn facts(&self) -> crate::control_ui::Facts {
+        let shell = self.queued_shell.as_ref().or(self.viewer.shell.as_ref());
+        let env = |key: &str| {
+            shell.and_then(|s| s.env.iter().find(|(k, _)| k == key).map(|(_, v)| v.clone()))
+        };
+        let identity =
+            env("PADDOCK_INSTANCE").zip(env("PADDOCK_PANE").and_then(|p| p.parse().ok()));
+        let state = match (&self.direct, shell) {
+            (Some(session), _) if session.running() => "running",
+            (Some(_), _) => "exited",
+            (None, Some(_)) if self.queued_shell.is_some() => "starting",
+            (None, Some(shell)) => shell.state,
+            // Opened empty, or emptied by `close`.
+            (None, None) if self.label == "empty" => "empty",
+            (None, None) => self.viewer.state(),
+        };
+        let attached = (self.direct.is_none() && shell.is_none() && state == "running")
+            .then(|| self.viewer.showing.clone())
+            .flatten();
+        crate::control_ui::Facts {
+            state: state.into(),
+            attached,
+            instance: self.viewer.target_metadata().instance.clone(),
+            shell_live: self.shell_live(),
+            identity,
+            cwd: shell
+                .map(|s| s.cwd.clone())
+                .or_else(|| self.viewer.target_metadata().cwd.clone()),
+            program: match shell {
+                Some(shell) => Some(shell.program.clone()),
+                None => self.direct.is_some().then(|| self.label.clone()),
+            },
+            exit_code: shell
+                .and_then(|s| s.exit_code)
+                .or(self.direct.as_ref().and_then(Session::exit_code))
+                .or(self.viewer.exit_code),
+            command: self.direct.is_some(),
+            note: if self.note.is_empty() {
+                self.viewer.note.clone()
+            } else {
+                self.note.clone()
+            },
+        }
     }
 
     /// Ends what runs here, off the UI thread, and leaves the pane empty: closing a pane or tab,

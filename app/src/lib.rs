@@ -12,6 +12,7 @@ pub mod changes;
 pub mod command;
 pub mod config;
 pub mod control;
+pub mod control_ui;
 pub mod corral;
 pub mod damage;
 pub mod diagnostics;

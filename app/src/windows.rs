@@ -192,6 +192,20 @@ pub fn open_new_agent(place: Place, cx: &mut App) {
     cx.default_global::<Windows>().new_agent = Some(handle);
 }
 
+/// The New Agent window is creating an agent: what it starts opens beside the active pane.
+pub fn new_agent_busy(cx: &App) -> bool {
+    cx.try_global::<Windows>()
+        .and_then(|windows| windows.new_agent)
+        .and_then(|handle| handle.read(cx).ok())
+        .is_some_and(NewAgentView::busy)
+}
+
+/// A quit is waiting on its questions.
+pub fn quitting(cx: &App) -> bool {
+    cx.try_global::<Windows>()
+        .is_some_and(|windows| windows.quitting)
+}
+
 /// The Settings window, at `page`.
 pub fn open_settings_at(page: crate::settings::Page, cx: &mut App) {
     open_settings(cx);

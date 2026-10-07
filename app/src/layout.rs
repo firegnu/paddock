@@ -151,6 +151,18 @@ impl Node {
         }
     }
 
+    /// Gives the pane `old` the ID `new`, where it is.
+    fn rename(&mut self, old: PaneId, new: PaneId) -> bool {
+        match self {
+            Node::Pane(id) if *id == old => {
+                *id = new;
+                true
+            }
+            Node::Pane(_) => false,
+            Node::Split { first, second, .. } => first.rename(old, new) || second.rename(old, new),
+        }
+    }
+
     /// Removes the pane `id`; its sibling takes the split's place. `None` when nothing is left.
     fn remove(self, id: PaneId) -> Option<Node> {
         match self {
@@ -193,6 +205,8 @@ pub fn clamp_ratio(ratio: f32, length: f32, gap: f32, least: (f32, f32)) -> f32 
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Tab {
+    /// Stable while the window runs, for `paddock ctl`; not saved.
+    pub id: u64,
     pub root: Node,
     pub active: PaneId,
     /// The pane filling the tab for now (Zoom); the split stays underneath.
@@ -205,6 +219,14 @@ impl Tab {
         self.root.panes(&mut panes);
         panes
     }
+}
+
+/// Where `paddock ctl open` puts a pane, beside the pane it names.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum At {
+    /// A new tab just after that pane's tab.
+    Tab,
+    Side(Direction),
 }
 
 /// Where an agent chosen in the sidebar goes.
@@ -223,7 +245,10 @@ pub struct Workspace {
     pub tabs: Vec<Tab>,
     pub active_tab: usize,
     shown: HashMap<PaneId, Shown>,
+    /// How many times a pane's content was set since it was made, for `paddock ctl`.
+    changes: HashMap<PaneId, u64>,
     next: PaneId,
+    next_tab: u64,
 }
 
 impl Workspace {
@@ -242,18 +267,25 @@ impl Workspace {
         shown: HashMap<PaneId, Shown>,
         last: PaneId,
     ) -> Self {
+        let mut next_tab = 0;
         Workspace {
             tabs: tabs
                 .into_iter()
-                .map(|(root, active)| Tab {
-                    root,
-                    active,
-                    zoomed: None,
+                .map(|(root, active)| {
+                    next_tab += 1;
+                    Tab {
+                        id: next_tab,
+                        root,
+                        active,
+                        zoomed: None,
+                    }
                 })
                 .collect(),
             active_tab,
             shown,
+            changes: HashMap::new(),
             next: last,
+            next_tab,
         }
     }
 
@@ -261,6 +293,11 @@ impl Workspace {
         self.next += 1;
         self.shown.insert(self.next, shown);
         self.next
+    }
+
+    fn tab_id(&mut self) -> u64 {
+        self.next_tab += 1;
+        self.next_tab
     }
 
     pub fn tab(&self) -> &Tab {
@@ -276,8 +313,114 @@ impl Workspace {
     }
 
     pub fn set_shown(&mut self, pane: PaneId, shown: Shown) {
-        if self.shown.contains_key(&pane) {
-            self.shown.insert(pane, shown);
+        if let Some(old) = self.shown.get_mut(&pane) {
+            *old = shown;
+            *self.changes.entry(pane).or_default() += 1;
+        }
+    }
+
+    /// The pane's revision: it goes up each time what the pane shows is set, so a request about
+    /// what it showed before can tell. `None` for a pane that is not open.
+    pub fn revision(&self, pane: PaneId) -> Option<u64> {
+        self.shown
+            .contains_key(&pane)
+            .then(|| self.changes.get(&pane).copied().unwrap_or(0) + 1)
+    }
+
+    /// The index of the tab holding `pane`.
+    pub fn tab_of(&self, pane: PaneId) -> Option<usize> {
+        self.tabs.iter().position(|t| t.panes().contains(&pane))
+    }
+
+    /// The index of the tab with this ID.
+    pub fn tab_index(&self, id: u64) -> Option<usize> {
+        self.tabs.iter().position(|t| t.id == id)
+    }
+
+    /// Gives `pane` a fresh ID where it is, showing `shown`: a shell started in it later must not
+    /// be taken for one that ran there before (`paddock ctl` knows shells by their pane). Returns
+    /// the new ID.
+    pub fn renew(&mut self, pane: PaneId, shown: Shown) -> PaneId {
+        let Some(index) = self.tab_of(pane) else {
+            return pane;
+        };
+        let new = self.pane(shown);
+        self.shown.remove(&pane);
+        self.changes.remove(&pane);
+        let tab = &mut self.tabs[index];
+        tab.root.rename(pane, new);
+        if tab.active == pane {
+            tab.active = new;
+        }
+        if tab.zoomed == Some(pane) {
+            tab.zoomed = Some(new);
+        }
+        new
+    }
+
+    /// Opens a pane showing `shown` beside `anchor` (`paddock ctl open`). Which tab and pane are
+    /// active stays as it was. `None` when `anchor` is not open.
+    pub fn open_at(&mut self, anchor: PaneId, at: At, shown: Shown) -> Option<PaneId> {
+        let index = self.tab_of(anchor)?;
+        let pane = self.pane(shown);
+        self.insert_at(index, anchor, at, pane);
+        Some(pane)
+    }
+
+    /// Moves `pane` beside `anchor`, keeping its ID and what it shows; a tab it leaves empty
+    /// closes. Which tab and pane are active stays as it was where it can. False when nothing
+    /// moved: either is not open, a pane beside itself, or already alone in a tab for `Tab`.
+    pub fn move_pane(&mut self, pane: PaneId, anchor: PaneId, at: At) -> bool {
+        let (Some(from), Some(to)) = (self.tab_of(pane), self.tab_of(anchor)) else {
+            return false;
+        };
+        // The anchor's tab outlives the move: only the moved pane's own tab can close.
+        let to = self.tabs[to].id;
+        let alone = self.tabs[from].panes().len() == 1;
+        if (pane == anchor && at != At::Tab) || (alone && at == At::Tab && pane == anchor) {
+            return false;
+        }
+        if alone {
+            self.tabs.remove(from);
+            if self.active_tab > from || (self.active_tab == from && self.active_tab > 0) {
+                self.active_tab -= 1;
+            }
+        } else {
+            let tab = &mut self.tabs[from];
+            tab.root = tab.root.clone().remove(pane).expect("other panes remain");
+            if tab.zoomed == Some(pane) {
+                tab.zoomed = None;
+            }
+            if tab.active == pane {
+                tab.active = tab.panes()[0];
+            }
+        }
+        let to = self.tab_index(to).expect("the anchor's tab stays");
+        self.insert_at(to, anchor, at, pane);
+        true
+    }
+
+    /// Puts `pane`, in no tab yet, beside `anchor`, which is open in the tab at `index`.
+    fn insert_at(&mut self, index: usize, anchor: PaneId, at: At, pane: PaneId) {
+        match at {
+            At::Tab => {
+                let id = self.tab_id();
+                self.tabs.insert(
+                    index + 1,
+                    Tab {
+                        id,
+                        root: Node::Pane(pane),
+                        active: pane,
+                        zoomed: None,
+                    },
+                );
+                if self.active_tab > index {
+                    self.active_tab += 1;
+                }
+            }
+            At::Side(direction) => {
+                self.tabs[index].root.split(anchor, pane, direction);
+            }
         }
     }
 
@@ -307,6 +450,7 @@ impl Workspace {
     pub fn new_tab(&mut self, shown: Shown) -> PaneId {
         let pane = self.pane(shown);
         let tab = Tab {
+            id: self.tab_id(),
             root: Node::Pane(pane),
             active: pane,
             zoomed: None,
@@ -392,6 +536,7 @@ impl Workspace {
             return Vec::new();
         };
         self.shown.remove(&pane);
+        self.changes.remove(&pane);
         let tab = &mut self.tabs[index];
         match tab.root.clone().remove(pane) {
             Some(root) => {
@@ -418,6 +563,7 @@ impl Workspace {
         let panes = self.tabs[index].panes();
         for pane in &panes {
             self.shown.remove(pane);
+            self.changes.remove(pane);
         }
         self.remove_tab(index);
         panes
@@ -692,5 +838,110 @@ mod tests {
         let root = &w.tab().root;
         assert_eq!(root.least(Axis::Row, pane, 8.0), 150.0 + 8.0 + 150.0);
         assert_eq!(root.least(Axis::Column, pane, 8.0), 80.0 + 8.0 + 80.0);
+    }
+
+    #[test]
+    fn ctl_opens_beside_any_pane_without_moving_the_focus() {
+        // first | second, second active; another tab after it.
+        let (mut w, first) = Workspace::new(Shown::Shell);
+        let second = w.split(Direction::Right, Shown::Shell);
+        let other = w.new_tab(Shown::Empty);
+        w.focus(second);
+        let ids: Vec<u64> = w.tabs.iter().map(|t| t.id).collect();
+
+        // Each side splits the pane named, not the active one, and nothing else changes.
+        for (direction, axis, new_first) in [
+            (Direction::Left, Axis::Row, true),
+            (Direction::Right, Axis::Row, false),
+            (Direction::Up, Axis::Column, true),
+            (Direction::Down, Axis::Column, false),
+        ] {
+            let mut w2 = Workspace::from_parts(
+                w.tabs.iter().map(|t| (t.root.clone(), t.active)).collect(),
+                w.active_tab,
+                [first, second, other]
+                    .into_iter()
+                    .map(|p| (p, w.shown(p).clone()))
+                    .collect(),
+                other,
+            );
+            let new = w2
+                .open_at(first, At::Side(direction), Shown::Empty)
+                .unwrap();
+            let (a, b) = if new_first {
+                (new, first)
+            } else {
+                (first, new)
+            };
+            assert_eq!(
+                w2.tabs[0].root,
+                Node::Split {
+                    axis: Axis::Row,
+                    ratio: EVEN,
+                    first: Box::new(Node::Split {
+                        axis,
+                        ratio: EVEN,
+                        first: Box::new(Node::Pane(a)),
+                        second: Box::new(Node::Pane(b)),
+                    }),
+                    second: Box::new(Node::Pane(second)),
+                },
+                "{direction:?}"
+            );
+            assert_eq!((w2.active_tab, w2.active_pane()), (0, second));
+        }
+
+        // A tab goes just after the named pane's tab; the active tab stays the same tab.
+        w.select_tab(1);
+        let tabbed = w.open_at(first, At::Tab, Shown::Shell).unwrap();
+        assert_eq!(w.tabs.len(), 3);
+        assert_eq!(w.tabs[1].active, tabbed);
+        assert_eq!((w.active_tab, w.active_pane()), (2, other));
+        assert_eq!(&ids[..], &[w.tabs[0].id, w.tabs[2].id]);
+        assert!(!ids.contains(&w.tabs[1].id));
+        // Nothing for a pane that is not open.
+        assert_eq!(w.open_at(999, At::Tab, Shown::Empty), None);
+    }
+
+    #[test]
+    fn ctl_moves_a_pane_with_its_id_and_closes_the_tab_it_empties() {
+        let (mut w, first) = Workspace::new(Shown::Shell);
+        let agent_tab = w.new_tab(agent("p/a"));
+        let revision = w.revision(agent_tab);
+        w.select_tab(0);
+        assert!(w.move_pane(agent_tab, first, At::Side(Direction::Right)));
+        assert_eq!(w.tabs.len(), 1);
+        assert_eq!(w.tab().panes(), [first, agent_tab]);
+        assert_eq!(w.active_pane(), first);
+        assert_eq!(w.shown(agent_tab), &agent("p/a"));
+        assert_eq!(w.revision(agent_tab), revision);
+        // Beside itself it stays; alone in its tab, a new tab changes nothing.
+        assert!(!w.move_pane(agent_tab, agent_tab, At::Side(Direction::Down)));
+        assert!(w.move_pane(agent_tab, agent_tab, At::Tab));
+        assert_eq!(w.tabs.len(), 2);
+        assert!(!w.move_pane(agent_tab, agent_tab, At::Tab));
+        assert_eq!(w.tabs[1].panes(), [agent_tab]);
+        assert_eq!(w.active_tab, 0);
+    }
+
+    #[test]
+    fn revisions_rise_with_the_content_and_renewing_gives_a_fresh_id() {
+        let (mut w, pane) = Workspace::new(Shown::Empty);
+        assert_eq!(w.revision(pane), Some(1));
+        w.set_shown(pane, Shown::Shell);
+        w.set_shown(pane, agent("p/a"));
+        assert_eq!(w.revision(pane), Some(3));
+        w.toggle_zoom();
+        let other = w.split(Direction::Down, Shown::Empty);
+        w.focus(pane);
+        w.toggle_zoom();
+        let renewed = w.renew(pane, Shown::Shell);
+        assert!(renewed != pane && renewed > other);
+        assert_eq!(w.revision(pane), None);
+        assert_eq!(w.revision(renewed), Some(1));
+        assert_eq!(w.tab().panes(), [renewed, other]);
+        assert_eq!((w.active_pane(), w.zoomed()), (renewed, Some(renewed)));
+        w.close_pane(renewed);
+        assert_eq!(w.revision(renewed), None);
     }
 }

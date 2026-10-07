@@ -556,9 +556,10 @@ fn stamp(value: &mut Value, message: &Message) {
         value["request_id"] = json!(message.request_id);
     }
 }
-/// P5-39a placeholder, called on the GPUI thread. No UI actions yet.
+/// A handler that does nothing the UI would, for the transport's own tests.
+#[cfg(test)]
 pub fn unsupported(_: &Message, _: &Records) -> Value {
-    let mut value = error("unsupported", "暂不支持：界面控制将在 P5-39b 接入");
+    let mut value = error("unsupported", "not handled in this test");
     value["state"] = json!("failed");
     value
 }
@@ -711,7 +712,7 @@ impl Server {
         })
     }
     /// Call on the UI thread. FIFO, at most 32 messages per tick; socket workers
-    /// never access UI state. P5-39b replaces `unsupported` with its handler.
+    /// never access UI state; `main.rs` hands each request to the window.
     /// Handler results must be JSON objects. `records` is available for close
     /// confirmation lookups; asynchronous work calls `records.update` later.
     pub fn process_pending(&mut self, mut handler: impl FnMut(&Message, &Records) -> Value) {

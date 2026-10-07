@@ -111,3 +111,24 @@ sh -c 'trap "printf HUP > job-hup; exit 0" HUP; printf "JOB READY\r\n"; while :;
         "HUP"
     );
 }
+#[test]
+fn a_shell_gets_the_identity_paddock_ctl_knows_it_by() {
+    let temp = common::tempdir();
+    let program = common::script(
+        temp.path(),
+        "shell",
+        "#!/bin/sh\nprintf 'ID=%s/%s\\r\\n' \"$PADDOCK_INSTANCE\" \"$PADDOCK_PANE\"\nexec sleep 30\n",
+    );
+    let mut session = Session::spawn_shell(
+        &[program, "-i".into()],
+        temp.path(),
+        Size { rows: 10, cols: 40 },
+        &[
+            ("PADDOCK_INSTANCE".into(), "0123456789abcdef".into()),
+            ("PADDOCK_PANE".into(), "7".into()),
+        ],
+    )
+    .unwrap();
+    wait_for(&session, "ID=0123456789abcdef/7");
+    session.interrupt().unwrap();
+}

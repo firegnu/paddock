@@ -133,6 +133,12 @@ impl BrowserView {
         window.focus(&self.page_focus, cx);
     }
 
+    /// Opens `url`, a web address, as if typed and entered (`paddock ctl browse`); the keyboard
+    /// stays where it is.
+    pub fn visit(&mut self, url: String, cx: &mut Context<Self>) {
+        self.go(url, cx);
+    }
+
     /// New colours, after the theme changed.
     pub fn set_theme(&mut self, theme: Rc<Theme>, cx: &mut Context<Self>) {
         let colors = colors(&theme);

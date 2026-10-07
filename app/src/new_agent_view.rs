@@ -245,6 +245,11 @@ impl NewAgentView {
         cx.notify();
     }
 
+    /// `corral start` is running for Create.
+    pub fn busy(&self) -> bool {
+        self.busy
+    }
+
     /// Settings were saved: their colours, fonts and presets.
     pub fn restyle(&mut self, config: &Config, cx: &mut Context<Self>) {
         if let Ok(theme) = Theme::from_config(config) {

@@ -140,10 +140,16 @@ fn main() -> Result<()> {
         .ok()
         .filter(|s| !s.is_empty())
         .unwrap_or("/bin/sh".into());
-    // The sidebar's "new shell" starts the same shell in the same directory.
+    // Kept outside the event loop too, so both normal quit and startup unwind clean up.
+    let control = std::rc::Rc::new(std::cell::RefCell::new(Some(
+        paddock::control::Server::start()?,
+    )));
+    // The sidebar's "new shell" starts the same shell in the same directory; shells carry this
+    // instance for `paddock ctl`.
     let new_shell = NewShell {
         program: program.clone(),
         cwd: cwd.clone(),
+        instance: control.borrow().as_ref().expect("started").id.clone(),
     };
     let launch = if !command.is_empty() {
         Launch::Command {
@@ -153,7 +159,11 @@ fn main() -> Result<()> {
     } else if let Some(name) = attach {
         Launch::Agent { name }
     } else {
-        Launch::Shell { program, cwd }
+        Launch::Shell {
+            program,
+            cwd,
+            env: Vec::new(),
+        }
     };
     // Started plainly, paddock opens the saved layout; asked for an agent or a program, it opens
     // that and leaves the saved layout alone.
@@ -185,10 +195,6 @@ fn main() -> Result<()> {
     };
     let theme = Theme::from_config(&config)?;
 
-    // Kept outside the event loop too, so both normal quit and startup unwind clean up.
-    let control = std::rc::Rc::new(std::cell::RefCell::new(Some(
-        paddock::control::Server::start()?,
-    )));
     let ui_control = control.clone();
     gpui_platform::application().run(move |cx: &mut App| {
         let bounds = match window {
@@ -258,13 +264,31 @@ fn main() -> Result<()> {
         cx.spawn(async move |cx| {
             loop {
                 executor.timer(std::time::Duration::from_millis(10)).await;
-                let alive = cx.update(|_| {
+                let alive = cx.update(|cx| {
                     let mut server = ui_control.borrow_mut();
                     let Some(server) = server.as_mut() else {
                         return false;
                     };
-                    // P5-39b: replace this handler with main.update(...) on this UI thread.
-                    server.process_pending(paddock::control::unsupported);
+                    server.process_pending(|message, records| {
+                        main.update(cx, |main, window, cx| {
+                            main.control(message, records, window, cx)
+                        })
+                        .unwrap_or_else(|_| {
+                            let mut value = paddock::control::error(
+                                "instance_unavailable",
+                                "the window has closed",
+                            );
+                            value["state"] = "failed".into();
+                            value
+                        })
+                    });
+                    if let Ok(updates) =
+                        main.update(cx, |main, window, cx| main.control_tick(window, cx))
+                    {
+                        for (request, value) in updates {
+                            server.records.update(&request, value);
+                        }
+                    }
                     true
                 });
                 if !alive {
