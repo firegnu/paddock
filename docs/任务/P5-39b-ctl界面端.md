@@ -100,3 +100,10 @@
 - **R4 晚到的 start**：落位前用 `control_ui::landing` 按名字＋实例重查：没显示就新开窗格；已显示同一实例就把那个窗格挪到锚点旁并跟踪；显示的是别的实例（或 corral 没给实例）就记 `failed`／`agent_conflict`，说明创建的 agent 仍在跑。RED：已显示同一实例时仍判为新开。
 
 验证：在 `app/`、`.target/p5-39b-ctlui` 下前台跑 `cargo test --all-targets`（423 项全过，新增 5 项）、`cargo clippy --all-targets -- -D warnings`、`cargo fmt --check`，`git diff --check` 通过。这一轮没有重新做桌面实测；sheet／Kanban 确认时的 busy、`--attach` 启动的实际效果留给用户体验。没改传输层、命令行约定和技能文字。
+
+## 主控审查
+
+- 八条达到；对方用 release 程序和假 corral 把 inspect、open（shell 到右边、新开 agent 到新标签）、browse、close（先确认、带凭据再关、凭据不可重用）实跑过。主控同意“shell 在已有空窗格启动时换新窗格 ID”（不改 P5-39a 协议）。
+- 交叉审查（Codex xhigh）3 条必须改（R1 同名不同实例重新接入不换代次，旧凭据和在途请求可误认新实例；R2 busy 没读 Browser 原生 sheet 和 Kanban Clear 确认；R3 `--attach` 启动的 agent 缺实例、认不出自己）、1 条建议改（R4 晚到 start 可能重复显示），主控都认可、都交回改。修改后主控核对：每次接入都换代次、关闭快照带实例、在途请求绑定当次实例；busy 改为读主窗口 `attachedSheet` 和 Kanban 确认状态，新请求和异步落位共用；`--attach` 经公开 `corral status` 取实例（最多 5 秒）；晚到 start 落位前重核名字和实例。每条先有失败的测试。主控在分支上重跑 `cargo test --all-targets`（423 项全过）、clippy、fmt。
+- 和 P5-39a 一样，先合并，审查员在后台复核；复核若有必须改，由 dev-ctlui 补修再合入。
+- 留给用户试：Browser／Kanban 确认时的 busy、真实 `--attach` 启动、焦点与键盘去向。
