@@ -1,26 +1,29 @@
 //! The right sidebar's Kanban tab: the focused pane's repository's task files as cards, in five
 //! groups one above another, each folding; widened, five columns side by side. Git is read in the
 //! background every few seconds while the tab shows (`kanban::read`), the agents come from the
-//! left sidebar each frame, and the board is drawn again only when it changed. It only looks: a
-//! hovered card offers its task file, its agent and the agent's changes, nothing that changes the
-//! work (DESIGN §13 P5-29).
+//! left sidebar each frame, and the board is drawn again only when it changed. A hovered card
+//! offers its task file, its agent and the agent's changes, nothing that changes the work; the one
+//! thing it makes is a new draft task file, from New task (DESIGN §13 P5-29).
 use crate::{
     agents::Status,
     card, changes,
     fonts::UiFont,
     footer_icon::{self, Icon},
     kanban::{self, Board, Cache, Card, Column, Read, Seen, Tone},
-    kind_icon,
+    kind_icon, menu, popover,
     right_panel::Tip,
+    text_input::{self, Changed, TextInput},
     theme::Theme,
     view::hsla,
 };
 use gpui::{
-    Animation, AnimationExt, AnyElement, ClickEvent, Context, Div, EventEmitter, Font, FontWeight,
-    Hsla, IntoElement, Pixels, Render, SharedString, Stateful, Transformation, Window, div,
-    percentage, prelude::*, px, svg,
+    Animation, AnimationExt, AnyElement, Bounds, ClickEvent, Context, Div, Entity, EventEmitter,
+    Focusable, Font, FontWeight, Hsla, IntoElement, Pixels, Render, SharedString, Stateful,
+    Transformation, Window, canvas, div, percentage, prelude::*, px, svg,
 };
 use std::{
+    cell::Cell,
+    path::PathBuf,
     rc::Rc,
     sync::{
         Arc, Mutex,
@@ -61,6 +64,11 @@ pub enum KanbanEvent {
     GoTo(String),
     /// Bring this agent's pane to the front and show its changes.
     Changes(String),
+    /// Open the New task panel for the main worktree `repo`, under the button at `anchor`.
+    NewTask {
+        repo: PathBuf,
+        anchor: Option<Bounds<Pixels>>,
+    },
 }
 
 impl EventEmitter<KanbanEvent> for KanbanView {}
@@ -140,6 +148,8 @@ pub struct KanbanView {
     hovered: Option<String>,
     /// The width from which it is widened, at this interface size.
     wide_at: f32,
+    /// Where New task was last drawn, for its panel to hang from.
+    new_task_at: Rc<Cell<Option<Bounds<Pixels>>>>,
 }
 
 impl KanbanView {
@@ -169,6 +179,7 @@ impl KanbanView {
             cache: Arc::new(kanban::cache()),
             hovered: None,
             wide_at: changes::WIDE,
+            new_task_at: Rc::default(),
         }
     }
 
@@ -316,6 +327,15 @@ impl KanbanView {
             cx.notify();
         }
     }
+
+    fn new_task(&mut self, cx: &mut Context<Self>) {
+        if let Some(board) = &self.board {
+            cx.emit(KanbanEvent::NewTask {
+                repo: board.repo.clone(),
+                anchor: self.new_task_at.get(),
+            });
+        }
+    }
 }
 
 fn now() -> f64 {
@@ -363,7 +383,7 @@ impl Render for KanbanView {
             return root;
         };
         let wide = self.width >= self.wide_at;
-        root.child(self.top(&board, &ui))
+        root.child(self.top(&board, &ui, cx))
             .child(div().flex_shrink_0().h(px(1.0)).bg(c.rule))
             .child(if wide {
                 self.columns(&board, &ui, cx).into_any_element()
@@ -374,8 +394,8 @@ impl Render for KanbanView {
 }
 
 impl KanbanView {
-    /// The repository, main, and how many need the user, are in progress and to review.
-    fn top(&self, board: &Board, ui: &UiFont) -> Div {
+    /// The repository, main, how many need the user, are in progress and to review, and New task.
+    fn top(&self, board: &Board, ui: &UiFont, cx: &mut Context<Self>) -> Div {
         let c = self.colors;
         let need_you = board.need_you();
         let mut summary = Vec::new();
@@ -405,6 +425,35 @@ impl KanbanView {
             }
             right = right.child(div().text_color(color).child(words));
         }
+        let tip = Tip::new("New task", &self.theme, ui);
+        let at = self.new_task_at.clone();
+        let new_task = div()
+            .id("kanban-new-task")
+            .relative()
+            .flex_shrink_0()
+            .flex()
+            .items_center()
+            .justify_center()
+            .size(ui.px(22.0))
+            // As tall as the line of text beside it.
+            .my(ui.px(-3.0))
+            .rounded(px(5.0))
+            .cursor_pointer()
+            .hover(move |style| style.bg(c.text.opacity(0.09)))
+            .tooltip(move |_, cx| cx.new(|_| tip.clone()).into())
+            .child(footer_icon::icon(
+                Icon::Plus,
+                c.muted,
+                ui.scale(13.0 / footer_icon::SIZE),
+            ))
+            .child(
+                canvas(move |bounds, _, _| at.set(Some(bounds)), |_, _, _, _| {})
+                    .absolute()
+                    .top_0()
+                    .left_0()
+                    .size_full(),
+            )
+            .on_click(cx.listener(|view, _: &ClickEvent, _, cx| view.new_task(cx)));
         div()
             .flex_shrink_0()
             .flex()
@@ -439,6 +488,7 @@ impl KanbanView {
             )
             .child(div().flex_1())
             .child(right)
+            .child(new_task)
     }
 
     /// Narrow: the five groups one above another, each folding.
@@ -1067,6 +1117,243 @@ impl KanbanView {
                 );
         }
         Some(bar)
+    }
+}
+
+/// The New task panel's width, in points at the base interface size.
+pub const NEW_TASK_WIDTH: f32 = 320.0;
+
+/// The New task panel: an id, offered as the next free one, and a title. Create or ↩ writes the
+/// draft with [`kanban::create_draft`], and says why when it cannot without closing; Cancel or
+/// Esc closes it. ↑↓ and Tab move between the fields.
+pub struct NewTask {
+    repo: PathBuf,
+    theme: Rc<Theme>,
+    id: Entity<TextInput>,
+    title: Entity<TextInput>,
+    /// Why the last Create was refused, until something is typed.
+    refused: Option<String>,
+    creating: bool,
+}
+
+pub enum NewTaskEvent {
+    /// The draft was written here.
+    Created(PathBuf),
+    Cancel,
+}
+
+impl EventEmitter<NewTaskEvent> for NewTask {}
+
+impl NewTask {
+    /// For the main worktree `repo`, the title field taking the keys.
+    pub fn new(
+        repo: PathBuf,
+        theme: Rc<Theme>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let fg =
+            |pick: fn(&crate::preset::Theme) -> crate::preset::Color| hsla(theme.fg(pick), 1.0);
+        let colors = text_input::Colors {
+            text: fg(|t| t.agents_text),
+            placeholder: fg(|t| t.agents_dimmer),
+            cursor: fg(|t| t.focus),
+            selection: hsla(theme.fg(|t| t.focus), 0.3),
+        };
+        let id = cx.new(|cx| TextInput::new("", "ID", colors, cx));
+        let title = cx.new(|cx| TextInput::new("", "Short title", colors, cx));
+        for input in [&id, &title] {
+            cx.subscribe(input, |this, _, _: &Changed, cx| {
+                if this.refused.take().is_some() {
+                    cx.notify();
+                }
+            })
+            .detach();
+        }
+        window.focus(&title.focus_handle(cx), cx);
+        // The next free id, from main, the worktree and every branch; unless one is typed first.
+        let dir = repo.clone();
+        let taken =
+            cx.background_spawn(async move { kanban::taken("git", &dir, &AtomicBool::new(false)) });
+        cx.spawn(async move |this, cx| {
+            let next = taken
+                .await
+                .and_then(|ids| kanban::next_id(ids.keys().map(String::as_str)));
+            let _ = this.update(cx, |this, cx| {
+                if let Some(next) = next
+                    && this.id.read(cx).text().is_empty()
+                {
+                    this.id.update(cx, |input, cx| input.set_text(next, cx));
+                }
+            });
+        })
+        .detach();
+        NewTask {
+            repo,
+            theme,
+            id,
+            title,
+            refused: None,
+            creating: false,
+        }
+    }
+
+    fn create(&mut self, cx: &mut Context<Self>) {
+        if self.creating {
+            return;
+        }
+        self.creating = true;
+        let repo = self.repo.clone();
+        let id = self.id.read(cx).text().to_owned();
+        let title = self.title.read(cx).text().to_owned();
+        let task = cx.background_spawn(async move {
+            kanban::create_draft("git", &repo, &id, &title, &AtomicBool::new(false))
+        });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| {
+                this.creating = false;
+                match result {
+                    Ok(path) => cx.emit(NewTaskEvent::Created(path)),
+                    Err(refused) => this.refused = Some(refused.to_string()),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// The other field takes the keys.
+    fn switch(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let to = if self.id.focus_handle(cx).is_focused(window) {
+            &self.title
+        } else {
+            &self.id
+        };
+        window.focus(&to.focus_handle(cx), cx);
+        cx.notify();
+    }
+}
+
+impl Render for NewTask {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let ui = UiFont::get(cx);
+        let theme = &*self.theme;
+        let fg =
+            |pick: fn(&crate::preset::Theme) -> crate::preset::Color| hsla(theme.fg(pick), 1.0);
+        let (text, dim, rule, red, accent) = (
+            fg(|t| t.agents_text),
+            fg(|t| t.agents_dim),
+            fg(|t| t.agents_rule),
+            fg(|t| t.agents_red),
+            fg(|t| t.agents_accent),
+        );
+        let sunken = hsla(theme.bg(|t| t.agents_bg), 1.0);
+        let row = |label: &'static str, input: &Entity<TextInput>| {
+            let focused = input.focus_handle(cx).is_focused(window);
+            div()
+                .flex_shrink_0()
+                .flex()
+                .items_center()
+                .gap(ui.px(10.0))
+                .px(ui.px(9.0))
+                .child(
+                    div()
+                        .flex_shrink_0()
+                        .w(ui.px(38.0))
+                        .text_color(dim)
+                        .child(label),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w(px(0.0))
+                        .h(ui.px(28.0))
+                        .px(ui.px(8.0))
+                        .flex()
+                        .items_center()
+                        .rounded(ui.px(6.0))
+                        .bg(sunken)
+                        .border_1()
+                        .border_color(if focused { accent.opacity(0.6) } else { rule })
+                        .overflow_hidden()
+                        .child(input.clone()),
+                )
+        };
+        let (id, title) = (row("ID", &self.id), row("Title", &self.title));
+        let note = match &self.refused {
+            Some(why) => div().text_color(red).child(why.clone()),
+            None => div()
+                .text_color(dim)
+                .child("Opens the draft in your editor to add details."),
+        };
+        let cancel = div()
+            .id("new-task-cancel")
+            .px(ui.px(12.0))
+            .h(ui.px(26.0))
+            .flex()
+            .items_center()
+            .rounded(ui.px(6.0))
+            .border_1()
+            .border_color(rule)
+            .text_color(text)
+            .cursor_pointer()
+            .hover(move |style| style.bg(rule.opacity(0.5)))
+            .child("Cancel")
+            .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(NewTaskEvent::Cancel)));
+        let create = div()
+            .id("new-task-create")
+            .px(ui.px(12.0))
+            .h(ui.px(26.0))
+            .flex()
+            .items_center()
+            .rounded(ui.px(6.0))
+            .bg(accent)
+            .text_color(sunken)
+            .font_weight(FontWeight::SEMIBOLD)
+            .child("Create");
+        let create = if self.creating {
+            create.opacity(0.5)
+        } else {
+            create
+                .cursor_pointer()
+                .hover(move |style| style.bg(accent.opacity(0.9)))
+                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.create(cx)))
+        };
+        popover::panel(theme, &ui)
+            .id("new-task")
+            .w_full()
+            // Tab moves between the fields as it moves in the palette's list.
+            .key_context(menu::PALETTE)
+            .on_action(
+                cx.listener(|this, _: &menu::SelectNext, window, cx| this.switch(window, cx)),
+            )
+            .on_action(
+                cx.listener(|this, _: &menu::SelectPrevious, window, cx| this.switch(window, cx)),
+            )
+            .on_action(cx.listener(|this, _: &menu::OpenSelected, _, cx| this.create(cx)))
+            .child(popover::heading(theme, &ui, "NEW TASK"))
+            .child(id.mt(ui.px(4.0)))
+            .child(title.mt(ui.px(8.0)))
+            .child(
+                note.flex_shrink_0()
+                    .mt(ui.px(10.0))
+                    .px(ui.px(9.0))
+                    .whitespace_normal()
+                    .text_size(ui.px(12.0)),
+            )
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .flex()
+                    .justify_end()
+                    .gap(ui.px(8.0))
+                    .mt(ui.px(12.0))
+                    .px(ui.px(4.0))
+                    .pb(ui.px(4.0))
+                    .child(cancel)
+                    .child(create),
+            )
     }
 }
 

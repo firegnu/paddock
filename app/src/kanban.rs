@@ -2,7 +2,8 @@
 //! repository's main is a card, and where it stands is read from Git and corral, never stored
 //! (DESIGN §13 P5-29). Git is read in the background with read-only commands (`read`); the agents
 //! come from the left sidebar's listing (`Seen`); `board` puts the two together. Nothing here
-//! writes a file or acts on an agent.
+//! acts on an agent, and the only file written is a new draft (`create_draft`), never one that is
+//! there already.
 use crate::{agents::Status, card, git};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -674,6 +675,218 @@ pub fn natural(a: &str, b: &str) -> std::cmp::Ordering {
     a.len().cmp(&b.len())
 }
 
+/// Where an id is already taken by a task file.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Place {
+    /// On a local branch, main or another.
+    Branch(String),
+    /// In the main worktree's `docs/任务/` on disk, committed or not.
+    Worktree,
+}
+
+/// Every id a task file has in the repository whose main worktree is `repo`, and the first place
+/// it was found: main, then the main worktree on disk, then the other local branches. `None` when
+/// Git could not be read. Only read-only Git commands, through [`git::git`]'s options.
+pub fn taken(program: &str, repo: &Path, cancel: &AtomicBool) -> Option<HashMap<String, Place>> {
+    let run = |args: &[&str]| -> Option<Vec<u8>> {
+        let out = git::git(program, repo, args, cancel)?;
+        out.status.success().then_some(out.stdout)
+    };
+    let refs = run(&["for-each-ref", "--format=%(refname:short)", "refs/heads/"])?;
+    let refs = String::from_utf8_lossy(&refs);
+    let branches: Vec<&str> = refs.lines().collect();
+    let files = |branch: &str| -> Option<Vec<String>> {
+        let listing = run(&[
+            "ls-tree",
+            "-z",
+            "--name-only",
+            &format!("refs/heads/{branch}"),
+            "--",
+            &format!("{TASKS}/"),
+        ])?;
+        Some(
+            listing
+                .split(|b| *b == 0)
+                .filter_map(|path| {
+                    let path = std::str::from_utf8(path).ok()?;
+                    Some(path.strip_prefix(TASKS)?.strip_prefix('/')?.to_owned())
+                })
+                .collect(),
+        )
+    };
+    let on_disk: Vec<String> = std::fs::read_dir(repo.join(TASKS))
+        .map(|dir| {
+            dir.filter_map(|entry| entry.ok()?.file_name().into_string().ok())
+                .collect()
+        })
+        .unwrap_or_default();
+    // Main first, so an id there is told as main's; then the worktree; then the other branches.
+    let mut places = Vec::new();
+    if branches.contains(&MAIN) {
+        places.push((Place::Branch(MAIN.to_owned()), files(MAIN)?));
+    }
+    places.push((Place::Worktree, on_disk));
+    for branch in branches.iter().filter(|b| **b != MAIN) {
+        places.push((Place::Branch((*branch).to_owned()), files(branch)?));
+    }
+    let mut ids = HashMap::new();
+    for (place, files) in places {
+        for file in files.iter().filter(|f| f.ends_with(".md")) {
+            if let Some(id) = task_id(file) {
+                ids.entry(id).or_insert_with(|| place.clone());
+            }
+        }
+    }
+    Some(ids)
+}
+
+/// The id offered for a new task: the next number in the highest series that numbers its tasks
+/// (`P5-29c`, `P5-10-11` → `P5-30`); with no such series, the one after the highest id of one part
+/// (`M3` → `M4`); `None` with no ids at all.
+pub fn next_id<'a>(ids: impl IntoIterator<Item = &'a str>) -> Option<String> {
+    let mut series: Option<(&str, u64)> = None;
+    let mut single: Option<&str> = None;
+    for id in ids {
+        let mut parts = id.split('-');
+        let Some(first) = parts.next() else {
+            continue;
+        };
+        let number = parts.next().and_then(|part| {
+            let end = part
+                .find(|c: char| !c.is_ascii_digit())
+                .unwrap_or(part.len());
+            part[..end].parse::<u64>().ok()
+        });
+        match (number, series) {
+            (Some(n), Some((top, most))) => match natural(first, top) {
+                std::cmp::Ordering::Greater => series = Some((first, n)),
+                std::cmp::Ordering::Equal if n > most => series = Some((first, n)),
+                _ => {}
+            },
+            (Some(n), None) => series = Some((first, n)),
+            (None, _) if first == id && single.is_none_or(|s| natural(id, s).is_gt()) => {
+                single = Some(id);
+            }
+            (None, _) => {}
+        }
+    }
+    if let Some((first, most)) = series {
+        return Some(format!("{first}-{}", most + 1));
+    }
+    let single = single?;
+    let letters = single.bytes().take_while(u8::is_ascii_uppercase).count();
+    let digits = single[letters..]
+        .bytes()
+        .take_while(u8::is_ascii_digit)
+        .count();
+    let number: u64 = single[letters..letters + digits].parse().ok()?;
+    Some(format!("{}{}", &single[..letters], number + 1))
+}
+
+/// How much of the title goes into the file's name, in characters.
+const NAME_TITLE: usize = 80;
+
+/// The new task file's name: `<id>-<title>.md`, the title's spaces, control characters and what a
+/// file name cannot hold (`/ \ : * ? " < > |`) turned into `-`, runs of `-` made one and none left
+/// at either end. Just `<id>.md` when nothing is left, or when the title's start would be read as
+/// more of the id (`3D view` after `P5-30`).
+pub fn draft_file(id: &str, title: &str) -> String {
+    let mut words = String::new();
+    for c in title.chars().take(NAME_TITLE) {
+        let c = if c.is_whitespace() || c.is_control() || r#"/\:*?"<>|"#.contains(c) {
+            '-'
+        } else {
+            c
+        };
+        if !(c == '-' && (words.is_empty() || words.ends_with('-'))) {
+            words.push(c);
+        }
+    }
+    let words = words.trim_matches(['-', '.']);
+    let named = format!("{id}-{words}.md");
+    if words.is_empty() || task_id(&named).as_deref() != Some(id) {
+        format!("{id}.md")
+    } else {
+        named
+    }
+}
+
+/// What a new draft holds: its title line and an empty 「用户原话」, the rest left to the task's
+/// author.
+pub fn draft_text(title: &str) -> String {
+    format!("# 任务：{title}\n\n## 用户原话\n")
+}
+
+/// Why a draft was not created.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Refused {
+    BadId,
+    NoTitle,
+    Taken(String, Place),
+    Exists(String),
+    NoGit,
+    Write(String),
+}
+
+impl std::fmt::Display for Refused {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Refused::BadId => write!(f, "Not a task ID: use the form P5-30"),
+            Refused::NoTitle => write!(f, "Enter a title"),
+            Refused::Taken(id, Place::Branch(branch)) => write!(f, "{id} is already on {branch}"),
+            Refused::Taken(id, Place::Worktree) => {
+                write!(f, "{id} is already in the main worktree")
+            }
+            Refused::Exists(file) => write!(f, "{file} already exists"),
+            Refused::NoGit => write!(f, "Git couldn't be read, so nothing was created"),
+            Refused::Write(why) => write!(f, "Couldn't write the file: {why}"),
+        }
+    }
+}
+
+/// Writes a new task file for `id` and `title` in the main worktree `repo`'s `docs/任务/`, holding
+/// only [`draft_text`]: not added to Git, and never over a file that is there. Refused for an id
+/// [`task_id`] would not read whole, an empty title, or an id that a task file has on any local
+/// branch or in the main worktree. The new file's path.
+pub fn create_draft(
+    program: &str,
+    repo: &Path,
+    id: &str,
+    title: &str,
+    cancel: &AtomicBool,
+) -> Result<PathBuf, Refused> {
+    use std::io::Write;
+    let id = id.trim();
+    let title: String = title
+        .chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect();
+    let title = title.trim();
+    if task_id(id).as_deref() != Some(id) {
+        return Err(Refused::BadId);
+    }
+    if title.is_empty() {
+        return Err(Refused::NoTitle);
+    }
+    let ids = taken(program, repo, cancel).ok_or(Refused::NoGit)?;
+    if let Some(place) = ids.get(id) {
+        return Err(Refused::Taken(id.to_owned(), place.clone()));
+    }
+    let file = draft_file(id, title);
+    let path = repo.join(TASKS).join(&file);
+    let mut out = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)
+        .map_err(|e| match e.kind() {
+            std::io::ErrorKind::AlreadyExists => Refused::Exists(format!("{TASKS}/{file}")),
+            _ => Refused::Write(e.to_string()),
+        })?;
+    out.write_all(draft_text(title).as_bytes())
+        .map_err(|e| Refused::Write(e.to_string()))?;
+    Ok(path)
+}
+
 /// An agent as the left sidebar lists it, as far as the board needs.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Seen {
@@ -1129,6 +1342,44 @@ mod tests {
         let titled = draft("想法.md", "# 任务：整理右侧栏\n");
         assert_eq!(titled.title, "整理右侧栏");
         assert_eq!(draft("P9-1-x.md", "# 任务：y\n").id, "P9-1");
+    }
+
+    #[test]
+    fn a_new_task_is_offered_the_next_number_of_the_highest_series() {
+        let ids = [
+            "M0", "M3", "T76", "P1-T2", "P4-3", "P5-9", "P5-10-11", "P5-29c", "P5-29r2", "P5-3",
+        ];
+        assert_eq!(next_id(ids).as_deref(), Some("P5-30"));
+        assert_eq!(next_id(["P5-9", "P10-1"]).as_deref(), Some("P10-2"));
+        // Only ids of one part: the one after the highest.
+        assert_eq!(next_id(["M0", "M3", "M12"]).as_deref(), Some("M13"));
+        assert_eq!(next_id(["P1-T2"]), None);
+        assert_eq!(next_id([]), None);
+    }
+
+    #[test]
+    fn a_draft_file_is_named_by_its_id_and_title() {
+        assert_eq!(draft_file("P5-30", "Kanban 新建"), "P5-30-Kanban-新建.md");
+        // What a file name cannot hold, spaces and control characters become one `-`.
+        assert_eq!(
+            draft_file("P5-30", r#" a/b\c:d*e?f"g<h>i|j  k	l "#),
+            "P5-30-a-b-c-d-e-f-g-h-i-j-k-l.md"
+        );
+        assert_eq!(draft_file("P5-30", "../x"), "P5-30-x.md");
+        assert_eq!(draft_file("P5-30", "///"), "P5-30.md");
+        // A title that would be read as more of the id stays out of the name.
+        assert_eq!(draft_file("P5-30", "3D view"), "P5-30.md");
+        assert_eq!(draft_file("P5-30", "T1 主题"), "P5-30.md");
+        assert_eq!(draft_file("P5-30", "Tab 顺序"), "P5-30-Tab-顺序.md");
+        // Long titles are cut.
+        let long = draft_file("P5-30", &"长".repeat(200));
+        assert_eq!(
+            long.chars().count(),
+            "P5-30-".len() + NAME_TITLE + ".md".len()
+        );
+        for name in ["P5-30-Kanban-新建.md", "P5-30.md"] {
+            assert_eq!(task_id(name).as_deref(), Some("P5-30"));
+        }
     }
 
     #[test]

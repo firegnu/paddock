@@ -16,7 +16,7 @@ use crate::{
     fonts::UiFont,
     footer_icon::{self, Icon},
     frost::{Frost, Shape},
-    kanban_view::{self, KanbanEvent, KanbanView},
+    kanban_view::{self, KanbanEvent, KanbanView, NewTask, NewTaskEvent},
     kind_icon,
     layout::{Axis, Direction, Node, PaneId, Placement, Shown, Workspace},
     layout_state::{Content, Layout, Store},
@@ -46,6 +46,7 @@ use gpui::{
 use std::{
     cell::RefCell,
     collections::HashMap,
+    path::PathBuf,
     rc::Rc,
     time::{Duration, Instant},
 };
@@ -70,6 +71,8 @@ enum Popup {
     Palette,
     /// The sidebar's menu of actions, over its button.
     Actions,
+    /// The Kanban tab's New task panel, under its button.
+    NewTask,
 }
 
 /// What dragging the divider carries: nothing, only that it is the divider.
@@ -209,6 +212,8 @@ enum Spot {
     Split,
     /// The Attention bell, in the title bar while the sidebar is expanded.
     Bell,
+    /// The Kanban tab's New task.
+    NewTask,
     Pane(PaneId),
 }
 
@@ -580,6 +585,8 @@ pub struct PaddockWindow {
     attention_index: usize,
     /// The new tab or split panel's field and selected row.
     chooser: Chooser,
+    /// The New task panel while it is open.
+    new_task: Option<Entity<NewTask>>,
     /// Where the `+`, the split icon and the panes were last drawn, for the panels that hang from
     /// them.
     spots: Rc<RefCell<HashMap<Spot, Bounds<Pixels>>>>,
@@ -723,6 +730,7 @@ impl PaddockWindow {
             asking: false,
             attention_index: 0,
             chooser: Chooser::default(),
+            new_task: None,
             spots: Rc::default(),
             tab_hover: None,
             tab_left: None,
@@ -1178,7 +1186,36 @@ impl PaddockWindow {
                 self.save_layout(cx);
                 cx.notify();
             }
+            KanbanEvent::NewTask { repo, anchor } => {
+                if let Some(anchor) = anchor {
+                    self.spots.borrow_mut().insert(Spot::NewTask, *anchor);
+                }
+                self.open_new_task(repo.clone(), window, cx);
+            }
         }
+    }
+
+    /// The New task panel, its title field taking the keys; once the draft is written, it is
+    /// opened with the default program, as Open task file opens a task file.
+    fn open_new_task(&mut self, repo: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
+        let theme = self.theme.clone();
+        let panel = cx.new(|cx| NewTask::new(repo, theme, window, cx));
+        cx.subscribe_in(
+            &panel,
+            window,
+            |this, _, event: &NewTaskEvent, window, cx| {
+                if let NewTaskEvent::Created(path) = event {
+                    cx.open_with_system(path);
+                }
+                this.close_popup(window, cx);
+            },
+        )
+        .detach();
+        self.palette = None;
+        self.chooser = Chooser::default();
+        self.new_task = Some(panel);
+        self.popup = Some(Popup::NewTask);
+        cx.notify();
     }
 
     /// What the New Agent window starts from: the directories to offer and the active pane's.
@@ -1540,7 +1577,9 @@ impl PaddockWindow {
         let direction = match self.popup {
             Some(Popup::NewTab) => None,
             Some(Popup::Split(direction)) => Some(direction),
-            Some(Popup::Attention | Popup::Palette | Popup::Actions) | None => return,
+            Some(Popup::Attention | Popup::Palette | Popup::Actions | Popup::NewTask) | None => {
+                return;
+            }
         };
         self.popup = None;
         self.chooser = Chooser::default();
@@ -3267,6 +3306,7 @@ impl PaddockWindow {
         self.popup = None;
         self.palette = None;
         self.chooser = Chooser::default();
+        self.new_task = None;
         if self.browser.read(cx).owner() == Owner::Page {
             self.browser
                 .update(cx, |browser, cx| browser.give_back(window, cx));
@@ -3664,6 +3704,15 @@ impl PaddockWindow {
                 }),
                 Hang::BelowRight,
             ),
+            Popup::NewTask => (
+                // Not drawn yet: at the right end of the right sidebar's first row.
+                spots.get(&Spot::NewTask).copied().unwrap_or_else(|| {
+                    let button = 22.0 * s;
+                    let right = f32::from(viewport.width) - 14.0 * s;
+                    rect(right - button, title + 40.0 * s, button, button)
+                }),
+                Hang::BelowRight,
+            ),
             _ => {
                 if self.collapsed {
                     (
@@ -3873,6 +3922,40 @@ impl PaddockWindow {
         // A click outside closes it; nothing is dimmed, as for a menu.
         div()
             .id("chooser-backdrop")
+            .absolute()
+            .inset_0()
+            .occlude()
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _, window, cx| this.close_popup(window, cx)),
+            )
+            .child(panel)
+    }
+
+    /// The Kanban tab's New task panel, under its button; Esc or a click outside closes it.
+    fn new_task_panel(
+        &self,
+        panel: Entity<NewTask>,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> Stateful<Div> {
+        let placed = self.placed(Popup::NewTask, kanban_view::NEW_TASK_WIDTH, window, cx);
+        let panel = div()
+            .id("new-task-place")
+            .absolute()
+            .left(px(placed.left))
+            .w(px(placed.width))
+            .max_h(px(placed.max_height))
+            .map(|panel| match (placed.top, placed.bottom) {
+                (Some(top), _) => panel.top(px(top)),
+                (None, bottom) => panel.bottom(px(bottom.unwrap_or_default())),
+            })
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .child(panel)
+            .child(cover());
+        // A click outside closes it; nothing is dimmed, as for the other panels.
+        div()
+            .id("new-task-backdrop")
             .absolute()
             .inset_0()
             .occlude()
@@ -4195,6 +4278,10 @@ impl Render for PaddockWindow {
                 .palette
                 .as_ref()
                 .map(|palette| self.palette_panel(palette, window, cx)),
+            Some(Popup::NewTask) => self
+                .new_task
+                .clone()
+                .map(|panel| self.new_task_panel(panel, window, cx)),
             Some(popup) => Some(self.chooser_panel(popup, window, cx)),
             None => None,
         };
