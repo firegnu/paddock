@@ -2,12 +2,12 @@
 
 ## 现在在哪（2026-10-07 夜）
 
-- main 和 `origin/main`（`github.com/firegnu/paddock`，public）同步，工作区干净。没有进行中的活，没有开着的 worktree，本地只有 main 一个分支。corral 里只有 `paddock/main`（本主控）；`ranch/main`、`cairn/main` 已不在。
-- 424 项测试通过，clippy、`cargo fmt --check` 干净。`~/Applications/paddock.app` 是合并 P5-39d 之后的版本（21:55 打包，含 P5-35～P5-40、paddock ctl），已用本机 Apple Development 证书签名。
+- main 和 `origin/main`（`github.com/firegnu/paddock`，public）同步，工作区干净。没有进行中的活，没有开着的 worktree，本地只有 main 一个分支。corral 里是 `paddock/main`（本主控）和用户 10-07 夜让开的 `paddock/codex`、`paddock/pi`、`paddock/omp`（待命，没派活，算用户的）；`ranch/main`、`cairn/main` 已不在。
+- 426 项测试通过，clippy、`cargo fmt --check` 干净。`~/Applications/paddock.app` 是合并 P5-41 之后的版本（22:17 打包，含 P5-35～P5-41、paddock ctl），已用本机 Apple Development 证书签名。
 - **paddock ctl 已部署**（用户 10-07 夜在终端里跑完，主控核对过）：`~/.local/bin/paddock` 链到 app 里的程序；`paddock install-skills` 已装 `~/.claude/skills/paddock`、`~/.agents/skills/paddock`（带归属标记，与仓库源文件一致）；旧的 `~/.claude/skills/saddle` 已删。`paddock ctl instances` 找得到正在跑的窗口，`inspect` 认出 `paddock/main` 是 pane 1。重新打包安装后链接不用重建；技能正文改了要重跑 `paddock install-skills`。已开着的 agent 要重开才看到新技能。
 - 全局 corral 已是 ranch `5c5540c`（支持 pause／resume）。
 - 重新打包安装：在 `app/` 下 `cargo build --release`，再 `cargo run --release --example bundle -- --install`（编译目录见 AGENTS.md，主仓库用 `.target/main`）。打包默认自动选本机 Apple Development 身份，可用 `PADDOCK_SIGN_IDENTITY` 指定；退回 ad-hoc 时会提示授权会失效。
-- 已合并：第一至第三阶段、迁移 M0–M3（corral、dispatch 在 `../ranch`；遥测、Drover、插件系统已砍）、P4-1～P4-3、P5-1～P5-40（P5-13 做了 13a 外壳、13b／13c Changes；P5-19 磨砂；P5-23r、P5-13r、P5-29r、P5-29r2 是调研；P5-28 做了 28a～28d；P5-29 做了 29a～29f；P5-33 做了 33、33b；P5-34 做了 34、34b；P5-36 做了 36a～36c；P5-39 做了 39a～39d）。每件的范围、完成记录、主控审查在 `docs/任务/`。
+- 已合并：第一至第三阶段、迁移 M0–M3（corral、dispatch 在 `../ranch`；遥测、Drover、插件系统已砍）、P4-1～P4-3、P5-1～P5-41（P5-13 做了 13a 外壳、13b／13c Changes；P5-19 磨砂；P5-23r、P5-13r、P5-29r、P5-29r2 是调研；P5-28 做了 28a～28d；P5-29 做了 29a～29f；P5-33 做了 33、33b；P5-34 做了 34、34b；P5-36 做了 36a～36c；P5-39 做了 39a～39d）。每件的范围、完成记录、主控审查在 `docs/任务/`。
 - 上下文：`AGENTS.md`（规矩，含「开发方式」里的**看板约定**）、`docs/DESIGN.md`（已定决定，§13 是界面改版的全部决定和用户原话）、`docs/背景与决策记录.md`、`docs/设计稿/`、`docs/调研/`。上一次会话（10-06 晚到 10-07 下午：Browser P5-28、Kanban P5-29、P5-21～P5-27 等）的细节都在各自的任务文件里。
 
 ## 10-07 晚上：P5-35～P5-40、paddock ctl
@@ -20,6 +20,7 @@
 - **P5-38** 标签名不被截短：挤时留能分辨的那段、从中间省略，再挤收进“+N”菜单，当前标签始终可见。
 - **P5-39a～d paddock ctl**（照搬 saddle ctl，另加 `browse`）：a 传输层和命令行、`install-skills`（Codex 交叉审查两轮）；b 界面端 inspect／open／close／browse、调用者定位、shell 注入身份、busy（交叉审查两轮）；c 技能正文；d 急修——用户退出后 paddock 打不开（WebKit 先建了 0755 的 `$TMPDIR/paddock`，ctl 要 0700 而拒绝，又因 ctl 失败退出整个程序），改用专用 `paddock-ctl` 目录，ctl 起不来时照常启动、左下角提示。
 - **P5-40** 四套深色主题（Catppuccin Mocha、Tokyo Night、Rosé Pine、Kanagawa），设置里主题选择改成带色块的列表。
+- **P5-41**（主控自己做）左侧栏卡片头像：自带底色的原图（Claude、Codex、omp）铺满 34pt 头像，不自带底色的（pi）保留底块、放大到 24pt；按“不透明占比＋接近正方形”自动判断。右下角状态不动；窄条、Kanban、标签栏不动（用户选）。
 - DESIGN 顺带记了两笔：浅色主题暂不做；组件库（gpui-component、Ely）暂不引入（用户 10-07）。
 
 ## 10-07 下午到晚上：agent 暂停、格子图改版
@@ -39,7 +40,7 @@
 ## 下一步（按优先级）
 
 0. **（用户 10-07 定：明天做）cairn 集成**。cairn 方案在 `../cairn/docs/调研/与paddock结合.md`，`cairn/main` 10-07 又补了 9 处约束（show／list 会写库要少调用、Dock 启动拿不到 shell 环境要配路径并核对库路径、`show --json` 的 `text` 是注入全文不能直接显示、JSON 未定成公开约定且会变、worktree 删后要 `list --all` 找、不能把记录再发给 agent 等）。主控评估：能接（同 corral 的“命令＋JSON”接法），但先要 cairn 试点安装、把 JSON 定成公开约定（最好加只读开关）；paddock 侧之后一件活：配置 cairn 路径和状态检查＋右侧栏只读“接续”面板（含“在这个仓库启用”）＋ New Agent“关闭 cairn”；不做把“待用户决定”接进 Needs you、不做格子图数据源。安装风险（已告诉用户）：不写仓库（库在 `~/.local/state/cairn`，adopt 只写库，git 命令只读带 `--no-optional-locks`），但改全局 `~/.claude/settings.json`、`~/.codex/hooks.json`；启用的仓库里每轮结尾可能多续跑一轮去保存，**可能盖掉派活约定的 DONE 回复**（未实测），所以建议派出去的 agent 默认 `CAIRN_DISABLE=1`、先不在 paddock／ranch 启用。建议试法：只装 claude、只在一个不要紧的仓库 adopt。**待用户定**：何时试点、是否经用户向 cairn 提 JSON 约定＋只读开关的需求、派出去的 agent 是否默认关 cairn。
-1. **用户在真窗口里试 10-07 晚上这批**：拖缝调大小和双击；⌘Z／⇧⌘Z 和输入法；New Agent 新对话框（点选项、⌘↩、预设增删）；标签“+N”菜单和悬停全名；四套新主题（Rosé Pine 光标偏暗，看前台实心光标是否够显眼）；ctl 的 busy（Browser／Kanban 确认时）、`--focus` 的键盘去向、`--attach` 启动。**P5-36c 待用户定**（不挡合并）：加宽五列悬停时卡片变高一行、下面的卡片下移，还是平时就给每张卡片留出按钮那一行。
+1. **用户在真窗口里试 10-07 晚上这批**（app 已重装，重启 paddock 生效）：卡片头像新样子（P5-41）；拖缝调大小和双击；⌘Z／⇧⌘Z 和输入法；New Agent 新对话框（点选项、⌘↩、预设增删）；标签“+N”菜单和悬停全名；四套新主题（Rosé Pine 光标偏暗，看前台实心光标是否够显眼）；ctl 的 busy（Browser／Kanban 确认时）、`--focus` 的键盘去向、`--attach` 启动。**P5-36c 待用户定**（不挡合并）：加宽五列悬停时卡片变高一行、下面的卡片下移，还是平时就给每张卡片留出按钮那一行。
 2. **用户看格子图新样子**（扫光、白热光晕、呼吸；数据多了 saddle、global-mesh 后应更满）。
 3. **用户试一键暂停**（铃铛左边 ⏸）、确认框（agent 干活时点 Pause）和悬停动效。一键会冻住包括主控在内的全部 agent，要用户点 ▶ 恢复。有问题先修。
 4. **用户实测 P5-28c、P5-28d**（用户 10-07：“我打算用到再测试”）：P5-28d 点一下 Browser 的 ×；P5-28c 照 `docs/任务/P5-28c-Browser网页策略与查找.md` 完成记录末尾 8 条清单（第 1 条本地地址最要紧）。
