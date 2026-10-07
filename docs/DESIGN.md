@@ -24,7 +24,7 @@ paddock 与 Saddle 在代码上完全分开：用到的 Saddle 代码迁入 padd
 | **paddock 要能单独分发**（别人不装 Saddle 也能用）：分发前把 corral 运行时及所需插件迁入 paddock、随 paddock 打包 | 用户 10-05：“要”（问：将来是否要让 paddock 能单独分发）。细节见 §3、§6 |
 | **全局只能一份的运行时**：不再两边各留一份。顺序见 §3“步骤”。（归属原定 paddock，已由下面“独立成库 ranch”取代） | 用户 10-05：“saddle现在的corral或者drover这种全局只能有一个的。移到paddock中，之后saddle使用paddock的”，“分四步走”，“drover最后再搬”。细节见 §3 |
 | **dispatch 迁完就全部转到 paddock 开发**；Drover 在全部切换完成后才迁，在那之前不用任务流程，口头布置、主控拆分委派 | 用户 10-05：“等dispatch迁移进去之后，我就打算全部在paddock中开发我的项目了。saddle就会退出”；“drover在全部切换完成前，不会迁移，我暂时不会使用任务workflow。而是口头布置任务，主控拆任务委派。” |
-| **Saddle 不放弃，定位为保底版**（改了上一条的“Saddle 退出”）：不再给 Saddle 加新功能，只保证它和运行时对得上、不会坏；paddock 改 corral、遥测、dispatch 时优先兼容，不兼容时写需求给 Saddle 适配；Drover 迁走后 Saddle 没有任务界面，新插件、新功能只在 paddock 里有 | 用户 10-05：“saddle我暂时不放弃。遥测，dispatch也一样。”对保底版的定位：“我倒是同意这个”。细节见 §3 |
+| **Saddle 不放弃，定位为保底版**（改了上一条的“Saddle 退出”）：不再给 Saddle 加新功能，只保证它和运行时对得上、不会坏；paddock 改 corral、遥测、dispatch 时优先兼容，不兼容时写需求给 Saddle 适配；（用户 10-07 放松：Saddle 基本不用了，改运行时不再写对 Saddle 的影响，也不再写需求让 Saddle 适配，见 §3“Saddle 保底”）Drover 迁走后 Saddle 没有任务界面，新插件、新功能只在 paddock 里有 | 用户 10-05：“saddle我暂时不放弃。遥测，dispatch也一样。”对保底版的定位：“我倒是同意这个”。细节见 §3 |
 | **运行时独立成库 ranch，Saddle 和 paddock 都只是前端**（方案 3；改了“归 paddock”）：corral、遥测、dispatch 及插件协议放进新建的 ranch 仓库，由 paddock 主控兼管；两个前端只调用 ranch 装好的命令。前期由 paddock 负责把 corral 做到 Saddle 和 paddock 都能用。先把 corral 从 Saddle 拉出去，直到 Saddle 能和新的 corral 一起工作，再转回 paddock 开发。ranch 建 GitHub 公开仓库，不加许可证 | 用户 10-05：“其实我还是想，两个版本都保留。我其实能够接受corral/dispatch独立出来一个。然后saddle和paddock都依赖这个repo。”“选方案3，新建仓库，paddock主控兼管，名字你来选一个合适的。paddock前期负责把corral做到saddle和paddock都能用的地步。”“先把corral从saddle中拉出去，直到saddle能够和新的corral一块工作（打到现在的状态），咱们再转过头开发paddock。”“ranch建公开远程仓库。不加许可证。”细节见 §3 |
 | **要有插件系统**（已取消，见下面“砍掉遥测、Drover、插件系统”）；插件界面走“乙”：进程、命令、生命周期沿用 Saddle 的插件协议，界面由插件描述、paddock 用 GPUI 原生画 | 用户 10-05：“还是做插件系统吧。这是一个应用的必备。”“按乙”。细节见 §3 |
 | **不依赖 ratatui**（含插件 SDK 和仓库里维护的插件） | 用户 10-05：“不能依赖ratatui”。细节见 §4 |
@@ -63,6 +63,7 @@ paddock 与 Saddle 在代码上完全分开：用到的 Saddle 代码迁入 padd
     8. ~~**Drover**~~（已取消，用户 10-05 砍掉 Drover）：全部切换完成后才迁（用户 10-05）；在那之前用户不用任务流程，口头布置任务、由主控拆分委派。它的界面用 ratatui 写，按“不依赖 ratatui”必须重写，成为新插件界面的第一个用户。数据核心怎么放未定，到这一步给用户看方案：A 整个仍是插件，移到 ranch 或 paddock 维护；B 拆出数据与派发核心、对外提供接口，界面原生；C 仍是插件但只提供数据、界面由 paddock 画。
 - **搬迁完成前的兼容规矩**：在遥测、dispatch 等完成搬迁之前（corral 已于 10-05 搬到 ranch），正式的一份仍在 Saddle，paddock 照公开命令调用，不改它们的格式。
 - **Saddle 保底**（用户 10-05）：Saddle（TUI）不放弃，留作退路（GPUI 仍是 pre-1.0；只有终端、经 SSH 的环境）。不再给它加新功能，只保证它和运行时对得上。
+  - **10-07 放松**（用户：“saddle我基本不用了”“保底规矩放松吧，Saddle 不用再写影响了”）：Saddle 仍留作保底版、不加新功能，但改 ranch 时不再写对 Saddle 的影响、不再问 Saddle 跟不跟、不再写需求让 Saddle 适配，只写对 paddock 的影响（ranch DESIGN §2、AGENTS.md 同步改了，ranch `240b045`）。下面两条是 10-05 的原规矩，以这条为准。
   - Saddle 和 paddock 用的是 ranch 装好的同一份运行时。Saddle 改完之前（它默认用自己打包的 corral，插件也是），会有新旧两份 corral 同时操作同一批 agent（`~/.corral` 共用），这段时间兼容要双向：ranch 的 corral 开的 agent，Saddle 那份能看、能接入、能停，反过来也一样。
   - 改 ranch 时，任务文件写明对两个前端的影响：只改内部实现的，前端不用动；公开约定有兼容的新增，写说明交用户决定 Saddle 跟不跟；不兼容的先尽量改成兼容，做不到就先写好 Saddle 怎么适配，交用户/Saddle 主控，定好次序再合并 ranch。Saddle 的适配在 Saddle 自己的流程里做，paddock 主控不改 Saddle 代码。
   - 事先接受：Drover 迁走后 Saddle 没有任务界面；新插件、新功能只在 paddock 里有。
