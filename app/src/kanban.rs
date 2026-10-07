@@ -2,8 +2,9 @@
 //! repository's main is a card, and where it stands is read from Git and corral, never stored
 //! (DESIGN §13 P5-29). Git is read in the background with read-only commands (`read`); the agents
 //! come from the left sidebar's listing (`Seen`); `board` puts the two together. Nothing here
-//! acts on an agent, and the only file written is a new draft (`create_draft`), never one that is
-//! there already.
+//! acts on an agent. Two things write: a new draft (`create_draft`), never over a file that is
+//! there, and taking a `待用户：` line out of a task file on main with a commit of that file alone
+//! (`clear_asks`).
 use crate::{agents::Status, card, git};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -905,6 +906,189 @@ pub fn create_draft(
     Ok(path)
 }
 
+/// Where the `待用户：` line at the head of a task file is, as [`parse`] finds it: its bytes with
+/// the line's end, and the line as written, without it.
+pub fn asks_line(text: &str) -> Option<(std::ops::Range<usize>, &str)> {
+    let (mut at, mut titled, mut section) = (0, false, "");
+    for raw in text.split_inclusive('\n') {
+        let start = at;
+        at += raw.len();
+        let line = raw.trim_end();
+        if !titled && line.starts_with("# ") {
+            titled = true;
+            continue;
+        }
+        if let Some(name) = line.strip_prefix("## ") {
+            section = name.trim();
+            continue;
+        }
+        if section.is_empty() && (line.starts_with("待用户：") || line.starts_with("待用户:"))
+        {
+            let written = raw.strip_suffix('\n').unwrap_or(raw);
+            return Some((start..at, written.strip_suffix('\r').unwrap_or(written)));
+        }
+    }
+    None
+}
+
+/// Why `待用户：` was not cleared.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum NotCleared {
+    /// The main worktree has another branch out, or none.
+    NotMain(Option<String>),
+    /// A merge, rebase, cherry-pick or revert is in progress there.
+    Busy(&'static str),
+    /// The task file has changes not committed, staged or not.
+    Changed(String),
+    /// Main's task file no longer has the line.
+    Gone(String),
+    NoGit,
+    Write(String),
+    Commit(String),
+}
+
+impl std::fmt::Display for NotCleared {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            NotCleared::NotMain(Some(branch)) => {
+                write!(f, "The main worktree is on {branch}, not {MAIN}")
+            }
+            NotCleared::NotMain(None) => write!(f, "The main worktree isn't on {MAIN}"),
+            NotCleared::Busy(what) => write!(f, "A {what} is in progress in the main worktree"),
+            NotCleared::Changed(file) => write!(f, "{file} has uncommitted changes"),
+            NotCleared::Gone(file) => write!(f, "{file} on {MAIN} no longer has the line"),
+            NotCleared::NoGit => write!(f, "Git couldn't be read, so nothing was changed"),
+            NotCleared::Write(why) => write!(f, "Couldn't write the file: {why}"),
+            NotCleared::Commit(why) => write!(f, "Couldn't commit: {why}"),
+        }
+    }
+}
+
+/// Clears what the user was waited on for: in the main worktree `repo`, on main, takes the
+/// `待用户：` line saying `asks` out of the task file `file` and commits that file alone (`<id>：用户
+/// 已处理 待用户`, the line as the message's body), leaving whatever else is staged staged. Never
+/// pushes. Refused, with nothing changed, off main, while a merge, rebase, cherry-pick or revert is
+/// in progress, when the file has changes of its own, when main's file no longer has that line, or
+/// when Git fails; the file is put back as it was when the commit fails.
+pub fn clear_asks(
+    program: &str,
+    repo: &Path,
+    file: &str,
+    asks: &str,
+    cancel: &AtomicBool,
+) -> Result<(), NotCleared> {
+    let run = |args: &[&str]| git::git(program, repo, args, cancel).ok_or(NotCleared::NoGit);
+    let path = format!("{TASKS}/{file}");
+    let head = run(&["symbolic-ref", "--quiet", "--short", "HEAD"])?;
+    let branch = String::from_utf8_lossy(&head.stdout).trim_end().to_owned();
+    if !head.status.success() {
+        return Err(match head.status.code() {
+            Some(1) => NotCleared::NotMain(None),
+            _ => NotCleared::NoGit,
+        });
+    }
+    if branch != MAIN {
+        return Err(NotCleared::NotMain(Some(branch)));
+    }
+    let busy = [
+        ("MERGE_HEAD", "merge"),
+        ("rebase-merge", "rebase"),
+        ("rebase-apply", "rebase"),
+        ("CHERRY_PICK_HEAD", "cherry-pick"),
+        ("REVERT_HEAD", "revert"),
+    ];
+    let mut args = vec!["rev-parse", "--path-format=absolute"];
+    for (name, _) in busy {
+        args.extend(["--git-path", name]);
+    }
+    let paths = run(&args)?;
+    if !paths.status.success() {
+        return Err(NotCleared::NoGit);
+    }
+    let paths = String::from_utf8_lossy(&paths.stdout).into_owned();
+    if let Some((_, what)) = paths
+        .lines()
+        .zip(busy)
+        .map(|(at, (_, what))| (at, what))
+        .find(|(at, _)| Path::new(at).exists())
+    {
+        return Err(NotCleared::Busy(what));
+    }
+    let tree = run(&["ls-tree", "-z", "--name-only", "HEAD", "--", &path])?;
+    if !tree.status.success() {
+        return Err(NotCleared::NoGit);
+    }
+    if tree.stdout.is_empty() {
+        return Err(NotCleared::Gone(path));
+    }
+    let status = run(&[
+        "status",
+        "--porcelain=v1",
+        "-z",
+        "--untracked-files=no",
+        "--",
+        &path,
+    ])?;
+    if !status.status.success() {
+        return Err(NotCleared::NoGit);
+    }
+    if !status.stdout.is_empty() {
+        return Err(NotCleared::Changed(path));
+    }
+    let on_disk = repo.join(&path);
+    let before = std::fs::read(&on_disk).map_err(|e| NotCleared::Write(e.to_string()))?;
+    let text = std::str::from_utf8(&before).map_err(|_| NotCleared::Gone(path.clone()))?;
+    let Some((range, line)) = asks_line(text).filter(|(_, line)| {
+        let rest = line
+            .strip_prefix("待用户：")
+            .or_else(|| line.strip_prefix("待用户:"));
+        rest.map(str::trim) == Some(asks.trim())
+    }) else {
+        return Err(NotCleared::Gone(path));
+    };
+    let mut after = before[..range.start].to_vec();
+    after.extend_from_slice(&before[range.end..]);
+    std::fs::write(&on_disk, &after).map_err(|e| NotCleared::Write(e.to_string()))?;
+    let id = task_id(file).unwrap_or_default();
+    let subject = format!("{id}：用户已处理 待用户");
+    let committed = git::git_write(
+        program,
+        repo,
+        &[
+            "commit",
+            "--quiet",
+            "--only",
+            "--cleanup=verbatim",
+            "-m",
+            &subject,
+            "-m",
+            line,
+            "--",
+            &path,
+        ],
+        cancel,
+    );
+    match committed {
+        Some(out) if out.status.success() => Ok(()),
+        failed => {
+            // Put back what was there; the commit did not happen.
+            let _ = std::fs::write(&on_disk, &before);
+            let why = failed.map_or_else(
+                || "Git couldn't be run".to_owned(),
+                |out| {
+                    let err = String::from_utf8_lossy(&out.stderr);
+                    err.lines()
+                        .map(str::trim)
+                        .find(|l| !l.is_empty())
+                        .unwrap_or("Git failed")
+                        .to_owned()
+                },
+            );
+            Err(NotCleared::Commit(why))
+        }
+    }
+}
+
 /// An agent as the left sidebar lists it, as far as the board needs.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Seen {
@@ -1037,6 +1221,14 @@ pub struct Card {
     pub dropped: Option<String>,
     /// When it last moved, for ordering.
     time: i64,
+}
+
+impl Card {
+    /// The user can clear it: it needs them because its task file on main says so, not only
+    /// because its agent is waiting.
+    pub fn clearable(&self) -> bool {
+        self.asks.is_some() && !self.draft
+    }
 }
 
 /// The words for lines added and deleted: a side with none is left out, never `+0` or `−0`.
@@ -1298,6 +1490,33 @@ mod tests {
         let quoted = "# 任务：x\n依据：y\n\n## 完成记录\n待用户：只是举例\n";
         assert_eq!(parse("P5-2-x.md", quoted).unwrap().asks, None);
         assert_eq!(parse("P5-2-x.md", "# 任务：x\n").unwrap().asks, None);
+    }
+
+    #[test]
+    fn the_line_to_clear_is_the_one_parse_reads() {
+        let head = "# 任务：x\n\n依据：y\n待用户：实测\n待用户：第二行\n\n## 要做的\n";
+        let (range, line) = asks_line(head).unwrap();
+        assert_eq!(&head[range], "待用户：实测\n");
+        assert_eq!(line, "待用户：实测");
+        // Its end goes with it, whichever it is; the last line may have none.
+        let crlf = "# 任务：x\r\n待用户: 回答 Q1  \r\n依据：y\r\n";
+        let (range, line) = asks_line(crlf).unwrap();
+        assert_eq!(&crlf[range], "待用户: 回答 Q1  \r\n");
+        assert_eq!(line, "待用户: 回答 Q1  ");
+        let last = "# 任务：x\n待用户：最后";
+        assert_eq!(
+            asks_line(last),
+            Some((last.find('待').unwrap()..last.len(), "待用户：最后"))
+        );
+        // None where parse finds none: in a section, or not at a line's start.
+        for text in [
+            "# 任务：x\n## 完成记录\n待用户：只是举例\n",
+            "# 任务：x\n 待用户：缩进\n",
+            "# 任务：x\n",
+        ] {
+            assert_eq!(asks_line(text), None, "{text}");
+            assert_eq!(parse("P5-2-x.md", text).unwrap().asks, None, "{text}");
+        }
     }
 
     #[test]

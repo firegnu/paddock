@@ -49,3 +49,12 @@
 
 ## 做完
 在本文件末尾追加「## 完成记录」（在你的分支里提交）：做了什么、验证了什么、拿主意的地方、没做的事，各几句话。回复里只写这几样，加上截图路径和有没有要主控决定的事。命令都在前台跑完，全部做完后，回复最后一行写 DONE。
+
+## 完成记录
+
+- **做了什么**：`kanban.rs` 加 `asks_line`（找到开头那行 `待用户：`，和 `parse` 的认法一致，连行尾一起）、`Card::clearable`（只有任务文件里有 `待用户：` 的卡片才算，草稿和只因 agent `Waiting` 的不算）、`clear_asks`（在主仓库工作区里删掉这一行，`git commit --only -- <这份文件>`，首行 `<编号>：用户已处理 待用户`，正文照抄删掉的那行；不推送）。`git.rs` 只加了 `git_write`：和 `git` 选项一样（去掉继承的 `GIT_*`、关 fsmonitor），超时 30 秒，因为提交会跑仓库的钩子。`kanban_view.rs`：悬停按钮条多一个 ✓（悬停提示 `Clear “Needs you”`），点了卡片下方就地出现 `Clear “Needs you”? Commits to main.` 加 Cancel／Clear；确认后在后台做，做的时候显示 `Clearing…`，按钮不再出现；成功后取消进行中的读取、马上重读，卡片上的 Needs you 和顶部摘要数字随之消失；不提交时这一行换成红字 `Not cleared: <原因>`。鼠标移开收回问句和原因。窄面板和加宽五列共用同一段代码。`window.rs` 没改。
+- **不提交的情况**（都是什么都不改）：主仓库当前分支不是 main（或者 HEAD 游离）；有 `MERGE_HEAD`、`rebase-merge`、`rebase-apply`、`CHERRY_PICK_HEAD`、`REVERT_HEAD`；`git status -- <这份文件>` 有输出（工作区或暂存区里有改动）；main 上没有这份文件、文件里已经没有这一行，或者那一行和卡片上显示的不一样；读写文件或 git 失败。提交失败时把文件原样写回。
+- **验证**：`tests/kanban.rs` 新增三个测试，在临时仓库里跑（仓库自己的配置固定了 user、`commit.gpgsign=false`、空的 `core.hooksPath`，因为提交时不继承测试的环境）：正常清掉（只删那一行、引用在小节里的同一行和行尾空格都不动，HEAD 只多一条提交且只含这份文件，存下的提交说明逐字节核对，别的已暂存文件仍暂存且没进提交，未暂存的改动还在，读回来的看板 `need_you()==0`；再清一次说那一行已不在、HEAD 不变）；不在 main（另一个分支、HEAD 游离）；冲突停下的合并；这份文件有未暂存、已暂存的改动；那一行已不在、内容对不上；`index.lock` 被占（提交失败，文件原样写回）；agent `Waiting` 的卡片 needs_you 但不 clearable。`kanban.rs` 单元测试加 `asks_line` 和 `parse` 一致（CRLF、最后一行没换行、小节里的、缩进的）。在 `app/` 下跑了 `cargo test --all-targets`（全过）、`cargo clippy --all-targets -- -D warnings`、`cargo fmt --check`，都过。
+- **截图**：release 程序，`PADDOCK_NO_ACTIVATE=1`、临时 HOME／`CFFIXED_USER_HOME`／`XDG_STATE_HOME`／`XDG_CONFIG_HOME`、假 corral（sh 脚本，`ls` 返回空列表）、预写的布局（右侧栏开在 Kanban、宽 400），临时仓库三件活（一件 IN PROGRESS 带 `待用户：`）。悬停截不到，临时加了一个只在截图时用的环境变量开关（`PADDOCK_SHOT_CLEAR`，让第一张可清的卡片显示成悬停并且在问），截完已撤掉，没有提交。只截自己的窗口（`GPUI_TERM_WINDOW_ID=1`），截完按记下的 PID 停掉。我看过：按钮条里有 ✓，卡片下方是问句和 Cancel／Clear。第一张截出来时窄面板里的两个按钮在换行时被拆开了，改成两个按钮放在一组里一起换行，重截确认。加宽五列那张没截成：布局里侧栏宽 400，达不到五列并排的阈值。
+- **拿主意的地方**：按钮图标用现有的 ✓（`Icon::Check`），不新增图标；确认按钮用 Needs you 标记同一套黄色（主题里已有的 `agents_yellow`），没加颜色键。卡片上显示的那句和 main 上的那行要对得上才删，免得删掉用户没看见的新内容。提交照常跑仓库的钩子和签名配置（没加 `--no-verify`），所以超时放到 30 秒。原因显示到鼠标离开卡片为止。
+- **没做的事**：真实点击、确认、取消、鼠标移开收回、后台做的时候按钮消失，都没有实际操作过，留给用户实际用。加宽五列没截图。实现是先写的，测试后写，测试没有先跑出失败。

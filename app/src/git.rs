@@ -231,6 +231,30 @@ pub(crate) fn git_bounded(
     )
 }
 
+/// How long a command that writes, such as a commit running the repository's hooks, may take.
+const WRITE_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Like [`git`], with the same options, for a command that writes: it may take longer.
+pub(crate) fn git_write(
+    program: &str,
+    dir: &Path,
+    args: &[&str],
+    cancel: &AtomicBool,
+) -> Option<Output> {
+    let mut full = vec![
+        "--no-lazy-fetch",
+        "--no-optional-locks",
+        "-c",
+        "core.fsmonitor=false",
+    ];
+    full.extend(args);
+    let inherited: Vec<OsString> = std::env::vars_os()
+        .map(|(name, _)| name)
+        .filter(|name| name.as_encoded_bytes().starts_with(b"GIT_"))
+        .collect();
+    run_without_env(program, &full, Some(dir), &inherited, WRITE_TIMEOUT, cancel).ok()
+}
+
 /// The `-c` overrides that block every configured filter driver for the worktree at `top`, as the
 /// summaries do; `None` when the drivers cannot be listed.
 pub(crate) fn filter_overrides(
