@@ -10,6 +10,9 @@ use std::{
     path::{Path, PathBuf},
 };
 
+#[path = "skills_files.rs"]
+mod files;
+
 const BODY: &str = include_str!("../resources/skills/paddock/SKILL.md");
 const MARKER: &str = "<!-- paddock-skill:";
 
@@ -117,14 +120,24 @@ fn run_at(
     options: &Options,
     confirm: impl FnOnce(&Value) -> Result<bool>,
 ) -> Result<Value> {
+    run_at_with(home, options, confirm, |_| Ok(()))
+}
+fn run_at_with(
+    home: &Path,
+    options: &Options,
+    confirm: impl FnOnce(&Value) -> Result<bool>,
+    mut before_publish: impl FnMut(&Path) -> Result<()>,
+) -> Result<Value> {
     anyhow::ensure!(
         home.is_absolute() && home.is_dir(),
         "HOME must be an existing absolute directory"
     );
     let mut items = Vec::new();
     let mut warnings = Vec::new();
+    let mut snapshots = Vec::new();
     for (agent, base) in [("claude", ".claude"), ("codex", ".agents")] {
         let path = home.join(base).join("skills/paddock/SKILL.md");
+        snapshots.push(files::Snapshot::capture(home, &path)?);
         let state = status(&path, home, options.remove)?;
         if state == "foreign" {
             warnings.push(format!(
@@ -138,7 +151,8 @@ fn run_at(
         "dry_run":options.dry,"written":false,"items":items,"warnings":warnings});
     let todo: Vec<_> = items
         .iter()
-        .filter(|i| {
+        .zip(&snapshots)
+        .filter(|(i, _)| {
             matches!(
                 i["status"].as_str(),
                 Some("create" | "overwrite" | "remove")
@@ -153,29 +167,14 @@ fn run_at(
         result["error"] = json!({"code":"confirmation_required","message":"nothing written; confirm interactively or pass --yes"});
         return Ok(result);
     }
-    for item in todo {
+    for (item, snapshot) in todo {
         let path = PathBuf::from(item["path"].as_str().unwrap());
-        // Recheck after confirmation, which can leave the plan open arbitrarily long.
         anyhow::ensure!(
             status(&path, home, options.remove)? == item["status"].as_str().unwrap(),
             "skill changed after planning; rerun install-skills"
         );
-        if options.remove {
-            fs::remove_file(&path)?;
-            let _ = fs::remove_dir(path.parent().unwrap());
-        } else {
-            let parent = path.parent().unwrap();
-            fs::create_dir_all(parent)?;
-            anyhow::ensure!(!linked(&path, home)?, "skill path became a symlink");
-            let temp = parent.join(format!(".paddock-skill-{}", crate::control::random_id()?));
-            let mut file = fs::OpenOptions::new()
-                .create_new(true)
-                .write(true)
-                .open(&temp)?;
-            file.write_all(BODY.as_bytes())?;
-            file.sync_all()?;
-            fs::rename(temp, path)?;
-        }
+        files::apply(home, &path, snapshot, options.remove, &mut before_publish)
+            .with_context(|| format!("refused skill change: {}", path.display()))?;
     }
     result["written"] = json!(true);
     Ok(result)
@@ -282,5 +281,112 @@ mod tests {
         );
         assert!(changed.is_err());
         assert_eq!(fs::read_to_string(&other).unwrap(), "new user content");
+    }
+    #[test]
+    fn target_created_after_final_check_is_preserved() {
+        let home = home();
+        let path = home.join(".claude/skills/paddock/SKILL.md");
+        let result = run_at_with(
+            &home,
+            &Options::default(),
+            |_| Ok(true),
+            |target| {
+                fs::write(target, "FOREIGN AFTER FINAL CHECK")?;
+                Ok(())
+            },
+        );
+        assert!(
+            result.is_err(),
+            "must report the new target instead of overwriting it"
+        );
+        assert_eq!(
+            fs::read_to_string(path).unwrap(),
+            "FOREIGN AFTER FINAL CHECK"
+        );
+    }
+    #[test]
+    fn update_and_remove_refuse_files_swapped_after_final_check() {
+        for remove in [false, true] {
+            let home = home();
+            let path = home.join(".claude/skills/paddock/SKILL.md");
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(&path, format!("{MARKER} old -->\nold skill")).unwrap();
+            let result = run_at_with(
+                &home,
+                &Options {
+                    remove,
+                    ..Default::default()
+                },
+                |_| Ok(true),
+                |target| {
+                    fs::rename(target, target.with_extension("old"))?;
+                    fs::write(target, "FOREIGN REPLACEMENT")?;
+                    Ok(())
+                },
+            );
+            assert!(result.is_err());
+            assert_eq!(fs::read_to_string(&path).unwrap(), "FOREIGN REPLACEMENT");
+            assert!(
+                fs::read_to_string(path.with_extension("old"))
+                    .unwrap()
+                    .contains("old skill")
+            );
+        }
+    }
+    #[test]
+    fn parent_swap_after_final_check_does_not_touch_replacement_directory() {
+        for remove in [false, true] {
+            let home = home();
+            let parent = home.join(".claude/skills/paddock");
+            fs::create_dir_all(&parent).unwrap();
+            fs::write(
+                parent.join("SKILL.md"),
+                format!("{MARKER} old -->\nold skill"),
+            )
+            .unwrap();
+            let result = run_at_with(
+                &home,
+                &Options {
+                    remove,
+                    ..Default::default()
+                },
+                |_| Ok(true),
+                |target| {
+                    let directory = target.parent().unwrap();
+                    fs::rename(directory, directory.with_extension("saved"))?;
+                    fs::create_dir(directory)?;
+                    fs::write(target, "FOREIGN DIRECTORY")?;
+                    Ok(())
+                },
+            );
+            assert!(result.is_err());
+            assert_eq!(
+                fs::read_to_string(parent.join("SKILL.md")).unwrap(),
+                "FOREIGN DIRECTORY"
+            );
+            assert!(
+                fs::read_to_string(parent.with_extension("saved").join("SKILL.md"))
+                    .unwrap()
+                    .contains("old skill")
+            );
+        }
+    }
+    #[test]
+    fn replaced_owned_file_during_confirmation_is_not_approved_by_marker_alone() {
+        let home = home();
+        let path = home.join(".claude/skills/paddock/SKILL.md");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, format!("{MARKER} old -->\nold skill")).unwrap();
+        let result = run_at(&home, &Options::default(), |_| {
+            fs::rename(&path, path.with_extension("saved"))?;
+            fs::write(&path, format!("{MARKER} other -->\nother owned file"))?;
+            Ok(true)
+        });
+        assert!(result.is_err());
+        assert!(
+            fs::read_to_string(path)
+                .unwrap()
+                .contains("other owned file")
+        );
     }
 }

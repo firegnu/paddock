@@ -5,10 +5,12 @@ use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{
+    ffi::CString,
     fs,
     io::{Read, Write},
+    os::fd::AsRawFd,
     os::unix::{
-        fs::{DirBuilderExt, MetadataExt, PermissionsExt},
+        fs::{DirBuilderExt, MetadataExt, OpenOptionsExt},
         net::{UnixListener, UnixStream},
     },
     path::PathBuf,
@@ -20,6 +22,9 @@ use std::{
     thread,
     time::{Duration, Instant},
 };
+
+#[cfg(test)]
+use std::os::unix::fs::PermissionsExt;
 
 #[path = "control_cli.rs"]
 mod cli;
@@ -155,14 +160,88 @@ fn private_directory(metadata: &fs::Metadata) -> Result<()> {
     );
     Ok(())
 }
-fn prepare_runtime(dir: &std::path::Path) -> Result<()> {
+fn trusted_parent(dir: &std::path::Path) -> Result<PathBuf> {
     anyhow::ensure!(dir.is_absolute(), "runtime directory must be absolute");
-    match fs::DirBuilder::new().mode(0o700).create(dir) {
+    let parent = dir
+        .parent()
+        .context("runtime directory needs a parent")?
+        .canonicalize()?;
+    for path in parent.ancestors() {
+        let metadata = fs::symlink_metadata(path)?;
+        anyhow::ensure!(
+            metadata.is_dir()
+                && (metadata.uid() == 0 || metadata.uid() == unsafe { libc::geteuid() })
+                && (metadata.mode() & 0o022 == 0 || metadata.mode() & 0o1000 != 0),
+            "untrusted runtime ancestor: {} (require root/current owner and no other writers, or sticky)",
+            path.display()
+        );
+    }
+    Ok(parent.join(dir.file_name().context("runtime directory needs a name")?))
+}
+fn prepare_runtime(dir: &std::path::Path) -> Result<PathBuf> {
+    let dir = trusted_parent(dir)?;
+    match fs::DirBuilder::new().mode(0o700).create(&dir) {
         Ok(()) => {}
         Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
         Err(e) => return Err(e.into()),
     }
-    private_directory(&fs::symlink_metadata(dir)?)
+    private_directory(&fs::symlink_metadata(&dir)?)?;
+    Ok(dir)
+}
+/// Keep the checked directory open so chmod/cleanup cannot follow a replacement
+/// ancestor into another directory. Ancestor policy protects against other UIDs;
+/// identity checks also reject replacements by our own UID during bind/connect.
+struct RuntimeDirectory {
+    path: PathBuf,
+    file: fs::File,
+}
+impl RuntimeDirectory {
+    fn open(dir: &std::path::Path) -> Result<Self> {
+        let path = trusted_parent(dir)?;
+        let file = fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
+            .open(&path)?;
+        private_directory(&file.metadata()?)?;
+        let directory = Self { path, file };
+        directory.check()?;
+        Ok(directory)
+    }
+    fn check(&self) -> Result<()> {
+        anyhow::ensure!(
+            trusted_parent(&self.path)? == self.path,
+            "runtime ancestor changed"
+        );
+        let current = fs::symlink_metadata(&self.path)?;
+        private_directory(&current)?;
+        let original = self.file.metadata()?;
+        anyhow::ensure!(
+            (current.dev(), current.ino()) == (original.dev(), original.ino()),
+            "runtime directory identity changed"
+        );
+        Ok(())
+    }
+    fn unlink(&self, name: &str) {
+        if let Ok(name) = CString::new(name) {
+            unsafe {
+                libc::unlinkat(self.file.as_raw_fd(), name.as_ptr(), 0);
+            }
+        }
+    }
+}
+
+fn check_peer(stream: &UnixStream, expected_uid: libc::uid_t) -> Result<()> {
+    let (mut uid, mut gid) = (0, 0);
+    anyhow::ensure!(
+        unsafe { libc::getpeereid(stream.as_raw_fd(), &mut uid, &mut gid) } == 0,
+        "cannot read control peer credentials: {}",
+        std::io::Error::last_os_error()
+    );
+    anyhow::ensure!(
+        uid == expected_uid,
+        "control peer UID does not match current user"
+    );
+    Ok(())
 }
 
 #[cfg(test)]
@@ -242,6 +321,9 @@ fn write_json(stream: &mut UnixStream, value: &impl Serialize) -> Result<()> {
     Ok(())
 }
 fn connect(path: &std::path::Path) -> Result<UnixStream> {
+    connect_as(path, unsafe { libc::geteuid() })
+}
+fn connect_as(path: &std::path::Path, expected_uid: libc::uid_t) -> Result<UnixStream> {
     use std::os::fd::{AsRawFd, FromRawFd};
     // Nonblocking connect also bounds a full Unix listen backlog.
     let fd = unsafe { libc::socket(libc::AF_UNIX, libc::SOCK_STREAM, 0) };
@@ -291,14 +373,22 @@ fn connect(path: &std::path::Path) -> Result<UnixStream> {
         }
     }
     stream.set_nonblocking(false)?;
+    check_peer(&stream, expected_uid)?;
     Ok(stream)
 }
 pub fn exchange(message: &Message) -> Result<Value> {
     exchange_in(&runtime_dir()?, message)
 }
 fn exchange_in(dir: &std::path::Path, message: &Message) -> Result<Value> {
-    private_directory(&fs::symlink_metadata(dir)?)?;
-    let path = socket_path(dir, &message.instance)?;
+    exchange_checked(dir, message, || {})
+}
+fn exchange_checked(
+    dir: &std::path::Path,
+    message: &Message,
+    before_connect: impl FnOnce(),
+) -> Result<Value> {
+    let directory = RuntimeDirectory::open(dir)?;
+    let path = socket_path(&directory.path, &message.instance)?;
     use std::os::unix::fs::FileTypeExt;
     let metadata = fs::symlink_metadata(&path)?;
     anyhow::ensure!(
@@ -307,8 +397,10 @@ fn exchange_in(dir: &std::path::Path, message: &Message) -> Result<Value> {
             && metadata.mode() & 0o7777 == 0o600,
         "socket must be owned by the current user and mode 0600"
     );
+    before_connect();
     let mut stream =
         connect(&path).context("instance unavailable (it may have exited or restarted)")?;
+    directory.check()?;
     write_json(&mut stream, message)?;
     read_json(&mut stream)
 }
@@ -316,15 +408,27 @@ pub fn instances(caller: &Caller) -> Result<Vec<Value>> {
     instances_in(&runtime_dir()?, caller)
 }
 fn instances_in(dir: &std::path::Path, caller: &Caller) -> Result<Vec<Value>> {
-    private_directory(&fs::symlink_metadata(dir)?)?;
+    let directory = RuntimeDirectory::open(dir)?;
+    let dir = &directory.path;
+    instances_from(
+        dir,
+        caller,
+        fs::read_dir(dir)?.map(|entry| entry.map(|e| e.path())),
+    )
+}
+fn instances_from(
+    dir: &std::path::Path,
+    caller: &Caller,
+    entries: impl IntoIterator<Item = std::io::Result<PathBuf>>,
+) -> Result<Vec<Value>> {
     let mut result = Vec::new();
     let deadline = Instant::now() + Duration::from_secs(3);
-    for entry in fs::read_dir(dir)?.take(256) {
+    for entry in entries {
         anyhow::ensure!(
             Instant::now() < deadline,
-            "instance discovery timed out; use an explicit --instance"
+            "instance discovery incomplete: timed out; use an explicit --instance"
         );
-        let path = entry?.path();
+        let path = entry?;
         if path.extension().is_none_or(|s| s != "sock") {
             continue;
         }
@@ -477,6 +581,7 @@ pub struct Server {
     incoming: Receiver<Incoming>,
     pub records: Records,
     path: PathBuf,
+    directory: RuntimeDirectory,
     stop: Arc<AtomicBool>,
     workers: Vec<thread::JoinHandle<()>>,
 }
@@ -485,15 +590,47 @@ impl Server {
         Self::start_in(&runtime_dir()?)
     }
     fn start_in(dir: &std::path::Path) -> Result<Self> {
-        prepare_runtime(dir)?;
+        Self::start_checked(dir, unsafe { libc::geteuid() }, || {})
+    }
+    fn start_checked(
+        dir: &std::path::Path,
+        peer_uid: libc::uid_t,
+        before_bind: impl FnOnce(),
+    ) -> Result<Self> {
+        let dir = prepare_runtime(dir)?;
+        let directory = RuntimeDirectory::open(&dir)?;
         let id = random_id()?;
-        let path = socket_path(dir, &id)?;
+        let path = socket_path(&directory.path, &id)?;
+        before_bind();
         let listener = UnixListener::bind(&path)?;
-        if let Err(e) = fs::set_permissions(&path, fs::Permissions::from_mode(0o600))
-            .and_then(|_| listener.set_nonblocking(true))
-        {
-            let _ = fs::remove_file(&path);
-            return Err(e.into());
+        // Do not chmod through the pathname: it may now name a different directory.
+        let name = CString::new(format!("{id}.sock"))?;
+        let ready = (|| -> Result<()> {
+            directory.check()?;
+            anyhow::ensure!(
+                unsafe {
+                    libc::fchmodat(
+                        directory.file.as_raw_fd(),
+                        name.as_ptr(),
+                        0o600,
+                        libc::AT_SYMLINK_NOFOLLOW,
+                    )
+                } == 0,
+                "cannot set socket permissions: {}",
+                std::io::Error::last_os_error()
+            );
+            directory.check()?;
+            listener.set_nonblocking(true)?;
+            Ok(())
+        })();
+        if let Err(error) = ready {
+            // Revoke the listener before dropping its fd. Another concurrent
+            // fork can briefly hold a duplicate until exec closes CLOEXEC fds.
+            unsafe {
+                libc::shutdown(listener.as_raw_fd(), libc::SHUT_RDWR);
+            }
+            directory.unlink(&format!("{id}.sock"));
+            return Err(error);
         }
         let stop = Arc::new(AtomicBool::new(false));
         let (tx, incoming) = mpsc::sync_channel::<Incoming>(32);
@@ -546,7 +683,14 @@ impl Server {
         workers.push(thread::spawn(move || {
             while !done.load(Ordering::Relaxed) {
                 match listener.accept() {
-                    Ok((stream, _)) => {
+                    Ok((mut stream, _)) => {
+                        if let Err(e) = check_peer(&stream, peer_uid) {
+                            // Fixed small error, without allowing an untrusted peer to
+                            // block accept or to reach the worker/message queues.
+                            let _ = stream.set_nonblocking(true);
+                            let _ = write_json(&mut stream, &error("peer_uid_mismatch", e));
+                            continue;
+                        }
                         let _ = sockets.try_send(stream);
                     }
                     Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
@@ -561,6 +705,7 @@ impl Server {
             incoming,
             records: Records::default(),
             path,
+            directory,
             stop,
             workers,
         })
@@ -580,7 +725,8 @@ impl Server {
 impl Drop for Server {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::Relaxed);
-        let _ = fs::remove_file(&self.path);
+        self.directory
+            .unlink(self.path.file_name().unwrap().to_str().unwrap());
         for worker in self.workers.drain(..) {
             let _ = worker.join();
         }

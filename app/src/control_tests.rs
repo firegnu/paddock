@@ -2,7 +2,7 @@ use super::*;
 use std::path::Path;
 
 fn directory() -> PathBuf {
-    let path = std::env::temp_dir().join(format!("pc-{}", random_id().unwrap()));
+    let path = PathBuf::from("/tmp").join(format!("pc-{}", random_id().unwrap()));
     fs::DirBuilder::new().mode(0o700).create(&path).unwrap();
     path
 }
@@ -338,5 +338,145 @@ fn raw_non_web_browse_never_reaches_ui_and_parameter_change_conflicts() {
     assert_eq!(
         records.dispatch(&changed, &mut |_, _| panic!("changed parameters replayed"))["error"]["code"],
         "request_conflict"
+    );
+}
+
+#[test]
+fn runtime_below_non_sticky_writable_ancestor_is_refused() {
+    let ancestor = directory();
+    fs::set_permissions(&ancestor, fs::Permissions::from_mode(0o777)).unwrap();
+    let private = ancestor.join("private");
+    fs::DirBuilder::new().mode(0o700).create(&private).unwrap();
+    assert!(
+        Server::start_in(&private).is_err(),
+        "writable ancestor must not be trusted"
+    );
+    fs::set_permissions(&ancestor, fs::Permissions::from_mode(0o1777)).unwrap();
+    let server = Server::start_in(&private).unwrap();
+    assert_eq!(
+        exchange_in(&private, &message(&server.id, None, Operation::Instances)).unwrap()["ok"],
+        true
+    );
+    fs::set_permissions(&ancestor, fs::Permissions::from_mode(0o775)).unwrap();
+    assert!(exchange_in(&private, &message(&server.id, None, Operation::Instances)).is_err());
+}
+
+#[test]
+fn client_checks_kernel_peer_uid_before_sending_any_message() {
+    let dir = directory();
+    let path = dir.join("peer.sock");
+    let listener = UnixListener::bind(&path).unwrap();
+    let rejected = connect_as(&path, unsafe { libc::geteuid() }.wrapping_add(1));
+    assert!(rejected.unwrap_err().to_string().contains("peer UID"));
+    let (mut accepted, _) = listener.accept().unwrap();
+    let mut buffer = [0; 1];
+    assert_eq!(
+        accepted.read(&mut buffer).unwrap(),
+        0,
+        "identity must not be sent to a rejected peer"
+    );
+    // Also verify the real same-UID kernel credential path, without changing process UID.
+    let _client = connect(&path).unwrap();
+    let (stream, _) = listener.accept().unwrap();
+    check_peer(&stream, unsafe { libc::geteuid() }).unwrap();
+}
+#[test]
+fn server_rejects_kernel_peer_uid_before_enqueueing() {
+    let dir = directory();
+    let server =
+        Server::start_checked(&dir, unsafe { libc::geteuid() }.wrapping_add(1), || {}).unwrap();
+    let mut stream = UnixStream::connect(&server.path).unwrap();
+    assert_eq!(
+        read_json(&mut stream).unwrap()["error"]["code"],
+        "peer_uid_mismatch"
+    );
+    let mut buffer = [0; 1];
+    assert_eq!(stream.read(&mut buffer).unwrap(), 0);
+    assert!(server.incoming.try_recv().is_err());
+}
+#[test]
+fn directory_swap_between_last_check_and_bind_is_rejected() {
+    let root = directory();
+    let original = root.join("run");
+    fs::DirBuilder::new().mode(0o700).create(&original).unwrap();
+    let replacement = root.join("foreign");
+    fs::DirBuilder::new()
+        .mode(0o777)
+        .create(&replacement)
+        .unwrap();
+    fs::set_permissions(&replacement, fs::Permissions::from_mode(0o777)).unwrap();
+    let result = Server::start_checked(&original, unsafe { libc::geteuid() }, || {
+        fs::rename(&original, root.join("saved")).unwrap();
+        std::os::unix::fs::symlink(&replacement, &original).unwrap();
+    });
+    assert!(result.is_err());
+    assert_eq!(fs::metadata(&replacement).unwrap().mode() & 0o7777, 0o777);
+    // A failed bind race must not leave a running listener in the replacement.
+    for entry in fs::read_dir(&replacement).unwrap() {
+        assert!(UnixStream::connect(entry.unwrap().path()).is_err());
+    }
+}
+#[test]
+fn runtime_cleanup_stays_in_the_opened_directory_after_ancestor_swap() {
+    let root = directory();
+    let original = root.join("run");
+    let server = Server::start_in(&original).unwrap();
+    let name = server.path.file_name().unwrap().to_owned();
+    fs::rename(&original, root.join("saved")).unwrap();
+    fs::create_dir(&original).unwrap();
+    fs::write(original.join(&name), "foreign file").unwrap();
+    drop(server);
+    assert_eq!(
+        fs::read_to_string(original.join(&name)).unwrap(),
+        "foreign file"
+    );
+    assert!(!root.join("saved").join(name).exists());
+}
+
+#[test]
+fn discovery_crosses_unrelated_and_stale_entries_before_a_live_instance() {
+    let dir = directory();
+    let mut entries = Vec::new();
+    for n in 0..1024 {
+        let path = dir.join(format!("{n:016x}.sock"));
+        drop(UnixListener::bind(&path).unwrap());
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+        entries.push(Ok(path));
+    }
+    let unrelated = dir.join("unrelated.txt");
+    fs::write(&unrelated, "keep me").unwrap();
+    entries.insert(0, Ok(unrelated.clone()));
+    let server = Server::start_in(&dir).unwrap();
+    entries.push(Ok(server.path.clone()));
+    // Supply a deterministic filesystem order with the live entry last.
+    let found = instances_from(&dir, &Caller::default(), entries).unwrap();
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0]["instance"], server.id);
+    assert_eq!(fs::read_to_string(unrelated).unwrap(), "keep me");
+}
+
+#[test]
+fn client_refuses_directory_replacement_after_socket_metadata_check() {
+    let root = directory();
+    let original = root.join("run");
+    let server = Server::start_in(&original).unwrap();
+    let mut replacement = None;
+    let result = exchange_checked(
+        &original,
+        &message(&server.id, None, Operation::Instances),
+        || {
+            fs::rename(&original, root.join("saved")).unwrap();
+            fs::DirBuilder::new().mode(0o700).create(&original).unwrap();
+            replacement =
+                Some(UnixListener::bind(original.join(format!("{}.sock", server.id))).unwrap());
+        },
+    );
+    assert!(result.unwrap_err().to_string().contains("identity changed"));
+    let (mut stream, _) = replacement.unwrap().accept().unwrap();
+    let mut byte = [0];
+    assert_eq!(
+        stream.read(&mut byte).unwrap(),
+        0,
+        "a swapped endpoint must not receive the request"
     );
 }
