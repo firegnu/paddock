@@ -3,13 +3,13 @@
 ## 现在在哪（2026-10-07 晚）
 
 - main 和 `origin/main`（`github.com/firegnu/paddock`，public）同步，工作区干净。没有进行中的活，没有开着的 worktree，本地只有 main 一个分支。corral 里是三个主控：`paddock/main`（本主控）、`ranch/main`、`cairn/main`（后两个是用户开的，不动）。
-- 331 项测试通过，clippy、`cargo fmt --check` 干净。`~/Applications/paddock.app` 是合并 P5-33b 之后的版本（含 P5-29b～f Kanban 加强、P5-30 底部提示、P5-31 记住窗口大小、P5-32 活动格子图、P5-33 agent 暂停、P5-33b 暂停状态处处一致、P5-34／34b 格子图改版），已用本机 Apple Development 证书签名。
+- 331 项测试通过，clippy、`cargo fmt --check` 干净。`~/Applications/paddock.app` 是合并 P5-34b 之后的版本（含 P5-29b～f Kanban 加强、P5-30 底部提示、P5-31 记住窗口大小、P5-32 活动格子图、P5-33 agent 暂停、P5-33b 暂停状态处处一致、P5-34／34b 格子图改版），已用本机 Apple Development 证书签名。
 - 全局 corral 已是 ranch `5c5540c`（支持 pause／resume）；三个主控的管理进程都已原地换新。
 - 重新打包安装：在 `app/` 下 `cargo build --release`，再 `cargo run --release --example bundle -- --install`（编译目录见 AGENTS.md，主仓库用 `.target/main`）。打包默认自动选本机 Apple Development 身份，可用 `PADDOCK_SIGN_IDENTITY` 指定；退回 ad-hoc 时会提示授权会失效。
-- 已合并：第一至第三阶段、迁移 M0–M3（corral、dispatch 在 `../ranch`；遥测、Drover、插件系统已砍）、P4-1～P4-3、P5-1～P5-33（P5-13 做了 13a 外壳、13b／13c Changes；P5-19 磨砂；P5-23r、P5-13r、P5-29r、P5-29r2 是调研；P5-28 做了 28a～28d；P5-29 做了 29a～29f；P5-33 做了 33、33b；P5-34 格子图改版）。每件的范围、完成记录、主控审查在 `docs/任务/`。
+- 已合并：第一至第三阶段、迁移 M0–M3（corral、dispatch 在 `../ranch`；遥测、Drover、插件系统已砍）、P4-1～P4-3、P5-1～P5-34（P5-13 做了 13a 外壳、13b／13c Changes；P5-19 磨砂；P5-23r、P5-13r、P5-29r、P5-29r2 是调研；P5-28 做了 28a～28d；P5-29 做了 29a～29f；P5-33 做了 33、33b；P5-34 做了 34、34b）。每件的范围、完成记录、主控审查在 `docs/任务/`。
 - 上下文：`AGENTS.md`（规矩，含「开发方式」里的**看板约定**）、`docs/DESIGN.md`（已定决定，§13 是界面改版的全部决定和用户原话）、`docs/背景与决策记录.md`、`docs/设计稿/`、`docs/调研/`。上一次会话（10-06 晚到 10-07 下午：Browser P5-28、Kanban P5-29、P5-21～P5-27 等）的细节都在各自的任务文件里。
 
-## 本次会话（10-07 下午到晚上）：agent 暂停
+## 本次会话（10-07 下午到晚上）：agent 暂停、格子图改版
 
 用户要“pause 是暂停而不是停止，不让其对外有连接”，选“冻结”；用法是活都做完后（下班、网络不好）一键冻住全部 agent，第二天恢复，不用一个个关掉重开。
 
@@ -20,12 +20,16 @@
 - **P5-33b（主控自己做）**：窗格标签点、命令面板、铃铛计数、活动格子图都认暂停（改读 `Panel::shown`）；Kanban 仍按 corral 的 state。
 - **用户实测单个暂停通过**：测试用 Codex 和它的 15 个子孙进程（含另开会话的 node）暂停后全部 `T`，恢复后同一批进程回到 `S`、进程号不变，接着正常回答；测试 agent 已关。
 - 顺带回答：活动格子图 10-04 及以前是空的，因为 cairn、paddock、ranch 三个仓库的第一个提交都在 10-05；Saddle 没进仓库列表（左侧栏没显示过它的 agent）。
+- **格子图改版 P5-34（派 Claude Code high）**：用户嫌“酷炫不足、平淡”，给了 GitHub 贡献图截图。平淡的原因：强调色加透明度叠在深底上发闷、空格子几乎看不见、只有今天发光。主控出三张样稿（画布「活动格子图改版」，源文件 `docs/设计稿/P5-34-格子图改版/`），用户选 C：实色阶梯（强调色混进底色 → 强调色 → 往正文色混成白热）、最忙两档光晕、每 7 秒对角扫光、今天光圈呼吸更明显；只从主题取色。**P5-34b**（主控自己做，用户同意）：扫光只要窗口在前台就扫，不再要求有 agent 在干活；今天那格的呼吸仍要。
+- **格子图名单**：用户问怎么让更早的日期有数据——名单只增不减，agent 关了仓库也照算；手动往 `~/.local/state/paddock/activity-repos.json` 加路径也行（paddock 每分钟重读并合并）。主控按用户要求加了 saddle、global-mesh。
 
-. **P5-34 格子图改版已合并安装（10-07）**：样稿 C（`docs/设计稿/P5-34-格子图改版/`），实色阶梯到白热、最忙两档光晕、每 7 秒对角扫光、今天光圈呼吸更明显。**等用户看真窗口**；扫光已改成只要窗口在前台就扫（P5-34b，用户 10-07 同意），今天那格的呼吸仍要有 agent 在干活。格子图名单里用户 10-07 手动加了 saddle、global-mesh（`~/.local/state/paddock/activity-repos.json`）。
-1. **用户试一键暂停**（铃铛左边 ⏸）、确认框（agent 干活时点 Pause）和悬停动效。一键会冻住包括主控在内的全部 agent，要用户点 ▶ 恢复。有问题先修。
-2. **用户实测 P5-28c、P5-28d**（用户 10-07：“我打算用到再测试”）：P5-28d 点一下 Browser 的 ×；P5-28c 照 `docs/任务/P5-28c-Browser网页策略与查找.md` 完成记录末尾 8 条清单（第 1 条本地地址最要紧）。
-3. **等用户在真窗口里看**：Browser、Kanban（P5-29a～f：状态推得对不对、Needs you、DRAFT、Clear 的确认）、P5-30 底部提示、P5-31 记住窗口大小、P5-32 活动格子图（动画、悬停卡片、折叠）、Changes、P5-22、P5-24、P5-25、P5-26／27 动效。
-4. 之后：Changes 第二步（行上评论发给 agent、暂存、撤销，另议）、拖动分隔线调整分屏大小、`paddock ctl`；Kanban 能动手的（新建草稿、拖来纠正，用户：排在后面）；Servo 作 Browser 备选（不做）。
+## 下一步（按优先级）
+
+1. **用户看格子图新样子**（扫光、白热光晕、呼吸；数据多了 saddle、global-mesh 后应更满）。
+2. **用户试一键暂停**（铃铛左边 ⏸）、确认框（agent 干活时点 Pause）和悬停动效。一键会冻住包括主控在内的全部 agent，要用户点 ▶ 恢复。有问题先修。
+3. **用户实测 P5-28c、P5-28d**（用户 10-07：“我打算用到再测试”）：P5-28d 点一下 Browser 的 ×；P5-28c 照 `docs/任务/P5-28c-Browser网页策略与查找.md` 完成记录末尾 8 条清单（第 1 条本地地址最要紧）。
+4. **等用户在真窗口里看**：Browser、Kanban（P5-29a～f：状态推得对不对、Needs you、DRAFT、Clear 的确认）、P5-30 底部提示、P5-31 记住窗口大小、P5-32 活动格子图（动画、悬停卡片、折叠）、Changes、P5-22、P5-24、P5-25、P5-26／27 动效。
+5. 之后：Changes 第二步（行上评论发给 agent、暂存、撤销，另议）、拖动分隔线调整分屏大小、`paddock ctl`；Kanban 能动手的（新建草稿、拖来纠正，用户：排在后面）；Servo 作 Browser 备选（不做）。
 
 ## 悬着
 
