@@ -2,7 +2,7 @@
 
 ## 现在在哪（2026-10-07 中午）
 
-- main 和 `origin/main`（`github.com/firegnu/paddock`，public）同步。没有进行中的活，没有开着的 worktree；corral 里只有主控 `paddock/main`。本地留着一个**不推送**的分支 `p5-13r-browser`（Browser 调研原型，提交 `9422921`；P5-28 已全部做完，删不删等用户点头）。
+- main 和 `origin/main`（`github.com/firegnu/paddock`，public）同步。没有进行中的活，没有开着的 worktree；corral 里只有主控 `paddock/main`。本地只有 main 一个分支（Browser 调研原型分支 `p5-13r-browser` 已按用户同意删掉，最后提交 `716afc2`，短期内可从 reflog 找回）。
 - 273 项测试通过，clippy、`cargo fmt --check` 干净。`~/Applications/paddock.app` 是合并 P5-28c 之后的版本（右侧栏 Changes、Browser、Kanban 三个标签都在），已用本机 Apple Development 证书签名。
 - 重新打包安装：在 `app/` 下 `cargo build --release`，再 `cargo run --release --example bundle -- --install`（编译目录见 AGENTS.md，主仓库用 `.target/main`）。打包默认自动选本机 Apple Development 身份，可用 `PADDOCK_SIGN_IDENTITY` 指定；退回 ad-hoc 时会提示授权会失效。
 - 已合并：第一至第三阶段、迁移 M0–M3（corral、dispatch 在 `../ranch`；遥测、Drover、插件系统已砍）、P4-1～P4-3、P5-1～P5-29（P5-13 做了 13a 外壳、13b／13c Changes；P5-19 磨砂；P5-23r、P5-13r、P5-29r 是调研；P5-28 做了 28a、28b、28c；P5-29 做了 29a）。每件的范围、完成记录、主控审查在 `docs/任务/`。
@@ -23,7 +23,7 @@
 
 ## 下一步（按优先级）
 
-1. **用户实测 P5-28c**：照 `docs/任务/P5-28c-Browser网页策略与查找.md` 完成记录末尾 8 条清单（第 1 条本地地址最要紧）。有问题先修。
+1. **用户实测 P5-28c**（用户 10-07 中午外出，回来继续）：照 `docs/任务/P5-28c-Browser网页策略与查找.md` 完成记录末尾 8 条清单（第 1 条本地地址最要紧）。有问题先修。
 2. **等用户在真窗口里看**：Browser、Kanban（状态推得对不对）、Changes、P5-22 侧栏头部、P5-24a 窄条和名字、P5-24b 着色强度、P5-25 卡片操作图标、P5-26／27 的 9 个图标动效。
 3. **Kanban 加强 A＋C＋D**（DESIGN §13 P5-29「加强」）：“等你”标记、草稿卡、两处小修（“−0”、DONE 组头数字）。**等用户指令再开工**（28c 已完成）；开工前先和用户确认 `待用户：` 约定，再写任务文件。改 Kanban 文件和 AGENTS.md。
 4. 之后：Changes 第二步（行上评论发给 agent、暂存、撤销，另议）、拖动分隔线调整分屏大小、`paddock ctl`；Kanban 能动手的（新建草稿、拖来纠正，用户：排在后面）；Servo 作 Browser 备选（不做）。
