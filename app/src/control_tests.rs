@@ -480,3 +480,27 @@ fn client_refuses_directory_replacement_after_socket_metadata_check() {
         "a swapped endpoint must not receive the request"
     );
 }
+#[test]
+fn a_browser_cache_folder_named_paddock_does_not_stop_ctl() {
+    // The Browser's WebKit makes `paddock` under the same base, readable by others.
+    let base = directory();
+    fs::DirBuilder::new()
+        .mode(0o755)
+        .create(base.join("paddock"))
+        .unwrap();
+    fs::set_permissions(base.join("paddock"), fs::Permissions::from_mode(0o755)).unwrap();
+    let dir = runtime_dir_in(&base).unwrap();
+    assert_eq!(dir.file_name().unwrap(), DIR);
+    assert_ne!(DIR, "paddock");
+    let server = Server::start_in(&dir).unwrap();
+    assert!(
+        server
+            .path
+            .starts_with(base.canonicalize().unwrap().join(DIR))
+    );
+    // WebKit's folder is left as it was.
+    assert_eq!(
+        fs::metadata(base.join("paddock")).unwrap().mode() & 0o7777,
+        0o755
+    );
+}

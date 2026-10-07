@@ -135,17 +135,25 @@ pub fn random_id() -> Result<String> {
     fs::File::open("/dev/urandom")?.read_exact(&mut bytes)?;
     Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
 }
+/// paddock ctl's own directory under the private base. Not `paddock`: the Browser's WebKit takes that
+/// name for its caches, with wider permissions, and a shared folder kept ctl from starting.
+pub const DIR: &str = "paddock-ctl";
+
 pub fn runtime_dir() -> Result<PathBuf> {
     let base = std::env::var_os("XDG_RUNTIME_DIR")
         .or_else(|| std::env::var_os("TMPDIR"))
         .map(PathBuf::from)
         .context("no private runtime directory; set XDG_RUNTIME_DIR or TMPDIR")?;
     anyhow::ensure!(base.is_absolute(), "runtime base must be absolute");
+    runtime_dir_in(&base)
+}
+/// paddock ctl's directory under the private `base`, made if missing.
+fn runtime_dir_in(base: &std::path::Path) -> Result<PathBuf> {
     // Canonicalize the OS temporary base (macOS /var is a symlink), but never
     // follow a link in paddock's own directory.
     let base = base.canonicalize()?;
     private_directory(&fs::symlink_metadata(&base)?)?;
-    let dir = base.join("paddock");
+    let dir = base.join(DIR);
     prepare_runtime(&dir)?;
     Ok(dir)
 }

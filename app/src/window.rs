@@ -62,6 +62,8 @@ pub struct NewShell {
     pub program: String,
     pub cwd: String,
     pub instance: String,
+    /// Why `paddock ctl` did not start (then `instance` is empty), shown once at startup.
+    pub ctl_problem: Option<String>,
 }
 
 /// When the latest normal-window resize is ready to save.
@@ -968,6 +970,10 @@ impl PaddockWindow {
             }
         }
         if let Some(problem) = this.store.problem() {
+            this.sidebar
+                .update(cx, |sidebar, cx| sidebar.note(problem, true, cx));
+        }
+        if let Some(problem) = this.new_shell.ctl_problem.clone() {
             this.sidebar
                 .update(cx, |sidebar, cx| sidebar.note(problem, true, cx));
         }

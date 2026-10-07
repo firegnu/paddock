@@ -39,6 +39,10 @@ struct Starting {
 impl PaddockWindow {
     /// The identity a shell in `pane` starts with, for `paddock ctl` to know it by.
     pub(super) fn identity(&self, pane: PaneId) -> Vec<(String, String)> {
+        // Without paddock ctl there is no instance to be known by.
+        if self.new_shell.instance.is_empty() {
+            return Vec::new();
+        }
         vec![
             ("PADDOCK_INSTANCE".into(), self.new_shell.instance.clone()),
             ("PADDOCK_PANE".into(), pane.to_string()),
