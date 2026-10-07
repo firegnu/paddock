@@ -100,6 +100,113 @@ const LAGOON: Terminal = Terminal {
     selection: rgb(0x284440),
 };
 
+/// Catppuccin Mocha (https://github.com/catppuccin/alacritty, MIT, Copyright (c) 2021
+/// Catppuccin): the terminal colours as published, with bright black (surface2, #585b70)
+/// lightened to #676a7d to reach 3:1 on base, and the rosewater cursor. Catppuccin's terminals
+/// select in rosewater with the text turned base; paddock keeps the text's own colours, so the
+/// selection is Catppuccin's style-guide one instead, overlay2 at 30% over base.
+const CATPPUCCIN: Terminal = Terminal {
+    ansi: [
+        rgb(0x45475a),
+        rgb(0xf38ba8),
+        rgb(0xa6e3a1),
+        rgb(0xf9e2af),
+        rgb(0x89b4fa),
+        rgb(0xf5c2e7),
+        rgb(0x94e2d5),
+        rgb(0xbac2de),
+        rgb(0x676a7d),
+        rgb(0xf38ba8),
+        rgb(0xa6e3a1),
+        rgb(0xf9e2af),
+        rgb(0x89b4fa),
+        rgb(0xf5c2e7),
+        rgb(0x94e2d5),
+        rgb(0xa6adc8),
+    ],
+    cursor: rgb(0xf5e0dc),
+    selection: rgb(0x414356),
+};
+
+/// Tokyo Night, night style (https://github.com/folke/tokyonight.nvim `extras/kitty`, Apache-2.0,
+/// by Folke Lemaitre; after https://github.com/enkia/tokyo-night-vscode-theme, MIT, Copyright (c)
+/// 2018-present Enkia): the terminal colours, cursor and selection as published, with bright
+/// black (#414868) lightened to #616782 to reach 3:1 on its background.
+const TOKYO_NIGHT: Terminal = Terminal {
+    ansi: [
+        rgb(0x15161e),
+        rgb(0xf7768e),
+        rgb(0x9ece6a),
+        rgb(0xe0af68),
+        rgb(0x7aa2f7),
+        rgb(0xbb9af7),
+        rgb(0x7dcfff),
+        rgb(0xa9b1d6),
+        rgb(0x616782),
+        rgb(0xff899d),
+        rgb(0x9fe044),
+        rgb(0xfaba4a),
+        rgb(0x8db0ff),
+        rgb(0xc7a9ff),
+        rgb(0xa4daff),
+        rgb(0xc0caf5),
+    ],
+    cursor: rgb(0xc0caf5),
+    selection: rgb(0x283457),
+};
+
+/// Rosé Pine, main variant (https://github.com/rose-pine/alacritty, MIT, Copyright (c) Rosé
+/// Pine): the terminal colours, cursor (highlight high) and selection (highlight med) as
+/// published; its bright colours repeat the normal ones, and every one reaches 3:1 on base.
+const ROSE_PINE: Terminal = Terminal {
+    ansi: [
+        rgb(0x26233a),
+        rgb(0xeb6f92),
+        rgb(0x31748f),
+        rgb(0xf6c177),
+        rgb(0x9ccfd8),
+        rgb(0xc4a7e7),
+        rgb(0xebbcba),
+        rgb(0xe0def4),
+        rgb(0x6e6a86),
+        rgb(0xeb6f92),
+        rgb(0x31748f),
+        rgb(0xf6c177),
+        rgb(0x9ccfd8),
+        rgb(0xc4a7e7),
+        rgb(0xebbcba),
+        rgb(0xe0def4),
+    ],
+    cursor: rgb(0x524f67),
+    selection: rgb(0x403d52),
+};
+
+/// Kanagawa, wave variant (https://github.com/rebelot/kanagawa.nvim `extras/alacritty`, MIT,
+/// Copyright (c) 2021 Tommaso Laurenzi): the terminal colours and selection as published, the
+/// cursor oldWhite as its kitty colours have it; every one reaches 3:1 on sumiInk3.
+const KANAGAWA: Terminal = Terminal {
+    ansi: [
+        rgb(0x090618),
+        rgb(0xc34043),
+        rgb(0x76946a),
+        rgb(0xc0a36e),
+        rgb(0x7e9cd8),
+        rgb(0x957fb8),
+        rgb(0x6a9589),
+        rgb(0xc8c093),
+        rgb(0x727169),
+        rgb(0xe82424),
+        rgb(0x98bb6c),
+        rgb(0xe6c384),
+        rgb(0x7fb4ca),
+        rgb(0x938aa9),
+        rgb(0x7aa89f),
+        rgb(0xdcd7ba),
+    ],
+    cursor: rgb(0xc8c093),
+    selection: rgb(0x2d4f67),
+};
+
 /// The `[colors]` keys of the terminal colours: the 16 under Saddle's ANSI names, then text,
 /// background, cursor and selection.
 const TERMINAL_KEYS: [&str; 20] = [
@@ -172,13 +279,11 @@ fn preset(name: &str) -> Result<Preset> {
     if name == "terminal" {
         bail!(
             "theme \"terminal\" is not supported: it follows the outer terminal's colours, and \
-             paddock has none; use dune, tide or lagoon"
+             paddock has none; use {}",
+            Preset::expected()
         );
     }
-    match Preset::parse(name) {
-        Ok(preset) => Ok(preset),
-        Err(_) => bail!("unknown theme {name:?}: expected dune, tide or lagoon"),
-    }
+    Preset::parse(name).map_err(|message| anyhow!(message))
 }
 
 pub struct Theme {
@@ -206,9 +311,13 @@ impl Theme {
         }
 
         let own = match preset {
+            Preset::Dune => &DUNE,
             Preset::Tide => &TIDE,
             Preset::Lagoon => &LAGOON,
-            _ => &DUNE,
+            Preset::Catppuccin => &CATPPUCCIN,
+            Preset::TokyoNight => &TOKYO_NIGHT,
+            Preset::RosePine => &ROSE_PINE,
+            Preset::Kanagawa => &KANAGAWA,
         };
         let mut terminal = palette::Theme {
             ansi: own.ansi,
@@ -371,9 +480,8 @@ fn resolve(terminal: &palette::Theme, color: Color, reset: Rgb) -> Rgb {
 mod tests {
     use super::*;
 
-    #[test]
-    fn preset_ansi_colors_have_at_least_three_to_one_contrast() {
-        // WCAG relative luminance: linearize sRGB before weighting its channels.
+    /// WCAG contrast: relative luminance from linearized sRGB.
+    fn contrast(a: Rgb, b: Rgb) -> f64 {
         fn luminance((r, g, b): Rgb) -> f64 {
             let linear = |channel: u8| {
                 let value = f64::from(channel) / 255.0;
@@ -385,18 +493,50 @@ mod tests {
             };
             0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b)
         }
+        let (a, b) = (luminance(a), luminance(b));
+        (a.max(b) + 0.05) / (a.min(b) + 0.05)
+    }
 
-        for name in ["dune", "tide", "lagoon"] {
+    #[test]
+    fn preset_ansi_colors_have_at_least_three_to_one_contrast() {
+        for preset in Preset::ALL {
+            let name = preset.name();
             let theme = theme(&format!("theme = \"{name}\"")).unwrap();
             let terminal = theme.terminal();
-            let background = luminance(terminal.background);
             for (index, &color) in terminal.ansi.iter().enumerate().skip(1) {
-                let foreground = luminance(color);
-                let contrast =
-                    (foreground.max(background) + 0.05) / (foreground.min(background) + 0.05);
+                let contrast = contrast(color, terminal.background);
                 assert!(
                     contrast >= 3.0,
                     "{name} ANSI {index}: {contrast:.4}:1 < 3:1"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn quiet_text_and_status_colors_read_on_their_grounds() {
+        type Pick = fn(&crate::preset::Theme) -> Color;
+        for preset in Preset::ALL {
+            let name = preset.name();
+            let theme = theme(&format!("theme = \"{name}\"")).unwrap();
+            let (ground, sidebar) = (theme.bg(|t| t.bg), theme.bg(|t| t.agents_bg));
+            let muted = contrast(theme.fg(|t| t.muted), ground);
+            assert!(muted >= 4.5, "{name} muted: {muted:.2}:1 < 4.5:1");
+            let quiet: [(&str, Pick, f64); 8] = [
+                ("agents_dim", |t| t.agents_dim, 4.5),
+                ("agents_dimmer", |t| t.agents_dimmer, 3.0),
+                ("agents_green", |t| t.agents_green, 4.5),
+                ("agents_red", |t| t.agents_red, 4.5),
+                ("agents_blue", |t| t.agents_blue, 4.5),
+                ("agents_yellow", |t| t.agents_yellow, 4.5),
+                ("agent_stalled", |t| t.agent_stalled, 4.5),
+                ("agent_starting", |t| t.agent_starting, 4.5),
+            ];
+            for (key, pick, least) in quiet {
+                let contrast = contrast(theme.fg(pick), sidebar);
+                assert!(
+                    contrast >= least,
+                    "{name} {key}: {contrast:.2}:1 < {least}:1"
                 );
             }
         }
@@ -444,6 +584,10 @@ mod tests {
         for (name, preset, own) in [
             ("tide", Preset::Tide, &TIDE),
             ("lagoon", Preset::Lagoon, &LAGOON),
+            ("catppuccin", Preset::Catppuccin, &CATPPUCCIN),
+            ("tokyonight", Preset::TokyoNight, &TOKYO_NIGHT),
+            ("rosepine", Preset::RosePine, &ROSE_PINE),
+            ("kanagawa", Preset::Kanagawa, &KANAGAWA),
         ] {
             let theme = theme(&format!("theme = \"{name}\"")).unwrap();
             let saddle = preset.theme();
@@ -470,9 +614,16 @@ mod tests {
             ("border", |t| t.border),
         ];
         for (key, pick) in picks {
-            let [d, t, l] = ["dune", "tide", "lagoon"]
-                .map(|n| theme(&format!("theme = \"{n}\"")).unwrap().fg(pick));
-            assert!(d != t && t != l && d != l, "{key}: {d:?} {t:?} {l:?}");
+            let colors = Preset::ALL.map(|p| {
+                theme(&format!("theme = \"{}\"", p.name()))
+                    .unwrap()
+                    .fg(pick)
+            });
+            for (i, a) in colors.iter().enumerate() {
+                for b in &colors[i + 1..] {
+                    assert_ne!(a, b, "{key}: {colors:?}");
+                }
+            }
         }
     }
 
@@ -483,10 +634,16 @@ mod tests {
             message.contains("\"terminal\" is not supported"),
             "{message}"
         );
-        for name in ["solarized", "Dune", ""] {
+        for name in ["solarized", "Dune", "", "rose-pine", "Tokyo Night"] {
             let message = error(&format!("theme = \"{name}\""));
             assert!(
                 message.contains(&format!("unknown theme {name:?}")),
+                "{message}"
+            );
+            assert!(
+                message.contains(
+                    "expected dune, tide, lagoon, catppuccin, tokyonight, rosepine or kanagawa"
+                ),
                 "{message}"
             );
         }

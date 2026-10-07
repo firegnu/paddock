@@ -93,7 +93,7 @@ Attention：侧栏头部的 `Attention · N`（有等待或出错时黄色，只
 `~/.config/paddock/config.toml`。文件不存在等于全部默认；写了不认识的键会报错并退出。改完重启生效。
 
 ```toml
-theme = "tide"          # dune | tide | lagoon；不写等于 dune
+theme = "tide"          # dune | tide | lagoon | catppuccin | tokyonight | rosepine | kanagawa；不写等于 dune
 sidebar_width = 380     # 侧栏宽度，单位 pt；默认 380（Agents 面板信息较多，窄于 320 时“哪家”只显示图标、状态只显示动画）
 ui_font = "Avenir Next" # 界面字体（终端以外的全部文字）；不写等于系统界面字体
 ui_font_size = 13       # 界面字号，单位 pt；默认 13，各处字号按它等比缩放
@@ -132,15 +132,19 @@ terminal_blue = "#7aa2f7"
 
 ### 主题
 
-三套预置主题沿用 Saddle：界面颜色取自 Saddle 提交 `df1c727` 的 Dune、Tide、Lagoon，已复制进 `src/preset.rs` 独立维护。终端窗格的配色由 paddock 自带：
+七套预置主题。Dune、Tide、Lagoon 沿用 Saddle：界面颜色取自 Saddle 提交 `df1c727`，已复制进 `src/preset.rs` 独立维护。另四套照各家官方色值做（P5-40），界面颜色和终端配色都按该配色的角色对应到 paddock 的颜色键，没有对应的取最接近的（每处在 `src/preset.rs`、`src/theme.rs` 的注释里写明）。设置窗口 Colors 页的主题列表里，每套显示名字、底色上的正文，以及强调色和三个终端色。
 
-| 主题 | 终端 16 色的来源 |
-| --- | --- |
-| `dune` | Gruvbox dark |
-| `tide` | Nord，亮色由常规色调亮而来 |
-| `lagoon` | Everforest dark，亮色由常规色调亮而来 |
+| 写法 | 显示名 | 终端 16 色的来源 |
+| --- | --- | --- |
+| `dune` | Dune | Gruvbox dark |
+| `tide` | Tide | Nord，亮色由常规色调亮而来 |
+| `lagoon` | Lagoon | Everforest dark，亮色由常规色调亮而来 |
+| `catppuccin` | Catppuccin Mocha | [Catppuccin](https://github.com/catppuccin/catppuccin) Mocha（MIT，Copyright (c) 2021 Catppuccin）的 alacritty 配色；选区按它的样式指南取 overlay2 30% |
+| `tokyonight` | Tokyo Night | [tokyonight.nvim](https://github.com/folke/tokyonight.nvim) 的 night 配色（Apache-2.0，Folke Lemaitre；原作 [Tokyo Night](https://github.com/enkia/tokyo-night-vscode-theme)，MIT，Copyright (c) 2018-present Enkia） |
+| `rosepine` | Rosé Pine | [Rosé Pine](https://github.com/rose-pine/rose-pine-theme) main（MIT，Copyright (c) 2023 Rosé Pine）的 alacritty 配色 |
+| `kanagawa` | Kanagawa | [kanagawa.nvim](https://github.com/rebelot/kanagawa.nvim) wave（MIT，Copyright (c) 2021 Tommaso Laurenzi）的 alacritty 配色 |
 
-终端默认字色、底色跟随 Saddle 主题的 `text`、`bg`（Dune 的这两项在 Saddle 里是“跟随外层终端”，paddock 用 Dune 的 `agents_text`、`agents_bg`）。各主题中除黑色外的 15 个基本色在默认底色上的对比度都不低于 3:1。
+终端默认字色、底色跟随 Saddle 主题的 `text`、`bg`（Dune 的这两项在 Saddle 里是“跟随外层终端”，paddock 用 Dune 的 `agents_text`、`agents_bg`）。各主题中除黑色外的 15 个基本色在默认底色上的对比度都不低于 3:1：Catppuccin Mocha 和 Tokyo Night 的亮黑达不到，略调亮了。
 
 Saddle 的 `terminal` 主题（全部跟随外层终端）在 paddock 里没有外层终端可跟，不提供，写了会报错。未知的主题名也报错。
 

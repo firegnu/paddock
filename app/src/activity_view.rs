@@ -77,6 +77,10 @@ const EMPTY_FROSTED: f32 = 1.2;
 const DEEP: [f32; 2] = [0.3, 0.62];
 /// The busiest level: the accent this far towards the text.
 const HOT: f32 = 0.6;
+/// How much brighter than the accent the busiest level is at least (WCAG luminance ratio): where
+/// the text is hardly brighter than the accent (Kanagawa's carpYellow on fujiWhite), it goes on
+/// towards white until it is.
+const HOT_STEP: f32 = 1.18;
 /// A cell the sweep lights at its brightest: this far towards [`FLASH`], its glow this much
 /// stronger again.
 const SWEEP_LIFT: f32 = 0.7;
@@ -135,7 +139,7 @@ impl Colors {
             levels,
             accent,
             hot: levels[4],
-            flash: motion::mix(accent, text, FLASH),
+            flash: white_hot(accent, text, FLASH),
             text,
             dim: fg(|t| t.agents_dim),
             dimmer: fg(|t| t.agents_dimmer),
@@ -167,6 +171,30 @@ impl Colors {
         }
     }
 }
+/// The accent `share` of the way towards the text, then towards white as far as it takes to stand
+/// [`HOT_STEP`] above the accent: the busiest level, and the sweep's light, which must not dim it.
+fn white_hot(accent: Hsla, text: Hsla, share: f32) -> Hsla {
+    fn luminance(color: Hsla) -> f32 {
+        let c = gpui::Rgba::from(color);
+        let linear = |v: f32| {
+            if v <= 0.04045 {
+                v / 12.92
+            } else {
+                ((v + 0.055) / 1.055).powf(2.4)
+            }
+        };
+        0.2126 * linear(c.r) + 0.7152 * linear(c.g) + 0.0722 * linear(c.b)
+    }
+    let least = (luminance(accent) + 0.05) * HOT_STEP - 0.05;
+    let hot = motion::mix(accent, text, share);
+    let mut white = 0.0;
+    let mut level = hot;
+    while luminance(level) < least && white < 1.0 {
+        white += 0.02;
+        level = motion::mix(hot, gpui::white(), white);
+    }
+    level
+}
 
 /// The five levels' colours: a day without commits a little lighter than the ground, so each day
 /// shows as a cell; then solid steps from the accent deep in the sidebar's colour `base`, through
@@ -187,7 +215,7 @@ fn ramp(base: Hsla, accent: Hsla, text: Hsla, frost: Option<f32>) -> [Hsla; 5] {
         deep(DEEP[0]),
         deep(DEEP[1]),
         accent,
-        motion::mix(accent, text, HOT),
+        white_hot(accent, text, HOT),
     ]
 }
 
@@ -971,7 +999,7 @@ mod tests {
             };
             0.2126 * linear(c.r) + 0.7152 * linear(c.g) + 0.0722 * linear(c.b)
         }
-        for name in ["dune", "tide", "lagoon"] {
+        for name in crate::preset::Preset::ALL.map(crate::preset::Preset::name) {
             let theme = Theme::from_config(&crate::config::Config {
                 theme: Some(name.into()),
                 ..crate::config::Config::default()
@@ -1000,6 +1028,30 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn white_hot_goes_towards_white_only_where_the_text_is_too_dim() {
+        let colors = |name: &str| {
+            let theme = Theme::from_config(&crate::config::Config {
+                theme: Some(name.into()),
+                ..crate::config::Config::default()
+            })
+            .unwrap();
+            Colors::of(&theme, false)
+        };
+        // Dune, Tide and Lagoon keep the accent mixed towards the text, the sweep's light too.
+        for name in ["dune", "tide", "lagoon"] {
+            let c = colors(name);
+            assert_eq!(c.hot, motion::mix(c.accent, c.text, HOT), "{name}");
+            assert_eq!(c.flash, motion::mix(c.accent, c.text, FLASH), "{name}");
+        }
+        // Kanagawa's text is hardly brighter than its accent: the busiest level goes past it.
+        let c = colors("kanagawa");
+        let toward_text = motion::mix(c.accent, c.text, HOT);
+        assert_ne!(c.hot, toward_text);
+        let rgba = |color: Hsla| gpui::Rgba::from(color);
+        assert!(rgba(c.hot).g > rgba(toward_text).g && rgba(c.hot).b > rgba(toward_text).b);
     }
 
     #[test]
