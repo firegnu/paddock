@@ -176,8 +176,13 @@ const CARD_BUTTON_RADIUS: f32 = 7.0;
 const PAUSED_OPACITY: f32 = 0.55;
 /// What a card asks before pausing an agent in a turn.
 const PAUSE_WORKING: &str = "Working \u{2014} pause anyway?";
-/// An agent's tile in the strip.
+/// An agent's tile in the strip: its side, corners and the room above and below it, and how far
+/// the plate showing its state reaches round a tile its original covers (two plates, a shown
+/// tile's and a hovered neighbour's, just miss).
 const TILE: f32 = 34.0;
+const TILE_RADIUS: f32 = 9.0;
+const TILE_GAP: f32 = 3.5;
+const TILE_PLATE: f32 = 3.0;
 /// The strip's bell: its height (and least width), its sides, and the room between the icon and
 /// the count.
 const RAIL_BELL: f32 = 28.0;
@@ -2165,17 +2170,8 @@ impl RenderOnce for AgentCard {
 /// square instead of the tint; one without (pi's logo) is drawn larger than a silhouette.
 fn avatar(theme: &Theme, ui: &UiFont, card: &Card, badge: AnyElement) -> gpui::Stateful<Div> {
     let color = kind_color(theme, card);
-    let icon = card
-        .brand
-        .as_ref()
-        .and_then(|brand| kind_icon::of(&brand.kind))
-        .filter(|icon| icon.original());
-    let tile = icon.is_some_and(|icon| icon.tile());
-    let mark = match icon {
-        Some(icon) if tile => icon.render_tile(ui.px(AVATAR), ui.px(AVATAR_RADIUS)),
-        Some(icon) => icon.render(ui.px(AVATAR_PICTURE), color),
-        None => kind_mark(ui, card, color, CARD_NAME_SIZE),
-    };
+    let (mark, tile) = original_mark(ui, card, color, (AVATAR, AVATAR_RADIUS))
+        .unwrap_or_else(|| (kind_mark(ui, card, color, CARD_NAME_SIZE), false));
     div()
         .id("avatar")
         .relative()
@@ -2189,6 +2185,28 @@ fn avatar(theme: &Theme, ui: &UiFont, card: &Card, badge: AnyElement) -> gpui::S
         .when(!tile, |avatar| avatar.bg(color.opacity(AVATAR_TINT)))
         .child(mark)
         .child(badge)
+}
+
+/// The kind's original from this machine in a square `(side, radius)`, as the avatar and the
+/// strip's tile draw it, and whether it fills the square: one that brings its own ground does,
+/// one without (pi's logo) is drawn `AVATAR_PICTURE` tall for the square's tint to frame it.
+/// `None` without an original.
+fn original_mark(
+    ui: &UiFont,
+    card: &Card,
+    color: Hsla,
+    (side, radius): (f32, f32),
+) -> Option<(AnyElement, bool)> {
+    let icon = card
+        .brand
+        .as_ref()
+        .and_then(|brand| kind_icon::of(&brand.kind))
+        .filter(|icon| icon.original())?;
+    Some(if icon.tile() {
+        (icon.render_tile(ui.px(side), ui.px(radius)), true)
+    } else {
+        (icon.render(ui.px(AVATAR_PICTURE), color), false)
+    })
 }
 
 /// The colour of a card's kind, dim for an agent of no known kind.
@@ -2625,30 +2643,58 @@ impl RenderOnce for Tile {
         } else {
             gpui::transparent_black()
         };
+        let color = kind_color(theme, card);
+        let original = original_mark(&ui, card, color, (TILE, TILE_RADIUS));
+        // An original covers the tile, so its ground and edge go on a plate round it instead.
+        let plate = original.is_some().then(|| {
+            let selected = card.selected;
+            div()
+                .absolute()
+                .top(ui.px(-TILE_PLATE))
+                .left(ui.px(-TILE_PLATE))
+                .size(ui.px(TILE + 2.0 * TILE_PLATE))
+                .rounded(ui.px(TILE_RADIUS + TILE_PLATE))
+                .bg(ground)
+                .border_1()
+                .border_color(edge)
+                .when(!selected, |plate| {
+                    plate.group_hover(group.clone(), move |style| style.bg(hovered))
+                })
+        });
+        let (mark, fills) = match original {
+            Some((mark, fills)) => (mark, Some(fills)),
+            None => (kind_mark(&ui, card, color, TILE_SIZE), None),
+        };
         div()
             .id(ElementId::Name(SharedString::from(card.name.clone())))
             .group(group.clone())
             .relative()
             .flex_shrink_0()
             .size(ui.px(TILE))
-            .my(ui.px(2.0))
+            .my(ui.px(TILE_GAP))
             .flex()
             .items_center()
             .justify_center()
-            .rounded(ui.px(9.0))
+            .rounded(ui.px(TILE_RADIUS))
             .cursor_pointer()
-            .bg(ground)
-            .border_1()
-            .border_color(edge)
-            .when(!card.selected, |tile| {
-                tile.hover(move |style| style.bg(hovered))
+            .map(|tile| match fills {
+                None => tile
+                    .bg(ground)
+                    .border_1()
+                    .border_color(edge)
+                    .when(!card.selected, |tile| {
+                        tile.hover(move |style| style.bg(hovered))
+                    }),
+                Some(false) => tile.bg(color.opacity(AVATAR_TINT)),
+                Some(true) => tile,
             })
             .tooltip(move |_, cx| cx.new(|_| tip.clone()).into())
             .on_click(self.on_click)
             .when(card.status == Status::Paused, |tile| {
                 tile.opacity(PAUSED_OPACITY)
             })
-            .child(kind_mark(&ui, card, kind_color(theme, card), TILE_SIZE))
+            .children(plate)
+            .child(mark)
             // The mark hangs over the strip: ringed in the strip's colour.
             .child(badge(
                 theme,
