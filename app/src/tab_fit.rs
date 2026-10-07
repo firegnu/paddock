@@ -141,14 +141,11 @@ impl TabSize {
         (self.chrome + self.full).min(widest)
     }
 
-    /// Its width and title when it may be at most `cap` wide: whole when that fits, else the part
-    /// that tells it apart, else that part cut to `cap`.
-    fn at(&self, cap: f32, widest: f32) -> (f32, Title) {
-        let whole = self.whole(widest);
-        let part = (self.chrome + self.short).min(whole);
-        if whole <= cap {
-            (whole, Title::Full)
-        } else if part <= cap {
+    /// Its width and title, shortened, when it may be at most `cap` wide: the part that tells it
+    /// apart, cut to `cap` when that is wider.
+    fn at(&self, cap: f32) -> (f32, Title) {
+        let part = self.chrome + self.short;
+        if part <= cap {
             (part, Title::Short)
         } else {
             (cap, Title::Squeezed((cap - self.chrome).max(0.0)))
@@ -156,17 +153,18 @@ impl TabSize {
     }
 }
 
-/// How the tabs `sizes` fit `bar` with the one at `active` active: whole if they can; else the
-/// other tabs shortened evenly, none narrower than `bar.least` (unless its whole title is), the
-/// active one whole; else as many of the others as fit, from the first, that narrow beside it
-/// and the `+N` button, the rest behind it. The active tab keeps its place among them, or comes
-/// last when it would have been behind `+N`.
+/// How the tabs `sizes` fit `bar` with the one at `active` active: whole if they can; else every
+/// other tab shortened to the part that tells it apart, cut evenly where that is still too wide
+/// but none narrower than `bar.least` (unless that part is), the active one whole; else as many
+/// of the others as fit, from the first, that narrow beside it and the `+N` button, the rest
+/// behind it. The active tab keeps its place among them, or comes last when it would have been
+/// behind `+N`.
 pub fn fit(sizes: &[TabSize], active: usize, bar: &Bar) -> Fit {
     let at = |tab: usize, cap: f32| {
         if tab == active {
             (sizes[tab].whole(bar.widest), Title::Full)
         } else {
-            sizes[tab].at(cap, bar.widest)
+            sizes[tab].at(cap)
         }
     };
     let total = |tabs: &[usize], cap: f32| {
@@ -192,9 +190,18 @@ pub fn fit(sizes: &[TabSize], active: usize, bar: &Bar) -> Fit {
             .collect()
     };
     let all: Vec<usize> = (0..sizes.len()).collect();
-    if total(&all, bar.widest) <= bar.room {
+    let whole: Vec<Slot> = all
+        .iter()
+        .map(|&tab| Slot {
+            tab,
+            width: sizes[tab].whole(bar.widest),
+            title: Title::Full,
+        })
+        .collect();
+    let gaps = bar.gap * all.len().saturating_sub(1) as f32;
+    if whole.iter().map(|slot| slot.width).sum::<f32>() + gaps <= bar.room {
         return Fit {
-            shown: squeeze(&all, f32::INFINITY),
+            shown: whole,
             hidden: Vec::new(),
             roomy: true,
         };
@@ -387,9 +394,20 @@ mod tests {
     }
 
     #[test]
+    fn short_of_room_no_other_tab_keeps_its_whole_title_even_where_it_would_fit() {
+        // Whole: 136, 88 and the active 112, 344 with the gaps; short: 96 and 72.
+        let tabs = sizes(&[(12, 7), (6, 4), (9, 5)]);
+        let fit = fit(&tabs, 2, &Bar { room: 320.0, ..BAR });
+        let titles: Vec<Title> = fit.shown.iter().map(|slot| slot.title).collect();
+        assert_eq!(titles, [Title::Short, Title::Short, Title::Full]);
+        let widths: Vec<f32> = fit.shown.iter().map(|slot| slot.width).collect();
+        assert_eq!(widths, [96.0, 72.0, 112.0]);
+    }
+
+    #[test]
     fn shorter_still_they_are_cut_to_an_even_width_but_never_under_the_least() {
         let tabs = sizes(&[(12, 7), (12, 8), (9, 5), (3, 3)]);
-        // The active 112, the three-letter one whole at 64, two cut to 80 each, and the gaps.
+        // The active 112, the three-letter one at 64, two cut to 80 each, and the gaps.
         let room = 112.0 + 64.0 + 2.0 * 80.0 + 3.0 * 4.0;
         let fit = fit(&tabs, 2, &Bar { room, ..BAR });
         assert!(fit.hidden.is_empty());
@@ -397,7 +415,7 @@ mod tests {
         assert!((slot.width - 80.0).abs() < 0.01, "{slot:?}");
         assert!(matches!(slot.title, Title::Squeezed(text) if (text - 40.0).abs() < 0.01));
         assert_eq!(fit.shown[2].title, Title::Full);
-        assert_eq!(fit.shown[3].title, Title::Full);
+        assert_eq!(fit.shown[3].title, Title::Short);
         assert!(fit.shown.iter().all(|slot| slot.width >= 64.0));
         // A little less room: one waits behind `+N` rather than any narrowing under the least.
         let fit = super::fit(
