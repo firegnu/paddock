@@ -31,6 +31,7 @@ use crate::{
     search::{self, Lead, Mode, Target},
     settings::{Conflict, Draft, Saved},
     sidebar::{self, Sidebar, SidebarEvent, status_dot},
+    tab_fit::{self, Bar, TabSize, Title},
     text_input::{self, Changed, TextInput},
     theme::Theme,
     view::{Launch, Options, TerminalView, hsla},
@@ -39,10 +40,10 @@ use crate::{
 };
 use gpui::{
     AnyElement, AnyView, Bounds, BoxShadow, ClickEvent, Context, Div, DragMoveEvent, Entity,
-    ExternalPaths, FocusHandle, Focusable, FontWeight, HighlightStyle, Hsla, MouseButton,
+    ExternalPaths, FocusHandle, Focusable, Font, FontWeight, HighlightStyle, Hsla, MouseButton,
     MouseDownEvent, MouseMoveEvent, Pixels, Point, PromptLevel, Render, ScrollHandle, SharedString,
-    Size, Stateful, StyleRefinement, StyledText, Task, Window, WindowBackgroundAppearance, canvas,
-    div, point, prelude::*, px, relative, size,
+    Size, Stateful, StyleRefinement, StyledText, Task, TextRun, Window, WindowBackgroundAppearance,
+    canvas, div, point, prelude::*, px, relative, size,
 };
 use objc2::{MainThreadMarker, rc::Retained};
 use objc2_app_kit::{NSView, NSWindow};
@@ -143,6 +144,8 @@ enum Popup {
     Actions,
     /// The Kanban tab's New task panel, under its button.
     NewTask,
+    /// The tabs with no room in the title bar, from its `+N`.
+    Overflow,
 }
 
 /// What dragging the divider carries: nothing, only that it is the divider.
@@ -299,6 +302,8 @@ enum Spot {
     Bell,
     /// The Kanban tab's New task.
     NewTask,
+    /// The title bar's `+N`.
+    Overflow,
     Pane(PaneId),
     /// The split whose seam comes just before this pane.
     Seam(PaneId),
@@ -436,6 +441,28 @@ const BADGE_DOT: f32 = 6.0;
 const BAR_BUTTON: f32 = 28.0;
 const SEARCH: f32 = 220.0;
 const SPLIT_GAP: f32 = 4.0;
+/// The room between the title bar's tabs and buttons, and at either end of the part after the
+/// sidebar; unscaled.
+const BAR_GAP: f32 = 4.0;
+const BAR_END: f32 = 10.0;
+/// A tab's title size; the room before its badge, after it, and after the title (an inactive
+/// tab's, its × drawn over the title's end; the active tab's, after its ×); its ×; the widest a
+/// tab grows, and the least one shortened for room keeps.
+const TAB_TEXT: f32 = 12.5;
+const TAB_START: f32 = 9.0;
+const TAB_GAP: f32 = 7.0;
+const TAB_END: f32 = 11.0;
+const ACTIVE_TAB_END: f32 = 6.0;
+const TAB_CLOSE: f32 = 16.0;
+const TAB_WIDEST: f32 = 220.0;
+const TAB_LEAST: f32 = 78.0;
+/// The `+N` button for the tabs with no room in the bar: its count's size, the room at its ends
+/// and before its chevron, and the chevron's scale.
+const MORE_TEXT: f32 = 12.0;
+const MORE_START: f32 = 8.0;
+const MORE_GAP: f32 = 4.0;
+const MORE_END: f32 = 6.0;
+const MORE_ICON: f32 = 0.7;
 /// How far under the title bar the strip draws the Attention bell, for the list to hang from it.
 const RAIL_BELL: f32 = 10.0;
 /// The room the title bar keeps after the sidebar's header row, or after the expand button.
@@ -529,8 +556,25 @@ pub enum Subject {
     Empty,
 }
 
+/// A tab as the title bar draws it: which, its width when the bar is short of room, its title
+/// (the group to draw faint, and the rest), and its whole title to show on hover when that is
+/// shortened.
+struct ShownTab {
+    index: usize,
+    width: Option<f32>,
+    title: (Option<String>, String),
+    whole: Option<String>,
+}
+
+/// The tabs in the title bar, in order; the ones waiting behind its `+N`, and that button's width.
+struct TabsFit {
+    shown: Vec<ShownTab>,
+    hidden: Vec<usize>,
+    more: f32,
+}
+
 /// The last part of a path: `paddock` for `/Users/me/paddock`, `/` for the root.
-fn last_part(path: &str) -> &str {
+pub(crate) fn last_part(path: &str) -> &str {
     match path.trim_end_matches('/').rsplit('/').next() {
         Some(part) if !part.is_empty() => part,
         _ => "/",
@@ -1760,7 +1804,7 @@ impl PaddockWindow {
         let spots = self.spots.clone();
         let open = matches!(
             self.popup,
-            Some(Popup::NewTab | Popup::Split(_) | Popup::Attention)
+            Some(Popup::NewTab | Popup::Split(_) | Popup::Attention | Popup::Overflow)
         );
         canvas(
             move |bounds, window, _| {
@@ -1868,7 +1912,14 @@ impl PaddockWindow {
         let direction = match self.popup {
             Some(Popup::NewTab) => None,
             Some(Popup::Split(direction)) => Some(direction),
-            Some(Popup::Attention | Popup::Palette | Popup::Actions | Popup::NewTask) | None => {
+            Some(
+                Popup::Attention
+                | Popup::Palette
+                | Popup::Actions
+                | Popup::NewTask
+                | Popup::Overflow,
+            )
+            | None => {
                 return;
             }
         };
@@ -2325,6 +2376,134 @@ impl PaddockWindow {
         .size_full()
     }
 
+    /// How the tabs fit the title bar as the window is now (see `tab_fit`), with the `+N` button's
+    /// width when some wait behind it.
+    fn fit_tabs(&self, full_screen: bool, window: &Window, cx: &Context<Self>) -> TabsFit {
+        let ui = UiFont::get(cx);
+        let s = ui.scale(1.0);
+        let open = self.workspace.agents();
+        let subjects: Vec<Subject> = self
+            .workspace
+            .tabs
+            .iter()
+            .map(|tab| self.subject(tab.active, cx))
+            .collect();
+        let family = ui.family.clone().unwrap_or_else(|| ".SystemUIFont".into());
+        let width = |text: &str, size: f32, weight: FontWeight| {
+            if text.is_empty() {
+                return 0.0;
+            }
+            let run = TextRun {
+                len: text.len(),
+                font: Font {
+                    weight,
+                    ..gpui::font(family.clone())
+                },
+                color: Hsla::default(),
+                background_color: None,
+                underline: None,
+                strikethrough: None,
+            };
+            let line =
+                window
+                    .text_system()
+                    .shape_line(text.to_owned().into(), ui.px(size), &[run], None);
+            f32::from(line.width)
+        };
+        let titles: Vec<(Option<String>, String)> = subjects
+            .iter()
+            .map(|subject| tab_label(subject, &open))
+            .collect();
+        let short = tab_fit::distinct(&subjects, &open);
+        let active = self.workspace.active_tab;
+        let sizes: Vec<TabSize> = self
+            .workspace
+            .tabs
+            .iter()
+            .enumerate()
+            .map(|(index, tab)| {
+                let (group, name) = &titles[index];
+                let weight = if index == active {
+                    FontWeight::SEMIBOLD
+                } else {
+                    FontWeight::NORMAL
+                };
+                let badge = match self.workspace.shown(tab.active) {
+                    Shown::Empty => 7.0,
+                    _ => BADGE_ICON + 2.0,
+                };
+                let panes = if tab.panes().len() > 1 {
+                    TAB_GAP + footer_icon::SIZE * 0.9
+                } else {
+                    0.0
+                };
+                let end = if index == active {
+                    TAB_GAP + TAB_CLOSE + ACTIVE_TAB_END
+                } else {
+                    TAB_END
+                };
+                let group = group.as_deref().unwrap_or_default();
+                TabSize {
+                    chrome: (TAB_START + badge + TAB_GAP + panes + end) * s,
+                    full: width(group, TAB_TEXT, FontWeight::NORMAL)
+                        + width(name, TAB_TEXT, weight),
+                    short: width(&short[index], TAB_TEXT, weight),
+                }
+            })
+            .collect();
+        let count = format!("+{}", sizes.len().saturating_sub(1));
+        let more = width(&count, MORE_TEXT, FontWeight::NORMAL)
+            + (MORE_START + MORE_GAP + footer_icon::SIZE * MORE_ICON + MORE_END) * s;
+        let room = f32::from(window.viewport_size().width)
+            - bar_left(self.collapsed, full_screen, self.sidebar_width, &ui)
+            - 2.0 * BAR_END
+            // Between the tabs, the `+`, the pet's room, the split icon, Search and the right
+            // sidebar's switch; the pet's room keeps a little more.
+            - 5.0 * BAR_GAP
+            - GAP
+            - (3.0 * BAR_BUTTON + 2.0 * SPLIT_GAP + SEARCH) * s;
+        let bar = Bar {
+            room,
+            gap: BAR_GAP,
+            widest: TAB_WIDEST * s,
+            least: TAB_LEAST * s,
+            more,
+        };
+        let fit = tab_fit::fit(&sizes, active, &bar);
+        let shown = fit
+            .shown
+            .iter()
+            .map(|slot| {
+                let index = slot.tab;
+                let size = &sizes[index];
+                let (title, cut) = match slot.title {
+                    Title::Full => {
+                        let cut = size.chrome + size.full > slot.width + 0.5;
+                        (titles[index].clone(), cut)
+                    }
+                    Title::Short => ((None, short[index].clone()), true),
+                    Title::Squeezed(room) => {
+                        let text = tab_fit::middle(&short[index], room, |text| {
+                            width(text, TAB_TEXT, FontWeight::NORMAL)
+                        });
+                        ((None, text), true)
+                    }
+                };
+                ShownTab {
+                    index,
+                    width: (!fit.roomy).then_some(slot.width),
+                    title,
+                    whole: cut.then(|| tab_title(&subjects[index], &open)),
+                }
+            })
+            .collect();
+        TabsFit {
+            shown,
+            hidden: fit.hidden,
+            more,
+        }
+    }
+
     /// The title bar: over the sidebar the traffic lights (none in full screen) and the sidebar's
     /// header row, then the tabs from the terminal's left edge, the `+` after the last, and the
     /// pet in the room left. What is not a tab or a button drags the window, and a double click
@@ -2344,21 +2523,23 @@ impl PaddockWindow {
         let ground = hsla(self.theme.bg(|t| t.agents_bg), 1.0);
         let hovered = ground.blend(highlight.opacity(0.6));
         let muted = self.theme.fg(|t| t.muted);
-        let open = self.workspace.agents();
         let shown_at = Instant::now();
+        let fit = self.fit_tabs(full_screen, window, cx);
         // A press on a tab or a button is theirs, not the start of a drag.
         let keep = |_: &MouseDownEvent, _: &mut Window, cx: &mut gpui::App| cx.stop_propagation();
         let mut tabs = div()
             .id("tabs")
             .flex()
             .items_center()
-            .gap(px(4.0))
+            .gap(px(BAR_GAP))
             .min_w(px(0.0))
             .flex_shrink(1.0)
             .h_full()
             .overflow_x_scroll()
             .track_scroll(&self.tabs);
-        for (index, tab) in self.workspace.tabs.iter().enumerate() {
+        for shown in fit.shown {
+            let index = shown.index;
+            let tab = &self.workspace.tabs[index];
             let active = index == self.workspace.active_tab;
             // The active tab keeps its × in line; the others have it over the end of their
             // title, so a narrow tab gives the title all its room. Either fades in only while
@@ -2391,14 +2572,14 @@ impl PaddockWindow {
                 .id(("tab", index))
                 .group(SharedString::from(format!("tab-{index}")))
                 .relative()
-                .max_w(ui.px(220.0))
+                .max_w(ui.px(TAB_WIDEST))
                 .flex()
                 .items_center()
-                .gap(ui.px(7.0))
+                .gap(ui.px(TAB_GAP))
                 .h(ui.px(28.0))
-                .pl(ui.px(9.0))
+                .pl(ui.px(TAB_START))
                 .rounded(px(7.0))
-                .text_size(ui.px(12.5))
+                .text_size(ui.px(TAB_TEXT))
                 .cursor_pointer()
                 .on_mouse_down(MouseButton::Left, keep)
                 .on_hover(cx.listener(move |this, hovered: &bool, _, cx| {
@@ -2417,10 +2598,7 @@ impl PaddockWindow {
                         .overflow_hidden()
                         .whitespace_nowrap()
                         .text_ellipsis()
-                        .child(grouped(
-                            tab_label(&self.subject(tab.active, cx), &open),
-                            self.fg(|t| t.agents_dimmer),
-                        )),
+                        .child(grouped(shown.title, self.fg(|t| t.agents_dimmer))),
                 )
                 .children(panes_tip(tab.panes().len()).map(|text| {
                     let tip = BarTip {
@@ -2447,7 +2625,7 @@ impl PaddockWindow {
             // Short of room, the other tabs narrow first; the active one keeps its title.
             item = if active {
                 item.flex_shrink_0()
-                    .pr(ui.px(6.0))
+                    .pr(ui.px(ACTIVE_TAB_END))
                     .bg(highlight)
                     .text_color(self.fg(|t| t.agents_text))
                     // The short name heavier; a faint group before it stays regular.
@@ -2455,13 +2633,33 @@ impl PaddockWindow {
             } else {
                 item.flex_shrink(1.0)
                     .min_w(ui.px(56.0))
-                    .pr(ui.px(11.0))
+                    .pr(ui.px(TAB_END))
                     .text_color(self.fg(|t| t.muted))
                     .hover(move |style| style.bg(hovered))
             };
+            // Fitted to the room left, as `fit_tabs` worked it out; the whole title on hover
+            // when it is shortened.
+            if let Some(width) = shown.width {
+                item = item.flex_shrink_0().w(px(width));
+            }
+            if let Some(whole) = shown.whole {
+                let tip = BarTip {
+                    text: whole.into(),
+                    keys: String::new(),
+                    size: ui.px(11.5),
+                    color: self.fg(|t| t.agents_text),
+                    dim: self.fg(|t| t.agents_dim),
+                    background: hsla(self.theme.bg(|t| t.agents_bg), 1.0),
+                    border: self.fg(|t| t.agents_rule),
+                };
+                item = item.tooltip(move |_, cx| cx.new(|_| tip.clone()).into());
+            }
             tabs = tabs.child(item.child(close).on_click(cx.listener(
                 move |this, _: &ClickEvent, window, cx| this.select_tab(index, window, cx),
             )));
+        }
+        if !fit.hidden.is_empty() {
+            tabs = tabs.child(self.more_button(fit.hidden.len(), fit.more, cx));
         }
         // Lit while its panel is open, which hangs from it; the `+` turns as the pointer comes in.
         let choosing = self.popup == Some(Popup::NewTab);
@@ -2551,9 +2749,9 @@ impl PaddockWindow {
                     .h_full()
                     .flex()
                     .items_center()
-                    .gap(px(4.0))
-                    .pl(px(10.0))
-                    .pr(px(10.0))
+                    .gap(px(BAR_GAP))
+                    .pl(px(BAR_END))
+                    .pr(px(BAR_END))
                     .child(tabs)
                     .child(new_tab)
                     // Spare room, where the pet walks along the terminal's top edge.
@@ -2569,6 +2767,118 @@ impl PaddockWindow {
                     .child(self.search_button(cx))
                     .child(self.right_button(cx)),
             )
+    }
+
+    /// The `+N` after the tabs for the `count` with no room in the title bar, `width` wide; lit
+    /// while their menu, hanging from it, is open.
+    fn more_button(&self, count: usize, width: f32, cx: &mut Context<Self>) -> Stateful<Div> {
+        let ui = UiFont::get(cx);
+        let highlight = self.highlight();
+        let lit = self.popup == Some(Popup::Overflow);
+        let color = if lit {
+            self.fg(|t| t.agents_text)
+        } else {
+            self.fg(|t| t.muted)
+        };
+        div()
+            .id("tabs-more")
+            .relative()
+            .flex_shrink_0()
+            .flex()
+            .items_center()
+            .justify_center()
+            .gap(ui.px(MORE_GAP))
+            .w(px(width))
+            .h(ui.px(26.0))
+            .rounded(px(7.0))
+            .border_1()
+            .border_color(hsla(self.theme.fg(|t| t.agents_rule), 0.6))
+            .text_size(ui.px(MORE_TEXT))
+            .text_color(color)
+            .cursor_pointer()
+            .when(lit, |button| button.bg(highlight))
+            .hover(move |style| style.bg(highlight))
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .child(format!("+{count}"))
+            .child(footer_icon::icon(Icon::Down, color, ui.scale(MORE_ICON)))
+            .child(self.spot(Spot::Overflow))
+            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.popup = match this.popup {
+                    Some(Popup::Overflow) => None,
+                    _ => Some(Popup::Overflow),
+                };
+                cx.notify();
+            }))
+    }
+
+    /// The `+N` menu, under it: the tabs with no room in the title bar (`hidden`), each its badge
+    /// and its whole title; a click goes to that tab, and a click outside closes it.
+    fn overflow_menu(
+        &self,
+        hidden: &[usize],
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> Stateful<Div> {
+        let ui = UiFont::get(cx);
+        let theme = &*self.theme;
+        let placed = self.placed(Popup::Overflow, 240.0, window, cx);
+        let agents = self.sidebar.read(cx).agents();
+        let now = now();
+        let open = self.workspace.agents();
+        // The badge's dot ringed in the row's ground, as the row lights under the mouse.
+        let ground = popover::ground(theme);
+        let hovered = ground.blend(popover::lit(theme).opacity(0.6));
+        let mut panel = popover::panel(theme, &ui)
+            .id("overflow-menu")
+            .absolute()
+            .left(px(placed.left))
+            .w(px(placed.width))
+            .max_h(px(placed.max_height))
+            .map(|panel| match (placed.top, placed.bottom) {
+                (Some(top), _) => panel.top(px(top)),
+                (None, bottom) => panel.bottom(px(bottom.unwrap_or_default())),
+            })
+            .overflow_y_scroll()
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation());
+        for &index in hidden {
+            let tab = &self.workspace.tabs[index];
+            let group = SharedString::from(popover::ROW_GROUP);
+            let badge = self.badge(
+                tab.active,
+                &agents,
+                now,
+                ground,
+                Some((group, hovered)),
+                &ui,
+            );
+            let title = tab_label(&self.subject(tab.active, cx), &open);
+            panel = panel.child(
+                popover::lead_row(theme, &ui, ("overflow-tab", index), badge, false)
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w(px(0.0))
+                            .overflow_hidden()
+                            .text_ellipsis()
+                            .child(grouped(title, self.fg(|t| t.agents_dimmer))),
+                    )
+                    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                        this.close_popup(window, cx);
+                        this.select_tab(index, window, cx);
+                    })),
+            );
+        }
+        // A click outside closes it; nothing is dimmed, as for a menu.
+        div()
+            .id("overflow-backdrop")
+            .absolute()
+            .inset_0()
+            .occlude()
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _, window, cx| this.close_popup(window, cx)),
+            )
+            .child(panel.child(cover()))
     }
 
     /// The right sidebar's switch, after the search field at the title bar's right end; lit while
@@ -4166,6 +4476,14 @@ impl PaddockWindow {
                 }),
                 Hang::BelowRight,
             ),
+            Popup::Overflow => (
+                // Not drawn yet: where the first tab starts.
+                spots
+                    .get(&Spot::Overflow)
+                    .copied()
+                    .unwrap_or_else(|| rect(side + BAR_END, 0.0, 0.0, title)),
+                Hang::BelowLeft,
+            ),
             Popup::NewTask => (
                 // Not drawn yet: at the right end of the right sidebar's first row.
                 spots.get(&Spot::NewTask).copied().unwrap_or_else(|| {
@@ -4733,8 +5051,17 @@ impl Render for PaddockWindow {
             .child(cards)
             .children(seams.left_grip.map(|x| self.grip(x, cx)))
             .children(seams.right_grip.map(|x| self.right_grip(x, cx)));
+        // The `+N` menu goes once every tab has room again.
+        let hidden = match self.popup {
+            Some(Popup::Overflow) => self.fit_tabs(window.is_fullscreen(), window, cx).hidden,
+            _ => Vec::new(),
+        };
+        if self.popup == Some(Popup::Overflow) && hidden.is_empty() {
+            self.popup = None;
+        }
         let dialog = match self.popup {
             Some(Popup::Actions) => Some(self.actions_menu(cx)),
+            Some(Popup::Overflow) => Some(self.overflow_menu(&hidden, window, cx)),
             Some(Popup::Attention) => Some(self.attention_panel(window, cx)),
             Some(Popup::Palette) => self
                 .palette

@@ -50,6 +50,7 @@ pub mod search;
 pub mod settings;
 pub mod settings_view;
 pub mod sidebar;
+pub mod tab_fit;
 pub mod terminal;
 pub mod text_input;
 pub mod theme;
