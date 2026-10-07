@@ -34,7 +34,7 @@ paddock 是用 GPUI 重做 Saddle 界面的独立桌面应用：原生窗口里�
   - 截图不入库，尤其是带账号用量等信息的画面。
   - GPUI 在窗口被完全遮挡时暂停绘制，截到旧画面不等于没更新。
 - **测试不依赖真实 agent**：用合成数据和假 `corral` 脚本；真实 agent 只用于明确的实测，且只用自己开的测试实例。
-- **验证**：按改动影响面选择检查。小改跑直接相关测试；跨模块改动和合并前，对每个 Cargo 清单跑 `cargo test --all-targets` 和 `cargo clippy --all-targets -- -D warnings`。保留有价值的测试，不靠删测试、放宽断言或缩短超时来通过。
+- **验证**：按改动影响面选择检查。小改跑直接相关测试；跨模块改动和合并前，对每个 Cargo 清单跑 `cargo test --all-targets`、`cargo clippy --all-targets -- -D warnings` 和 `cargo fmt --check`（用户 10-07 定）。保留有价值的测试，不靠删测试、放宽断言或缩短超时来通过。
 - **独立编译目录**：paddock 的编译产物都放在 `$HOME/Developer/personal_projs/paddock-worktrees/.target/` 下，不和 Saddle 的 `.target` 共用；每个工作目录用自己的子目录，不和别的 worktree 共用：命令前加 `CARGO_TARGET_DIR=$HOME/Developer/personal_projs/paddock-worktrees/.target/<子目录>`。主仓库用 `main`，任务 worktree 用分支名（如 `p1-font`），审查 worktree 用 `review`。原因：并行的 worktree 编的是同一个包，共用目录会互相覆盖产物，cargo 还可能把别人的产物当成最新的（P1 的 T2、T3 都遇到过）。清 worktree 时一并删掉它的子目录。
 
 ## 开发方式
@@ -47,7 +47,7 @@ paddock 是用 GPUI 重做 Saddle 界面的独立桌面应用：原生窗口里�
   - 某件活在等用户（等实测、等回答）：在任务文件开头「依据」（有 `依赖：` 就在它）之后加一行 `待用户：<什么事>`，写完立即在 main 上提交；用户处理完删掉这一行，再提交；用户也可以在看板上点 Clear 自己清掉（paddock 只提交这一个文件，不推送）。看板据此显示 Needs you（用户 10-07 定）。
   - 主仓库工作区里没提交的任务文件是草稿（看板显示 DRAFT，可能是用户在看板上新建的）：提交时按路径 `git add`，不用 `git add -A`，免得把别的草稿带进去。
   - 不要在主仓库工作区改已提交、还没合并的任务文件：分支会往同一份文件末尾追加完成记录，合并时 git 会因工作区有改动而停下。要改就改 worktree 里那份，或改完立即提交（P5-29r2 §3.1）。
-- 合并前按影响面自查：至少跑 `cargo test --all-targets` 和 `cargo clippy --all-targets -- -D warnings`，在任务文件末尾写「完成记录」：做了什么、验证了什么、拿主意的地方、没做的事。
+- 合并前按影响面自查：至少跑 `cargo test --all-targets`、`cargo clippy --all-targets -- -D warnings` 和 `cargo fmt --check`，在任务文件末尾写「完成记录」：做了什么、验证了什么、拿主意的地方、没做的事。
 - 合并：本地合并进 main，合并后推送到 `origin`（`github.com/firegnu/paddock`，public，用户 10-05 建）。仓库是公开的：推送前确认没有密钥、截图和私人数据进入提交。
 - 收尾记号：一件活合并完、worktree、分支和它的编译子目录清干净之后，在 main 上补一条空提交（`git commit --allow-empty`），首行写「收尾: 」加一句话说明这件活。只记真正落地的活（决定不做的活按上面看板约定写「不做」）。
 - 收尾之后更新 `HANDOFF.md`：现在在哪、下一步、悬着什么。设计和理由进 `docs/DESIGN.md`，别写进交接文件。
