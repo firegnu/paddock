@@ -31,6 +31,10 @@ pub struct Frame {
     pub frosted: bool,
     /// The terminal's font, for the numbers.
     pub mono: Font,
+    /// The window is the active one.
+    pub active: bool,
+    /// An agent in the list is working.
+    pub working: bool,
 }
 
 /// The panel was folded (`true`) or opened: save it with the layout.
@@ -153,6 +157,9 @@ pub struct ActivityView {
     colors: Colors,
     frosted: bool,
     mono: Font,
+    /// As the latest frame said: the window is active, an agent is working.
+    active: bool,
+    working: bool,
     width: f32,
     weeks: usize,
     /// The agents' directories, from the sidebar's listing.
@@ -184,6 +191,8 @@ impl ActivityView {
             theme,
             frosted: false,
             mono,
+            active: false,
+            working: false,
             width,
             weeks: 0,
             cwds: Vec::new(),
@@ -226,6 +235,10 @@ impl ActivityView {
             self.colors = Colors::of(&frame.theme, frame.frosted);
             self.theme = frame.theme;
             self.frosted = frame.frosted;
+            changed = true;
+        }
+        if (frame.active, frame.working) != (self.active, self.working) {
+            (self.active, self.working) = (frame.active, frame.working);
             changed = true;
         }
         if frame.mono != self.mono {
@@ -638,7 +651,8 @@ impl Render for ActivityView {
         if popping || swelling {
             window.request_animation_frame();
         }
-        let glowing = !still && !popping && self.shown_at.is_some();
+        let glowing =
+            breathes(self.active, self.working, still) && !popping && self.shown_at.is_some();
         // The total counts up as the cells pop in, on their curve.
         let total = counts.as_ref().map(|k| {
             let total = k.total(first);
@@ -745,6 +759,13 @@ impl Render for ActivityView {
     }
 }
 
+/// Whether today's ring breathes: only while the window is the `active` one and an agent is
+/// `working`, and never with Reduce Motion on (`still`). Otherwise it shows still and asks for no
+/// frames, so an idle window is not drawn again and again.
+pub fn breathes(active: bool, working: bool, still: bool) -> bool {
+    active && working && !still
+}
+
 /// The clickable header row both shapes start with: `ACTIVITY`, brighter under the mouse.
 fn header(ui: &UiFont, c: Colors) -> Stateful<Div> {
     div()
@@ -821,5 +842,17 @@ mod tests {
         assert_eq!(thousands(1_234_567), "1,234,567");
         assert_eq!(plural(1, "commit"), "commit");
         assert_eq!(plural(0, "commit"), "commits");
+    }
+
+    #[test]
+    fn the_ring_breathes_only_in_front_with_an_agent_working() {
+        // In front with an agent working: it breathes.
+        assert!(breathes(true, true, false));
+        // In the background, or with no agent working, or both: still.
+        assert!(!breathes(false, true, false));
+        assert!(!breathes(true, false, false));
+        assert!(!breathes(false, false, false));
+        // Reduce Motion keeps it still even then.
+        assert!(!breathes(true, true, true));
     }
 }

@@ -1350,6 +1350,9 @@ impl Render for Sidebar {
             theme: self.theme.clone(),
             frosted: self.frosted,
             mono: self.mono.clone(),
+            // The window's activation redraws it, and a listing that changes who works too.
+            active: window.is_window_active(),
+            working: self.listing.animating(now),
         };
         self.activity
             .update(cx, |view, cx| view.frame(activity, cx));
