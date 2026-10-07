@@ -39,10 +39,12 @@ use std::{
 const EVERY: Duration = Duration::from_secs(3);
 /// How often a finished read or a due one is looked for, and the ages brought up to date.
 const TICK: Duration = Duration::from_millis(200);
-/// The buttons over a card while the mouse is on it: each one's size and the room between them,
-/// the bar's padding, how far in from the card's top right corner it sits, and the right padding
-/// of a card in the narrow list, whose first line makes room for it.
+/// The buttons on a card while the mouse is on it: each one's size, over a card in the narrow list
+/// and at a tile's foot, and the room between them; the bar's padding, how far in from the card's
+/// top right corner it sits in the narrow list, and the right padding of a card there, whose first
+/// two lines make room for it.
 const BAR_BUTTON: f32 = 24.0;
+const TILE_BUTTON: f32 = 20.0;
 const BAR_GAP: f32 = 2.0;
 const BAR_PAD: f32 = 2.0;
 const BAR_TOP: f32 = 6.0;
@@ -914,10 +916,12 @@ impl KanbanView {
     fn row(&self, card: &Card, ui: &UiFont, cx: &mut Context<Self>) -> Stateful<Div> {
         let c = self.colors;
         let done = card.column == Column::Done;
-        // While the mouse is on the card its buttons sit at the end of this line, over the age:
-        // the marks keep clear of them.
-        let end = if self.hovered.as_deref() == Some(card.file.as_str()) {
-            div().flex_shrink_0().w(self.bar_reach(card, ui))
+        // While the mouse is on the card its buttons sit at the end of this line, over the age,
+        // and reach down to the next one: the marks and that line keep clear of them.
+        let hovered = self.hovered.as_deref() == Some(card.file.as_str());
+        let mut clear = hovered.then(|| self.bar_reach(card, ui));
+        let end = if let Some(room) = clear {
+            div().flex_shrink_0().w(room)
         } else {
             div()
                 .flex_shrink_0()
@@ -951,16 +955,16 @@ impl KanbanView {
         let meta = (!done)
             .then(|| self.meta(card, ui, 18.0, true))
             .flatten()
-            .map(|meta| meta.mt(ui.px(5.0)).text_size(ui.px(12.0)));
+            .map(|meta| keep_clear(meta.mt(ui.px(5.0)).text_size(ui.px(12.0)), &mut clear));
         let reviewer = self
             .reviewer(card, ui, 18.0, cx)
-            .map(|reviewer| reviewer.mt(ui.px(5.0)).text_size(ui.px(12.0)));
+            .map(|reviewer| keep_clear(reviewer.mt(ui.px(5.0)).text_size(ui.px(12.0)), &mut clear));
         let asks = self
             .asks(card)
-            .map(|asks| asks.mt(ui.px(5.0)).text_size(ui.px(12.0)));
+            .map(|asks| keep_clear(asks.mt(ui.px(5.0)).text_size(ui.px(12.0)), &mut clear));
         let clearing = self
             .clearing(card, ui, cx)
-            .map(|row| row.mt(ui.px(6.0)).text_size(ui.px(12.0)));
+            .map(|row| keep_clear(row.mt(ui.px(6.0)).text_size(ui.px(12.0)), &mut clear));
         self.hoverable(card, cx)
             .rounded(px(8.0))
             .pt(ui.px(8.0))
@@ -974,7 +978,16 @@ impl KanbanView {
             .children(reviewer)
             .children(asks)
             .children(clearing)
-            .children(self.actions(card, ui, cx))
+            .children(self.actions(card, BAR_BUTTON, ui, cx).map(|bar| {
+                bar.absolute()
+                    .top(ui.px(BAR_TOP))
+                    .right(ui.px(BAR_RIGHT))
+                    .p(ui.px(BAR_PAD))
+                    .rounded(px(7.0))
+                    .bg(c.ground)
+                    .border_1()
+                    .border_color(c.rule)
+            }))
     }
 
     /// A card in a widened column: its id and age, the title on up to two lines, its marks, then
@@ -1029,6 +1042,17 @@ impl KanbanView {
         let clearing = self
             .clearing(card, ui, cx)
             .map(|row| row.mt(ui.px(7.0)).text_size(ui.px(11.5)));
+        // While the mouse is on the card its buttons take a line of their own at its foot, under
+        // the rest, wrapping when the tile is narrower: a tile is too narrow to share a line with
+        // them.
+        let bar = self.actions(card, TILE_BUTTON, ui, cx).map(|bar| {
+            div()
+                .mt(ui.px(4.0))
+                .mx(ui.px(BAR_RIGHT - 10.0))
+                .flex()
+                .justify_end()
+                .child(bar.flex_wrap().justify_end().min_w(px(0.0)))
+        });
         self.hoverable(card, cx)
             .flex_shrink_0()
             .rounded(px(8.0))
@@ -1046,7 +1070,7 @@ impl KanbanView {
             .children(reviewer)
             .children(asks)
             .children(clearing)
-            .children(self.actions(card, ui, cx))
+            .children(bar)
     }
 
     /// A card's ground that knows when the mouse is on it.
@@ -1316,10 +1340,10 @@ impl KanbanView {
             .child(badge)
     }
 
-    /// While the mouse is on the card, its ways out at the top right: the task file, and with an
-    /// agent, its pane and its changes; on a card its task file says needs the user, Clear, which
-    /// asks first.
-    fn actions(&self, card: &Card, ui: &UiFont, cx: &mut Context<Self>) -> Option<Div> {
+    /// While the mouse is on the card, its ways out, `size` each and placed by the caller: the task
+    /// file, and with an agent, its pane and its changes; on a card its task file says needs the
+    /// user, Clear, which asks first.
+    fn actions(&self, card: &Card, size: f32, ui: &UiFont, cx: &mut Context<Self>) -> Option<Div> {
         if self.hovered.as_deref() != Some(card.file.as_str()) {
             return None;
         }
@@ -1332,7 +1356,7 @@ impl KanbanView {
                 .flex()
                 .items_center()
                 .justify_center()
-                .size(ui.px(BAR_BUTTON))
+                .size(ui.px(size))
                 .rounded(px(5.0))
                 .cursor_pointer()
                 .hover(move |style| style.bg(c.text.opacity(0.09)))
@@ -1347,27 +1371,14 @@ impl KanbanView {
             .board
             .as_ref()
             .map(|b| b.repo.join(kanban::TASKS).join(&card.file));
-        let mut bar = div()
-            .absolute()
-            .top(ui.px(BAR_TOP))
-            .right(ui.px(BAR_RIGHT))
-            .flex()
-            .gap(ui.px(BAR_GAP))
-            .p(ui.px(BAR_PAD))
-            .rounded(px(7.0))
-            .bg(c.ground)
-            .border_1()
-            .border_color(c.rule)
-            .child(
-                button("kanban-open", Icon::Document, "Open task file").on_click(
-                    move |_, _, cx| {
-                        cx.stop_propagation();
-                        if let Some(path) = &path {
-                            cx.open_with_system(path);
-                        }
-                    },
-                ),
-            );
+        let mut bar = div().flex().gap(ui.px(BAR_GAP)).child(
+            button("kanban-open", Icon::Document, "Open task file").on_click(move |_, _, cx| {
+                cx.stop_propagation();
+                if let Some(path) = &path {
+                    cx.open_with_system(path);
+                }
+            }),
+        );
         if let Some(agent) = &card.agent {
             let (go, show) = (agent.name.clone(), agent.name.clone());
             bar = bar
@@ -1415,7 +1426,7 @@ impl KanbanView {
         card.clearable() && !busy
     }
 
-    /// How far the buttons over `card` reach into the first line of a card in the narrow list,
+    /// How far the buttons over `card` reach into the first two lines of a card in the narrow list,
     /// from its right padding: the bar, its border, and its own room from the card's edge.
     fn bar_reach(&self, card: &Card, ui: &UiFont) -> Pixels {
         let buttons = 1.0
@@ -1738,6 +1749,14 @@ impl Render for NewTask {
                     .child(cancel)
                     .child(create),
             )
+    }
+}
+
+/// `line` with `room` on its right, if no line before it took it.
+fn keep_clear<E: Styled>(line: E, room: &mut Option<Pixels>) -> E {
+    match room.take() {
+        Some(room) => line.pr(room),
+        None => line,
     }
 }
 

@@ -67,8 +67,9 @@ pub enum SavedNode {
     Split {
         /// `row`: side by side; `column`: one above the other.
         axis: String,
-        /// The first part's share; files from before it was saved split in half.
-        #[serde(default = "even")]
+        /// The first part's share; files from before it was saved, or with a share that is not a
+        /// number between 0 and 1, split in half.
+        #[serde(default = "even", deserialize_with = "share")]
         ratio: f32,
         first: Box<SavedNode>,
         second: Box<SavedNode>,
@@ -108,18 +109,26 @@ fn even() -> f32 {
     layout::EVEN
 }
 
+fn share<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<f32, D::Error> {
+    let value = serde_json::Value::deserialize(deserializer)?;
+    Ok(value
+        .as_f64()
+        .map(|share| share as f32)
+        .filter(|share| *share > 0.0 && *share < 1.0)
+        .unwrap_or(layout::EVEN))
+}
+
 impl SavedNode {
     fn leaves(&self, out: &mut Vec<usize>) -> Result<()> {
         match self {
             SavedNode::Pane { pane } => out.push(*pane),
             SavedNode::Split {
                 axis,
-                ratio,
                 first,
                 second,
+                ..
             } => {
                 ensure!(axis == "row" || axis == "column", "invalid split");
-                ensure!(*ratio > 0.0 && *ratio < 1.0, "invalid split ratio");
                 first.leaves(out)?;
                 second.leaves(out)?;
             }
@@ -492,6 +501,73 @@ mod tests {
     }
 
     #[test]
+    fn a_bad_split_ratio_splits_in_half_and_the_rest_restores() {
+        let (w, mut layout) = sample();
+        let SavedNode::Split { second, .. } = &mut layout.tabs[0].tree else {
+            unreachable!()
+        };
+        let SavedNode::Split { ratio, .. } = &mut **second else {
+            unreachable!()
+        };
+        *ratio = 0.65;
+        let dir = std::env::temp_dir().join(format!("paddock-bad-ratio-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("layout.json");
+        for bad in [
+            serde_json::json!(-0.2),
+            serde_json::json!(0.0),
+            serde_json::json!(1.0),
+            serde_json::json!(7.5),
+            serde_json::json!("wide"),
+            serde_json::json!(null),
+        ] {
+            let mut file = serde_json::to_value(&layout).unwrap();
+            file["tabs"][0]["tree"]["ratio"] = bad.clone();
+            fs::write(&path, serde_json::to_vec(&file).unwrap()).unwrap();
+            let (mut store, back) = Store::open(Some(path.clone()));
+            assert!(store.problem().is_none(), "{bad}");
+            assert!(!store.protected(), "{bad}");
+            let (restored, contents) = back.unwrap().workspace();
+            let Node::Split { ratio, second, .. } = &restored.tabs[0].root else {
+                panic!("a split")
+            };
+            assert_eq!(*ratio, layout::EVEN, "{bad}");
+            assert!(matches!(**second, Node::Split { ratio, .. } if ratio == 0.65));
+            assert_eq!(restored.tabs.len(), 2);
+            assert_eq!(restored.agents(), w.agents());
+            // The next save writes the even share back.
+            store.save(&Layout::of(&restored, |pane| {
+                contents
+                    .iter()
+                    .find(|(id, _)| *id == pane)
+                    .unwrap()
+                    .1
+                    .clone()
+            }));
+            let saved: serde_json::Value =
+                serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+            assert_eq!(
+                saved["tabs"][0]["tree"]["ratio"],
+                serde_json::json!(layout::EVEN),
+                "{bad}"
+            );
+        }
+
+        // A file that cannot be read for another reason is still kept as it was.
+        let mut file = serde_json::to_value(&layout).unwrap();
+        file["tabs"][0]["tree"]["ratio"] = serde_json::json!(7.5);
+        file["tabs"][0]["tree"]["axis"] = serde_json::json!("diagonal");
+        let bytes = serde_json::to_vec(&file).unwrap();
+        fs::write(&path, &bytes).unwrap();
+        let (mut store, back) = Store::open(Some(path.clone()));
+        assert!(back.is_none());
+        assert!(store.problem().is_some());
+        store.save(&layout);
+        assert_eq!(fs::read(&path).unwrap(), bytes);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
     fn window_size_round_trips_through_the_layout_store() {
         let (_, layout) = sample();
         let mut value = serde_json::to_value(layout).unwrap();
@@ -732,14 +808,6 @@ mod tests {
             second: Box::new(SavedNode::Pane { pane: 0 }),
         };
         cases.push(bad);
-        for ratio in [0.0, 1.0, -0.2, f32::NAN] {
-            let mut bad = good.clone();
-            let SavedNode::Split { ratio: r, .. } = &mut bad.tabs[0].tree else {
-                unreachable!()
-            };
-            *r = ratio;
-            cases.push(bad);
-        }
         let mut bad = good.clone();
         bad.tabs[0].panes[0] = Content::Shell {
             cwd: "relative".into(),
