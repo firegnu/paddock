@@ -66,3 +66,26 @@
 
 ## 做完
 在本文件末尾追加「## 完成记录」（在你的分支里提交）：做了什么、验证了什么、拿主意的地方、没做的事，各几句话。回复里只写这几样，加上截图路径和有没有要主控决定的事。命令都在前台跑完，全部做完后，回复最后一行写 DONE。
+
+## 完成记录
+
+- 做了什么：
+  - 看板顶部一行最右加 `+` 按钮（悬停说明 “New task”），只在显示出看板（`Read::Board`）时有。点了在窗口里弹出 New task 小框，挂在按钮下方右对齐，样子沿用 `popover::panel`：标题 NEW TASK、ID 和 Title 两个单行输入框、一行说明（被拒时换成红字原因）、Cancel／Create。打开时标题框拿键盘；Return 确定，Esc 或点框外取消；↑↓ 和 Tab 在两个框之间切换。
+  - `kanban.rs` 加了 `taken`（main、主仓库工作区磁盘上的 `docs/任务/`、每个本地分支上的任务文件编号，以及最先在哪儿找到）、`next_id`、`draft_file`（文件名）、`draft_text`、`create_draft`、`Refused`。建文件用 `create_new` 打开，已存在就失败，所以绝不覆盖。只用只读 git 命令；不提交、不暂存。写成后窗口用 `open_with_system` 打开（和 “Open task file” 一样），关掉弹框；看板下一次读（≤3 秒）时就是 DRAFT 卡。
+  - 接线在 `window.rs`：`Popup::NewTask`、`Spot::NewTask`、`new_task_panel`。读 git 和写文件都在后台线程做。
+- 验证了什么：
+  - 单元测试：下一个空编号（`P5-29c`、`P5-10-11`、`T76`、`M3`、`P1-T2` 混在一起时给 `P5-30`；`P10` 比 `P5` 高；只有单段编号时 `M12`→`M13`；没有编号时不预填）；文件名的非法字符、空白、`../`、全被换掉、标题开头会被读进编号、截断。
+  - 集成测试（`tests/kanban.rs`，在临时 git 仓库里）：编号撞车，main、分支（只在 worktree 分支上提交）、工作区（没提交）各一，报错文字分别是 “P5-1 is already on main”“P5-2 is already on p5-2”“P5-3 is already in the main worktree”；编号不合规则、标题为空也拒；被拒时已有文件内容不变、也没多出文件；写出的内容就是 `# 任务：<标题>`、空行、`## 用户原话`；`git status` 里只有未跟踪文件（没暂存）；同一编号第二次建被拒，第一次写的文件不变。
+  - `app/` 下 `cargo test --all-targets` 全过，`cargo clippy --all-targets -- -D warnings` 无警告，`cargo fmt --check` 通过。
+  - 截图（release、`PADDOCK_NO_ACTIVATE=1`、临时 HOME／`CFFIXED_USER_HOME`／`XDG_STATE_HOME`／`XDG_CONFIG_HOME`、shell 写的假 corral（`ls` 返回空）、预写的布局（右侧栏开在 Kanban）、临时仓库；用 scratchpad 里一个 Rust 小程序等窗口号、只截这个窗口、按 PID 停掉）：正式程序截了一张看板顶部的按钮（Lagoon 13）。弹框没法不模拟点击就打开，所以另编了一个**只用来截图**的程序：在 `tick` 里临时加了几行，按钮画出来后自动打开一次弹框；截完就用 `git checkout` 撤掉了，没提交（截图前已先提交正式代码，撤完 `git status` 是干净的）。弹框截了 Lagoon 13、Dune 18、Tide 13 三张，自己都看过：ID 预填 P5-30、标题框聚焦、按钮和文字三套主题下都清楚。截图在 scratchpad，没入库。
+- 拿主意的地方：
+  - 下一个空编号的规则：只看“第二段以数字开头”的编号（`P5-29c` 的 29），取第一段按自然顺序最高的系列（`P5`），在这个系列的最大数字上加一（`P5-30`）。没有这种编号时，取单段编号里最高的那个加一（`M3`→`M4`）；一个编号都没有就不预填。编号从 main、主仓库工作区、所有本地分支上的任务文件里收集；建的时候在后台再查一次。缺点：要是哪天出现 `T76-1` 这样的编号，`T` 排在 `P` 后面，会预填 `T76-2`（可以手改）。
+  - 文件名：标题里的空白、控制字符和 `/ \ : * ? " < > |` 换成 `-`，连着的 `-` 合成一个，首尾的 `-`、`.` 去掉，标题部分最多 80 个字。标题开头会被 `task_id` 读进编号时（例如 `3D view` 接在 `P5-30` 后面会读成 `P5-30-3D`），文件名只写 `<编号>.md`，标题照样写进首行。
+  - 撞号时报最先找到的地方：先 main，再工作区，再其他分支。
+  - Tab 切换输入框时借用了命令面板的键盘上下文 `menu::PALETTE`（那里 Tab 绑定的就是 SelectNext），没改 `menu.rs`。
+  - 按钮用的是现成的 `Icon::Plus`，没改 `footer_icon.rs`。“Create” 按钮配色照 New Agent 窗口（底色用 accent，字用侧栏底色）。没加主题颜色键。
+- 没做的事：
+  - 点按钮、打字（含输入法）、Return／Esc／Tab、真的写文件后用默认编辑器打开，都留给用户实际用。
+  - 仓库有 main 但还没有任何任务文件（看板显示 “No task files”）时没有顶部一行，所以也没有 New task；要的话再定。
+  - 建完不立即重读看板，等下一轮（≤3 秒）。
+  - 截图专用的程序编在 `.target/p5-29c-kanban/shot`（在本 worktree 的编译子目录下），清 worktree 时会一起删掉。
