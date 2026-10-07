@@ -131,7 +131,10 @@ pub fn open_settings(cx: &mut App) {
     let _ = main.update(cx, |_, _, cx| {
         cx.subscribe(&settings, |main, _, event: &SettingsEvent, cx| {
             let SettingsEvent::Saved { config, .. } = event;
-            main.apply(config, cx);
+            let mut config = config.clone();
+            config.sidebar_width =
+                crate::sidebar::fit_width(config.sidebar_width, &UiFont::from_config(&config));
+            main.apply(&config, cx);
         })
         .detach()
     });

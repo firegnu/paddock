@@ -39,6 +39,15 @@ use std::{
 const EVERY: Duration = Duration::from_secs(3);
 /// How often a finished read or a due one is looked for, and the ages brought up to date.
 const TICK: Duration = Duration::from_millis(200);
+/// The buttons over a card while the mouse is on it: each one's size and the room between them,
+/// the bar's padding, how far in from the card's top right corner it sits, and the right padding
+/// of a card in the narrow list, whose first line makes room for it.
+const BAR_BUTTON: f32 = 24.0;
+const BAR_GAP: f32 = 2.0;
+const BAR_PAD: f32 = 2.0;
+const BAR_TOP: f32 = 6.0;
+const BAR_RIGHT: f32 = 8.0;
+const ROW_RIGHT: f32 = 10.0;
 
 const SPIN_TRACK: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12"><circle cx="6" cy="6" r="4.5" fill="none" stroke="#000" stroke-width="2"/></svg>"##;
 const SPIN_ARC: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12"><path d="M6 1.5a4.5 4.5 0 0 1 4.5 4.5" fill="none" stroke="#000" stroke-width="2" stroke-linecap="round"/></svg>"##;
@@ -905,6 +914,17 @@ impl KanbanView {
     fn row(&self, card: &Card, ui: &UiFont, cx: &mut Context<Self>) -> Stateful<Div> {
         let c = self.colors;
         let done = card.column == Column::Done;
+        // While the mouse is on the card its buttons sit at the end of this line, over the age:
+        // the marks keep clear of them.
+        let end = if self.hovered.as_deref() == Some(card.file.as_str()) {
+            div().flex_shrink_0().w(self.bar_reach(card, ui))
+        } else {
+            div()
+                .flex_shrink_0()
+                .text_size(ui.px(11.5))
+                .text_color(c.dim)
+                .child(card.age.clone())
+        };
         let first = self
             .first(card, ui)
             .flex()
@@ -927,13 +947,7 @@ impl KanbanView {
                     .child(card.title.clone()),
             )
             .children(self.marks(card, ui))
-            .child(
-                div()
-                    .flex_shrink_0()
-                    .text_size(ui.px(11.5))
-                    .text_color(c.dim)
-                    .child(card.age.clone()),
-            );
+            .child(end);
         let meta = (!done)
             .then(|| self.meta(card, ui, 18.0, true))
             .flatten()
@@ -952,7 +966,7 @@ impl KanbanView {
             .pt(ui.px(8.0))
             .pb(ui.px(8.0))
             .pl(ui.px(26.0))
-            .pr(ui.px(10.0))
+            .pr(ui.px(ROW_RIGHT))
             .opacity(fade(card))
             .hover(move |style| style.bg(c.text.opacity(0.05)))
             .child(first)
@@ -1318,7 +1332,7 @@ impl KanbanView {
                 .flex()
                 .items_center()
                 .justify_center()
-                .size(ui.px(24.0))
+                .size(ui.px(BAR_BUTTON))
                 .rounded(px(5.0))
                 .cursor_pointer()
                 .hover(move |style| style.bg(c.text.opacity(0.09)))
@@ -1335,11 +1349,11 @@ impl KanbanView {
             .map(|b| b.repo.join(kanban::TASKS).join(&card.file));
         let mut bar = div()
             .absolute()
-            .top(ui.px(6.0))
-            .right(ui.px(8.0))
+            .top(ui.px(BAR_TOP))
+            .right(ui.px(BAR_RIGHT))
             .flex()
-            .gap(ui.px(2.0))
-            .p(ui.px(2.0))
+            .gap(ui.px(BAR_GAP))
+            .p(ui.px(BAR_PAD))
             .rounded(px(7.0))
             .bg(c.ground)
             .border_1()
@@ -1374,11 +1388,7 @@ impl KanbanView {
                     )),
                 );
         }
-        let busy = matches!(
-            self.clears.get(&card.file),
-            Some(Clearing::Running | Clearing::Done)
-        );
-        if card.clearable() && !busy {
+        if self.offers_clear(card) {
             let file = card.file.clone();
             bar = bar.child(
                 button(
@@ -1393,6 +1403,26 @@ impl KanbanView {
             );
         }
         Some(bar)
+    }
+
+    /// Whether the buttons over `card` include Clear: its task file says it needs the user, and it
+    /// is not being cleared or cleared already.
+    fn offers_clear(&self, card: &Card) -> bool {
+        let busy = matches!(
+            self.clears.get(&card.file),
+            Some(Clearing::Running | Clearing::Done)
+        );
+        card.clearable() && !busy
+    }
+
+    /// How far the buttons over `card` reach into the first line of a card in the narrow list,
+    /// from its right padding: the bar, its border, and its own room from the card's edge.
+    fn bar_reach(&self, card: &Card, ui: &UiFont) -> Pixels {
+        let buttons = 1.0
+            + if card.agent.is_some() { 2.0 } else { 0.0 }
+            + if self.offers_clear(card) { 1.0 } else { 0.0 };
+        let bar = buttons * BAR_BUTTON + (buttons - 1.0) * BAR_GAP + 2.0 * BAR_PAD;
+        ui.px(bar + BAR_RIGHT - ROW_RIGHT) + px(2.0)
     }
 
     /// Under a card being cleared: the question with Cancel and Clear, then that it is clearing,

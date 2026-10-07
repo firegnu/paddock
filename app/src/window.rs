@@ -2313,6 +2313,7 @@ impl PaddockWindow {
         agents: &[Agent],
         now: f64,
         full_screen: bool,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Stateful<Div> {
         let ui = UiFont::get(cx);
@@ -2477,11 +2478,10 @@ impl PaddockWindow {
         });
         // Over the sidebar: the traffic lights, then the sidebar's header row (the expand button
         // alone over the strip), with room to drag by.
-        let compact = sidebar::compact_bell(self.sidebar_width, full_screen, &ui);
         let spot = self.spot(Spot::Bell).into_any_element();
-        let head = self
-            .sidebar
-            .update(cx, |sidebar, cx| sidebar.head(compact, spot, cx));
+        let head = self.sidebar.update(cx, |sidebar, cx| {
+            sidebar.head(full_screen, spot, window, cx)
+        });
         let left = div()
             .flex_shrink_0()
             .w(px(bar_left(
@@ -4695,7 +4695,7 @@ impl Render for PaddockWindow {
             .on_action(
                 cx.listener(|this, _: &menu::Cancel, window, cx| this.close_popup(window, cx)),
             )
-            .child(self.title_bar(&agents, now, window.is_fullscreen(), cx))
+            .child(self.title_bar(&agents, now, window.is_fullscreen(), window, cx))
             .child(body)
             .children(dialog)
             // While a divider is dragged the cursor keeps its shape, and nothing under it
