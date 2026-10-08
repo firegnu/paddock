@@ -446,6 +446,18 @@ impl Workspace {
         agents
     }
 
+    /// Every pane showing an agent, tab by tab, with its agent.
+    pub fn agent_panes(&self) -> Vec<(PaneId, String)> {
+        self.tabs
+            .iter()
+            .flat_map(Tab::panes)
+            .filter_map(|pane| match self.shown(pane) {
+                Shown::Agent(name) => Some((pane, name.clone())),
+                _ => None,
+            })
+            .collect()
+    }
+
     /// The active pane's agent, if it shows one.
     pub fn active_agent(&self) -> Option<&str> {
         match self.shown(self.active_pane()) {
@@ -537,8 +549,8 @@ impl Workspace {
         }
     }
 
-    /// Closes `pane`; a tab left empty closes too, and the last tab keeps one empty pane. Returns
-    /// the panes that are gone, for their sessions to end.
+    /// Closes `pane`; a tab left empty closes too, and when no tab is left a new one shows a shell.
+    /// Returns the panes that are gone, for their sessions to end.
     pub fn close_pane(&mut self, pane: PaneId) -> Vec<PaneId> {
         let Some(index) = self.tabs.iter().position(|t| t.panes().contains(&pane)) else {
             return Vec::new();
@@ -580,7 +592,7 @@ impl Workspace {
     fn remove_tab(&mut self, index: usize) {
         self.tabs.remove(index);
         if self.tabs.is_empty() {
-            self.new_tab(Shown::Empty);
+            self.new_tab(Shown::Shell);
         } else if self.active_tab >= index && self.active_tab > 0 {
             self.active_tab -= 1;
         }
@@ -669,10 +681,37 @@ mod tests {
         assert_eq!(w.close_pane(other), [other]);
         assert_eq!((w.tabs.len(), w.active_tab), (1, 0));
 
-        // Closing the last tab leaves one empty pane.
+        // Closing the last tab leaves a shell, as ⌘N opens.
         assert_eq!(w.close_tab(0), [first]);
         assert_eq!(w.tabs.len(), 1);
-        assert_eq!(w.shown(w.active_pane()), &Shown::Empty);
+        assert_eq!(w.shown(w.active_pane()), &Shown::Shell);
+    }
+
+    #[test]
+    fn closing_the_last_pane_leaves_a_shell() {
+        let (mut w, only) = Workspace::new(agent("p/a"));
+        assert_eq!(w.close_pane(only), [only]);
+        assert_eq!(w.tabs.len(), 1);
+        assert_ne!(w.active_pane(), only);
+        assert_eq!(w.shown(w.active_pane()), &Shown::Shell);
+        assert_eq!(w.agents(), Vec::<String>::new());
+    }
+
+    #[test]
+    fn agent_panes_are_listed_tab_by_tab() {
+        let (mut w, _) = Workspace::new(Shown::Shell);
+        let a = w.split(Direction::Right, agent("p/a"));
+        let b = w.new_tab(agent("p/b"));
+        let again = w.new_tab(agent("p/a"));
+        w.new_tab(Shown::Empty);
+        assert_eq!(
+            w.agent_panes(),
+            [
+                (a, "p/a".to_owned()),
+                (b, "p/b".into()),
+                (again, "p/a".into())
+            ]
+        );
     }
 
     #[test]

@@ -247,3 +247,40 @@ esac
         thread::sleep(Duration::from_millis(10));
     }
 }
+
+/// corral says before the attach that the agent has ended, or that another instance runs under
+/// its name: the window closes the pane, so the viewer shows it as no failure (no red note).
+#[test]
+fn an_agent_found_ended_before_attach_is_no_failure() {
+    use paddock::viewer::AgentMetadata;
+    let temp = common::tempdir();
+    let program = common::script(
+        temp.path(),
+        "corral",
+        r#"#!/bin/sh
+case "$1 $2" in
+  "status p/exited") echo '{"ok":true,"name":"p/exited","state":"exited","instance":"i1","attached":0}' ;;
+  "status p/restarted") echo '{"ok":true,"name":"p/restarted","state":"idle","instance":"i2","attached":0}' ;;
+  *) echo '{"ok":false,"error":"unexpected_command"}'; exit 1 ;;
+esac
+"#,
+    );
+    let size = Size { rows: 10, cols: 40 };
+    for name in ["p/exited", "p/restarted"] {
+        let mut viewer = Viewer::new(program.clone());
+        let metadata = AgentMetadata {
+            cwd: None,
+            instance: Some("i1".into()),
+        };
+        viewer.select_agent(name.into(), metadata).unwrap();
+        viewer.tick(size).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(4);
+        while !viewer.closed() {
+            assert!(Instant::now() < deadline);
+            viewer.tick(size).unwrap();
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert!(viewer.showing.is_none());
+        assert_eq!(viewer.state(), "disconnected", "{name}: {}", viewer.note);
+    }
+}
