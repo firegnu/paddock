@@ -34,7 +34,7 @@ use crate::{
     tab_fit::{self, Bar, TabSize, Title},
     text_input::{self, Changed, TextInput},
     theme::Theme,
-    view::{Launch, Options, TerminalView, hsla},
+    view::{AttachEnded, Launch, Options, TerminalView, hsla},
     viewer::AgentMetadata,
     windows,
 };
@@ -704,6 +704,38 @@ pub fn dimmed(panes_shown: usize, active: bool) -> bool {
     panes_shown > 1 && !active
 }
 
+/// A pane showing an agent, as checked against corral's listing.
+pub struct AgentPane {
+    pub pane: PaneId,
+    pub name: String,
+    /// The instance the pane attached to, when known.
+    pub instance: Option<String>,
+    /// Its attach is under way or running.
+    pub attached: bool,
+}
+
+/// The panes to close because their agent has ended, by `agents`, a listing corral has just given:
+/// it lists the agent as exited, no longer lists it, or lists another instance under its name
+/// (stopped and started again). Only panes whose attach has ended count, so a listing read just
+/// before an agent started never closes its new pane. A paused agent has not ended.
+pub fn ended_panes(panes: &[AgentPane], agents: &[Agent]) -> Vec<PaneId> {
+    panes
+        .iter()
+        .filter(|p| !p.attached)
+        .filter(|p| match agents.iter().find(|a| a.name == p.name) {
+            None => true,
+            Some(a) => {
+                a.state.as_deref() == Some("exited")
+                    || p.instance
+                        .as_ref()
+                        .zip(a.instance.as_ref())
+                        .is_some_and(|(shown, listed)| shown != listed)
+            }
+        })
+        .map(|p| p.pane)
+        .collect()
+}
+
 pub struct PaddockWindow {
     theme: Rc<Theme>,
     sidebar: Entity<Sidebar>,
@@ -991,7 +1023,7 @@ impl PaddockWindow {
     }
 
     /// Opens the saved panes: shells start afresh in their directories, agents attach again
-    /// (saying so when they are gone or were restarted), empty panes stay empty.
+    /// (panes of agents gone or restarted meanwhile then close), empty panes stay empty.
     fn restore(
         &mut self,
         contents: Vec<(PaneId, Content)>,
@@ -1277,7 +1309,13 @@ impl PaddockWindow {
             ..self.template.clone()
         };
         let theme = self.theme.clone();
-        cx.new(|cx| TerminalView::new(options, theme, window, cx))
+        let view = cx.new(|cx| TerminalView::new(options, theme, window, cx));
+        // corral is asked at once whether the agent ended with it, to close its panes.
+        cx.subscribe(&view, |this, _, _: &AttachEnded, cx| {
+            this.sidebar.read(cx).refresh()
+        })
+        .detach();
+        view
     }
 
     fn shell(&self) -> Launch {
@@ -1298,7 +1336,8 @@ impl PaddockWindow {
         cx.notify();
     }
 
-    /// Views for panes the layout made on its own (the empty pane left after closing the last tab).
+    /// Views for panes the layout made on its own (the shell opened after closing the last tab),
+    /// a shell starting where ⌘N starts one.
     fn fill(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let missing: Vec<PaneId> = self
             .workspace
@@ -1308,9 +1347,57 @@ impl PaddockWindow {
             .filter(|pane| !self.panes.contains_key(pane))
             .collect();
         for pane in missing {
-            let view = self.view(pane, Launch::Empty, window, cx);
+            let launch = match self.workspace.shown(pane) {
+                Shown::Shell => self.shell(),
+                Shown::Empty | Shown::Agent(_) => Launch::Empty,
+            };
+            let view = self.view(pane, launch, window, cx);
             self.panes.insert(pane, view);
         }
+    }
+
+    /// The agent panes whose agent has ended, by the listing corral has just given the sidebar.
+    fn ended(&self, cx: &gpui::App) -> Vec<PaneId> {
+        let panes: Vec<AgentPane> = self
+            .workspace
+            .agent_panes()
+            .into_iter()
+            .filter_map(|(pane, name)| {
+                let view = self.panes.get(&pane)?.read(cx);
+                Some(AgentPane {
+                    pane,
+                    name,
+                    instance: view.agent_metadata().instance,
+                    attached: view.attaching(),
+                })
+            })
+            .collect();
+        ended_panes(&panes, &self.sidebar.read(cx).agents())
+    }
+
+    /// Closes the panes of agents that have ended, as closing them by hand does, and says so in the
+    /// footer.
+    fn close_ended(&mut self, ended: Vec<PaneId>, window: &mut Window, cx: &mut Context<Self>) {
+        let mut names: Vec<String> = ended
+            .iter()
+            .filter_map(|pane| match self.workspace.shown(*pane) {
+                Shown::Agent(name) => Some(name.clone()),
+                _ => None,
+            })
+            .collect();
+        if names.is_empty() {
+            return;
+        }
+        names.sort();
+        names.dedup();
+        let gone = ended
+            .into_iter()
+            .flat_map(|pane| self.workspace.close_pane(pane))
+            .collect();
+        self.close_quietly(gone, window, cx);
+        self.sidebar.update(cx, |sidebar, cx| {
+            sidebar.note(format!("{} ended", names.join(", ")), false, cx)
+        });
     }
 
     fn focus_active(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -1360,11 +1447,15 @@ impl PaddockWindow {
             SidebarEvent::Stop(name) => self.stop_agent(Some(name.clone()), window, cx),
             SidebarEvent::Pause(request) => self.pause_agents(request.clone(), window, cx),
             SidebarEvent::Alive(names) => {
+                // Asked before the panes let go of agents this listing leaves out: a pane still
+                // attaching then is not closed by it (its agent may have only just started).
+                let ended = self.ended(cx);
                 let names: Vec<&str> = names.iter().map(String::as_str).collect();
                 for view in self.panes.values() {
                     view.update(cx, |v, _| v.disappeared(&names));
                 }
                 self.sync_paused(cx);
+                self.close_ended(ended, window, cx);
             }
             SidebarEvent::ActivityFolded(folded) => {
                 self.activity_folded = *folded;
@@ -1563,7 +1654,7 @@ impl PaddockWindow {
         let answer = window.prompt(
             PromptLevel::Warning,
             &format!("Stop {name}?"),
-            Some("corral stop ends the agent and its session. Panes showing it stay, saying it has gone."),
+            Some("corral stop ends the agent and its session. Panes showing it close."),
             &["Stop", "Cancel"],
             cx,
         );
@@ -5434,6 +5525,105 @@ impl Render for PaddockWindow {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn listed(name: &str, state: &str, instance: &str) -> Agent {
+        Agent {
+            name: name.into(),
+            state: Some(state.into()),
+            instance: Some(instance.into()),
+            ..Agent::default()
+        }
+    }
+
+    /// Every agent pane of `w`, its attach ended, as attached to `instance` of its agent.
+    fn detached(w: &Workspace, instance: Option<&str>) -> Vec<AgentPane> {
+        w.agent_panes()
+            .into_iter()
+            .map(|(pane, name)| AgentPane {
+                pane,
+                name,
+                instance: instance.map(str::to_owned),
+                attached: false,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_shown_agent_that_stopped_closes_its_pane_and_a_shell_takes_its_place() {
+        for agents in [vec![], vec![listed("p/a", "exited", "i1")]] {
+            let (mut w, only) = Workspace::new(Shown::Agent("p/a".into()));
+            let ended = ended_panes(&detached(&w, Some("i1")), &agents);
+            assert_eq!(ended, [only]);
+            for pane in ended {
+                w.close_pane(pane);
+            }
+            assert_eq!(w.tabs.len(), 1);
+            assert_eq!(w.shown(w.active_pane()), &Shown::Shell);
+        }
+    }
+
+    #[test]
+    fn an_ended_agents_panes_close_in_every_tab_and_empty_tabs_with_them() {
+        let (mut w, shell) = Workspace::new(Shown::Shell);
+        let a = w.split(Direction::Right, Shown::Agent("p/a".into()));
+        let again = w.new_tab(Shown::Agent("p/a".into()));
+        let b = w.new_tab(Shown::Agent("p/b".into()));
+        // p/a has left the list; p/b, in the tab shown, still runs.
+        let ended = ended_panes(&detached(&w, None), &[listed("p/b", "idle", "i2")]);
+        assert_eq!(ended, [a, again]);
+        for pane in ended {
+            w.close_pane(pane);
+        }
+        assert_eq!(w.tabs.len(), 2);
+        assert_eq!(w.tabs[0].panes(), [shell]);
+        assert_eq!(w.active_pane(), b);
+    }
+
+    #[test]
+    fn a_restarted_agent_ended_the_instance_its_pane_showed() {
+        let (w, pane) = Workspace::new(Shown::Agent("p/a".into()));
+        let restarted = [listed("p/a", "starting", "i2")];
+        assert_eq!(ended_panes(&detached(&w, Some("i1")), &restarted), [pane]);
+        // Without an instance to tell them apart, the name still runs.
+        assert!(ended_panes(&detached(&w, None), &restarted).is_empty());
+        assert!(ended_panes(&detached(&w, Some("i2")), &restarted).is_empty());
+    }
+
+    #[test]
+    fn a_paused_agent_has_not_ended() {
+        let (w, _) = Workspace::new(Shown::Agent("p/a".into()));
+        let paused = Agent {
+            paused: true,
+            ..listed("p/a", "idle", "i1")
+        };
+        assert!(ended_panes(&detached(&w, Some("i1")), &[paused]).is_empty());
+    }
+
+    #[test]
+    fn a_pane_still_attaching_or_attached_is_not_taken_for_ended() {
+        // A listing read before its agent started (New Agent, `paddock ctl`) leaves it out.
+        let (w, _) = Workspace::new(Shown::Agent("p/new".into()));
+        let mut panes = detached(&w, Some("i1"));
+        panes[0].attached = true;
+        assert!(ended_panes(&panes, &[]).is_empty());
+    }
+
+    #[test]
+    fn a_restored_pane_whose_agent_is_gone_is_not_kept() {
+        // Restoring attaches each saved agent; for one gone the attach ends at once, and the
+        // listing then closes the pane rather than leave it saying the agent is gone.
+        let (mut w, shell) = Workspace::new(Shown::Shell);
+        let gone = w.split(Direction::Right, Shown::Agent("p/gone".into()));
+        let kept = w.new_tab(Shown::Agent("p/kept".into()));
+        let mut panes = detached(&w, Some("i1"));
+        panes[1].attached = true;
+        let ended = ended_panes(&panes, &[listed("p/kept", "idle", "i1")]);
+        assert_eq!(ended, [gone]);
+        w.close_pane(gone);
+        assert_eq!(w.tabs[0].panes(), [shell]);
+        assert_eq!(w.agents(), ["p/kept"]);
+        assert_eq!(w.active_pane(), kept);
+    }
 
     #[test]
     fn a_paused_agents_dot_is_the_cards_paused_colour() {

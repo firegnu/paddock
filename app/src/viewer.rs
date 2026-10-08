@@ -43,6 +43,11 @@ pub fn public_metadata(corral: &str, name: &str) -> AgentMetadata {
     }
 }
 
+/// What the check before an attach says when corral reports the agent ended, or another instance
+/// of it running.
+const EXITED: &str = "agent has exited before attach";
+const REPLACED: &str = "agent identity changed before attach";
+
 pub struct Viewer {
     pub session: Option<Session>,
     pub showing: Option<String>,
@@ -209,7 +214,8 @@ impl Viewer {
                     if shell_spawn {
                         self.shell.as_mut().unwrap().state = "failed";
                     }
-                    self.failed = true;
+                    // corral said the agent has ended: no failure, as the window closes the pane.
+                    self.failed = !matches!(error.to_string().as_str(), EXITED | REPLACED);
                     self.note = format!("terminal {name}: {error:#}");
                 }
                 Err(_) => {}
@@ -235,14 +241,8 @@ impl Viewer {
                             std::time::Duration::from_secs(15),
                             &std::sync::atomic::AtomicBool::new(false),
                         )?;
-                        anyhow::ensure!(
-                            status["state"].as_str() != Some("exited"),
-                            "agent has exited before attach"
-                        );
-                        anyhow::ensure!(
-                            status["instance"].as_str() == Some(&instance),
-                            "agent identity changed before attach"
-                        );
+                        anyhow::ensure!(status["state"].as_str() != Some("exited"), EXITED);
+                        anyhow::ensure!(status["instance"].as_str() == Some(&instance), REPLACED);
                         anyhow::ensure!(
                             status["attached"].as_u64().unwrap_or(0) == 0,
                             "agent attached elsewhere"

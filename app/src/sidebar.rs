@@ -3287,6 +3287,31 @@ mod tests {
     }
 
     #[test]
+    fn a_failed_read_ends_no_agent() {
+        use crate::window::{AgentPane, ended_panes};
+        let (_, failing) = fake_corral(
+            "failing-ends",
+            r#"echo '{"ok": false, "error": "daemon unreachable"}'; exit 1"#,
+        );
+        let mut listing = Listing::default();
+        listing.absorb(Ok(vec![agent("p/a", "idle")]), None, 1000.0);
+        // No listing goes to the window, which checks its panes only against one it is given.
+        assert!(
+            listing
+                .absorb(first_update(failing), None, 1001.0)
+                .is_none()
+        );
+        // And the list kept still has the agent running.
+        let pane = AgentPane {
+            pane: 1,
+            name: "p/a".into(),
+            instance: Some("i-p/a".into()),
+            attached: false,
+        };
+        assert!(ended_panes(&[pane], &listing.panel.agents).is_empty());
+    }
+
+    #[test]
     fn corral_errors_become_a_line_and_keep_the_list() {
         let (dir, failing) = fake_corral(
             "failing",

@@ -322,7 +322,12 @@ impl PaddockWindow {
 
     /// Closes `gone`'s views as closing them in the window does, without moving the keyboard
     /// unless it was in one of them.
-    fn close_quietly(&mut self, gone: Vec<PaneId>, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn close_quietly(
+        &mut self,
+        gone: Vec<PaneId>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let had = gone.iter().any(|pane| {
             self.panes
                 .get(pane)

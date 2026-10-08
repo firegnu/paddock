@@ -31,12 +31,15 @@ use alacritty_terminal::{
 };
 use gpui::{
     App, Bounds, ClipboardItem, Context, ElementInputHandler, Entity, EntityInputHandler,
-    ExternalPaths, FocusHandle, Focusable, Font, FontStyle, FontWeight, Hsla, KeyDownEvent,
-    MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point, Render, Rgba,
-    ScrollDelta, ScrollWheelEvent, SharedString, Subscription, TextAlign, TextRun, UTF16Selection,
-    UnderlineStyle, Window, canvas, div, fill, point, prelude::*, px, size,
+    EventEmitter, ExternalPaths, FocusHandle, Focusable, Font, FontStyle, FontWeight, Hsla,
+    KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point, Render,
+    Rgba, ScrollDelta, ScrollWheelEvent, SharedString, Subscription, TextAlign, TextRun,
+    UTF16Selection, UnderlineStyle, Window, canvas, div, fill, point, prelude::*, px, size,
 };
 use std::{cell::RefCell, ops::Range, path::PathBuf, rc::Rc, time::Duration, time::Instant};
+
+/// How long a pane whose attach ended says nothing, while corral is asked whether its agent ended.
+const QUIET: Duration = Duration::from_secs(3);
 
 /// Shown in a pane with nothing in it.
 const EMPTY_NOTE: &str = "Choose an agent on the left, or open one here with + or Split.";
@@ -152,6 +155,11 @@ pub struct TerminalView {
     stats: Option<Rc<RefCell<Stats>>>,
     /// The find bar, while it is open.
     find: Option<FindBar>,
+    /// The last poll found an attach to an agent under way or running.
+    attaching: bool,
+    /// Since that attach ended by itself, until corral has been asked whether its agent ended
+    /// too: the pane, about to close if so, says nothing meanwhile.
+    quiet: Option<Instant>,
 }
 
 struct FindBar {
@@ -256,6 +264,8 @@ impl TerminalView {
                 .stats
                 .then(|| Rc::new(RefCell::new(Stats::default()))),
             find: None,
+            attaching: false,
+            quiet: None,
         }
     }
 
@@ -299,6 +309,7 @@ impl TerminalView {
     pub fn attach(&mut self, name: String, metadata: AgentMetadata, cx: &mut Context<Self>) {
         self.retire_direct();
         self.queued_shell = None;
+        self.quiet = None;
         self.viewer.shell = None;
         if let Err(error) = self.viewer.select_agent(name.clone(), metadata) {
             self.note = format!("{error:#}");
@@ -320,6 +331,8 @@ impl TerminalView {
         if let Err(error) = self.viewer.close() {
             self.note = format!("{error:#}");
         }
+        // Ended here on purpose: no wait for corral.
+        (self.attaching, self.quiet) = (false, None);
         self.label = format!("{program} · {cwd}");
         self.subject = format!("shell · {cwd}");
         self.queued_shell = Some(Shell {
@@ -388,6 +401,7 @@ impl TerminalView {
     pub fn close(&mut self, cx: &mut Context<Self>) {
         self.retire_direct();
         self.queued_shell = None;
+        (self.attaching, self.quiet) = (false, None);
         if let Err(error) = self.viewer.close() {
             self.note = format!("{error:#}");
         }
@@ -447,6 +461,16 @@ impl TerminalView {
         }
     }
 
+    /// An attach to an agent is under way or running here, and the pane is not letting it go for a
+    /// shell or to be empty.
+    pub fn attaching(&self) -> bool {
+        self.direct.is_none()
+            && self.queued_shell.is_none()
+            && self.viewer.shell.is_none()
+            && self.label != "empty"
+            && !self.viewer.closed()
+    }
+
     /// Drives the session the way Saddle's main loop does, and repaints when output arrived.
     fn poll(&mut self, cx: &mut Context<Self>) {
         let size = self.size;
@@ -458,6 +482,17 @@ impl TerminalView {
         }
         if self.queued_shell.is_some() && self.viewer.closed() {
             self.viewer.start_shell(self.queued_shell.take().unwrap());
+        }
+        let attaching = self.attaching();
+        if self.attaching && !attaching {
+            self.quiet = Some(Instant::now());
+            cx.emit(AttachEnded);
+            cx.notify();
+        }
+        self.attaching = attaching;
+        if self.quiet.is_some_and(|since| since.elapsed() >= QUIET) {
+            self.quiet = None;
+            cx.notify();
         }
         let changed = self
             .session()
@@ -946,7 +981,7 @@ impl TerminalView {
         let Some(session) = self.session() else {
             // Without a session, the viewer's own message comes first: a hint or why the last one
             // ended, in the muted colour unless it failed.
-            if !self.viewer.note.is_empty() {
+            if !self.viewer.note.is_empty() && self.quiet.is_none() {
                 frame.note = Some(self.viewer.note.clone());
                 if self.viewer.state() != "failed" {
                     frame.note_color = self.theme.fg(|t| t.muted);
@@ -998,6 +1033,11 @@ impl TerminalView {
         frame
     }
 }
+
+/// The pane's attach to its agent has ended: the agent may have just ended too.
+pub struct AttachEnded;
+
+impl EventEmitter<AttachEnded> for TerminalView {}
 
 impl Focusable for TerminalView {
     fn focus_handle(&self, _: &App) -> FocusHandle {
