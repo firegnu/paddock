@@ -178,6 +178,31 @@ impl EditState {
         }
     }
 
+    /// Puts an input method's text still being composed in place of `range`, marked; an empty
+    /// `new_text` ends the composition. `selected_utf16` is the input method's selection, counted
+    /// from the start of `new_text`.
+    fn mark(&mut self, range: Range<usize>, new_text: &str, selected_utf16: Option<Range<usize>>) {
+        self.begin_composition();
+        self.content =
+            (self.content[0..range.start].to_owned() + new_text + &self.content[range.end..])
+                .into();
+        if !new_text.is_empty() {
+            self.marked_range = Some(range.start..range.start + new_text.len());
+        } else {
+            self.marked_range = None;
+        }
+        self.selected_range = selected_utf16
+            .as_ref()
+            .map(|range_utf16| {
+                range.start + utf8_offset(new_text, range_utf16.start)
+                    ..range.start + utf8_offset(new_text, range_utf16.end)
+            })
+            .unwrap_or_else(|| range.start + new_text.len()..range.start + new_text.len());
+        if self.marked_range.is_none() {
+            self.finish_composition();
+        }
+    }
+
     fn undo(&mut self) -> bool {
         if self.marked_range.is_some() {
             return false;
@@ -561,16 +586,7 @@ impl TextInput {
     }
 
     fn offset_from_utf16(&self, offset: usize) -> usize {
-        let mut utf8_offset = 0;
-        let mut utf16_count = 0;
-        for ch in self.edit.content.chars() {
-            if utf16_count >= offset {
-                break;
-            }
-            utf16_count += ch.len_utf16();
-            utf8_offset += ch.len_utf8();
-        }
-        utf8_offset
+        utf8_offset(&self.edit.content, offset)
     }
 
     fn offset_to_utf16(&self, offset: usize) -> usize {
@@ -682,24 +698,7 @@ impl EntityInputHandler for TextInput {
             .map(|range_utf16| self.range_from_utf16(range_utf16))
             .or(self.edit.marked_range.clone())
             .unwrap_or(self.edit.selected_range.clone());
-        self.edit.begin_composition();
-        self.edit.content = (self.edit.content[0..range.start].to_owned()
-            + new_text
-            + &self.edit.content[range.end..])
-            .into();
-        if !new_text.is_empty() {
-            self.edit.marked_range = Some(range.start..range.start + new_text.len());
-        } else {
-            self.edit.marked_range = None;
-        }
-        self.edit.selected_range = new_selected_range_utf16
-            .as_ref()
-            .map(|range_utf16| self.range_from_utf16(range_utf16))
-            .map(|new_range| new_range.start + range.start..new_range.end + range.end)
-            .unwrap_or_else(|| range.start + new_text.len()..range.start + new_text.len());
-        if self.edit.marked_range.is_none() {
-            self.edit.finish_composition();
-        }
+        self.edit.mark(range, new_text, new_selected_range_utf16);
         cx.notify();
     }
 
@@ -944,6 +943,20 @@ struct AreaPrepaint {
     empty: bool,
     cursor: Option<PaintQuad>,
     selection: Vec<PaintQuad>,
+}
+
+/// The byte offset in `text` of `offset_utf16` UTF-16 units, at most the end of `text`.
+fn utf8_offset(text: &str, offset_utf16: usize) -> usize {
+    let mut utf8_offset = 0;
+    let mut utf16_count = 0;
+    for ch in text.chars() {
+        if utf16_count >= offset_utf16 {
+            break;
+        }
+        utf16_count += ch.len_utf16();
+        utf8_offset += ch.len_utf8();
+    }
+    utf8_offset
 }
 
 /// One run of `len` bytes in `color`, the part being composed underlined.
@@ -1305,6 +1318,50 @@ mod tests {
         assert_eq!(edit.content.as_ref(), "prefix new");
         edit.undo();
         assert_eq!(edit.content.as_ref(), "prefix");
+    }
+
+    /// Types pinyin letter by letter as an input method does: each step replaces the text being
+    /// composed (or the selection, when nothing is) and puts the caret at `caret_utf16` within it.
+    fn compose(edit: &mut EditState, steps: &[(&str, usize)]) {
+        for &(text, caret_utf16) in steps {
+            let range = edit
+                .marked_range
+                .clone()
+                .unwrap_or(edit.selected_range.clone());
+            edit.mark(range, text, Some(caret_utf16..caret_utf16));
+        }
+    }
+
+    #[test]
+    fn composing_again_after_the_input_method_clears_its_text_does_not_crash() {
+        // The crash of 10-08: pinyin deleted (or Shift pressed) and then typing on.
+        let mut edit = EditState::new("".into());
+        compose(&mut edit, &[("n", 1), ("ni", 2), ("", 0), ("h", 1)]);
+        assert_eq!(edit.content.as_ref(), "h");
+        assert_eq!(edit.marked_range, Some(0..1));
+        assert_eq!(edit.selected_range, 1..1);
+
+        let mut edit = EditState::new("abc".into());
+        compose(&mut edit, &[("n", 1), ("ni", 2), ("n", 1), ("", 0)]);
+        assert_eq!(edit.content.as_ref(), "abc");
+        assert_eq!(edit.marked_range, None);
+        assert_eq!(edit.selected_range, 3..3);
+        compose(&mut edit, &[("h", 1)]);
+        assert_eq!(edit.content.as_ref(), "abch");
+        assert_eq!(edit.selected_range, 4..4);
+    }
+
+    #[test]
+    fn the_caret_of_composed_text_counts_from_its_own_start() {
+        let mut edit = EditState::new("你好".into());
+        compose(&mut edit, &[("n", 1), ("ni", 2)]);
+        assert_eq!(edit.content.as_ref(), "你好ni");
+        assert_eq!(edit.marked_range, Some(6..8));
+        assert_eq!(edit.selected_range, 8..8);
+        // The caret inside composed text that has Chinese in it.
+        compose(&mut edit, &[("你n", 1)]);
+        assert_eq!(edit.content.as_ref(), "你好你n");
+        assert_eq!(edit.selected_range, 9..9);
     }
 
     #[test]
