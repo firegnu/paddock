@@ -1,16 +1,10 @@
 //! The About window: what paddock is and where its parts come from.
-use crate::{
-    fonts::UiFont,
-    menu,
-    pet::{Pet, Rgb},
-    theme::Theme,
-    view::hsla,
-};
+use crate::{fonts::UiFont, menu, theme::Theme, view::hsla};
 use gpui::{
-    BoxShadow, Context, FocusHandle, Focusable, FontWeight, Render, Window, canvas, div, point,
-    prelude::*, px, size,
+    BoxShadow, Context, Corners, FocusHandle, Focusable, FontWeight, Render, RenderImage, Window,
+    canvas, div, point, prelude::*, px,
 };
-use std::rc::Rc;
+use std::{cell::RefCell, collections::HashMap, rc::Rc, sync::Arc};
 
 /// The key context of the About window: ⌘W closes it.
 pub const CONTEXT: &str = "PaddockAbout";
@@ -23,8 +17,6 @@ const ICON: f32 = 84.0;
 
 pub struct AboutView {
     theme: Rc<Theme>,
-    /// The cat's standing pose cut to its own bounds: width, height and its pixels row by row.
-    cat: (usize, usize, Vec<Option<Rgb>>),
     focus: FocusHandle,
 }
 
@@ -32,31 +24,32 @@ impl AboutView {
     pub fn new(theme: Rc<Theme>, cx: &mut Context<Self>) -> Self {
         Self {
             theme,
-            cat: cat(),
             focus: cx.focus_handle(),
         }
     }
 }
 
-/// The cat as `icon.rs` puts it on the app icon: its standing pose without the empty margin.
-fn cat() -> (usize, usize, Vec<Option<Rgb>>) {
-    let pack = Pet::Cat.pack();
-    let image = pack.image("stand").expect("the cat stands");
-    let (width, height) = (pack.width, pack.height);
-    let solid = |x: usize, y: usize| image[y * width + x].is_some();
-    let xs: Vec<usize> = (0..width)
-        .filter(|&x| (0..height).any(|y| solid(x, y)))
-        .collect();
-    let ys: Vec<usize> = (0..height)
-        .filter(|&y| (0..width).any(|x| solid(x, y)))
-        .collect();
-    let (left, top) = (xs[0], ys[0]);
-    let (w, h) = (xs[xs.len() - 1] - left + 1, ys[ys.len() - 1] - top + 1);
-    let pixels = (0..h)
-        .flat_map(|y| (0..w).map(move |x| (x, y)))
-        .map(|(x, y)| image[(top + y) * width + left + x])
-        .collect();
-    (w, h, pixels)
+/// The app icon `pixels` device pixels square, as `icon.rs` draws it into the bundle, margin and
+/// all; drawn once per size and kept.
+fn picture(pixels: u32) -> Arc<RenderImage> {
+    thread_local! {
+        static PICTURES: RefCell<HashMap<u32, Arc<RenderImage>>> = RefCell::default();
+    }
+    PICTURES.with_borrow_mut(|pictures| {
+        pictures
+            .entry(pixels)
+            .or_insert_with(|| {
+                let mut pixel_data = crate::icon::icon(pixels);
+                // GPUI keeps images as BGRA.
+                for pixel in pixel_data.chunks_exact_mut(4) {
+                    pixel.swap(0, 2);
+                }
+                let buffer = image::ImageBuffer::from_raw(pixels, pixels, pixel_data)
+                    .expect("icon() gives a square of RGBA pixels");
+                Arc::new(RenderImage::new(vec![image::Frame::new(buffer)]))
+            })
+            .clone()
+    })
 }
 
 impl Focusable for AboutView {
@@ -66,50 +59,22 @@ impl Focusable for AboutView {
 }
 
 impl AboutView {
-    /// The app icon, drawn as `icon.rs` draws it: the cat in the middle of a rounded square, at a
-    /// whole number of points per picture pixel, a little below centre.
+    /// The app icon as the Dock shows it, drawn by `icon.rs` at this screen's pixels: its rounded
+    /// square fills `ICON`, and the transparent margin round it spills over.
     fn icon(&self, ui: &UiFont) -> impl IntoElement {
         let square = ui.scale(ICON);
-        let (w, h, pixels) = self.cat.clone();
-        let fit = ((square * 0.72) / w as f32).min((square * 0.62) / h as f32);
-        let scale = fit.floor().max(1.0);
         let drawn = canvas(
             |_, _, _| {},
             move |bounds, _, window, _| {
-                let (room_w, room_h) =
-                    (f32::from(bounds.size.width), f32::from(bounds.size.height));
-                let left = bounds.origin.x + px(((room_w - w as f32 * scale) / 2.0).round());
-                let top = bounds.origin.y
-                    + px(
-                        ((room_h - h as f32 * scale) / 2.0 + square * 1024.0 / 824.0 / 40.0)
-                            .round(),
-                    );
-                for y in 0..h {
-                    let mut x = 0;
-                    while x < w {
-                        let Some(rgb) = pixels[y * w + x] else {
-                            x += 1;
-                            continue;
-                        };
-                        let start = x;
-                        while x < w && pixels[y * w + x] == Some(rgb) {
-                            x += 1;
-                        }
-                        let (r, g, b) = rgb;
-                        window.paint_quad(gpui::fill(
-                            gpui::Bounds::new(
-                                point(left + px(start as f32 * scale), top + px(y as f32 * scale)),
-                                size(px((x - start) as f32 * scale), px(scale)),
-                            ),
-                            gpui::Rgba {
-                                r: f32::from(r) / 255.0,
-                                g: f32::from(g) / 255.0,
-                                b: f32::from(b) / 255.0,
-                                a: 1.0,
-                            },
-                        ));
-                    }
-                }
+                let whole = bounds.size.width * (1024.0 / 824.0);
+                let margin = (whole - bounds.size.width) / 2.0;
+                let area = gpui::Bounds::new(
+                    point(bounds.origin.x - margin, bounds.origin.y - margin),
+                    gpui::size(whole, whole),
+                );
+                let pixels = (f32::from(whole) * window.scale_factor()).round().max(1.0);
+                let image = picture(pixels as u32);
+                let _ = window.paint_image(area, area, Corners::default(), image, 0, false);
             },
         )
         .size_full();
@@ -117,9 +82,6 @@ impl AboutView {
             .flex_shrink_0()
             .size(px(square))
             .rounded(px(square * 0.225))
-            .border_1()
-            .border_color(hsla(self.theme.fg(|t| t.agents_rule), 1.0))
-            .bg(hsla(self.theme.bg(|t| t.agents_bg), 1.0))
             .shadow(vec![BoxShadow {
                 color: gpui::black().opacity(0.4),
                 offset: point(px(0.0), ui.px(6.0)),

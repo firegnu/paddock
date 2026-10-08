@@ -33,6 +33,8 @@ unicode-segmentation = "1"
 # Display widths for the Agents panel's monospace lines (already in the lock through GPUI).
 unicode-width = "0.2"
 toml = "1"
+# The About window's app icon handed to GPUI as pixels (already in the lock through GPUI).
+image = { version = "0.25", default-features = false }
 # The Changes tab: syntax colours for the diffs (pure-Rust regex engine, the bundled grammars
 # only) and word-level changes within a changed line.
 syntect = { version = "5", default-features = false, features = ["default-syntaxes", "regex-fancy"] }
