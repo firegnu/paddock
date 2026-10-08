@@ -3,7 +3,7 @@
 ## 现在在哪（2026-10-08 上午）
 
 - main 和 `origin/main`（`github.com/firegnu/paddock`，public）同步，工作区干净。没有进行中的活，没有开着的 worktree，本地只有 main 一个分支。corral 里只有 `paddock/main`（本主控）（用户 10-07 夜让开的 `paddock/codex`、`paddock/pi`、`paddock/omp` 已按用户要求关掉）；`ranch/main`、`cairn/main` 已不在。
-- 430 项测试通过，clippy、`cargo fmt --check` 干净。`~/Applications/paddock.app` 是合并 P5-43 之后的版本（10-08 17:33 装，含 P5-35～P5-43、paddock ctl；用户还没重启），已用本机 Apple Development 证书签名。
+- 430 项测试通过，clippy、`cargo fmt --check` 干净。`~/Applications/paddock.app` 是合并 P5-43 之后的版本（10-08 17:33 装，含 P5-35～P5-43、paddock ctl；用户已重启），已用本机 Apple Development 证书签名。
 - **paddock ctl 已部署**（用户 10-07 夜在终端里跑完，主控核对过）：`~/.local/bin/paddock` 链到 app 里的程序；`paddock install-skills` 已装 `~/.claude/skills/paddock`、`~/.agents/skills/paddock`（带归属标记，与仓库源文件一致）；旧的 `~/.claude/skills/saddle` 已删。`paddock ctl instances` 找得到正在跑的窗口，`inspect` 认出 `paddock/main` 是 pane 1。重新打包安装后链接不用重建；技能正文改了要重跑 `paddock install-skills`。已开着的 agent 要重开才看到新技能。
 - 全局 corral 已是 ranch `5c5540c`（支持 pause／resume）。
 - 重新打包安装：在 `app/` 下 `cargo build --release`，再 `cargo run --release --example bundle -- --install`（编译目录见 AGENTS.md，主仓库用 `.target/main`）。打包默认自动选本机 Apple Development 身份，可用 `PADDOCK_SIGN_IDENTITY` 指定；退回 ad-hoc 时会提示授权会失效。
@@ -12,7 +12,7 @@
 
 ## 10-08 下午：P5-43 New Agent 改成主窗口浮层
 
-- 用户：选了预设再改强度，预设的选中就丢了；New Agent “总给人一种10年前对话框的感觉”。主控截图分析旧感来源，出画布样稿（A 主窗口浮层、B 精简独立窗口，`docs/设计稿/P5-43-NewAgent浮层/`），用户选 A。DESIGN §13 已记。派 `paddock/dev-newagent-1`（Claude Code opus[1m]/high），主控审查通过（430 项测试），合并、推送、收尾，已重新打包安装（17:33）。**待用户**：重启后试浮层的交互。dev agent 已关（工作目录已删，attached 回到 0 后一并关闭）。
+- 用户：选了预设再改强度，预设的选中就丢了；New Agent “总给人一种10年前对话框的感觉”。主控截图分析旧感来源，出画布样稿（A 主窗口浮层、B 精简独立窗口，`docs/设计稿/P5-43-NewAgent浮层/`），用户选 A。DESIGN §13 已记。派 `paddock/dev-newagent-1`（Claude Code opus[1m]/high），主控审查通过（430 项测试），合并、推送、收尾，已重新打包安装（17:33）。用户重启后试过，没问题（10-08）。dev agent 已关（工作目录已删，attached 回到 0 后一并关闭）。
 
 ## 10-08 上午：P5-42 输入框中文输入法崩溃
 
