@@ -1126,7 +1126,7 @@ impl KanbanView {
         })
     }
 
-    /// The words that mark a card: DRAFT, Dropped, Needs you.
+    /// The words that mark a card: Draft, Dropped, Needs you.
     fn marks(&self, card: &Card, ui: &UiFont) -> Vec<Div> {
         let c = self.colors;
         let quiet = |words: &'static str| {
@@ -1143,7 +1143,7 @@ impl KanbanView {
         };
         let mut marks = Vec::new();
         if card.draft {
-            marks.push(quiet("DRAFT"));
+            marks.push(quiet("Draft"));
         }
         if card.dropped.is_some() {
             marks.push(quiet("Dropped"));
@@ -1738,7 +1738,7 @@ impl Render for NewTask {
                 cx.listener(|this, _: &menu::SelectPrevious, window, cx| this.switch(window, cx)),
             )
             .on_action(cx.listener(|this, _: &menu::OpenSelected, _, cx| this.create(cx)))
-            .child(popover::heading(theme, &ui, "NEW TASK"))
+            .child(popover::heading(theme, &ui, "New task"))
             .child(id.mt(ui.px(4.0)))
             .child(title.mt(ui.px(8.0)))
             .child(

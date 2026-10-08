@@ -6,6 +6,7 @@
 //! since it was read is never overwritten.
 use crate::{
     config::Config,
+    footer_icon::Icon,
     pet::Pet,
     preset::Preset,
     theme::{self, Theme},
@@ -39,6 +40,16 @@ impl Page {
             Page::Appearance => "Appearance",
             Page::Agents => "Agents",
             Page::Diagnostics => "Diagnostics",
+        }
+    }
+
+    /// The page's icon, in Settings' sidebar and the command palette.
+    pub fn icon(self) -> Icon {
+        match self {
+            Page::General => Icon::Settings,
+            Page::Appearance => Icon::Palette,
+            Page::Agents => Icon::Agent,
+            Page::Diagnostics => Icon::Pulse,
         }
     }
 }

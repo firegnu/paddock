@@ -1999,7 +1999,7 @@ impl ChangesView {
                     .child(format!(
                         "{} {}",
                         count(n as u32),
-                        if n == 1 { "FILE" } else { "FILES" }
+                        if n == 1 { "file" } else { "files" }
                     )),
             );
         let mut open: Vec<&str> = Vec::new();

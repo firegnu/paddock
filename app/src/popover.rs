@@ -308,7 +308,7 @@ pub fn hang(
     }
 }
 
-/// A group's name over its rows: small capitals, faint.
+/// A group's name over its rows: small, faint, only its first letter in capitals.
 pub fn heading(theme: &Theme, ui: &UiFont, text: impl Into<SharedString>) -> Div {
     div()
         .flex_shrink_0()

@@ -1526,7 +1526,7 @@ impl Render for Sidebar {
                             .child(
                                 div()
                                     .text_color(fg(|t| t.agents_dimmer))
-                                    .child(title.trim_end_matches('/').to_uppercase()),
+                                    .child(title.trim_end_matches('/').to_owned()),
                             )
                             .child(
                                 div()
@@ -2395,7 +2395,7 @@ fn details(theme: &Theme, mono: &Font, ui: &UiFont, card: &Card, buttons: Button
                     .text_size(ui.px(CELL_LABEL_SIZE))
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(fg(|t| t.agents_dimmer))
-                    .child(cell.label.to_uppercase()),
+                    .child(cell.label),
             )
             .child(
                 div()
