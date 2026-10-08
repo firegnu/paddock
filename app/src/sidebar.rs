@@ -44,7 +44,7 @@ pub enum SidebarEvent {
         name: String,
         metadata: AgentMetadata,
     },
-    /// Open the New Agent window.
+    /// Open the New Agent panel.
     NewAgent,
     /// Open or close the Attention list.
     Attention,

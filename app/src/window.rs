@@ -23,7 +23,7 @@ use crate::{
     menu,
     motion::{self, HoverMotion},
     new_agent::{self, Place, Started},
-    new_agent_view::Seed,
+    new_agent_view::{NewAgentEvent, NewAgentView, Seed},
     pause,
     pet::PetView,
     popover::{self, Hang, Placed, Tone},
@@ -150,6 +150,8 @@ enum Popup {
     NewTask,
     /// The tabs with no room in the title bar, from its `+N`.
     Overflow,
+    /// The New Agent panel over the dimmed window.
+    NewAgent,
 }
 
 /// What dragging the divider carries: nothing, only that it is the divider.
@@ -271,7 +273,7 @@ pub fn close_question(shells: &[String], agents: usize, quit: bool) -> Option<Qu
 #[derive(Clone, Debug, PartialEq)]
 enum Choice {
     Shell,
-    /// The New Agent window, to start one there.
+    /// The New Agent panel, to start one there.
     NewAgent,
     Agent(String),
 }
@@ -724,6 +726,8 @@ pub struct PaddockWindow {
     chooser: Chooser,
     /// The New task panel while it is open.
     new_task: Option<Entity<NewTask>>,
+    /// The New Agent panel, kept with what was typed while it is closed, until it starts an agent.
+    new_agent: Option<Entity<NewAgentView>>,
     /// Where the `+`, the split icon and the panes were last drawn, for the panels that hang from
     /// them.
     spots: Rc<RefCell<HashMap<Spot, Bounds<Pixels>>>>,
@@ -885,6 +889,7 @@ impl PaddockWindow {
             attention_index: 0,
             chooser: Chooser::default(),
             new_task: None,
+            new_agent: None,
             spots: Rc::default(),
             tab_hover: None,
             tab_left: None,
@@ -1338,8 +1343,7 @@ impl PaddockWindow {
             SidebarEvent::Attach { name, metadata } => {
                 self.show_agent(name, metadata.clone(), window, cx)
             }
-            // After this update: opening the window reads this one.
-            SidebarEvent::NewAgent => cx.defer(|cx| windows::open_new_agent(Place::Current, cx)),
+            SidebarEvent::NewAgent => self.open_new_agent(Place::Current, window, cx),
             SidebarEvent::Attention => self.toggle_attention(window, cx),
             SidebarEvent::Actions => {
                 self.popup = match self.popup {
@@ -1423,7 +1427,62 @@ impl PaddockWindow {
         cx.notify();
     }
 
-    /// What the New Agent window starts from: the directories to offer and the active pane's.
+    /// ⇧⌘N and the other ways to a new agent: the New Agent panel over the dimmed window, its
+    /// field taking the keys. One closed earlier comes back with what was typed, and takes `place`
+    /// unless that is the active pane; one open already only takes the keys back.
+    pub fn open_new_agent(&mut self, place: Place, window: &mut Window, cx: &mut Context<Self>) {
+        let seed = self.seed(cx);
+        let view = match &self.new_agent {
+            Some(view) => {
+                view.update(cx, |view, cx| view.reopen(seed, place, cx));
+                view.clone()
+            }
+            None => {
+                let view = cx.new(|cx| NewAgentView::new(seed, place, cx));
+                cx.subscribe_in(
+                    &view,
+                    window,
+                    |this, _, event: &NewAgentEvent, window, cx| {
+                        let open = this.popup == Some(Popup::NewAgent);
+                        match event {
+                            NewAgentEvent::Started {
+                                started,
+                                cwd,
+                                place,
+                            } => {
+                                this.new_agent = None;
+                                if open {
+                                    this.popup = None;
+                                }
+                                this.open_started(started, cwd, *place, window, cx);
+                            }
+                            NewAgentEvent::Close if open => this.close_popup(window, cx),
+                            NewAgentEvent::Close => {}
+                        }
+                    },
+                )
+                .detach();
+                self.new_agent = Some(view.clone());
+                view
+            }
+        };
+        self.palette = None;
+        self.chooser = Chooser::default();
+        self.new_task = None;
+        self.popup = Some(Popup::NewAgent);
+        let focus = view.read(cx).focus_handle(cx);
+        window.focus(&focus, cx);
+        cx.notify();
+    }
+
+    /// The New Agent panel is starting an agent, open or closed.
+    fn new_agent_busy(&self, cx: &gpui::App) -> bool {
+        self.new_agent
+            .as_ref()
+            .is_some_and(|view| view.read(cx).busy())
+    }
+
+    /// What the New Agent panel starts from: the directories to offer and the active pane's.
     pub fn seed(&self, cx: &gpui::App) -> Seed {
         let sidebar = self.sidebar.read(cx);
         let active = self.workspace.active_pane();
@@ -1447,7 +1506,7 @@ impl PaddockWindow {
         }
     }
 
-    /// An agent the New Agent window started, opened where it said. A running shell in the
+    /// An agent the New Agent panel started, opened where it said. A running shell in the
     /// active pane is kept: the agent gets a new tab instead.
     pub fn open_started(
         &mut self,
@@ -1716,6 +1775,10 @@ impl PaddockWindow {
             self.pet_setting = pet;
             self.pet = pet.0.then(|| cx.new(|cx| PetView::new(pet.1, cx)));
         }
+        // The New Agent panel follows too, open or closed.
+        if let Some(view) = &self.new_agent {
+            view.update(cx, |view, cx| view.restyle(config, cx));
+        }
         cx.notify();
     }
 
@@ -1953,7 +2016,8 @@ impl PaddockWindow {
                 | Popup::Palette
                 | Popup::Actions
                 | Popup::NewTask
-                | Popup::Overflow,
+                | Popup::Overflow
+                | Popup::NewAgent,
             )
             | None => {
                 return;
@@ -1964,11 +2028,9 @@ impl PaddockWindow {
         let (shown, launch) = match &choice {
             Choice::Shell => (Shown::Shell, self.shell()),
             Choice::Agent(name) => (Shown::Agent(name.clone()), Launch::Empty),
-            // After this update: opening the window reads this one.
             Choice::NewAgent => {
                 let place = direction.map_or(Place::Tab, Place::Split);
-                self.focus_active(window, cx);
-                cx.defer(move |cx| windows::open_new_agent(place, cx));
+                self.open_new_agent(place, window, cx);
                 return;
             }
         };
@@ -3765,8 +3827,7 @@ impl PaddockWindow {
                 )
                 .child(keys(&menu::NewAgent))
                 .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                    this.close_popup(window, cx);
-                    cx.defer(|cx| windows::open_new_agent(Place::Current, cx));
+                    this.open_new_agent(Place::Current, window, cx);
                 })),
             )
             .child(
@@ -5095,19 +5156,22 @@ impl Render for PaddockWindow {
         if self.popup == Some(Popup::Overflow) && hidden.is_empty() {
             self.popup = None;
         }
-        let dialog = match self.popup {
-            Some(Popup::Actions) => Some(self.actions_menu(cx)),
-            Some(Popup::Overflow) => Some(self.overflow_menu(&hidden, window, cx)),
-            Some(Popup::Attention) => Some(self.attention_panel(window, cx)),
+        let dialog: Option<AnyElement> = match self.popup {
+            Some(Popup::Actions) => Some(self.actions_menu(cx).into_any_element()),
+            Some(Popup::Overflow) => {
+                Some(self.overflow_menu(&hidden, window, cx).into_any_element())
+            }
+            Some(Popup::Attention) => Some(self.attention_panel(window, cx).into_any_element()),
             Some(Popup::Palette) => self
                 .palette
                 .as_ref()
-                .map(|palette| self.palette_panel(palette, window, cx)),
+                .map(|palette| self.palette_panel(palette, window, cx).into_any_element()),
             Some(Popup::NewTask) => self
                 .new_task
                 .clone()
-                .map(|panel| self.new_task_panel(panel, window, cx)),
-            Some(popup) => Some(self.chooser_panel(popup, window, cx)),
+                .map(|panel| self.new_task_panel(panel, window, cx).into_any_element()),
+            Some(Popup::NewAgent) => self.new_agent.clone().map(IntoElement::into_any_element),
+            Some(popup) => Some(self.chooser_panel(popup, window, cx).into_any_element()),
             None => None,
         };
         ui.apply(div())

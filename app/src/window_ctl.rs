@@ -62,7 +62,7 @@ impl PaddockWindow {
             sheet: native_window(window).is_some_and(|native| native.attachedSheet().is_some()),
             popup: self.popup.is_some(),
             kanban_confirming: self.kanban.read(cx).confirming(),
-            creating: windows::new_agent_busy(cx),
+            creating: self.new_agent_busy(cx),
             quitting: windows::quitting(cx),
         })
     }

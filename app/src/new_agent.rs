@@ -145,6 +145,50 @@ pub struct Preset {
     pub role: Role,
 }
 
+/// The preset the presets row lights: by its place in the list, and whether the form has been
+/// changed from it since it was picked.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Lit {
+    pub index: usize,
+    pub edited: bool,
+}
+
+/// Which presets the row shows, in order, when they are `widths` wide with `gap` between them
+/// and the row has `room`: all when they fit; otherwise the first that fit beside a `more` wide
+/// `+N`, the lit one (`keep`) always among them.
+pub fn fit_presets(
+    widths: &[f32],
+    keep: Option<usize>,
+    room: f32,
+    gap: f32,
+    more: f32,
+) -> Vec<usize> {
+    let total = |shown: &[usize]| {
+        shown.iter().map(|&index| widths[index]).sum::<f32>()
+            + gap * shown.len().saturating_sub(1) as f32
+    };
+    let all: Vec<usize> = (0..widths.len()).collect();
+    if total(&all) <= room {
+        return all;
+    }
+    let room = room - more - gap;
+    let mut shown: Vec<usize> = Vec::new();
+    for index in all {
+        shown.push(index);
+        if total(&shown) > room {
+            shown.pop();
+            break;
+        }
+    }
+    if let Some(keep) = keep.filter(|keep| *keep < widths.len() && !shown.contains(keep)) {
+        shown.push(keep);
+        while shown.len() > 1 && total(&shown) > room {
+            shown.remove(shown.len() - 2);
+        }
+    }
+    shown
+}
+
 /// The presets a config file without any gets.
 pub fn default_presets() -> Vec<Preset> {
     let preset = |name: &str, kind, model: &str, effort: &str, role| Preset {
@@ -369,6 +413,8 @@ pub struct Form {
     pub place: Place,
     /// The agents there are, by full name, so a suggested name is a free one.
     pub names: Vec<String>,
+    /// The preset last picked, by name: it stays lit after the form is changed.
+    picked: Option<String>,
     /// The prefix was typed, so it no longer follows the project.
     prefix_typed: bool,
     /// The name was typed, so it no longer follows the kind.
@@ -425,6 +471,7 @@ impl Form {
             prompt: String::new(),
             place,
             names: Vec::new(),
+            picked: None,
             prefix_typed: false,
             name_typed: false,
         };
@@ -517,6 +564,44 @@ impl Form {
             && self.regular == (preset.role == Role::Regular)
             && (!self.tool.has_models()
                 || (self.model == preset.model && self.effort == preset.effort))
+    }
+
+    /// A preset clicked: its settings, and it is the one lit from now on.
+    pub fn pick(&mut self, preset: &Preset) {
+        self.apply(preset);
+        self.picked = Some(preset.name.clone());
+    }
+
+    /// The picked preset's place in `presets`, while it is still there.
+    fn picked_index(&self, presets: &[Preset]) -> Option<usize> {
+        let name = self.picked.as_deref()?;
+        presets.iter().position(|preset| preset.name == name)
+    }
+
+    /// The preset to light among `presets`: the one picked, edited when the form has been changed
+    /// from it since; with none picked (or it is gone), the first the form is set as.
+    pub fn lit(&self, presets: &[Preset]) -> Option<Lit> {
+        if let Some(index) = self.picked_index(presets) {
+            return Some(Lit {
+                index,
+                edited: !self.matches(&presets[index]),
+            });
+        }
+        presets
+            .iter()
+            .position(|preset| self.matches(preset))
+            .map(|index| Lit {
+                index,
+                edited: false,
+            })
+    }
+
+    /// `presets` with the picked one set as the form now is; none when no preset was picked.
+    pub fn update_picked(&self, presets: &[Preset]) -> Option<Vec<Preset>> {
+        let index = self.picked_index(presets)?;
+        let mut presets = presets.to_vec();
+        presets[index] = self.preset(presets[index].name.clone());
+        Some(presets)
     }
 
     /// The form's kind, model, effort and role as a preset called `name`.
@@ -1011,6 +1096,89 @@ mod tests {
         let saved = form.preset("Mine".into());
         assert_eq!(saved.name, "Mine");
         assert!(form.matches(&saved));
+    }
+
+    #[test]
+    fn a_picked_preset_stays_lit_when_changed_and_can_be_updated() {
+        let presets = default_presets();
+        let lit = |index, edited| Some(Lit { index, edited });
+        let mut form = Form::new("/tmp/demo".into(), Place::Current);
+        // Nothing picked: the preset the form is set as lights, as before.
+        form.pick_tool(Tool::Claude);
+        form.regular = true;
+        assert_eq!(form.lit(&presets), lit(1, false));
+        form.set_effort("low");
+        assert_eq!(form.lit(&presets), None);
+
+        // Developer, then another effort: still Developer, edited; back again, not edited.
+        form.pick(&presets[1]);
+        form.set_effort("xhigh");
+        assert_eq!(form.lit(&presets), lit(1, true));
+        form.set_effort("high");
+        assert_eq!(form.lit(&presets), lit(1, false));
+        // The kind, model and role count too.
+        form.set_model("sonnet");
+        assert_eq!(form.lit(&presets), lit(1, true));
+        form.set_model("opus[1m]");
+        form.regular = false;
+        assert_eq!(form.lit(&presets), lit(1, true));
+        form.regular = true;
+        form.pick_tool(Tool::Pi);
+        assert_eq!(form.lit(&presets), lit(1, true));
+        form.pick_tool(Tool::Claude);
+        assert_eq!(form.lit(&presets), lit(1, false));
+        // So does what a command typed by hand moves.
+        form.set_command("claude --model sonnet --effort high".into());
+        assert_eq!(form.lit(&presets), lit(1, true));
+
+        // Update preset: the picked one is written as the form is, the rest left; not edited.
+        let updated = form.update_picked(&presets).unwrap();
+        assert_eq!(
+            updated[1],
+            Preset {
+                name: "Developer".into(),
+                kind: Tool::Claude,
+                model: Some("sonnet".into()),
+                effort: Some("high".into()),
+                role: Role::Regular,
+            }
+        );
+        assert_eq!(
+            (&updated[..1], &updated[2..]),
+            (&presets[..1], &presets[2..])
+        );
+        assert_eq!(form.lit(&updated), lit(1, false));
+
+        // Another preset takes over.
+        form.pick(&updated[2]);
+        assert_eq!(form.lit(&updated), lit(2, false));
+        form.set_effort("low");
+        assert_eq!(form.lit(&updated), lit(2, true));
+        // A picked preset deleted: back to the one the form is set as, if any.
+        let mut fewer = updated.clone();
+        fewer.remove(2);
+        assert_eq!(form.lit(&fewer), None);
+        assert_eq!(form.update_picked(&fewer), None);
+        form.set_effort("high");
+        fewer.push(form.preset("Mine".into()));
+        assert_eq!(form.lit(&fewer), lit(3, false));
+    }
+
+    #[test]
+    fn presets_that_do_not_fit_go_behind_more_the_lit_one_kept() {
+        let widths = [100.0, 80.0, 120.0, 90.0];
+        // All fit: 390 and three gaps of 4.
+        assert_eq!(fit_presets(&widths, None, 402.0, 4.0, 30.0), [0, 1, 2, 3]);
+        // Not all: as many as fit beside a 30-wide +N.
+        assert_eq!(fit_presets(&widths, None, 400.0, 4.0, 30.0), [0, 1, 2]);
+        assert_eq!(fit_presets(&widths, Some(1), 400.0, 4.0, 30.0), [0, 1, 2]);
+        // The lit one stays, in place of the last that fit.
+        assert_eq!(fit_presets(&widths, Some(3), 400.0, 4.0, 30.0), [0, 1, 3]);
+        assert_eq!(fit_presets(&widths, Some(2), 300.0, 4.0, 30.0), [0, 2]);
+        // No room at all: still the lit one.
+        assert_eq!(fit_presets(&widths, Some(2), 10.0, 4.0, 30.0), [2]);
+        assert!(fit_presets(&widths, None, 10.0, 4.0, 30.0).is_empty());
+        assert!(fit_presets(&[], Some(0), 10.0, 4.0, 30.0).is_empty());
     }
 
     #[test]
