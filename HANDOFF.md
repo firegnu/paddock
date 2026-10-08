@@ -13,7 +13,7 @@
 
 ## 10-08 傍晚：P5-44 Settings 重新设计
 
-- 用户：Settings 也有“10年前对话框”的问题，要重新设计，“但是不要丢失任何现有的功能”。主控截了四页、盘点全部功能，出画布样稿（A 精修的独立窗口、B 主窗口浮层，`docs/设计稿/P5-44-Settings再设计/`），用户：“选A，按你的建议”——Colors 改名 Appearance、Advanced 并入 Agents（Refresh interval 一起挪）、Terminal 实时预览、保存条只在有改动时出现。DESIGN §13 已记。派 `paddock/dev-settings-1`（Claude Code opus[1m]/high），主控审查通过（438 项测试），合并、推送、收尾，已重新打包安装（18:26）。任务文件误把“颜色框清空即跟随主题”写成现有功能（旧代码会报错），dev 补成“清空等于 Reset”，主控同意。**待用户**：重启后试。dev agent 还开着（attached=1，等回到 0 再关）。
+- 用户：Settings 也有“10年前对话框”的问题，要重新设计，“但是不要丢失任何现有的功能”。主控截了四页、盘点全部功能，出画布样稿（A 精修的独立窗口、B 主窗口浮层，`docs/设计稿/P5-44-Settings再设计/`），用户：“选A，按你的建议”——Colors 改名 Appearance、Advanced 并入 Agents（Refresh interval 一起挪）、Terminal 实时预览、保存条只在有改动时出现。DESIGN §13 已记。派 `paddock/dev-settings-1`（Claude Code opus[1m]/high），主控审查通过（438 项测试），合并、推送、收尾，已重新打包安装（18:26）。任务文件误把“颜色框清空即跟随主题”写成现有功能（旧代码会报错），dev 补成“清空等于 Reset”，主控同意。**待用户**：重启后试。dev agent 已关（工作目录已删，attached 回到 0 后一并关闭）。
 
 ## 10-08 下午：cairn 试点、ranch R2
 
