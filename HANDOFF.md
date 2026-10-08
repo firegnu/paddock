@@ -1,14 +1,23 @@
 # 交接
 
-## 现在在哪（2026-10-08 上午）
+## 现在在哪（2026-10-08 晚）
 
-- main 和 `origin/main`（`github.com/firegnu/paddock`，public）同步，工作区干净。没有进行中的活，没有开着的 worktree，本地只有 main 一个分支。corral 里只有 `paddock/main`（本主控）（用户 10-07 夜让开的 `paddock/codex`、`paddock/pi`、`paddock/omp` 已按用户要求关掉）；`ranch/main`、`cairn/main` 已不在。
+- main 和 `origin/main`（`github.com/firegnu/paddock`，public）同步，工作区干净。没有进行中的活，没有开着的 worktree，本地只有 main 一个分支；ranch 也一样（main 同步、无 worktree）。corral 里是 `paddock/main`（本主控）和用户自己的 `global-mesh/main`；P5-43 的 `paddock/dev-newagent-1` 已关。
 - 430 项测试通过，clippy、`cargo fmt --check` 干净。`~/Applications/paddock.app` 是合并 P5-43 之后的版本（10-08 17:33 装，含 P5-35～P5-43、paddock ctl；用户已重启），已用本机 Apple Development 证书签名。
 - **paddock ctl 已部署**（用户 10-07 夜在终端里跑完，主控核对过）：`~/.local/bin/paddock` 链到 app 里的程序；`paddock install-skills` 已装 `~/.claude/skills/paddock`、`~/.agents/skills/paddock`（带归属标记，与仓库源文件一致）；旧的 `~/.claude/skills/saddle` 已删。`paddock ctl instances` 找得到正在跑的窗口，`inspect` 认出 `paddock/main` 是 pane 1。重新打包安装后链接不用重建；技能正文改了要重跑 `paddock install-skills`。已开着的 agent 要重开才看到新技能。
-- 全局 corral 已是 ranch `5c5540c`（支持 pause／resume）。
+- 全局 `~/.local/bin/corral`、`~/.local/bin/ranch` 已是 ranch `d55defb`（10-08 R2：技能里派活和临时委派的 agent 带 `CAIRN_DISABLE=1`；程序行为与 `5c5540c` 相同，支持 pause／resume）。
+- **cairn 已全局装上（只 claude）**：`~/.claude/settings.json` 里 4 个 cairn hook 和一条放行 `cairn save` 的规则（改前备份 `~/.claude/settings.json.bak-20261008T082855…`），只有 owlet 启用（`adopt`）；其他仓库里 hook 查到没启用就直接退出。卸掉：`cairn uninstall --agent claude`。
 - 重新打包安装：在 `app/` 下 `cargo build --release`，再 `cargo run --release --example bundle -- --install`（编译目录见 AGENTS.md，主仓库用 `.target/main`）。打包默认自动选本机 Apple Development 身份，可用 `PADDOCK_SIGN_IDENTITY` 指定；退回 ad-hoc 时会提示授权会失效。
 - 已合并：第一至第三阶段、迁移 M0–M3（corral、dispatch 在 `../ranch`；遥测、Drover、插件系统已砍）、P4-1～P4-3、P5-1～P5-43（P5-13 做了 13a 外壳、13b／13c Changes；P5-19 磨砂；P5-23r、P5-13r、P5-29r、P5-29r2 是调研；P5-28 做了 28a～28d；P5-29 做了 29a～29f；P5-33 做了 33、33b；P5-34 做了 34、34b；P5-36 做了 36a～36c；P5-39 做了 39a～39d）。每件的范围、完成记录、主控审查在 `docs/任务/`。
-- 上下文：`AGENTS.md`（规矩，含「开发方式」里的**看板约定**）、`docs/DESIGN.md`（已定决定，§13 是界面改版的全部决定和用户原话）、`docs/背景与决策记录.md`、`docs/设计稿/`、`docs/调研/`。上一次会话（10-06 晚到 10-07 下午：Browser P5-28、Kanban P5-29、P5-21～P5-27 等）的细节都在各自的任务文件里。
+- 上下文：`AGENTS.md`（规矩，含「开发方式」里的**看板约定**）、`docs/DESIGN.md`（已定决定，§13 是界面改版的全部决定和用户原话）、`docs/背景与决策记录.md`、`docs/设计稿/`、`docs/调研/`。更早的会话（10-06 晚到 10-07：Browser P5-28、Kanban P5-29、P5-21～P5-41b 等）的细节都在各自的任务文件里。
+
+## 10-08 下午：cairn 试点、ranch R2
+
+- **起因**：HANDOFF“下一步 0”原定今天做 cairn 集成。用户拿 owlet 试点，问 paddock 能不能给入口免得手敲命令。主控讲明 cairn 装好后是自动的（开会话自动注入、每轮结束自动保存），手敲的只有全局 `install` 一次、每仓库 `adopt` 一次。
+- **派活和 cairn 的冲突**：cairn 每轮结束让 agent 多续跑一轮去保存（提示要求原样重发上一条回答，cairn 实测 DONE／JSON 能保住），但 corral 在第一次 Stop 就标 idle、记 reply（ranch `crates/corral/src/events.rs`），主控会在 agent 还要跑一小轮时被叫醒；派出去的 agent 各在 worktree 存了没用；问问题的 agent 开在仓库目录，会把停点存到主控那条线上。`adopt` 对整个仓库（含 worktree）生效，没法只给主目录。
+- **ranch R2（主控自己做）**：corral-dispatch、corral 技能和 `corral guide` 开 agent 的示例都加 `--env CAIRN_DISABLE=1`，配说明“没装 cairn 时不起作用，照写”。合并、推送、收尾，打包 `d55defb`；用户 16:27 在终端切 `~/.local/bin/corral`、`ranch`，跑两条 `install-skills`（不需要 `upgrade --all`），主控核对技能和仓库逐字节一致。任务和完成记录在 ranch `docs/任务/R2-派活agent不用cairn.md`。
+- **试点**：用户 16:28 `cairn install --agent claude --yes`、owlet `cairn adopt`，16:33 重开 owlet/main。首轮：README 那轮存了 checkpoint，重开后 16:43 注入了（主控只读查 cairn 库 injections 表），但 agent 没主动复述，用户问“上次做到哪了”它去翻过时的 owlet HANDOFF（停在 9-20）和正式数据库，答成项目整体进度。用户：不该要问，应自动接上。
+- **结论（10-08）**：paddock 的 Recap 面板、New Agent “cairn off”、给 cairn 提 JSON 约定**都暂不做**——面板看不到“到底注入了没有”（只在 cairn 库里），试点期间用户在 shell 里 `cairn list`／`cairn show` 看（用户试过“还行”）。用户在想“cairn 到底需要不”，主控意见：HANDOFF 认真维护的仓库增量不大，两个信息源会打架（这次就是）；cairn 真要留，是用它代替手写交接；先挂着试一两周。
 
 ## 10-08 下午：P5-43 New Agent 改成主窗口浮层
 
@@ -48,8 +57,8 @@
 
 ## 下一步（按优先级）
 
-0. **cairn 试点（owlet）**：① ranch R2：corral-dispatch、corral 技能开出去的 agent 带 `CAIRN_DISABLE=1`（派活的各在 worktree、存了没用；问问题的开在仓库目录，会把停点存到主控那条线上）——已合并、部署（10-08 16:27，`d55defb`，技能核对一致）。② 已装（10-08 16:28 用户在终端跑 `cairn install --agent claude --yes`、owlet `cairn adopt`，只装 claude；主控用 `cairn status --json` 核对：4 个 hook、固定路径、save 规则都在，owlet adopted；settings 备份 `~/.claude/settings.json.bak-20261008T082855…`）。owlet/main 16:33 已重开。首轮实测：上个会话存了 README 的停点，新会话 16:43 拿到了注入（主控只读查 cairn 库 injections 表确认），但它没主动复述停点，用户问“上次做到哪了”时它去翻过时的 HANDOFF（停在 9-20）和正式数据库，答成项目整体进度。用户认为不该要问、应自动接上；主控建议的 A（转给 cairn：新会话第一次回答开头主动说接上的停点）要不要提，取决于用户还打不打算用 cairn——用户在想“cairn 到底需要不”，主控意见：在 HANDOFF 认真维护的仓库增量不大，两个信息源会打架；先挂着试一两周，不用就 `cairn uninstall --agent claude`。③④（JSON 约定、paddock Recap 面板、New Agent 开关）**暂不做**（10-08）：面板看不到“到底注入了没有”（只在 cairn 库里，paddock 不能读），试点期间用户在 shell 里 `cairn list`／`cairn show` 看（用户试过“还行”），要确认注入找主控只读查。试点结束、确定留下 cairn 再按真实需要设计。
-1. **用户在真窗口里试 10-07 晚上这批**：拖缝调大小和双击；⌘Z／⇧⌘Z 和输入法；New Agent 新对话框（点选项、⌘↩、预设增删）；标签“+N”菜单和悬停全名；四套新主题（Rosé Pine 光标偏暗，看前台实心光标是否够显眼）；ctl 的 busy（Browser／Kanban 确认时）、`--focus` 的键盘去向、`--attach` 启动。**P5-36c 待用户定**（不挡合并）：加宽五列悬停时卡片变高一行、下面的卡片下移，还是平时就给每张卡片留出按钮那一行。
+0. **cairn 试点（owlet，挂着）**：等用户用一两周后定留不留。留：再定要不要把 A 转给 cairn 主控（新会话第一次回答开头主动说接上的停点，和它现在“不要在回答里提及本约定”冲突，在 cairn 流程里定），之后再按真实需要设计 paddock 的面板；不留：用户 `cairn uninstall --agent claude`，R2 的 `CAIRN_DISABLE=1` 留着无害。用户想确认某次注入了没有，主控只读查 `~/.local/state/cairn/cairn.db` 的 injections 表（`sqlite3 -readonly`）。过程细节：① ranch R2：corral-dispatch、corral 技能开出去的 agent 带 `CAIRN_DISABLE=1`（派活的各在 worktree、存了没用；问问题的开在仓库目录，会把停点存到主控那条线上）——已合并、部署（10-08 16:27，`d55defb`，技能核对一致）。② 已装（10-08 16:28 用户在终端跑 `cairn install --agent claude --yes`、owlet `cairn adopt`，只装 claude；主控用 `cairn status --json` 核对：4 个 hook、固定路径、save 规则都在，owlet adopted；settings 备份 `~/.claude/settings.json.bak-20261008T082855…`）。owlet/main 16:33 已重开。首轮实测：上个会话存了 README 的停点，新会话 16:43 拿到了注入（主控只读查 cairn 库 injections 表确认），但它没主动复述停点，用户问“上次做到哪了”时它去翻过时的 HANDOFF（停在 9-20）和正式数据库，答成项目整体进度。用户认为不该要问、应自动接上；主控建议的 A（转给 cairn：新会话第一次回答开头主动说接上的停点）要不要提，取决于用户还打不打算用 cairn——用户在想“cairn 到底需要不”，主控意见：在 HANDOFF 认真维护的仓库增量不大，两个信息源会打架；先挂着试一两周，不用就 `cairn uninstall --agent claude`。③④（JSON 约定、paddock Recap 面板、New Agent 开关）**暂不做**（10-08）：面板看不到“到底注入了没有”（只在 cairn 库里，paddock 不能读），试点期间用户在 shell 里 `cairn list`／`cairn show` 看（用户试过“还行”），要确认注入找主控只读查。试点结束、确定留下 cairn 再按真实需要设计。
+1. **用户在真窗口里试 10-07 晚上这批**：拖缝调大小和双击；⌘Z／⇧⌘Z 和输入法；标签“+N”菜单和悬停全名；四套新主题（Rosé Pine 光标偏暗，看前台实心光标是否够显眼）；ctl 的 busy（Browser／Kanban 确认时）、`--focus` 的键盘去向、`--attach` 启动。**P5-36c 待用户定**（不挡合并）：加宽五列悬停时卡片变高一行、下面的卡片下移，还是平时就给每张卡片留出按钮那一行。
 2. **用户看格子图新样子**（扫光、白热光晕、呼吸；数据多了 saddle、global-mesh 后应更满）。
 3. **用户试一键暂停**（铃铛左边 ⏸）、确认框（agent 干活时点 Pause）和悬停动效。一键会冻住包括主控在内的全部 agent，要用户点 ▶ 恢复。有问题先修。
 4. **用户实测 P5-28c、P5-28d**（用户 10-07：“我打算用到再测试”）：P5-28d 点一下 Browser 的 ×；P5-28c 照 `docs/任务/P5-28c-Browser网页策略与查找.md` 完成记录末尾 8 条清单（第 1 条本地地址最要紧）。
@@ -64,7 +73,7 @@
 - 截图能用，但 `PADDOCK_NO_ACTIVATE` 起的测试窗口不在前台，悬停、动画、键盘鼠标交互、全屏切换仍只能靠用户实际操作。
 - 从程序坞菜单“退出”或注销时由系统直接结束，不问未保存的设置和运行中的 shell（GPUI 没有提供拦截）。
 - 观察：Claude Code 带的 `caffeinate` 冻住后“不睡眠”断言仍在，暂停 agent 不等于让 Mac 能睡。
-- 建议改未排：DESIGN §13 的 P5-20 条重复了一遍；New Agent 窗口 “Will run” 预览要重开才换字体（P5-37 重做后没再核对是否还在）。其余之前记下的（按钮条遮挡、`--model`／`--config=`、About 大字号、`sidebar_width`、铃铛判断、开关动画、输入框撤销、标签名截短）已由 P5-36a～c、P5-38 做掉。
+- 建议改未排：DESIGN §13 的 P5-20 条重复了一遍；New Agent 的弹出框（项目、种类·模型·强度、打开位置）不能用键盘上下选（P5-37 留下）。“Will run 预览要重开才换字体”已不存在（P5-37 起设置保存会 restyle，P5-43 后浮层跟着主窗口的 `apply` 走）。其余之前记下的（按钮条遮挡、`--model`／`--config=`、About 大字号、`sidebar_width`、铃铛判断、开关动画、输入框撤销、标签名截短）已由 P5-36a～c、P5-38 做掉。
 - `docs/DESIGN.md` §7 其余待定：GPUI 依赖渠道、pre-1.0 是否接受、gpui-component 与首期是否只做 macOS、发布方式（P5-23 只做了本机签名，仍不公证、不分发）。
 - Xcode 缺 Metal 工具链组件，目前靠 `runtime_shaders`；是否安装待用户决定。
 - Saddle 仓库里的 `t76-*` 分支、worktree 和 T76 状态由 Saddle 主控处理。
@@ -74,3 +83,6 @@
   - 新 worktree 第一次开 Codex 会卡在“是否信任这个目录”，要用户去点。
   - 测试 agent 截图用临时 HOME、假 corral、`--bounds` 和预写的布局文件（主控自己的简便做法：临时 `HOME`／`CFFIXED_USER_HOME`／`XDG_STATE_HOME`／`XDG_CONFIG_HOME` 加 `PADDOCK_NO_ACTIVATE=1 GPUI_TERM_WINDOW_ID=1` 先起一次 debug 版写出 `layout.json`，按 PID 停掉，改 `right_sidebar` 再起，截图后同样按 PID 停）；调研类只把文档摘到 main（`git cherry-pick`），原型分支不合并。
   - corral 的 socket 路径有长度上限，单独的 `CORRAL_HOME` 放在 scratchpad 会报 `path_too_long`，用 `/tmp` 下的短目录。
+  - 截 New Agent 浮层这类要点开才出现的界面：开一个临时分支，在 `main.rs` 加“环境变量在就延时 1.5 秒自动打开”的开关，临时 HOME＋假 corral（只输出 `{"agents":[],"ok":true}`）起 debug 版截图，截完连分支、编译目录一起删（10-08 做过一次）。
+  - 派活挂的 `--after` 提醒可能在审查、合并都做完之后才送到：核对 `corral status` 的 `state_started` 没变就是旧提醒，不用再处理。
+  - paddock 窗口里显示着的 agent，`corral status` 的 `attached` 会是 1；关之前按规矩问用户，或等它回到 0。
