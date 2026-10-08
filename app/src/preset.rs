@@ -167,8 +167,9 @@ impl Preset {
             // Deeper, bluer and greener grounds, far from the material's grey: washed further, so
             // the column leans to the terminal's hue, but under half, so the frost still shows
             // through as on Dune (P5-50; P5-24b had them washed most of the way, which read as a
-            // haze). Their own selected colours step further too. The darker ground keeps the
-            // quiet text at least as readable as on the grey.
+            // haze; P5-63 took Lagoon on to 0.25, as it still read hazy). Their own selected colours
+            // step further too. The darker ground keeps the quiet text at least as readable as on
+            // the grey.
             Preset::Tide => Frost {
                 wash: 0.45,
                 lit: 0.12,
@@ -177,7 +178,7 @@ impl Preset {
                 dimmer: 0.40,
             },
             Preset::Lagoon => Frost {
-                wash: 0.45,
+                wash: 0.25,
                 lit: 0.12,
                 waiting: 0.12,
                 dim: 0.42,
