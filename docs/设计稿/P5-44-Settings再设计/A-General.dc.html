@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Settings — General</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#cfc27a}a:hover{color:#e2d690}
+button{font:inherit;color:inherit;cursor:pointer}
+</style>
+</helmet>
+<div style="width: 1000px; height: 720px; position: relative; overflow: hidden; display: flex; background: #1c1b17; font-family: -apple-system, 'SF Pro Text', 'Helvetica Neue', sans-serif; color: #ece6d6">
+
+  <!-- pages -->
+  <nav style="width: 210px; flex: none; background: #181713; display: flex; flex-direction: column; padding: 16px 12px 14px 12px; box-sizing: border-box">
+    <div style="display: flex; gap: 8px; padding: 2px 6px 26px 6px">
+      <span style="width: 12px; height: 12px; border-radius: 6px; background: #ff5f57"></span>
+      <span style="width: 12px; height: 12px; border-radius: 6px; background: #febc2e"></span>
+      <span style="width: 12px; height: 12px; border-radius: 6px; background: #28c840"></span>
+    </div>
+    <button style="display: flex; align-items: center; gap: 10px; height: 34px; padding: 0 10px; border: 0; border-radius: 8px; background: rgba(207,194,122,0.13); color: #ece6d6; font-size: 13.5px; text-align: left">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#cfc27a" stroke-width="1.8" stroke-linecap="round"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"></path><circle cx="16" cy="7" r="2"></circle><circle cx="10" cy="17" r="2"></circle></svg>
+      General
+    </button>
+    <button style="display: flex; align-items: center; gap: 10px; height: 34px; padding: 0 10px; border: 0; border-radius: 8px; background: transparent; color: #b3ac98; font-size: 13.5px; text-align: left">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8a8473" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a9 9 0 1 0 0 18c1.2 0 2-.8 2-1.8 0-.5-.2-.9-.5-1.2-.3-.3-.5-.7-.5-1.2 0-1 .8-1.8 1.8-1.8H17a4 4 0 0 0 4-4c0-4.4-4-8-9-8z"></path><circle cx="7.5" cy="11" r="1"></circle><circle cx="11" cy="7.5" r="1"></circle><circle cx="15.5" cy="8.5" r="1"></circle></svg>
+      Appearance
+    </button>
+    <button style="display: flex; align-items: center; gap: 10px; height: 34px; padding: 0 10px; border: 0; border-radius: 8px; background: transparent; color: #b3ac98; font-size: 13.5px; text-align: left">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8a8473" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="6" width="16" height="12" rx="3"></rect><path d="M9 11v2M15 11v2M12 3v3"></path></svg>
+      Agents
+    </button>
+    <button style="display: flex; align-items: center; gap: 10px; height: 34px; padding: 0 10px; border: 0; border-radius: 8px; background: transparent; color: #b3ac98; font-size: 13.5px; text-align: left">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8a8473" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l2-6 4 12 2-6h6"></path></svg>
+      Diagnostics
+    </button>
+    <div style="margin-top: auto; padding: 0 10px; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11px; line-height: 1.5; color: #6f6a5c">~/.config/paddock/<br>config.toml</div>
+  </nav>
+
+  <!-- page -->
+  <main style="flex: 1; min-width: 0; position: relative; display: flex; flex-direction: column">
+    <div style="padding: 22px 40px 0 40px; font-size: 20px; font-weight: 600; letter-spacing: -0.01em">General</div>
+
+    <div style="flex: 1; overflow: hidden; padding: 18px 40px 0 40px; display: flex; flex-direction: column; gap: 22px">
+
+      <!-- Interface -->
+      <section style="display: flex; flex-direction: column; gap: 8px">
+        <h2 style="margin: 0; padding-left: 4px; font-size: 12.5px; font-weight: 600; color: #a39c88">Interface</h2>
+        <div style="border-radius: 12px; background: #22201b; display: flex; flex-direction: column">
+          <div style="display: flex; align-items: center; min-height: 50px; padding: 0 14px 0 18px">
+            <span style="font-size: 13.5px">Font</span>
+            <button style="margin-left: auto; display: flex; align-items: center; gap: 10px; height: 32px; padding: 0 12px; border: 0; border-radius: 8px; background: #2c2a24; font-size: 13px; color: #e2dccb">System (SF Pro)<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#8a8473" stroke-width="2" stroke-linecap="round"><path d="M7 10l5 5 5-5"></path></svg></button>
+          </div>
+          <div style="height: 1px; margin-left: 18px; background: rgba(255,255,255,0.05)"></div>
+          <div style="display: flex; align-items: center; min-height: 50px; padding: 0 14px 0 18px">
+            <span style="font-size: 13.5px">Size</span>
+            <div style="margin-left: auto; display: flex; align-items: center; height: 32px; border-radius: 8px; background: #2c2a24">
+              <button aria-label="Smaller" style="width: 30px; height: 32px; border: 0; background: transparent; color: #9a937f">−</button>
+              <span style="min-width: 44px; text-align: center; font-size: 13px; font-variant-numeric: tabular-nums">13 <span style="color: #7d7766">pt</span></span>
+              <button aria-label="Larger" style="width: 30px; height: 32px; border: 0; background: transparent; color: #9a937f">+</button>
+            </div>
+          </div>
+          <div style="height: 1px; margin-left: 18px; background: rgba(255,255,255,0.05)"></div>
+          <div style="display: flex; align-items: center; min-height: 50px; padding: 0 14px 0 18px">
+            <span style="font-size: 13.5px">Sidebar width</span>
+            <div style="margin-left: auto; display: flex; align-items: center; height: 32px; border-radius: 8px; background: #2c2a24">
+              <button aria-label="Narrower" style="width: 30px; height: 32px; border: 0; background: transparent; color: #9a937f">−</button>
+              <span style="min-width: 56px; text-align: center; font-size: 13px; font-variant-numeric: tabular-nums">380 <span style="color: #7d7766">pt</span></span>
+              <button aria-label="Wider" style="width: 30px; height: 32px; border: 0; background: transparent; color: #9a937f">+</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Terminal -->
+      <section style="display: flex; flex-direction: column; gap: 8px">
+        <h2 style="margin: 0; padding-left: 4px; font-size: 12.5px; font-weight: 600; color: #a39c88">Terminal</h2>
+        <div style="border-radius: 12px; background: #22201b; display: flex; flex-direction: column; overflow: hidden">
+          <!-- live preview -->
+          <div style="margin: 12px 12px 4px 12px; padding: 12px 14px; border-radius: 8px; background: #141310; font-family: 'JetBrains Mono', Menlo, ui-monospace, monospace; font-size: 13px; line-height: 1.45; color: #cfc8b6">
+            <div><span style="color: #a7b56b">firegnu</span> <span style="color: #7d7766">paddock</span> <span style="color: #cfc27a">❯</span> cargo test</div>
+            <div style="color: #8f8978">test result: <span style="color: #a7b56b">ok</span>. 430 passed  ⎇ main  ✓</div>
+          </div>
+          <div style="display: flex; align-items: center; min-height: 50px; padding: 0 14px 0 18px">
+            <span style="font-size: 13.5px">Font</span>
+            <button style="margin-left: auto; display: flex; align-items: center; gap: 10px; height: 32px; padding: 0 12px; border: 0; border-radius: 8px; background: #2c2a24; font-family: 'JetBrains Mono', Menlo, ui-monospace, monospace; font-size: 12.5px; color: #e2dccb">Menlo<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#8a8473" stroke-width="2" stroke-linecap="round"><path d="M7 10l5 5 5-5"></path></svg></button>
+          </div>
+          <div style="height: 1px; margin-left: 18px; background: rgba(255,255,255,0.05)"></div>
+          <div style="display: flex; align-items: center; min-height: 50px; padding: 0 14px 0 18px">
+            <span style="width: 6px; height: 6px; margin-left: -12px; margin-right: 6px; border-radius: 3px; background: {{accent}}"></span>
+            <span style="font-size: 13.5px">Size</span>
+            <button style="margin-left: 10px; border: 0; background: transparent; padding: 0; font-size: 12px; color: #8a8473">Reset to 14</button>
+            <div style="margin-left: auto; display: flex; align-items: center; height: 32px; border-radius: 8px; background: #2c2a24; box-shadow: 0 0 0 1px rgba(207,194,122,0.35) inset">
+              <button aria-label="Smaller" style="width: 30px; height: 32px; border: 0; background: transparent; color: #9a937f">−</button>
+              <span style="min-width: 44px; text-align: center; font-size: 13px; font-variant-numeric: tabular-nums">15 <span style="color: #7d7766">pt</span></span>
+              <button aria-label="Larger" style="width: 30px; height: 32px; border: 0; background: transparent; color: #9a937f">+</button>
+            </div>
+          </div>
+          <div style="height: 1px; margin-left: 18px; background: rgba(255,255,255,0.05)"></div>
+          <div style="display: flex; align-items: center; min-height: 50px; padding: 0 14px 0 18px">
+            <span style="font-size: 13.5px">Line height</span>
+            <div style="margin-left: auto; display: flex; align-items: center; height: 32px; border-radius: 8px; background: #2c2a24">
+              <button aria-label="Less" style="width: 30px; height: 32px; border: 0; background: transparent; color: #9a937f">−</button>
+              <span style="min-width: 44px; text-align: center; font-size: 13px; font-variant-numeric: tabular-nums">1.3</span>
+              <button aria-label="More" style="width: 30px; height: 32px; border: 0; background: transparent; color: #9a937f">+</button>
+            </div>
+          </div>
+          <div style="height: 1px; margin-left: 18px; background: rgba(255,255,255,0.05)"></div>
+          <div style="display: flex; align-items: center; gap: 16px; min-height: 56px; padding: 8px 14px 8px 18px">
+            <div style="display: flex; flex-direction: column; gap: 2px">
+              <span style="font-size: 13.5px">Fallback fonts</span>
+              <span style="font-size: 12px; color: #8a8473">For characters the font lacks, in order</span>
+            </div>
+            <div style="margin-left: auto; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px">
+              <span style="display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 6px 0 10px; border-radius: 13px; background: #2c2a24; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11.5px; color: #d9d2c0">Symbols Nerd Font Mono<button aria-label="Remove" style="border: 0; background: transparent; padding: 0 2px; color: #7d7766">×</button></span>
+              <span style="display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 6px 0 10px; border-radius: 13px; background: #2c2a24; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11.5px; color: #d9d2c0">FiraCode<button aria-label="Remove" style="border: 0; background: transparent; padding: 0 2px; color: #7d7766">×</button></span>
+              <button style="height: 26px; padding: 0 10px; border: 1px dashed rgba(255,255,255,0.14); border-radius: 13px; background: transparent; font-size: 12px; color: #9a937f">+ Add</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Mascot -->
+      <section style="display: flex; flex-direction: column; gap: 8px">
+        <h2 style="margin: 0; padding-left: 4px; font-size: 12.5px; font-weight: 600; color: #a39c88">Mascot</h2>
+        <div style="border-radius: 12px; background: #22201b; display: flex; flex-direction: column">
+          <div style="display: flex; align-items: center; min-height: 50px; padding: 0 14px 0 18px">
+            <span style="font-size: 13.5px">Show the mascot</span>
+            <span style="margin-left: auto; width: 38px; height: 22px; border-radius: 11px; background: {{accent}}; position: relative"><span style="position: absolute; top: 2px; right: 2px; width: 18px; height: 18px; border-radius: 9px; background: #f3efe3"></span></span>
+          </div>
+          <div style="height: 1px; margin-left: 18px; background: rgba(255,255,255,0.05)"></div>
+          <div style="display: flex; align-items: center; min-height: 50px; padding: 0 14px 0 18px">
+            <span style="font-size: 13.5px">Pet</span>
+            <div style="margin-left: auto; display: flex; padding: 3px; gap: 2px; border-radius: 9px; background: #2c2a24">
+              <button style="height: 26px; padding: 0 12px; border: 0; border-radius: 7px; background: #3a372f; font-size: 12.5px; color: #ece6d6">Clawd</button>
+              <button style="height: 26px; padding: 0 12px; border: 0; border-radius: 7px; background: transparent; font-size: 12.5px; color: #9a937f">Cat</button>
+              <button style="height: 26px; padding: 0 12px; border: 0; border-radius: 7px; background: transparent; font-size: 12.5px; color: #9a937f">Capybara</button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- shows only with unsaved edits -->
+    <div style="position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); display: flex; align-items: center; gap: 14px; height: 46px; padding: 0 8px 0 16px; border-radius: 23px; background: #2c2a24; border: 1px solid rgba(255,255,255,0.08); box-shadow: 0 14px 40px rgba(0,0,0,0.5); white-space: nowrap">
+      <span style="width: 7px; height: 7px; border-radius: 4px; background: {{accent}}"></span>
+      <span style="font-size: 13px; color: #d9d2c0">1 unsaved change <span style="color: #8a8473">· Terminal size</span></span>
+      <button style="height: 30px; padding: 0 12px; border: 0; border-radius: 15px; background: transparent; font-size: 13px; color: #b3ac98">Revert</button>
+      <button style="display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 14px; border: 0; border-radius: 15px; background: {{accent}}; color: #1d1b14; font-size: 13px; font-weight: 600">Save<span style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11px; font-weight: 500; opacity: 0.7">⌘S</span></button>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#cfc27a","options":["#cfc27a","#d97757","#8fb4d9","#b8a6e0"]},"$preview":{"width":1000,"height":720}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { accent: this.props.accent ?? '#cfc27a' };
+  }
+}
+</script>
+</body>
+</html>
