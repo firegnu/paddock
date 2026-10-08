@@ -2,17 +2,18 @@
 
 ## 现在在哪（2026-10-08 夜）
 
-- main 和 `origin/main`（`github.com/firegnu/paddock`，public）同步，工作区里只有九个未提交的草稿任务文件（P5-51～P5-59，看板 DRAFT，见“下一步”）。没有进行中的活，没有开着的 worktree，本地只有 main 一个分支；ranch 也一样（main 同步、无 worktree）。corral 里只有 `paddock/main`（本主控）；今天派出去的 dev agent 都已关，owlet/main、global-mesh/main 用户已关。
-- 452 项测试通过，clippy、`cargo fmt --check` 干净。`~/Applications/paddock.app` 是合并 P5-49 之后的版本（10-08 21:09 装，含 P5-35～P5-50、paddock ctl；用户已重启），已用本机 Apple Development 证书签名。
+- main 和 `origin/main`（`github.com/firegnu/paddock`，public）同步，工作区里只有八个未提交的草稿任务文件（P5-51～P5-56、P5-58、P5-59，看板 DRAFT，见“下一步”）。没有进行中的活，没有开着的 worktree，本地只有 main 一个分支；ranch 也一样（main 同步、无 worktree）。corral 里只有 `paddock/main`（本主控）；今天派出去的 dev agent 都已关，owlet/main、global-mesh/main 用户已关。
+- 452 项测试通过，clippy、`cargo fmt --check` 干净。`~/Applications/paddock.app` 是合并 P5-57 之后的版本（10-08 21:16 装，含 P5-35～P5-50、P5-57、paddock ctl；用户还没重启），已用本机 Apple Development 证书签名。
 - **paddock ctl 已部署**（用户 10-07 夜在终端里跑完，主控核对过）：`~/.local/bin/paddock` 链到 app 里的程序；`paddock install-skills` 已装 `~/.claude/skills/paddock`、`~/.agents/skills/paddock`（带归属标记，与仓库源文件一致）；旧的 `~/.claude/skills/saddle` 已删。`paddock ctl instances` 找得到正在跑的窗口，`inspect` 认出 `paddock/main` 是 pane 1。重新打包安装后链接不用重建；技能正文改了要重跑 `paddock install-skills`。已开着的 agent 要重开才看到新技能。
 - 全局 `~/.local/bin/corral`、`~/.local/bin/ranch` 已是 ranch `d55defb`（10-08 R2：技能里派活和临时委派的 agent 带 `CAIRN_DISABLE=1`；程序行为与 `5c5540c` 相同，支持 pause／resume）。
 - **cairn 已全局装上（只 claude）**：`~/.claude/settings.json` 里 4 个 cairn hook 和一条放行 `cairn save` 的规则（改前备份 `~/.claude/settings.json.bak-20261008T082855…`），只有 owlet 启用（`adopt`）；其他仓库里 hook 查到没启用就直接退出。卸掉：`cairn uninstall --agent claude`。
 - 重新打包安装：在 `app/` 下 `cargo build --release`，再 `cargo run --release --example bundle -- --install`（编译目录见 AGENTS.md，主仓库用 `.target/main`）。打包默认自动选本机 Apple Development 身份，可用 `PADDOCK_SIGN_IDENTITY` 指定；退回 ad-hoc 时会提示授权会失效。
-- 已合并：第一至第三阶段、迁移 M0–M3（corral、dispatch 在 `../ranch`；遥测、Drover、插件系统已砍）、P4-1～P4-3、P5-1～P5-50（P5-13 做了 13a 外壳、13b／13c Changes；P5-19 磨砂；P5-23r、P5-13r、P5-29r、P5-29r2 是调研；P5-28 做了 28a～28d；P5-29 做了 29a～29f；P5-33 做了 33、33b；P5-34 做了 34、34b；P5-36 做了 36a～36c；P5-39 做了 39a～39d）。每件的范围、完成记录、主控审查在 `docs/任务/`。
+- 已合并：第一至第三阶段、迁移 M0–M3（corral、dispatch 在 `../ranch`；遥测、Drover、插件系统已砍）、P4-1～P4-3、P5-1～P5-50、P5-57（P5-13 做了 13a 外壳、13b／13c Changes；P5-19 磨砂；P5-23r、P5-13r、P5-29r、P5-29r2 是调研；P5-28 做了 28a～28d；P5-29 做了 29a～29f；P5-33 做了 33、33b；P5-34 做了 34、34b；P5-36 做了 36a～36c；P5-39 做了 39a～39d）。每件的范围、完成记录、主控审查在 `docs/任务/`。
 - 上下文：`AGENTS.md`（规矩，含「开发方式」里的**看板约定**）、`docs/DESIGN.md`（已定决定，§13 是界面改版的全部决定和用户原话）、`docs/背景与决策记录.md`、`docs/设计稿/`、`docs/调研/`。更早的会话（10-06 晚到 10-07：Browser P5-28、Kanban P5-29、P5-21～P5-41b 等）的细节都在各自的任务文件里。
 
 ## 10-08 夜：P5-49 标签胶囊按状态着色；P5-50 侧栏磨砂染色调淡
 
+- P5-57（用户给截图后要求现在做，主控自己做）：左下角按钮图标原来对齐卡片里的 “Activity” 文字，比卡片外框缩进约 13pt；改为对齐 Activity 卡片外框（按钮框不越过侧栏左边）。21:16 重新打包安装。**待用户**：重启后看。
 - 用户看过 P5-48 问“胶囊颜色不是随状态变化吗”，主控说明当时选的是 A 为主只取 C 的等你提醒；用户改选 C，并指出没选中的胶囊底太淡、看着还是旧样子。P5-49（DESIGN §13 已记）派 `paddock/dev-tabs-1`（路由 529 过载，主控定常规档），审查通过（452 项测试），出错的不叠琥珀细边、标签里任一窗格等用户就加琥珀细边，主控同意；合并、21:09 重新打包安装，dev agent 已关。用户重启后看过，没问题（10-08）。
 - 用户：常用的 Lagoon 左侧栏比 Dune 糊、不通透。原因是侧栏磨砂上的主题染色 `wash`：Dune 0.30，Lagoon 0.72，其余 0.52～0.64。用户：“一起降。”P5-50 主控自己做：Dune 以外六套都降到 0.45，侧栏小字对比度测试按不染色的最亮底检查、照样通过；合并、20:57 重新打包安装。用户重启后看过，没问题（10-08）。
 
@@ -80,14 +81,13 @@
 
 ## 下一步（按优先级）
 
-**明天（10-09）：用户 10-08 夜列的九件，都已写成未提交的草稿任务文件（看板显示 DRAFT）**。开工时补全那一件、再按路径提交，别用 `git add -A`。每份草稿里有用户原话和“开工前要定”。其中 P5-51、P5-58、P5-59 都参考 **superlogical**，主控不知道它指什么，开工前先请用户给链接或截图，照惯例先出样稿给用户挑。
+**明天（10-09）：用户 10-08 夜列的九件（P5-57 已于 10-08 夜做完，剩八件），都已写成未提交的草稿任务文件（看板显示 DRAFT）**。开工时补全那一件、再按路径提交，别用 `git add -A`。每份草稿里有用户原话和“开工前要定”。其中 P5-51、P5-58、P5-59 都参考 **superlogical**，主控不知道它指什么，开工前先请用户给链接或截图，照惯例先出样稿给用户挑。
 - **P5-51** 整体界面再美化，左侧栏 agent 卡片照 superlogical 做（和 P5-59 范围重叠，考虑合成一件）。
 - **P5-52** 查 Dock 里偶尔多出第二个 paddock 后台进程（先只查不改；主控猜测：`~/.local/bin/paddock` 是 app 包里的程序，跑 `paddock ctl …` 时 macOS 也给它挂了 Dock 图标；另用 `paddock ctl instances` 查残留实例）。
 - **P5-53** 在 paddock 仓库开始试 cairn（`adopt`；paddock AGENTS.md 要求开会话先读 HANDOFF，要不要照 owlet 方案 A 改，和用户定）。
 - **P5-54** Browser 选中元素、Changes 选中 diff 写上要怎么改后送给 agent（先出交互样稿）。
 - **P5-55** paddock 里做 cairn 面板（10-08 定的“暂不做”由用户改为要做；数据直接用 `cairn show`／`list` 的文字还是先请 cairn 定 JSON 约定、面板放哪，要定；依赖 P5-53）。
 - **P5-56** Settings 改了立即生效，不用再点 Save（改 P5-44 的保存逻辑，属改行为）。
-- **P5-57** 左下角 Settings 按钮仍没对齐（P5-48 对齐的是 “Activity” 文字；请用户指出想对哪条线，最好截图圈出）。
 - **P5-58** 应用图标再设计，参考 superlogical（只参考风格，不照抄别家商标图形）。
 - **P5-59** 主界面几个区域的轮廓线更明显、更优雅，照 superlogical 的图做。
 
