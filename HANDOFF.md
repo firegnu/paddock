@@ -1,9 +1,9 @@
 # 交接
 
-## 现在在哪（2026-10-08 夜）
+## 现在在哪（2026-10-08 深夜）
 
-- main 和 `origin/main`（`github.com/firegnu/paddock`，public）同步，工作区里只有十一个未提交的草稿任务文件（P5-51～P5-56、P5-58～P5-62，看板 DRAFT，见“下一步”）。没有进行中的活，没有开着的 worktree，本地只有 main 一个分支；ranch 也一样（main 同步、无 worktree）。corral 里只有 `paddock/main`（本主控）；今天派出去的 dev agent 都已关，owlet/main、global-mesh/main 用户已关。
-- 452 项测试通过，clippy、`cargo fmt --check` 干净。`~/Applications/paddock.app` 是合并 P5-64 之后的版本（10-08 23:25 装，含 P5-35～P5-50、P5-57、P5-63、P5-64、paddock ctl；待用户重启），已用本机 Apple Development 证书签名。
+- main 和 `origin/main`（`github.com/firegnu/paddock`，public）同步，工作区里只有十一个未提交的草稿任务文件（P5-51～P5-56、P5-58～P5-62，看板 DRAFT，见“下一步”；**是有意留的草稿，不要 `git add -A`**）。没有进行中的活，没有开着的 worktree，本地只有 main 一个分支；ranch 也一样（main 同步、无 worktree）。corral 里只有 `paddock/main`（本主控）；今天派出去的 dev agent 都已关，owlet/main、global-mesh/main 用户已关。
+- 452 项测试通过，clippy、`cargo fmt --check` 干净。`~/Applications/paddock.app` 是合并 P5-64 之后的版本（10-08 23:25 装，含 P5-35～P5-50、P5-57、P5-63、P5-64、paddock ctl；用户已重启看过），已用本机 Apple Development 证书签名。
 - **paddock ctl 已部署**（用户 10-07 夜在终端里跑完，主控核对过）：`~/.local/bin/paddock` 链到 app 里的程序；`paddock install-skills` 已装 `~/.claude/skills/paddock`、`~/.agents/skills/paddock`（带归属标记，与仓库源文件一致）；旧的 `~/.claude/skills/saddle` 已删。`paddock ctl instances` 找得到正在跑的窗口，`inspect` 认出 `paddock/main` 是 pane 1。重新打包安装后链接不用重建；技能正文改了要重跑 `paddock install-skills`。已开着的 agent 要重开才看到新技能。
 - 全局 `~/.local/bin/corral`、`~/.local/bin/ranch` 已是 ranch `d55defb`（10-08 R2：技能里派活和临时委派的 agent 带 `CAIRN_DISABLE=1`；程序行为与 `5c5540c` 相同，支持 pause／resume）。
 - **cairn 已全局装上（只 claude）**：`~/.claude/settings.json` 里 4 个 cairn hook 和一条放行 `cairn save` 的规则（改前备份 `~/.claude/settings.json.bak-20261008T082855…`），只有 owlet 启用（`adopt`）；其他仓库里 hook 查到没启用就直接退出。卸掉：`cairn uninstall --agent claude`。
@@ -11,10 +11,20 @@
 - 已合并：第一至第三阶段、迁移 M0–M3（corral、dispatch 在 `../ranch`；遥测、Drover、插件系统已砍）、P4-1～P4-3、P5-1～P5-50、P5-57、P5-63、P5-64（P5-13 做了 13a 外壳、13b／13c Changes；P5-19 磨砂；P5-23r、P5-13r、P5-29r、P5-29r2 是调研；P5-28 做了 28a～28d；P5-29 做了 29a～29f；P5-33 做了 33、33b；P5-34 做了 34、34b；P5-36 做了 36a～36c；P5-39 做了 39a～39d）。每件的范围、完成记录、主控审查在 `docs/任务/`。
 - 上下文：`AGENTS.md`（规矩，含「开发方式」里的**看板约定**）、`docs/DESIGN.md`（已定决定，§13 是界面改版的全部决定和用户原话）、`docs/背景与决策记录.md`、`docs/设计稿/`、`docs/调研/`。更早的会话（10-06 晚到 10-07：Browser P5-28、Kanban P5-29、P5-21～P5-41b 等）的细节都在各自的任务文件里。
 
+## 10-08 深夜：侧栏染色统一 0.25（P5-63、P5-64）；Kanban 优先级等三份新草稿
+
+- **侧栏磨砂**：用户问左侧栏“模糊值”。答：模糊是系统 `NSVisualEffectView`（`Sidebar` 材质，`frost.rs`），公开接口不能调半径；paddock 能调的是盖在上面的主题色 `wash`（`preset.rs` 的 `Preset::frost()`）。P5-50 的 0.45 是主控估的、没对比过几档，用户嫌还高。
+  - P5-63（用户：“0.25试一下，你直接改，快”）：先只改 Lagoon 0.45 → 0.25。用户看过，没问题。
+  - P5-64（用户：“其他主题也一起降到0.25”）：Dune（0.30）和另五套都降到 0.25，七套统一。Tokyo Night 降完后活动格子图“没提交的日子 → 第一档”亮度比 1.149，不到测试要求的 1.15；没放宽断言，把它的 `lit` 0.12 → 0.11。23:25 重新打包安装，用户重启后看过，没问题（10-08）。
+  - 侧栏小字对比度测试本来就按不染色的磨砂灰（#45494a）检查，`wash` 再降也成立（主控一度说错成“没保证”，已更正）。
+- **Kanban 的 Queued 顺序**：用户问执行顺序。答：只按编号排、草稿在前（`kanban.rs` 的 `board`），不是执行顺序；草稿卡不显示 `依赖：`。用户在评估“优先级 + 在 Queued 里拖动”，记成草稿 **P5-60**，明天讨论。和 DESIGN §13 P5-29 “不能拖，列内不排序”“不做的线：自己的队列文件、主控读看板的顺序或标记”冲突，要做先改 DESIGN。主控建议：优先级写进任务文件一行三档、New task 弹框用固定选项写入（用户提出：自由写会解析出错），不做同档内任意拖动；md 编辑器是最贵的部分（只有单行 `TextInput`，P5-29r2 定过不做多行输入框），建议正文仍交外部编辑器。
+- **P5-61**（新草稿）：照 herdr，弹出终端直接敲 `claude`、`codex --yolo`、`pi` 就跑；**用户确认要 corral 托管**（“对，要的是corral托管，而不是那种直接从命令行启动的agent。”）；现有 New Agent 浮层不变。主控倾向“一行命令提示 → `corral start` → 同窗格 attach”，不拦真 shell。
+- **P5-62**（新草稿）：用户问“Metal 工具链要不要装”是什么，主控解释后记成草稿；主控建议先测启动时编着色器的耗时再定，装由用户在终端跑。
+- **主控对这批草稿的意见**（用户问“你觉得我现在的几个任务如何”）：先做 P5-52、P5-56、P5-61（互不碰、要定的少）；P5-51 合 P5-59，拿到 superlogical 参考后一次按样稿定整体样子，再做 P5-58；P5-54 拆开、先做 Changes 选 diff 送 agent，Browser 选元素后做；P5-60 先做优先级、弹框不急着上 md 编辑器；**cairn 两件（P5-53、P5-55）主控有保留**：owlet 试点才一天，paddock 的 HANDOFF 维护得好、cairn 增量小、两个来源会打架，建议 P5-53 试但 HANDOFF 照旧为准、P5-55 等试点结论。P5-51/59、P5-60、P5-61 多半都改 `window.rs`／侧栏，派活要错开。用户还没表态。
+- 用户另问还有什么待做：主控列了 HANDOFF 里已有的“等用户实测”“等用户决定”“以后再做”几类（见下一步 1～6），并建议集中试一轮 10-07 那批再开新活。
+
 ## 10-08 夜：P5-49 标签胶囊按状态着色；P5-50 侧栏磨砂染色调淡
 
-- P5-63（用户觉得 0.45 还高：“0.25试一下，你直接改，快”，主控自己做）：只把 Lagoon 的 `wash` 0.45 → 0.25，其余主题不动（Dune 0.30、另五套 0.45），用户看过再定要不要跟。452 项测试通过，合并、推送、收尾，23:19 重新打包安装，用户看过，没问题（10-08）。
-- P5-64（用户：“其他主题也一起降到0.25”，主控自己做）：Dune 和另五套都降到 0.25，七套统一。Tokyo Night 降完后活动格子图“没提交的日子 → 第一档”亮度比 1.149 不到测试要求的 1.15，没放宽断言，把它的 `lit` 0.12 → 0.11（选中、悬停底色提亮少一点点）。452 项测试通过，合并、推送、收尾，23:25 重新打包安装，**待用户重启后看**。
 - P5-57（用户给截图后要求现在做，主控自己做）：左下角按钮图标原来对齐卡片里的 “Activity” 文字，比卡片外框缩进约 13pt；改为对齐 Activity 卡片外框（按钮框不越过侧栏左边）。21:16 重新打包安装。用户重启后看过，没问题（10-08）。
 - 用户看过 P5-48 问“胶囊颜色不是随状态变化吗”，主控说明当时选的是 A 为主只取 C 的等你提醒；用户改选 C，并指出没选中的胶囊底太淡、看着还是旧样子。P5-49（DESIGN §13 已记）派 `paddock/dev-tabs-1`（路由 529 过载，主控定常规档），审查通过（452 项测试），出错的不叠琥珀细边、标签里任一窗格等用户就加琥珀细边，主控同意；合并、21:09 重新打包安装，dev agent 已关。用户重启后看过，没问题（10-08）。
 - 用户：常用的 Lagoon 左侧栏比 Dune 糊、不通透。原因是侧栏磨砂上的主题染色 `wash`：Dune 0.30，Lagoon 0.72，其余 0.52～0.64。用户：“一起降。”P5-50 主控自己做：Dune 以外六套都降到 0.45，侧栏小字对比度测试按不染色的最亮底检查、照样通过；合并、20:57 重新打包安装。用户重启后看过，没问题（10-08）。
@@ -83,7 +93,7 @@
 
 ## 下一步（按优先级）
 
-**明天（10-09）：用户 10-08 夜列的九件（P5-57 已于 10-08 夜做完，剩八件），都已写成未提交的草稿任务文件（看板显示 DRAFT）**。开工时补全那一件、再按路径提交，别用 `git add -A`。每份草稿里有用户原话和“开工前要定”。其中 P5-51、P5-58、P5-59 都参考 **superlogical**，主控不知道它指什么，开工前先请用户给链接或截图，照惯例先出样稿给用户挑。
+**明天（10-09）：十一份未提交的草稿任务文件（看板显示 DRAFT）**：用户 10-08 夜列的九件剩八件（P5-57 已做完），加上深夜讨论新记的 P5-60～P5-62。主控建议的先后见上面“10-08 深夜”一节（用户还没表态）。开工时补全那一件、再按路径提交，别用 `git add -A`。每份草稿里有用户原话和“开工前要定”。其中 P5-51、P5-58、P5-59 都参考 **superlogical**，主控不知道它指什么，开工前先请用户给链接或截图，照惯例先出样稿给用户挑。
 - **P5-51** 整体界面再美化，左侧栏 agent 卡片照 superlogical 做（和 P5-59 范围重叠，考虑合成一件）。
 - **P5-52** 查 Dock 里偶尔多出第二个 paddock 后台进程（先只查不改；主控猜测：`~/.local/bin/paddock` 是 app 包里的程序，跑 `paddock ctl …` 时 macOS 也给它挂了 Dock 图标；另用 `paddock ctl instances` 查残留实例）。
 - **P5-53** 在 paddock 仓库开始试 cairn（`adopt`；paddock AGENTS.md 要求开会话先读 HANDOFF，要不要照 owlet 方案 A 改，和用户定）。
@@ -93,7 +103,7 @@
 - **P5-58** 应用图标再设计，参考 superlogical（只参考风格，不照抄别家商标图形）。
 - **P5-59** 主界面几个区域的轮廓线更明显、更优雅，照 superlogical 的图做。
 - **P5-60** Kanban 的 Queued 加优先级（可能加拖动），连带 New task 弹框做精细（编号、优先级选项、md 编辑）：用户在评估，明天讨论。和 DESIGN §13 P5-29 “不能拖，列内不排序”、P5-29r2 “不做多行输入框”等已定条目冲突，要做先改 DESIGN；主控建议见草稿。
-- **P5-61** 新建 agent 的快捷方式：弹出终端直接敲 `claude`、`codex --yolo`、`pi` 回车就跑（照 herdr），现有 New Agent 浮层不变。主控理解为跑起来的是 corral agent；入口、名字、目录、命令提示还是真 shell 等待定，详见草稿。
+- **P5-61** 新建 agent 的快捷方式：弹出终端直接敲 `claude`、`codex --yolo`、`pi` 回车就跑（照 herdr），现有 New Agent 浮层不变。用户已确认跑起来的是 corral 托管的 agent；入口、名字、目录、命令提示还是真 shell 等待定，详见草稿。
 - **P5-62** 要不要装 Metal 工具链、改回编译期编着色器（现在靠 `runtime_shaders` 启动时编）：主控建议先测启动时编着色器的耗时再定；装属于系统安装，由用户在终端跑。
 
 0. **cairn 试点（owlet，10-08 晚起，用一两周再定留不留）**：owlet 按方案 A 试“cairn 替代手写交接”（owlet `c35a288`：HANDOFF 减到 47 行只留稳定背景；AGENTS.md 改为开会话以 cairn 注入为准、进度不再手写进 HANDOFF、派出去的 agent 不用 cairn，写明试点期和退回办法）。验证过：重开 owlet/main、要求“不读文件、只用开会话时已知的”回答上次做到哪，它准确说出停点、已完成、下一步和待用户决定；之前两次只说“继续”时它弹 AskUserQuestion 问方向，不是没记住。要看：隔天重开是否照样接上、旧会话的记录注入会不会越堆越长。留：再定要不要把“新会话第一句主动复述停点”转给 cairn 主控，再按真实需要设计 paddock 面板；不留：用户 `cairn uninstall --agent claude`，R2 的 `CAIRN_DISABLE=1` 留着无害。paddock 的 Recap 面板、New Agent 的 cairn 开关、给 cairn 提 JSON 约定都**暂不做**（面板看不到“到底注入了没有”，那只在 cairn 库里）。确认某次注入了没有：主控只读查 `~/.local/state/cairn/cairn.db` 的 injections 表（`sqlite3 -readonly`）；日常看 `cairn list`／`cairn show`。来历见上面“10-08 下午：cairn 试点、ranch R2”一节。
@@ -114,11 +124,13 @@
 - 观察：Claude Code 带的 `caffeinate` 冻住后“不睡眠”断言仍在，暂停 agent 不等于让 Mac 能睡。
 - 建议改未排：DESIGN §13 的 P5-20 条重复了一遍；New Agent 的弹出框（项目、种类·模型·强度、打开位置）不能用键盘上下选（P5-37 留下）。“Will run 预览要重开才换字体”已不存在（P5-37 起设置保存会 restyle，P5-43 后浮层跟着主窗口的 `apply` 走）。其余之前记下的（按钮条遮挡、`--model`／`--config=`、About 大字号、`sidebar_width`、铃铛判断、开关动画、输入框撤销、标签名截短）已由 P5-36a～c、P5-38 做掉。
 - `docs/DESIGN.md` §7 其余待定：GPUI 依赖渠道、pre-1.0 是否接受、gpui-component 与首期是否只做 macOS、发布方式（P5-23 只做了本机签名，仍不公证、不分发）。
-- Xcode 缺 Metal 工具链组件，目前靠 `runtime_shaders`；是否安装待用户决定。
+- Xcode 缺 Metal 工具链组件，目前靠 `runtime_shaders`；是否安装待用户决定（已记成草稿 P5-62）。
 - Saddle 仓库里的 `t76-*` 分支、worktree 和 T76 状态由 Saddle 主控处理。
 - 主控教训：
   - 派活时写明“命令里不用 `rm`、不用 `sh -c` 包长命令”；`corral start --unique` 会给名字加 `-1`，后续 wait／send／stop 用返回的名字；关 agent 前确认它是 idle 且 `attached` 为 0；release 构建很快结束时，核对产物时间晚于合并再安装。
   - `send --after` 的第一个参数是**收件人**：提醒自己写 `corral send "$CORRAL_NAME" … --after <对方>`。这次误挂过一条发给审查员自己的，靠按 PID 停掉它的 `__after` 进程止住；corral 没有撤销提醒的命令。
+  - 主控自己做的小活建 worktree 后，用 `cp -cR ../paddock-worktrees/.target/main ../paddock-worktrees/.target/<分支>`（APFS 克隆，约 5 秒）给它一份编译目录，只做增量编译，不用从头编 GPUI；收尾照样删掉（10-08 P5-63、P5-64 这么做过）。
+  - 前台命令里别带会等标准输入的东西（10-08 误带了一个 `python3 -`，卡住 2 分钟被转后台；仓库也不用 Python）。
   - 新 worktree 第一次开 Codex 会卡在“是否信任这个目录”，要用户去点。
   - 测试 agent 截图用临时 HOME、假 corral、`--bounds` 和预写的布局文件（主控自己的简便做法：临时 `HOME`／`CFFIXED_USER_HOME`／`XDG_STATE_HOME`／`XDG_CONFIG_HOME` 加 `PADDOCK_NO_ACTIVATE=1 GPUI_TERM_WINDOW_ID=1` 先起一次 debug 版写出 `layout.json`，按 PID 停掉，改 `right_sidebar` 再起，截图后同样按 PID 停）；调研类只把文档摘到 main（`git cherry-pick`），原型分支不合并。
   - corral 的 socket 路径有长度上限，单独的 `CORRAL_HOME` 放在 scratchpad 会报 `path_too_long`，用 `/tmp` 下的短目录。
