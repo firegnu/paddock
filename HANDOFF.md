@@ -2,8 +2,8 @@
 
 ## 现在在哪（2026-10-08 晚）
 
-- main 和 `origin/main`（`github.com/firegnu/paddock`，public）同步，工作区干净。没有进行中的活，没有开着的 worktree，本地只有 main 一个分支；ranch 也一样（main 同步、无 worktree）。corral 里是 `paddock/main`（本主控）和用户自己的 `global-mesh/main`；P5-43 的 `paddock/dev-newagent-1` 已关。
-- 449 项测试通过，clippy、`cargo fmt --check` 干净。`~/Applications/paddock.app` 是合并 P5-48 之后的版本（10-08 20:46 装，含 P5-35～P5-48、paddock ctl；用户还没重启），已用本机 Apple Development 证书签名。
+- main 和 `origin/main`（`github.com/firegnu/paddock`，public）同步，工作区干净。没有进行中的活，没有开着的 worktree，本地只有 main 一个分支；ranch 也一样（main 同步、无 worktree）。corral 里只有 `paddock/main`（本主控）；今天派出去的 dev agent 都已关，owlet/main、global-mesh/main 用户已关。
+- 449 项测试通过，clippy、`cargo fmt --check` 干净。`~/Applications/paddock.app` 是合并 P5-48 之后的版本（10-08 20:46 装，含 P5-35～P5-48、paddock ctl；用户已重启），已用本机 Apple Development 证书签名。
 - **paddock ctl 已部署**（用户 10-07 夜在终端里跑完，主控核对过）：`~/.local/bin/paddock` 链到 app 里的程序；`paddock install-skills` 已装 `~/.claude/skills/paddock`、`~/.agents/skills/paddock`（带归属标记，与仓库源文件一致）；旧的 `~/.claude/skills/saddle` 已删。`paddock ctl instances` 找得到正在跑的窗口，`inspect` 认出 `paddock/main` 是 pane 1。重新打包安装后链接不用重建；技能正文改了要重跑 `paddock install-skills`。已开着的 agent 要重开才看到新技能。
 - 全局 `~/.local/bin/corral`、`~/.local/bin/ranch` 已是 ranch `d55defb`（10-08 R2：技能里派活和临时委派的 agent 带 `CAIRN_DISABLE=1`；程序行为与 `5c5540c` 相同，支持 pause／resume）。
 - **cairn 已全局装上（只 claude）**：`~/.claude/settings.json` 里 4 个 cairn hook 和一条放行 `cairn save` 的规则（改前备份 `~/.claude/settings.json.bak-20261008T082855…`），只有 owlet 启用（`adopt`）；其他仓库里 hook 查到没启用就直接退出。卸掉：`cairn uninstall --agent claude`。
@@ -14,7 +14,7 @@
 ## 10-08 晚：P5-47 agent 停掉后窗格自动关闭；P5-48 标签栏胶囊
 
 - 用户：停掉 agent 后右边留空白加红字，体验不好；“其实我就是不想右边出现空白+红字”。P5-47：agent 一停（任何方式），显示它的窗格都自动关，标签空了一起关；关到一个窗格不剩时开 shell；启动恢复时不在的 agent 不恢复；左下角提示 “<名字> ended”；读名单失败时不关、暂停的不关。派 `paddock/dev-panes-1`，审查通过（448 项测试），合并时 DESIGN 末尾和 P5-48 条目冲突、两条都留；20:25 重新打包安装。用户重启后试过，没问题（10-08）。
-- P5-48（标签栏胶囊，按主控建议 A 为主加等你提醒；合并左下角按钮图标左对齐，对齐 “Activity” 文字）：样稿 `docs/设计稿/P5-48-标签栏胶囊/`，等 P5-47 合并后（两件都改 `window.rs`）派 `paddock/dev-tabs-1`，审查通过（449 项测试），合并、推送、收尾，20:46 重新打包安装，dev agent 已关。**待用户**：重启后看。
+- P5-48（标签栏胶囊，按主控建议 A 为主加等你提醒；合并左下角按钮图标左对齐，对齐 “Activity” 文字）：样稿 `docs/设计稿/P5-48-标签栏胶囊/`，等 P5-47 合并后（两件都改 `window.rs`）派 `paddock/dev-tabs-1`，审查通过（449 项测试），合并、推送、收尾，20:46 重新打包安装，dev agent 已关。用户重启后看过，没问题（10-08）。
 - 顺带答用户：暂停是 SIGSTOP 完全冻结，不会被 ban（服务端看来和合盖、断网一样）；Claude Code 的 caffeinate 冻住后不让空闲自动睡，用户的用法是暂停后合盖，不受影响，不用查。
 
 ## 10-08 晚：P5-46 About 图标
@@ -75,7 +75,7 @@
 
 ## 下一步（按优先级）
 
-0. **cairn 试点（owlet，挂着）**：**10-08 晚起 owlet 按方案 A 试“cairn 替代手写交接”**：owlet/main 重开说“继续”时 cairn 注入成功，但 owlet AGENTS.md 要求开会话先通读 HANDOFF（206 行、停在 9-20），抵消了 cairn；用户选 A，主控代写一段话发给 owlet/main，它照做（owlet `c35a288`）：HANDOFF 减到 47 行只留稳定背景，AGENTS.md 改为以 cairn 注入为准、进度不再手写进 HANDOFF、派出去的 agent 不用 cairn，并写明试点一两周、不顺就退回；未落地的事挪进 owlet `docs/试用手册.md`、`docs/已知问题.md`。一两周后看接续顺不顺再定 cairn 留不留。等用户用一两周后定留不留。留：再定要不要把 A 转给 cairn 主控（新会话第一次回答开头主动说接上的停点，和它现在“不要在回答里提及本约定”冲突，在 cairn 流程里定），之后再按真实需要设计 paddock 的面板；不留：用户 `cairn uninstall --agent claude`，R2 的 `CAIRN_DISABLE=1` 留着无害。用户想确认某次注入了没有，主控只读查 `~/.local/state/cairn/cairn.db` 的 injections 表（`sqlite3 -readonly`）。过程细节：① ranch R2：corral-dispatch、corral 技能开出去的 agent 带 `CAIRN_DISABLE=1`（派活的各在 worktree、存了没用；问问题的开在仓库目录，会把停点存到主控那条线上）——已合并、部署（10-08 16:27，`d55defb`，技能核对一致）。② 已装（10-08 16:28 用户在终端跑 `cairn install --agent claude --yes`、owlet `cairn adopt`，只装 claude；主控用 `cairn status --json` 核对：4 个 hook、固定路径、save 规则都在，owlet adopted；settings 备份 `~/.claude/settings.json.bak-20261008T082855…`）。owlet/main 16:33 已重开。首轮实测：上个会话存了 README 的停点，新会话 16:43 拿到了注入（主控只读查 cairn 库 injections 表确认），但它没主动复述停点，用户问“上次做到哪了”时它去翻过时的 HANDOFF（停在 9-20）和正式数据库，答成项目整体进度。用户认为不该要问、应自动接上；主控建议的 A（转给 cairn：新会话第一次回答开头主动说接上的停点）要不要提，取决于用户还打不打算用 cairn——用户在想“cairn 到底需要不”，主控意见：在 HANDOFF 认真维护的仓库增量不大，两个信息源会打架；先挂着试一两周，不用就 `cairn uninstall --agent claude`。③④（JSON 约定、paddock Recap 面板、New Agent 开关）**暂不做**（10-08）：面板看不到“到底注入了没有”（只在 cairn 库里，paddock 不能读），试点期间用户在 shell 里 `cairn list`／`cairn show` 看（用户试过“还行”），要确认注入找主控只读查。试点结束、确定留下 cairn 再按真实需要设计。
+0. **cairn 试点（owlet，10-08 晚起，用一两周再定留不留）**：owlet 按方案 A 试“cairn 替代手写交接”（owlet `c35a288`：HANDOFF 减到 47 行只留稳定背景；AGENTS.md 改为开会话以 cairn 注入为准、进度不再手写进 HANDOFF、派出去的 agent 不用 cairn，写明试点期和退回办法）。验证过：重开 owlet/main、要求“不读文件、只用开会话时已知的”回答上次做到哪，它准确说出停点、已完成、下一步和待用户决定；之前两次只说“继续”时它弹 AskUserQuestion 问方向，不是没记住。要看：隔天重开是否照样接上、旧会话的记录注入会不会越堆越长。留：再定要不要把“新会话第一句主动复述停点”转给 cairn 主控，再按真实需要设计 paddock 面板；不留：用户 `cairn uninstall --agent claude`，R2 的 `CAIRN_DISABLE=1` 留着无害。paddock 的 Recap 面板、New Agent 的 cairn 开关、给 cairn 提 JSON 约定都**暂不做**（面板看不到“到底注入了没有”，那只在 cairn 库里）。确认某次注入了没有：主控只读查 `~/.local/state/cairn/cairn.db` 的 injections 表（`sqlite3 -readonly`）；日常看 `cairn list`／`cairn show`。来历见上面“10-08 下午：cairn 试点、ranch R2”一节。
 1. **用户在真窗口里试 10-07 晚上这批**：拖缝调大小和双击；⌘Z／⇧⌘Z 和输入法；标签“+N”菜单和悬停全名；四套新主题（Rosé Pine 光标偏暗，看前台实心光标是否够显眼）；ctl 的 busy（Browser／Kanban 确认时）、`--focus` 的键盘去向、`--attach` 启动。**P5-36c 待用户定**（不挡合并）：加宽五列悬停时卡片变高一行、下面的卡片下移，还是平时就给每张卡片留出按钮那一行。
 2. **用户看格子图新样子**（扫光、白热光晕、呼吸；数据多了 saddle、global-mesh 后应更满）。
 3. **用户试一键暂停**（铃铛左边 ⏸）、确认框（agent 干活时点 Pause）和悬停动效。一键会冻住包括主控在内的全部 agent，要用户点 ▶ 恢复。有问题先修。
