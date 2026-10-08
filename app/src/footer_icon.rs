@@ -83,6 +83,14 @@ pub enum Icon {
     Pause,
     /// A triangle pointing right: resume a paused agent, or every agent.
     Resume,
+    /// A round palette with three dots of paint and a thumb hole: Settings' Appearance.
+    Palette,
+    /// A robot's head, an aerial on top: Settings' Agents.
+    Agent,
+    /// A pulse line: Settings' Diagnostics.
+    Pulse,
+    /// A triangle round an exclamation mark: the config file changed on disk.
+    Warning,
 }
 
 /// How far an icon's parts are from where they rest, for its hover motion (`motion.rs`), in the
@@ -641,6 +649,54 @@ fn shapes(icon: Icon, pose: Pose, bounds: Bounds<Pixels>, scale: f32) -> Vec<Pat
             triangle.line_to(at(4.25 + by, 11.5));
             triangle.close();
             vec![triangle]
+        }
+        Icon::Palette => {
+            let mut ring = stroke();
+            circle(&mut ring, at(7.0, 7.0), 5.75 * scale);
+            let mut hole = stroke();
+            circle(&mut hole, at(9.0, 9.25), 1.25 * scale);
+            let mut paint = vec![ring, hole];
+            for (x, y) in [(4.25, 7.25), (5.5, 4.5), (8.5, 4.25)] {
+                let mut dot = PathBuilder::fill();
+                circle(&mut dot, at(x, y), 0.9 * scale);
+                paint.push(dot);
+            }
+            paint
+        }
+        Icon::Agent => {
+            let mut head = stroke();
+            rounded_rect(&mut head, at(1.75, 4.25), at(12.25, 12.0), 2.5 * scale);
+            let mut parts = stroke();
+            parts.move_to(at(7.0, 1.5));
+            parts.line_to(at(7.0, 4.25));
+            parts.move_to(at(5.0, 7.25));
+            parts.line_to(at(5.0, 9.0));
+            parts.move_to(at(9.0, 7.25));
+            parts.line_to(at(9.0, 9.0));
+            vec![head, parts]
+        }
+        Icon::Pulse => {
+            let mut line = stroke();
+            line.move_to(at(1.0, 7.0));
+            line.line_to(at(3.75, 7.0));
+            line.line_to(at(5.5, 2.5));
+            line.line_to(at(8.5, 11.5));
+            line.line_to(at(10.25, 7.0));
+            line.line_to(at(13.0, 7.0));
+            vec![line]
+        }
+        Icon::Warning => {
+            let mut edge = stroke();
+            edge.move_to(at(7.0, 1.5));
+            edge.line_to(at(12.75, 12.0));
+            edge.line_to(at(1.25, 12.0));
+            edge.close();
+            let mut mark = stroke();
+            mark.move_to(at(7.0, 5.25));
+            mark.line_to(at(7.0, 8.25));
+            let mut dot = PathBuilder::fill();
+            circle(&mut dot, at(7.0, 10.1), 0.75 * scale);
+            vec![edge, mark, dot]
         }
     }
 }

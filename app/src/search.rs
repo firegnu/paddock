@@ -148,8 +148,8 @@ pub fn settings() -> Vec<Row> {
         .map(|page| {
             let holds = match page {
                 Page::General => "fonts, sidebar, pet",
-                Page::Colors => "theme and colors",
-                Page::Advanced => "corral command",
+                Page::Appearance => "theme and colors",
+                Page::Agents => "refresh interval, corral command",
                 Page::Diagnostics => "commands and paths",
             };
             Row {
@@ -488,13 +488,17 @@ mod tests {
         let commands = commands(&menu::commands());
         let found = everything(&agents, &tabs, &settings, &commands, "colors");
         assert_eq!(labels(&found), ["AGENTS", "TABS", "SETTINGS"]);
-        assert_eq!(titles(&found, "SETTINGS"), ["Colors"]);
-        assert_eq!(found[2].rows[0].target, Target::Settings(Page::Colors));
+        assert_eq!(titles(&found, "SETTINGS"), ["Appearance"]);
+        assert_eq!(found[2].rows[0].target, Target::Settings(Page::Appearance));
         assert_eq!(found[2].rows[0].detail, "Settings · theme and colors");
         // Settings pages match on what they hold, and all of them on "settings".
         assert_eq!(
             titles(&everything(&[], &[], &settings, &[], "font"), "SETTINGS"),
             ["General"]
+        );
+        assert_eq!(
+            titles(&everything(&[], &[], &settings, &[], "refresh"), "SETTINGS"),
+            ["Agents"]
         );
         let all = everything(&[], &[], &settings, &commands, "settings");
         assert_eq!(titles(&all, "SETTINGS").len(), 4);

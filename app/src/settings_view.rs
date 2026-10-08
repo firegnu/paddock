@@ -1,10 +1,12 @@
-//! The Settings window: pages on the left, settings on the right, Revert and Save below. Closing it
-//! with unsaved edits asks Save / Don't Save / Cancel. The rules are in `settings.rs`; this file
-//! draws them and keeps one text field per typed setting.
+//! The Settings window: pages on the left, the page's settings in cards on the right, and a bar
+//! that rises at the bottom while the draft differs from the file (Revert, Save) or Save has
+//! something to say. Closing it with unsaved edits asks Save / Don't Save / Cancel. The rules are
+//! in `settings.rs`; this file draws them and keeps one text field per typed setting.
 use crate::{
     config::Config,
     diagnostics::{self, Checks, Report, clock},
     fonts::{self, Installed, UiFont},
+    footer_icon::{self, Icon},
     menu,
     preset::Preset,
     settings::{Conflict, Draft, Field, Kind, Page, Saved},
@@ -16,9 +18,9 @@ use gpui::{
     AnyElement, ClickEvent, Context, Div, ElementId, Entity, EventEmitter, FocusHandle, Focusable,
     FontWeight, Hsla, MouseButton, Pixels, PromptLevel, Render, ScrollStrategy, SharedString,
     Stateful, Subscription, Task, TextRun, UniformListScrollHandle, Window, anchored, deferred,
-    div, prelude::*, px, uniform_list,
+    div, prelude::*, px, relative, uniform_list,
 };
-use std::{collections::HashMap, path::PathBuf, rc::Rc};
+use std::{collections::HashMap, path::PathBuf, rc::Rc, time::Duration};
 
 /// The key context of the Settings window: ⌘S saves, ⌘W closes.
 pub const CONTEXT: &str = "PaddockSettings";
@@ -26,6 +28,9 @@ pub const CONTEXT: &str = "PaddockSettings";
 /// The top row at the base interface size: the traffic lights over the pages, the page's title
 /// beside them.
 pub const TITLE_BAR: f32 = 46.0;
+
+/// How long a message that reports no problem stays in the bar.
+const MESSAGE_TIME: Duration = Duration::from_secs(4);
 
 type Pick = fn(&crate::preset::Theme) -> crate::preset::Color;
 
@@ -43,11 +48,17 @@ pub struct SettingsView {
     draft: Draft,
     page: Page,
     inputs: HashMap<String, Entity<TextInput>>,
-    /// A message for the footer, and whether it reports a problem.
+    /// What Save last said, and whether it reports a problem; shown in the bar.
     message: Option<(String, bool)>,
+    /// Counts messages, so one timing out leaves a newer one alone.
+    said: usize,
     conflict: bool,
     /// The Save / Don't Save / Cancel question is showing.
     asking: bool,
+    /// Appearance lists every colour, not only those set over the theme.
+    all_colors: bool,
+    /// The field a fallback font is being typed into.
+    adding: Option<Entity<TextInput>>,
     /// Diagnostics as last collected, and its background checks once they are done.
     report: Option<Report>,
     checks: Option<Checks>,
@@ -113,16 +124,48 @@ fn unit(key: &str) -> Option<&'static str> {
     }
 }
 
+/// How − and + step a number setting: by how much, and the least they go to.
+fn steps(key: &str) -> (f64, f64) {
+    match key {
+        "ui_font_size" | "font_size" => (1.0, 6.0),
+        "sidebar_width" => (10.0, 10.0),
+        "line_height" => (0.1, 0.5),
+        "refresh_ms" => (250.0, 250.0),
+        _ => (1.0, 1.0),
+    }
+}
+
+/// `text` stepped `by` steps; text that is not a number steps from `default`.
+fn stepped(text: &str, default: &str, by: f64, (step, least): (f64, f64)) -> String {
+    let current = text
+        .trim()
+        .parse::<f64>()
+        .ok()
+        .filter(|n| n.is_finite())
+        .or_else(|| default.parse().ok())
+        .unwrap_or(least);
+    let next = (((current + by * step) * 100.0).round() / 100.0).max(least);
+    if next.fract() == 0.0 {
+        format!("{}", next as i64)
+    } else {
+        format!("{next}")
+    }
+}
+
 /// General's settings by heading, in display order.
-const GENERAL: [(&str, &[&str]); 4] = [
+const GENERAL: [(&str, &[&str]); 3] = [
     ("Interface", &["ui_font", "ui_font_size", "sidebar_width"]),
     (
         "Terminal",
         &["font", "font_size", "line_height", "font_fallbacks"],
     ),
     ("Mascot", &["mascot_enabled", "mascot"]),
-    ("Agents", &["refresh_ms"]),
 ];
+
+/// Agents' settings by heading.
+const AGENTS: [(&str, &[&str]); 1] = [("corral", &["refresh_ms", "corral"])];
+
+const PETS: [(&str, &str); 3] = [("clawd", "Clawd"), ("cat", "Cat"), ("capybara", "Capybara")];
 
 /// A setting's label in its row, shorter where its heading already says what it is for.
 fn row_label(field: &Field) -> &str {
@@ -135,7 +178,56 @@ fn row_label(field: &Field) -> &str {
 
 /// A faint line under a setting's label.
 fn note(key: &str) -> Option<&'static str> {
-    (key == "font_fallbacks").then_some("For characters the font lacks, in order")
+    match key {
+        "font_fallbacks" => Some("For characters the font lacks, in order"),
+        "corral" => Some("--corral overrides it for one run"),
+        _ => None,
+    }
+}
+
+/// What a setting's Reset link says, given its default as the page shows it.
+fn reset_label(field: &Field, default: &str) -> String {
+    let default = match field.kind {
+        Kind::Color => return "Reset".into(),
+        Kind::List => "default",
+        Kind::UiFont => "System",
+        Kind::Bool if default == "true" => "on",
+        Kind::Bool => "off",
+        Kind::Pet => PETS
+            .iter()
+            .find(|(value, _)| *value == default)
+            .map_or(default, |(_, label)| label),
+        _ => default,
+    };
+    format!("Reset to {default}")
+}
+
+/// The fallback fonts in a list's text.
+fn items(text: &str) -> Vec<String> {
+    text.split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned)
+        .collect()
+}
+
+/// The bar's count of unsaved settings, and which they are, the first few by name.
+fn unsaved_summary(labels: &[String]) -> (String, String) {
+    let count = labels.len();
+    let head = format!(
+        "{count} unsaved change{}",
+        if count == 1 { "" } else { "s" }
+    );
+    let mut names = labels[..count.min(3)].join(", ");
+    if count > 3 {
+        names.push_str(&format!(" and {} more", count - 3));
+    }
+    (head, names)
+}
+
+/// How many theme cards sit side by side in `width`: up to four, each at least `least` wide.
+fn columns(width: f32, least: f32, gap: f32) -> u16 {
+    (((width + gap) / (least + gap)).floor() as u16).clamp(1, 4)
 }
 
 /// The family for config values: paths, colour values, and monospace lists.
@@ -190,8 +282,11 @@ impl SettingsView {
             page: Page::General,
             inputs: HashMap::new(),
             message,
+            said: 0,
             conflict: false,
             asking: false,
+            all_colors: false,
+            adding: None,
             report: None,
             checks: None,
             fonts: cx.try_global::<Installed>().cloned().unwrap_or_default(),
@@ -362,7 +457,7 @@ impl SettingsView {
         let colors = self.input_colors();
         if field.kind == Kind::Color {
             text_input::Colors {
-                text: self.fg(|t| t.agents_dim),
+                text: self.fg(|t| t.agents_branch),
                 ..colors
             }
         } else {
@@ -376,9 +471,9 @@ impl SettingsView {
             .fields()
             .iter()
             .filter(|f| {
-                !matches!(
+                matches!(
                     f.kind,
-                    Kind::Bool | Kind::Pet | Kind::Theme | Kind::MonoFont | Kind::UiFont
+                    Kind::Integer | Kind::Number | Kind::Text | Kind::Color
                 )
             })
             .cloned()
@@ -387,17 +482,22 @@ impl SettingsView {
             let colors = self.colors_for(&field);
             let text = self.draft.value(&field.key);
             let placeholder = match field.kind {
-                Kind::List => "Font, Font, …",
                 Kind::Color => "#rrggbb, an ANSI name, or default",
                 _ => "",
             };
             let input = cx.new(|cx| TextInput::new(text, placeholder, colors, cx));
             let key = field.key.clone();
+            let color = field.kind == Kind::Color;
             self._subscriptions.push(cx.subscribe(
                 &input,
                 move |this, input, _: &text_input::Changed, cx| {
                     let text = input.read(cx).text().to_owned();
-                    this.draft.set(&key, &text);
+                    // An emptied colour follows the theme again.
+                    if color && text.trim().is_empty() {
+                        this.draft.reset(&key);
+                    } else {
+                        this.draft.set(&key, &text);
+                    }
                     this.message = None;
                     cx.notify();
                 },
@@ -406,7 +506,7 @@ impl SettingsView {
         }
     }
 
-    /// Puts the drafted values back into the fields after a Default, a theme or a reload.
+    /// Puts the drafted values back into the fields after a Reset, a theme or a reload.
     fn refresh_inputs(&mut self, cx: &mut Context<Self>) {
         for (key, input) in &self.inputs {
             let value = self.draft.value(key);
@@ -433,6 +533,69 @@ impl SettingsView {
         self.refresh_inputs(cx);
     }
 
+    /// − or + on a number setting.
+    fn step(&mut self, key: &str, by: f64, cx: &mut Context<Self>) {
+        let value = stepped(
+            &self.draft.value(key),
+            &self.draft.default_shown(key),
+            by,
+            steps(key),
+        );
+        self.set(key, &value, cx);
+    }
+
+    /// Opens a field after the fallback fonts for another one's name.
+    fn start_adding(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let colors = self.input_colors();
+        let input = cx.new(|cx| TextInput::new("", "Font name", colors, cx));
+        window.focus(&input.read(cx).focus_handle(cx), cx);
+        self.adding = Some(input);
+        cx.notify();
+    }
+
+    /// Closes the field for another fallback font, adding the name typed when `keep`.
+    fn finish_adding(&mut self, keep: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(input) = self.adding.take() else {
+            return;
+        };
+        let name = input.read(cx).text().trim().to_owned();
+        let mut list = items(&self.draft.value("font_fallbacks"));
+        if keep && !name.is_empty() && !list.contains(&name) {
+            list.push(name);
+            self.set("font_fallbacks", &list.join(", "), cx);
+        }
+        window.focus(&self.focus, cx);
+        cx.notify();
+    }
+
+    fn remove_fallback(&mut self, index: usize, cx: &mut Context<Self>) {
+        let mut list = items(&self.draft.value("font_fallbacks"));
+        if index < list.len() {
+            list.remove(index);
+            self.set("font_fallbacks", &list.join(", "), cx);
+        }
+    }
+
+    /// Shows `text` in the bar; one that reports no problem goes after a few seconds.
+    fn say(&mut self, text: impl Into<String>, problem: bool, cx: &mut Context<Self>) {
+        self.message = Some((text.into(), problem));
+        self.said += 1;
+        if !problem {
+            let said = self.said;
+            cx.spawn(async move |this, cx| {
+                cx.background_executor().timer(MESSAGE_TIME).await;
+                this.update(cx, |this, cx| {
+                    if this.said == said {
+                        this.message = None;
+                        cx.notify();
+                    }
+                })
+            })
+            .detach();
+        }
+        cx.notify();
+    }
+
     pub fn save(&mut self, _: &menu::SaveSettings, _: &mut Window, cx: &mut Context<Self>) {
         self.save_draft(cx);
     }
@@ -442,8 +605,7 @@ impl SettingsView {
         let disk = match read(&self.path) {
             Ok(disk) => disk,
             Err(error) => {
-                self.message = Some((format!("Not saved: {error}"), true));
-                cx.notify();
+                self.say(format!("Not saved: {error}"), true, cx);
                 return false;
             }
         };
@@ -455,18 +617,19 @@ impl SettingsView {
                 restart,
             })) => {
                 if let Err(error) = write(&self.path, &text) {
-                    self.message = Some((format!("Not saved: {error}"), true));
+                    self.say(format!("Not saved: {error}"), true, cx);
                 } else {
                     self.draft = Draft::new(Some(text)).expect("just validated");
                     self.refresh_inputs(cx);
-                    self.message = Some(if restart.is_empty() {
-                        ("Saved.".into(), false)
+                    if restart.is_empty() {
+                        self.say("Saved.", false, cx);
                     } else {
-                        (
+                        self.say(
                             format!("Saved. Restart paddock for: {}.", restart.join(", ")),
                             false,
-                        )
-                    });
+                            cx,
+                        );
+                    }
                     if let Ok(theme) = Theme::from_config(&config) {
                         self.theme = Rc::new(theme);
                         let fields = self.draft.fields().to_vec();
@@ -482,17 +645,18 @@ impl SettingsView {
                 }
             }
             Ok(Ok(Saved::Unchanged)) => {
-                self.message = Some(("Nothing to save.".into(), false));
+                self.say("Nothing to save.", false, cx);
                 saved = true;
             }
             Ok(Err(Conflict)) => {
                 self.conflict = true;
-                self.message = Some((
-                    "The config file changed on disk; nothing was saved.".into(),
+                self.say(
+                    "The config file changed on disk; nothing was saved.",
                     true,
-                ));
+                    cx,
+                );
             }
-            Err(error) => self.message = Some((format!("Not saved: {error:#}"), true)),
+            Err(error) => self.say(format!("Not saved: {error:#}"), true, cx),
         }
         cx.notify();
         saved
@@ -509,14 +673,20 @@ impl SettingsView {
                 }
             });
         self.conflict = false;
-        self.message = match result {
-            Ok(()) if keep => Some((
-                "Your edits now sit on the file as it is; Save again.".into(),
+        self.message = None;
+        match result {
+            Ok(()) if keep => self.say(
+                "Your edits now sit on the file as it is; Save again.",
                 false,
-            )),
-            Ok(()) => None,
-            Err(error) => Some((format!("The config file has a problem: {error:#}"), true)),
-        };
+                cx,
+            ),
+            Ok(()) => {}
+            Err(error) => self.say(
+                format!("The config file has a problem: {error:#}"),
+                true,
+                cx,
+            ),
+        }
         self.refresh_inputs(cx);
     }
 
@@ -547,7 +717,7 @@ impl SettingsView {
         cx.notify();
     }
 
-    /// One Diagnostics row: a label and its value, coloured good, bad or unknown.
+    /// One Diagnostics row: a dot for how it went, a label, and its value.
     fn diagnostic(
         &self,
         label: &'static str,
@@ -555,22 +725,31 @@ impl SettingsView {
         tone: Tone,
         ui: &UiFont,
     ) -> Div {
-        let color = match tone {
-            Tone::Good => self.fg(|t| t.agents_green),
-            Tone::Bad => self.fg(|t| t.agents_red),
-            Tone::Plain => self.fg(|t| t.agents_text),
-            Tone::Unknown => self.fg(|t| t.agents_dim),
+        let (dot, color) = match tone {
+            Tone::Good => (self.fg(|t| t.agents_green), self.fg(|t| t.agents_text)),
+            Tone::Bad => (self.fg(|t| t.agents_red), self.fg(|t| t.agents_red)),
+            Tone::Plain => (self.fg(|t| t.agents_dimmer), self.fg(|t| t.agents_text)),
+            Tone::Unknown => (self.fg(|t| t.agents_dimmer), self.fg(|t| t.agents_dim)),
         };
         div()
             .flex()
-            .items_center()
-            .gap(px(12.0))
-            .min_h(ui.px(38.0))
+            .items_start()
+            .gap(px(8.0))
             .px(px(16.0))
             .py(px(7.0))
+            .text_size(ui.px(12.5))
             .child(
                 div()
-                    .w(ui.px(130.0))
+                    .w(px(12.0))
+                    .h(ui.px(18.0))
+                    .flex_shrink_0()
+                    .flex()
+                    .items_center()
+                    .child(div().size(px(7.0)).rounded_full().bg(dot)),
+            )
+            .child(
+                div()
+                    .w(ui.px(108.0))
                     .flex_shrink_0()
                     .text_color(self.fg(|t| t.agents_dim))
                     .child(label),
@@ -584,7 +763,8 @@ impl SettingsView {
             )
     }
 
-    fn diagnostics_page(&self, ui: &UiFont) -> Vec<AnyElement> {
+    /// Diagnostics' groups, side by side in two columns when `width` has room.
+    fn diagnostics_page(&self, width: f32, ui: &UiFont) -> Vec<AnyElement> {
         let Some(report) = &self.report else {
             let row = self.diagnostic(
                 "Diagnostics",
@@ -592,7 +772,7 @@ impl SettingsView {
                 Tone::Bad,
                 ui,
             );
-            return self.cards(vec![("", vec![row])], true, ui);
+            return vec![self.listing(vec![row]).into_any_element()];
         };
         let checks = self.checks.as_ref();
         let checking = || ("checking…".to_owned(), Tone::Unknown);
@@ -718,34 +898,45 @@ impl SettingsView {
             ),
         ];
 
-        let mut items = self.cards(
-            vec![
-                ("Commands", commands),
-                ("Agents", agents),
-                ("Config", config),
-                ("Layout", layout),
-                ("Start", start),
-            ],
-            true,
-            ui,
-        );
-        items.push(
+        let section = |heading: &str, rows| self.section(heading, self.listing(rows), ui);
+        let column = || {
             div()
-                .pt(px(14.0))
+                .flex_1()
+                .min_w(px(0.0))
+                .flex()
+                .flex_col()
+                .gap(ui.px(18.0))
+        };
+        let left = [
+            section("Commands", commands),
+            section("Agents", agents),
+            section("Start", start),
+        ];
+        let right = [section("Config", config), section("Layout", layout)];
+        let body = if width >= ui.scale(560.0) {
+            div()
+                .flex()
+                .items_start()
+                .gap(ui.px(18.0))
+                .child(column().children(left))
+                .child(column().children(right))
+        } else {
+            column().children(left).children(right)
+        };
+        vec![
+            body.into_any_element(),
+            div()
                 .px(px(4.0))
-                .text_size(ui.px(11.0))
+                .text_size(ui.px(11.5))
                 .text_color(self.fg(|t| t.agents_dimmer))
-                .child(format!(
-                    "Checked at {}. Read-only; nothing here changes paddock or its files.",
-                    clock(report.checked)
-                ))
+                .child("Nothing here changes paddock or its files.")
                 .into_any_element(),
-        );
-        items
+        ]
     }
 
     pub fn show_page(&mut self, page: Page, cx: &mut Context<Self>) {
         self.page = page;
+        self.adding = None;
         if page == Page::Diagnostics {
             self.refresh_diagnostics(cx);
         }
@@ -758,16 +949,21 @@ impl SettingsView {
             .map_err(anyhow::Error::from)
             .and_then(|disk| self.draft.discard(disk));
         self.conflict = false;
-        self.message = result
-            .err()
-            .map(|error| (format!("The config file has a problem: {error:#}"), true));
+        self.message = None;
+        if let Err(error) = result {
+            self.say(
+                format!("The config file has a problem: {error:#}"),
+                true,
+                cx,
+            );
+        }
         self.refresh_inputs(cx);
     }
 
     /// Whether the window may close: yes without unsaved edits; otherwise as answered to Save /
     /// Don't Save / Cancel, where a Save that fails keeps the window open with the reason shown.
     pub fn confirm_close(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Task<bool> {
-        if !self.draft.edited() {
+        if self.draft.unsaved().is_empty() {
             return Task::ready(true);
         }
         if self.asking {
@@ -806,101 +1002,192 @@ impl SettingsView {
         .detach();
     }
 
-    /// The theme's rule colour at `alpha`: lines between rows, around cards and fields.
-    fn rule(&self, alpha: f32) -> Hsla {
-        hsla(self.theme.fg(|t| t.agents_rule), alpha)
+    /// The window's ground.
+    fn ground(&self) -> Hsla {
+        hsla(self.theme.bg(|t| t.agents_bg), 1.0)
     }
 
-    /// A heading over a card: small, upper case, faint.
-    fn heading(&self, text: &str, first: bool, ui: &UiFont) -> Div {
+    /// The ground lifted towards the text by `alpha`: cards at a little, fields on them at more.
+    fn lifted(&self, alpha: f32) -> Hsla {
+        self.ground()
+            .blend(hsla(self.theme.fg(|t| t.agents_text), alpha))
+    }
+
+    fn card_ground(&self) -> Hsla {
+        self.lifted(0.035)
+    }
+
+    fn field_ground(&self) -> Hsla {
+        self.lifted(0.075)
+    }
+
+    /// The text colour at `alpha`: lines between rows, quiet edges.
+    fn faint(&self, alpha: f32) -> Hsla {
+        hsla(self.theme.fg(|t| t.agents_text), alpha)
+    }
+
+    /// A field's edge: red when its value can't be saved, the accent while typing, else none.
+    fn edge(&self, problem: bool, focused: bool) -> Hsla {
+        if problem {
+            self.fg(|t| t.agents_red).opacity(0.8)
+        } else if focused {
+            self.fg(|t| t.agents_accent).opacity(0.5)
+        } else {
+            gpui::transparent_black()
+        }
+    }
+
+    /// A heading over a card.
+    fn heading(&self, text: impl Into<SharedString>, ui: &UiFont) -> Div {
         div()
-            .pt(px(if first { 6.0 } else { 18.0 }))
-            .pb(px(7.0))
-            .px(px(4.0))
-            .text_size(ui.px(10.5))
+            .pl(px(4.0))
+            .text_size(ui.px(12.5))
             .font_weight(FontWeight::SEMIBOLD)
-            .text_color(self.fg(|t| t.agents_dimmer))
-            .child(text.to_uppercase())
+            .text_color(self.fg(|t| t.agents_dim))
+            .child(text.into())
     }
 
-    /// Rows in a rounded card, a faint line between them.
-    fn card(&self, rows: Vec<Div>) -> Div {
-        let ground = hsla(self.theme.bg(|t| t.agents_bg), 1.0)
-            .blend(hsla(self.theme.fg(|t| t.agents_text), 0.025));
-        let line = self.rule(0.55);
+    /// A heading and what it heads.
+    fn section(&self, heading: &str, body: impl IntoElement, ui: &UiFont) -> Div {
         div()
             .flex()
             .flex_col()
-            .rounded(px(10.0))
-            .border_1()
-            .border_color(line)
-            .bg(ground)
-            .children(
-                rows.into_iter().enumerate().map(|(index, row)| {
-                    row.when(index > 0, |row| row.border_t_1().border_color(line))
-                }),
-            )
+            .gap(ui.px(8.0))
+            .child(self.heading(heading.to_owned(), ui))
+            .child(body)
     }
 
-    /// A card per group of rows, each under its heading; `first` when they open the page.
-    fn cards(&self, groups: Vec<(&str, Vec<Div>)>, first: bool, ui: &UiFont) -> Vec<AnyElement> {
-        let mut items = Vec::new();
-        for (index, (heading, rows)) in groups.into_iter().enumerate() {
-            let first = first && index == 0;
-            items.push(if heading.is_empty() {
-                div()
-                    .pt(px(if first { 6.0 } else { 18.0 }))
-                    .into_any_element()
-            } else {
-                self.heading(heading, first, ui).into_any_element()
-            });
-            items.push(self.card(rows).into_any_element());
+    /// Rows on a card, `lead` above them; a faint line between rows from where their labels start.
+    fn card(&self, lead: Option<AnyElement>, rows: Vec<Div>) -> Div {
+        let line = self.faint(0.06);
+        let mut card = div()
+            .flex()
+            .flex_col()
+            .rounded(px(12.0))
+            .bg(self.card_ground())
+            .children(lead);
+        for (index, row) in rows.into_iter().enumerate() {
+            if index > 0 {
+                card = card.child(div().h(px(1.0)).ml(px(18.0)).bg(line));
+            }
+            card = card.child(row);
         }
-        items
+        card
     }
 
-    /// A small tinted label after a setting's name.
-    fn tag(&self, text: &'static str, color: Hsla, ui: &UiFont) -> Div {
+    /// Rows on a card with no lines between them: Diagnostics.
+    fn listing(&self, rows: Vec<Div>) -> Div {
         div()
-            .flex_shrink_0()
-            .px(px(6.0))
-            .rounded(px(4.0))
-            .text_size(ui.px(11.0))
-            .text_color(color)
-            .bg(color.opacity(0.12))
-            .child(text)
+            .flex()
+            .flex_col()
+            .py(px(6.0))
+            .rounded(px(12.0))
+            .bg(self.card_ground())
+            .children(rows)
     }
 
-    /// A quiet button's shape: its text in a rounded box, no ground.
-    fn button_shape(
-        &self,
-        id: impl Into<ElementId>,
-        label: impl Into<SharedString>,
-        ui: &UiFont,
-    ) -> Stateful<Div> {
+    /// Room for the dot before a setting's label, and the dot when it differs from its default.
+    fn dot_slot(&self, on: bool, ui: &UiFont) -> Div {
         div()
-            .id(id.into())
+            .w(px(12.0))
+            .h(ui.px(18.0))
             .flex_shrink_0()
-            .h(ui.px(28.0))
-            .px(px(13.0))
             .flex()
             .items_center()
-            .rounded(px(7.0))
-            .child(label.into())
+            .when(on, |slot| {
+                slot.child(
+                    div()
+                        .size(px(6.0))
+                        .rounded_full()
+                        .bg(self.fg(|t| t.agents_accent)),
+                )
+            })
     }
 
-    /// A quiet button: text, a faint ground on hover.
-    fn button(
-        &self,
-        id: impl Into<ElementId>,
-        label: impl Into<SharedString>,
-        ui: &UiFont,
-    ) -> Stateful<Div> {
-        let hover = hsla(self.theme.fg(|t| t.agents_text), 0.07);
-        self.button_shape(id, label, ui)
-            .text_color(self.fg(|t| t.agents_branch))
+    /// The yellow tag on a setting that waits for a restart.
+    fn after_restart(&self, ui: &UiFont) -> Div {
+        let yellow = self.fg(|t| t.agents_yellow);
+        div()
+            .flex_shrink_0()
+            .ml(px(10.0))
+            .h(ui.px(20.0))
+            .px(px(8.0))
+            .flex()
+            .items_center()
+            .gap(px(5.0))
+            .rounded_full()
+            .bg(yellow.opacity(0.14))
+            .text_size(ui.px(11.0))
+            .text_color(yellow)
+            .child(footer_icon::icon(
+                Icon::Reload,
+                yellow,
+                ui.scale(11.0) / footer_icon::SIZE,
+            ))
+            .child("after restart")
+    }
+
+    /// "Reset to <default>": puts the setting back to its default.
+    fn reset_link(&self, field: &Field, ui: &UiFont, cx: &mut Context<Self>) -> Stateful<Div> {
+        let key = field.key.clone();
+        let text = self.fg(|t| t.agents_text);
+        div()
+            .id(ElementId::Name(format!("{key}-reset").into()))
+            .flex_shrink_0()
+            .ml(px(10.0))
+            .text_size(ui.px(12.0))
+            .text_color(self.fg(|t| t.agents_dim))
             .cursor_pointer()
-            .hover(move |style| style.bg(hover))
+            .hover(move |style| style.text_color(text))
+            .child(reset_label(field, &self.draft.default_shown(&field.key)))
+            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.reset(&key, cx)))
+    }
+
+    /// A line under a label: a note, or in red why the value can't be saved.
+    fn under(&self, text: impl Into<SharedString>, color: Hsla, ui: &UiFont) -> Div {
+        div()
+            .pl(px(12.0))
+            .mt(px(2.0))
+            .text_size(ui.px(12.0))
+            .text_color(color)
+            .child(text.into())
+    }
+
+    /// A setting's label: the dot when it differs from its default, its name, "after restart"
+    /// when it waits for one and Reset when it can go back; under it a note and any problem.
+    fn label(&self, field: &Field, ui: &UiFont, cx: &mut Context<Self>) -> Div {
+        let key = &field.key;
+        let modified = self.draft.modified(key);
+        let title = div()
+            .flex()
+            .items_center()
+            .min_w(px(0.0))
+            .child(self.dot_slot(modified, ui))
+            .child(
+                div()
+                    .min_w(px(0.0))
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .text_ellipsis()
+                    .text_size(ui.px(13.5))
+                    .child(row_label(field).to_owned()),
+            )
+            .when(field.restart, |title| title.child(self.after_restart(ui)))
+            .when(modified, |title| {
+                title.child(self.reset_link(field, ui, cx))
+            });
+        div()
+            .flex_1()
+            .min_w(ui.px(120.0))
+            .flex()
+            .flex_col()
+            .child(title)
+            .children(note(key).map(|note| self.under(note, self.fg(|t| t.agents_dim), ui)))
+            .children(
+                self.draft
+                    .problem(key)
+                    .map(|problem| self.under(problem, self.fg(|t| t.agents_red), ui)),
+            )
     }
 
     /// A row of choices, the drafted one raised.
@@ -912,33 +1199,33 @@ impl SettingsView {
         cx: &mut Context<Self>,
     ) -> Div {
         let current = self.draft.value(key);
-        let highlight = hsla(self.theme.bg(|t| t.agent_selected), 1.0);
+        let raised = self.lifted(0.15);
         let (text, dim) = (self.fg(|t| t.agents_text), self.fg(|t| t.agents_dim));
         let mut row = div()
             .flex()
             .flex_shrink_0()
+            .gap(px(2.0))
             .p(px(3.0))
-            .rounded(px(8.0))
-            .bg(hsla(self.theme.bg(|t| t.agents_bg), 1.0))
-            .border_1()
-            .border_color(self.rule(0.75));
+            .rounded(px(9.0))
+            .bg(self.field_ground());
         for &(value, label) in options {
             let on = current == value;
             let key = key.to_owned();
             let segment = div()
                 .id(ElementId::Name(format!("{key}-{value}").into()))
-                .h(ui.px(24.0))
+                .h(ui.px(26.0))
                 .px(px(12.0))
                 .flex()
                 .items_center()
-                .rounded(px(6.0))
+                .rounded(px(7.0))
+                .text_size(ui.px(12.5))
                 .cursor_pointer()
                 .child(label)
                 .on_click(
                     cx.listener(move |this, _: &ClickEvent, _, cx| this.set(&key, value, cx)),
                 );
             row = row.child(if on {
-                segment.bg(highlight).text_color(text)
+                segment.bg(raised).text_color(text)
             } else {
                 segment
                     .text_color(dim)
@@ -955,15 +1242,15 @@ impl SettingsView {
         let track = if on {
             self.fg(|t| t.agents_accent)
         } else {
-            self.fg(|t| t.agents_rule)
+            self.lifted(0.16)
         };
         div()
             .id(ElementId::Name(format!("{key}-switch").into()))
             .flex_shrink_0()
-            .w(ui.px(34.0))
-            .h(ui.px(20.0))
+            .w(ui.px(38.0))
+            .h(ui.px(22.0))
             .p(ui.px(2.0))
-            .rounded(ui.px(10.0))
+            .rounded(ui.px(11.0))
             .bg(track)
             .flex()
             .items_center()
@@ -971,8 +1258,8 @@ impl SettingsView {
             .cursor_pointer()
             .child(
                 div()
-                    .size(ui.px(16.0))
-                    .rounded(ui.px(8.0))
+                    .size(ui.px(18.0))
+                    .rounded(ui.px(9.0))
                     .bg(self.fg(|t| t.agents_text))
                     .shadow_sm(),
             )
@@ -982,134 +1269,212 @@ impl SettingsView {
             }))
     }
 
-    /// A setting's text field in its box. Numbers and colour values sit against the right edge; a
-    /// colour's box shows only when its row is hovered or it is being typed in.
-    fn field_box(
+    /// A setting's text field: free text, or a colour value, in the monospace family at `size`.
+    #[allow(clippy::too_many_arguments)]
+    fn text_box(
         &self,
         key: &str,
-        boxed: Boxed,
+        width: Pixels,
+        height: Pixels,
+        size: f32,
         window: &Window,
         ui: &UiFont,
         cx: &mut Context<Self>,
     ) -> Stateful<Div> {
-        let (width, mono, right) = match boxed {
-            Boxed::Number => (ui.px(64.0), None, true),
-            Boxed::Text => (px(220.0), None, false),
-            Boxed::List => (px(220.0), Some(11.5), false),
-            Boxed::Color(_) => (ui.px(120.0), Some(11.5), true),
-        };
         let input = self.inputs.get(key).cloned();
         let focused = input
             .as_ref()
             .is_some_and(|input| input.read(cx).focus_handle(cx).is_focused(window));
-        let ground = hsla(self.theme.bg(|t| t.agents_bg), 1.0);
-        let line = self.rule(0.85);
         let mut field = div()
             .id(ElementId::Name(format!("{key}-field").into()))
             .flex_shrink_0()
             .w(width)
-            .h(ui.px(28.0))
+            .h(height)
             .px(px(10.0))
             .flex()
             .items_center()
-            .rounded(px(7.0))
+            .rounded(px(8.0))
+            .bg(self.field_ground())
             .border_1()
+            .border_color(self.edge(self.draft.problem(key).is_some(), focused))
             .overflow_hidden()
-            .when(right, |field| field.justify_end())
-            .when_some(mono, |field, size| {
-                field.font_family(MONO).text_size(ui.px(size))
-            });
-        field = if focused {
-            field
-                .bg(ground)
-                .border_color(self.fg(|t| t.agents_accent).opacity(0.7))
-        } else if let Boxed::Color(group) = boxed {
-            field
-                .border_color(gpui::transparent_black())
-                .group_hover(group.clone(), move |style| {
-                    style.bg(ground).border_color(line)
+            .font_family(MONO)
+            .text_size(ui.px(size));
+        if let Some(input) = input {
+            let handle = input.read(cx).focus_handle(cx);
+            field = field
+                .cursor_text()
+                .on_mouse_down(MouseButton::Left, move |_, window, cx| {
+                    window.focus(&handle, cx)
                 })
-        } else {
-            field.bg(ground).border_color(line)
-        };
-        let Some(input) = input else {
-            return field;
-        };
-        let text = input.read(cx).text().to_owned();
-        // The field is as wide as its text when it sits right, so the text ends at the edge.
-        let inner = if right && !text.is_empty() {
-            let family: SharedString = match mono {
-                Some(_) => MONO.into(),
-                None => ui.family.clone().unwrap_or_else(|| ".SystemUIFont".into()),
-            };
-            let size = ui.px(mono.unwrap_or(13.0));
-            div()
-                .flex_shrink_0()
-                .w(text_width(&text, family, size, window) + px(2.0))
-        } else {
-            div().flex_1().min_w(px(0.0)).overflow_hidden()
-        };
-        let handle = input.read(cx).focus_handle(cx);
+                .child(div().flex_1().min_w(px(0.0)).overflow_hidden().child(input));
+        }
         field
-            .cursor_text()
-            .on_mouse_down(MouseButton::Left, move |_, window, cx| {
-                window.focus(&handle, cx)
-            })
-            .child(inner.child(input))
     }
 
-    /// A number setting: a narrow box, its unit after it.
-    fn number_control(
+    /// A number setting: − and + either side of its value, which can be typed, and its unit.
+    fn stepper(
         &self,
         key: &str,
         window: &Window,
         ui: &UiFont,
         cx: &mut Context<Self>,
-    ) -> Div {
-        div()
+    ) -> Stateful<Div> {
+        let input = self.inputs.get(key).cloned();
+        let focused = input
+            .as_ref()
+            .is_some_and(|input| input.read(cx).focus_handle(cx).is_focused(window));
+        let (dim, text) = (self.fg(|t| t.agents_dim), self.fg(|t| t.agents_text));
+        let button = |id: &str, glyph: &'static str, by: f64| {
+            let key = key.to_owned();
+            div()
+                .id(ElementId::Name(format!("{key}-{id}").into()))
+                .flex_shrink_0()
+                .w(ui.px(30.0))
+                .h_full()
+                .flex()
+                .items_center()
+                .justify_center()
+                .text_color(dim)
+                .cursor_pointer()
+                .hover(move |style| style.text_color(text))
+                .child(glyph)
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.step(&key, by, cx)))
+        };
+        let (less, more) = (button("less", "−", -1.0), button("more", "+", 1.0));
+        let mut value = div()
+            .id(ElementId::Name(format!("{key}-value").into()))
+            .min_w(ui.px(if key == "refresh_ms" { 66.0 } else { 52.0 }))
+            .h_full()
             .flex()
-            .flex_shrink_0()
             .items_center()
-            .gap(px(6.0))
-            .child(self.field_box(key, Boxed::Number, window, ui, cx))
-            .child(
-                div()
-                    .w(ui.px(20.0))
-                    .whitespace_nowrap()
-                    .text_size(ui.px(12.0))
-                    .text_color(self.fg(|t| t.agents_dimmer))
-                    .children(unit(key)),
-            )
+            .justify_center()
+            .gap(px(4.0));
+        if let Some(input) = input {
+            let shown = input.read(cx).text().to_owned();
+            let family = ui.family.clone().unwrap_or_else(|| ".SystemUIFont".into());
+            // As wide as its text, so the value and its unit sit together in the middle.
+            let width = text_width(&shown, family, ui.px(13.0), window).max(ui.px(8.0)) + px(2.0);
+            let handle = input.read(cx).focus_handle(cx);
+            value = value
+                .cursor_text()
+                .on_mouse_down(MouseButton::Left, move |_, window, cx| {
+                    window.focus(&handle, cx)
+                })
+                .child(div().flex_shrink_0().w(width).child(input));
+        }
+        let value = value.children(
+            unit(key).map(|unit| div().text_color(self.fg(|t| t.agents_dimmer)).child(unit)),
+        );
+        div()
+            .id(ElementId::Name(format!("{key}-stepper").into()))
+            .flex_shrink_0()
+            .h(ui.px(32.0))
+            .flex()
+            .items_center()
+            .rounded(px(8.0))
+            .bg(self.field_ground())
+            .border_1()
+            .border_color(self.edge(self.draft.problem(key).is_some(), focused))
+            .child(less)
+            .child(value)
+            .child(more)
     }
 
-    /// A colour: its value, then a swatch of it as drafted.
-    fn color_control(
-        &self,
-        field: &Field,
-        drafted: Option<&Theme>,
-        group: &SharedString,
-        window: &Window,
-        ui: &UiFont,
-        cx: &mut Context<Self>,
-    ) -> Div {
-        let swatch = drafted
-            .and_then(|theme| theme.color(field.color()?))
-            .map(|rgb| hsla(rgb, 1.0))
-            .unwrap_or(gpui::transparent_black());
-        div()
+    /// The fallback fonts, each a tag with ×, then + Add or the field a new one is typed into.
+    fn fallbacks(&self, ui: &UiFont, cx: &mut Context<Self>) -> Div {
+        let field = self.field_ground();
+        let (dim, text) = (self.fg(|t| t.agents_dim), self.fg(|t| t.agents_text));
+        let close = self.faint(0.08);
+        let pill = || {
+            div()
+                .flex_shrink_0()
+                .h(ui.px(26.0))
+                .flex()
+                .items_center()
+                .rounded_full()
+                .font_family(MONO)
+                .text_size(ui.px(11.5))
+        };
+        let mut area = div()
             .flex()
-            .flex_shrink_0()
-            .items_center()
-            .gap(px(10.0))
-            .child(self.field_box(&field.key, Boxed::Color(group), window, ui, cx))
-            .child(
-                div()
-                    .size(ui.px(20.0))
-                    .rounded(px(6.0))
+            .flex_wrap()
+            .justify_end()
+            .gap(px(6.0))
+            .min_w(px(0.0))
+            .max_w(ui.px(400.0));
+        for (index, name) in items(&self.draft.value("font_fallbacks"))
+            .into_iter()
+            .enumerate()
+        {
+            area = area.child(
+                pill()
+                    .pl(px(10.0))
+                    .pr(px(4.0))
+                    .gap(px(4.0))
+                    .bg(field)
+                    .text_color(self.fg(|t| t.agents_branch))
+                    .child(name)
+                    .child(
+                        div()
+                            .id(("fallback-remove", index))
+                            .size(ui.px(18.0))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .rounded_full()
+                            .cursor_pointer()
+                            .hover(move |style| style.bg(close))
+                            .child(footer_icon::icon(
+                                Icon::Close,
+                                dim,
+                                ui.scale(10.0) / footer_icon::SIZE,
+                            ))
+                            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                this.remove_fallback(index, cx)
+                            })),
+                    ),
+            );
+        }
+        match &self.adding {
+            Some(input) => area.child(
+                pill()
+                    .id("fallback-adding")
+                    .key_context(menu::DIALOG)
+                    .w(ui.px(180.0))
+                    .px(px(10.0))
+                    .bg(field)
                     .border_1()
-                    .border_color(hsla(self.theme.fg(|t| t.agents_text), 0.08))
-                    .bg(swatch),
-            )
+                    .border_color(self.edge(false, true))
+                    .on_action(cx.listener(|this, _: &menu::OpenSelected, window, cx| {
+                        this.finish_adding(true, window, cx)
+                    }))
+                    .on_action(cx.listener(|this, _: &menu::Cancel, window, cx| {
+                        this.finish_adding(false, window, cx)
+                    }))
+                    .on_mouse_down_out(
+                        cx.listener(|this, _, window, cx| this.finish_adding(true, window, cx)),
+                    )
+                    .child(div().flex_1().min_w(px(0.0)).child(input.clone())),
+            ),
+            None => area.child(
+                pill()
+                    .id("fallback-add")
+                    .px(px(10.0))
+                    .border_1()
+                    .border_dashed()
+                    .border_color(self.faint(0.16))
+                    .font_family(ui.family.clone().unwrap_or_else(|| ".SystemUIFont".into()))
+                    .text_size(ui.px(12.0))
+                    .text_color(dim)
+                    .cursor_pointer()
+                    .hover(move |style| style.text_color(text))
+                    .child("+ Add")
+                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                        this.start_adding(window, cx)
+                    })),
+            ),
+        }
     }
 
     /// A font setting: its font in a box that opens the list of installed ones below it.
@@ -1120,19 +1485,15 @@ impl SettingsView {
         let value = self.draft.value(&key);
         let button = div()
             .id(ElementId::Name(format!("{key}-picker").into()))
-            .h(ui.px(28.0))
-            .px(px(10.0))
+            .h(ui.px(32.0))
+            .px(px(12.0))
             .flex()
             .items_center()
-            .gap(px(8.0))
-            .rounded(px(7.0))
+            .gap(px(10.0))
+            .rounded(px(8.0))
+            .bg(self.field_ground())
             .border_1()
-            .border_color(if open {
-                self.fg(|t| t.agents_accent).opacity(0.7)
-            } else {
-                self.rule(0.85)
-            })
-            .bg(hsla(self.theme.bg(|t| t.agents_bg), 1.0))
+            .border_color(self.edge(false, open))
             .cursor_pointer()
             .child(
                 div()
@@ -1143,21 +1504,20 @@ impl SettingsView {
                     .text_ellipsis()
                     // The font shown in itself.
                     .when(!value.is_empty(), |name| name.font_family(value.clone()))
-                    .when(mono, |name| name.text_size(ui.px(12.0)))
+                    .when(mono, |name| name.text_size(ui.px(12.5)))
                     .child(self.font_label(&key)),
             )
-            .child(
-                div()
-                    .text_size(ui.px(11.0))
-                    .text_color(self.fg(|t| t.agents_dimmer))
-                    .child("▾"),
-            )
+            .child(footer_icon::icon(
+                Icon::Down,
+                self.fg(|t| t.agents_dim),
+                ui.scale(12.0) / footer_icon::SIZE,
+            ))
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |this, _, window, cx| this.toggle_picker(&key, mono, window, cx)),
             );
         div()
-            .w(px(220.0))
+            .w(ui.px(220.0))
             .flex_shrink_0()
             .flex()
             .flex_col()
@@ -1256,8 +1616,8 @@ impl SettingsView {
             .p(px(6.0))
             .rounded(px(10.0))
             .border_1()
-            .border_color(self.rule(1.0))
-            .bg(hsla(self.theme.bg(|t| t.agents_bg), 1.0))
+            .border_color(self.faint(0.1))
+            .bg(self.ground())
             .shadow_lg()
             .on_mouse_down_out(cx.listener(|this, _, window, cx| {
                 this.dismissed = this.picker.as_ref().map(|picker| picker.key.clone());
@@ -1280,122 +1640,42 @@ impl SettingsView {
                     .items_center()
                     .gap(px(6.0))
                     .rounded(px(7.0))
-                    .border_1()
-                    .border_color(self.rule(0.85))
-                    .bg(hsla(self.theme.terminal().background, 1.0))
-                    .child(div().text_color(self.fg(|t| t.agents_dim)).child("⌕"))
+                    .bg(self.field_ground())
+                    .child(footer_icon::icon(
+                        Icon::Search,
+                        self.fg(|t| t.agents_dim),
+                        ui.scale(12.0) / footer_icon::SIZE,
+                    ))
                     .child(div().flex_1().min_w(px(0.0)).child(picker.input.clone())),
             )
             .child(list)
     }
 
-    /// One setting in its card: the label on the left with its tags and note, Default on hover,
-    /// the control on the right.
-    fn row(
-        &self,
-        field: &Field,
-        drafted: Option<&Theme>,
-        window: &Window,
-        ui: &UiFont,
-        cx: &mut Context<Self>,
-    ) -> Div {
+    /// One setting on its card: its label on the left, its control on the right.
+    fn row(&self, field: &Field, window: &Window, ui: &UiFont, cx: &mut Context<Self>) -> Div {
         let key = field.key.clone();
-        let group = SharedString::from(format!("row-{key}"));
-        let color = field.kind == Kind::Color;
         let control: AnyElement = match field.kind {
             Kind::MonoFont | Kind::UiFont => self.font_control(field, ui, cx).into_any_element(),
             Kind::Bool => self.switch(&key, ui, cx).into_any_element(),
-            Kind::Pet => self
-                .segments(
-                    &key,
-                    &[("clawd", "Clawd"), ("cat", "Cat"), ("capybara", "Capybara")],
-                    ui,
-                    cx,
-                )
-                .into_any_element(),
-            Kind::Theme => self
-                .segments(&key, &Preset::ALL.map(|p| (p.name(), p.label())), ui, cx)
-                .into_any_element(),
-            Kind::Color => self
-                .color_control(field, drafted, &group, window, ui, cx)
-                .into_any_element(),
-            Kind::Integer | Kind::Number => {
-                self.number_control(&key, window, ui, cx).into_any_element()
-            }
-            Kind::Text => self
-                .field_box(&key, Boxed::Text, window, ui, cx)
-                .into_any_element(),
-            Kind::List => self
-                .field_box(&key, Boxed::List, window, ui, cx)
+            Kind::Pet => self.segments(&key, &PETS, ui, cx).into_any_element(),
+            Kind::Integer | Kind::Number => self.stepper(&key, window, ui, cx).into_any_element(),
+            Kind::List => self.fallbacks(ui, cx).into_any_element(),
+            Kind::Text | Kind::Color | Kind::Theme => self
+                .text_box(&key, ui.px(260.0), ui.px(32.0), 12.5, window, ui, cx)
                 .into_any_element(),
         };
-        let mut title = div()
-            .flex()
-            .items_center()
-            .gap(px(6.0))
-            .min_w(px(0.0))
-            .child(
-                div()
-                    .min_w(px(0.0))
-                    .overflow_hidden()
-                    .whitespace_nowrap()
-                    .text_ellipsis()
-                    .when(color, |label| {
-                        label.font_family(MONO).text_size(ui.px(12.0))
-                    })
-                    .child(row_label(field).to_owned()),
-            );
-        if self.draft.custom(&key) {
-            title = title.child(self.tag("custom", self.fg(|t| t.agents_accent), ui));
-        }
-        if field.restart && self.draft.changed(&key) {
-            title = title.child(self.tag("Restart required", self.fg(|t| t.agents_yellow), ui));
-        }
-        let label = div()
-            .flex_1()
-            .min_w(px(0.0))
-            .flex()
-            .flex_col()
-            .child(title)
-            .children(note(&key).map(|note| {
-                div()
-                    .mt(px(1.0))
-                    .overflow_hidden()
-                    .whitespace_nowrap()
-                    .text_ellipsis()
-                    .text_size(ui.px(11.5))
-                    .text_color(self.fg(|t| t.agents_dimmer))
-                    .child(note)
-            }));
-        let (dim, text) = (self.fg(|t| t.agents_dim), self.fg(|t| t.agents_text));
-        let reset_key = key.clone();
-        let default = div()
-            .id(ElementId::Name(format!("{key}-default").into()))
-            .flex_shrink_0()
-            .px(px(6.0))
-            .py(px(2.0))
-            .rounded(px(5.0))
-            .text_size(ui.px(11.0))
-            .text_color(dim)
-            .cursor_pointer()
-            .invisible()
-            .group_hover(group.clone(), |style| style.visible())
-            .hover(move |style| style.text_color(text))
-            .child("Default")
-            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.reset(&reset_key, cx)));
         // The pet waits while the mascot is off.
         let resting = field.kind == Kind::Pet && self.draft.value("mascot_enabled") != "true";
         div()
-            .group(group)
             .flex()
             .items_center()
-            .gap(px(12.0))
-            .min_h(ui.px(if color { 38.0 } else { 44.0 }))
-            .px(px(16.0))
-            .py(px(6.0))
+            .gap(px(16.0))
+            .min_h(ui.px(50.0))
+            .pl(px(6.0))
+            .pr(px(14.0))
+            .py(px(8.0))
             .when(resting, |row| row.opacity(0.45))
-            .child(label)
-            .child(default)
+            .child(self.label(field, ui, cx))
             .child(control)
     }
 
@@ -1411,52 +1691,103 @@ impl SettingsView {
         for key in keys {
             if let Some(field) = self.draft.fields().iter().find(|f| f.key == *key) {
                 let field = field.clone();
-                rows.push(self.row(&field, None, window, ui, cx));
+                rows.push(self.row(&field, window, ui, cx));
             }
         }
         rows
     }
 
-    /// Rows for `fields` in a card per group, as they are grouped.
+    /// A card per heading of `groups`; the terminal's has the preview on top.
     fn grouped(
         &self,
-        fields: &[Field],
-        drafted: Option<&Theme>,
-        first: bool,
+        groups: &[(&str, &[&str])],
         window: &Window,
         ui: &UiFont,
         cx: &mut Context<Self>,
     ) -> Vec<AnyElement> {
-        let mut groups: Vec<(&str, Vec<Div>)> = Vec::new();
-        for field in fields {
-            let row = self.row(field, drafted, window, ui, cx);
-            match groups.last_mut() {
-                Some((group, rows)) if *group == field.group => rows.push(row),
-                _ => groups.push((field.group, vec![row])),
-            }
-        }
-        self.cards(groups, first, ui)
+        groups
+            .iter()
+            .map(|(heading, keys)| {
+                let rows = self.rows_for(keys, window, ui, cx);
+                let lead = (*heading == "Terminal").then(|| self.preview().into_any_element());
+                self.section(heading, self.card(lead, rows), ui)
+                    .into_any_element()
+            })
+            .collect()
     }
 
-    /// The themes as a list, each by its name and a few of its own colours: its ground with "Aa"
-    /// in its text, then its accent and three of its terminal colours. The drafted one is raised
-    /// and ticked; a click drafts another.
-    fn theme_picker(&self, ui: &UiFont, cx: &mut Context<Self>) -> Div {
+    /// A few lines of a terminal in the drafted font, size, line height and colours; the
+    /// terminal's own sizes, not the interface's.
+    fn preview(&self) -> Div {
+        let defaults = Config::default();
+        let number = |key: &str, default: f32| {
+            self.draft
+                .value(key)
+                .trim()
+                .parse::<f32>()
+                .ok()
+                .filter(|n| n.is_finite() && *n > 0.0)
+                .unwrap_or(default)
+        };
+        let size = number("font_size", defaults.font_size);
+        let height = number("line_height", defaults.line_height);
+        let family = self.draft.value("font");
+        let mut font = gpui::font(if family.trim().is_empty() {
+            defaults.font
+        } else {
+            family
+        });
+        font.weight = FontWeight::NORMAL;
+        let fallbacks = items(&self.draft.value("font_fallbacks"));
+        if !fallbacks.is_empty() {
+            font.fallbacks = Some(gpui::FontFallbacks::from_fonts(fallbacks));
+        }
+        let drafted = self.draft.theme();
+        let terminal = drafted.as_ref().unwrap_or(&self.theme).terminal();
+        let ansi = |index: usize| hsla(terminal.ansi[index], 1.0);
+        let text = hsla(terminal.foreground, 1.0);
+        let span = |words: &'static str, color: Hsla| div().text_color(color).child(words);
+        let line = |spans: [Div; 4]| div().flex().whitespace_nowrap().children(spans);
+        div()
+            .mx(px(12.0))
+            .mt(px(12.0))
+            .mb(px(4.0))
+            .px(px(14.0))
+            .py(px(12.0))
+            .rounded(px(8.0))
+            .overflow_hidden()
+            .bg(hsla(terminal.background, 1.0))
+            .font(font)
+            .text_size(px(size))
+            .line_height(px(size * height))
+            .text_color(text)
+            .child(line([
+                span("paddock", ansi(2)),
+                span(" ~/code ", ansi(8)),
+                span("❯ ", ansi(3)),
+                span("cargo test", text),
+            ]))
+            .child(line([
+                span("test result: ", ansi(8)),
+                span("ok", ansi(2)),
+                span(". 430 passed; ", ansi(8)),
+                span("0 failed", text),
+            ]))
+            .child(line([
+                span("⎇ main", ansi(4)),
+                span("  ✓ ", ansi(2)),
+                span("ready", text),
+                span(" ▏", ansi(5)),
+            ]))
+    }
+
+    /// The themes as small windows, each in its own ground, sidebar, accent and status colours,
+    /// its name below; the drafted one ringed in the accent and ticked. A click drafts another.
+    fn theme_cards(&self, columns: u16, ui: &UiFont, cx: &mut Context<Self>) -> Div {
         let current = self.draft.theme_name();
-        let highlight = hsla(self.theme.bg(|t| t.agent_selected), 1.0);
-        let (text, check) = (self.fg(|t| t.agents_text), self.fg(|t| t.agents_accent));
-        let edge = hsla(self.theme.fg(|t| t.agents_text), 0.1);
-        let ground = hsla(self.theme.bg(|t| t.agents_bg), 1.0)
-            .blend(hsla(self.theme.fg(|t| t.agents_text), 0.025));
-        let mut list = div()
-            .flex()
-            .flex_col()
-            .gap(px(2.0))
-            .p(px(4.0))
-            .rounded(px(10.0))
-            .border_1()
-            .border_color(self.rule(0.55))
-            .bg(ground);
+        let (accent, text) = (self.fg(|t| t.agents_accent), self.fg(|t| t.agents_text));
+        let edge = self.faint(0.12);
+        let mut grid = div().grid().grid_cols(columns).gap(px(12.0));
         for preset in Preset::ALL {
             let value = preset.name();
             let config = Config {
@@ -1467,47 +1798,49 @@ impl SettingsView {
                 continue;
             };
             let on = current == value;
-            let terminal = theme.terminal();
-            let sample = div()
-                .flex_shrink_0()
-                .w(ui.px(44.0))
-                .h(ui.px(26.0))
-                .flex()
-                .items_center()
-                .justify_center()
-                .rounded(px(6.0))
-                .border_1()
-                .border_color(edge)
-                .bg(hsla(terminal.background, 1.0))
-                .text_size(ui.px(12.0))
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(hsla(terminal.foreground, 1.0))
-                .child("Aa");
-            let dot = |color: Hsla| {
+            let color = |pick: Pick| hsla(theme.fg(pick), 1.0);
+            let bar = |width: f32, height: f32, fill: Hsla| {
                 div()
-                    .flex_shrink_0()
-                    .size(ui.px(12.0))
-                    .rounded_full()
-                    .bg(color)
+                    .w(relative(width))
+                    .h(ui.px(height))
+                    .rounded(ui.px(height / 2.0))
+                    .bg(fill)
             };
-            let colors = div()
-                .flex_shrink_0()
+            let dot = |fill: Hsla| div().size(ui.px(8.0)).rounded_full().bg(fill);
+            let window = div()
                 .flex()
-                .items_center()
-                .gap(ui.px(5.0))
-                .child(dot(hsla(theme.fg(|t| t.agents_accent), 1.0)))
-                .children([1, 2, 4].map(|i| dot(hsla(terminal.ansi[i], 1.0))));
-            let row = div()
-                .id(ElementId::Name(format!("theme-{value}").into()))
-                .min_h(ui.px(40.0))
-                .px(px(10.0))
-                .py(px(5.0))
-                .flex()
-                .items_center()
-                .gap(px(12.0))
+                .h(ui.px(70.0))
                 .rounded(px(7.0))
-                .cursor_pointer()
-                .child(sample)
+                .overflow_hidden()
+                .bg(hsla(theme.terminal().background, 1.0))
+                .child(
+                    div()
+                        .w(ui.px(22.0))
+                        .h_full()
+                        .bg(hsla(theme.bg(|t| t.agents_bg), 1.0)),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .p(ui.px(10.0))
+                        .flex()
+                        .flex_col()
+                        .gap(ui.px(5.0))
+                        .child(bar(0.6, 5.0, color(|t| t.agents_accent)))
+                        .child(bar(0.8, 4.0, color(|t| t.agents_rule)))
+                        .child(bar(0.45, 4.0, color(|t| t.agents_rule)))
+                        .child(div().mt(ui.px(4.0)).flex().gap(ui.px(4.0)).children([
+                            dot(color(|t| t.agents_red)),
+                            dot(color(|t| t.agents_green)),
+                            dot(color(|t| t.agents_blue)),
+                        ])),
+                );
+            let name = div()
+                .flex()
+                .items_center()
+                .gap(px(6.0))
+                .px(px(2.0))
+                .text_size(ui.px(13.0))
                 .child(
                     div()
                         .flex_1()
@@ -1517,136 +1850,63 @@ impl SettingsView {
                         .text_ellipsis()
                         .child(preset.label()),
                 )
-                .child(colors)
-                .child(
-                    div()
-                        .w(ui.px(14.0))
-                        .flex_shrink_0()
-                        .text_color(check)
-                        .child(if on { "✓" } else { "" }),
-                )
+                .when(on, |name| {
+                    name.child(footer_icon::icon(
+                        Icon::Check,
+                        accent,
+                        ui.scale(14.0) / footer_icon::SIZE,
+                    ))
+                });
+            let card = div()
+                .id(ElementId::Name(format!("theme-{value}").into()))
+                .min_w(px(0.0))
+                .flex()
+                .flex_col()
+                .gap(px(8.0))
+                .p(px(6.0))
+                .rounded(px(12.0))
+                .bg(self.card_ground())
+                .border_2()
+                .cursor_pointer()
+                .child(window)
+                .child(name)
                 .on_click(
                     cx.listener(move |this, _: &ClickEvent, _, cx| this.set("theme", value, cx)),
                 );
-            list = list.child(if on {
-                row.bg(highlight)
-                    .text_color(text)
-                    .font_weight(FontWeight::SEMIBOLD)
+            grid = grid.child(if on {
+                card.border_color(accent).text_color(text)
             } else {
-                row.text_color(text.opacity(0.8))
-                    .hover(move |style| style.bg(highlight.opacity(0.6)))
+                card.border_color(gpui::transparent_black())
+                    .text_color(text.opacity(0.8))
+                    .hover(move |style| style.border_color(edge))
             });
         }
-        list
+        grid
     }
 
-    fn page_items(&self, window: &Window, ui: &UiFont, cx: &mut Context<Self>) -> Vec<AnyElement> {
-        match self.page {
-            Page::General => {
-                let mut groups = Vec::new();
-                for (heading, keys) in GENERAL {
-                    groups.push((heading, self.rows_for(keys, window, ui, cx)));
-                }
-                self.cards(groups, true, ui)
-            }
-            Page::Colors => {
-                let colors: Vec<Field> = self
-                    .draft
-                    .fields()
-                    .iter()
-                    .filter(|f| f.page == Page::Colors && f.kind != Kind::Theme)
-                    .cloned()
-                    .collect();
-                let drafted = self.draft.theme();
-                let mut items = vec![
-                    self.heading("Theme", true, ui).into_any_element(),
-                    self.theme_picker(ui, cx).into_any_element(),
-                ];
-                items.extend(self.grouped(&colors, drafted.as_ref(), false, window, ui, cx));
-                items
-            }
-            Page::Advanced => {
-                let fields: Vec<Field> = self
-                    .draft
-                    .fields()
-                    .iter()
-                    .filter(|f| f.page == Page::Advanced)
-                    .cloned()
-                    .collect();
-                self.grouped(&fields, None, true, window, ui, cx)
-            }
-            Page::Diagnostics => self.diagnostics_page(ui),
-        }
-    }
-
-    /// The pages, each with its glyph; the one showing raised.
-    fn nav(&self, ui: &UiFont, cx: &mut Context<Self>) -> Div {
-        let highlight = hsla(self.theme.bg(|t| t.agent_selected), 1.0);
-        let text = self.fg(|t| t.agents_text);
-        let mut nav = div()
-            .w(px(184.0))
-            .flex_shrink_0()
-            .flex()
-            .flex_col()
-            .gap(px(2.0))
-            .px(px(10.0))
-            // Room for the traffic lights.
-            .pt(px(crate::windows::title_bar(TITLE_BAR, ui)));
-        for page in Page::ALL {
-            let on = page == self.page;
-            let glyph = match page {
-                Page::General => "◐",
-                Page::Colors => "◑",
-                Page::Advanced => "⋯",
-                Page::Diagnostics => "ⓘ",
-            };
-            let item = div()
-                .id(page.label())
-                .h(ui.px(32.0))
-                .px(px(10.0))
-                .flex()
-                .items_center()
-                .gap(px(10.0))
-                .rounded(px(7.0))
-                .cursor_pointer()
-                .child(
-                    div()
-                        .w(ui.px(16.0))
-                        .flex()
-                        .justify_center()
-                        .text_color(if on {
-                            self.fg(|t| t.agents_accent)
-                        } else {
-                            self.fg(|t| t.agents_dimmer)
-                        })
-                        .child(glyph),
-                )
-                .child(page.label())
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.show_page(page, cx)));
-            nav = nav.child(if on {
-                item.bg(highlight)
-                    .text_color(text)
-                    .font_weight(FontWeight::SEMIBOLD)
-            } else {
-                item.text_color(text.opacity(0.7))
-                    .hover(move |style| style.bg(highlight.opacity(0.6)))
-            });
-        }
-        nav
-    }
-
-    /// The config file's path, what Save last said, and the buttons.
-    fn footer(&self, ui: &UiFont, cx: &mut Context<Self>) -> Div {
-        let mut footer = div()
-            .flex_shrink_0()
-            .h(ui.px(52.0))
+    /// A colour: the dot when set over the theme (but not in the list of those that are), a
+    /// swatch of it as drafted, its name and, when `listed`, its group; Reset when set, and its
+    /// value to type.
+    fn color_row(
+        &self,
+        field: &Field,
+        drafted: Option<&Theme>,
+        listed: bool,
+        window: &Window,
+        ui: &UiFont,
+        cx: &mut Context<Self>,
+    ) -> Div {
+        let key = &field.key;
+        let custom = self.draft.custom(key);
+        let swatch = drafted
+            .and_then(|theme| theme.color(field.color()?))
+            .map(|rgb| hsla(rgb, 1.0))
+            .unwrap_or(gpui::transparent_black());
+        let name = div()
             .flex()
             .items_center()
-            .gap(px(8.0))
-            .pl(px(20.0))
-            .pr(px(16.0))
-            .border_t_1()
-            .border_color(self.rule(0.75))
+            .gap(px(10.0))
+            .min_w(px(0.0))
             .child(
                 div()
                     .min_w(px(0.0))
@@ -1654,78 +1914,482 @@ impl SettingsView {
                     .whitespace_nowrap()
                     .text_ellipsis()
                     .font_family(MONO)
-                    .text_size(ui.px(12.0))
-                    .text_color(self.fg(|t| t.agents_dimmer))
-                    .child(shown_path(&self.path)),
+                    .text_size(ui.px(12.5))
+                    .child(field.label.clone()),
             )
-            .child(div().flex_1())
-            .children(self.message.as_ref().map(|(text, problem)| {
+            .when(listed, |name| {
+                name.child(
+                    div()
+                        .flex_shrink_0()
+                        .text_size(ui.px(11.5))
+                        .text_color(self.fg(|t| t.agents_dimmer))
+                        .child(field.group),
+                )
+            });
+        div()
+            .flex()
+            .items_center()
+            .gap(px(12.0))
+            .min_h(ui.px(46.0))
+            .pl(px(6.0))
+            .pr(px(14.0))
+            .py(px(6.0))
+            .child(self.dot_slot(custom && !listed, ui))
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .size(ui.px(18.0))
+                    .rounded(px(5.0))
+                    .border_1()
+                    .border_color(self.faint(0.12))
+                    .bg(swatch),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_w(px(0.0))
+                    .flex()
+                    .flex_col()
+                    .child(name)
+                    .children(self.draft.problem(key).map(|problem| {
+                        self.under(problem, self.fg(|t| t.agents_red), ui)
+                            .pl(px(0.0))
+                    })),
+            )
+            .when(custom, |row| row.child(self.reset_link(field, ui, cx)))
+            .child(self.text_box(key, ui.px(108.0), ui.px(30.0), 12.0, window, ui, cx))
+    }
+
+    /// Custom colours: those set over the theme, or with Show all every one, by group.
+    fn colors(&self, window: &Window, ui: &UiFont, cx: &mut Context<Self>) -> Div {
+        let fields: Vec<Field> = self
+            .draft
+            .fields()
+            .iter()
+            .filter(|f| f.kind == Kind::Color)
+            .cloned()
+            .collect();
+        let custom: Vec<&Field> = fields
+            .iter()
+            .filter(|f| self.draft.custom(&f.key))
+            .collect();
+        let drafted = self.draft.theme();
+        let accent = self.fg(|t| t.agents_accent);
+        let toggle = if self.all_colors {
+            "Show changed".to_owned()
+        } else {
+            format!("Show all {}", fields.len())
+        };
+        let header = div()
+            .flex()
+            .items_center()
+            .gap(px(10.0))
+            .child(self.heading("Custom colors", ui))
+            .child(
                 div()
                     .min_w(px(0.0))
-                    .mr(px(6.0))
                     .overflow_hidden()
                     .whitespace_nowrap()
                     .text_ellipsis()
                     .text_size(ui.px(12.0))
-                    .text_color(if *problem {
-                        self.fg(|t| t.agents_red)
+                    .text_color(self.fg(|t| t.agents_dim))
+                    .child(if custom.is_empty() {
+                        "On top of the theme".to_owned()
                     } else {
-                        self.fg(|t| t.agents_green)
-                    })
-                    .child(text.clone())
-            }));
-        if self.page == Page::Diagnostics {
-            footer =
-                footer.child(self.button("refresh", "Refresh", ui).on_click(
-                    cx.listener(|this, _: &ClickEvent, _, cx| this.refresh_diagnostics(cx)),
-                ));
-        } else if self.conflict {
-            footer = footer
-                .child(self.button("keep", "Keep my edits", ui).on_click(
-                    cx.listener(|this, _: &ClickEvent, _, cx| this.resolve_conflict(true, cx)),
-                ))
-                .child(self.button("discard", "Discard my edits", ui).on_click(
-                    cx.listener(|this, _: &ClickEvent, _, cx| this.resolve_conflict(false, cx)),
-                ));
-        } else {
-            let revert = if self.draft.edited() {
-                self.button("revert", "Revert", ui)
-                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.revert(cx)))
-            } else {
-                // Nothing to revert: shown, but not clickable.
-                // (GPUI allows one hover style per element, so not `button` with its hover undone.)
-                self.button_shape("revert", "Revert", ui)
-                    .text_color(self.fg(|t| t.agents_dimmer))
-            };
-            let accent = self.fg(|t| t.agents_accent);
-            footer = footer.child(revert).child(
+                        format!("On top of the theme · {} changed", custom.len())
+                    }),
+            )
+            .child(div().flex_1())
+            .child(
                 div()
-                    .id("save")
+                    .id("show-all-colors")
                     .flex_shrink_0()
-                    .h(ui.px(28.0))
-                    .px(px(13.0))
-                    .flex()
-                    .items_center()
-                    .gap(px(8.0))
-                    .rounded(px(7.0))
-                    .bg(accent)
-                    .text_color(hsla(self.theme.bg(|t| t.agents_bg), 1.0))
-                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_size(ui.px(12.5))
+                    .text_color(accent)
                     .cursor_pointer()
-                    .hover(move |style| style.bg(accent.opacity(0.88)))
-                    .child("Save")
-                    .child(
-                        div()
-                            .opacity(0.6)
-                            .font_weight(FontWeight::MEDIUM)
-                            .child("⌘S"),
-                    )
-                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                        this.save(&menu::SaveSettings, window, cx)
+                    .hover(move |style| style.text_color(accent.opacity(0.8)))
+                    .child(toggle)
+                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.all_colors = !this.all_colors;
+                        cx.notify();
                     })),
             );
+        let mut section = div().flex().flex_col().gap(ui.px(8.0)).child(header);
+        if self.all_colors {
+            let mut groups: Vec<(&str, Vec<Div>)> = Vec::new();
+            for field in &fields {
+                let row = self.color_row(field, drafted.as_ref(), false, window, ui, cx);
+                match groups.last_mut() {
+                    Some((group, rows)) if *group == field.group => rows.push(row),
+                    _ => groups.push((field.group, vec![row])),
+                }
+            }
+            for (group, rows) in groups {
+                section = section.child(
+                    div()
+                        .pt(ui.px(6.0))
+                        .flex()
+                        .flex_col()
+                        .gap(ui.px(6.0))
+                        .child(
+                            div()
+                                .pl(px(4.0))
+                                .text_size(ui.px(12.0))
+                                .text_color(self.fg(|t| t.agents_dimmer))
+                                .child(group),
+                        )
+                        .child(self.card(None, rows)),
+                );
+            }
+        } else if custom.is_empty() {
+            section = section.child(
+                div()
+                    .pl(px(4.0))
+                    .text_size(ui.px(12.5))
+                    .text_color(self.fg(|t| t.agents_dimmer))
+                    .child("Every color follows the theme."),
+            );
+        } else {
+            let rows = custom
+                .into_iter()
+                .map(|field| self.color_row(field, drafted.as_ref(), true, window, ui, cx))
+                .collect();
+            section = section.child(self.card(None, rows));
         }
-        footer
+        section
+    }
+
+    fn page_items(
+        &self,
+        width: f32,
+        window: &Window,
+        ui: &UiFont,
+        cx: &mut Context<Self>,
+    ) -> Vec<AnyElement> {
+        match self.page {
+            Page::General => self.grouped(&GENERAL, window, ui, cx),
+            Page::Agents => self.grouped(&AGENTS, window, ui, cx),
+            Page::Appearance => {
+                let columns = columns(width, ui.scale(130.0), 12.0);
+                vec![
+                    self.section("Theme", self.theme_cards(columns, ui, cx), ui)
+                        .into_any_element(),
+                    self.colors(window, ui, cx).into_any_element(),
+                ]
+            }
+            Page::Diagnostics => self.diagnostics_page(width, ui),
+        }
+    }
+
+    /// The pages, each with its icon, the one showing raised; the config file's path at the foot.
+    fn nav(&self, width: Pixels, ui: &UiFont, cx: &mut Context<Self>) -> Div {
+        let (accent, text) = (self.fg(|t| t.agents_accent), self.fg(|t| t.agents_text));
+        let (raised, hover) = (accent.opacity(0.13), self.faint(0.05));
+        let mut nav = div()
+            .w(width)
+            .flex_shrink_0()
+            .flex()
+            .flex_col()
+            .gap(px(2.0))
+            .px(px(12.0))
+            .pb(px(14.0))
+            // Room for the traffic lights.
+            .pt(px(crate::windows::title_bar(TITLE_BAR, ui)));
+        for page in Page::ALL {
+            let on = page == self.page;
+            let icon = match page {
+                Page::General => Icon::Settings,
+                Page::Appearance => Icon::Palette,
+                Page::Agents => Icon::Agent,
+                Page::Diagnostics => Icon::Pulse,
+            };
+            let item = div()
+                .id(page.label())
+                .h(ui.px(34.0))
+                .px(px(10.0))
+                .flex()
+                .items_center()
+                .gap(px(10.0))
+                .rounded(px(8.0))
+                .text_size(ui.px(13.5))
+                .cursor_pointer()
+                .child(footer_icon::icon(
+                    icon,
+                    if on {
+                        accent
+                    } else {
+                        self.fg(|t| t.agents_dimmer)
+                    },
+                    ui.scale(16.0) / footer_icon::SIZE,
+                ))
+                .child(page.label())
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.show_page(page, cx)));
+            nav = nav.child(if on {
+                item.bg(raised).text_color(text)
+            } else {
+                item.text_color(text.opacity(0.7))
+                    .hover(move |style| style.bg(hover))
+            });
+        }
+        let path = shown_path(&self.path);
+        let (folder, file) = path.split_at(path.rfind('/').map_or(0, |at| at + 1));
+        nav.child(div().flex_1()).child(
+            div()
+                .px(px(10.0))
+                .font_family(MONO)
+                .text_size(ui.px(11.0))
+                .text_color(self.fg(|t| t.agents_dimmer))
+                .when(!folder.is_empty(), |path| path.child(folder.to_owned()))
+                .child(file.to_owned()),
+        )
+    }
+
+    /// A quiet button in the bar.
+    fn bar_button(
+        &self,
+        id: &'static str,
+        label: &'static str,
+        ui: &UiFont,
+        cx: &mut Context<Self>,
+        click: fn(&mut Self, &mut Window, &mut Context<Self>),
+    ) -> Stateful<Div> {
+        let hover = self.faint(0.07);
+        div()
+            .id(id)
+            .flex_shrink_0()
+            .h(ui.px(30.0))
+            .px(px(12.0))
+            .flex()
+            .items_center()
+            .rounded_full()
+            .text_color(self.fg(|t| t.agents_branch))
+            .cursor_pointer()
+            .hover(move |style| style.bg(hover))
+            .child(label)
+            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| click(this, window, cx)))
+    }
+
+    /// The bar's accent button: Save ⌘S, or Keep my edits.
+    fn bar_action(
+        &self,
+        id: &'static str,
+        label: &'static str,
+        keys: Option<&'static str>,
+        ui: &UiFont,
+        cx: &mut Context<Self>,
+        click: fn(&mut Self, &mut Window, &mut Context<Self>),
+    ) -> Stateful<Div> {
+        let accent = self.fg(|t| t.agents_accent);
+        div()
+            .id(id)
+            .flex_shrink_0()
+            .h(ui.px(30.0))
+            .px(px(14.0))
+            .flex()
+            .items_center()
+            .gap(px(8.0))
+            .rounded_full()
+            .bg(accent)
+            .text_color(self.ground())
+            .font_weight(FontWeight::SEMIBOLD)
+            .cursor_pointer()
+            .hover(move |style| style.bg(accent.opacity(0.88)))
+            .child(label)
+            .children(keys.map(|keys| {
+                div()
+                    .opacity(0.7)
+                    .font_family(MONO)
+                    .text_size(ui.px(11.0))
+                    .font_weight(FontWeight::MEDIUM)
+                    .child(keys)
+            }))
+            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| click(this, window, cx)))
+    }
+
+    /// The bar at the bottom: the file changed on disk (Keep, Discard); or what Save last said; or
+    /// how many settings differ from the file. Revert and Save while any do.
+    fn save_bar(&self, ui: &UiFont, cx: &mut Context<Self>) -> Option<Stateful<Div>> {
+        let unsaved: Vec<String> = self
+            .draft
+            .unsaved()
+            .into_iter()
+            .map(|field| field.label.clone())
+            .collect();
+        let pill = |id: &'static str| {
+            div()
+                .id(id)
+                .occlude()
+                .min_w(px(0.0))
+                .h(ui.px(46.0))
+                .pl(px(16.0))
+                .pr(px(8.0))
+                .flex()
+                .items_center()
+                .gap(px(12.0))
+                .rounded_full()
+                .bg(self.lifted(0.08))
+                .border_1()
+                .shadow_lg()
+                .whitespace_nowrap()
+                .text_size(ui.px(13.0))
+                .text_color(self.fg(|t| t.agents_branch))
+        };
+        let words = |text: String| {
+            div()
+                .min_w(px(0.0))
+                .overflow_hidden()
+                .text_ellipsis()
+                .child(text)
+        };
+        if self.conflict {
+            let yellow = self.fg(|t| t.agents_yellow);
+            let text = self
+                .message
+                .as_ref()
+                .map(|(text, _)| text.clone())
+                .unwrap_or_default();
+            return Some(
+                pill("conflict")
+                    .border_color(yellow.opacity(0.35))
+                    .child(footer_icon::icon(
+                        Icon::Warning,
+                        yellow,
+                        ui.scale(15.0) / footer_icon::SIZE,
+                    ))
+                    .child(words(text))
+                    .child(
+                        self.bar_button("discard", "Discard my edits", ui, cx, |this, _, cx| {
+                            this.resolve_conflict(false, cx)
+                        }),
+                    )
+                    .child(self.bar_action(
+                        "keep",
+                        "Keep my edits",
+                        None,
+                        ui,
+                        cx,
+                        |this, _, cx| this.resolve_conflict(true, cx),
+                    )),
+            );
+        }
+        let (dot, text, detail, problem) = match &self.message {
+            Some((text, problem)) => (
+                if *problem {
+                    self.fg(|t| t.agents_red)
+                } else {
+                    self.fg(|t| t.agents_green)
+                },
+                text.clone(),
+                None,
+                *problem,
+            ),
+            None if !unsaved.is_empty() => {
+                let (head, names) = unsaved_summary(&unsaved);
+                (self.fg(|t| t.agents_accent), head, Some(names), false)
+            }
+            None => return None,
+        };
+        let mut bar = pill("save-bar")
+            .border_color(self.faint(0.08))
+            .child(div().flex_shrink_0().size(px(7.0)).rounded_full().bg(dot))
+            .child(
+                div()
+                    .flex()
+                    .min_w(px(0.0))
+                    .overflow_hidden()
+                    .gap(px(6.0))
+                    .child(div().flex_shrink_0().child(text))
+                    .children(detail.map(|names| {
+                        words(format!("· {names}")).text_color(self.fg(|t| t.agents_dim))
+                    })),
+            );
+        if !unsaved.is_empty() {
+            bar = bar
+                .child(self.bar_button("revert", "Revert", ui, cx, |this, _, cx| this.revert(cx)))
+                .child(self.bar_action(
+                    "save",
+                    "Save",
+                    Some("⌘S"),
+                    ui,
+                    cx,
+                    |this, window, cx| this.save(&menu::SaveSettings, window, cx),
+                ));
+        } else if problem {
+            let (dim, text) = (self.fg(|t| t.agents_dim), self.fg(|t| t.agents_text));
+            bar = bar.child(
+                div()
+                    .id("dismiss")
+                    .flex_shrink_0()
+                    .size(ui.px(26.0))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded_full()
+                    .cursor_pointer()
+                    .hover(move |style| style.bg(text.opacity(0.07)))
+                    .child(footer_icon::icon(
+                        Icon::Close,
+                        dim,
+                        ui.scale(12.0) / footer_icon::SIZE,
+                    ))
+                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.message = None;
+                        cx.notify();
+                    })),
+            );
+        } else {
+            bar = bar.pr(px(18.0));
+        }
+        Some(bar)
+    }
+
+    /// The page's title, and on Diagnostics when it was checked and Refresh.
+    fn title_row(&self, height: f32, ui: &UiFont, cx: &mut Context<Self>) -> Div {
+        let diagnostics = self.page == Page::Diagnostics;
+        let (dim, hover) = (self.fg(|t| t.agents_dim), self.lifted(0.13));
+        div()
+            .flex_shrink_0()
+            .h(px(height))
+            .flex()
+            .items_center()
+            .gap(px(12.0))
+            .px(px(40.0))
+            .child(
+                div()
+                    .text_size(ui.px(20.0))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child(self.page.label()),
+            )
+            .when(diagnostics, |row| {
+                row.child(div().flex_1())
+                    .children(self.report.as_ref().map(|report| {
+                        div()
+                            .text_size(ui.px(12.0))
+                            .text_color(dim)
+                            .child(format!("Checked at {} · read-only", clock(report.checked)))
+                    }))
+                    .child(
+                        div()
+                            .id("refresh")
+                            .flex_shrink_0()
+                            .size(ui.px(30.0))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .rounded(px(8.0))
+                            .bg(self.field_ground())
+                            .cursor_pointer()
+                            .hover(move |style| style.bg(hover))
+                            .child(footer_icon::icon(
+                                Icon::Reload,
+                                dim,
+                                ui.scale(15.0) / footer_icon::SIZE,
+                            ))
+                            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                this.refresh_diagnostics(cx)
+                            })),
+                    )
+            })
     }
 }
 
@@ -1734,23 +2398,17 @@ impl Render for SettingsView {
         let ui = UiFont::get(cx);
         let bar = crate::windows::title_bar(TITLE_BAR, &ui);
         window.set_traffic_light_position(crate::window::traffic_lights(bar));
-        let items = self.page_items(window, &ui, cx);
+        let nav = ui.px(196.0);
+        // The pages' width inside their margins.
+        let width = f32::from(window.viewport_size().width - nav - px(1.0)) - 80.0;
+        let items = self.page_items(width, window, &ui, cx);
         let content = div()
+            .relative()
             .flex_1()
             .min_w(px(0.0))
             .flex()
             .flex_col()
-            .child(
-                div()
-                    .flex_shrink_0()
-                    .h(px(bar))
-                    .flex()
-                    .items_center()
-                    .px(px(28.0))
-                    .text_size(ui.px(15.0))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .child(self.page.label()),
-            )
+            .child(self.title_row(bar, &ui, cx))
             .child(
                 div()
                     .id("settings-list")
@@ -1759,11 +2417,24 @@ impl Render for SettingsView {
                     .overflow_y_scroll()
                     .flex()
                     .flex_col()
-                    .px(px(28.0))
-                    .pt(px(2.0))
-                    .pb(px(20.0))
+                    .gap(ui.px(22.0))
+                    .px(px(40.0))
+                    .pt(px(10.0))
+                    // Room to scroll the last row above the bar.
+                    .pb(ui.px(90.0))
                     .children(items),
-            );
+            )
+            .children(self.save_bar(&ui, cx).map(|pill| {
+                div()
+                    .absolute()
+                    .left_0()
+                    .right_0()
+                    .bottom(ui.px(18.0))
+                    .px(px(24.0))
+                    .flex()
+                    .justify_center()
+                    .child(pill)
+            }));
 
         ui.apply(div())
             .id("settings")
@@ -1782,30 +2453,13 @@ impl Render for SettingsView {
             )
             .size_full()
             .flex()
-            .flex_col()
-            .bg(hsla(self.theme.bg(|t| t.agents_bg), 1.0))
+            .bg(self.ground())
             .text_size(ui.px(13.0))
             .text_color(self.fg(|t| t.agents_text))
-            .child(
-                div()
-                    .flex_1()
-                    .min_h(px(0.0))
-                    .flex()
-                    .child(self.nav(&ui, cx))
-                    .child(div().w(px(1.0)).h_full().bg(self.rule(0.75)))
-                    .child(content),
-            )
-            .child(self.footer(&ui, cx))
+            .child(self.nav(nav, &ui, cx))
+            .child(div().w(px(1.0)).h_full().bg(self.faint(0.06)))
+            .child(content)
     }
-}
-
-/// How a text field's box is drawn.
-enum Boxed<'a> {
-    Number,
-    Text,
-    List,
-    /// A colour value, its box shown when the row named here is hovered.
-    Color(&'a SharedString),
 }
 
 #[derive(Clone, Copy)]
@@ -1814,4 +2468,58 @@ enum Tone {
     Bad,
     Plain,
     Unknown,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::settings::fields;
+
+    #[test]
+    fn steps_round_and_stop_at_the_least() {
+        assert_eq!(stepped("1.3", "1.3", 1.0, steps("line_height")), "1.4");
+        assert_eq!(stepped("14.5", "14", -1.0, steps("font_size")), "13.5");
+        assert_eq!(stepped("6", "14", -1.0, steps("font_size")), "6");
+        assert_eq!(stepped("wide", "380", 1.0, steps("sidebar_width")), "390");
+        assert_eq!(stepped("1000", "1000", -1.0, steps("refresh_ms")), "750");
+        assert_eq!(stepped("250", "1000", -1.0, steps("refresh_ms")), "250");
+    }
+
+    #[test]
+    fn reset_names_the_default_as_the_page_shows_it() {
+        let field = |key: &str| fields().into_iter().find(|f| f.key == key).unwrap();
+        assert_eq!(reset_label(&field("font_size"), "14"), "Reset to 14");
+        assert_eq!(reset_label(&field("corral"), "corral"), "Reset to corral");
+        assert_eq!(reset_label(&field("ui_font"), ""), "Reset to System");
+        assert_eq!(reset_label(&field("mascot"), "clawd"), "Reset to Clawd");
+        assert_eq!(reset_label(&field("mascot_enabled"), "true"), "Reset to on");
+        assert_eq!(
+            reset_label(&field("font_fallbacks"), "a, b"),
+            "Reset to default"
+        );
+        assert_eq!(reset_label(&field("colors.focus"), "yellow"), "Reset");
+    }
+
+    #[test]
+    fn the_bar_counts_and_names_the_first_few() {
+        let labels = |names: &[&str]| names.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(
+            unsaved_summary(&labels(&["Terminal size"])),
+            ("1 unsaved change".into(), "Terminal size".into())
+        );
+        assert_eq!(
+            unsaved_summary(&labels(&["Theme", "focus", "claude", "codex", "pi"])),
+            (
+                "5 unsaved changes".into(),
+                "Theme, focus, claude and 2 more".into()
+            )
+        );
+    }
+
+    #[test]
+    fn four_theme_cards_a_row_when_they_fit() {
+        assert_eq!(columns(670.0, 130.0, 12.0), 4);
+        assert_eq!(columns(420.0, 130.0, 12.0), 3);
+        assert_eq!(columns(100.0, 130.0, 12.0), 1);
+    }
 }
