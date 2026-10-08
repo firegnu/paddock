@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>New agent — compact window</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#cfc27a}a:hover{color:#e2d690}
+button{font:inherit;color:inherit;cursor:pointer}
+textarea::placeholder{color:#7d7766}
+</style>
+</helmet>
+<div style="width: 1280px; height: 800px; position: relative; overflow: hidden; background: #2b3036; font-family: -apple-system, 'SF Pro Text', 'Helvetica Neue', sans-serif; color: #ece6d6">
+
+  <!-- the main window, its own window on the desktop -->
+  <div style="position: absolute; top: 60px; left: 60px; width: 900px; height: 640px; border-radius: 12px; background: #171612; box-shadow: 0 20px 60px rgba(0,0,0,0.45); overflow: hidden; display: flex; flex-direction: column">
+    <div style="height: 38px; display: flex; align-items: center; gap: 8px; padding: 0 14px; background: #1b1a16">
+      <span style="width: 12px; height: 12px; border-radius: 6px; background: #ff5f57"></span>
+      <span style="width: 12px; height: 12px; border-radius: 6px; background: #febc2e"></span>
+      <span style="width: 12px; height: 12px; border-radius: 6px; background: #28c840"></span>
+    </div>
+    <div style="flex: 1; display: flex">
+      <div style="width: 240px; background: #1c1b17; padding: 14px 12px; display: flex; flex-direction: column; gap: 8px">
+        <div style="height: 54px; border-radius: 10px; background: #26241f"></div>
+        <div style="height: 54px; border-radius: 10px; background: #211f1b"></div>
+      </div>
+      <div style="flex: 1; padding: 18px 22px; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12.5px; line-height: 1.7; color: #8f8978">
+        <div>❯ cargo test --all-targets</div>
+        <div>test result: ok. 428 passed; 0 failed</div>
+        <div>❯</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- New Agent: its own window, no title bar, as tall as what it holds -->
+  <div style="position: absolute; top: 200px; left: 470px; width: 700px; border-radius: 14px; background: #23211c; border: 1px solid rgba(255,255,255,0.09); box-shadow: 0 30px 80px rgba(0,0,0,0.55); display: flex; flex-direction: column">
+
+    <div style="display: flex; align-items: center; gap: 4px; padding: 12px 14px 0 16px">
+      <span style="width: 12px; height: 12px; border-radius: 6px; background: #ff5f57"></span>
+      <span style="margin-left: 8px; width: 12px; height: 12px; border-radius: 6px; background: #4a463d"></span>
+      <span style="margin-left: 8px; margin-right: 14px; width: 12px; height: 12px; border-radius: 6px; background: #4a463d"></span>
+      <button style="display: flex; align-items: center; gap: 7px; height: 30px; padding: 0 12px; border: 0; border-radius: 15px; background: transparent; font-size: 13px; color: #b3ac98">
+        <span style="width: 15px; height: 15px; border-radius: 4px; background: #d97757; display: inline-flex; align-items: center; justify-content: center"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.8" stroke-linecap="round"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4"></path></svg></span>
+        Controller
+      </button>
+      <button style="display: flex; align-items: center; gap: 7px; height: 30px; padding: 0 12px; border: 0; border-radius: 15px; background: rgba(207,194,122,0.14); font-size: 13px; color: #e4d98f">
+        <span style="width: 15px; height: 15px; border-radius: 4px; background: #d97757; display: inline-flex; align-items: center; justify-content: center"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.8" stroke-linecap="round"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4"></path></svg></span>
+        Developer
+      </button>
+      <button style="display: flex; align-items: center; gap: 7px; height: 30px; padding: 0 12px; border: 0; border-radius: 15px; background: transparent; font-size: 13px; color: #b3ac98">
+        <span style="width: 15px; height: 15px; border-radius: 4px; background: #efefec; display: inline-flex; align-items: center; justify-content: center"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#1a1a1a" stroke-width="2.4" stroke-linejoin="round"><path d="M12 3.5l7.5 4.25v8.5L12 20.5l-7.5-4.25v-8.5z"></path></svg></span>
+        Codex builder
+      </button>
+      <button aria-label="More presets" style="height: 30px; padding: 0 9px; border: 0; border-radius: 15px; background: transparent; color: #7d7766; font-size: 13px">+1</button>
+      <button style="margin-left: auto; display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 8px; border: 0; border-radius: 8px; background: transparent; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; color: #8a8473">
+        <span>paddock/<span style="color: #d9d2c0">claude-1</span></span>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16z"></path></svg>
+      </button>
+    </div>
+
+    <label for="task-b" style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Task</label>
+    <textarea id="task-b" placeholder="What should it work on?" style="margin: 6px 0 0 0; height: 140px; resize: none; border: 0; outline: none; background: transparent; padding: 14px 26px; font: inherit; font-size: 17px; line-height: 1.5; color: #ece6d6"></textarea>
+
+    <div style="display: flex; align-items: center; gap: 6px; padding: 10px 12px 12px 18px; border-top: 1px solid rgba(255,255,255,0.05)">
+      <button style="display: flex; align-items: center; gap: 7px; height: 32px; padding: 0 11px; border: 1px solid rgba(255,255,255,0.08); border-radius: 16px; background: #2a2823; font-size: 13px; color: #d9d2c0">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9a937f" stroke-width="1.8" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path></svg>
+        paddock
+      </button>
+      <button style="display: flex; align-items: center; gap: 7px; height: 32px; padding: 0 10px 0 9px; border: 1px solid rgba(255,255,255,0.08); border-radius: 16px; background: #2a2823; font-size: 13px; color: #d9d2c0">
+        <span style="width: 16px; height: 16px; border-radius: 4px; background: #d97757; display: inline-flex; align-items: center; justify-content: center"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.8" stroke-linecap="round"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4"></path></svg></span>
+        <span>opus[1m]</span><span style="color: #6f6a5c">·</span><span>high</span>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#8a8473" stroke-width="2" stroke-linecap="round"><path d="M6 9l6 6 6-6"></path></svg>
+      </button>
+      <button style="display: flex; align-items: center; gap: 7px; height: 32px; padding: 0 11px; border: 1px solid rgba(255,255,255,0.08); border-radius: 16px; background: #2a2823; font-size: 13px; color: #d9d2c0">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9a937f" stroke-width="1.8"><rect x="3" y="5" width="18" height="14" rx="2"></rect><path d="M13 5v14"></path></svg>
+        Split right
+      </button>
+      <button aria-label="Show command" style="margin-left: auto; width: 34px; height: 34px; border: 0; border-radius: 17px; background: transparent; color: #8a8473; display: inline-flex; align-items: center; justify-content: center">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 7l-5 5 5 5M16 7l5 5-5 5"></path></svg>
+      </button>
+      <button style="display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 14px; border: 0; border-radius: 17px; background: {{accent}}; color: #1d1b14; font-size: 13px; font-weight: 600">
+        Start
+        <span style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11.5px; font-weight: 500; opacity: 0.7">⌘↩</span>
+      </button>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#cfc27a","options":["#cfc27a","#d97757","#8fb4d9","#b8a6e0"]},"$preview":{"width":1280,"height":800}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { accent: this.props.accent ?? '#cfc27a' };
+  }
+}
+</script>
+</body>
+</html>
