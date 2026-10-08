@@ -3,13 +3,19 @@
 ## 现在在哪（2026-10-08 晚）
 
 - main 和 `origin/main`（`github.com/firegnu/paddock`，public）同步，工作区干净。没有进行中的活，没有开着的 worktree，本地只有 main 一个分支；ranch 也一样（main 同步、无 worktree）。corral 里是 `paddock/main`（本主控）和用户自己的 `global-mesh/main`；P5-43 的 `paddock/dev-newagent-1` 已关。
-- 438 项测试通过，clippy、`cargo fmt --check` 干净。`~/Applications/paddock.app` 是合并 P5-46 之后的版本（10-08 19:22 装，含 P5-35～P5-46、paddock ctl；用户已重启），已用本机 Apple Development 证书签名。
+- 448 项测试通过，clippy、`cargo fmt --check` 干净。`~/Applications/paddock.app` 是合并 P5-47 之后的版本（10-08 20:25 装，含 P5-35～P5-47、paddock ctl；用户还没重启），已用本机 Apple Development 证书签名。
 - **paddock ctl 已部署**（用户 10-07 夜在终端里跑完，主控核对过）：`~/.local/bin/paddock` 链到 app 里的程序；`paddock install-skills` 已装 `~/.claude/skills/paddock`、`~/.agents/skills/paddock`（带归属标记，与仓库源文件一致）；旧的 `~/.claude/skills/saddle` 已删。`paddock ctl instances` 找得到正在跑的窗口，`inspect` 认出 `paddock/main` 是 pane 1。重新打包安装后链接不用重建；技能正文改了要重跑 `paddock install-skills`。已开着的 agent 要重开才看到新技能。
 - 全局 `~/.local/bin/corral`、`~/.local/bin/ranch` 已是 ranch `d55defb`（10-08 R2：技能里派活和临时委派的 agent 带 `CAIRN_DISABLE=1`；程序行为与 `5c5540c` 相同，支持 pause／resume）。
 - **cairn 已全局装上（只 claude）**：`~/.claude/settings.json` 里 4 个 cairn hook 和一条放行 `cairn save` 的规则（改前备份 `~/.claude/settings.json.bak-20261008T082855…`），只有 owlet 启用（`adopt`）；其他仓库里 hook 查到没启用就直接退出。卸掉：`cairn uninstall --agent claude`。
 - 重新打包安装：在 `app/` 下 `cargo build --release`，再 `cargo run --release --example bundle -- --install`（编译目录见 AGENTS.md，主仓库用 `.target/main`）。打包默认自动选本机 Apple Development 身份，可用 `PADDOCK_SIGN_IDENTITY` 指定；退回 ad-hoc 时会提示授权会失效。
-- 已合并：第一至第三阶段、迁移 M0–M3（corral、dispatch 在 `../ranch`；遥测、Drover、插件系统已砍）、P4-1～P4-3、P5-1～P5-46（P5-13 做了 13a 外壳、13b／13c Changes；P5-19 磨砂；P5-23r、P5-13r、P5-29r、P5-29r2 是调研；P5-28 做了 28a～28d；P5-29 做了 29a～29f；P5-33 做了 33、33b；P5-34 做了 34、34b；P5-36 做了 36a～36c；P5-39 做了 39a～39d）。每件的范围、完成记录、主控审查在 `docs/任务/`。
+- 已合并：第一至第三阶段、迁移 M0–M3（corral、dispatch 在 `../ranch`；遥测、Drover、插件系统已砍）、P4-1～P4-3、P5-1～P5-47（P5-13 做了 13a 外壳、13b／13c Changes；P5-19 磨砂；P5-23r、P5-13r、P5-29r、P5-29r2 是调研；P5-28 做了 28a～28d；P5-29 做了 29a～29f；P5-33 做了 33、33b；P5-34 做了 34、34b；P5-36 做了 36a～36c；P5-39 做了 39a～39d）。每件的范围、完成记录、主控审查在 `docs/任务/`。
 - 上下文：`AGENTS.md`（规矩，含「开发方式」里的**看板约定**）、`docs/DESIGN.md`（已定决定，§13 是界面改版的全部决定和用户原话）、`docs/背景与决策记录.md`、`docs/设计稿/`、`docs/调研/`。更早的会话（10-06 晚到 10-07：Browser P5-28、Kanban P5-29、P5-21～P5-41b 等）的细节都在各自的任务文件里。
+
+## 10-08 晚：P5-47 agent 停掉后窗格自动关闭；P5-48 在做
+
+- 用户：停掉 agent 后右边留空白加红字，体验不好；“其实我就是不想右边出现空白+红字”。P5-47：agent 一停（任何方式），显示它的窗格都自动关，标签空了一起关；关到一个窗格不剩时开 shell；启动恢复时不在的 agent 不恢复；左下角提示 “<名字> ended”；读名单失败时不关、暂停的不关。派 `paddock/dev-panes-1`，审查通过（448 项测试），合并时 DESIGN 末尾和 P5-48 条目冲突、两条都留；20:25 重新打包安装。**待用户**：重启后试真实 agent 停掉。
+- P5-48（标签栏胶囊，按主控建议 A 为主加等你提醒；合并左下角按钮图标左对齐）：样稿 `docs/设计稿/P5-48-标签栏胶囊/`，等 P5-47 合并后（两件都改 `window.rs`）派 `paddock/dev-tabs-1`，在做。
+- 顺带答用户：暂停是 SIGSTOP 完全冻结，不会被 ban（服务端看来和合盖、断网一样）；Claude Code 的 caffeinate 冻住后不让空闲自动睡，用户的用法是暂停后合盖，不受影响，不用查。
 
 ## 10-08 晚：P5-46 About 图标
 
