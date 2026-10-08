@@ -446,7 +446,7 @@ impl ActivityView {
         }
     }
 
-    /// The header: `ACTIVITY`, then the commits and weeks shown, or why there are none.
+    /// The header: `Activity`, then the commits and weeks shown, or why there are none.
     /// `total` is the count shown now, counting up as the cells pop in, and the whole count.
     fn head(
         &self,
@@ -480,7 +480,7 @@ impl ActivityView {
             .child(summary.text_size(ui.px(SUM_SIZE)).whitespace_nowrap())
     }
 
-    /// Folded: one line, `ACTIVITY · 29 today · 12-day streak`, and the last seven days' cells when
+    /// Folded: one line, `Activity · 29 today · 12-day streak`, and the last seven days' cells when
     /// there is room.
     fn folded_line(&self, ui: &UiFont, cx: &mut Context<Self>) -> Stateful<Div> {
         let c = self.colors;
@@ -897,7 +897,7 @@ pub fn sweeps(active: bool, still: bool) -> bool {
     active && !still
 }
 
-/// The clickable header row both shapes start with: `ACTIVITY`, brighter under the mouse.
+/// The clickable header row both shapes start with: `Activity`, brighter under the mouse.
 fn header(ui: &UiFont, c: Colors) -> Stateful<Div> {
     div()
         .id("activity-head")
@@ -912,7 +912,7 @@ fn header(ui: &UiFont, c: Colors) -> Stateful<Div> {
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(c.dimmer)
                 .group_hover("activity-head", |s| s.text_color(c.dim))
-                .child("ACTIVITY"),
+                .child("Activity"),
         )
 }
 

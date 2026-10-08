@@ -2097,12 +2097,7 @@ impl SettingsView {
             .pt(px(crate::windows::title_bar(TITLE_BAR, ui)));
         for page in Page::ALL {
             let on = page == self.page;
-            let icon = match page {
-                Page::General => Icon::Settings,
-                Page::Appearance => Icon::Palette,
-                Page::Agents => Icon::Agent,
-                Page::Diagnostics => Icon::Pulse,
-            };
+            let icon = page.icon();
             let item = div()
                 .id(page.label())
                 .h(ui.px(34.0))

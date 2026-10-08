@@ -1400,7 +1400,7 @@ impl NewAgentView {
                     .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.browse(cx)))
                     .into_any_element(),
                 );
-                (Some("PROJECT"), rows)
+                (Some("Project"), rows)
             }
             Menu::Agent => (None, self.picker_rows(ui, cx)),
             Menu::Place => {
@@ -1447,7 +1447,7 @@ impl NewAgentView {
                         .child(self.directions(split, ui, cx))
                         .into_any_element(),
                 );
-                (Some("OPEN IN"), rows)
+                (Some("Open in"), rows)
             }
             Menu::Presets => {
                 let lit = self.form.lit(&self.presets).map(|lit| lit.index);
@@ -1506,7 +1506,7 @@ impl NewAgentView {
                         .into_any_element()
                     })
                     .collect();
-                (Some("PRESETS"), rows)
+                (Some("Presets"), rows)
             }
         };
         let panel = popover::panel(&self.theme, ui)
@@ -1639,7 +1639,7 @@ impl NewAgentView {
             .pb(ui.px(14.0))
             .border_t_1()
             .border_color(popover::edge_rule(&self.theme))
-            .child(heading("COMMAND"))
+            .child(heading("Command"))
             .child(
                 div()
                     .px(ui.px(9.0))
@@ -1659,7 +1659,7 @@ impl NewAgentView {
                     .line_height(relative(1.45))
                     .child(self.command.clone()),
             )
-            .child(heading("WILL RUN").mt(ui.px(10.0)))
+            .child(heading("Will run").mt(ui.px(10.0)))
             .child(
                 div()
                     .font_family(self.mono.clone())

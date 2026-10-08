@@ -71,14 +71,17 @@ pub enum Target {
 }
 
 /// What a row shows before its title.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub enum Lead {
-    /// A status dot in this colour; a working agent's breathes.
+    /// A status dot in this colour; a working agent's breathes. With an agent's `kind`, the
+    /// dot sits on the corner of the kind's icon.
     Dot {
         color: Pick,
         breathing: bool,
+        kind: Option<String>,
     },
-    Settings,
+    /// A Settings page, by its own icon.
+    Settings(Page),
     Command,
     /// Nothing: a line of terminal text.
     Nothing,
@@ -98,7 +101,7 @@ pub struct Row {
 
 #[derive(Clone, Debug)]
 pub struct Group {
-    /// In capitals, as shown.
+    /// As shown: a word with its first letter in capitals, or a pane's name as it is.
     pub label: String,
     /// Faint after the label: a count, or a hint.
     pub note: String,
@@ -131,6 +134,7 @@ pub fn agents(agents: &[Agent], now: f64, home: Option<&str>) -> Vec<Row> {
                 lead: Lead::Dot {
                     color: look.color,
                     breathing: look.breathing,
+                    kind: agent.kind.clone(),
                 },
                 title: agent.name.clone(),
                 detail,
@@ -154,7 +158,7 @@ pub fn settings() -> Vec<Row> {
             };
             Row {
                 target: Target::Settings(page),
-                lead: Lead::Settings,
+                lead: Lead::Settings(page),
                 title: page.label().to_owned(),
                 detail: format!("Settings · {holds}"),
                 keys: Vec::new(),
@@ -279,17 +283,17 @@ pub fn everything(
         (filter(commands, needle), "")
     };
     groups([
-        ("AGENTS", agents.len().to_string(), agents),
-        ("TABS", String::new(), filter(tabs, needle)),
-        ("SETTINGS", String::new(), filter(settings, needle)),
-        ("COMMANDS", hint.to_owned(), commands),
+        ("Agents", agents.len().to_string(), agents),
+        ("Tabs", String::new(), filter(tabs, needle)),
+        ("Settings", String::new(), filter(settings, needle)),
+        ("Commands", hint.to_owned(), commands),
     ])
 }
 
 /// After `>`: the commands with every word of `needle`.
 pub fn only_commands(commands: &[Row], needle: &str) -> Vec<Group> {
     let commands = filter(commands, needle);
-    groups([("COMMANDS", commands.len().to_string(), commands)])
+    groups([("Commands", commands.len().to_string(), commands)])
 }
 
 /// A pane's matches under its name, saying how many; `20+` when it has more than it lists.
@@ -301,7 +305,7 @@ pub fn pane(name: &str, rows: Vec<Row>, more: bool) -> Option<Group> {
         (count, false) => format!("{count} matches"),
     };
     Some(Group {
-        label: name.to_uppercase(),
+        label: name.to_owned(),
         note,
         rows,
     })
@@ -420,7 +424,7 @@ mod tests {
             0.0,
             None,
         );
-        let find = |needle| titles(&everything(&agents, &[], &[], &[], needle), "AGENTS");
+        let find = |needle| titles(&everything(&agents, &[], &[], &[], needle), "Agents");
         assert_eq!(find("SHOP"), ["web/main"]);
         assert_eq!(find(mode(" api ").1), ["api/main", "api/review"]);
         assert_eq!(find("review"), ["api/review"]);
@@ -434,7 +438,7 @@ mod tests {
         );
         assert!(matches!(agents[0].lead, Lead::Dot { .. }));
         let groups = everything(&agents, &[], &[], &[], "");
-        assert_eq!(groups[0].label, "AGENTS");
+        assert_eq!(groups[0].label, "Agents");
         assert_eq!(groups[0].note, "3");
     }
 
@@ -458,6 +462,7 @@ mod tests {
     fn agents_say_their_status_and_short_directory() {
         let mut working = agent("paddock/main", "/Users/me/code/paddock");
         working.state = Some("working".into());
+        working.kind = Some("codex".into());
         let mut gone = agent("ranch/test", "");
         gone.state = Some("exited".into());
         let rows = agents(&[working, gone], 0.0, Some("/Users/me"));
@@ -467,9 +472,11 @@ mod tests {
             rows[0].lead,
             Lead::Dot {
                 breathing: true,
+                kind: Some(ref kind),
                 ..
-            }
+            } if kind == "codex"
         ));
+        assert!(matches!(rows[1].lead, Lead::Dot { kind: None, .. }));
         assert_eq!(rows[1].detail, "Exited");
         assert!(matches!(
             rows[1].lead,
@@ -487,34 +494,38 @@ mod tests {
         let settings = settings();
         let commands = commands(&menu::commands());
         let found = everything(&agents, &tabs, &settings, &commands, "colors");
-        assert_eq!(labels(&found), ["AGENTS", "TABS", "SETTINGS"]);
-        assert_eq!(titles(&found, "SETTINGS"), ["Appearance"]);
+        assert_eq!(labels(&found), ["Agents", "Tabs", "Settings"]);
+        assert_eq!(titles(&found, "Settings"), ["Appearance"]);
         assert_eq!(found[2].rows[0].target, Target::Settings(Page::Appearance));
         assert_eq!(found[2].rows[0].detail, "Settings · theme and colors");
+        assert!(matches!(
+            found[2].rows[0].lead,
+            Lead::Settings(Page::Appearance)
+        ));
         // Settings pages match on what they hold, and all of them on "settings".
         assert_eq!(
-            titles(&everything(&[], &[], &settings, &[], "font"), "SETTINGS"),
+            titles(&everything(&[], &[], &settings, &[], "font"), "Settings"),
             ["General"]
         );
         assert_eq!(
-            titles(&everything(&[], &[], &settings, &[], "refresh"), "SETTINGS"),
+            titles(&everything(&[], &[], &settings, &[], "refresh"), "Settings"),
             ["Agents"]
         );
         let all = everything(&[], &[], &settings, &commands, "settings");
-        assert_eq!(titles(&all, "SETTINGS").len(), 4);
-        assert_eq!(titles(&all, "COMMANDS"), ["Settings…"]);
+        assert_eq!(titles(&all, "Settings").len(), 4);
+        assert_eq!(titles(&all, "Commands"), ["Settings…"]);
         // Nothing typed: everything, but only a few common commands, saying how to see all.
         let start = everything(&agents, &tabs, &settings, &commands, "");
-        assert_eq!(labels(&start), ["AGENTS", "TABS", "SETTINGS", "COMMANDS"]);
+        assert_eq!(labels(&start), ["Agents", "Tabs", "Settings", "Commands"]);
         assert_eq!(
-            titles(&start, "COMMANDS"),
+            titles(&start, "Commands"),
             ["New Agent…", "New Tab…", "New Shell"]
         );
         assert_eq!(start[3].note, "type > for all");
         assert_eq!(start[1].note, "");
         // Typed: every command that matches, without the hint.
         let split = everything(&agents, &tabs, &settings, &commands, "split");
-        assert_eq!(labels(&split), ["COMMANDS"]);
+        assert_eq!(labels(&split), ["Commands"]);
         assert_eq!(split[0].rows.len(), 4);
         assert_eq!(split[0].note, "");
     }
@@ -523,11 +534,11 @@ mod tests {
     fn commands_mode_lists_every_command_with_its_keys() {
         let commands = commands(&menu::commands());
         let all = only_commands(&commands, "");
-        assert_eq!(labels(&all), ["COMMANDS"]);
+        assert_eq!(labels(&all), ["Commands"]);
         assert_eq!(all[0].rows.len(), menu::commands().len());
         assert_eq!(all[0].note, all[0].rows.len().to_string());
         let zoom = only_commands(&commands, "zoom pane");
-        assert_eq!(titles(&zoom, "COMMANDS"), ["Zoom Pane"]);
+        assert_eq!(titles(&zoom, "Commands"), ["Zoom Pane"]);
         assert_eq!(zoom[0].rows[0].keys, ["⌘", "⇧", "↵"]);
         assert_eq!(zoom[0].rows[0].target, Target::Command("paddock::ZoomPane"));
         assert!(matches!(zoom[0].rows[0].lead, Lead::Command));
@@ -577,7 +588,7 @@ mod tests {
     #[test]
     fn panes_say_how_many_matches_they_list() {
         let one = pane("zsh · paddock", rows(&["a"]), false).unwrap();
-        assert_eq!(one.label, "ZSH · PADDOCK");
+        assert_eq!(one.label, "zsh · paddock");
         assert_eq!(one.note, "1 match");
         assert_eq!(
             pane("x", rows(&["a", "b"]), false).unwrap().note,

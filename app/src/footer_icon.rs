@@ -42,7 +42,7 @@ pub enum Icon {
     Bell,
     /// A magnifier: the title bar's Search and the command palette's field.
     Search,
-    /// Two sliders: a Settings page in the command palette.
+    /// Two sliders: Settings' General page, in its sidebar and the command palette.
     Settings,
     /// A chevron: a command in the command palette.
     Command,

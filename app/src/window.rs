@@ -39,11 +39,11 @@ use crate::{
     windows,
 };
 use gpui::{
-    AnyElement, AnyView, Bounds, BoxShadow, ClickEvent, Context, Div, DragMoveEvent, Entity,
-    ExternalPaths, FocusHandle, Focusable, Font, FontWeight, HighlightStyle, Hsla, MouseButton,
-    MouseDownEvent, MouseMoveEvent, Pixels, Point, PromptLevel, Render, ScrollHandle, SharedString,
-    Size, Stateful, StyleRefinement, StyledText, Task, TextRun, Window, WindowBackgroundAppearance,
-    canvas, div, point, prelude::*, px, relative, size,
+    Animation, AnimationExt, AnyElement, AnyView, Bounds, BoxShadow, ClickEvent, Context, Div,
+    DragMoveEvent, Entity, ExternalPaths, FocusHandle, Focusable, Font, FontWeight, HighlightStyle,
+    Hsla, MouseButton, MouseDownEvent, MouseMoveEvent, Pixels, Point, PromptLevel, Render,
+    ScrollHandle, SharedString, Size, Stateful, StyleRefinement, StyledText, Task, TextRun, Window,
+    WindowBackgroundAppearance, canvas, div, ease_in_out, point, prelude::*, px, relative, size,
 };
 use objc2::{MainThreadMarker, rc::Retained};
 use objc2_app_kit::{NSView, NSWindow};
@@ -398,10 +398,10 @@ fn split_from(ask: SplitAsk, hanging: Option<SplitFrom>, header: bool) -> SplitF
 /// The split panel's heading over what to open, for the side chosen.
 fn open_where(direction: Direction) -> &'static str {
     match direction {
-        Direction::Left => "OPEN ON THE LEFT",
-        Direction::Right => "OPEN ON THE RIGHT",
-        Direction::Up => "OPEN ABOVE",
-        Direction::Down => "OPEN BELOW",
+        Direction::Left => "Open on the left",
+        Direction::Right => "Open on the right",
+        Direction::Up => "Open above",
+        Direction::Down => "Open below",
     }
 }
 
@@ -442,6 +442,10 @@ const PANE_HEADER_END: f32 = 6.0;
 /// The kind icon in a tab or a pane's header, and the status dot on its corner.
 const BADGE_ICON: f32 = 13.0;
 const BADGE_DOT: f32 = 6.0;
+/// What a command palette row's hover brightens: this name on each row.
+const PALETTE_ROW: &str = "palette-row";
+/// What an Attention row's hover brightens: this name on each row.
+const ATTENTION_ROW: &str = "attention-row";
 /// The title bar's `+` and split icon; the search field's width, and the room between it and the
 /// split icon, besides the bar's own gap.
 const BAR_BUTTON: f32 = 28.0;
@@ -2312,12 +2316,7 @@ impl PaddockWindow {
             Shown::Agent(name) => agents
                 .iter()
                 .find(|a| &a.name == name)
-                .and_then(|a| a.kind.as_deref())
-                .and_then(|kind| Some((kind_icon::of(kind)?, card::brand(kind).color)))
-                .map(|(icon, color)| {
-                    icon.render(ui.px(BADGE_ICON), self.fg(color).opacity(0.85))
-                        .into_any_element()
-                }),
+                .and_then(|a| self.kind_icon(a.kind.as_deref()?, ui)),
             Shown::Shell => Some(
                 footer_icon::icon(
                     Icon::NewShell,
@@ -2328,14 +2327,46 @@ impl PaddockWindow {
             ),
             Shown::Empty => None,
         };
-        let Some(icon) = icon else {
-            return div()
-                .flex_shrink_0()
-                .size(ui.px(7.0))
-                .rounded_full()
-                .bg(dot)
-                .into_any_element();
-        };
+        match icon {
+            Some(icon) => self.dotted(icon, (dot, false), ground, hovered, ui),
+            None => plain_dot(dot, ui),
+        }
+    }
+
+    /// An agent's mark in a list's row: the icon of its `kind` with the status dot on the corner,
+    /// as [`Self::badge`] draws it; the dot alone for an agent of no known kind.
+    fn agent_mark(
+        &self,
+        kind: Option<&str>,
+        dot: Hsla,
+        ground: Hsla,
+        hovered: Option<(SharedString, Hsla)>,
+        ui: &UiFont,
+    ) -> AnyElement {
+        match kind.and_then(|kind| self.kind_icon(kind, ui)) {
+            Some(icon) => self.dotted(icon, (dot, false), ground, hovered, ui),
+            None => plain_dot(dot, ui),
+        }
+    }
+
+    /// The icon of an agent's `kind`, a badge's size: a silhouette in the kind's colour, an
+    /// original in its own; `None` for a kind without one.
+    fn kind_icon(&self, kind: &str, ui: &UiFont) -> Option<AnyElement> {
+        let icon = kind_icon::of(kind)?;
+        let color = self.fg(card::brand(kind).color).opacity(0.85);
+        Some(icon.render(ui.px(BADGE_ICON), color))
+    }
+
+    /// `icon` with the status dot `(colour, breathing)` on its lower right corner, ringed in
+    /// `ground` (`hovered` while the group is hovered) to stand off the icon.
+    fn dotted(
+        &self,
+        icon: AnyElement,
+        (dot, breathing): (Hsla, bool),
+        ground: Hsla,
+        hovered: Option<(SharedString, Hsla)>,
+        ui: &UiFont,
+    ) -> AnyElement {
         let ring = 2.0;
         let mark = div()
             .absolute()
@@ -2349,6 +2380,32 @@ impl PaddockWindow {
         let mark = match hovered {
             Some((group, color)) => mark.group_hover(group, move |style| style.border_color(color)),
             None => mark,
+        };
+        let mark = if breathing {
+            let reach = ui.scale(3.0);
+            mark.with_animation(
+                "breath",
+                Animation::new(Duration::from_millis(1600))
+                    .repeat_synced()
+                    .with_max_fps(30.0),
+                move |mark, delta| {
+                    let out = ease_in_out(if delta < 0.5 {
+                        delta * 2.0
+                    } else {
+                        (1.0 - delta) * 2.0
+                    });
+                    mark.shadow(vec![BoxShadow {
+                        color: dot.opacity(0.55 * (1.0 - out)),
+                        offset: point(px(0.0), px(0.0)),
+                        blur_radius: px(0.0),
+                        spread_radius: px(reach * out),
+                        inset: false,
+                    }])
+                },
+            )
+            .into_any_element()
+        } else {
+            mark.into_any_element()
         };
         div()
             .relative()
@@ -3636,17 +3693,32 @@ impl PaddockWindow {
             let project = crate::agents::group(&item.label)
                 .trim_end_matches('/')
                 .to_owned();
-            // Since the agent came to this state, when corral says.
-            let age = item
+            let agent = item
                 .agent
                 .as_ref()
-                .and_then(|name| agents.iter().find(|a| &a.name == name))
+                .and_then(|name| agents.iter().find(|a| &a.name == name));
+            // Since the agent came to this state, when corral says.
+            let age = agent
                 .and_then(|agent| agent.state_started)
                 .map(|since| card::short_time(Some(now - since)));
+            // Its kind and status before its name, ringed in the row's ground.
+            let (ground, hovered) = if index == selected {
+                (lit, None)
+            } else {
+                let ground = popover::ground(theme);
+                let hovered = ground.blend(lit.opacity(0.6));
+                (ground, Some((SharedString::from(ATTENTION_ROW), hovered)))
+            };
+            let badge = agent.map(|agent| {
+                let color = self.fg(dot(&Shown::Agent(agent.name.clone()), &agents, now));
+                let mark = self.agent_mark(agent.kind.as_deref(), color, ground, hovered, &ui);
+                div().flex_shrink_0().self_center().child(mark)
+            });
             let first = div()
                 .flex()
                 .items_baseline()
                 .gap(ui.px(6.0))
+                .children(badge)
                 .child(
                     div()
                         .flex_shrink(1.0)
@@ -3675,6 +3747,7 @@ impl PaddockWindow {
                 }));
             let mut row = div()
                 .id(("attention-item", index))
+                .group(ATTENTION_ROW)
                 .flex_shrink_0()
                 .flex()
                 .items_start()
@@ -4061,6 +4134,7 @@ impl PaddockWindow {
                 lead: Lead::Dot {
                     color: dot(self.workspace.shown(tab.active), agents, now),
                     breathing: false,
+                    kind: None,
                 },
                 title,
                 detail: search::tab_detail(index, &names),
@@ -4431,11 +4505,27 @@ impl PaddockWindow {
     ) -> Stateful<Div> {
         let highlight = self.highlight();
         let scale = ui.scale(1.0);
+        // An agent's dot sits on its kind's icon, ringed in the row's ground.
+        let ground = if selected {
+            highlight
+        } else {
+            hsla(self.theme.bg(|t| t.agents_bg), 1.0)
+        };
+        let hovered = (!selected).then(|| {
+            let hovered = ground.blend(highlight.opacity(0.5));
+            (SharedString::from(PALETTE_ROW), hovered)
+        });
         let lead = match row.lead {
-            Lead::Dot { color, breathing } => Some(status_dot(self.fg(color), breathing, ui)),
-            Lead::Settings => Some(
-                footer_icon::icon(Icon::Settings, self.fg(|t| t.agents_dim), scale)
-                    .into_any_element(),
+            Lead::Dot {
+                color,
+                breathing,
+                kind,
+            } => Some(match kind.and_then(|kind| self.kind_icon(&kind, ui)) {
+                Some(icon) => self.dotted(icon, (self.fg(color), breathing), ground, hovered, ui),
+                None => status_dot(self.fg(color), breathing, ui),
+            }),
+            Lead::Settings(page) => Some(
+                footer_icon::icon(page.icon(), self.fg(|t| t.agents_dim), scale).into_any_element(),
             ),
             Lead::Command => Some(
                 footer_icon::icon(Icon::Command, self.fg(|t| t.agents_dim), scale)
@@ -4488,6 +4578,7 @@ impl PaddockWindow {
         };
         div()
             .id(("palette-row", index))
+            .group(PALETTE_ROW)
             .flex_shrink_0()
             .min_h(ui.px(34.0))
             .flex()
@@ -4657,7 +4748,7 @@ impl PaddockWindow {
             .min_h(px(0.0))
             .overflow_y_scroll()
             .track_scroll(&self.chooser.list)
-            .child(popover::heading(theme, &ui, side.map_or("NEW", open_where)));
+            .child(popover::heading(theme, &ui, side.map_or("New", open_where)));
         for (index, choice) in rows.iter().enumerate() {
             let lit = index == selected;
             let id = ("chooser-row", index);
@@ -4681,11 +4772,19 @@ impl PaddockWindow {
                 .child(div().flex_1().child("Agent…"))
                 .when(side.is_none(), |row| row.child(keys(&menu::NewAgent))),
                 Choice::Agent(name) => {
-                    let dot = div().size(ui.px(7.0)).rounded_full().bg(self.fg(dot(
-                        &Shown::Agent(name.clone()),
-                        &agents,
-                        now,
-                    )));
+                    let color = self.fg(dot(&Shown::Agent(name.clone()), &agents, now));
+                    let kind = agents
+                        .iter()
+                        .find(|a| &a.name == name)
+                        .and_then(|a| a.kind.as_deref());
+                    let (ground, hovered) = if lit {
+                        (popover::lit(theme), None)
+                    } else {
+                        let ground = popover::ground(theme);
+                        let hovered = ground.blend(popover::lit(theme).opacity(0.6));
+                        (ground, Some((popover::ROW_GROUP.into(), hovered)))
+                    };
+                    let dot = self.agent_mark(kind, color, ground, hovered, &ui);
                     let short = name.rsplit('/').next().unwrap_or(name).to_owned();
                     let project = crate::agents::group(name).trim_end_matches('/').to_owned();
                     popover::lead_row(theme, &ui, id, dot, lit)
@@ -4724,7 +4823,7 @@ impl PaddockWindow {
             )));
             // The new tab panel names the agents' group; the split panel lists them straight on.
             if index == 1 && side.is_none() {
-                list = list.child(popover::heading(theme, &ui, "AGENTS").pt(ui.px(10.0)));
+                list = list.child(popover::heading(theme, &ui, "Agents").pt(ui.px(10.0)));
             }
         }
         if none {
@@ -4765,7 +4864,7 @@ impl PaddockWindow {
         }
         if let Some(direction) = side {
             panel = panel
-                .child(popover::heading(theme, &ui, "SPLIT").pb(ui.px(6.0)))
+                .child(popover::heading(theme, &ui, "Split").pb(ui.px(6.0)))
                 .child(
                     div()
                         .flex_shrink_0()
@@ -4992,6 +5091,16 @@ fn dot(shown: &Shown, agents: &[Agent], now: f64) -> Pick {
         Shown::Shell => |t| t.muted,
         Shown::Empty => |t| t.agents_faint,
     }
+}
+
+/// A status dot on its own, where there is no icon to put it on.
+fn plain_dot(color: Hsla, ui: &UiFont) -> AnyElement {
+    div()
+        .flex_shrink_0()
+        .size(ui.px(7.0))
+        .rounded_full()
+        .bg(color)
+        .into_any_element()
 }
 
 /// Seconds since the epoch, as the agent statuses count them.
@@ -5759,10 +5868,10 @@ mod tests {
             Some(Popup::Split(Right))
         );
         // The heading over what to open follows the side.
-        assert_eq!(open_where(Right), "OPEN ON THE RIGHT");
-        assert_eq!(open_where(Left), "OPEN ON THE LEFT");
-        assert_eq!(open_where(Up), "OPEN ABOVE");
-        assert_eq!(open_where(Down), "OPEN BELOW");
+        assert_eq!(open_where(Right), "Open on the right");
+        assert_eq!(open_where(Left), "Open on the left");
+        assert_eq!(open_where(Up), "Open above");
+        assert_eq!(open_where(Down), "Open below");
     }
 
     #[test]

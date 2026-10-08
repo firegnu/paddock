@@ -267,11 +267,11 @@ impl Column {
 
     pub fn label(self) -> &'static str {
         match self {
-            Column::Queued => "QUEUED",
-            Column::InProgress => "IN PROGRESS",
-            Column::ToReview => "TO REVIEW",
-            Column::Merged => "MERGED",
-            Column::Done => "DONE",
+            Column::Queued => "Queued",
+            Column::InProgress => "In progress",
+            Column::ToReview => "To review",
+            Column::Merged => "Merged",
+            Column::Done => "Done",
         }
     }
 
@@ -1594,7 +1594,7 @@ mod tests {
         assert_eq!(card("P2-2").asks, None);
         assert!(!card("P2-1").needs_you);
         assert_eq!(board.need_you(), 2);
-        // The draft first in QUEUED.
+        // The draft first in Queued.
         let queued: Vec<(&str, bool)> = board
             .cards(Column::Queued)
             .iter()
