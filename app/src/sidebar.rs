@@ -315,13 +315,16 @@ pub fn menu_anchor(collapsed: bool, ui: &UiFont) -> (Pixels, Pixels) {
 }
 
 /// The menu button's left edge in the expanded sidebar: where its icon's drawing starts, centred
-/// in the button, falls in line with the Activity card's words just above it.
+/// in the button, falls in line with the Activity card's outer edge just above it, as the button
+/// sits outside the card (P5-57). The box never starts left of the sidebar, so at large interface
+/// sizes the icon may sit a little in.
 fn button_left(ui: &UiFont) -> f32 {
-    activity_view::text_left(ui)
+    (activity_view::card_left()
         - ui.scale(
             (BUTTON - BUTTON_ICON) / 2.0
                 + footer_icon::ACTIONS_LEFT * BUTTON_ICON / footer_icon::SIZE,
-        )
+        ))
+    .max(0.0)
 }
 
 /// The list model: the last good `corral ls`, the last error if the latest read failed, and the
@@ -3236,9 +3239,9 @@ mod tests {
     #[test]
     fn the_menu_opens_over_its_button_in_both_shapes() {
         let base = UiFont::default();
-        // Expanded: in line with the button, whose icon's ink starts under `Activity` (11 in, and
-        // the card's side 12), its box 7.5 into the button and the rails 1.5 of 14 into the box;
-        // collapsed: the button centred in the strip.
+        // Expanded: in line with the button, whose icon's ink starts at the Activity card's outer
+        // edge (10 in), its box 7.5 into the button and the rails 1.5 of 14 into the box, the
+        // button never starting left of the sidebar; collapsed: the button centred in the strip.
         let near = |(left, bottom): (Pixels, Pixels), want: (f32, f32)| {
             assert!(
                 (f32::from(left) - want.0).abs() < 0.01,
@@ -3248,18 +3251,16 @@ mod tests {
         };
         near(
             menu_anchor(false, &base),
-            (23.0 - 7.5 - 1.5 * 17.0 / 14.0, 47.0),
+            (10.0 - 7.5 - 1.5 * 17.0 / 14.0, 47.0),
         );
         assert_eq!(menu_anchor(true, &base), (px(10.0), px(47.0)));
-        // A larger interface size moves it with the bigger button.
+        // A larger interface size: the bigger button would start left of the sidebar, so it starts
+        // at its edge.
         let large = UiFont {
             size: 26.0,
             ..UiFont::default()
         };
-        near(
-            menu_anchor(false, &large),
-            (35.0 - 15.0 - 3.0 * 17.0 / 14.0, 94.0),
-        );
+        near(menu_anchor(false, &large), (0.0, 94.0));
         assert_eq!(menu_anchor(true, &large), (px(20.0), px(94.0)));
     }
 
