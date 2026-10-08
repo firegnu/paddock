@@ -80,6 +80,13 @@
 
 ## 下一步（按优先级）
 
+**明天（10-09）用户列的五件**（用户 10-08 夜原话依次是：“整体界面再次美化细化（左侧agents中的每一个agent的卡片按照superlogical的界面做）”“有时候paddock会有第二个paddock的bakcground进程显示在dock中，要查一下”“cairn迁移到paddock中开始测试cairn”“browser选中元素后送agent，diff选中改后送agent”“paddock写cairn的面板”）：
+- **A. 整体界面再美化细化，左侧栏 agent 卡片照 superlogical 的界面做**：主控不知道 superlogical 指什么，开工前先请用户给链接或截图；照惯例先出样稿给用户挑，再写任务文件。
+- **B. 查 Dock 里偶尔多出第二个 paddock 后台进程**：先只查不改（类型调研）。主控猜测之一：`~/.local/bin/paddock` 链到 app 包里的程序，agent 或终端跑 `paddock ctl …` 时以 app 包程序身份启动，macOS 给它也挂了 Dock 图标；要核实，并查是否另有残留实例（`paddock ctl instances`）。
+- **C. 在 paddock 仓库开始试 cairn**：在 paddock `adopt`；paddock 的 AGENTS.md 现在要求开会话先读 HANDOFF，要不要照 owlet 的方案 A 改（HANDOFF 只留稳定背景、进度靠 cairn），开工前和用户定；派出去的 agent 已按 R2 不用 cairn。
+- **D. 把选中的内容送给 agent**：Browser 里选中页面元素送 agent；Changes 的 diff 里选中几行（写上要怎么改）送 agent。即原“Changes 第二步”的一部分加 Browser 的同类功能；先出交互样稿。
+- **E. paddock 里做 cairn 面板**：10-08 定的“暂不做”由用户改为要做。前提要先定：直接显示 `cairn show`／`cairn list` 的文字（不用 cairn 改东西），还是先请 cairn 主控把 JSON 定成公开约定、加只读开关；以及面板放右侧栏还是别处。和 C 一起推进。
+
 0. **cairn 试点（owlet，10-08 晚起，用一两周再定留不留）**：owlet 按方案 A 试“cairn 替代手写交接”（owlet `c35a288`：HANDOFF 减到 47 行只留稳定背景；AGENTS.md 改为开会话以 cairn 注入为准、进度不再手写进 HANDOFF、派出去的 agent 不用 cairn，写明试点期和退回办法）。验证过：重开 owlet/main、要求“不读文件、只用开会话时已知的”回答上次做到哪，它准确说出停点、已完成、下一步和待用户决定；之前两次只说“继续”时它弹 AskUserQuestion 问方向，不是没记住。要看：隔天重开是否照样接上、旧会话的记录注入会不会越堆越长。留：再定要不要把“新会话第一句主动复述停点”转给 cairn 主控，再按真实需要设计 paddock 面板；不留：用户 `cairn uninstall --agent claude`，R2 的 `CAIRN_DISABLE=1` 留着无害。paddock 的 Recap 面板、New Agent 的 cairn 开关、给 cairn 提 JSON 约定都**暂不做**（面板看不到“到底注入了没有”，那只在 cairn 库里）。确认某次注入了没有：主控只读查 `~/.local/state/cairn/cairn.db` 的 injections 表（`sqlite3 -readonly`）；日常看 `cairn list`／`cairn show`。来历见上面“10-08 下午：cairn 试点、ranch R2”一节。
 1. **用户在真窗口里试 10-07 晚上这批**：拖缝调大小和双击；⌘Z／⇧⌘Z 和输入法；标签“+N”菜单和悬停全名；四套新主题（Rosé Pine 光标偏暗，看前台实心光标是否够显眼）；ctl 的 busy（Browser／Kanban 确认时）、`--focus` 的键盘去向、`--attach` 启动。**P5-36c 待用户定**（不挡合并）：加宽五列悬停时卡片变高一行、下面的卡片下移，还是平时就给每张卡片留出按钮那一行。
 2. **用户看格子图新样子**（扫光、白热光晕、呼吸；数据多了 saddle、global-mesh 后应更满）。
