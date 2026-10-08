@@ -155,13 +155,13 @@ impl Preset {
     /// about 3.6:1, still apart from each other and from the text (about 7:1).
     pub fn frost(self) -> Frost {
         match self {
-            // Every preset is washed alike, a quarter of the way, so the frost shows through and
-            // the column only leans to the terminal's hue (P5-64; P5-24b had most washed most of
-            // the way, which read as a haze, and P5-50 still under half). A warm brown, the
-            // nearest to the material's grey; its quiet text is the darkest of the three, so it
-            // steps the furthest.
+            // Every preset is washed alike, under half, so the frost still shows through while the
+            // column keeps the terminal's hue (P5-65; P5-24b had most washed most of the way,
+            // which read as a haze, and a quarter of the way, P5-64, read as torn from the
+            // terminal). A warm brown, the nearest to the material's grey; its quiet text is the
+            // darkest of the three, so it steps the furthest.
             Preset::Dune => Frost {
-                wash: 0.25,
+                wash: 0.45,
                 lit: 0.10,
                 waiting: 0.11,
                 dim: 0.56,
@@ -171,14 +171,14 @@ impl Preset {
             // colours step further too. The darker ground keeps the quiet text at least as readable
             // as on the grey.
             Preset::Tide => Frost {
-                wash: 0.25,
+                wash: 0.45,
                 lit: 0.12,
                 waiting: 0.12,
                 dim: 0.46,
                 dimmer: 0.40,
             },
             Preset::Lagoon => Frost {
-                wash: 0.25,
+                wash: 0.45,
                 lit: 0.12,
                 waiting: 0.12,
                 dim: 0.42,
@@ -187,31 +187,30 @@ impl Preset {
             // The four borrowed palettes lie on deep blue-violet grounds like Tide's, washed as
             // far, Kanagawa's nearly neutral ink too. Their quiet text is darker
             // than Tide's against their own text, so it steps further: Tokyo Night's, the
-            // darkest, the furthest. Tokyo Night lights a touch less (P5-64): over the thinner
-            // wash its empty days would sit too near the activity grid's first level.
+            // darkest, the furthest.
             Preset::Catppuccin => Frost {
-                wash: 0.25,
+                wash: 0.45,
                 lit: 0.12,
                 waiting: 0.12,
                 dim: 0.62,
                 dimmer: 0.48,
             },
             Preset::TokyoNight => Frost {
-                wash: 0.25,
-                lit: 0.11,
+                wash: 0.45,
+                lit: 0.12,
                 waiting: 0.12,
                 dim: 0.72,
                 dimmer: 0.60,
             },
             Preset::RosePine => Frost {
-                wash: 0.25,
+                wash: 0.45,
                 lit: 0.12,
                 waiting: 0.12,
                 dim: 0.50,
                 dimmer: 0.46,
             },
             Preset::Kanagawa => Frost {
-                wash: 0.25,
+                wash: 0.45,
                 lit: 0.12,
                 waiting: 0.12,
                 dim: 0.48,
