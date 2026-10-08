@@ -5,7 +5,6 @@ use crate::{
     about::AboutView,
     fonts::UiFont,
     new_agent::Place,
-    new_agent_view::{NewAgentEvent, NewAgentView},
     settings_view::{SettingsEvent, SettingsView},
     window::{PaddockWindow, traffic_lights},
 };
@@ -19,7 +18,6 @@ struct Windows {
     main: Option<WindowHandle<PaddockWindow>>,
     settings: Option<WindowHandle<SettingsView>>,
     about: Option<WindowHandle<AboutView>>,
-    new_agent: Option<WindowHandle<NewAgentView>>,
     /// A quit is waiting on Settings' answer.
     quitting: bool,
 }
@@ -135,69 +133,20 @@ pub fn open_settings(cx: &mut App) {
             config.sidebar_width =
                 crate::sidebar::fit_width(config.sidebar_width, &UiFont::from_config(&config));
             main.apply(&config, cx);
-            // An open New Agent window follows too.
-            if let Some(new_agent) = cx.default_global::<Windows>().new_agent {
-                let _ = new_agent.update(cx, |view, _, cx| view.restyle(&config, cx));
-            }
         })
         .detach()
     });
     cx.default_global::<Windows>().settings = Some(handle);
 }
 
-/// The New Agent window, set to open the agent at `place`; one already open comes to the front and
-/// keeps what was typed, taking `place` when it is not the current pane.
+/// The New Agent panel over the main window, set to open the agent at `place` (see
+/// [`PaddockWindow::open_new_agent`]).
 pub fn open_new_agent(place: Place, cx: &mut App) {
-    let windows = cx.default_global::<Windows>();
-    let (existing, main) = (windows.new_agent, windows.main);
-    if let Some(handle) = existing
-        && handle
-            .update(cx, |view, window, cx| {
-                window.activate_window();
-                if place != Place::Current {
-                    view.set_place(place, cx);
-                }
-            })
-            .is_ok()
-    {
-        return;
+    if let Some(main) = cx.default_global::<Windows>().main {
+        let _ = main.update(cx, |main, window, cx| {
+            main.open_new_agent(place, window, cx)
+        });
     }
-    let Some(main) = main else { return };
-    let Ok(seed) = main.read(cx).map(|main| main.seed(cx)) else {
-        return;
-    };
-    let ui = UiFont::get(cx);
-    let bar = title_bar(crate::new_agent_view::TITLE_BAR, &ui);
-    let options = options("New Agent", ui.scale(640.0), ui.scale(600.0), true, bar, cx);
-    let Some((handle, view)) = open(options, move |_, cx| NewAgentView::new(seed, place, cx), cx)
-    else {
-        return;
-    };
-    // The main window opens what was started.
-    let _ = main.update(cx, |_, window, cx| {
-        cx.subscribe_in(
-            &view,
-            window,
-            |main, _, event: &NewAgentEvent, window, cx| {
-                let NewAgentEvent::Started {
-                    started,
-                    cwd,
-                    place,
-                } = event;
-                main.open_started(started, cwd, *place, window, cx);
-            },
-        )
-        .detach()
-    });
-    cx.default_global::<Windows>().new_agent = Some(handle);
-}
-
-/// The New Agent window is creating an agent: what it starts opens beside the active pane.
-pub fn new_agent_busy(cx: &App) -> bool {
-    cx.try_global::<Windows>()
-        .and_then(|windows| windows.new_agent)
-        .and_then(|handle| handle.read(cx).ok())
-        .is_some_and(NewAgentView::busy)
 }
 
 /// A quit is waiting on its questions.

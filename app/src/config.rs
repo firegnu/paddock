@@ -33,7 +33,7 @@ pub struct Config {
     pub refresh_ms: u64,
     /// The corral program; `--corral` overrides it for one run.
     pub corral: String,
-    /// The New Agent window's presets; `None` (not written) is the default four.
+    /// The New Agent panel's presets; `None` (not written) is the default four.
     pub agent_presets: Option<Vec<crate::new_agent::Preset>>,
 }
 

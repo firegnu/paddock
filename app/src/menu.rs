@@ -41,7 +41,7 @@ actions!(
         Tab9,
         /// Closes the open dialog.
         Cancel,
-        /// Closes the Settings or About window (⌘W there).
+        /// Closes the Settings or About window, or the New Agent panel (⌘W there).
         CloseWindow,
         Find,
         FindNext,
@@ -50,7 +50,7 @@ actions!(
         CloseFind,
         NewAgent,
         StopAgent,
-        /// Create in the New Agent window.
+        /// Start in the New Agent panel.
         CreateAgent,
         /// Open or close the Attention list.
         ShowAttention,
