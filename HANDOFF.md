@@ -3,7 +3,7 @@
 ## 现在在哪（2026-10-08 晚）
 
 - main 和 `origin/main`（`github.com/firegnu/paddock`，public）同步，工作区干净。没有进行中的活，没有开着的 worktree，本地只有 main 一个分支；ranch 也一样（main 同步、无 worktree）。corral 里是 `paddock/main`（本主控）和用户自己的 `global-mesh/main`；P5-43 的 `paddock/dev-newagent-1` 已关。
-- 438 项测试通过，clippy、`cargo fmt --check` 干净。`~/Applications/paddock.app` 是合并 P5-44 之后的版本（10-08 18:26 装，含 P5-35～P5-44、paddock ctl；用户还没重启），已用本机 Apple Development 证书签名。
+- 438 项测试通过，clippy、`cargo fmt --check` 干净。`~/Applications/paddock.app` 是合并 P5-44 之后的版本（10-08 18:26 装，含 P5-35～P5-44、paddock ctl；用户已重启），已用本机 Apple Development 证书签名。
 - **paddock ctl 已部署**（用户 10-07 夜在终端里跑完，主控核对过）：`~/.local/bin/paddock` 链到 app 里的程序；`paddock install-skills` 已装 `~/.claude/skills/paddock`、`~/.agents/skills/paddock`（带归属标记，与仓库源文件一致）；旧的 `~/.claude/skills/saddle` 已删。`paddock ctl instances` 找得到正在跑的窗口，`inspect` 认出 `paddock/main` 是 pane 1。重新打包安装后链接不用重建；技能正文改了要重跑 `paddock install-skills`。已开着的 agent 要重开才看到新技能。
 - 全局 `~/.local/bin/corral`、`~/.local/bin/ranch` 已是 ranch `d55defb`（10-08 R2：技能里派活和临时委派的 agent 带 `CAIRN_DISABLE=1`；程序行为与 `5c5540c` 相同，支持 pause／resume）。
 - **cairn 已全局装上（只 claude）**：`~/.claude/settings.json` 里 4 个 cairn hook 和一条放行 `cairn save` 的规则（改前备份 `~/.claude/settings.json.bak-20261008T082855…`），只有 owlet 启用（`adopt`）；其他仓库里 hook 查到没启用就直接退出。卸掉：`cairn uninstall --agent claude`。
@@ -13,7 +13,7 @@
 
 ## 10-08 傍晚：P5-44 Settings 重新设计
 
-- 用户：Settings 也有“10年前对话框”的问题，要重新设计，“但是不要丢失任何现有的功能”。主控截了四页、盘点全部功能，出画布样稿（A 精修的独立窗口、B 主窗口浮层，`docs/设计稿/P5-44-Settings再设计/`），用户：“选A，按你的建议”——Colors 改名 Appearance、Advanced 并入 Agents（Refresh interval 一起挪）、Terminal 实时预览、保存条只在有改动时出现。DESIGN §13 已记。派 `paddock/dev-settings-1`（Claude Code opus[1m]/high），主控审查通过（438 项测试），合并、推送、收尾，已重新打包安装（18:26）。任务文件误把“颜色框清空即跟随主题”写成现有功能（旧代码会报错），dev 补成“清空等于 Reset”，主控同意。**待用户**：重启后试。dev agent 已关（工作目录已删，attached 回到 0 后一并关闭）。
+- 用户：Settings 也有“10年前对话框”的问题，要重新设计，“但是不要丢失任何现有的功能”。主控截了四页、盘点全部功能，出画布样稿（A 精修的独立窗口、B 主窗口浮层，`docs/设计稿/P5-44-Settings再设计/`），用户：“选A，按你的建议”——Colors 改名 Appearance、Advanced 并入 Agents（Refresh interval 一起挪）、Terminal 实时预览、保存条只在有改动时出现。DESIGN §13 已记。派 `paddock/dev-settings-1`（Claude Code opus[1m]/high），主控审查通过（438 项测试），合并、推送、收尾，已重新打包安装（18:26）。任务文件误把“颜色框清空即跟随主题”写成现有功能（旧代码会报错），dev 补成“清空等于 Reset”，主控同意。用户重启后试过，没问题（10-08）。dev agent 已关（工作目录已删，attached 回到 0 后一并关闭）。
 
 ## 10-08 下午：cairn 试点、ranch R2
 
