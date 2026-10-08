@@ -163,9 +163,8 @@ const PAUSE_GAP: f32 = 2.0;
 const FOOTER: f32 = 50.0;
 const BUTTON: f32 = 32.0;
 const BUTTON_ICON: f32 = 17.0;
-/// The menu button's left edge, unscaled: in line with the cards' avatars, past the list's side, a
-/// card's edge and its padding.
-const BUTTON_LEFT: f32 = PAD + 1.0 + CARD_LEFT;
+/// The cards' avatars' left edge, unscaled: past the list's side, a card's edge and its padding.
+const AVATAR_LEFT: f32 = PAD + 1.0 + CARD_LEFT;
 /// How long a note of a start or stop that went well stays whole, and then how long it fades.
 const NOTE_HOLD: Duration = Duration::from_secs(4);
 const NOTE_FADE: Duration = Duration::from_millis(600);
@@ -310,9 +309,19 @@ pub fn menu_anchor(collapsed: bool, ui: &UiFont) -> (Pixels, Pixels) {
     let left = if collapsed {
         ui.px((RAIL - BUTTON) / 2.0)
     } else {
-        px(BUTTON_LEFT)
+        px(button_left(ui))
     };
     (left, ui.px((FOOTER - BUTTON) / 2.0 + BUTTON + 6.0))
+}
+
+/// The menu button's left edge in the expanded sidebar: where its icon's drawing starts, centred
+/// in the button, falls in line with the Activity card's words just above it.
+fn button_left(ui: &UiFont) -> f32 {
+    activity_view::text_left(ui)
+        - ui.scale(
+            (BUTTON - BUTTON_ICON) / 2.0
+                + footer_icon::ACTIONS_LEFT * BUTTON_ICON / footer_icon::SIZE,
+        )
 }
 
 /// The list model: the last good `corral ls`, the last error if the latest read failed, and the
@@ -1585,7 +1594,10 @@ impl Render for Sidebar {
                     note.tooltip(move |_, cx| cx.new(|_| tip.clone()).into())
                 })
                 .min_w(px(0.0))
-                .ml(ui.px(AVATAR + AVATAR_GAP - BUTTON))
+                // In line with the cards' names, past their avatars.
+                .ml(px(
+                    AVATAR_LEFT + ui.scale(AVATAR + AVATAR_GAP - BUTTON) - button_left(&ui)
+                ))
                 .whitespace_nowrap()
                 .overflow_hidden()
                 .text_size(ui.px(NOTE_SIZE))
@@ -1602,7 +1614,7 @@ impl Render for Sidebar {
             .h(ui.px(FOOTER))
             .flex()
             .items_center()
-            .pl(px(BUTTON_LEFT))
+            .pl(px(button_left(&ui)))
             .child(self.actions_button(cx))
             .children(note);
         let activity = activity_view::Frame {
@@ -3224,14 +3236,30 @@ mod tests {
     #[test]
     fn the_menu_opens_over_its_button_in_both_shapes() {
         let base = UiFont::default();
-        // Expanded: in line with the cards' avatars; collapsed: the button centred in the strip.
-        assert_eq!(menu_anchor(false, &base), (px(21.0), px(47.0)));
+        // Expanded: in line with the button, whose icon's ink starts under `Activity` (11 in, and
+        // the card's side 12), its box 7.5 into the button and the rails 1.5 of 14 into the box;
+        // collapsed: the button centred in the strip.
+        let near = |(left, bottom): (Pixels, Pixels), want: (f32, f32)| {
+            assert!(
+                (f32::from(left) - want.0).abs() < 0.01,
+                "{left:?}, {want:?}"
+            );
+            assert_eq!(f32::from(bottom), want.1);
+        };
+        near(
+            menu_anchor(false, &base),
+            (23.0 - 7.5 - 1.5 * 17.0 / 14.0, 47.0),
+        );
         assert_eq!(menu_anchor(true, &base), (px(10.0), px(47.0)));
         // A larger interface size moves it with the bigger button.
         let large = UiFont {
             size: 26.0,
             ..UiFont::default()
         };
+        near(
+            menu_anchor(false, &large),
+            (35.0 - 15.0 - 3.0 * 17.0 / 14.0, 94.0),
+        );
         assert_eq!(menu_anchor(true, &large), (px(20.0), px(94.0)));
     }
 

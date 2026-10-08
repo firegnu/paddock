@@ -455,23 +455,43 @@ const SPLIT_GAP: f32 = 4.0;
 /// sidebar; unscaled.
 const BAR_GAP: f32 = 4.0;
 const BAR_END: f32 = 10.0;
-/// A tab's title size; the room before its badge, after it, and after the title (an inactive
-/// tab's, its × drawn over the title's end; the active tab's, after its ×); its ×; the widest a
-/// tab grows, and the least one shortened for room keeps.
-const TAB_TEXT: f32 = 12.5;
-const TAB_START: f32 = 9.0;
+/// A tab's capsule: its height; its title's size; the room before its badge, after it, and after
+/// the title (an inactive tab's, its × drawn over the title's end; the active tab's, after its
+/// ×); its ×; its ring, drawn clear where it has none so every title sits alike, and the room
+/// between capsules, both unscaled; the widest a tab grows, and the least one shortened for room
+/// keeps.
+const TAB_HEIGHT: f32 = 28.0;
+const TAB_TEXT: f32 = 13.0;
+const TAB_START: f32 = 6.0;
 const TAB_GAP: f32 = 7.0;
-const TAB_END: f32 = 11.0;
+const TAB_END: f32 = 12.0;
 const ACTIVE_TAB_END: f32 = 6.0;
 const TAB_CLOSE: f32 = 16.0;
+const TAB_RING: f32 = 1.0;
+const TAB_SPACING: f32 = 6.0;
 const TAB_WIDEST: f32 = 220.0;
 const TAB_LEAST: f32 = 78.0;
-/// The `+N` button for the tabs with no room in the bar: its count's size, the room at its ends
-/// and before its chevron, and the chevron's scale.
-const MORE_TEXT: f32 = 12.0;
-const MORE_START: f32 = 8.0;
-const MORE_GAP: f32 = 4.0;
-const MORE_END: f32 = 6.0;
+/// How strongly the active tab's accent ring, and the amber ring of one with an agent waiting for
+/// a person, show.
+const RING_ACTIVE: f32 = 0.5;
+const RING_WAITING: f32 = 0.6;
+/// A paused agent's tab: how strongly it shows, and its pause mark's scale.
+const PAUSED_TAB: f32 = 0.55;
+const PAUSE_MARK: f32 = 0.7;
+/// A split tab's pane count, in a small pill after its title: the pill's height and sides, the
+/// room between its icon and count, the count's size and the icon's scale.
+const PANES_HEIGHT: f32 = 18.0;
+const PANES_X: f32 = 6.0;
+const PANES_GAP: f32 = 3.0;
+const PANES_TEXT: f32 = 11.0;
+const PANES_ICON: f32 = 0.75;
+/// The `+N` capsule for the tabs with no room in the bar: its count's size, the room at its ends
+/// and before its amber dot and chevron, the dot, and the chevron's scale.
+const MORE_TEXT: f32 = 12.5;
+const MORE_START: f32 = 12.0;
+const MORE_GAP: f32 = 5.0;
+const MORE_END: f32 = 10.0;
+const MORE_DOT: f32 = 6.0;
 const MORE_ICON: f32 = 0.7;
 /// How far under the title bar the strip draws the Attention bell, for the list to hang from it.
 const RAIL_BELL: f32 = 10.0;
@@ -576,11 +596,14 @@ struct ShownTab {
     whole: Option<String>,
 }
 
-/// The tabs in the title bar, in order; the ones waiting behind its `+N`, and that button's width.
+/// The tabs in the title bar, in order; the ones waiting behind its `+N`, and that button's width;
+/// whether one of those has an agent waiting for a person; and each tab's marks.
 struct TabsFit {
     shown: Vec<ShownTab>,
     hidden: Vec<usize>,
     more: f32,
+    waiting: bool,
+    marks: Vec<TabMarks>,
 }
 
 /// The last part of a path: `paddock` for `/Users/me/paddock`, `/` for the root.
@@ -702,6 +725,36 @@ pub fn header_shown(panes_in_tab: usize) -> bool {
 /// The panes on screen besides the active one are dimmed; one alone is never.
 pub fn dimmed(panes_shown: usize, active: bool) -> bool {
     panes_shown > 1 && !active
+}
+
+/// What a title bar tab's capsule shows of its agents: one of them needs a person (Attention's
+/// Needs you), or the agent it shows is paused.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct TabMarks {
+    pub waiting: bool,
+    pub paused: bool,
+}
+
+/// [`TabMarks`] for each of `workspace`'s tabs: waiting when any of its panes shows an agent
+/// `needs` names; paused when the pane it is named after shows an agent `agents` lists paused.
+pub fn tab_marks(workspace: &Workspace, agents: &[Agent], needs: &[String]) -> Vec<TabMarks> {
+    let agent = |pane: PaneId| match workspace.shown(pane) {
+        Shown::Agent(name) => Some(name),
+        _ => None,
+    };
+    workspace
+        .tabs
+        .iter()
+        .map(|tab| TabMarks {
+            waiting: tab
+                .panes()
+                .into_iter()
+                .filter_map(agent)
+                .any(|name| needs.contains(name)),
+            paused: agent(tab.active)
+                .is_some_and(|name| agents.iter().any(|a| &a.name == name && a.paused)),
+        })
+        .collect()
 }
 
 /// A pane showing an agent, as checked against corral's listing.
@@ -2661,6 +2714,7 @@ impl PaddockWindow {
             .map(|subject| tab_label(subject, &open))
             .collect();
         let short = tab_fit::distinct(&subjects, &open);
+        let marks = self.tab_marks(cx);
         let active = self.workspace.active_tab;
         let sizes: Vec<TabSize> = self
             .workspace
@@ -2678,8 +2732,16 @@ impl PaddockWindow {
                     Shown::Empty => 7.0,
                     _ => BADGE_ICON + 2.0,
                 };
-                let panes = if tab.panes().len() > 1 {
-                    TAB_GAP + footer_icon::SIZE * 0.9
+                let panes = match tab.panes().len() {
+                    1 => 0.0,
+                    count => {
+                        width(&count.to_string(), PANES_TEXT, FontWeight::NORMAL)
+                            + (TAB_GAP + 2.0 * PANES_X + footer_icon::SIZE * PANES_ICON + PANES_GAP)
+                                * s
+                    }
+                };
+                let pause = if marks[index].paused {
+                    TAB_GAP + footer_icon::SIZE * PAUSE_MARK
                 } else {
                     0.0
                 };
@@ -2690,7 +2752,9 @@ impl PaddockWindow {
                 };
                 let group = group.as_deref().unwrap_or_default();
                 TabSize {
-                    chrome: (TAB_START + badge + TAB_GAP + panes + end) * s,
+                    chrome: (TAB_START + badge + TAB_GAP + pause + end) * s
+                        + panes
+                        + 2.0 * TAB_RING,
                     full: width(group, TAB_TEXT, FontWeight::NORMAL)
                         + width(name, TAB_TEXT, weight),
                     short: width(&short[index], TAB_TEXT, weight),
@@ -2700,6 +2764,12 @@ impl PaddockWindow {
         let count = format!("+{}", sizes.len().saturating_sub(1));
         let more = width(&count, MORE_TEXT, FontWeight::NORMAL)
             + (MORE_START + MORE_GAP + footer_icon::SIZE * MORE_ICON + MORE_END) * s;
+        // Room for the amber dot, kept while any tab that may go behind the `+N` waits.
+        let dot = (MORE_GAP + MORE_DOT) * s;
+        let waiting = |tab: &usize| marks[*tab].waiting;
+        let may_wait = (0..sizes.len())
+            .filter(|&tab| tab != active)
+            .any(|tab| waiting(&tab));
         let room = f32::from(window.viewport_size().width)
             - bar_left(self.collapsed, full_screen, self.sidebar_width, &ui)
             - 2.0 * BAR_END
@@ -2710,10 +2780,10 @@ impl PaddockWindow {
             - (3.0 * BAR_BUTTON + 2.0 * SPLIT_GAP + SEARCH) * s;
         let bar = Bar {
             room,
-            gap: BAR_GAP,
+            gap: TAB_SPACING,
             widest: TAB_WIDEST * s,
             least: TAB_LEAST * s,
-            more,
+            more: if may_wait { more + dot } else { more },
         };
         let fit = tab_fit::fit(&sizes, active, &bar);
         let shown = fit
@@ -2743,11 +2813,38 @@ impl PaddockWindow {
                 }
             })
             .collect();
+        let waiting = fit.hidden.iter().any(waiting);
         TabsFit {
             shown,
             hidden: fit.hidden,
-            more,
+            more: if waiting { more + dot } else { more },
+            waiting,
+            marks,
         }
+    }
+
+    /// Each tab's marks, as corral last listed the agents and Attention has them.
+    fn tab_marks(&self, cx: &Context<Self>) -> Vec<TabMarks> {
+        let sidebar = self.sidebar.read(cx);
+        let needs: Vec<String> = sidebar
+            .attention()
+            .into_iter()
+            .filter(|item| item.needs())
+            .filter_map(|item| item.agent)
+            .collect();
+        tab_marks(&self.workspace, &sidebar.agents(), &needs)
+    }
+
+    /// A title bar capsule's grounds, each a step brighter than the bar's: at rest, under the
+    /// mouse (or lit), and the active tab's.
+    fn capsule_grounds(&self) -> (Hsla, Hsla, Hsla) {
+        let bar = hsla(self.theme.bg(|t| t.agents_bg), 1.0);
+        let highlight = self.highlight();
+        (
+            bar.blend(highlight.opacity(0.7)),
+            highlight,
+            highlight.blend(self.fg(|t| t.agents_text).opacity(0.07)),
+        )
     }
 
     /// The title bar: over the sidebar the traffic lights (none in full screen) and the sidebar's
@@ -2765,10 +2862,11 @@ impl PaddockWindow {
         let ui = UiFont::get(cx);
         let scale = ui.scale(1.0);
         let highlight = self.highlight();
-        // A hovered tab's faint ground, solid, so the × drawn over its title can hide the text.
-        let ground = hsla(self.theme.bg(|t| t.agents_bg), 1.0);
-        let hovered = ground.blend(highlight.opacity(0.6));
+        // Each capsule's ground, solid, so the × drawn over an inactive one's title can hide the
+        // text: at rest, under the mouse, and the active tab's.
+        let (rest, lit, chosen) = self.capsule_grounds();
         let muted = self.theme.fg(|t| t.muted);
+        let dim = self.fg(|t| t.agents_dim);
         let shown_at = Instant::now();
         let fit = self.fit_tabs(full_screen, window, cx);
         // A press on a tab or a button is theirs, not the start of a drag.
@@ -2777,7 +2875,7 @@ impl PaddockWindow {
             .id("tabs")
             .flex()
             .items_center()
-            .gap(px(BAR_GAP))
+            .gap(px(TAB_SPACING))
             .min_w(px(0.0))
             .flex_shrink(1.0)
             .h_full()
@@ -2787,23 +2885,30 @@ impl PaddockWindow {
             let index = shown.index;
             let tab = &self.workspace.tabs[index];
             let active = index == self.workspace.active_tab;
+            let marks = fit.marks[index];
             // The active tab keeps its × in line; the others have it over the end of their
-            // title, so a narrow tab gives the title all its room. Either fades in only while
-            // the mouse is on the tab.
-            let under = if active { highlight } else { hovered };
+            // title, so a narrow tab gives the title all its room. The active one's always shows;
+            // the others' fade in only while the mouse is on the tab.
+            let under = if active { chosen } else { lit };
             let close = div()
                 .id(("close-tab", index))
                 .flex_shrink_0()
                 .flex()
                 .items_center()
                 .justify_center()
-                .size(ui.px(16.0))
-                .rounded(px(4.0))
+                .size(ui.px(TAB_CLOSE))
+                .rounded_full()
                 .bg(under)
-                .opacity(self.close_shown(index, shown_at))
+                .opacity(if active {
+                    CLOSE_SHOWN
+                } else {
+                    self.close_shown(index, shown_at)
+                })
                 .hover(move |style| style.bg(under.blend(hsla(muted, 0.18))))
                 .when(!active, |close| {
-                    close.absolute().top(ui.px(6.0)).right(ui.px(6.0))
+                    // Centred in the capsule, inside its ring.
+                    let inset = px(ui.scale((TAB_HEIGHT - TAB_CLOSE) / 2.0) - TAB_RING);
+                    close.absolute().top(inset).right(inset)
                 })
                 .child(footer_icon::icon(
                     Icon::Close,
@@ -2814,6 +2919,15 @@ impl PaddockWindow {
                     cx.stop_propagation();
                     this.close_tab(index, window, cx);
                 }));
+            // The accent round the active tab; amber round another with an agent waiting for a
+            // person, the active one's dot and its panes' headers telling that instead.
+            let ring = if active {
+                self.fg(|t| t.agents_accent).opacity(RING_ACTIVE)
+            } else if marks.waiting {
+                self.fg(|t| t.agents_yellow).opacity(RING_WAITING)
+            } else {
+                gpui::transparent_black()
+            };
             let mut item = div()
                 .id(("tab", index))
                 .group(SharedString::from(format!("tab-{index}")))
@@ -2822,9 +2936,11 @@ impl PaddockWindow {
                 .flex()
                 .items_center()
                 .gap(ui.px(TAB_GAP))
-                .h(ui.px(28.0))
+                .h(ui.px(TAB_HEIGHT))
                 .pl(ui.px(TAB_START))
-                .rounded(px(7.0))
+                .rounded_full()
+                .border(px(TAB_RING))
+                .border_color(ring)
                 .text_size(ui.px(TAB_TEXT))
                 .cursor_pointer()
                 .on_mouse_down(MouseButton::Left, keep)
@@ -2832,10 +2948,10 @@ impl PaddockWindow {
                     this.hover_tab(index, *hovered, cx)
                 }))
                 .child(if active {
-                    self.badge(tab.active, agents, now, highlight, None, &ui)
+                    self.badge(tab.active, agents, now, chosen, None, &ui)
                 } else {
                     let group = SharedString::from(format!("tab-{index}"));
-                    self.badge(tab.active, agents, now, ground, Some((group, hovered)), &ui)
+                    self.badge(tab.active, agents, now, rest, Some((group, lit)), &ui)
                 })
                 .child(
                     div()
@@ -2846,13 +2962,21 @@ impl PaddockWindow {
                         .text_ellipsis()
                         .child(grouped(shown.title, self.fg(|t| t.agents_dimmer))),
                 )
+                // A paused agent's tab, faint, with the pause mark after its title.
+                .when(marks.paused, |item| {
+                    item.opacity(PAUSED_TAB).child(footer_icon::icon(
+                        Icon::Pause,
+                        dim,
+                        scale * PAUSE_MARK,
+                    ))
+                })
                 .children(panes_tip(tab.panes().len()).map(|text| {
                     let tip = BarTip {
                         text: text.into(),
                         keys: String::new(),
                         size: ui.px(11.5),
                         color: self.fg(|t| t.agents_text),
-                        dim: self.fg(|t| t.agents_dim),
+                        dim,
                         background: hsla(self.theme.bg(|t| t.agents_bg), 1.0),
                         border: self.fg(|t| t.agents_rule),
                     };
@@ -2861,18 +2985,23 @@ impl PaddockWindow {
                         .flex_shrink_0()
                         .flex()
                         .items_center()
+                        .gap(ui.px(PANES_GAP))
+                        .h(ui.px(PANES_HEIGHT))
+                        .px(ui.px(PANES_X))
+                        .rounded_full()
+                        .bg(self.fg(|t| t.agents_text).opacity(0.08))
+                        .text_size(ui.px(PANES_TEXT))
+                        .text_color(dim)
+                        .font_weight(FontWeight::NORMAL)
                         .tooltip(move |_, cx| cx.new(|_| tip.clone()).into())
-                        .child(footer_icon::icon(
-                            Icon::Panes,
-                            self.fg(|t| t.agents_dim),
-                            scale * 0.9,
-                        ))
+                        .child(footer_icon::icon(Icon::Panes, dim, scale * PANES_ICON))
+                        .child(tab.panes().len().to_string())
                 }));
             // Short of room, the other tabs narrow first; the active one keeps its title.
             item = if active {
                 item.flex_shrink_0()
                     .pr(ui.px(ACTIVE_TAB_END))
-                    .bg(highlight)
+                    .bg(chosen)
                     .text_color(self.fg(|t| t.agents_text))
                     // The short name heavier; a faint group before it stays regular.
                     .font_weight(FontWeight::SEMIBOLD)
@@ -2880,8 +3009,9 @@ impl PaddockWindow {
                 item.flex_shrink(1.0)
                     .min_w(ui.px(56.0))
                     .pr(ui.px(TAB_END))
+                    .bg(rest)
                     .text_color(self.fg(|t| t.muted))
-                    .hover(move |style| style.bg(hovered))
+                    .hover(move |style| style.bg(lit))
             };
             // Fitted to the room left, as `fit_tabs` worked it out; the whole title on hover
             // when it is shortened.
@@ -2894,7 +3024,7 @@ impl PaddockWindow {
                     keys: String::new(),
                     size: ui.px(11.5),
                     color: self.fg(|t| t.agents_text),
-                    dim: self.fg(|t| t.agents_dim),
+                    dim,
                     background: hsla(self.theme.bg(|t| t.agents_bg), 1.0),
                     border: self.fg(|t| t.agents_rule),
                 };
@@ -2905,9 +3035,10 @@ impl PaddockWindow {
             )));
         }
         if !fit.hidden.is_empty() {
-            tabs = tabs.child(self.more_button(fit.hidden.len(), fit.more, cx));
+            tabs = tabs.child(self.more_button(fit.hidden.len(), fit.more, fit.waiting, cx));
         }
-        // Lit while its panel is open, which hangs from it; the `+` turns as the pointer comes in.
+        // A round button, lit while its panel is open, which hangs from it; the `+` turns as the
+        // pointer comes in.
         let choosing = self.popup == Some(Popup::NewTab);
         let color = if choosing {
             self.fg(|t| t.agents_text)
@@ -2927,7 +3058,7 @@ impl PaddockWindow {
                 .items_center()
                 .justify_center()
                 .size(button_size)
-                .rounded(px(6.0))
+                .rounded_full()
                 .cursor_pointer()
                 .when(choosing, |button| button.bg(highlight))
                 .hover(move |style| style.bg(highlight))
@@ -3015,11 +3146,18 @@ impl PaddockWindow {
             )
     }
 
-    /// The `+N` after the tabs for the `count` with no room in the title bar, `width` wide; lit
-    /// while their menu, hanging from it, is open.
-    fn more_button(&self, count: usize, width: f32, cx: &mut Context<Self>) -> Stateful<Div> {
+    /// The `+N` capsule after the tabs for the `count` with no room in the title bar, `width`
+    /// wide, with an amber dot when one of them has an agent `waiting` for a person; lit while
+    /// their menu, hanging from it, is open.
+    fn more_button(
+        &self,
+        count: usize,
+        width: f32,
+        waiting: bool,
+        cx: &mut Context<Self>,
+    ) -> Stateful<Div> {
         let ui = UiFont::get(cx);
-        let highlight = self.highlight();
+        let (rest, lit_ground, _) = self.capsule_grounds();
         let lit = self.popup == Some(Popup::Overflow);
         let color = if lit {
             self.fg(|t| t.agents_text)
@@ -3035,17 +3173,24 @@ impl PaddockWindow {
             .justify_center()
             .gap(ui.px(MORE_GAP))
             .w(px(width))
-            .h(ui.px(26.0))
-            .rounded(px(7.0))
-            .border_1()
-            .border_color(hsla(self.theme.fg(|t| t.agents_rule), 0.6))
+            .h(ui.px(TAB_HEIGHT))
+            .rounded_full()
+            .bg(if lit { lit_ground } else { rest })
             .text_size(ui.px(MORE_TEXT))
             .text_color(color)
             .cursor_pointer()
-            .when(lit, |button| button.bg(highlight))
-            .hover(move |style| style.bg(highlight))
+            .hover(move |style| style.bg(lit_ground))
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .child(format!("+{count}"))
+            .when(waiting, |button| {
+                button.child(
+                    div()
+                        .flex_shrink_0()
+                        .size(ui.px(MORE_DOT))
+                        .rounded_full()
+                        .bg(self.fg(|t| t.agents_yellow)),
+                )
+            })
             .child(footer_icon::icon(Icon::Down, color, ui.scale(MORE_ICON)))
             .child(self.spot(Spot::Overflow))
             .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
@@ -5623,6 +5768,42 @@ mod tests {
         assert_eq!(w.tabs[0].panes(), [shell]);
         assert_eq!(w.agents(), ["p/kept"]);
         assert_eq!(w.active_pane(), kept);
+    }
+
+    #[test]
+    fn a_tab_waits_with_any_of_its_agents_and_is_paused_with_the_one_it_shows() {
+        let (mut w, _) = Workspace::new(Shown::Agent("p/a".into()));
+        // A split tab: its other pane's agent needs a person; the one it is named after is paused.
+        w.split(Direction::Right, Shown::Agent("p/b".into()));
+        let shown = w.active_pane();
+        w.set_shown(shown, Shown::Agent("p/b".into()));
+        w.new_tab(Shown::Shell);
+        w.new_tab(Shown::Agent("p/c".into()));
+        let paused = |name: &str| Agent {
+            paused: true,
+            ..listed(name, "idle", "i1")
+        };
+        let agents = [listed("p/a", "waiting", "i1"), paused("p/b"), paused("p/c")];
+        let marks = tab_marks(&w, &agents, &["p/a".into()]);
+        assert_eq!(
+            marks,
+            [
+                TabMarks {
+                    waiting: true,
+                    paused: true
+                },
+                TabMarks::default(),
+                TabMarks {
+                    waiting: false,
+                    paused: true
+                },
+            ]
+        );
+        // Another pane of the tab focused, the tab is named after it, and it is not paused.
+        w.select_tab(0);
+        let other = w.tabs[0].panes()[0];
+        w.focus(other);
+        assert!(!tab_marks(&w, &agents, &[])[0].paused);
     }
 
     #[test]
