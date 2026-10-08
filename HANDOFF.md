@@ -3,7 +3,7 @@
 ## 现在在哪（2026-10-08 上午）
 
 - main 和 `origin/main`（`github.com/firegnu/paddock`，public）同步，工作区干净。没有进行中的活，没有开着的 worktree，本地只有 main 一个分支。corral 里只有 `paddock/main`（本主控）（用户 10-07 夜让开的 `paddock/codex`、`paddock/pi`、`paddock/omp` 已按用户要求关掉）；`ranch/main`、`cairn/main` 已不在。
-- 428 项测试通过，clippy、`cargo fmt --check` 干净。`~/Applications/paddock.app` 是合并 P5-42 之后的版本（10-08 09:22 装，含 P5-35～P5-42、paddock ctl；用户要重启 paddock 才用上），已用本机 Apple Development 证书签名。
+- 428 项测试通过，clippy、`cargo fmt --check` 干净。`~/Applications/paddock.app` 是合并 P5-42 之后的版本（10-08 09:22 装，含 P5-35～P5-42、paddock ctl；用户已重启），已用本机 Apple Development 证书签名。
 - **paddock ctl 已部署**（用户 10-07 夜在终端里跑完，主控核对过）：`~/.local/bin/paddock` 链到 app 里的程序；`paddock install-skills` 已装 `~/.claude/skills/paddock`、`~/.agents/skills/paddock`（带归属标记，与仓库源文件一致）；旧的 `~/.claude/skills/saddle` 已删。`paddock ctl instances` 找得到正在跑的窗口，`inspect` 认出 `paddock/main` 是 pane 1。重新打包安装后链接不用重建；技能正文改了要重跑 `paddock install-skills`。已开着的 agent 要重开才看到新技能。
 - 全局 corral 已是 ranch `5c5540c`（支持 pause／resume）。
 - 重新打包安装：在 `app/` 下 `cargo build --release`，再 `cargo run --release --example bundle -- --install`（编译目录见 AGENTS.md，主仓库用 `.target/main`）。打包默认自动选本机 Apple Development 身份，可用 `PADDOCK_SIGN_IDENTITY` 指定；退回 ad-hoc 时会提示授权会失效。
@@ -13,7 +13,7 @@
 ## 10-08 上午：P5-42 输入框中文输入法崩溃
 
 - 用户 09:07 崩溃（日志在对话里，不入库）：系统拼音输入法调 `setMarkedText` 时 `TextInput` 切字符串越界，`extern "C"` 里不能展开，整个 app abort。原因是从 GPUI `examples/input.rs` 带来的选区算法错（按整个输入框换算、结尾加 `range.end`），输入法清空拼写中文字（删光拼音、Shift 切换）后再打字就崩。终端窗格不受影响。
-- 主控自己修（用户“写完就做”），先写失败测试再修，合并、推送、重新打包安装。**待用户**：重启 paddock，在输入框里试拼音删光再打、Shift 切换、选字上屏、候选窗位置。
+- 主控自己修（用户“写完就做”），先写失败测试再修，合并、推送、重新打包安装。用户重启后试过，没问题（10-08）。
 
 ## 10-07 晚上：P5-35～P5-40、paddock ctl
 
