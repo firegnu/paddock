@@ -164,51 +164,52 @@ impl Preset {
                 dim: 0.56,
                 dimmer: 0.48,
             },
-            // Deeper, bluer and greener grounds, far from the material's grey: washed most of the
-            // way, so the column takes the terminal's hue and the frost only shows through
-            // (P5-24b); their own selected colours step further too. The darker ground keeps the
+            // Deeper, bluer and greener grounds, far from the material's grey: washed further, so
+            // the column leans to the terminal's hue, but under half, so the frost still shows
+            // through as on Dune (P5-50; P5-24b had them washed most of the way, which read as a
+            // haze). Their own selected colours step further too. The darker ground keeps the
             // quiet text at least as readable as on the grey.
             Preset::Tide => Frost {
-                wash: 0.62,
+                wash: 0.45,
                 lit: 0.12,
                 waiting: 0.12,
                 dim: 0.46,
                 dimmer: 0.40,
             },
             Preset::Lagoon => Frost {
-                wash: 0.72,
+                wash: 0.45,
                 lit: 0.12,
                 waiting: 0.12,
                 dim: 0.42,
                 dimmer: 0.36,
             },
             // The four borrowed palettes lie on deep blue-violet grounds like Tide's, washed as
-            // far; Kanagawa's ink is nearly neutral, so a little less. Their quiet text is darker
+            // far, Kanagawa's nearly neutral ink too. Their quiet text is darker
             // than Tide's against their own text, so it steps further: Tokyo Night's, the
             // darkest, the furthest.
             Preset::Catppuccin => Frost {
-                wash: 0.62,
+                wash: 0.45,
                 lit: 0.12,
                 waiting: 0.12,
                 dim: 0.62,
                 dimmer: 0.48,
             },
             Preset::TokyoNight => Frost {
-                wash: 0.64,
+                wash: 0.45,
                 lit: 0.12,
                 waiting: 0.12,
                 dim: 0.72,
                 dimmer: 0.60,
             },
             Preset::RosePine => Frost {
-                wash: 0.62,
+                wash: 0.45,
                 lit: 0.12,
                 waiting: 0.12,
                 dim: 0.50,
                 dimmer: 0.46,
             },
             Preset::Kanagawa => Frost {
-                wash: 0.52,
+                wash: 0.45,
                 lit: 0.12,
                 waiting: 0.12,
                 dim: 0.48,
