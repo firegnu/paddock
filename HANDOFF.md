@@ -3,19 +3,20 @@
 ## 现在在哪（2026-10-08 深夜）
 
 - main 和 `origin/main`（`github.com/firegnu/paddock`，public）同步，工作区里只有十一个未提交的草稿任务文件（P5-51～P5-56、P5-58～P5-62，看板 DRAFT，见“下一步”；**是有意留的草稿，不要 `git add -A`**）。没有进行中的活，没有开着的 worktree，本地只有 main 一个分支；ranch 也一样（main 同步、无 worktree）。corral 里只有 `paddock/main`（本主控）；今天派出去的 dev agent 都已关，owlet/main、global-mesh/main 用户已关。
-- 452 项测试通过，clippy、`cargo fmt --check` 干净。`~/Applications/paddock.app` 是合并 P5-64 之后的版本（10-08 23:25 装，含 P5-35～P5-50、P5-57、P5-63、P5-64、paddock ctl；用户已重启看过），已用本机 Apple Development 证书签名。
+- 452 项测试通过，clippy、`cargo fmt --check` 干净。`~/Applications/paddock.app` 是合并 P5-65 之后的版本（10-08 23:31 装，含 P5-35～P5-50、P5-57、P5-63～P5-65、paddock ctl；P5-65 待用户重启看），已用本机 Apple Development 证书签名。
 - **paddock ctl 已部署**（用户 10-07 夜在终端里跑完，主控核对过）：`~/.local/bin/paddock` 链到 app 里的程序；`paddock install-skills` 已装 `~/.claude/skills/paddock`、`~/.agents/skills/paddock`（带归属标记，与仓库源文件一致）；旧的 `~/.claude/skills/saddle` 已删。`paddock ctl instances` 找得到正在跑的窗口，`inspect` 认出 `paddock/main` 是 pane 1。重新打包安装后链接不用重建；技能正文改了要重跑 `paddock install-skills`。已开着的 agent 要重开才看到新技能。
 - 全局 `~/.local/bin/corral`、`~/.local/bin/ranch` 已是 ranch `d55defb`（10-08 R2：技能里派活和临时委派的 agent 带 `CAIRN_DISABLE=1`；程序行为与 `5c5540c` 相同，支持 pause／resume）。
 - **cairn 已全局装上（只 claude）**：`~/.claude/settings.json` 里 4 个 cairn hook 和一条放行 `cairn save` 的规则（改前备份 `~/.claude/settings.json.bak-20261008T082855…`），只有 owlet 启用（`adopt`）；其他仓库里 hook 查到没启用就直接退出。卸掉：`cairn uninstall --agent claude`。
 - 重新打包安装：在 `app/` 下 `cargo build --release`，再 `cargo run --release --example bundle -- --install`（编译目录见 AGENTS.md，主仓库用 `.target/main`）。打包默认自动选本机 Apple Development 身份，可用 `PADDOCK_SIGN_IDENTITY` 指定；退回 ad-hoc 时会提示授权会失效。
-- 已合并：第一至第三阶段、迁移 M0–M3（corral、dispatch 在 `../ranch`；遥测、Drover、插件系统已砍）、P4-1～P4-3、P5-1～P5-50、P5-57、P5-63、P5-64（P5-13 做了 13a 外壳、13b／13c Changes；P5-19 磨砂；P5-23r、P5-13r、P5-29r、P5-29r2 是调研；P5-28 做了 28a～28d；P5-29 做了 29a～29f；P5-33 做了 33、33b；P5-34 做了 34、34b；P5-36 做了 36a～36c；P5-39 做了 39a～39d）。每件的范围、完成记录、主控审查在 `docs/任务/`。
+- 已合并：第一至第三阶段、迁移 M0–M3（corral、dispatch 在 `../ranch`；遥测、Drover、插件系统已砍）、P4-1～P4-3、P5-1～P5-50、P5-57、P5-63～P5-65（P5-13 做了 13a 外壳、13b／13c Changes；P5-19 磨砂；P5-23r、P5-13r、P5-29r、P5-29r2 是调研；P5-28 做了 28a～28d；P5-29 做了 29a～29f；P5-33 做了 33、33b；P5-34 做了 34、34b；P5-36 做了 36a～36c；P5-39 做了 39a～39d）。每件的范围、完成记录、主控审查在 `docs/任务/`。
 - 上下文：`AGENTS.md`（规矩，含「开发方式」里的**看板约定**）、`docs/DESIGN.md`（已定决定，§13 是界面改版的全部决定和用户原话）、`docs/背景与决策记录.md`、`docs/设计稿/`、`docs/调研/`。更早的会话（10-06 晚到 10-07：Browser P5-28、Kanban P5-29、P5-21～P5-41b 等）的细节都在各自的任务文件里。
 
-## 10-08 深夜：侧栏染色统一 0.25（P5-63、P5-64）；Kanban 优先级等三份新草稿
+## 10-08 深夜：侧栏染色试 0.25 后统一回到 0.45（P5-63～P5-65）；Kanban 优先级等三份新草稿
 
 - **侧栏磨砂**：用户问左侧栏“模糊值”。答：模糊是系统 `NSVisualEffectView`（`Sidebar` 材质，`frost.rs`），公开接口不能调半径；paddock 能调的是盖在上面的主题色 `wash`（`preset.rs` 的 `Preset::frost()`）。P5-50 的 0.45 是主控估的、没对比过几档，用户嫌还高。
   - P5-63（用户：“0.25试一下，你直接改，快”）：先只改 Lagoon 0.45 → 0.25。用户看过，没问题。
   - P5-64（用户：“其他主题也一起降到0.25”）：Dune（0.30）和另五套都降到 0.25，七套统一。Tokyo Night 降完后活动格子图“没提交的日子 → 第一档”亮度比 1.149，不到测试要求的 1.15；没放宽断言，把它的 `lit` 0.12 → 0.11。23:25 重新打包安装，用户重启后看过，没问题（10-08）。
+  - P5-65：用户重启看了 0.25 后：“调整到高一点吧。现在有点撕裂感。”（侧栏偏灰、和终端主题色断开）主控提 0.35，用户：“0.45也是可以。先保持统一感。甚至高点都没关系”。七套统一回到 0.45（Dune 也是，P5-50 时它是 0.30），Tokyo Night `lit` 恢复 0.12。23:31 重新打包安装，**待用户重启后看**。结论：通透不如和终端的统一感要紧，再调只往上调。
   - 侧栏小字对比度测试本来就按不染色的磨砂灰（#45494a）检查，`wash` 再降也成立（主控一度说错成“没保证”，已更正）。
 - **Kanban 的 Queued 顺序**：用户问执行顺序。答：只按编号排、草稿在前（`kanban.rs` 的 `board`），不是执行顺序；草稿卡不显示 `依赖：`。用户在评估“优先级 + 在 Queued 里拖动”，记成草稿 **P5-60**，明天讨论。和 DESIGN §13 P5-29 “不能拖，列内不排序”“不做的线：自己的队列文件、主控读看板的顺序或标记”冲突，要做先改 DESIGN。主控建议：优先级写进任务文件一行三档、New task 弹框用固定选项写入（用户提出：自由写会解析出错），不做同档内任意拖动；md 编辑器是最贵的部分（只有单行 `TextInput`，P5-29r2 定过不做多行输入框），建议正文仍交外部编辑器。
 - **P5-61**（新草稿）：照 herdr，弹出终端直接敲 `claude`、`codex --yolo`、`pi` 就跑；**用户确认要 corral 托管**（“对，要的是corral托管，而不是那种直接从命令行启动的agent。”）；现有 New Agent 浮层不变。主控倾向“一行命令提示 → `corral start` → 同窗格 attach”，不拦真 shell。
