@@ -62,3 +62,10 @@
   - 等名单结果期间最长 3 秒不显示提示。如果 agent 其实还活着（例如在别处被挤下线），3 秒后照旧显示 “attach exited… reconnect”，这条沿用现在的行为，不在本轮。
   - `close_quietly` 改成 `pub(super)` 复用，避免自动关闭抢走用户正在别处（侧栏输入框、Browser）用的键盘。
 - **没做的事**：没碰 corral、ranch、配置和布局文件格式、暂停。`agent attached elsewhere` 照旧。启动时 `Launch::Empty`、恢复出来的空窗格照旧（任务只要求“关到最后一个”时开 shell）。真实 agent 停掉的体验（paddock 里 Stop、`/exit`、`corral stop`、崩溃）和窗格被挡住时的实际画面，留给用户试。
+
+## 主控审查
+
+- 看了 diff（9 个文件）：只关本地窗格，没碰 corral、配置、布局格式、暂停，没加依赖。判断“停了”以成功读到的名单为准：读失败时 `Listing::absorb` 不交新名单给窗口、保留的名单里 agent 仍在，`ended_panes` 返回空（`sidebar.rs` 的 `a_failed_read_ends_no_agent`）；暂停、接入中／已接入的不算停。截图里 `p/demo` 退出后标签关掉、回到 shell，左下角 “p/demo ended”。
+- 重跑：`cargo test --all-targets` 448 项全过（main 上 438 + 新增 10），clippy、`cargo fmt --check`、`git diff --check` 过。
+- 取舍表态：等名单结果期间最长 3 秒不显示提示、agent 其实还活着时 3 秒后照旧提示，同意；名单说没了而接入还连着时先断开再读一次才关，同意；`close_quietly` 改 `pub(super)` 复用、不抢键盘，同意；Stop 确认框说明改成 “Panes showing it close.”，同意。启动时那个空窗格照旧是空的，任务只要求“关到最后一个”，同意不扩大。
+- 真实 agent 停掉的体验待用户试。
