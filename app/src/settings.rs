@@ -17,8 +17,10 @@ use toml_edit::{DocumentMut, Item, Value};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Page {
     General,
-    Colors,
-    Advanced,
+    /// The theme and the colours over it.
+    Appearance,
+    /// How paddock reads its agents: the refresh interval and the corral command.
+    Agents,
     /// Read-only: what paddock runs and how its reads and saves went.
     Diagnostics,
 }
@@ -26,16 +28,16 @@ pub enum Page {
 impl Page {
     pub const ALL: [Page; 4] = [
         Page::General,
-        Page::Colors,
-        Page::Advanced,
+        Page::Appearance,
+        Page::Agents,
         Page::Diagnostics,
     ];
 
     pub fn label(self) -> &'static str {
         match self {
             Page::General => "General",
-            Page::Colors => "Colors",
-            Page::Advanced => "Advanced",
+            Page::Appearance => "Appearance",
+            Page::Agents => "Agents",
             Page::Diagnostics => "Diagnostics",
         }
     }
@@ -124,7 +126,7 @@ pub fn fields() -> Vec<Field> {
         field(
             "refresh_ms",
             "Refresh interval",
-            Page::General,
+            Page::Agents,
             Kind::Integer,
             true,
         ),
@@ -178,14 +180,14 @@ pub fn fields() -> Vec<Field> {
             Kind::List,
             false,
         ),
-        field("theme", "Theme", Page::Colors, Kind::Theme, false),
+        field("theme", "Theme", Page::Appearance, Kind::Theme, false),
     ];
     let mut colors: Vec<Field> = theme::color_keys()
         .into_iter()
         .map(|name| Field {
             key: format!("colors.{name}"),
             label: name.into(),
-            page: Page::Colors,
+            page: Page::Appearance,
             group: group(name),
             kind: Kind::Color,
             restart: false,
@@ -196,7 +198,7 @@ pub fn fields() -> Vec<Field> {
     list.push(field(
         "corral",
         "corral command",
-        Page::Advanced,
+        Page::Agents,
         Kind::Text,
         true,
     ));
@@ -348,6 +350,56 @@ impl Draft {
         key.starts_with("colors.") && self.override_of(key).is_some()
     }
 
+    /// Unlike its default, as drafted: a colour set by the user, or another setting that reads
+    /// differently from its default (numbers by value, lists item by item).
+    pub fn modified(&self, key: &str) -> bool {
+        match self.field(key) {
+            Some(field) if field.kind == Kind::Color => self.custom(key),
+            Some(field) => !same(field, &self.value(key), &self.default_shown(key)),
+            None => false,
+        }
+    }
+
+    /// The default as the page shows it; empty for the system's interface font.
+    pub fn default_shown(&self, key: &str) -> String {
+        shown(&Config::default(), key)
+    }
+
+    /// The settings drafted differently from the file as read, in display order.
+    pub fn unsaved(&self) -> Vec<&Field> {
+        self.fields
+            .iter()
+            .filter(|field| self.changes.contains_key(&field.key))
+            .filter(|field| match field.color() {
+                Some(name) => self.override_of(&field.key) != self.config.colors.get(name).cloned(),
+                None => !same(
+                    field,
+                    &self.value(&field.key),
+                    &shown(&self.config, &field.key),
+                ),
+            })
+            .collect()
+    }
+
+    /// Why the drafted value of `key` can't be saved, as Save would say; `None` when it can or
+    /// is not drafted.
+    pub fn problem(&self, key: &str) -> Option<String> {
+        let (Some(field), Some(Change::Set(text))) = (self.field(key), self.changes.get(key))
+        else {
+            return None;
+        };
+        if field.kind == Kind::UiFont && text.trim().is_empty() {
+            return None;
+        }
+        let checked = value(field, text).and_then(|value| {
+            let mut document = DocumentMut::new();
+            apply(&mut document, key, Some(value))?;
+            Theme::from_config(&Config::parse(&document.to_string())?)?;
+            Ok(())
+        });
+        checked.err().map(|error| format!("{error:#}"))
+    }
+
     /// Changed in this draft.
     pub fn changed(&self, key: &str) -> bool {
         self.changes.contains_key(key)
@@ -473,6 +525,27 @@ impl Draft {
             config: Box::new(config),
             restart,
         }))
+    }
+}
+
+/// Two texts of `field` that save the same: numbers by value, lists item by item.
+fn same(field: &Field, a: &str, b: &str) -> bool {
+    match field.kind {
+        Kind::Integer | Kind::Number => match (a.trim().parse::<f64>(), b.trim().parse::<f64>()) {
+            (Ok(a), Ok(b)) => a == b,
+            _ => a.trim() == b.trim(),
+        },
+        Kind::List => {
+            let items = |text: &str| -> Vec<String> {
+                text.split(',')
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(str::to_owned)
+                    .collect()
+            };
+            items(a) == items(b)
+        }
+        _ => a.trim() == b.trim(),
     }
 }
 
@@ -746,17 +819,110 @@ mod tests {
         assert_eq!(order, GROUPS);
         let draft = Draft::new(None).unwrap();
         // Every colour shows a value the page can put back.
-        for field in colors {
+        for field in &colors {
             assert!(!draft.value(&field.key).is_empty(), "{}", field.key);
         }
-        assert_eq!(
-            fields.iter().filter(|f| f.page == Page::General).count(),
-            10
-        );
-        assert!(
+        let page = |key: &str| fields.iter().find(|f| f.key == key).unwrap().page;
+        assert_eq!(page("theme"), Page::Appearance);
+        assert!(colors.iter().all(|f| f.page == Page::Appearance));
+    }
+
+    #[test]
+    fn the_refresh_interval_sits_with_the_corral_command_on_agents() {
+        let fields = fields();
+        let on = |page| -> Vec<&str> {
             fields
                 .iter()
-                .any(|f| f.key == "corral" && f.page == Page::Advanced)
+                .filter(|f| f.page == page)
+                .map(|f| f.key.as_str())
+                .collect()
+        };
+        assert_eq!(on(Page::Agents), ["refresh_ms", "corral"]);
+        assert_eq!(on(Page::General).len(), 9);
+        assert!(!on(Page::General).contains(&"refresh_ms"));
+        assert_eq!(
+            Page::ALL.map(Page::label),
+            ["General", "Appearance", "Agents", "Diagnostics"]
         );
+    }
+
+    #[test]
+    fn a_setting_unlike_its_default_offers_the_default() {
+        let mut draft = Draft::new(Some(FILE.into())).unwrap();
+        // Saved unlike the default, or drafted so.
+        assert!(draft.modified("font"));
+        assert_eq!(draft.default_shown("font"), "Menlo");
+        assert!(draft.modified("colors.focus"));
+        assert!(!draft.modified("font_size"));
+        assert!(!draft.modified("colors.claude"));
+        assert!(!draft.modified("ui_font"));
+        draft.set("font_size", "15");
+        assert!(draft.modified("font_size"));
+        assert_eq!(draft.default_shown("font_size"), "14");
+        // The same number written another way is still the default.
+        draft.set("font_size", "14.0");
+        assert!(!draft.modified("font_size"));
+        draft.set(
+            "font_fallbacks",
+            "Symbols Nerd Font Mono,FiraCode Nerd Font Mono, FiraCode Nerd Font",
+        );
+        assert!(!draft.modified("font_fallbacks"));
+        draft.reset("font");
+        assert!(!draft.modified("font"));
+        draft.set("ui_font", "Avenir Next");
+        assert!(draft.modified("ui_font"));
+        assert_eq!(draft.default_shown("ui_font"), "");
+        assert_eq!(draft.default_shown("mascot"), "clawd");
+    }
+
+    #[test]
+    fn unsaved_lists_only_what_differs_from_the_file() {
+        let mut draft = Draft::new(Some(FILE.into())).unwrap();
+        assert!(draft.unsaved().is_empty());
+        draft.set("font_size", "15");
+        draft.set("colors.claude", "#d97757");
+        let labels = |draft: &Draft| -> Vec<String> {
+            draft.unsaved().iter().map(|f| f.label.clone()).collect()
+        };
+        assert_eq!(labels(&draft), ["Terminal size", "claude"]);
+        // Typed back to what the file says: an edit, but nothing to save.
+        draft.set("font_size", "14");
+        draft.reset("colors.claude");
+        assert!(draft.edited());
+        assert!(draft.unsaved().is_empty());
+        // Another theme drops the file's colour override too.
+        draft.set("theme", "lagoon");
+        assert_eq!(labels(&draft), ["Theme", "focus"]);
+    }
+
+    #[test]
+    fn a_wrong_value_names_its_problem_before_save() {
+        let mut draft = Draft::new(Some(FILE.into())).unwrap();
+        assert_eq!(draft.problem("sidebar_width"), None);
+        for (key, value, says) in [
+            ("sidebar_width", "wide", "Sidebar width must be a number"),
+            (
+                "refresh_ms",
+                "1.5",
+                "Refresh interval must be a whole number",
+            ),
+            ("refresh_ms", "0", "refresh_ms"),
+            ("font_size", "0", "font_size"),
+            ("colors.focus", "chartreuse", "focus"),
+            ("corral", " ", "corral"),
+        ] {
+            draft.set(key, value);
+            let problem = draft.problem(key).unwrap_or_default();
+            assert!(problem.contains(says), "{key}: {problem}");
+        }
+        for (key, value) in [
+            ("sidebar_width", "400"),
+            ("font_size", "15.5"),
+            ("colors.focus", "#cfc27a"),
+            ("ui_font", ""),
+        ] {
+            draft.set(key, value);
+            assert_eq!(draft.problem(key), None, "{key}");
+        }
     }
 }

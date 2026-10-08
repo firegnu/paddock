@@ -61,3 +61,52 @@
 
 ## 做完
 在本文件末尾追加「## 完成记录」（在你的分支里提交）：做了什么、验证了什么、拿主意的地方、没做的事，各几句话。回复里只写这几样，加上截图路径和有没有要主控决定的事。命令都在前台跑完，全部做完后，回复最后一行写 DONE。
+
+## 完成记录
+
+**做了什么**
+- `settings.rs`：页面改成 General／Appearance／Agents／Diagnostics；Refresh interval 挪到 Agents，和 corral command 一组。新增四个只读的显示用方法：`modified`（和默认值不同，数字按数值、列表逐项比）、`default_shown`、`unsaved`（草稿里真的和文件不同的设置，按页面顺序）、`problem`（这一项 Save 会报的错，和 Save 同一套检查）。Draft／Saved／Conflict 的逻辑、配置格式、键名、默认值都没动。
+- `settings_view.rs` 按样稿 A 重画：左侧栏四页带线条图标（`footer_icon.rs` 加了 Palette、Agent、Pulse、Warning 四个），选中项是浅强调色底，配置文件路径放在侧栏底部；标题在上，分组标题不再全大写；行放在无外框的浅底卡片上，分隔线从标签处开始；数字改成步进器；Fallback fonts 改成标签加 “+ Add”；Terminal 组顶上是实时预览；改过的行有圆点和 “Reset to …”，要重启的行标黄色 “after restart”；Appearance 有主题卡片、自定义颜色（只列改过的，或 Show all）；Diagnostics 两栏加状态点；保存条只在有改动或有消息时浮出。所有颜色都取自主题（底色往正文色混出卡片和输入框底色）。
+- `search.rs`：命令面板里的页名和说明跟着改（Appearance：theme and colors；Agents：refresh interval, corral command），测试同步。
+- `docs/DESIGN.md` §13 P5-44 下补了一条「实现时定」。
+
+**现有功能对照（旧 → 新界面里的位置）**
+- Interface 字体／字号／侧栏宽度 → General › Interface：字体选择框；字号、侧栏宽度改成步进器，单位 pt。
+- Terminal 字体／字号／行高 → General › Terminal，在预览下方：字体选择框，字号（pt）、行高用步进器。
+- Fallback fonts 及说明 → General › Terminal：每个字体一个带 × 的标签，“+ Add” 打开输入框（Return 加入，Esc 取消，点别处时有名字就加入）；说明 “For characters the font lacks, in order” 在标签下方；保存出来仍是同一个列表。
+- Mascot 开关、Pet 三选一、关掉时 Pet 变淡 → General › Mascot，没变（开关和三段选择换了底色）。
+- Refresh interval → Agents › corral：步进器（ms），带 after restart。
+- corral command → Agents › corral：文本框，带 after restart，下方写 “--corral overrides it for one run”。
+- Theme → Appearance › Theme：七张缩略窗口卡片，宽度够时一行四张，选中的一圈强调色加勾。
+- 全部颜色覆盖 → Appearance › Custom colors：默认只列改过的（色块、键名、分组、Reset、值框），“Show all 61” 按五组列出全部，“Show changed” 收回；一个都没改时显示 “Every color follows the theme.” 和 Show all 入口。值可以写颜色名或 #hex；清空就回到跟随主题。
+- 字体选择框：搜索、↑↓、Return、Esc、“Reading installed fonts…／Finding monospace fonts…／No font matches.”、当前字体打勾、界面字体列 System：代码原样保留，只换了外框颜色和搜索图标。
+- 单位 pt／ms → 步进器里，值的后面。
+- 输入不合法时的红框和原因 → 步进器或输入框变成红框，标签下面用红字写原因；Save 时保存条里还会写 “Not saved: …”。
+- 过窄的 sidebar_width 自动加宽 → `windows.rs` 的 `fit_width`，没改。
+- Save（⌘S）、Revert → 保存条里的 Save ⌘S 和 Revert；⌘S 快捷键照旧。
+- ⌘W 关闭、带未保存改动关闭时问 Save／Don't Save／Cancel → 没变（判断改为 `unsaved()` 不为空）。
+- 先写临时文件再替换 → `write()` 没改。
+- 磁盘冲突的 Keep／Discard → 保存条变成黄框冲突条：“The config file changed on disk; nothing was saved.”，按钮是 Discard my edits 和 Keep my edits。
+- 配置文件读不了时的提示和退回默认 → 保存条红点显示 “The config file has a problem: …”，可以点 × 关掉；草稿仍然退回默认。
+- 保存后主窗口立即应用 → `SettingsEvent::Saved` 没变；保存条显示 Saved.／Saved. Restart paddock for: ….／Nothing to save.
+- Diagnostics：全部行的标签和值文字原样，分两栏：左边 Commands、Agents、Start，右边 Config、Layout。每行前面一个状态点：正常绿色，未知或中性灰色，出错红色。checking… 照旧。Refresh 改成标题右侧的图标按钮，旁边写 “Checked at … · read-only”。原来的页底句子拆开，剩下的 “Nothing here changes paddock or its files.” 放在页底。主窗口不在时显示一行红点 “Unavailable: the main window is gone.”。
+- 命令面板跳到各设置页 → `search.rs`，页名和说明已更新，有测试。
+
+**验证了什么**
+- 新测试：`settings.rs` 里有 `the_refresh_interval_sits_with_the_corral_command_on_agents`（页面归属和页名）、`a_setting_unlike_its_default_offers_the_default`、`unsaved_lists_only_what_differs_from_the_file`、`a_wrong_value_names_its_problem_before_save`；`settings_view.rs` 里有步进取整和最小值、Reset 文字、保存条摘要、主题卡片列数的测试；`search.rs` 测试改成 Appearance，并加了 “refresh” 搜到 Agents 的断言。先写测试，确认失败后再实现。原有的 Draft、保存、冲突测试都照旧通过。
+- `app/` 下 `cargo test --all-targets` 全过（lib 376 个）；`cargo clippy --all-targets -- -D warnings` 没有警告；`cargo fmt --check` 通过。
+- 截图：临时 HOME／XDG_STATE_HOME、假 corral、`PADDOCK_NO_ACTIVATE=1`，只截设置窗口自己。用的临时开关（启动后打开指定页、预填草稿、展开 Show all）截完已经撤掉，没有提交。截图在 scratchpad 的 `shot/png/`：`general.png`、`savebar.png`（两项未保存改动加圆点和 Reset）、`appearance.png`、`showall.png`、`agents.png`（非法值时的红框、原因和 after restart）、`diagnostics.png`、`general18.png`（界面字号 18）。Diagnostics 截图里 corral version 是红的，原因是假 corral 的 `--version` 输出不是 JSON，和界面无关。
+
+**拿主意的地方**
+- 步长：界面字号和终端字号 1（最小 6），侧栏宽度 10（最小 10），行高 0.1（最小 0.5），刷新间隔 250 ms（最小 250）。值不是数字时，从默认值开始步进。
+- 保存条只按“和文件真的不同”出现：改了又改回去不算。关闭时问不问也用同一个判断，免得没有保存条却被问要不要保存。
+- 消息：Saved、Nothing to save、Keep 之后的提示 4 秒后消失（直接消失，没有做淡出动画），下次编辑时也会清掉。Not saved 和配置文件有问题，下次编辑或点 × 才消失。磁盘冲突一定要点 Keep 或 Discard。
+- “after restart” 一直显示在要重启才生效的行上，不再像原来的 Restart required 那样只在改过时显示，样稿 Agents 页就是这样画的。
+- 颜色框清空就等于 Reset（回到跟随主题）。任务清单把“空即跟随主题”当成现有功能，但原来的代码在 Save 时会报 invalid color，这里在界面层补上了，`settings.rs` 没动。
+- 左侧栏不另调深色（只能从主题取色），用一条淡线和内容区分开。Dune 的侧栏色和终端底色几乎一样，所以 Dune 卡片里的小侧栏看不太出来，是主题本身的颜色。
+- Agents 页的分组标题沿用样稿，写 “corral”。
+
+**没做的事**
+- 没截冲突条（任务没要求），也没有在真窗口里试键盘、鼠标、字体选择框、步进器、+ Add 和关闭确认，都留给用户实际试。
+- 主题卡片没有 Reset（原来的主题列表也没有 Default）。
+- 没改配置格式和保存规则，没加依赖。
