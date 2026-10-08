@@ -897,6 +897,11 @@ pub fn sweeps(active: bool, still: bool) -> bool {
     active && !still
 }
 
+/// Where the card's outer edge is, from the sidebar's left edge: its margin.
+pub fn card_left() -> f32 {
+    MARGIN_X
+}
+
 /// Where the card's words start (`Activity`, the summary), from the sidebar's left edge: past its
 /// margin, its 1-point edge and its side.
 pub fn text_left(ui: &UiFont) -> f32 {
