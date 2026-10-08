@@ -1,8 +1,8 @@
 # 交接
 
-## 现在在哪（2026-10-08 晚）
+## 现在在哪（2026-10-08 夜）
 
-- main 和 `origin/main`（`github.com/firegnu/paddock`，public）同步，工作区干净。没有进行中的活，没有开着的 worktree，本地只有 main 一个分支；ranch 也一样（main 同步、无 worktree）。corral 里只有 `paddock/main`（本主控）；今天派出去的 dev agent 都已关，owlet/main、global-mesh/main 用户已关。
+- main 和 `origin/main`（`github.com/firegnu/paddock`，public）同步，工作区里只有九个未提交的草稿任务文件（P5-51～P5-59，看板 DRAFT，见“下一步”）。没有进行中的活，没有开着的 worktree，本地只有 main 一个分支；ranch 也一样（main 同步、无 worktree）。corral 里只有 `paddock/main`（本主控）；今天派出去的 dev agent 都已关，owlet/main、global-mesh/main 用户已关。
 - 452 项测试通过，clippy、`cargo fmt --check` 干净。`~/Applications/paddock.app` 是合并 P5-49 之后的版本（10-08 21:09 装，含 P5-35～P5-50、paddock ctl；用户已重启），已用本机 Apple Development 证书签名。
 - **paddock ctl 已部署**（用户 10-07 夜在终端里跑完，主控核对过）：`~/.local/bin/paddock` 链到 app 里的程序；`paddock install-skills` 已装 `~/.claude/skills/paddock`、`~/.agents/skills/paddock`（带归属标记，与仓库源文件一致）；旧的 `~/.claude/skills/saddle` 已删。`paddock ctl instances` 找得到正在跑的窗口，`inspect` 认出 `paddock/main` 是 pane 1。重新打包安装后链接不用重建；技能正文改了要重跑 `paddock install-skills`。已开着的 agent 要重开才看到新技能。
 - 全局 `~/.local/bin/corral`、`~/.local/bin/ranch` 已是 ranch `d55defb`（10-08 R2：技能里派活和临时委派的 agent 带 `CAIRN_DISABLE=1`；程序行为与 `5c5540c` 相同，支持 pause／resume）。
@@ -80,12 +80,16 @@
 
 ## 下一步（按优先级）
 
-**明天（10-09）用户列的五件**（已写成五个**未提交的草稿任务文件** `docs/任务/P5-51`～`P5-57`（P5-56 是用户随后加的“Settings 改了立即生效，不用 Save”，P5-57 是“左下角 Settings 按钮依然没对齐”，P5-58 是“logo 依然需要设计，参考 superlogical”，P5-59 是“主界面几个区域的轮廓线不明显、不优雅，照 superlogical 的图做”），看板显示 DRAFT；开工时补全再按路径提交，别用 `git add -A`）（用户 10-08 夜原话依次是：“整体界面再次美化细化（左侧agents中的每一个agent的卡片按照superlogical的界面做）”“有时候paddock会有第二个paddock的bakcground进程显示在dock中，要查一下”“cairn迁移到paddock中开始测试cairn”“browser选中元素后送agent，diff选中改后送agent”“paddock写cairn的面板”）：
-- **A. 整体界面再美化细化，左侧栏 agent 卡片照 superlogical 的界面做**：主控不知道 superlogical 指什么，开工前先请用户给链接或截图；照惯例先出样稿给用户挑，再写任务文件。
-- **B. 查 Dock 里偶尔多出第二个 paddock 后台进程**：先只查不改（类型调研）。主控猜测之一：`~/.local/bin/paddock` 链到 app 包里的程序，agent 或终端跑 `paddock ctl …` 时以 app 包程序身份启动，macOS 给它也挂了 Dock 图标；要核实，并查是否另有残留实例（`paddock ctl instances`）。
-- **C. 在 paddock 仓库开始试 cairn**：在 paddock `adopt`；paddock 的 AGENTS.md 现在要求开会话先读 HANDOFF，要不要照 owlet 的方案 A 改（HANDOFF 只留稳定背景、进度靠 cairn），开工前和用户定；派出去的 agent 已按 R2 不用 cairn。
-- **D. 把选中的内容送给 agent**：Browser 里选中页面元素送 agent；Changes 的 diff 里选中几行（写上要怎么改）送 agent。即原“Changes 第二步”的一部分加 Browser 的同类功能；先出交互样稿。
-- **E. paddock 里做 cairn 面板**：10-08 定的“暂不做”由用户改为要做。前提要先定：直接显示 `cairn show`／`cairn list` 的文字（不用 cairn 改东西），还是先请 cairn 主控把 JSON 定成公开约定、加只读开关；以及面板放右侧栏还是别处。和 C 一起推进。
+**明天（10-09）：用户 10-08 夜列的九件，都已写成未提交的草稿任务文件（看板显示 DRAFT）**。开工时补全那一件、再按路径提交，别用 `git add -A`。每份草稿里有用户原话和“开工前要定”。其中 P5-51、P5-58、P5-59 都参考 **superlogical**，主控不知道它指什么，开工前先请用户给链接或截图，照惯例先出样稿给用户挑。
+- **P5-51** 整体界面再美化，左侧栏 agent 卡片照 superlogical 做（和 P5-59 范围重叠，考虑合成一件）。
+- **P5-52** 查 Dock 里偶尔多出第二个 paddock 后台进程（先只查不改；主控猜测：`~/.local/bin/paddock` 是 app 包里的程序，跑 `paddock ctl …` 时 macOS 也给它挂了 Dock 图标；另用 `paddock ctl instances` 查残留实例）。
+- **P5-53** 在 paddock 仓库开始试 cairn（`adopt`；paddock AGENTS.md 要求开会话先读 HANDOFF，要不要照 owlet 方案 A 改，和用户定）。
+- **P5-54** Browser 选中元素、Changes 选中 diff 写上要怎么改后送给 agent（先出交互样稿）。
+- **P5-55** paddock 里做 cairn 面板（10-08 定的“暂不做”由用户改为要做；数据直接用 `cairn show`／`list` 的文字还是先请 cairn 定 JSON 约定、面板放哪，要定；依赖 P5-53）。
+- **P5-56** Settings 改了立即生效，不用再点 Save（改 P5-44 的保存逻辑，属改行为）。
+- **P5-57** 左下角 Settings 按钮仍没对齐（P5-48 对齐的是 “Activity” 文字；请用户指出想对哪条线，最好截图圈出）。
+- **P5-58** 应用图标再设计，参考 superlogical（只参考风格，不照抄别家商标图形）。
+- **P5-59** 主界面几个区域的轮廓线更明显、更优雅，照 superlogical 的图做。
 
 0. **cairn 试点（owlet，10-08 晚起，用一两周再定留不留）**：owlet 按方案 A 试“cairn 替代手写交接”（owlet `c35a288`：HANDOFF 减到 47 行只留稳定背景；AGENTS.md 改为开会话以 cairn 注入为准、进度不再手写进 HANDOFF、派出去的 agent 不用 cairn，写明试点期和退回办法）。验证过：重开 owlet/main、要求“不读文件、只用开会话时已知的”回答上次做到哪，它准确说出停点、已完成、下一步和待用户决定；之前两次只说“继续”时它弹 AskUserQuestion 问方向，不是没记住。要看：隔天重开是否照样接上、旧会话的记录注入会不会越堆越长。留：再定要不要把“新会话第一句主动复述停点”转给 cairn 主控，再按真实需要设计 paddock 面板；不留：用户 `cairn uninstall --agent claude`，R2 的 `CAIRN_DISABLE=1` 留着无害。paddock 的 Recap 面板、New Agent 的 cairn 开关、给 cairn 提 JSON 约定都**暂不做**（面板看不到“到底注入了没有”，那只在 cairn 库里）。确认某次注入了没有：主控只读查 `~/.local/state/cairn/cairn.db` 的 injections 表（`sqlite3 -readonly`）；日常看 `cairn list`／`cairn show`。来历见上面“10-08 下午：cairn 试点、ranch R2”一节。
 1. **用户在真窗口里试 10-07 晚上这批**：拖缝调大小和双击；⌘Z／⇧⌘Z 和输入法；标签“+N”菜单和悬停全名；四套新主题（Rosé Pine 光标偏暗，看前台实心光标是否够显眼）；ctl 的 busy（Browser／Kanban 确认时）、`--focus` 的键盘去向、`--attach` 启动。**P5-36c 待用户定**（不挡合并）：加宽五列悬停时卡片变高一行、下面的卡片下移，还是平时就给每张卡片留出按钮那一行。
