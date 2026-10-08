@@ -3,7 +3,7 @@
 //! pane's header at its top. `layout.rs` holds the rules; this file draws them and keeps one
 //! terminal view per pane.
 use crate::{
-    agents::Panel,
+    agents::{Panel, Status},
     attention::Kind as AttentionKind,
     browser::{self, Owner, cover},
     browser_view::{BrowserView, Handoff, Visited},
@@ -471,10 +471,19 @@ const TAB_RING: f32 = 1.0;
 const TAB_SPACING: f32 = 6.0;
 const TAB_WIDEST: f32 = 220.0;
 const TAB_LEAST: f32 = 78.0;
-/// How strongly the active tab's accent ring, and the amber ring of one with an agent waiting for
-/// a person, show.
+/// How strongly the active tab's ring shows, the accent round a neutral one and its status colour
+/// round a tinted one, and the amber ring of another with an agent waiting for a person.
 const RING_ACTIVE: f32 = 0.5;
-const RING_WAITING: f32 = 0.6;
+const RING_TINTED: f32 = 0.6;
+const RING_WAITING: f32 = 0.4;
+/// A capsule's grounds over the title bar, at rest, lit and active: how far a neutral one steps
+/// towards the text colour, and how strongly a tinted one's status colour washes it; and how much
+/// of that colour its name takes, an inactive one's lifted from the muted colour this far towards
+/// the text colour first, so it reads on the brighter grounds.
+const CAPSULE_NEUTRAL: [f32; 3] = [0.10, 0.15, 0.17];
+const CAPSULE_TINTED: [f32; 3] = [0.18, 0.25, 0.30];
+const CAPSULE_TEXT_TINT: f32 = 0.35;
+const NAME_LIFT: f32 = 0.5;
 /// A paused agent's tab: how strongly it shows, and its pause mark's scale.
 const PAUSED_TAB: f32 = 0.55;
 const PAUSE_MARK: f32 = 0.7;
@@ -728,16 +737,71 @@ pub fn dimmed(panes_shown: usize, active: bool) -> bool {
 }
 
 /// What a title bar tab's capsule shows of its agents: one of them needs a person (Attention's
-/// Needs you), or the agent it shows is paused.
+/// Needs you); the agent it shows is paused; and the colour that agent's status gives it.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct TabMarks {
     pub waiting: bool,
     pub paused: bool,
+    pub tone: TabTone,
+}
+
+impl TabMarks {
+    /// An inactive tab's amber ring: one of its agents needs a person, unless the capsule is red
+    /// for the one it is named after being in error.
+    fn amber_ring(&self) -> bool {
+        self.waiting && self.tone != TabTone::Error
+    }
+}
+
+/// The colour a tab's capsule takes from the agent of the pane it is named after: working, waiting
+/// for a person, with a reply nobody has read, or in error; neutral for anything else, a shell, a
+/// paused agent.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum TabTone {
+    #[default]
+    Neutral,
+    Working,
+    Waiting,
+    Reply,
+    Error,
+}
+
+impl TabTone {
+    /// The tone of an agent the cards show as `status`, `unread` with a reply.
+    fn of(status: Status, unread: bool) -> TabTone {
+        match status {
+            Status::Waiting => TabTone::Waiting,
+            Status::Error | Status::Exited => TabTone::Error,
+            Status::Working => TabTone::Working,
+            Status::Paused => TabTone::Neutral,
+            _ if unread => TabTone::Reply,
+            _ => TabTone::Neutral,
+        }
+    }
+
+    /// The theme's status colour, as the status dot has it; none for a neutral capsule.
+    fn color(self) -> Option<Pick> {
+        let status = match self {
+            TabTone::Neutral => return None,
+            TabTone::Working => Status::Working,
+            TabTone::Waiting => Status::Waiting,
+            TabTone::Reply => Status::Idle,
+            TabTone::Error => Status::Error,
+        };
+        Some(card::look(status).color)
+    }
 }
 
 /// [`TabMarks`] for each of `workspace`'s tabs: waiting when any of its panes shows an agent
-/// `needs` names; paused when the pane it is named after shows an agent `agents` lists paused.
-pub fn tab_marks(workspace: &Workspace, agents: &[Agent], needs: &[String]) -> Vec<TabMarks> {
+/// `needs` names; paused, and its tone, by the agent `agents` lists in the pane it is named after,
+/// `unread` naming the agents with a reply nobody has read.
+pub fn tab_marks(
+    workspace: &Workspace,
+    agents: &[Agent],
+    needs: &[String],
+    unread: &[String],
+    now: f64,
+) -> Vec<TabMarks> {
     let agent = |pane: PaneId| match workspace.shown(pane) {
         Shown::Agent(name) => Some(name),
         _ => None,
@@ -745,16 +809,55 @@ pub fn tab_marks(workspace: &Workspace, agents: &[Agent], needs: &[String]) -> V
     workspace
         .tabs
         .iter()
-        .map(|tab| TabMarks {
-            waiting: tab
-                .panes()
-                .into_iter()
-                .filter_map(agent)
-                .any(|name| needs.contains(name)),
-            paused: agent(tab.active)
-                .is_some_and(|name| agents.iter().any(|a| &a.name == name && a.paused)),
+        .map(|tab| {
+            let named = agent(tab.active).and_then(|name| agents.iter().find(|a| &a.name == name));
+            TabMarks {
+                waiting: tab
+                    .panes()
+                    .into_iter()
+                    .filter_map(agent)
+                    .any(|name| needs.contains(name)),
+                paused: named.is_some_and(|a| a.paused),
+                tone: match named {
+                    Some(a) if !a.paused => {
+                        TabTone::of(Panel::default().shown(a, now), unread.contains(&a.name))
+                    }
+                    _ => TabTone::Neutral,
+                },
+            }
         })
         .collect()
+}
+
+/// A title bar capsule's grounds, solid, so the × drawn over an inactive one's title can hide the
+/// text: at rest, under the mouse (or lit), and the active tab's.
+#[derive(Clone, Copy)]
+struct Grounds {
+    rest: Hsla,
+    lit: Hsla,
+    chosen: Hsla,
+}
+
+/// [`Grounds`] over the title `bar`: steps towards its `text` for a neutral capsule, washes of its
+/// `tint` for one with a status colour.
+fn capsule_grounds(bar: Hsla, text: Hsla, tint: Option<Hsla>) -> Grounds {
+    let (color, [rest, lit, chosen]) = match tint {
+        Some(tint) => (tint, CAPSULE_TINTED),
+        None => (text, CAPSULE_NEUTRAL),
+    };
+    Grounds {
+        rest: bar.blend(color.opacity(rest)),
+        lit: bar.blend(color.opacity(lit)),
+        chosen: bar.blend(color.opacity(chosen)),
+    }
+}
+
+/// A capsule's name, `base` faintly in its `tint`.
+fn capsule_text(base: Hsla, tint: Option<Hsla>) -> Hsla {
+    match tint {
+        Some(tint) => base.blend(tint.opacity(CAPSULE_TEXT_TINT)),
+        None => base,
+    }
 }
 
 /// A pane showing an agent, as checked against corral's listing.
@@ -2826,24 +2929,33 @@ impl PaddockWindow {
     /// Each tab's marks, as corral last listed the agents and Attention has them.
     fn tab_marks(&self, cx: &Context<Self>) -> Vec<TabMarks> {
         let sidebar = self.sidebar.read(cx);
-        let needs: Vec<String> = sidebar
+        let (needs, unread): (Vec<_>, Vec<_>) = sidebar
             .attention()
             .into_iter()
-            .filter(|item| item.needs())
-            .filter_map(|item| item.agent)
-            .collect();
-        tab_marks(&self.workspace, &sidebar.agents(), &needs)
+            .partition(|item| item.needs());
+        let agents = |items: Vec<crate::attention::Item>| -> Vec<String> {
+            items.into_iter().filter_map(|item| item.agent).collect()
+        };
+        tab_marks(
+            &self.workspace,
+            &sidebar.agents(),
+            &agents(needs),
+            &agents(unread),
+            now(),
+        )
     }
 
-    /// A title bar capsule's grounds, each a step brighter than the bar's: at rest, under the
-    /// mouse (or lit), and the active tab's.
-    fn capsule_grounds(&self) -> (Hsla, Hsla, Hsla) {
+    /// A title bar capsule in the status colour `tint` (neutral without one): its grounds, and its
+    /// name's colour while inactive and while active.
+    fn capsule(&self, tint: Option<Pick>) -> (Grounds, Hsla, Hsla) {
+        let tint = tint.map(|pick| self.fg(pick));
         let bar = hsla(self.theme.bg(|t| t.agents_bg), 1.0);
-        let highlight = self.highlight();
+        let text = self.fg(|t| t.agents_text);
+        let quiet = self.fg(|t| t.muted).blend(text.opacity(NAME_LIFT));
         (
-            bar.blend(highlight.opacity(0.7)),
-            highlight,
-            highlight.blend(self.fg(|t| t.agents_text).opacity(0.07)),
+            capsule_grounds(bar, text, tint),
+            capsule_text(quiet, tint),
+            capsule_text(text, tint),
         )
     }
 
@@ -2862,9 +2974,6 @@ impl PaddockWindow {
         let ui = UiFont::get(cx);
         let scale = ui.scale(1.0);
         let highlight = self.highlight();
-        // Each capsule's ground, solid, so the × drawn over an inactive one's title can hide the
-        // text: at rest, under the mouse, and the active tab's.
-        let (rest, lit, chosen) = self.capsule_grounds();
         let muted = self.theme.fg(|t| t.muted);
         let dim = self.fg(|t| t.agents_dim);
         let shown_at = Instant::now();
@@ -2886,6 +2995,9 @@ impl PaddockWindow {
             let tab = &self.workspace.tabs[index];
             let active = index == self.workspace.active_tab;
             let marks = fit.marks[index];
+            // Its grounds and its name's colour, from the status of the agent it is named after.
+            let tint = marks.tone.color();
+            let (Grounds { rest, lit, chosen }, quiet, loud) = self.capsule(tint);
             // The active tab keeps its × in line; the others have it over the end of their
             // title, so a narrow tab gives the title all its room. The active one's always shows;
             // the others' fade in only while the mouse is on the tab.
@@ -2919,11 +3031,15 @@ impl PaddockWindow {
                     cx.stop_propagation();
                     this.close_tab(index, window, cx);
                 }));
-            // The accent round the active tab; amber round another with an agent waiting for a
-            // person, the active one's dot and its panes' headers telling that instead.
+            // Round the active tab its own status colour, or the accent when it has none; amber
+            // round another with an agent waiting for a person (see [`TabMarks::amber_ring`]), the
+            // active one's dot and its panes' headers telling that instead.
             let ring = if active {
-                self.fg(|t| t.agents_accent).opacity(RING_ACTIVE)
-            } else if marks.waiting {
+                match tint {
+                    Some(tint) => self.fg(tint).opacity(RING_TINTED),
+                    None => self.fg(|t| t.agents_accent).opacity(RING_ACTIVE),
+                }
+            } else if marks.amber_ring() {
                 self.fg(|t| t.agents_yellow).opacity(RING_WAITING)
             } else {
                 gpui::transparent_black()
@@ -3002,7 +3118,7 @@ impl PaddockWindow {
                 item.flex_shrink_0()
                     .pr(ui.px(ACTIVE_TAB_END))
                     .bg(chosen)
-                    .text_color(self.fg(|t| t.agents_text))
+                    .text_color(loud)
                     // The short name heavier; a faint group before it stays regular.
                     .font_weight(FontWeight::SEMIBOLD)
             } else {
@@ -3010,7 +3126,7 @@ impl PaddockWindow {
                     .min_w(ui.px(56.0))
                     .pr(ui.px(TAB_END))
                     .bg(rest)
-                    .text_color(self.fg(|t| t.muted))
+                    .text_color(quiet)
                     .hover(move |style| style.bg(lit))
             };
             // Fitted to the room left, as `fit_tabs` worked it out; the whole title on hover
@@ -3147,8 +3263,8 @@ impl PaddockWindow {
     }
 
     /// The `+N` capsule after the tabs for the `count` with no room in the title bar, `width`
-    /// wide, with an amber dot when one of them has an agent `waiting` for a person; lit while
-    /// their menu, hanging from it, is open.
+    /// wide, amber with an amber dot when one of them has an agent `waiting` for a person; lit
+    /// while their menu, hanging from it, is open.
     fn more_button(
         &self,
         count: usize,
@@ -3157,13 +3273,22 @@ impl PaddockWindow {
         cx: &mut Context<Self>,
     ) -> Stateful<Div> {
         let ui = UiFont::get(cx);
-        let (rest, lit_ground, _) = self.capsule_grounds();
-        let lit = self.popup == Some(Popup::Overflow);
-        let color = if lit {
-            self.fg(|t| t.agents_text)
+        let tone = if waiting {
+            TabTone::Waiting
         } else {
-            self.fg(|t| t.muted)
+            TabTone::Neutral
         };
+        let (
+            Grounds {
+                rest,
+                lit: lit_ground,
+                ..
+            },
+            quiet,
+            loud,
+        ) = self.capsule(tone.color());
+        let lit = self.popup == Some(Popup::Overflow);
+        let color = if lit { loud } else { quiet };
         div()
             .id("tabs-more")
             .relative()
@@ -5783,19 +5908,21 @@ mod tests {
             paused: true,
             ..listed(name, "idle", "i1")
         };
-        let agents = [listed("p/a", "waiting", "i1"), paused("p/b"), paused("p/c")];
-        let marks = tab_marks(&w, &agents, &["p/a".into()]);
+        let agents = [listed("p/a", "blocked", "i1"), paused("p/b"), paused("p/c")];
+        let marks = tab_marks(&w, &agents, &["p/a".into()], &[], 0.0);
         assert_eq!(
             marks,
             [
                 TabMarks {
                     waiting: true,
-                    paused: true
+                    paused: true,
+                    tone: TabTone::Neutral,
                 },
                 TabMarks::default(),
                 TabMarks {
                     waiting: false,
-                    paused: true
+                    paused: true,
+                    tone: TabTone::Neutral,
                 },
             ]
         );
@@ -5803,7 +5930,135 @@ mod tests {
         w.select_tab(0);
         let other = w.tabs[0].panes()[0];
         w.focus(other);
-        assert!(!tab_marks(&w, &agents, &[])[0].paused);
+        let marks = tab_marks(&w, &agents, &[], &[], 0.0);
+        assert!(!marks[0].paused);
+        assert_eq!(marks[0].tone, TabTone::Waiting);
+    }
+
+    #[test]
+    fn an_inactive_tab_is_ringed_amber_for_a_waiting_agent_but_not_over_its_error_red() {
+        let marks = |waiting, tone| TabMarks {
+            waiting,
+            paused: false,
+            tone,
+        };
+        assert!(marks(true, TabTone::Waiting).amber_ring());
+        // Another of its panes waits while the one it is named after works.
+        assert!(marks(true, TabTone::Working).amber_ring());
+        // In error: Attention's Needs you too, and the red capsule says so.
+        assert!(!marks(true, TabTone::Error).amber_ring());
+        assert!(!marks(false, TabTone::Neutral).amber_ring());
+    }
+
+    #[test]
+    fn a_tabs_tone_follows_the_agent_it_is_named_after() {
+        let (mut w, _) = Workspace::new(Shown::Agent("p/working".into()));
+        for shown in [
+            Shown::Agent("p/waiting".into()),
+            Shown::Agent("p/replied".into()),
+            Shown::Agent("p/failed".into()),
+            Shown::Shell,
+            Shown::Agent("p/idle".into()),
+            Shown::Agent("p/paused".into()),
+            Shown::Agent("p/gone".into()),
+        ] {
+            w.new_tab(shown);
+        }
+        let agents = [
+            listed("p/working", "working", "i1"),
+            listed("p/waiting", "blocked", "i1"),
+            listed("p/replied", "idle", "i1"),
+            Agent {
+                error: Some("boom".into()),
+                ..listed("p/failed", "idle", "i1")
+            },
+            listed("p/idle", "idle", "i1"),
+            Agent {
+                paused: true,
+                ..listed("p/paused", "working", "i1")
+            },
+        ];
+        // A reply nobody has read: green while idle, and also for a paused agent it stays neutral.
+        let unread = ["p/replied".to_owned(), "p/paused".to_owned()];
+        let tones: Vec<TabTone> = tab_marks(&w, &agents, &[], &unread, 0.0)
+            .into_iter()
+            .map(|marks| marks.tone)
+            .collect();
+        assert_eq!(
+            tones,
+            [
+                TabTone::Working,
+                TabTone::Waiting,
+                TabTone::Reply,
+                TabTone::Error,
+                TabTone::Neutral,
+                TabTone::Neutral,
+                TabTone::Neutral,
+                TabTone::Neutral,
+            ]
+        );
+    }
+
+    #[test]
+    fn every_capsule_stands_off_the_title_bar_and_reads_in_every_theme() {
+        fn luminance(c: Hsla) -> f32 {
+            let c = gpui::Rgba::from(c);
+            let linear = |v: f32| {
+                if v <= 0.04045 {
+                    v / 12.92
+                } else {
+                    ((v + 0.055) / 1.055).powf(2.4)
+                }
+            };
+            0.2126 * linear(c.r) + 0.7152 * linear(c.g) + 0.0722 * linear(c.b)
+        }
+        let contrast = |a: Hsla, b: Hsla| {
+            let (a, b) = (luminance(a), luminance(b));
+            (a.max(b) + 0.05) / (a.min(b) + 0.05)
+        };
+        for name in crate::preset::Preset::ALL.map(crate::preset::Preset::name) {
+            let theme = Theme::from_config(&Config {
+                theme: Some(name.into()),
+                ..Config::default()
+            })
+            .unwrap();
+            let fg = |pick: Pick| hsla(theme.fg(pick), 1.0);
+            let bar = hsla(theme.bg(|t| t.agents_bg), 1.0);
+            let text = fg(|t| t.agents_text);
+            let muted = fg(|t| t.muted);
+            for tone in [
+                TabTone::Neutral,
+                TabTone::Working,
+                TabTone::Waiting,
+                TabTone::Reply,
+                TabTone::Error,
+            ] {
+                let tint = tone.color().map(fg);
+                let grounds = capsule_grounds(bar, text, tint);
+                // A capsule at rest is plainly one, and each step up is brighter.
+                let rest = contrast(grounds.rest, bar);
+                assert!(rest >= 1.2, "{name} {tone:?}: rest {rest}");
+                assert!(
+                    luminance(grounds.lit) > luminance(grounds.rest),
+                    "{name} {tone:?}"
+                );
+                assert!(
+                    luminance(grounds.chosen) > luminance(grounds.rest),
+                    "{name} {tone:?}"
+                );
+                // Its name reads on every ground it takes.
+                let quiet = capsule_text(muted.blend(text.opacity(NAME_LIFT)), tint);
+                let loud = capsule_text(text, tint);
+                for (text, ground) in [
+                    (quiet, grounds.rest),
+                    (quiet, grounds.lit),
+                    (loud, grounds.chosen),
+                ] {
+                    let ratio = contrast(text, ground);
+                    assert!(ratio >= 4.5, "{name} {tone:?}: text {ratio}");
+                }
+            }
+        }
     }
 
     #[test]
