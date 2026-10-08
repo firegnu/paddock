@@ -9,6 +9,8 @@ const LINE: f32 = 1.25;
 const COPIED_LINE: f32 = 1.4;
 /// Where the bell hangs from: it swings about this point.
 const BELL_PIVOT: (f32, f32) = (7.0, 1.8);
+/// Where `Actions` starts drawing, in from its square's left side: its rails' ends.
+pub const ACTIONS_LEFT: f32 = 1.5;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Icon {
@@ -419,7 +421,7 @@ fn shapes(icon: Icon, pose: Pose, bounds: Bounds<Pixels>, scale: f32) -> Vec<Pat
             for ((y, knob), by) in [(3.5, 4.5), (7.0, 9.5), (10.5, 6.0)].into_iter().zip(slide) {
                 let knob = knob + by;
                 let mut rail = stroke();
-                rail.move_to(at(1.5, y));
+                rail.move_to(at(ACTIONS_LEFT, y));
                 rail.line_to(at(knob - 1.5, y));
                 rail.move_to(at(knob + 1.5, y));
                 rail.line_to(at(12.5, y));
