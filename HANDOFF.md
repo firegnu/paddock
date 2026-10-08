@@ -55,8 +55,7 @@
 ## 悬着
 
 - **auto 模式拦下主控改 `~/.local/bin`**（判为修改共享资源），连 `ls ~/.local/bin` 也被拦过一次。以后 ranch 部署（切链接、`upgrade --all`、装技能）照这次：主控打包、核对，用户在普通终端里跑这三步。
-- **ranch／Saddle**：用户说 Saddle 基本不用了，Saddle 不跟暂停；`ranch/main` 问用户“Saddle 保底”规矩要不要放松，用户还没答（见 ranch `HANDOFF.md`）。
-- **要不要把 `cargo fmt --check` 写进 AGENTS.md 的验证清单**：主控问过多次，用户还没答；任务文件里已经各自写上。
+- **ranch／Saddle**：用户说 Saddle 基本不用了，Saddle 不跟暂停；“Saddle 保底”规矩已放松（ranch `240b045`：不再写对 Saddle 的影响）。
 - 部署 paddock ctl 照“用户在终端里跑”的做法：链接、`install-skills`、删 saddle 技能都由用户做（10-07 已做完）。用户机器上旧的 `$TMPDIR/paddock`（WebKit 缓存、残留旧套接字）没动，不影响使用。
 - 截图能用，但 `PADDOCK_NO_ACTIVATE` 起的测试窗口不在前台，悬停、动画、键盘鼠标交互、全屏切换仍只能靠用户实际操作。
 - 从程序坞菜单“退出”或注销时由系统直接结束，不问未保存的设置和运行中的 shell（GPUI 没有提供拦截）。
