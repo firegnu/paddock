@@ -80,7 +80,7 @@
 
 ## 下一步（按优先级）
 
-**明天（10-09）用户列的五件**（用户 10-08 夜原话依次是：“整体界面再次美化细化（左侧agents中的每一个agent的卡片按照superlogical的界面做）”“有时候paddock会有第二个paddock的bakcground进程显示在dock中，要查一下”“cairn迁移到paddock中开始测试cairn”“browser选中元素后送agent，diff选中改后送agent”“paddock写cairn的面板”）：
+**明天（10-09）用户列的五件**（已写成五个**未提交的草稿任务文件** `docs/任务/P5-51`～`P5-55`，看板显示 DRAFT；开工时补全再按路径提交，别用 `git add -A`）（用户 10-08 夜原话依次是：“整体界面再次美化细化（左侧agents中的每一个agent的卡片按照superlogical的界面做）”“有时候paddock会有第二个paddock的bakcground进程显示在dock中，要查一下”“cairn迁移到paddock中开始测试cairn”“browser选中元素后送agent，diff选中改后送agent”“paddock写cairn的面板”）：
 - **A. 整体界面再美化细化，左侧栏 agent 卡片照 superlogical 的界面做**：主控不知道 superlogical 指什么，开工前先请用户给链接或截图；照惯例先出样稿给用户挑，再写任务文件。
 - **B. 查 Dock 里偶尔多出第二个 paddock 后台进程**：先只查不改（类型调研）。主控猜测之一：`~/.local/bin/paddock` 链到 app 包里的程序，agent 或终端跑 `paddock ctl …` 时以 app 包程序身份启动，macOS 给它也挂了 Dock 图标；要核实，并查是否另有残留实例（`paddock ctl instances`）。
 - **C. 在 paddock 仓库开始试 cairn**：在 paddock `adopt`；paddock 的 AGENTS.md 现在要求开会话先读 HANDOFF，要不要照 owlet 的方案 A 改（HANDOFF 只留稳定背景、进度靠 cairn），开工前和用户定；派出去的 agent 已按 R2 不用 cairn。
