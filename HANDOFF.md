@@ -3,17 +3,17 @@
 ## 现在在哪（2026-10-08 晚）
 
 - main 和 `origin/main`（`github.com/firegnu/paddock`，public）同步，工作区干净。没有进行中的活，没有开着的 worktree，本地只有 main 一个分支；ranch 也一样（main 同步、无 worktree）。corral 里只有 `paddock/main`（本主控）；今天派出去的 dev agent 都已关，owlet/main、global-mesh/main 用户已关。
-- 449 项测试通过，clippy、`cargo fmt --check` 干净。`~/Applications/paddock.app` 是合并 P5-50 之后的版本（10-08 20:57 装，含 P5-35～P5-48、P5-50、paddock ctl；用户已重启），已用本机 Apple Development 证书签名。
+- 452 项测试通过，clippy、`cargo fmt --check` 干净。`~/Applications/paddock.app` 是合并 P5-49 之后的版本（10-08 21:09 装，含 P5-35～P5-50、paddock ctl；用户还没重启），已用本机 Apple Development 证书签名。
 - **paddock ctl 已部署**（用户 10-07 夜在终端里跑完，主控核对过）：`~/.local/bin/paddock` 链到 app 里的程序；`paddock install-skills` 已装 `~/.claude/skills/paddock`、`~/.agents/skills/paddock`（带归属标记，与仓库源文件一致）；旧的 `~/.claude/skills/saddle` 已删。`paddock ctl instances` 找得到正在跑的窗口，`inspect` 认出 `paddock/main` 是 pane 1。重新打包安装后链接不用重建；技能正文改了要重跑 `paddock install-skills`。已开着的 agent 要重开才看到新技能。
 - 全局 `~/.local/bin/corral`、`~/.local/bin/ranch` 已是 ranch `d55defb`（10-08 R2：技能里派活和临时委派的 agent 带 `CAIRN_DISABLE=1`；程序行为与 `5c5540c` 相同，支持 pause／resume）。
 - **cairn 已全局装上（只 claude）**：`~/.claude/settings.json` 里 4 个 cairn hook 和一条放行 `cairn save` 的规则（改前备份 `~/.claude/settings.json.bak-20261008T082855…`），只有 owlet 启用（`adopt`）；其他仓库里 hook 查到没启用就直接退出。卸掉：`cairn uninstall --agent claude`。
 - 重新打包安装：在 `app/` 下 `cargo build --release`，再 `cargo run --release --example bundle -- --install`（编译目录见 AGENTS.md，主仓库用 `.target/main`）。打包默认自动选本机 Apple Development 身份，可用 `PADDOCK_SIGN_IDENTITY` 指定；退回 ad-hoc 时会提示授权会失效。
-- 已合并：第一至第三阶段、迁移 M0–M3（corral、dispatch 在 `../ranch`；遥测、Drover、插件系统已砍）、P4-1～P4-3、P5-1～P5-48、P5-50（P5-13 做了 13a 外壳、13b／13c Changes；P5-19 磨砂；P5-23r、P5-13r、P5-29r、P5-29r2 是调研；P5-28 做了 28a～28d；P5-29 做了 29a～29f；P5-33 做了 33、33b；P5-34 做了 34、34b；P5-36 做了 36a～36c；P5-39 做了 39a～39d）。每件的范围、完成记录、主控审查在 `docs/任务/`。
+- 已合并：第一至第三阶段、迁移 M0–M3（corral、dispatch 在 `../ranch`；遥测、Drover、插件系统已砍）、P4-1～P4-3、P5-1～P5-50（P5-13 做了 13a 外壳、13b／13c Changes；P5-19 磨砂；P5-23r、P5-13r、P5-29r、P5-29r2 是调研；P5-28 做了 28a～28d；P5-29 做了 29a～29f；P5-33 做了 33、33b；P5-34 做了 34、34b；P5-36 做了 36a～36c；P5-39 做了 39a～39d）。每件的范围、完成记录、主控审查在 `docs/任务/`。
 - 上下文：`AGENTS.md`（规矩，含「开发方式」里的**看板约定**）、`docs/DESIGN.md`（已定决定，§13 是界面改版的全部决定和用户原话）、`docs/背景与决策记录.md`、`docs/设计稿/`、`docs/调研/`。更早的会话（10-06 晚到 10-07：Browser P5-28、Kanban P5-29、P5-21～P5-41b 等）的细节都在各自的任务文件里。
 
-## 10-08 夜：P5-49 标签胶囊按状态着色（在做）；P5-50 侧栏磨砂染色调淡
+## 10-08 夜：P5-49 标签胶囊按状态着色；P5-50 侧栏磨砂染色调淡
 
-- 用户看过 P5-48 问“胶囊颜色不是随状态变化吗”，主控说明当时选的是 A 为主只取 C 的等你提醒；用户改选 C，并指出没选中的胶囊底太淡、看着还是旧样子。P5-49（DESIGN §13 已记）派 `paddock/dev-tabs-1` 在做（路由 529 过载，主控定常规档）。
+- 用户看过 P5-48 问“胶囊颜色不是随状态变化吗”，主控说明当时选的是 A 为主只取 C 的等你提醒；用户改选 C，并指出没选中的胶囊底太淡、看着还是旧样子。P5-49（DESIGN §13 已记）派 `paddock/dev-tabs-1`（路由 529 过载，主控定常规档），审查通过（452 项测试），出错的不叠琥珀细边、标签里任一窗格等用户就加琥珀细边，主控同意；合并、21:09 重新打包安装，dev agent 已关。**待用户**：重启后看。
 - 用户：常用的 Lagoon 左侧栏比 Dune 糊、不通透。原因是侧栏磨砂上的主题染色 `wash`：Dune 0.30，Lagoon 0.72，其余 0.52～0.64。用户：“一起降。”P5-50 主控自己做：Dune 以外六套都降到 0.45，侧栏小字对比度测试按不染色的最亮底检查、照样通过；合并、20:57 重新打包安装。用户重启后看过，没问题（10-08）。
 
 ## 10-08 晚：P5-47 agent 停掉后窗格自动关闭；P5-48 标签栏胶囊
