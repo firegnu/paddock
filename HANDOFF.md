@@ -3,7 +3,7 @@
 ## 现在在哪（2026-10-08 晚）
 
 - main 和 `origin/main`（`github.com/firegnu/paddock`，public）同步，工作区干净。没有进行中的活，没有开着的 worktree，本地只有 main 一个分支；ranch 也一样（main 同步、无 worktree）。corral 里是 `paddock/main`（本主控）和用户自己的 `global-mesh/main`；P5-43 的 `paddock/dev-newagent-1` 已关。
-- 438 项测试通过，clippy、`cargo fmt --check` 干净。`~/Applications/paddock.app` 是合并 P5-45 之后的版本（10-08 19:12 装，含 P5-35～P5-45、paddock ctl；用户还没重启），已用本机 Apple Development 证书签名。
+- 438 项测试通过，clippy、`cargo fmt --check` 干净。`~/Applications/paddock.app` 是合并 P5-45 之后的版本（10-08 19:12 装，含 P5-35～P5-45、paddock ctl；用户已重启），已用本机 Apple Development 证书签名。
 - **paddock ctl 已部署**（用户 10-07 夜在终端里跑完，主控核对过）：`~/.local/bin/paddock` 链到 app 里的程序；`paddock install-skills` 已装 `~/.claude/skills/paddock`、`~/.agents/skills/paddock`（带归属标记，与仓库源文件一致）；旧的 `~/.claude/skills/saddle` 已删。`paddock ctl instances` 找得到正在跑的窗口，`inspect` 认出 `paddock/main` 是 pane 1。重新打包安装后链接不用重建；技能正文改了要重跑 `paddock install-skills`。已开着的 agent 要重开才看到新技能。
 - 全局 `~/.local/bin/corral`、`~/.local/bin/ranch` 已是 ranch `d55defb`（10-08 R2：技能里派活和临时委派的 agent 带 `CAIRN_DISABLE=1`；程序行为与 `5c5540c` 相同，支持 pause／resume）。
 - **cairn 已全局装上（只 claude）**：`~/.claude/settings.json` 里 4 个 cairn hook 和一条放行 `cairn save` 的规则（改前备份 `~/.claude/settings.json.bak-20261008T082855…`），只有 owlet 启用（`adopt`）；其他仓库里 hook 查到没启用就直接退出。卸掉：`cairn uninstall --agent claude`。
@@ -13,7 +13,7 @@
 
 ## 10-08 晚：P5-45 界面样式统一
 
-- 主控截图看过新标签、分屏、命令面板、侧栏菜单、Attention、About：都不是“老对话框”，不用大改；只差和 P5-43/44 统一。用户问全大写有什么问题，主控：本身没错，理由是一致性，实质理由只有左侧栏项目分组是仓库名、全大写会改掉名字。用户：统一改成首字母大写，另外 agent 行加种类图标（新标签、分屏、命令面板、Attention）、命令面板设置页用各自图标也做。派 `paddock/dev-polish-1`（Claude Code opus[1m]/high）；任务文件漏了 New Agent 里的 PROJECT 等五处（主控以为已是首字母大写），交回补改一次。审查通过（438 项测试），合并、推送、收尾，19:12 重新打包安装，dev agent 已关。**待用户**：重启后看一眼。侧栏底部菜单、About、系统提示框不改；Changes 的全展开／全收起已有（文件数旁的小图标），用户漏看，不改。
+- 主控截图看过新标签、分屏、命令面板、侧栏菜单、Attention、About：都不是“老对话框”，不用大改；只差和 P5-43/44 统一。用户问全大写有什么问题，主控：本身没错，理由是一致性，实质理由只有左侧栏项目分组是仓库名、全大写会改掉名字。用户：统一改成首字母大写，另外 agent 行加种类图标（新标签、分屏、命令面板、Attention）、命令面板设置页用各自图标也做。派 `paddock/dev-polish-1`（Claude Code opus[1m]/high）；任务文件漏了 New Agent 里的 PROJECT 等五处（主控以为已是首字母大写），交回补改一次。审查通过（438 项测试），合并、推送、收尾，19:12 重新打包安装，dev agent 已关。用户重启后看过，没问题（10-08）。侧栏底部菜单、About、系统提示框不改；Changes 的全展开／全收起已有（文件数旁的小图标），用户漏看，不改。
 
 ## 10-08 傍晚：P5-44 Settings 重新设计
 
