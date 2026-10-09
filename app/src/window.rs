@@ -277,6 +277,7 @@ pub fn close_question(shells: &[String], agents: usize, quit: bool) -> Option<Qu
 /// Something to open in a new tab or pane.
 #[derive(Clone, Debug, PartialEq)]
 enum Choice {
+    AgentShell,
     Shell,
     /// The New Agent panel, to start one there.
     NewAgent,
@@ -295,7 +296,7 @@ struct Chooser {
 /// The child of the chooser's list that shows row `index`: after the first heading, and in the
 /// new tab panel after the agents' heading too.
 fn chooser_child(new_tab: bool, index: usize) -> usize {
-    if new_tab && index >= 2 {
+    if new_tab && index >= 3 {
         index + 2
     } else {
         index + 1
@@ -326,14 +327,14 @@ fn agent_matches(name: &str, query: &str) -> bool {
         .all(|word| name.contains(&word.to_lowercase()))
 }
 
-/// The new tab and split panels' rows: Shell and Agent… always, then the agents (`names`, sorted)
+/// The new tab and split panels' rows: Shell, Agent… and Agent shell, then the agents (`names`, sorted)
 /// that match what is typed.
 fn choices(names: &[String], query: &str) -> Vec<Choice> {
     let agents = names
         .iter()
         .filter(|name| agent_matches(name, query))
         .map(|name| Choice::Agent(name.clone()));
-    [Choice::Shell, Choice::NewAgent]
+    [Choice::Shell, Choice::NewAgent, Choice::AgentShell]
         .into_iter()
         .chain(agents)
         .collect()
@@ -1192,6 +1193,7 @@ impl PaddockWindow {
         for (pane, content) in contents {
             let launch = match &content {
                 Content::Shell { cwd } => Launch::Shell {
+                    agent_shell: false,
                     program: self.new_shell.program.clone(),
                     cwd: cwd.clone(),
                     env: Vec::new(),
@@ -1479,6 +1481,7 @@ impl PaddockWindow {
 
     fn shell(&self) -> Launch {
         Launch::Shell {
+            agent_shell: false,
             program: self.new_shell.program.clone(),
             cwd: self.new_shell.cwd.clone(),
             env: Vec::new(),
@@ -2269,6 +2272,9 @@ impl PaddockWindow {
 
     /// A choice from the new tab or split panel. An agent already open elsewhere moves here.
     fn choose(&mut self, choice: Choice, window: &mut Window, cx: &mut Context<Self>) {
+        if choice == Choice::AgentShell && !crate::agent_shell::supported(&self.new_shell.program) {
+            return;
+        }
         let direction = match self.popup {
             Some(Popup::NewTab) => None,
             Some(Popup::Split(direction)) => Some(direction),
@@ -2288,6 +2294,15 @@ impl PaddockWindow {
         self.chooser = Chooser::default();
         let (shown, launch) = match &choice {
             Choice::Shell => (Shown::Shell, self.shell()),
+            Choice::AgentShell => (
+                Shown::Shell,
+                Launch::Shell {
+                    program: self.new_shell.program.clone(),
+                    cwd: self.new_shell.cwd.clone(),
+                    env: Vec::new(),
+                    agent_shell: true,
+                },
+            ),
             Choice::Agent(name) => (Shown::Agent(name.clone()), Launch::Empty),
             Choice::NewAgent => {
                 let place = direction.map_or(Place::Tab, Place::Split);
@@ -5136,6 +5151,40 @@ impl PaddockWindow {
                 )
                 .child(div().flex_1().child("Agent…"))
                 .when(side.is_none(), |row| row.child(keys(&menu::NewAgent))),
+                Choice::AgentShell => {
+                    let supported = crate::agent_shell::supported(&self.new_shell.program);
+                    let row = popover::lead_row(
+                        theme,
+                        &ui,
+                        id,
+                        footer_icon::icon(Icon::NewShell, accent, s),
+                        lit,
+                    )
+                    .h(ui.px(48.0))
+                    .child(
+                        div().flex_1().flex().flex_col().child("Agent shell").child(
+                            div()
+                                .text_size(ui.px(11.0))
+                                .text_color(dimmer)
+                                .child("claude, codex, pi, omp → corral"),
+                        ),
+                    );
+                    if supported {
+                        row
+                    } else {
+                        let tip = BarTip {
+                            text: "Agent shell supports only zsh and bash.".into(),
+                            keys: String::new(),
+                            size: ui.px(11.5),
+                            color: self.fg(|t| t.agents_text),
+                            dim: dimmer,
+                            background: hsla(self.theme.bg(|t| t.agents_bg), 1.0),
+                            border: self.fg(|t| t.agents_rule),
+                        };
+                        row.opacity(0.45)
+                            .tooltip(move |_, cx| cx.new(|_| tip.clone()).into())
+                    }
+                }
                 Choice::Agent(name) => {
                     let color = self.fg(dot(&Shown::Agent(name.clone()), &agents, now));
                     let kind = agents
@@ -5187,13 +5236,13 @@ impl PaddockWindow {
                 move |this, _: &ClickEvent, window, cx| this.choose(choice.clone(), window, cx),
             )));
             // The new tab panel names the agents' group; the split panel lists them straight on.
-            if index == 1 && side.is_none() {
+            if index == 2 && side.is_none() {
                 list = list.child(popover::heading(theme, &ui, "Agents").pt(ui.px(10.0)));
             }
         }
         if none {
             list = list.child(note("No agents to open here.".into()));
-        } else if rows.len() == 2 {
+        } else if rows.len() == 3 {
             list = list.child(note(format!("No agents match “{}”", query.trim())));
         }
         let mut panel = popover::panel(theme, &ui)
@@ -6404,9 +6453,12 @@ mod tests {
     #[test]
     fn typing_in_the_new_tab_panel_narrows_the_agents_by_name_and_project() {
         let names = names();
-        // Nothing typed: Shell and Agent… first, then every agent, Shell selected.
+        // Nothing typed: the three creation entries first, then every agent, Shell selected.
         let all = choices(&names, "");
-        assert_eq!(all[..2], [Choice::Shell, Choice::NewAgent]);
+        assert_eq!(
+            all[..3],
+            [Choice::Shell, Choice::NewAgent, Choice::AgentShell]
+        );
         assert_eq!(
             agents_listed(&all),
             names.iter().map(String::as_str).collect::<Vec<_>>()
@@ -6422,13 +6474,16 @@ mod tests {
             agents_listed(&choices(&names, " main  paddock ")),
             ["paddock/main"]
         );
-        // Typing selects the first agent that matches; Shell and Agent… stay.
+        // Typing selects the first agent that matches; the creation entries stay.
         let typed = choices(&names, "fonts");
-        assert_eq!(typed[..2], [Choice::Shell, Choice::NewAgent]);
-        assert_eq!(first_choice("fonts", &typed), 2);
-        // Nothing matches: only Shell and Agent…, Shell selected.
+        assert_eq!(
+            typed[..3],
+            [Choice::Shell, Choice::NewAgent, Choice::AgentShell]
+        );
+        assert_eq!(first_choice("fonts", &typed), 3);
+        // Nothing matches: only the creation entries, Shell selected.
         let none = choices(&names, "zzz");
-        assert_eq!(none.len(), 2);
+        assert_eq!(none.len(), 3);
         assert_eq!(first_choice("zzz", &none), 0);
         // Blanks alone are nothing typed.
         assert_eq!(first_choice("  ", &choices(&names, "  ")), 0);
@@ -6498,10 +6553,11 @@ mod tests {
 
     #[test]
     fn the_keys_scroll_to_the_selected_row_past_the_headings() {
-        // New tab: NEW, Shell, Agent…, AGENTS, then the agents.
+        // New tab: NEW, Shell, Agent…, Agent shell, AGENTS, then the agents.
         assert_eq!(chooser_child(true, 0), 1);
         assert_eq!(chooser_child(true, 1), 2);
-        assert_eq!(chooser_child(true, 2), 4);
+        assert_eq!(chooser_child(true, 2), 3);
+        assert_eq!(chooser_child(true, 3), 5);
         // Split: OPEN …, then every row.
         assert_eq!(chooser_child(false, 2), 3);
     }

@@ -21,8 +21,17 @@ pub(super) struct Ctl {
     tracks: Vec<Track>,
     /// New agents waiting on `corral start`, or on the user to be done before their pane opens.
     starting: Vec<Starting>,
+    /// Agent shell handoffs wait for a fresh public listing, then recheck the caller.
+    shells: Vec<ShellHandoff>,
     /// Results changed since the transport last asked.
     updates: Vec<(String, Value)>,
+}
+
+struct ShellHandoff {
+    message: Message,
+    pane: PaneId,
+    revision: u64,
+    result: Option<anyhow::Result<Vec<Listed>>>,
 }
 
 struct Starting {
@@ -109,10 +118,63 @@ impl PaddockWindow {
         if matches!(message.operation, Operation::Inspect) {
             return control_ui::inspect(&model, &message.caller);
         }
+        if matches!(message.operation, Operation::AgentShell { .. }) {
+            if let Some(reason) = model.busy {
+                return control_ui::busy(reason);
+            }
+            let pane = match control_ui::agent_shell_caller(&model, &message.caller) {
+                Ok(pane) => pane,
+                Err(error) => return error,
+            };
+            let request = message.request_id.clone();
+            let corral = self.template.corral.clone();
+            let task = cx.background_spawn(async move {
+                let value = crate::corral::Client { program: corral }.json(
+                    &["ls"],
+                    Duration::from_secs(15),
+                    &std::sync::atomic::AtomicBool::new(false),
+                )?;
+                let agents: Vec<crate::corral::Agent> =
+                    serde_json::from_value(value["agents"].clone())?;
+                Ok(agents
+                    .into_iter()
+                    .map(|a| Listed {
+                        name: a.name,
+                        instance: a.instance,
+                        cwd: a.cwd,
+                        error: a.error.is_some() || a.state.as_deref() == Some("exited"),
+                    })
+                    .collect())
+            });
+            cx.spawn(async move |this, cx| {
+                let result = task.await;
+                let _ = this.update(cx, |this, _| {
+                    if let Some(pending) = this
+                        .ctl
+                        .shells
+                        .iter_mut()
+                        .find(|s| s.message.request_id == request)
+                    {
+                        pending.result = Some(result);
+                    }
+                });
+            })
+            .detach();
+            self.ctl.shells.push(ShellHandoff {
+                message: message.clone(),
+                pane,
+                revision: self.workspace.revision(pane).expect("caller checked"),
+                result: None,
+            });
+            return json!({"ok":true,"accepted":true,"state":"checking","pane":pane});
+        }
         let plan = control_ui::plan(&model, message, records.values(), &mut self.ctl.used);
         let request = message.request_id.clone().unwrap_or_default();
         let relative = |this: &Self, anchor: PaneId| json!({"pane": anchor, "revision": this.workspace.revision(anchor)});
         match plan {
+            Plan::ReplaceShell { .. } => {
+                unreachable!("Agent shell requests first refresh corral ls")
+            }
             Plan::Reply(value) => value,
             Plan::Shell {
                 anchor,
@@ -131,6 +193,7 @@ impl PaddockWindow {
                     program: self.new_shell.program.clone(),
                     cwd: cwd.clone(),
                     env: Vec::new(),
+                    agent_shell: false,
                 };
                 let view = self.view(pane, launch, window, cx);
                 self.panes.insert(pane, view);
@@ -357,6 +420,15 @@ impl PaddockWindow {
         cx: &mut Context<Self>,
     ) -> Vec<(String, Value)> {
         let busy = self.ctl_busy(window, cx).is_some();
+        let (ready, waiting): (Vec<_>, Vec<_>) = std::mem::take(&mut self.ctl.shells)
+            .into_iter()
+            .partition(|s| s.result.is_some() && !busy);
+        self.ctl.shells = waiting;
+        for handoff in ready {
+            let request = handoff.message.request_id.clone().unwrap_or_default();
+            let value = self.shell_handoff(handoff, cx);
+            self.ctl.updates.push((request, value));
+        }
         let (ready, waiting): (Vec<Starting>, Vec<Starting>) =
             std::mem::take(&mut self.ctl.starting)
                 .into_iter()
@@ -380,6 +452,58 @@ impl PaddockWindow {
             }
         }
         std::mem::take(&mut self.ctl.updates)
+    }
+
+    fn shell_handoff(&mut self, handoff: ShellHandoff, cx: &mut Context<Self>) -> Value {
+        if self.workspace.revision(handoff.pane) != Some(handoff.revision) {
+            return control_ui::failed(
+                "target_invalid",
+                "the caller's pane changed while checking the agent",
+            );
+        }
+        let listed = match handoff.result.expect("ready") {
+            Ok(listed) => listed,
+            Err(error) => return control_ui::failed("listing_failed", error),
+        };
+        let facts = self.pane_facts(cx);
+        let model = Model {
+            instance: &self.new_shell.instance,
+            workspace: &self.workspace,
+            facts: &facts,
+            listed: &listed,
+            startup_cwd: &self.new_shell.cwd,
+            busy: None,
+        };
+        match control_ui::plan(
+            &model,
+            &handoff.message,
+            std::iter::empty(),
+            &mut self.ctl.used,
+        ) {
+            Plan::ReplaceShell {
+                pane,
+                name,
+                cwd,
+                instance,
+            } => {
+                self.workspace.set_shown(pane, Shown::Agent(name.clone()));
+                self.attach(pane, &name, AgentMetadata { cwd, instance }, cx);
+                self.sidebar.read(cx).refresh();
+                self.sync(cx);
+                let value = json!({"ok":true,"accepted":true,"state":"attaching","pty":"pending",
+                    "pane":pane,"revision":self.workspace.revision(pane),"agent":name});
+                self.track(
+                    handoff.message.request_id.unwrap_or_default(),
+                    pane,
+                    Some(name),
+                    &value,
+                    cx,
+                );
+                value
+            }
+            Plan::Reply(value) => value,
+            _ => unreachable!("only Agent shell handoffs are queued here"),
+        }
     }
 
     /// Opens the pane of an agent `corral start` answered for, beside the pane asked for.

@@ -94,6 +94,9 @@ pub enum CloseTarget {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "command", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Operation {
+    AgentShell {
+        name: String,
+    },
     Inspect,
     Instances,
     Browse {
@@ -186,7 +189,7 @@ fn trusted_parent(dir: &std::path::Path) -> Result<PathBuf> {
     }
     Ok(parent.join(dir.file_name().context("runtime directory needs a name")?))
 }
-fn prepare_runtime(dir: &std::path::Path) -> Result<PathBuf> {
+pub(crate) fn prepare_runtime(dir: &std::path::Path) -> Result<PathBuf> {
     let dir = trusted_parent(dir)?;
     match fs::DirBuilder::new().mode(0o700).create(&dir) {
         Ok(()) => {}
@@ -554,7 +557,7 @@ impl Operation {
     fn is_mutation(&self) -> bool {
         matches!(
             self,
-            Self::Open { .. } | Self::Close { .. } | Self::Browse { .. }
+            Self::Open { .. } | Self::Close { .. } | Self::Browse { .. } | Self::AgentShell { .. }
         )
     }
 }

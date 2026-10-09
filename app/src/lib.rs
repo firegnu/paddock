@@ -3,6 +3,7 @@
 pub mod about;
 pub mod activity;
 pub mod activity_view;
+pub mod agent_shell;
 pub mod agents;
 pub mod attention;
 pub mod browser;

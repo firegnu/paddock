@@ -11,10 +11,12 @@ const HELP: &str = "paddock ctl (JSON output)\n\
        (--shell [--cwd PATH] | --agent NAME | --name NAME [--cwd PATH] [--role ROLE] [--prompt TEXT] -- PROGRAM ARG...)\n\
        [--focus] [--request-id ID]\n\
   browse URL [--focus] [--instance ID] [--request-id ID]\n\
+  agent-shell NAME [--instance ID] [--request-id ID]\n\
   request REQUEST --instance ID\n\
   close (--pane PANE|--tab TAB) --instance ID [--request-id ID]\n\
         [--confirmation TOKEN --confirm-shells]\n\n\
 Self uses CORRAL_NAME + CORRAL_INSTANCE, or shell PADDOCK_INSTANCE/PANE.\n\
+agent-shell replaces only the caller's own live Agent shell pane with a listed agent, ending that shell without confirmation.\n\
 Poll request with the returned instance and request_id. Retry uncertain operations with the SAME request ID and arguments.\n\
 Runtime: $XDG_RUNTIME_DIR/paddock-ctl, otherwise $TMPDIR/paddock-ctl (private base required).";
 
@@ -46,11 +48,15 @@ fn parse(args: Vec<String>, caller: Caller) -> Result<Message> {
             request = Some(arg.clone());
             continue;
         }
-        if verb == "browse" && !arg.starts_with('-') && url.is_none() {
+        if matches!(verb.as_str(), "browse" | "agent-shell")
+            && !arg.starts_with('-')
+            && url.is_none()
+        {
             url = Some(arg.clone());
             continue;
         }
         let allowed = match verb.as_str() {
+            "agent-shell" => &["--instance", "--request-id"][..],
             "browse" => &["--instance", "--request-id", "--focus"][..],
             "inspect" => &["--instance"][..],
             "open" => &[
@@ -102,6 +108,9 @@ fn parse(args: Vec<String>, caller: Caller) -> Result<Message> {
         );
     }
     let operation = match verb.as_str() {
+        "agent-shell" => Operation::AgentShell {
+            name: url.context("agent-shell needs an agent name")?,
+        },
         "browse" => Operation::Browse {
             url: browse_url(&url.context("browse needs a URL")?)?,
             focus: values.remove("--focus").is_some(),
@@ -296,6 +305,30 @@ mod tests {
     use super::*;
     fn args(args: &[&str]) -> Vec<String> {
         args.iter().map(|s| s.to_string()).collect()
+    }
+    #[test]
+    fn agent_shell_cli_has_no_target_option_and_keeps_caller_identity() {
+        let caller = Caller {
+            paddock_instance: Some("0123456789abcdef".into()),
+            pane: Some(8),
+            ..Caller::default()
+        };
+        let message = parse(args(&["agent-shell", "p/codex-1"]), caller.clone()).unwrap();
+        assert_eq!(message.caller, caller);
+        assert_eq!(
+            message.operation,
+            Operation::AgentShell {
+                name: "p/codex-1".into()
+            }
+        );
+        assert!(message.request_id.is_some());
+        for input in [
+            vec!["agent-shell"],
+            vec!["agent-shell", "p/a", "--pane", "9"],
+            vec!["agent-shell", "p/a", "--relative-to", "active"],
+        ] {
+            assert!(parse(args(&input), Caller::default()).is_err());
+        }
     }
     #[test]
     fn browse_accepts_web_and_local_addresses_only() {

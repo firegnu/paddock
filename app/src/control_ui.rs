@@ -20,6 +20,8 @@ pub struct Facts {
     /// The corral instance the pane attached to, or is attaching to.
     pub instance: Option<String>,
     pub shell_live: bool,
+    /// This shell was opened through the Agent shell entry, not the ordinary Shell entry.
+    pub agent_shell: bool,
     /// `PADDOCK_INSTANCE` and `PADDOCK_PANE` its shell was started with.
     pub identity: Option<(String, PaneId)>,
     /// Its shell's directory, or its agent's.
@@ -57,6 +59,12 @@ pub struct Model<'a> {
 /// What to do for a request.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Plan {
+    ReplaceShell {
+        pane: PaneId,
+        name: String,
+        cwd: Option<String>,
+        instance: Option<String>,
+    },
     /// Nothing to change: answer this.
     Reply(Value),
     Shell {
@@ -237,6 +245,19 @@ pub fn caller_pane(model: &Model, caller: &Caller) -> Result<PaneId, String> {
     Ok(pane)
 }
 
+pub fn agent_shell_caller(model: &Model, caller: &Caller) -> Result<PaneId, Value> {
+    let pane = caller_pane(model, caller).map_err(|e| failed("caller_unresolved", e))?;
+    if model.workspace.shown(pane) != &Shown::Shell
+        || !model.facts.get(&pane).is_some_and(|f| f.agent_shell)
+    {
+        return Err(failed(
+            "not_agent_shell",
+            "caller must run in an Agent shell pane",
+        ));
+    }
+    Ok(pane)
+}
+
 /// The layout tree as `inspect` shows it.
 pub fn layout(node: &Node) -> Value {
     match node {
@@ -401,6 +422,20 @@ fn decide<'r>(
 ) -> Result<Plan, Value> {
     let workspace = model.workspace;
     match &message.operation {
+        Operation::AgentShell { name } => {
+            let pane = agent_shell_caller(model, &message.caller)?;
+            let listed = model
+                .listed
+                .iter()
+                .find(|a| &a.name == name && !a.error)
+                .ok_or_else(|| failed("invalid_target", "agent is not in corral's listing"))?;
+            Ok(Plan::ReplaceShell {
+                pane,
+                name: name.clone(),
+                cwd: listed.cwd.clone(),
+                instance: listed.instance.clone(),
+            })
+        }
         Operation::Open {
             relative_to,
             place,

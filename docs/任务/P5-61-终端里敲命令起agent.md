@@ -63,3 +63,43 @@
 
 ## 做完
 在本文件末尾追加「## 完成记录」（在你的分支里提交）：做了什么、验证了什么、拿主意的地方、没做的事，各几句话。回复里只写这几样，加上有没有要主控决定的事。命令都在前台跑完，全部做完后，回复最后一行写 DONE。
+
+## 完成记录
+
+2026-10-09，p5-61-agent-shell。
+
+- 做了什么：新建标签／分屏面板增加 Agent shell 和说明；非 zsh／bash 时禁用并给悬停说明。新增 `agent_shell.rs`，在 GPUI 初始化前按程序名分派四种替身；私有目录沿用 ctl 的权限检查，按 paddock 进程隔离，启动时原子重写 rc 文件和符号链接。普通 Shell 和 New Agent 浮层维持原路径。托管启动复用名字清理、model／effort 读取规则，传真程序绝对路径、原参数和过滤后的完整环境；一次性命令直接 exec，找不到程序退出 127，start 失败返回原 shell；过长环境明确报错，不丢变量，错误中的环境值作遮盖。
+- 做了什么（ctl）：新增 `paddock ctl agent-shell NAME` 及帮助，只能替换调用者自己的、仍活着的 Agent shell。先查调用者，再异步读公开 `corral ls`，返回后复查窗格 revision、身份、类型及 agent 名单，随后用现有 attach 路径替换；不会询问关闭 shell，也不移动焦点。请求和进度沿用既有记录机制。ctl 不通或拒绝接管时说明后在当前终端前台 attach，返回它的退出码。DESIGN §13 已记录四项用户决定及边界。
+- 验证了什么：放行表、真程序查找／127、假 corral 记录启动参数及环境、zsh／bash 真 PTY 钩子、ctl 身份计划／命令行／socket 通信均保留功能性 RED→GREEN；测试修正过长 socket 路径及权限的夹具失败不计 RED。覆盖自定义 ZDOTDIR、rc 和后续命令改 PATH、重复替身目录、含换行和等号及空值的环境、git 子目录取顶层名字、start 失败返回仍活着的 shell及错误遮盖、操作系统参数长度上限。纯 UI 入口通过源码与原选择器回归检查；新增行导致的键盘滚动索引错位也先复现再修正。
+- 验证了什么（规定检查）：在独立编译目录前台完成 `app/` 的 `cargo test --all-targets`（496 项通过）、`cargo clippy --all-targets -- -D warnings`、`cargo fmt --check`，各一次。收尾发现既有 Bash PROMPT_COMMAND 以分号结尾时拼接会失效，补入同一 PTY 测试确认 RED，改为换行拼接后，6 项 Agent shell 集成测试全部通过；没有重复全量检查。最后 `git diff --check` 通过。未放宽断言、修改超时或增加依赖。
+- 实测：只用自己创建、带 `role=test` 的 `paddock/test-p5-61-env-*` 实例运行合成 `/bin/sh` 探针，确认真实 corral 的 `--env PATH=…` 覆盖生效、65,536 字节合成环境值完整到达；随后 `corral stop` 成功，临时探针目录已清理。没有启动真实 AI、接触其他 agent，环境值不进日志或快照。
+- 拿主意的地方：新 agent 可能尚未进入侧栏缓存，所以 handoff 单独刷新公开名单；在途检查返回后重新核对窗格，避免替换已被用户换掉的内容。私有脚本按进程隔离，避免同时运行的 paddock 互相改替身指向。Bash 保留已有 PROMPT_COMMAND，最后再提升替身 PATH。布局格式不扩展，尚未起 agent 的 Agent shell 保存、恢复时沿用普通 Shell。
+- 没做的事：没有启动 paddock 窗口、截图、模拟系统输入，没有读改用户 rc／配置，没有改 ranch／Saddle，没有合并、推送、安装。真窗口里的手感与任务指定的交叉审查留给主控安排；没有新增需要主控决定的设计问题。
+
+### 主控补充核对：只新增，不改已有流程（2026-10-09）
+
+用户原话：“现在做的这一套是新增的一套new agent入口。已经有的不能改哦”。按主控列出的三条逐项核对 `7679565` 相对其父提交的差异，本轮无需修改产品代码，只补完成记录。
+
+- 入口和键盘：`choices` 明确是 Shell、Agent…、Agent shell、已有 agent；前两行的渲染、点击处理与原来一致。`agent_matches`、`first_choice`、上下键 `move_selection`、回车 `open_selected` 的逻辑未改；只为插入一行调整标题后的滚动索引和列表计数。已有筛选测试仍确认大小写／多词匹配、输入后选首个匹配 agent、无匹配回到 Shell；滚动测试仍确认上下键定位到选中行，前两行位置不变。
+- New Agent／普通 Shell：`new_agent.rs`、`new_agent_view.rs`、`pty.rs`、`menu.rs`、`layout_state.rs` 与任务前完全无差异。普通入口、恢复布局及旧 ctl 的 Shell 路径均设 `agent_shell=false`，沿用原来的 `[program, "-i"]`、cwd、身份环境和 `Session::spawn_shell`；只有新入口设 true 并注入替身配置。原浮层、快捷键及布局格式未改。
+- 旧 ctl：只新增 `Operation::AgentShell`／`agent-shell NAME` 及对应处理；已有 inspect、instances、open、close、browse、request 的参数规则、响应构造和 JSON 字段未改，内部 `Facts.agent_shell` 不写入原有响应。帮助仍是原 JSON 格式，仅追加新请求说明。既有 open 参数、inspect 输出、身份传递、请求重放／进度及 close 确认测试通过。
+- P5-47／P5-66：原 agent 结束自动关窗格、最后一格补普通 shell、退出／关闭确认及程序探测逻辑无改动。无确认替换仅在新增 AgentShell 请求通过调用者类型／身份检查后发生；普通 close 路径、其他 shell 的确认规则保持原样。已有 agent 结束／重开／暂停／接入中测试、关闭确认测试，以及真 PTY 的前后台程序探测测试通过。
+- 本轮验证：全部命令在前台完成，复跑 `cargo test --lib control`（49）、`cargo test --lib window::tests::`（32）、`cargo test --lib new_agent::tests::`（18）、`cargo test --lib pty::tests::`（2）、`cargo test --test ctl_cli --test viewer`（3＋6），共 110 项通过；`git diff --check` 通过。未新增或放宽测试，未重复全量检查，未启动窗口、真实 agent、合并或推送。无新增待主控决定事项。
+
+### 返工（2026-10-09）
+
+按主仓库 `P5-61-审查.md` 的 R1、S1、S2 返工，三条均先改测试、确认目标行为失败，再修改实现。
+
+- R1：PATH 清理时解析当前可执行文件和各目录下四种替身的符号链接，剔除仍指向当前 paddock 的其他替身目录；真程序查找、放行 exec 的 PATH 和托管 `--env PATH` 共用清理结果。新增“两套替身目录＋真程序”两条回归，第二套经第一套链接到 paddock。RED：放行在原有 5 秒测试时限内不退出，托管参数错误地指向第二套替身；GREEN：放行实际执行真程序并返回 23，原参数保留，托管传入真程序绝对路径，两条路径都只留下真实目录及系统目录。
+- S1：失败夹具改为真实的 `ok:false`、`error`、`message` 三字段。RED：旧实现只显示错误码，缺少具体原因；GREEN：显示 `exec_failed` 和 message，拼接后仍统一遮盖环境值，合成敏感值不出现，返回非零且原 shell 继续可用。兼容仅 error／message 或 stderr 的诊断。
+- S2：单独传递原 ZDOTDIR 是否存在的标记，显式空值不再回退 HOME；未设置时保留任务原定的 HOME 回退。新增临时 HOME 下普通 zsh／Agent shell、未设置／空值的四种对照。RED：显式空值错误读取 HOME 的 `.zshenv`、`.zshrc` 并改成 HOME；GREEN：空值保持为空、不读 HOME 的两个文件，未设置时仍读取它们；已有非空自定义 ZDOTDIR 测试也通过。
+- 相关验证：逐条 RED→GREEN 后，前台运行 `cargo test --manifest-path app/Cargo.toml --test agent_shell`（9 项）和 `cargo test --manifest-path app/Cargo.toml --lib agent_shell::tests::`（2 项），全部通过。覆盖普通 zsh／bash 对照、rc 改 PATH、127、放行参数／退出码、环境传递、失败返回 shell、ctl 接管及过长环境；未放宽断言或修改超时。格式整理后 `cargo fmt --manifest-path app/Cargo.toml --check`、`git diff --check` 通过；按主控要求未重跑全套测试或 clippy。
+- 范围核对：本次产品差异仅在 `app/src/agent_shell.rs`，另外只改对应集成测试和本完成记录。入口排序／筛选／键盘、New Agent 浮层、普通 Shell 实现、既有 ctl 命令和输出格式、P5-47／P5-66 代码均未改；上节已通过的 110 项兼容回归记录仍保留。
+- 没做的事：未启动窗口或真实 agent，未读改用户 rc／配置，未动主仓库、ranch 或 Saddle，未合并或推送。只在本分支提交，无新增需主控决定事项。
+
+## 主控审查
+
+- 结论：通过，合并。只动了该动的文件；“不要做”的一件没做（没起窗口、没读用户配置、没加依赖、环境值不进输出）。用户中途补充“已有的不能改”：新建面板 Shell、Agent… 在最前、Shell 默认选中，Agent shell 在其后；普通 Shell、New Agent、已有 ctl 命令只有新增（dev 另有一轮核对写在完成记录）。
+- 交叉审查（`docs/任务/P5-61-审查.md`，paddock/review-agentshell-1）：第一轮“改完再合并”，必须改 1（另一套替身目录会让一次性调用回到自身、无限循环），建议改 2（显示 corral 的具体失败原因；分开 ZDOTDIR 没设和设为空），三条都采纳；返工 `f4c3046`，复核“可以合并”。
+- 主控在最终提交上重跑 `cargo test --all-targets`（499 项全过）、clippy、fmt、`git diff --check` 都过。返工途中 Codex 断网中断一次，用户在窗格里续上，强度从 xhigh 改成 high。
+- 对 dev 的取舍：handoff 前刷新名单并复查窗格、私有目录按进程隔离、bash 换行拼接 PROMPT_COMMAND、未起 agent 的 Agent shell 重启后按普通 Shell 恢复，都同意（最后一条是已记的限制，用户没要求跨重启保留）。
