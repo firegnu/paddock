@@ -27,9 +27,9 @@ use anyhow::Result;
 use gpui::{
     Animation, AnimationExt, AnyElement, App, BoxShadow, ClickEvent, ClipboardItem, Context, Div,
     ElementId, Entity, EventEmitter, Font, FontFeatures, FontWeight, HighlightStyle, Hsla,
-    MouseButton, MouseDownEvent, Pixels, Render, RenderOnce, Rgba, SharedString, StyledText,
-    TextRun, Transformation, Window, div, ease_in_out, percentage, point, prelude::*, px, relative,
-    svg,
+    MouseButton, MouseDownEvent, Pixels, Render, RenderOnce, Rgba, ScrollHandle, SharedString,
+    StyledText, TextRun, Transformation, Window, div, ease_in_out, percentage, point, prelude::*,
+    px, relative, svg,
 };
 use std::{
     rc::Rc,
@@ -181,6 +181,10 @@ const PAUSE_GAP: f32 = 2.0;
 const FOOTER: f32 = 50.0;
 const BUTTON: f32 = 32.0;
 const BUTTON_ICON: f32 = 17.0;
+/// Under the list's last card, before the activity panel: the list's own end and the panel's gap
+/// above it, as when the panel lay under the list.
+const LIST_END: f32 = 10.0;
+const ACTIVITY_GAP: f32 = 4.0;
 /// The cards' avatars' left edge, unscaled: past the list's side, a card's edge and its padding.
 const AVATAR_LEFT: f32 = PAD + 1.0 + CARD_LEFT;
 /// How long a note of a start or stop that went well stays whole, and then how long it fades.
@@ -215,6 +219,19 @@ pub fn resize(width_at_press: f32, press_x: f32, x: f32, min: f32) -> f32 {
     (width_at_press + x - press_x)
         .clamp(min, MAX_WIDTH.max(min))
         .round()
+}
+
+/// The room under the list's last card (P5-70): the activity panel lies over the list's end, so the
+/// list ends that far below its last card, which then scrolls clear above the panel.
+pub fn list_end(width: f32, ui: &UiFont, folded: bool) -> f32 {
+    LIST_END + ui.scale(ACTIVITY_GAP) + activity_view::height(width, ui, folded)
+}
+
+/// How strongly the panel's top fades into the list, 0 to 1: as far as the list can still scroll
+/// down (`offset` is GPUI's, negative, `max` its furthest), over `reach`. Nothing lies under the
+/// fade when the list is short or scrolled to its end, and the last card stands clear.
+pub fn fade(offset: f32, max: f32, reach: f32) -> f32 {
+    ((max + offset) / reach).clamp(0.0, 1.0)
 }
 
 /// Where the header row starts in the title bar.
@@ -484,8 +501,12 @@ pub struct Sidebar {
     asking: Option<String>,
     /// Its column shows the system's sidebar material: its grounds are tints over it.
     frosted: bool,
-    /// The activity grid over the footer (P5-32).
+    /// The activity grid over the footer (P5-32), lying over the list's end (P5-70).
     activity: Entity<ActivityView>,
+    /// The list's scrolling, and where it stood (offset, furthest) when last drawn: how far the
+    /// list goes on under the panel.
+    scroll: ScrollHandle,
+    scrolled: (f32, f32),
 }
 
 impl EventEmitter<SidebarEvent> for Sidebar {}
@@ -515,6 +536,8 @@ impl Sidebar {
             cx.new(|cx| ActivityView::new(theme, mono, width, cx))
         };
         cx.subscribe(&activity, |_, _, folded: &Folded, cx| {
+            // The list's end follows the panel's height.
+            cx.notify();
             cx.emit(SidebarEvent::ActivityFolded(folded.0))
         })
         .detach();
@@ -538,6 +561,8 @@ impl Sidebar {
             asking: None,
             frosted: false,
             activity,
+            scroll: ScrollHandle::new(),
+            scrolled: (0.0, 0.0),
         }
     }
 
@@ -593,6 +618,7 @@ impl Sidebar {
     pub fn set_activity_folded(&mut self, folded: bool, cx: &mut Context<Self>) {
         self.activity
             .update(cx, |activity, cx| activity.set_folded(folded, cx));
+        cx.notify();
     }
 
     /// Whether the menu of actions is open, for its button.
@@ -1474,17 +1500,38 @@ impl Render for Sidebar {
             .filter(|line| matches!(line, Line::Agent(_)))
             .count();
 
+        // The list runs on under the activity panel, and ends the panel's height below its last
+        // card (P5-70). Where it stood when last laid out says how much of it lies under the
+        // panel's fade; once laid out again, a change is drawn.
+        let folded = self.activity.read(cx).folded();
+        let end = list_end(self.width, &ui, folded);
+        let scrolled = (
+            f32::from(self.scroll.offset().y),
+            f32::from(self.scroll.max_offset().y),
+        );
+        self.scrolled = scrolled;
+        let under = fade(scrolled.0, scrolled.1, activity_view::fade_height(&ui));
+        cx.on_next_frame(window, |this, _, cx| {
+            let now = (
+                f32::from(this.scroll.offset().y),
+                f32::from(this.scroll.max_offset().y),
+            );
+            if now != this.scrolled {
+                cx.notify();
+            }
+        });
         let mut list = div()
             .id("agents")
             .flex_1()
             .min_h(px(0.0))
             .overflow_y_scroll()
+            .track_scroll(&self.scroll)
             .flex()
             .flex_col()
             .gap(px(CARD_GAP))
             .px(px(PAD))
             .pt(px(2.0))
-            .pb(px(10.0));
+            .pb(px(end));
         if agents == 0 && self.listing.loaded {
             // Nothing listed: why, or how to start one, in the middle of the list.
             let quiet = match lines.first() {
@@ -1647,6 +1694,7 @@ impl Render for Sidebar {
             // The window's activation redraws it, and a listing that changes who works too.
             active: window.is_window_active(),
             working: self.listing.animating(now),
+            fade: under,
         };
         self.activity
             .update(cx, |view, cx| view.frame(activity, cx));
@@ -1659,9 +1707,24 @@ impl Render for Sidebar {
             .flex_col()
             // Closer than GPUI's default, as in the design.
             .line_height(relative(1.3))
-            .child(list)
-            // Under the list, which scrolls on its own; the strip has none.
-            .child(self.activity.clone())
+            .child(
+                div()
+                    .flex_1()
+                    .min_h(px(0.0))
+                    .relative()
+                    .flex()
+                    .flex_col()
+                    .child(list)
+                    // Over the end of the list, which scrolls on its own; the strip has none.
+                    .child(
+                        div()
+                            .absolute()
+                            .left_0()
+                            .right_0()
+                            .bottom_0()
+                            .child(self.activity.clone()),
+                    ),
+            )
             .child(footer)
             .into_any_element()
     }
@@ -3046,6 +3109,59 @@ mod tests {
             // On the sidebar's own colour the face is whole: the shadows stay.
             assert!(lift.shadows(text, false).iter().any(|s| !s.inset));
         }
+    }
+
+    #[test]
+    fn the_list_ends_the_activity_panel_and_its_gap_below_its_last_card() {
+        let width = 300.0;
+        let mut heights = Vec::new();
+        for size in [13.0, 16.0] {
+            let ui = UiFont { family: None, size };
+            for folded in [false, true] {
+                let panel = activity_view::height(width, &ui, folded);
+                heights.push(panel);
+                // The list's end and the panel's gap, as when the panel lay under the list.
+                let gap = LIST_END + ui.scale(ACTIVITY_GAP);
+                assert_eq!(list_end(width, &ui, folded), panel + gap, "{size} {folded}");
+            }
+        }
+        // The room follows the panel: folding it, or a larger interface size, changes it.
+        let [open, folded, open_large, folded_large] = heights[..] else {
+            unreachable!()
+        };
+        assert!(folded > 0.0 && folded < open, "{heights:?}");
+        assert!(open_large > open && folded_large > folded, "{heights:?}");
+    }
+
+    #[test]
+    fn the_last_card_scrolls_clear_above_the_activity_panel() {
+        // A list of cards taller than the column, scrolled to its end.
+        let (column, cards) = (600.0, 1400.0);
+        for size in [13.0, 16.0] {
+            let ui = UiFont { family: None, size };
+            for folded in [false, true] {
+                let panel = activity_view::height(300.0, &ui, folded);
+                let scrolled = cards + list_end(300.0, &ui, folded) - column;
+                let last_bottom = cards - scrolled;
+                // The panel lies at the column's foot; the last card ends above it, by the gap.
+                let panel_top = column - panel;
+                assert!(
+                    last_bottom + LIST_END <= panel_top,
+                    "{size} {folded}: {last_bottom} {panel_top}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_panel_fades_into_the_list_only_where_the_list_goes_on_under_it() {
+        let reach = 28.0;
+        // A short list, or one scrolled to its end: no fade, the last card stands clear.
+        assert_eq!(fade(0.0, 0.0, reach), 0.0);
+        assert_eq!(fade(-500.0, 500.0, reach), 0.0);
+        // Further from the end, the more of the list lies under it, up to the whole fade.
+        assert_eq!(fade(-500.0 + reach / 2.0, 500.0, reach), 0.5);
+        assert_eq!(fade(0.0, 500.0, reach), 1.0);
     }
 
     fn agent(name: &str, state: &str) -> Agent {
