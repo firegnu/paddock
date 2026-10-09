@@ -9,8 +9,15 @@
     <path id="mane" d="M430 240 C400 225 350 245 330 300 C360 290 380 300 398 335 C368 330 320 350 300 400 C330 395 355 405 375 435 C345 435 298 460 278 505 C310 498 336 510 358 540 C328 545 282 570 262 612 C295 606 322 618 346 645 C316 652 272 680 252 720 C285 715 314 727 340 750 C310 760 268 790 250 830 C280 826 316 835 345 862 L436 862 C404 784 462 716 432 640 C406 572 462 502 442 432 C426 372 468 318 480 240 C512 248 542 270 564 304 C548 258 505 222 452 222 C440 228 434 234 430 240 Z"/>
 
     <linearGradient id="ground" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#1d2152"/><stop offset="1" stop-color="#0a0b24"/>
+      <stop offset="0" stop-color="#4a47d8"/><stop offset=".55" stop-color="#2b2496"/><stop offset="1" stop-color="#1a1260"/>
     </linearGradient>
+    <!-- P5-72: a pale glow to the upper left, a violet one to the lower right -->
+    <radialGradient id="glow" gradientUnits="userSpaceOnUse" cx="320" cy="200" r="620">
+      <stop offset="0" stop-color="#a5a8ff" stop-opacity=".5"/><stop offset="1" stop-color="#a5a8ff" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="low" gradientUnits="userSpaceOnUse" cx="840" cy="920" r="520">
+      <stop offset="0" stop-color="#b14cff" stop-opacity=".4"/><stop offset="1" stop-color="#b14cff" stop-opacity="0"/>
+    </radialGradient>
     <linearGradient id="sheen" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#ffffff" stop-opacity=".08"/><stop offset=".35" stop-color="#ffffff" stop-opacity="0"/>
     </linearGradient>
@@ -42,8 +49,10 @@
 
   <!-- The macOS grid square: 824 of 1024, corners 22.5% -->
   <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#ground)"/>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#glow)"/>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#low)"/>
   <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#sheen)"/>
-  <rect x="102" y="102" width="820" height="820" rx="183" fill="none" stroke="#ffffff" stroke-opacity=".12" stroke-width="4"/>
+  <rect x="102" y="102" width="820" height="820" rx="183" fill="none" stroke="#ffffff" stroke-opacity=".18" stroke-width="4"/>
 
   <!-- Shadow on the square -->
   <g filter="url(#drop)" opacity=".55" transform="translate(0 26)">
