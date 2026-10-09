@@ -2,7 +2,7 @@
 
 ## 现在在哪（2026-10-09 上午）
 
-- main 和 `origin/main`（`github.com/firegnu/paddock`，public）同步，工作区里只有九个未提交的草稿任务文件（P5-51～P5-56、P5-59～P5-61，看板 DRAFT，见“下一步”；**是有意留的草稿，不要 `git add -A`**）。没有进行中的活，没有开着的 worktree，本地只有 main 一个分支；ranch 也一样（main 同步、无 worktree）。corral 里只有 `paddock/main`（本主控）；今天派出去的 dev agent 都已关，owlet/main、global-mesh/main 用户已关。
+- main 和 `origin/main`（`github.com/firegnu/paddock`，public）同步，工作区里只有八个未提交的草稿任务文件（P5-51、P5-53～P5-56、P5-59～P5-61，看板 DRAFT，见“下一步”；**是有意留的草稿，不要 `git add -A`**）。没有进行中的活，没有开着的 worktree，本地只有 main 一个分支；ranch 也一样（main 同步、无 worktree）。corral 里只有 `paddock/main`（本主控）；今天派出去的 dev agent 都已关，owlet/main、global-mesh/main 用户已关。
 - 456 项测试通过，clippy、`cargo fmt --check` 干净。`~/Applications/paddock.app` 是合并 P5-67 之后的版本（10-09 装，含 P5-35～P5-50、P5-57、P5-58、P5-63～P5-67、paddock ctl；P5-58 新图标、P5-65、P5-66 待用户重启看；P5-67 用户已看过），已用本机 Apple Development 证书签名。
 - **paddock ctl 已部署**（用户 10-07 夜在终端里跑完，主控核对过）：`~/.local/bin/paddock` 链到 app 里的程序；`paddock install-skills` 已装 `~/.claude/skills/paddock`、`~/.agents/skills/paddock`（带归属标记，与仓库源文件一致）；旧的 `~/.claude/skills/saddle` 已删。`paddock ctl instances` 找得到正在跑的窗口，`inspect` 认出 `paddock/main` 是 pane 1。重新打包安装后链接不用重建；技能正文改了要重跑 `paddock install-skills`。已开着的 agent 要重开才看到新技能。
 - 全局 `~/.local/bin/corral`、`~/.local/bin/ranch` 已是 ranch `d55defb`（10-08 R2：技能里派活和临时委派的 agent 带 `CAIRN_DISABLE=1`；程序行为与 `5c5540c` 相同，支持 pause／resume）。
@@ -16,6 +16,7 @@
 - 用户问 HANDOFF 里三项“等用户”要决定什么：都不用决定，只是用到时看；P5-36c 用户 10-07 已定“暂时不改”。HANDOFF 已改（`4d72471`）。
 - **P5-58**：主题从项目名来（放牧、赶牲口的路）；用户给了 superlogical 的图标截图（深靛紫底、橙→品红→紫渐变的抽象恐龙头，截图不入库），**superlogical 就是这个参考**。两种风格（甲可爱多彩、乙沿用极简）× 马、高地牛、公羊出样稿，用户选甲、马；再出四组配色 × 尖、圆鬃毛，用户选 Candy、圆鬃毛；主控加额毛、压暗鬃毛和脸的交界、32 及以下简化版，用户“都同意，开始做吧”。主控自己做：图标改成两份 SVG（`app/src/icon/`），`icon::icon` 用 GPUI 已锁的 resvg 0.46 画，删掉手写的猫头光栅化；合并、推送、收尾，09:01 重新打包安装，**待用户重启看程序坞和 About**。样稿画布「P5-58 paddock 应用图标」，源文件 `docs/设计稿/P5-58-应用图标/`。
 - **P5-67**：主控自己做的活，Kanban 卡片原来写 “No agent”。用户选“任务文件写一行”“头像加实时状态”：任务文件开头写 `执行：主控`（已写进 AGENTS.md 看板约定），进行中又没有自己的 agent 时卡片显示主控；只影响显示；对主控不给 Show changes（会显示主仓库的改动）。主控自己做，合并、推送、收尾、重新打包安装。**以后主控自己做的活，任务文件都要写这一行。** 用户问过“是你判断你改就好了不需要委派？”——是，主控判断小、上下文在手就自己做；用户只想知道原因，规则不改。
+- **P5-52**（用户：“p5-52你自己做”；补充：多出来的是 Dock 上的 shell 图标）：查明是从编译目录直接起的 paddock（截图、实测用的 debug 版，带 `PADDOCK_NO_ACTIVATE=1`）登记成前台应用，不在 app 包里所以是通用图标；已复现。ctl、测试、重装都排除。只改文档，合并、收尾。**待用户定改法**：主控建议 `PADDOCK_NO_ACTIVATE` 时设 GPUI 的 Accessory 策略，测试窗口不进 Dock（见任务文件）。
 - **P5-62**（用户：“p5-62你自己做”，顺便测 P5-67）：主控量了运行时编着色器的耗时（M4 Max：第一次 130～180 ms，之后系统着色器缓存跨进程命中约 1 ms；GPUI 每开一个窗口编一次），结论不装 Metal 工具链、`runtime_shaders` 保留，DESIGN §4 已记；只改文档，合并、推送、收尾。用户在看板上看到了 P5-62 进行中时卡片显示主控（P5-67 验证通过）。
 - **P5-66**：主控先调查（实测前台进程组判断、用户真实 zsh 配置下提示符时 shell 没有子进程），用户：“都按你的建议，开始做吧”。⌘Q、关窗口、关窗格、关标签只在 shell 前台有程序或有后台任务时才问，确认框列“窗格标题 — 程序名”；`paddock ctl close` 不变。主控自己做，先写失败测试再实现（真 pty 测试），合并、推送、收尾，09:13 重新打包安装，**待用户重启后试**（停在提示符 ⌘Q 应直接退出；跑着 `sleep 30` 或 `sleep 30 &` 时应问）。
 
@@ -102,9 +103,8 @@
 
 ## 下一步（按优先级）
 
-**九份未提交的草稿任务文件（看板显示 DRAFT）**：用户 10-08 夜列的九件剩七件（P5-57、P5-58 已做完），加上深夜讨论新记的 P5-60、P5-61（P5-62、P5-66 已做完），10-09 新记的 P5-67 已做完。主控建议的先后见上面“10-08 深夜”一节（用户还没表态）。开工时补全那一件、再按路径提交，别用 `git add -A`。每份草稿里有用户原话和“开工前要定”。其中 P5-51、P5-59 参考 **superlogical**：用户 10-09 给过它的应用图标截图（P5-58 用了），P5-51、P5-59 要的是它的界面（卡片、轮廓线），开工前还要请用户给界面截图，照惯例先出样稿给用户挑。
+**九份未提交的草稿任务文件（看板显示 DRAFT）**：用户 10-08 夜列的九件剩七件（P5-57、P5-58 已做完）（P5-52 已查完、待定改法），加上深夜讨论新记的 P5-60、P5-61（P5-62、P5-66 已做完），10-09 新记的 P5-67 已做完。主控建议的先后见上面“10-08 深夜”一节（用户还没表态）。开工时补全那一件、再按路径提交，别用 `git add -A`。每份草稿里有用户原话和“开工前要定”。其中 P5-51、P5-59 参考 **superlogical**：用户 10-09 给过它的应用图标截图（P5-58 用了），P5-51、P5-59 要的是它的界面（卡片、轮廓线），开工前还要请用户给界面截图，照惯例先出样稿给用户挑。
 - **P5-51** 整体界面再美化，左侧栏 agent 卡片照 superlogical 做（和 P5-59 范围重叠，考虑合成一件）。
-- **P5-52** 查 Dock 里偶尔多出第二个 paddock 后台进程（先只查不改；主控猜测：`~/.local/bin/paddock` 是 app 包里的程序，跑 `paddock ctl …` 时 macOS 也给它挂了 Dock 图标；另用 `paddock ctl instances` 查残留实例）。
 - **P5-53** 在 paddock 仓库开始试 cairn（`adopt`；paddock AGENTS.md 要求开会话先读 HANDOFF，要不要照 owlet 方案 A 改，和用户定）。
 - **P5-54** Browser 选中元素、Changes 选中 diff 写上要怎么改后送给 agent（先出交互样稿）。
 - **P5-55** paddock 里做 cairn 面板（10-08 定的“暂不做”由用户改为要做；数据直接用 `cairn show`／`list` 的文字还是先请 cairn 定 JSON 约定、面板放哪，要定；依赖 P5-53）。
