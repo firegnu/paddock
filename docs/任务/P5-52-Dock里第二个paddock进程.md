@@ -27,8 +27,9 @@
   - 照截图的做法起了一个 debug 版（临时目录、假 corral、`PADDOCK_NO_ACTIVATE=1`），`lsappinfo` 显示它登记为 `type="Foreground"`、`fileType="????"`（没有 app 包）、可执行路径在编译目录；4 秒后按 PID 停掉。
   - 排除：`paddock ctl`／`install-skills` 在 `main.rs` 一开头就分支退出，不碰 GPUI；一边连续跑 4 秒 `paddock ctl instances` 一边反复查登记，始终只有主窗口一个。全量 `cargo test` 跑的整个过程里反复查登记，没有任何测试程序登记成应用（`tests/ctl_cli.rs` 只跑命令行）。Browser 带出来的 “AutoFill (paddock)” 是系统的 `BackgroundOnly` 助手，不进 Dock。重装 app（删掉再复制）会让 Dock 认不出正在跑的那个，但那样多出来的是 paddock 自己的图标，和用户看到的 shell 图标对不上。
   - 主控查的时候没有残留的测试实例（只有 `~/Applications/paddock.app` 那一个）。
+- **补查（10-09，用户截图：Dock 上 paddock 旁边多一个 `exec` 图标，正是主控 09:36 起的测试实例）：为什么停掉了还挂着。** `lsappinfo` 里那条登记是 `"paddock"`、可执行路径在编译目录、pid 67052，进程已经停了，状态是 `(exited-with-subordinates)`，`coalition: 77422`。这个 coalition 的成员是本主控的 `corral __pen`（pid 1922）、它底下的 `claude`、各个 MCP 进程和 rust-analyzer。agent 在 corral 会话里起的测试实例进了 agent 那一组，那一组本来没有图形应用，系统就把它记成这一组的应用；它退出后，只要组里还有进程活着（agent 还开着），登记就不撤，Dock 上的 `exec` 图标就一直在，点了也没反应。所以“有时候出现、过一阵又没了”：哪个 agent 起过测试窗口，图标就挂到那个 agent 关掉为止。主控没有去停 Dock 或 corral 来清它（会影响用户正在用的东西），等本主控重开后应自然消失。
 - 改法建议（未做，等用户定）：
-  - A（主控建议）：`PADDOCK_NO_ACTIVATE` 设了时，启动后调 GPUI 的 `cx.set_activation_policy(ActivationPolicy::Accessory)`，测试窗口不进 Dock（GPUI 现成接口；照样能按窗口编号截图，要实测确认）。只影响测试和截图起的实例，用户自己开的 paddock 不变。
+  - A（主控建议）：`PADDOCK_NO_ACTIVATE` 设了时，启动后调 GPUI 的 `cx.set_activation_policy(ActivationPolicy::Accessory)`，测试窗口不进 Dock，退出后留下的登记也不会显示成 Dock 图标（GPUI 现成接口；照样能按窗口编号截图，要实测确认）。只影响测试和截图起的实例，用户自己开的 paddock 不变。
   - B：只靠规矩——起测试窗口的人用完立即按 PID 停（AGENTS.md 已有），但截图那几秒里照样会闪一下。
   - 不带 `PADDOCK_NO_ACTIVATE` 的 `cargo run`（少见）照样会出现，A 管不到。
 - 没做的事：没改程序。只改文档，`git diff --check` 过。
