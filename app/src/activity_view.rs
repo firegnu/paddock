@@ -274,6 +274,11 @@ pub struct ActivityView {
 }
 
 impl ActivityView {
+    /// The panel's see-through ground, which the sidebar's footer under it takes too (P5-70b).
+    pub fn ground(&self) -> Hsla {
+        self.colors.ground
+    }
+
     /// `width` is the sidebar's; the repositories already listed are read at once.
     pub fn new(theme: Rc<Theme>, mono: Font, width: f32, cx: &mut Context<Self>) -> Self {
         cx.spawn(async move |this, cx| {
