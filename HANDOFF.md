@@ -110,7 +110,7 @@
 - **P5-60** Kanban 的 Queued 加优先级（可能加拖动），连带 New task 弹框做精细（编号、优先级选项、md 编辑）：用户在评估，明天讨论。和 DESIGN §13 P5-29 “不能拖，列内不排序”、P5-29r2 “不做多行输入框”等已定条目冲突，要做先改 DESIGN；主控建议见草稿。
 - **P5-61** 新建 agent 的快捷方式：弹出终端直接敲 `claude`、`codex --yolo`、`pi` 回车就跑（照 herdr），现有 New Agent 浮层不变。用户已确认跑起来的是 corral 托管的 agent；入口、名字、目录、命令提示还是真 shell 等待定，详见草稿。
 - **P5-62** 要不要装 Metal 工具链、改回编译期编着色器（现在靠 `runtime_shaders` 启动时编）：主控建议先测启动时编着色器的耗时再定；装属于系统安装，由用户在终端跑。
-- **P5-66** ⌘Q 退出时的确认框（“Quit paddock and end the running shell?”）：现在只要有活着的 shell 就问，停在提示符也问；P5-47 后窗口里几乎总有 shell，所以几乎每次都弹。用户选 B：只在 shell 前台有程序在跑时才问，停在提示符直接退出；细节见草稿。
+- **P5-66** ⌘Q 退出时的确认框（“Quit paddock and end the running shell?”）：现在只要有活着的 shell 就问，停在提示符也问；P5-47 后窗口里几乎总有 shell，所以几乎每次都弹。用户选 B：只在 shell 前台有程序在跑时才问，停在提示符直接退出；细节见草稿。 10-09 主控已调查、写了方案（草稿“调查结果”“主控的方案”两节），等用户定后台任务算不算、`ctl close` 跟不跟。
 - **P5-67** 主控自己做的活，Kanban 的 In progress 卡片现在写 “No agent”，看不出是主控在做（主控在主仓库目录、没有 task 标签）。主控倾向在任务文件里写一行“谁做：主控”让 Kanban 认，另有“有 worktree 没 agent 就当主控”和“corral 给运行中的 agent 改标签”两种，见草稿。
 
 0. **cairn 试点（owlet，10-08 晚起，用一两周再定留不留）**：owlet 按方案 A 试“cairn 替代手写交接”（owlet `c35a288`：HANDOFF 减到 47 行只留稳定背景；AGENTS.md 改为开会话以 cairn 注入为准、进度不再手写进 HANDOFF、派出去的 agent 不用 cairn，写明试点期和退回办法）。验证过：重开 owlet/main、要求“不读文件、只用开会话时已知的”回答上次做到哪，它准确说出停点、已完成、下一步和待用户决定；之前两次只说“继续”时它弹 AskUserQuestion 问方向，不是没记住。要看：隔天重开是否照样接上、旧会话的记录注入会不会越堆越长。留：再定要不要把“新会话第一句主动复述停点”转给 cairn 主控，再按真实需要设计 paddock 面板；不留：用户 `cairn uninstall --agent claude`，R2 的 `CAIRN_DISABLE=1` 留着无害。paddock 的 Recap 面板、New Agent 的 cairn 开关、给 cairn 提 JSON 约定都**暂不做**（面板看不到“到底注入了没有”，那只在 cairn 库里）。确认某次注入了没有：主控只读查 `~/.local/state/cairn/cairn.db` 的 injections 表（`sqlite3 -readonly`）；日常看 `cairn list`／`cairn show`。来历见上面“10-08 下午：cairn 试点、ranch R2”一节。
