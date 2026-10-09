@@ -84,6 +84,20 @@ const AVATAR_PICTURE: f32 = 24.0;
 /// How strongly the kind's colour tints the avatar, and waiting amber the card.
 const AVATAR_TINT: f32 = 0.13;
 const WAITING_TINT: f32 = 0.07;
+/// The room between two cards (P5-51).
+const CARD_GAP: f32 = 8.0;
+/// A card lifted off the column (P5-51): how much of the text colour its face and edge take
+/// resting, hovered and paused; how much of the accent a selected card's face (over the material)
+/// and edge take, and of amber a waiting card's edge.
+const FACE: f32 = 0.055;
+const FACE_HOVERED: f32 = 0.085;
+const FACE_PAUSED: f32 = 0.03;
+const EDGE: f32 = 0.07;
+const EDGE_HOVERED: f32 = 0.11;
+const EDGE_PAUSED: f32 = 0.05;
+const SELECTED_FACE: f32 = 0.11;
+const SELECTED_EDGE: f32 = 0.42;
+const WAITING_EDGE: f32 = 0.34;
 const DOT: f32 = 8.0;
 /// Room kept before the age.
 const TIME_PAD: f32 = 4.0;
@@ -1463,7 +1477,7 @@ impl Render for Sidebar {
             .overflow_y_scroll()
             .flex()
             .flex_col()
-            .gap(px(2.0))
+            .gap(px(CARD_GAP))
             .px(px(PAD))
             .pt(px(2.0))
             .pb(px(10.0));
@@ -1525,9 +1539,10 @@ impl Render for Sidebar {
                     .items_center()
                     .gap(ui.px(6.0))
                     .px(px(8.0))
-                    // Closer to the top for the first: the window's title bar is over it.
-                    .pt(px(if index == 0 { 10.0 } else { 14.0 }))
-                    .pb(px(6.0))
+                    // Sixteen points below the card above, the gap between lines included (closer
+                    // to the top for the first: the window's title bar is over it); down to its
+                    // own first card, only that gap.
+                    .pt(px(if index == 0 { 10.0 } else { 16.0 - CARD_GAP }))
                     .child(
                         div()
                             .flex()
@@ -1699,33 +1714,89 @@ impl Note {
 struct Grounds {
     /// The column itself: the sidebar's colour, or nothing over the material.
     base: Hsla,
-    /// A selected card or tile, a lit button; a hovered one takes half of it.
+    /// A selected tile, a lit button; a hovered one takes half of it.
     selected: Hsla,
     /// What a waiting card adds.
     waiting: Hsla,
     /// The strip's short rules.
     rule: Hsla,
+    /// A card's own face resting, hovered and paused, and a selected card's (P5-51).
+    card: Hsla,
+    card_hovered: Hsla,
+    card_paused: Hsla,
+    card_selected: Hsla,
 }
 
 impl Grounds {
     fn of(theme: &Theme, frosted: bool) -> Self {
         let fg = |pick: Pick| hsla(theme.fg(pick), 1.0);
+        let text = fg(|t| t.agents_text);
         if frosted {
             let frost = theme.frost();
             Self {
                 base: gpui::transparent_black(),
-                selected: fg(|t| t.agents_text).opacity(frost.lit),
+                selected: text.opacity(frost.lit),
                 waiting: fg(|t| t.agents_yellow).opacity(frost.waiting),
-                rule: fg(|t| t.agents_text).opacity(frost.lit),
+                rule: text.opacity(frost.lit),
+                card: text.opacity(FACE),
+                card_hovered: text.opacity(FACE_HOVERED),
+                card_paused: text.opacity(FACE_PAUSED),
+                card_selected: fg(|t| t.agents_accent).opacity(SELECTED_FACE),
             }
         } else {
+            let base = hsla(theme.bg(|t| t.agents_bg), 1.0);
+            // The preset's own selected colour, as the strip's tile shows it.
+            let selected = hsla(theme.bg(|t| t.agent_selected), 1.0);
             Self {
-                base: hsla(theme.bg(|t| t.agents_bg), 1.0),
-                selected: hsla(theme.bg(|t| t.agent_selected), 1.0),
+                base,
+                selected,
                 waiting: fg(|t| t.agents_yellow).opacity(WAITING_TINT),
                 rule: fg(|t| t.agents_rule).opacity(0.8),
+                card: over(text.opacity(FACE), base),
+                card_hovered: over(text.opacity(FACE_HOVERED), base),
+                card_paused: over(text.opacity(FACE_PAUSED), base),
+                card_selected: selected,
             }
         }
+    }
+}
+
+/// How high a card lies (P5-51): the light along its top edge, in the text colour, then a tight
+/// shadow and a soft one under it, each its drop, blur and darkness.
+struct Lift {
+    light: f32,
+    near: (f32, f32, f32),
+    far: (f32, f32, f32),
+}
+
+const RESTING: Lift = Lift {
+    light: 0.07,
+    near: (1.0, 2.0, 0.25),
+    far: (6.0, 14.0, 0.18),
+};
+/// Hovered, it rises a little: the shadows reach further, as the card itself stays put.
+const HOVERED: Lift = Lift {
+    light: 0.09,
+    near: (2.0, 4.0, 0.28),
+    far: (10.0, 22.0, 0.28),
+};
+const SELECTED: Lift = Lift {
+    light: 0.10,
+    near: (1.0, 2.0, 0.30),
+    far: (8.0, 20.0, 0.30),
+};
+
+impl Lift {
+    fn shadows(&self, text: Hsla) -> Vec<BoxShadow> {
+        let drop = |(y, blur, alpha): (f32, f32, f32)| {
+            BoxShadow::new(px(0.0), px(y), gpui::black().opacity(alpha)).blur_radius(px(blur))
+        };
+        vec![
+            // Inside the card, under its top edge, so that edge reads lighter than the rest.
+            BoxShadow::new(px(0.0), px(1.0), text.opacity(self.light)).inset(),
+            drop(self.near),
+            drop(self.far),
+        ]
     }
 }
 
@@ -1941,23 +2012,49 @@ impl RenderOnce for AgentCard {
         let waiting = card.status == Status::Waiting;
         // Idle and not the one shown: the name and preview a step quieter.
         let resting = card.status == Status::Idle && !card.selected;
-        // The card's ground, on the sidebar's own colour a whole colour, so the ring round the
+        let paused = card.status == Status::Paused;
+        // The card's face, on the sidebar's own colour a whole colour, so the ring round the
         // status badge matches it; over the system's material a tint, which only nears that.
         // Waiting adds amber.
-        let base = if card.selected {
-            over(grounds.selected, grounds.base)
+        let (base, lit) = if card.selected {
+            (grounds.card_selected, grounds.card_selected)
+        } else if paused {
+            (grounds.card_paused, grounds.card_hovered)
         } else {
-            grounds.base
+            (grounds.card, grounds.card_hovered)
         };
-        let ground = if waiting {
-            over(grounds.waiting, base)
-        } else {
-            base
+        let amber = |face| {
+            if waiting {
+                over(grounds.waiting, face)
+            } else {
+                face
+            }
         };
-        let hovered = if card.selected {
-            ground
+        let (ground, hovered) = (amber(base), amber(lit));
+        let text = fg(|t| t.agents_text);
+        let (edge, edge_hovered) = if waiting {
+            let amber = fg(|t| t.agents_yellow).opacity(WAITING_EDGE);
+            (amber, amber)
+        } else if card.selected {
+            let accent = fg(|t| t.agents_accent).opacity(SELECTED_EDGE);
+            (accent, accent)
+        } else if paused {
+            (text.opacity(EDGE_PAUSED), text.opacity(EDGE_HOVERED))
         } else {
-            over(grounds.selected.opacity(0.5), ground)
+            (text.opacity(EDGE), text.opacity(EDGE_HOVERED))
+        };
+        // Lifted off the column, the selected card highest; a paused one lies flat.
+        let lift = |lift: &Lift| {
+            if paused {
+                Vec::new()
+            } else {
+                lift.shadows(text)
+            }
+        };
+        let (shadows, shadows_hovered) = if card.selected {
+            (lift(&SELECTED), lift(&SELECTED))
+        } else {
+            (lift(&RESTING), lift(&HOVERED))
         };
         let group = SharedString::from(format!("agent-card-{}", card.name));
 
@@ -2160,21 +2257,21 @@ impl RenderOnce for AgentCard {
             .py(px(CARD_Y))
             .rounded(px(CARD_RADIUS))
             .border_1()
-            .border_color(if waiting {
-                fg(|t| t.agents_yellow).opacity(0.22)
-            } else {
-                gpui::transparent_black()
-            })
+            .border_color(edge)
             .bg(ground)
+            .shadow(shadows)
             .when(!card.selected, |body| {
-                body.hover(move |style| style.bg(hovered))
+                body.hover(move |style| {
+                    style
+                        .bg(hovered)
+                        .border_color(edge_hovered)
+                        .shadow(shadows_hovered)
+                })
             })
             .cursor_pointer()
             .on_click(on_click)
             .on_hover(actions.leave)
-            .when(card.status == Status::Paused, |body| {
-                body.opacity(PAUSED_OPACITY)
-            })
+            .when(paused, |body| body.opacity(PAUSED_OPACITY))
             .child(avatar)
             .child(words)
     }
