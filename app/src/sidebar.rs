@@ -98,6 +98,10 @@ const EDGE_PAUSED: f32 = 0.05;
 const SELECTED_FACE: f32 = 0.11;
 const SELECTED_EDGE: f32 = 0.42;
 const WAITING_EDGE: f32 = 0.34;
+/// Over the material a card's see-through face takes this much more of its colour, to stand brighter
+/// than the material around it; and how dark the line inside its bottom edge is (P5-51b).
+const FROSTED_FACE: f32 = 1.45;
+const FROSTED_BOTTOM: f32 = 0.28;
 const DOT: f32 = 8.0;
 /// Room kept before the age.
 const TIME_PAD: f32 = 4.0;
@@ -1725,6 +1729,8 @@ struct Grounds {
     card_hovered: Hsla,
     card_paused: Hsla,
     card_selected: Hsla,
+    /// Over the system's material: card faces are see-through.
+    frosted: bool,
 }
 
 impl Grounds {
@@ -1738,10 +1744,11 @@ impl Grounds {
                 selected: text.opacity(frost.lit),
                 waiting: fg(|t| t.agents_yellow).opacity(frost.waiting),
                 rule: text.opacity(frost.lit),
-                card: text.opacity(FACE),
-                card_hovered: text.opacity(FACE_HOVERED),
-                card_paused: text.opacity(FACE_PAUSED),
-                card_selected: fg(|t| t.agents_accent).opacity(SELECTED_FACE),
+                card: text.opacity(FACE * FROSTED_FACE),
+                card_hovered: text.opacity(FACE_HOVERED * FROSTED_FACE),
+                card_paused: text.opacity(FACE_PAUSED * FROSTED_FACE),
+                card_selected: fg(|t| t.agents_accent).opacity(SELECTED_FACE * FROSTED_FACE),
+                frosted,
             }
         } else {
             let base = hsla(theme.bg(|t| t.agents_bg), 1.0);
@@ -1756,13 +1763,16 @@ impl Grounds {
                 card_hovered: over(text.opacity(FACE_HOVERED), base),
                 card_paused: over(text.opacity(FACE_PAUSED), base),
                 card_selected: selected,
+                frosted,
             }
         }
     }
 }
 
 /// How high a card lies (P5-51): the light along its top edge, in the text colour, then a tight
-/// shadow and a soft one under it, each its drop, blur and darkness.
+/// shadow and a soft one under it, each its drop, blur and darkness. Over the material its face is
+/// see-through, and GPUI lays a shadow under the whole card, which would show through and darken
+/// it: there a dark line inside the bottom edge takes the shadows' place (P5-51b).
 struct Lift {
     light: f32,
     near: (f32, f32, f32),
@@ -1787,16 +1797,17 @@ const SELECTED: Lift = Lift {
 };
 
 impl Lift {
-    fn shadows(&self, text: Hsla) -> Vec<BoxShadow> {
+    fn shadows(&self, text: Hsla, frosted: bool) -> Vec<BoxShadow> {
+        // Inside the card, under its top edge, so that edge reads lighter than the rest.
+        let light = BoxShadow::new(px(0.0), px(1.0), text.opacity(self.light)).inset();
+        if frosted {
+            let dark = BoxShadow::new(px(0.0), px(-1.0), gpui::black().opacity(FROSTED_BOTTOM));
+            return vec![light, dark.inset()];
+        }
         let drop = |(y, blur, alpha): (f32, f32, f32)| {
             BoxShadow::new(px(0.0), px(y), gpui::black().opacity(alpha)).blur_radius(px(blur))
         };
-        vec![
-            // Inside the card, under its top edge, so that edge reads lighter than the rest.
-            BoxShadow::new(px(0.0), px(1.0), text.opacity(self.light)).inset(),
-            drop(self.near),
-            drop(self.far),
-        ]
+        vec![light, drop(self.near), drop(self.far)]
     }
 }
 
@@ -2044,11 +2055,12 @@ impl RenderOnce for AgentCard {
             (text.opacity(EDGE), text.opacity(EDGE_HOVERED))
         };
         // Lifted off the column, the selected card highest; a paused one lies flat.
+        let frosted = grounds.frosted;
         let lift = |lift: &Lift| {
             if paused {
                 Vec::new()
             } else {
-                lift.shadows(text)
+                lift.shadows(text, frosted)
             }
         };
         let (shadows, shadows_hovered) = if card.selected {
@@ -3020,6 +3032,21 @@ fn now() -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn frosted_cards_cast_no_shadow_under_their_see_through_face() {
+        let text = gpui::white();
+        for lift in [&RESTING, &HOVERED, &SELECTED] {
+            // Over the material the face is see-through: only lines inside it, light on top and
+            // dark at the bottom, nothing laid under it to show through (P5-51b).
+            let frosted = lift.shadows(text, true);
+            assert!(frosted.iter().all(|s| s.inset), "{frosted:?}");
+            assert!(frosted.iter().any(|s| s.offset.y > px(0.0)));
+            assert!(frosted.iter().any(|s| s.offset.y < px(0.0)));
+            // On the sidebar's own colour the face is whole: the shadows stay.
+            assert!(lift.shadows(text, false).iter().any(|s| !s.inset));
+        }
+    }
 
     fn agent(name: &str, state: &str) -> Agent {
         Agent {
