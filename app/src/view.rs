@@ -350,6 +350,12 @@ impl TerminalView {
         self.queued_shell.is_some() || self.viewer.shell_live()
     }
 
+    /// What runs in this pane's shell besides the shell itself; empty at its prompt and while the
+    /// shell is still queued.
+    pub fn shell_programs(&self) -> Vec<String> {
+        self.viewer.shell_programs()
+    }
+
     /// What `paddock ctl` reads of the pane.
     pub fn facts(&self) -> crate::control_ui::Facts {
         let shell = self.queued_shell.as_ref().or(self.viewer.shell.as_ref());
