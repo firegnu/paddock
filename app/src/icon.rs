@@ -1,6 +1,7 @@
 //! The app icon: a horse's head facing right, yellow through pink to violet with a rounded blue
-//! mane, on a deep indigo rounded square in the macOS icon grid. Drawn from the P5-58 design
-//! (`docs/设计稿/P5-58-应用图标/Final.dc.html`), kept as SVG in `icon/` and rendered with resvg.
+//! mane, on a bright indigo to deep blue violet rounded square in the macOS icon grid. Drawn from
+//! the P5-58 design (`docs/设计稿/P5-58-应用图标/Final.dc.html`), its ground from P5-72
+//! (`docs/设计稿/P5-72-图标彩色底/`), kept as SVG in `icon/` and rendered with resvg.
 //! `examples/bundle.rs` writes it into `paddock.app`; the About window shows it too.
 use resvg::{tiny_skia, usvg};
 
@@ -60,10 +61,16 @@ mod tests {
         // Outside the square and in its rounded corner: transparent.
         assert_eq!(pixel(&rgba, size, 10, 10)[3], 0);
         assert_eq!(pixel(&rgba, size, 110, 110)[3], 0);
-        // Inside near the top edge: the ground, opaque, dark and blue.
+        // Inside near the top edge: the ground, opaque and a bright indigo, not near black.
         let [r, g, b, a] = pixel(&rgba, size, 512, 140);
         assert_eq!(a, 255);
-        assert!(r < 0x40 && g < 0x40 && b > r && b < 0x70, "{r} {g} {b}");
+        assert!(b > 0xc0 && b > r + 0x50 && b > g + 0x50, "{r} {g} {b}");
+        // Lower down it is a deep blue violet, darker than the mane in front of it.
+        let [r, g, b, _] = pixel(&rgba, size, 800, 860);
+        assert!(b > 0x60 && b < 0xa0 && r < b && g < b, "low {r} {g} {b}");
+        // Even the glow at the upper left stays dimmer than the face (see the next tests).
+        let [r, g, b, _] = pixel(&rgba, size, 300, 180);
+        assert!(r as u32 + g as u32 + b as u32 <= 520, "glow {r} {g} {b}");
         // The muzzle is warm pink, the bottom of the mane blue.
         let [r, g, b, _] = pixel(&rgba, size, 780, 600);
         assert!(r > 0xd0 && r > b && g < r, "muzzle {r} {g} {b}");
@@ -93,10 +100,10 @@ mod tests {
             let rgba = icon(size);
             let opaque = rgba.chunks(4).filter(|p| p[3] == 255).count();
             assert!(opaque > (size * size / 3) as usize, "{size}: {opaque}");
-            // The face and mane are bright against the dark ground.
+            // The face and mane are brighter than any of the ground.
             let bright = rgba
                 .chunks(4)
-                .filter(|p| p[3] == 255 && p[..3].iter().map(|&c| c as u32).sum::<u32>() > 400)
+                .filter(|p| p[3] == 255 && p[..3].iter().map(|&c| c as u32).sum::<u32>() > 520)
                 .count();
             assert!(
                 bright > (size * size / 8) as usize,
