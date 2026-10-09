@@ -3,28 +3,32 @@
 //! background every few seconds while the tab shows (`kanban::read`), the agents come from the
 //! left sidebar each frame, and the board is drawn again only when it changed. A hovered card
 //! offers its task file, its agent and the agent's changes, nothing that changes the work; the
-//! things it writes are a new draft task file, from New task, and, on a card its task file says
-//! needs the user, Clear: that line taken out and committed once confirmed; on a queued card, its
-//! priority line, committed the same way or, in a draft, only written (DESIGN §13 P5-29).
+//! things it writes are a task file, new or queued, from the task dialog (New task, or Edit on a
+//! queued card), and, on a card its task file says needs the user, Clear: that line taken out and
+//! committed once confirmed; on a queued card, its priority line, committed the same way or, in a
+//! draft, only written (DESIGN §13 P5-29, P5-60b).
 use crate::{
+    activity,
     agents::Status,
     card, changes,
     fonts::UiFont,
     footer_icon::{self, Icon},
     kanban::{self, Board, Cache, Card, Column, Priority, Read, Seen, Tone},
-    kind_icon, menu, popover,
+    kind_icon, markdown, menu, popover,
     right_panel::Tip,
     text_input::{self, Changed, TextInput},
     theme::Theme,
     view::hsla,
 };
 use gpui::{
-    Animation, AnimationExt, AnyElement, Bounds, ClickEvent, Context, Div, Entity, EventEmitter,
-    Focusable, Font, FontWeight, Hsla, IntoElement, Pixels, Render, SharedString, Stateful,
-    Transformation, Window, canvas, div, percentage, prelude::*, px, svg,
+    Animation, AnimationExt, AnyElement, App, BoxShadow, ClickEvent, Context, Div, Entity,
+    EventEmitter, FocusHandle, Focusable, Font, FontStyle, FontWeight, HighlightStyle, Hsla,
+    IntoElement, KeyDownEvent, MouseButton, MouseDownEvent, Pixels, Point, Render, ScrollStrategy,
+    SharedString, Stateful, StyledText, Subscription, Transformation, UnderlineStyle,
+    UniformListScrollHandle, Window, anchored, deferred, div, percentage, point, prelude::*, px,
+    relative, svg, uniform_list,
 };
 use std::{
-    cell::Cell,
     collections::{HashMap, HashSet},
     path::PathBuf,
     rc::Rc,
@@ -54,6 +58,11 @@ const ROW_RIGHT: f32 = 10.0;
 
 const SPIN_TRACK: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12"><circle cx="6" cy="6" r="4.5" fill="none" stroke="#000" stroke-width="2"/></svg>"##;
 const SPIN_ARC: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12"><path d="M6 1.5a4.5 4.5 0 0 1 4.5 4.5" fill="none" stroke="#000" stroke-width="2" stroke-linecap="round"/></svg>"##;
+/// Line drawings for a card's Edit and the task dialog: a pencil, a padlock (the id of a task being
+/// edited), angle brackets (the file's head).
+const PENCIL: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12"><path d="M7.5 2.5l2 2L4 10H2V8z" fill="none" stroke="#000" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>"##;
+const LOCK: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12"><rect x="2.5" y="5.5" width="7" height="5" rx="1" fill="none" stroke="#000" stroke-width="1.3"/><path d="M4 5.5V4a2 2 0 0 1 4 0v1.5" fill="none" stroke="#000" stroke-width="1.3" stroke-linecap="round"/></svg>"##;
+const BRACKETS: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 14 14"><path d="M5 3.5L1.5 7 5 10.5M9 3.5L12.5 7 9 10.5" fill="none" stroke="#000" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>"##;
 
 /// What the window tells the tab every time it draws.
 pub struct Frame {
@@ -78,10 +87,14 @@ pub enum KanbanEvent {
     GoTo(String),
     /// Bring this agent's pane to the front and show its changes.
     Changes(String),
-    /// Open the New task panel for the main worktree `repo`, under the button at `anchor`.
-    NewTask {
+    /// Open the task dialog for a new task in the main worktree `repo`.
+    NewTask { repo: PathBuf },
+    /// Open the task dialog on the task file `file` in the main worktree `repo`'s `docs/任务/`, a
+    /// draft or on main.
+    EditTask {
         repo: PathBuf,
-        anchor: Option<Bounds<Pixels>>,
+        file: String,
+        draft: bool,
     },
 }
 
@@ -176,8 +189,6 @@ pub struct KanbanView {
     hovered: Option<String>,
     /// The width from which it is widened, at this interface size.
     wide_at: f32,
-    /// Where New task was last drawn, for its panel to hang from.
-    new_task_at: Rc<Cell<Option<Bounds<Pixels>>>>,
     /// The cards being cleared of `待用户：` or asked to be, by task file.
     clears: HashMap<String, Clearing>,
     /// The cards whose priority is being changed or asked for, by task file.
@@ -212,7 +223,6 @@ impl KanbanView {
             cache: Arc::new(kanban::cache()),
             hovered: None,
             wide_at: changes::WIDE,
-            new_task_at: Rc::default(),
             clears: HashMap::new(),
             priorities: HashMap::new(),
         }
@@ -493,11 +503,70 @@ impl KanbanView {
             (_, Some(Read::NoTasks { repo, .. })) => repo.clone(),
             _ => return,
         };
-        cx.emit(KanbanEvent::NewTask {
-            repo,
-            anchor: self.new_task_at.get(),
-        });
+        cx.emit(KanbanEvent::NewTask { repo });
     }
+
+    /// Read the repository again at once: the task dialog wrote to it.
+    pub fn read_again(&mut self) {
+        self.cancel();
+        self.last = None;
+    }
+
+    /// The tasks the task dialog offers to wait for: every card's, newest id first.
+    pub fn tasks(&self) -> Vec<TaskChoice> {
+        let mut tasks: Vec<TaskChoice> = self
+            .board
+            .iter()
+            .flat_map(|board| board.columns.iter().flatten())
+            .filter(|card| !card.id.is_empty())
+            .map(|card| TaskChoice {
+                id: card.id.clone(),
+                title: card.title.clone(),
+                stands: if card.draft {
+                    "draft"
+                } else {
+                    match card.column {
+                        Column::Queued => "",
+                        Column::InProgress => "in progress",
+                        Column::ToReview => "to review",
+                        Column::Merged => "merged",
+                        Column::Done if card.dropped.is_some() => "dropped",
+                        Column::Done => "done",
+                    }
+                },
+            })
+            .collect();
+        tasks.sort_by(|a, b| kanban::natural(&b.id, &a.id));
+        tasks
+    }
+
+    /// Edit on a card: the task dialog on its task file, or, when its head cannot be read there,
+    /// the file in the user's editor.
+    fn edit(&self, card: &Card, cx: &mut Context<Self>) {
+        let Some(repo) = self.board.as_ref().map(|board| board.repo.clone()) else {
+            return;
+        };
+        match card.editing() {
+            Some(kanban::Editing::Dialog) => cx.emit(KanbanEvent::EditTask {
+                repo,
+                file: card.file.clone(),
+                draft: card.draft,
+            }),
+            Some(kanban::Editing::Editor) => {
+                cx.open_with_system(&repo.join(kanban::TASKS).join(&card.file));
+            }
+            None => {}
+        }
+    }
+}
+
+/// A task the task dialog offers to wait for.
+#[derive(Clone, Debug)]
+pub struct TaskChoice {
+    id: String,
+    title: String,
+    /// Where it stands, as the board has it: `draft`, `done` and the like; nothing while queued.
+    stands: &'static str,
 }
 
 fn now() -> f64 {
@@ -602,10 +671,8 @@ impl KanbanView {
             right = right.child(div().text_color(color).child(words));
         }
         let tip = Tip::new("New task", &self.theme, ui);
-        let at = self.new_task_at.clone();
         let new_task = div()
             .id("kanban-new-task")
-            .relative()
             .flex_shrink_0()
             .flex()
             .items_center()
@@ -622,13 +689,6 @@ impl KanbanView {
                 c.muted,
                 ui.scale(13.0 / footer_icon::SIZE),
             ))
-            .child(
-                canvas(move |bounds, _, _| at.set(Some(bounds)), |_, _, _, _| {})
-                    .absolute()
-                    .top_0()
-                    .left_0()
-                    .size_full(),
-            )
             .on_click(cx.listener(|view, _: &ClickEvent, _, cx| view.new_task(cx)));
         div()
             .flex_shrink_0()
@@ -670,10 +730,8 @@ impl KanbanView {
     /// New task under the empty state of a repository without task files.
     fn first_task(&self, ui: &UiFont, cx: &mut Context<Self>) -> Stateful<Div> {
         let c = self.colors;
-        let at = self.new_task_at.clone();
         div()
             .id("kanban-first-task")
-            .relative()
             .mt(ui.px(4.0))
             .flex()
             .items_center()
@@ -693,13 +751,6 @@ impl KanbanView {
                 ui.scale(13.0 / footer_icon::SIZE),
             ))
             .child("New task")
-            .child(
-                canvas(move |bounds, _, _| at.set(Some(bounds)), |_, _, _, _| {})
-                    .absolute()
-                    .top_0()
-                    .left_0()
-                    .size_full(),
-            )
             .on_click(cx.listener(|view, _: &ClickEvent, _, cx| view.new_task(cx)))
     }
 
@@ -1463,7 +1514,7 @@ impl KanbanView {
         }
         let c = self.colors;
         let theme = self.theme.clone();
-        let button = |id: &'static str, icon: Icon, words: &'static str| {
+        let glyph = |id: &'static str, glyph: AnyElement, words: &'static str| {
             let tip = Tip::new(words, &theme, ui);
             div()
                 .id(id)
@@ -1475,11 +1526,11 @@ impl KanbanView {
                 .cursor_pointer()
                 .hover(move |style| style.bg(c.text.opacity(0.09)))
                 .tooltip(move |_, cx| cx.new(|_| tip.clone()).into())
-                .child(footer_icon::icon(
-                    icon,
-                    c.muted,
-                    ui.scale(13.0 / footer_icon::SIZE),
-                ))
+                .child(glyph)
+        };
+        let button = |id: &'static str, icon: Icon, words: &'static str| {
+            let icon = footer_icon::icon(icon, c.muted, ui.scale(13.0 / footer_icon::SIZE));
+            glyph(id, icon.into_any_element(), words)
         };
         let path = self
             .board
@@ -1541,6 +1592,24 @@ impl KanbanView {
                 )),
             );
         }
+        if let Some(editing) = card.editing() {
+            let words = match editing {
+                kanban::Editing::Dialog => "Edit task",
+                kanban::Editing::Editor => "Open file: its header can't be read here",
+            };
+            let pencil = svg()
+                .data(PENCIL)
+                .size(ui.px(13.0))
+                .text_color(c.muted)
+                .into_any_element();
+            let card = card.clone();
+            bar = bar.child(glyph("kanban-edit", pencil, words).on_click(cx.listener(
+                move |view, _: &ClickEvent, _, cx| {
+                    cx.stop_propagation();
+                    view.edit(&card, cx);
+                },
+            )));
+        }
         Some(bar)
     }
 
@@ -1573,7 +1642,8 @@ impl KanbanView {
                 .as_ref()
                 .map_or(0.0, |agent| if agent.controller { 1.0 } else { 2.0 })
             + if self.offers_clear(card) { 1.0 } else { 0.0 }
-            + if self.offers_priority(card) { 1.0 } else { 0.0 };
+            + if self.offers_priority(card) { 1.0 } else { 0.0 }
+            + if card.editing().is_some() { 1.0 } else { 0.0 };
         let bar = buttons * BAR_BUTTON + (buttons - 1.0) * BAR_GAP + 2.0 * BAR_PAD;
         ui.px(bar + BAR_RIGHT - ROW_RIGHT) + px(2.0)
     }
@@ -1742,241 +1812,1208 @@ impl KanbanView {
     }
 }
 
-/// The New task panel's width, in points at the base interface size.
-pub const NEW_TASK_WIDTH: f32 = 320.0;
+/// The task dialog's width, the height of its body's box, the room it keeps from the window's
+/// edges, in points at the base interface size, and how far down the window its top sits.
+const DIALOG_WIDTH: f32 = 640.0;
+const BODY_HEIGHT: f32 = 270.0;
+const DIALOG_MARGIN: f32 = 16.0;
+const DIALOG_TOP: f32 = 0.1;
+/// Rows the Waits for list shows before it scrolls.
+const WAITS_ROWS: usize = 8;
 
-/// The New task panel: an id, offered as the next free one, and a title. Create or ↩ writes the
-/// draft with [`kanban::create_draft`], and says why when it cannot without closing; Cancel or
-/// Esc closes it. ↑↓ and Tab move between the fields.
-pub struct NewTask {
+/// The task dialog over the dimmed window (DESIGN §13 P5-60b), for a new task or a queued one, a
+/// draft's too: the lines paddock writes at the head of the task file (its id, title, priority and
+/// the task it waits for), and its body, written as Markdown, with a preview. ⌘↩ writes it: a new
+/// draft with [`kanban::create_draft`], or the task file with [`kanban::save_task`] (committed alone
+/// to main) or [`kanban::save_draft`]; when that is refused it says why and stays open. Esc, Cancel
+/// and × close it. ↑↓, Tab and ↩ in a one-line field move between the fields.
+pub struct TaskDialog {
     repo: PathBuf,
     theme: Rc<Theme>,
+    mono: Font,
+    focus: FocusHandle,
+    /// The task file being edited; `None` for a new task.
+    opened: Option<Opened>,
     id: Entity<TextInput>,
     title: Entity<TextInput>,
-    /// Why the last Create was refused, until something is typed.
+    body: Entity<TextInput>,
+    priority: Priority,
+    depends: Option<String>,
+    /// What Waits for offers.
+    tasks: Vec<TaskChoice>,
+    /// The Waits for list, while it is open.
+    waits: Option<Waits>,
+    /// Where a press outside the Waits for list just closed it, so the same press on its button
+    /// does not open it again.
+    dismissed: Option<Point<Pixels>>,
+    /// Preview shows in place of Write.
+    preview: bool,
+    /// The file's head shows under the body.
+    show_head: bool,
+    /// Today, for a new task's head.
+    date: String,
+    /// Why the last write was refused, until something changes.
     refused: Option<String>,
-    creating: bool,
+    writing: bool,
+    _subscriptions: Vec<Subscription>,
 }
 
-pub enum NewTaskEvent {
-    /// The draft was written here.
-    Created(PathBuf),
+/// A task file the dialog edits.
+struct Opened {
+    file: String,
+    draft: bool,
+    /// Its text as read when the dialog opened, saved only over the same; `None` when its head
+    /// cannot be read for the dialog.
+    text: Option<String>,
+}
+
+/// The open Waits for list: a search field over the tasks that match.
+struct Waits {
+    search: Entity<TextInput>,
+    /// The lit row: 0 for None, then the matches.
+    index: usize,
+    scroll: UniformListScrollHandle,
+    _subscription: Subscription,
+}
+
+/// What the task dialog tells the window.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TaskDialogEvent {
+    /// The task file was written: close, and read the board again.
+    Written,
     Cancel,
 }
 
-impl EventEmitter<NewTaskEvent> for NewTask {}
+impl EventEmitter<TaskDialogEvent> for TaskDialog {}
 
-impl NewTask {
-    /// For the main worktree `repo`, the title field taking the keys.
+/// The colours of the dialog's text fields.
+fn input_colors(theme: &Theme) -> text_input::Colors {
+    text_input::Colors {
+        text: hsla(theme.fg(|t| t.agents_text), 1.0),
+        placeholder: hsla(theme.fg(|t| t.agents_dimmer), 1.0),
+        cursor: hsla(theme.fg(|t| t.focus), 1.0),
+        selection: hsla(theme.fg(|t| t.focus), 0.3),
+    }
+}
+
+impl TaskDialog {
+    /// For the main worktree `repo`: a new task, offered the next free id, its title taking the
+    /// keys; or the task file `edit` names (and whether it is a draft), its body taking the keys.
     pub fn new(
         repo: PathBuf,
+        edit: Option<(String, bool)>,
+        tasks: Vec<TaskChoice>,
         theme: Rc<Theme>,
+        mono: Font,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let fg =
-            |pick: fn(&crate::preset::Theme) -> crate::preset::Color| hsla(theme.fg(pick), 1.0);
-        let colors = text_input::Colors {
-            text: fg(|t| t.agents_text),
-            placeholder: fg(|t| t.agents_dimmer),
-            cursor: fg(|t| t.focus),
-            selection: hsla(theme.fg(|t| t.focus), 0.3),
+        let colors = input_colors(&theme);
+        let opened = edit.map(|(file, draft)| {
+            let text = std::fs::read_to_string(repo.join(kanban::TASKS).join(&file))
+                .ok()
+                .filter(|text| kanban::editable(text).is_some());
+            Opened { file, draft, text }
+        });
+        let fields = match &opened {
+            Some(opened) => opened
+                .text
+                .as_deref()
+                .and_then(kanban::editable)
+                .unwrap_or_default(),
+            None => kanban::Fields {
+                body: kanban::BODY.to_owned(),
+                ..kanban::Fields::default()
+            },
         };
-        let id = cx.new(|cx| TextInput::new("", "ID", colors, cx));
-        let title = cx.new(|cx| TextInput::new("", "Short title", colors, cx));
-        for input in [&id, &title] {
-            cx.subscribe(input, |this, _, _: &Changed, cx| {
-                if this.refused.take().is_some() {
+        let id = opened
+            .as_ref()
+            .and_then(|opened| kanban::task_id(&opened.file))
+            .unwrap_or_default();
+        let id = cx.new(|cx| TextInput::new(id, "ID", colors, cx));
+        let title = cx.new(|cx| TextInput::new(fields.title, "Short title", colors, cx));
+        let body = cx.new(|cx| TextInput::new(fields.body, "Markdown", colors, cx).wrapping(true));
+        let subscriptions = [&id, &title, &body]
+            .into_iter()
+            .map(|input| {
+                cx.subscribe(input, |this, _, _: &Changed, cx| {
+                    this.refused = None;
                     cx.notify();
-                }
+                })
+            })
+            .collect();
+        let first = if opened.is_some() { &body } else { &title };
+        window.focus(&first.focus_handle(cx), cx);
+        if opened.is_none() {
+            // The next free id, from main, the worktree and every branch; unless one is typed
+            // first.
+            let dir = repo.clone();
+            let taken =
+                cx.background_spawn(
+                    async move { kanban::taken("git", &dir, &AtomicBool::new(false)) },
+                );
+            cx.spawn(async move |this, cx| {
+                let next = taken
+                    .await
+                    .and_then(|ids| kanban::next_id(ids.keys().map(String::as_str)));
+                let _ = this.update(cx, |this, cx| {
+                    if let Some(next) = next
+                        && this.id.read(cx).text().is_empty()
+                    {
+                        this.id.update(cx, |input, cx| input.set_text(next, cx));
+                    }
+                });
             })
             .detach();
         }
-        window.focus(&title.focus_handle(cx), cx);
-        // The next free id, from main, the worktree and every branch; unless one is typed first.
-        let dir = repo.clone();
-        let taken =
-            cx.background_spawn(async move { kanban::taken("git", &dir, &AtomicBool::new(false)) });
-        cx.spawn(async move |this, cx| {
-            let next = taken
-                .await
-                .and_then(|ids| kanban::next_id(ids.keys().map(String::as_str)));
-            let _ = this.update(cx, |this, cx| {
-                if let Some(next) = next
-                    && this.id.read(cx).text().is_empty()
-                {
-                    this.id.update(cx, |input, cx| input.set_text(next, cx));
-                }
-            });
-        })
-        .detach();
-        NewTask {
+        let (year, month, day) = activity::date(activity::today());
+        TaskDialog {
             repo,
             theme,
+            mono,
+            focus: cx.focus_handle(),
+            opened,
             id,
             title,
+            body,
+            priority: fields.priority,
+            depends: fields.depends,
+            tasks,
+            waits: None,
+            dismissed: None,
+            preview: false,
+            show_head: false,
+            date: format!("{year:04}-{month:02}-{day:02}"),
             refused: None,
-            creating: false,
+            writing: false,
+            _subscriptions: subscriptions,
         }
     }
 
-    fn create(&mut self, cx: &mut Context<Self>) {
-        if self.creating {
+    /// What the fields say now.
+    fn fields(&self, cx: &App) -> kanban::Fields {
+        kanban::Fields {
+            title: self.title.read(cx).text().to_owned(),
+            depends: self.depends.clone(),
+            priority: self.priority,
+            body: self.body.read(cx).text().to_owned(),
+        }
+    }
+
+    /// Why nothing can be written here: the task file's head could not be read.
+    fn unreadable(&self) -> Option<String> {
+        let opened = self
+            .opened
+            .as_ref()
+            .filter(|opened| opened.text.is_none())?;
+        Some(format!(
+            "{}/{}'s first line isn't \u{201c}# 任务：<title>\u{201d}, or it can't be read: \
+             open it in your editor",
+            kanban::TASKS,
+            opened.file
+        ))
+    }
+
+    /// What paddock writes at the head of the file, as the fields say now.
+    fn head(&self, cx: &App) -> Option<String> {
+        let fields = self.fields(cx);
+        let head = match &self.opened {
+            None => kanban::new_head(&fields, &self.date),
+            Some(opened) => {
+                let text = opened.text.as_deref()?;
+                kanban::head(&kanban::edited(text, &fields)).to_owned()
+            }
+        };
+        Some(head.trim_end().to_owned())
+    }
+
+    /// ⌘↩: the draft created, or the task file saved, in the background; closed once written.
+    fn write(&mut self, cx: &mut Context<Self>) {
+        if self.writing {
             return;
         }
-        self.creating = true;
+        let fields = self.fields(cx);
         let repo = self.repo.clone();
-        let id = self.id.read(cx).text().to_owned();
-        let title = self.title.read(cx).text().to_owned();
-        let task = cx.background_spawn(async move {
-            kanban::create_draft("git", &repo, &id, &title, &AtomicBool::new(false))
-        });
+        let task = match &self.opened {
+            None => {
+                let (id, date) = (self.id.read(cx).text().to_owned(), self.date.clone());
+                cx.background_spawn(async move {
+                    let cancel = AtomicBool::new(false);
+                    kanban::create_draft("git", &repo, &id, &fields, &date, &cancel)
+                        .map(drop)
+                        .map_err(|refused| refused.to_string())
+                })
+            }
+            Some(Opened {
+                text: Some(text),
+                file,
+                draft,
+            }) => {
+                let (text, file, draft) = (text.clone(), file.clone(), *draft);
+                cx.background_spawn(async move {
+                    let saved = if draft {
+                        kanban::save_draft(&repo, &file, &text, &fields)
+                    } else {
+                        let cancel = AtomicBool::new(false);
+                        kanban::save_task("git", &repo, &file, &text, &fields, &cancel)
+                    };
+                    saved.map_err(|why| why.to_string())
+                })
+            }
+            Some(Opened { text: None, .. }) => return,
+        };
+        self.writing = true;
+        self.refused = None;
         cx.spawn(async move |this, cx| {
             let result = task.await;
             let _ = this.update(cx, |this, cx| {
-                this.creating = false;
+                this.writing = false;
                 match result {
-                    Ok(path) => cx.emit(NewTaskEvent::Created(path)),
-                    Err(refused) => this.refused = Some(refused.to_string()),
+                    Ok(()) => cx.emit(TaskDialogEvent::Written),
+                    Err(why) => this.refused = Some(why),
                 }
                 cx.notify();
             });
         })
         .detach();
+        cx.notify();
     }
 
-    /// The other field takes the keys.
-    fn switch(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let to = if self.id.focus_handle(cx).is_focused(window) {
-            &self.title
-        } else {
-            &self.id
+    /// The field `step` on from the one with the keys: the id (for a new task), the title, the
+    /// body, round again.
+    fn step(&mut self, step: isize, window: &mut Window, cx: &mut Context<Self>) {
+        let mut fields = vec![&self.title, &self.body];
+        if self.opened.is_none() {
+            fields.insert(0, &self.id);
+        }
+        let at = fields
+            .iter()
+            .position(|input| input.focus_handle(cx).is_focused(window));
+        let next = match at {
+            Some(at) => (at as isize + step).rem_euclid(fields.len() as isize) as usize,
+            None => 0,
         };
-        window.focus(&to.focus_handle(cx), cx);
+        window.focus(&fields[next].focus_handle(cx), cx);
         cx.notify();
+    }
+
+    /// The tasks Waits for offers that match what is typed in its search field, the task being
+    /// edited left out.
+    fn matches(&self, cx: &App) -> Vec<TaskChoice> {
+        let query = self
+            .waits
+            .as_ref()
+            .map(|waits| waits.search.read(cx).text().to_lowercase())
+            .unwrap_or_default();
+        let own = self
+            .opened
+            .as_ref()
+            .and_then(|opened| kanban::task_id(&opened.file));
+        self.tasks
+            .iter()
+            .filter(|task| Some(&task.id) != own.as_ref())
+            .filter(|task| {
+                let said = format!("{} {}", task.id, task.title).to_lowercase();
+                query.split_whitespace().all(|word| said.contains(word))
+            })
+            .cloned()
+            .collect()
+    }
+
+    /// Opens the Waits for list, its search field taking the keys and the task waited for lit; or
+    /// closes it.
+    fn toggle_waits(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.waits.is_some() {
+            self.close_waits(window, cx);
+            return;
+        }
+        let colors = input_colors(&self.theme);
+        let search = cx.new(|cx| TextInput::new("", "Search tasks", colors, cx));
+        let subscription = cx.subscribe(&search, |this, _, _: &Changed, cx| {
+            if let Some(waits) = &mut this.waits {
+                waits.index = 0;
+                waits.scroll.scroll_to_item(0, ScrollStrategy::Top);
+            }
+            cx.notify();
+        });
+        window.focus(&search.read(cx).focus_handle(cx), cx);
+        let index = self.depends.as_ref().map_or(0, |id| {
+            self.matches(cx)
+                .iter()
+                .position(|task| task.id == *id)
+                .map_or(0, |at| at + 1)
+        });
+        let scroll = UniformListScrollHandle::new();
+        scroll.scroll_to_item(index, ScrollStrategy::Center);
+        self.waits = Some(Waits {
+            search,
+            index,
+            scroll,
+            _subscription: subscription,
+        });
+        cx.notify();
+    }
+
+    fn close_waits(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.waits.take().is_some() {
+            window.focus(&self.title.focus_handle(cx), cx);
+            cx.notify();
+        }
+    }
+
+    /// ↑↓ in the open Waits for list.
+    fn move_wait(&mut self, step: isize, cx: &mut Context<Self>) {
+        let rows = self.matches(cx).len() + 1;
+        if let Some(waits) = &mut self.waits {
+            waits.index = (waits.index as isize + step).clamp(0, rows as isize - 1) as usize;
+            waits
+                .scroll
+                .scroll_to_item(waits.index, ScrollStrategy::Nearest);
+            cx.notify();
+        }
+    }
+
+    /// The row at `index` of the open Waits for list picked: None, or a task to wait for.
+    fn pick_wait(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        self.depends = match index.checked_sub(1) {
+            None => None,
+            Some(at) => match self.matches(cx).into_iter().nth(at) {
+                Some(task) => Some(task.id),
+                None => return,
+            },
+        };
+        self.refused = None;
+        self.close_waits(window, cx);
     }
 }
 
-impl Render for NewTask {
+impl Render for TaskDialog {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let ui = UiFont::get(cx);
-        let theme = &*self.theme;
+        let theme = self.theme.clone();
         let fg =
             |pick: fn(&crate::preset::Theme) -> crate::preset::Color| hsla(theme.fg(pick), 1.0);
-        let (text, dim, rule, red, accent) = (
+        let (text, bright, branch, dim, dimmer) = (
             fg(|t| t.agents_text),
+            fg(|t| t.bright),
+            fg(|t| t.agents_branch),
             fg(|t| t.agents_dim),
+            fg(|t| t.agents_dimmer),
+        );
+        let (rule, accent, red) = (
             fg(|t| t.agents_rule),
-            fg(|t| t.agents_red),
             fg(|t| t.agents_accent),
+            fg(|t| t.agents_red),
         );
         let sunken = hsla(theme.bg(|t| t.agents_bg), 1.0);
-        let row = |label: &'static str, input: &Entity<TextInput>| {
-            let focused = input.focus_handle(cx).is_focused(window);
+        let viewport = window.viewport_size();
+        let (room_x, room_y) = (f32::from(viewport.width), f32::from(viewport.height));
+        let margin = ui.scale(DIALOG_MARGIN);
+        let width = ui.scale(DIALOG_WIDTH).min(room_x - 2.0 * margin).max(0.0);
+        let top = (room_y * DIALOG_TOP).round();
+        let tallest = (room_y - top - margin).max(ui.scale(200.0));
+        let editing = self.opened.is_some();
+        let mono = self.mono.clone();
+
+        // The heading, where the file is, and ×.
+        let heading = match &self.opened {
+            None => "New task".to_owned(),
+            Some(opened) => match kanban::task_id(&opened.file) {
+                Some(id) => format!("Edit {id}"),
+                None => "Edit draft".to_owned(),
+            },
+        };
+        let place = match &self.opened {
+            None => {
+                let id = self.id.read(cx).text().trim();
+                let file = if kanban::task_id(id).as_deref() == Some(id) {
+                    kanban::draft_file(id, self.title.read(cx).text())
+                } else {
+                    "\u{2026}".to_owned()
+                };
+                format!("{}/{file} · draft, not committed", kanban::TASKS)
+            }
+            Some(opened) => {
+                let stands = if opened.draft { "draft" } else { "on main" };
+                format!("{}/{} · {stands}", kanban::TASKS, opened.file)
+            }
+        };
+        let close = div()
+            .id("task-close")
+            .flex_shrink_0()
+            .size(ui.px(28.0))
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded(ui.px(8.0))
+            .cursor_pointer()
+            .hover(move |style| style.bg(text.opacity(0.08)))
+            .child(footer_icon::icon(
+                Icon::Close,
+                dim,
+                ui.scale(12.0 / footer_icon::SIZE),
+            ))
+            .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(TaskDialogEvent::Cancel)));
+        let header = div()
+            .flex_shrink_0()
+            .flex()
+            .items_center()
+            .justify_between()
+            .gap(ui.px(12.0))
+            .pt(ui.px(16.0))
+            .pb(ui.px(10.0))
+            .pl(ui.px(20.0))
+            .pr(ui.px(18.0))
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(ui.px(3.0))
+                    .min_w(px(0.0))
+                    .child(
+                        div()
+                            .text_size(ui.px(15.0))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(bright)
+                            .child(heading),
+                    )
+                    .child(
+                        div()
+                            .font(mono.clone())
+                            .text_size(ui.px(11.0))
+                            .text_color(dimmer)
+                            .overflow_hidden()
+                            .whitespace_nowrap()
+                            .text_ellipsis()
+                            .child(place),
+                    ),
+            )
+            .child(close);
+
+        // A field's label over its control.
+        let labelled = |label: &'static str, control: AnyElement| {
             div()
-                .flex_shrink_0()
+                .flex()
+                .flex_col()
+                .gap(ui.px(5.0))
+                .child(div().text_size(ui.px(11.0)).text_color(dim).child(label))
+                .child(control)
+        };
+        let field = |input: &Entity<TextInput>| {
+            let handle = input.focus_handle(cx);
+            div()
+                .h(ui.px(32.0))
+                .px(ui.px(10.0))
                 .flex()
                 .items_center()
-                .gap(ui.px(10.0))
-                .px(ui.px(9.0))
-                .child(
-                    div()
-                        .flex_shrink_0()
-                        .w(ui.px(38.0))
-                        .text_color(dim)
-                        .child(label),
-                )
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w(px(0.0))
-                        .h(ui.px(28.0))
-                        .px(ui.px(8.0))
-                        .flex()
-                        .items_center()
-                        .rounded(ui.px(6.0))
-                        .bg(sunken)
-                        .border_1()
-                        .border_color(if focused { accent.opacity(0.6) } else { rule })
-                        .overflow_hidden()
-                        .child(input.clone()),
-                )
+                .rounded(ui.px(8.0))
+                .bg(sunken)
+                .border_1()
+                .border_color(if handle.is_focused(window) {
+                    accent
+                } else {
+                    rule
+                })
+                .overflow_hidden()
+                .cursor_text()
+                .on_mouse_down(MouseButton::Left, move |_, window, cx| {
+                    window.focus(&handle, cx)
+                })
+                .child(input.clone())
         };
-        let (id, title) = (row("ID", &self.id), row("Title", &self.title));
-        let note = match &self.refused {
-            Some(why) => div().text_color(red).child(why.clone()),
-            None => div()
+        let id = if editing {
+            // Locked: the file is named by it.
+            div()
+                .h(ui.px(32.0))
+                .px(ui.px(10.0))
+                .flex()
+                .items_center()
+                .justify_between()
+                .rounded(ui.px(8.0))
+                .border_1()
+                .border_color(rule)
+                .font(mono.clone())
+                .text_size(ui.px(12.5))
                 .text_color(dim)
-                .child("Opens the draft in your editor to add details."),
-        };
-        let cancel = div()
-            .id("new-task-cancel")
-            .px(ui.px(12.0))
-            .h(ui.px(26.0))
-            .flex()
-            .items_center()
-            .rounded(ui.px(6.0))
-            .border_1()
-            .border_color(rule)
-            .text_color(text)
-            .cursor_pointer()
-            .hover(move |style| style.bg(rule.opacity(0.5)))
-            .child("Cancel")
-            .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(NewTaskEvent::Cancel)));
-        let create = div()
-            .id("new-task-create")
-            .px(ui.px(12.0))
-            .h(ui.px(26.0))
-            .flex()
-            .items_center()
-            .rounded(ui.px(6.0))
-            .bg(accent)
-            .text_color(sunken)
-            .font_weight(FontWeight::SEMIBOLD)
-            .child("Create");
-        let create = if self.creating {
-            create.opacity(0.5)
+                .child(self.id.read(cx).text().to_owned())
+                .child(svg().data(LOCK).size(ui.px(11.0)).text_color(dim))
         } else {
-            create
-                .cursor_pointer()
-                .hover(move |style| style.bg(accent.opacity(0.9)))
-                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.create(cx)))
+            field(&self.id).font(mono.clone()).text_size(ui.px(12.5))
         };
-        popover::panel(theme, &ui)
-            .id("new-task")
-            .w_full()
-            // Tab moves between the fields as it moves in the palette's list.
-            .key_context(menu::PALETTE)
-            .on_action(
-                cx.listener(|this, _: &menu::SelectNext, window, cx| this.switch(window, cx)),
-            )
-            .on_action(
-                cx.listener(|this, _: &menu::SelectPrevious, window, cx| this.switch(window, cx)),
-            )
-            .on_action(cx.listener(|this, _: &menu::OpenSelected, _, cx| this.create(cx)))
-            .child(popover::heading(theme, &ui, "New task"))
-            .child(id.mt(ui.px(4.0)))
-            .child(title.mt(ui.px(8.0)))
+        let names = div()
+            .flex_shrink_0()
+            .flex()
+            .gap(ui.px(10.0))
+            .pt(ui.px(4.0))
+            .px(ui.px(20.0))
             .child(
-                note.flex_shrink_0()
-                    .mt(ui.px(10.0))
-                    .px(ui.px(9.0))
-                    .whitespace_normal()
-                    .text_size(ui.px(12.0)),
+                labelled("ID", id.into_any_element())
+                    .w(ui.px(104.0))
+                    .flex_shrink_0(),
+            )
+            .child(
+                labelled("Title", field(&self.title).into_any_element())
+                    .flex_1()
+                    .min_w(px(0.0)),
+            );
+
+        // Priority, and the task this one waits for.
+        let mut priorities = popover::choices(&theme, &ui).items_center().h(ui.px(32.0));
+        for (n, priority) in Priority::ALL.into_iter().enumerate() {
+            priorities = priorities.child(
+                popover::choice(
+                    &theme,
+                    &ui,
+                    ("task-priority", n),
+                    priority.label(),
+                    self.priority == priority,
+                )
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    this.priority = priority;
+                    this.refused = None;
+                    cx.notify();
+                })),
+            );
+        }
+        let open = self.waits.is_some();
+        let waited = match &self.depends {
+            None => "None".to_owned(),
+            Some(id) => match self.tasks.iter().find(|task| task.id == *id) {
+                Some(task) => format!("{id}  {}", task.title),
+                None => id.clone(),
+            },
+        };
+        let waits_button = div()
+            .id("task-waits")
+            .h(ui.px(32.0))
+            .min_w(ui.px(140.0))
+            .max_w(ui.px(300.0))
+            .px(ui.px(10.0))
+            .flex()
+            .items_center()
+            .gap(ui.px(10.0))
+            .rounded(ui.px(8.0))
+            .bg(sunken)
+            .border_1()
+            .border_color(if open { accent } else { rule })
+            .text_size(ui.px(12.0))
+            .text_color(if self.depends.is_some() { text } else { dim })
+            .cursor_pointer()
+            .child(
+                div()
+                    .flex_1()
+                    .min_w(px(0.0))
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .text_ellipsis()
+                    .child(waited),
+            )
+            .child(footer_icon::icon(
+                Icon::Down,
+                dim,
+                ui.scale(9.0 / footer_icon::SIZE),
+            ))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, event: &MouseDownEvent, window, cx| {
+                    if this.dismissed.take() != Some(event.position) {
+                        this.toggle_waits(window, cx);
+                    }
+                }),
+            );
+        let waits = div()
+            .flex()
+            .flex_col()
+            .min_w(px(0.0))
+            .child(waits_button)
+            .when(open, |waits| {
+                // Laid out right under the button, drawn above everything else.
+                waits.child(
+                    div().h(px(0.0)).child(deferred(
+                        anchored()
+                            .snap_to_window_with_margin(px(8.0))
+                            .child(self.waits_list(&ui, cx)),
+                    )),
+                )
+            });
+        let choices = div()
+            .flex_shrink_0()
+            .flex()
+            .items_end()
+            .gap(ui.px(18.0))
+            .pt(ui.px(14.0))
+            .px(ui.px(20.0))
+            .child(labelled("Priority", priorities.into_any_element()).flex_shrink_0())
+            .child(labelled("Waits for", waits.into_any_element()).min_w(px(0.0)));
+
+        // The body: Write or Preview.
+        let tab = |id: &'static str, label: &'static str, on: bool, preview: bool| {
+            div()
+                .id(id)
+                .px(ui.px(12.0))
+                .pt(ui.px(6.0))
+                .pb(ui.px(8.0))
+                .border_b_2()
+                .border_color(if on {
+                    accent
+                } else {
+                    gpui::transparent_black()
+                })
+                .text_size(ui.px(12.0))
+                .text_color(if on { bright } else { dim })
+                .when(on, |tab| tab.font_weight(FontWeight::SEMIBOLD))
+                .cursor_pointer()
+                .child(label)
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    this.preview = preview;
+                    cx.notify();
+                }))
+        };
+        let tabs = div()
+            .flex_shrink_0()
+            .flex()
+            .items_end()
+            .justify_between()
+            .pt(ui.px(6.0))
+            .px(ui.px(8.0))
+            .border_b_1()
+            .border_color(rule)
+            .child(
+                div()
+                    .flex()
+                    .gap(ui.px(2.0))
+                    .child(tab("task-write-tab", "Write", !self.preview, false))
+                    .child(tab("task-preview-tab", "Preview", self.preview, true)),
             )
             .child(
                 div()
-                    .flex_shrink_0()
+                    .pb(ui.px(8.0))
+                    .pr(ui.px(6.0))
+                    .text_size(ui.px(11.0))
+                    .text_color(dimmer)
+                    .child(if editing {
+                        "Markdown · the rest of the file, as it is"
+                    } else {
+                        "Markdown"
+                    }),
+            );
+        let content = if self.preview {
+            self.preview(&ui, cx).into_any_element()
+        } else {
+            div()
+                .font(mono.clone())
+                .text_size(ui.px(12.5))
+                .line_height(relative(1.6))
+                .text_color(branch)
+                .child(self.body.clone())
+                .into_any_element()
+        };
+        let body_focus = self.body.focus_handle(cx);
+        let writing_body = !self.preview;
+        let body = div()
+            .flex_shrink(1.0)
+            .min_h(ui.px(100.0))
+            .mt(ui.px(16.0))
+            .mx(ui.px(20.0))
+            .flex()
+            .flex_col()
+            .rounded(ui.px(10.0))
+            .bg(sunken)
+            .border_1()
+            .border_color(rule)
+            .child(tabs)
+            .child(
+                div()
+                    .id("task-body")
+                    .h(ui.px(BODY_HEIGHT))
+                    .flex_shrink(1.0)
+                    .min_h(px(0.0))
+                    .overflow_y_scroll()
+                    .px(ui.px(14.0))
+                    .py(ui.px(12.0))
+                    .when(writing_body, |body| body.cursor_text())
+                    .on_click(move |_, window, cx| {
+                        if writing_body {
+                            window.focus(&body_focus, cx);
+                        }
+                    })
+                    .child(content),
+            );
+
+        // What paddock writes at the head of the file.
+        let head = self.show_head.then(|| self.head(cx)).flatten().map(|head| {
+            div()
+                .flex_shrink_0()
+                .mt(ui.px(12.0))
+                .mx(ui.px(20.0))
+                .px(ui.px(14.0))
+                .py(ui.px(10.0))
+                .flex()
+                .flex_col()
+                .gap(ui.px(6.0))
+                .rounded(ui.px(10.0))
+                .border_1()
+                .border_dashed()
+                .border_color(rule)
+                .child(
+                    div()
+                        .flex()
+                        .justify_between()
+                        .gap(ui.px(12.0))
+                        .text_size(ui.px(11.0))
+                        .text_color(dim)
+                        .child("File header · written by paddock")
+                        .child(
+                            div()
+                                .text_color(dimmer)
+                                .child("edit the fields above to change it"),
+                        ),
+                )
+                .child(
+                    div()
+                        .id("task-head")
+                        .max_h(ui.px(140.0))
+                        .overflow_y_scroll()
+                        .font(mono.clone())
+                        .text_size(ui.px(12.0))
+                        .line_height(relative(1.6))
+                        .text_color(branch)
+                        .child(head),
+                )
+        });
+
+        // Why it was not written, or what writing does.
+        let note = match (
+            self.refused.clone().or_else(|| self.unreadable()),
+            &self.opened,
+        ) {
+            (Some(why), _) => Some((why, red)),
+            (None, Some(opened)) if opened.draft => {
+                Some(("Saves the draft · not committed".to_owned(), dim))
+            }
+            (None, Some(_)) => Some((
+                "Saves and commits this file alone to main · not pushed".to_owned(),
+                dim,
+            )),
+            (None, None) => None,
+        };
+        let note = note.map(|(words, color)| {
+            div()
+                .flex_shrink_0()
+                .pt(ui.px(12.0))
+                .px(ui.px(20.0))
+                .text_size(ui.px(11.5))
+                .text_color(color)
+                .whitespace_normal()
+                .child(words)
+        });
+
+        // Show file header; Cancel and Create draft or Save.
+        let shown = self.show_head;
+        let toggle = div()
+            .id("task-head-toggle")
+            .flex()
+            .items_center()
+            .gap(ui.px(7.0))
+            .text_size(ui.px(12.0))
+            .text_color(if shown { text } else { dim })
+            .cursor_pointer()
+            .hover(move |style| style.text_color(text))
+            .child(svg().data(BRACKETS).size(ui.px(14.0)).text_color(if shown {
+                text
+            } else {
+                dim
+            }))
+            .child(if shown {
+                "Hide file header"
+            } else {
+                "Show file header"
+            })
+            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.show_head = !this.show_head;
+                cx.notify();
+            }));
+        let cancel = div()
+            .id("task-cancel")
+            .h(ui.px(32.0))
+            .px(ui.px(14.0))
+            .flex()
+            .items_center()
+            .rounded_full()
+            .text_size(ui.px(12.5))
+            .text_color(branch)
+            .cursor_pointer()
+            .hover(move |style| style.bg(text.opacity(0.08)))
+            .child("Cancel")
+            .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(TaskDialogEvent::Cancel)));
+        let primary = div()
+            .id("task-write")
+            .h(ui.px(32.0))
+            .px(ui.px(16.0))
+            .flex()
+            .items_center()
+            .gap(ui.px(8.0))
+            .rounded_full()
+            .bg(accent)
+            .text_color(sunken)
+            .text_size(ui.px(12.5))
+            .font_weight(FontWeight::SEMIBOLD)
+            .child(match (editing, self.writing) {
+                (false, false) => "Create draft",
+                (false, true) => "Creating\u{2026}",
+                (true, false) => "Save",
+                (true, true) => "Saving\u{2026}",
+            })
+            .child(
+                div()
+                    .font(mono.clone())
+                    .text_size(ui.px(11.0))
+                    .opacity(0.7)
+                    .child("⌘↩"),
+            );
+        let primary = if self.writing || self.unreadable().is_some() {
+            primary.opacity(0.5)
+        } else {
+            primary
+                .cursor_pointer()
+                .hover(move |style| style.bg(accent.opacity(0.9)))
+                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.write(cx)))
+        };
+        let foot = div()
+            .flex_shrink_0()
+            .flex()
+            .items_center()
+            .justify_between()
+            .pt(ui.px(14.0))
+            .pb(ui.px(16.0))
+            .pl(ui.px(20.0))
+            .pr(ui.px(18.0))
+            .child(toggle)
+            .child(
+                div()
                     .flex()
-                    .justify_end()
+                    .items_center()
                     .gap(ui.px(8.0))
-                    .mt(ui.px(12.0))
-                    .px(ui.px(4.0))
-                    .pb(ui.px(4.0))
                     .child(cancel)
-                    .child(create),
+                    .child(primary),
+            );
+
+        let panel = div()
+            .id("task-dialog")
+            .w(px(width))
+            .max_h(px(tallest))
+            .flex()
+            .flex_col()
+            .rounded(ui.px(16.0))
+            .border_1()
+            .border_color(rule)
+            .bg(popover::ground(&theme))
+            .shadow(vec![BoxShadow {
+                color: gpui::black().opacity(0.55),
+                offset: point(px(0.0), ui.px(24.0)),
+                blur_radius: ui.px(60.0),
+                spread_radius: px(0.0),
+                inset: false,
+            }])
+            .text_size(ui.px(13.0))
+            .text_color(text)
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .child(header)
+            .child(names)
+            .child(choices)
+            .child(body)
+            .children(head)
+            .children(note)
+            .child(foot);
+        // Only the panel takes clicks while it is open; a click on the dimmed window does nothing,
+        // so what is typed is not lost to a stray click.
+        ui.apply(div())
+            .id("task-dialog-backdrop")
+            .absolute()
+            .inset_0()
+            .occlude()
+            .bg(gpui::black().opacity(0.45))
+            // Tab moves between the fields as it moves in the palette's list.
+            .key_context(menu::PALETTE)
+            .track_focus(&self.focus)
+            .on_action(
+                cx.listener(|this, _: &menu::SelectNext, window, cx| this.step(1, window, cx)),
             )
+            .on_action(
+                cx.listener(|this, _: &menu::SelectPrevious, window, cx| this.step(-1, window, cx)),
+            )
+            .on_action(
+                cx.listener(|this, _: &menu::OpenSelected, window, cx| this.step(1, window, cx)),
+            )
+            .on_action(cx.listener(|_, _: &menu::Cancel, _, cx| cx.emit(TaskDialogEvent::Cancel)))
+            .on_key_down(cx.listener(|this, event: &KeyDownEvent, _, cx| {
+                let keys = &event.keystroke;
+                let only_cmd = keys.modifiers.platform
+                    && !keys.modifiers.control
+                    && !keys.modifiers.alt
+                    && !keys.modifiers.shift;
+                if only_cmd && keys.key == "enter" {
+                    cx.stop_propagation();
+                    this.write(cx);
+                }
+            }))
+            .flex()
+            .flex_col()
+            .items_center()
+            .pt(px(top))
+            .px(px(margin))
+            .child(panel)
+            // It dims the whole window, the Browser's page and all.
+            .child(crate::browser::cover())
     }
+}
+
+impl TaskDialog {
+    /// The open Waits for list: its search field, None, then the tasks that match, each with its
+    /// title and where it stands.
+    fn waits_list(&self, ui: &UiFont, cx: &mut Context<Self>) -> Stateful<Div> {
+        let theme = &*self.theme;
+        let fg =
+            |pick: fn(&crate::preset::Theme) -> crate::preset::Color| hsla(theme.fg(pick), 1.0);
+        let (text, dim, rule, accent) = (
+            fg(|t| t.agents_text),
+            fg(|t| t.agents_dim),
+            fg(|t| t.agents_rule),
+            fg(|t| t.agents_accent),
+        );
+        let lit = popover::lit(theme);
+        let Some(waits) = &self.waits else {
+            return div().id("task-waits-list");
+        };
+        let rows = self.matches(cx).len() + 1;
+        let row_height = ui.scale(28.0);
+        let (index, depends, mono) = (waits.index, self.depends.clone(), self.mono.clone());
+        let list = uniform_list(
+            "task-waits-rows",
+            rows,
+            cx.processor(move |this, range: std::ops::Range<usize>, _, cx| {
+                let matches = this.matches(cx);
+                range
+                    .map(|row| {
+                        let task = row.checked_sub(1).and_then(|at| matches.get(at));
+                        let picked = task.map(|task| &task.id) == depends.as_ref();
+                        let line = div()
+                            .id(("task-wait", row))
+                            .w_full()
+                            .h(px(row_height))
+                            .px(px(8.0))
+                            .flex()
+                            .items_center()
+                            .gap(px(8.0))
+                            .rounded(px(6.0))
+                            .overflow_hidden()
+                            .whitespace_nowrap()
+                            .cursor_pointer()
+                            .hover(move |style| style.bg(lit.opacity(0.6)))
+                            .when(row == index, |line| line.bg(lit))
+                            .child(
+                                div()
+                                    .w(px(12.0))
+                                    .flex_shrink_0()
+                                    .text_color(accent)
+                                    .child(if picked { "✓" } else { "" }),
+                            )
+                            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                                this.pick_wait(row, window, cx)
+                            }));
+                        match task {
+                            None => line.child(div().text_color(dim).child("None")),
+                            Some(task) => {
+                                let mut said = task.title.clone();
+                                if !task.stands.is_empty() {
+                                    said.push_str(" · ");
+                                    said.push_str(task.stands);
+                                }
+                                line.child(
+                                    div()
+                                        .flex_shrink_0()
+                                        .font(mono.clone())
+                                        .text_size(px(11.5))
+                                        .text_color(text)
+                                        .child(task.id.clone()),
+                                )
+                                .child(
+                                    div()
+                                        .flex_1()
+                                        .min_w(px(0.0))
+                                        .overflow_hidden()
+                                        .text_ellipsis()
+                                        .text_color(dim)
+                                        .child(said),
+                                )
+                            }
+                        }
+                    })
+                    .collect()
+            }),
+        )
+        .track_scroll(&waits.scroll)
+        .h(px(row_height * rows.min(WAITS_ROWS) as f32));
+        div()
+            .id("task-waits-list")
+            .key_context(menu::DIALOG)
+            .occlude()
+            .w(ui.px(320.0))
+            .mt(px(4.0))
+            .flex()
+            .flex_col()
+            .gap(px(4.0))
+            .p(px(6.0))
+            .rounded(px(10.0))
+            .border_1()
+            .border_color(rule)
+            .bg(popover::ground(theme))
+            .shadow_lg()
+            .text_size(ui.px(12.0))
+            .on_mouse_down_out(cx.listener(|this, event: &MouseDownEvent, window, cx| {
+                this.dismissed = Some(event.position);
+                this.close_waits(window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &menu::SelectNext, _, cx| this.move_wait(1, cx)))
+            .on_action(cx.listener(|this, _: &menu::SelectPrevious, _, cx| this.move_wait(-1, cx)))
+            .on_action(cx.listener(|this, _: &menu::OpenSelected, window, cx| {
+                let index = this.waits.as_ref().map_or(0, |waits| waits.index);
+                this.pick_wait(index, window, cx)
+            }))
+            .on_action(
+                cx.listener(|this, _: &menu::Cancel, window, cx| this.close_waits(window, cx)),
+            )
+            .child(
+                div()
+                    .h(ui.px(30.0))
+                    .px(px(8.0))
+                    .flex()
+                    .items_center()
+                    .gap(px(6.0))
+                    .rounded(px(6.0))
+                    .bg(hsla(theme.bg(|t| t.agents_bg), 1.0))
+                    .child(footer_icon::icon(
+                        Icon::Search,
+                        dim,
+                        ui.scale(12.0) / footer_icon::SIZE,
+                    ))
+                    .child(div().flex_1().min_w(px(0.0)).child(waits.search.clone())),
+            )
+            .child(list)
+            .child(crate::browser::cover())
+    }
+
+    /// The body read as Markdown, as [`markdown::blocks`] has it.
+    fn preview(&self, ui: &UiFont, cx: &App) -> Div {
+        let theme = &*self.theme;
+        let fg =
+            |pick: fn(&crate::preset::Theme) -> crate::preset::Color| hsla(theme.fg(pick), 1.0);
+        let (bright, branch, dimmer, accent) = (
+            fg(|t| t.bright),
+            fg(|t| t.agents_branch),
+            fg(|t| t.agents_dimmer),
+            fg(|t| t.agents_accent),
+        );
+        let code = popover::lit(theme);
+        let mono = self.mono.family.clone();
+        let words = |spans: &[markdown::Span]| styled(spans, &mono, code, accent);
+        let blocks = markdown::blocks(self.body.read(cx).text());
+        let mut out = div()
+            .flex()
+            .flex_col()
+            .gap(ui.px(6.0))
+            .text_size(ui.px(13.0))
+            .line_height(relative(1.55))
+            .text_color(branch);
+        if blocks.is_empty() {
+            return out.child(div().text_color(dimmer).child("Nothing to preview"));
+        }
+        for (n, block) in blocks.iter().enumerate() {
+            out = out.child(match block {
+                markdown::Block::Heading(level, spans) => div()
+                    .when(n > 0, |heading| heading.mt(ui.px(6.0)))
+                    .text_size(ui.px(match level {
+                        1 => 16.0,
+                        2 => 14.5,
+                        _ => 13.5,
+                    }))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(bright)
+                    .child(words(spans)),
+                markdown::Block::Paragraph(spans) => div().child(words(spans)),
+                markdown::Block::Item {
+                    depth,
+                    marker,
+                    spans,
+                } => {
+                    let marker = match marker {
+                        Some(markdown::Marker::Bullet) if *depth == 0 => "•".to_owned(),
+                        Some(markdown::Marker::Bullet) => "◦".to_owned(),
+                        Some(markdown::Marker::Number(n)) => format!("{n}."),
+                        None => String::new(),
+                    };
+                    div()
+                        .flex()
+                        .gap(ui.px(8.0))
+                        .pl(ui.px(18.0 * *depth as f32))
+                        .child(
+                            div()
+                                .flex_shrink_0()
+                                .min_w(ui.px(12.0))
+                                .text_color(dimmer)
+                                .child(marker),
+                        )
+                        .child(div().flex_1().min_w(px(0.0)).child(words(spans)))
+                }
+                markdown::Block::Code(text) => div()
+                    .px(ui.px(10.0))
+                    .py(ui.px(8.0))
+                    .rounded(ui.px(6.0))
+                    .bg(code)
+                    .font(self.mono.clone())
+                    .text_size(ui.px(12.0))
+                    .child(text.clone()),
+            });
+        }
+        out
+    }
+}
+
+/// Markdown's words in their styles: bold, italic, inline code in `mono` on `code`, and links in
+/// `link`, underlined.
+fn styled(spans: &[markdown::Span], mono: &SharedString, code: Hsla, link: Hsla) -> StyledText {
+    let mut text = String::new();
+    let (mut highlights, mut fonts) = (Vec::new(), Vec::new());
+    for span in spans {
+        let start = text.len();
+        text.push_str(&span.text);
+        let range = start..text.len();
+        let mut style = HighlightStyle::default();
+        if span.bold {
+            style.font_weight = Some(FontWeight::BOLD);
+        }
+        if span.italic {
+            style.font_style = Some(FontStyle::Italic);
+        }
+        if span.link {
+            style.color = Some(link);
+            style.underline = Some(UnderlineStyle {
+                thickness: px(1.0),
+                color: Some(link),
+                wavy: false,
+            });
+        }
+        if span.code {
+            style.background_color = Some(code);
+            fonts.push((range.clone(), mono.clone()));
+        }
+        if style != HighlightStyle::default() {
+            highlights.push((range, style));
+        }
+    }
+    StyledText::new(text)
+        .with_highlights(highlights)
+        .with_font_family_overrides(fonts)
 }
 
 /// Takes back a question about `file` in `acts`, or why it was refused; not one under way.
