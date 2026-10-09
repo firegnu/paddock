@@ -27,3 +27,10 @@
 
 ## 怎么算做完
 - 调研文档写清：每一问的事实（实测过的标明怎么测）、推荐做法和取舍、还拿不准的；给出要用户定的问题。
+
+## 完成记录
+
+- 做了什么：调研文档 `docs/调研/P5-61r-agent-shell.md`。结论：在这个窗格的 shell 里把 paddock 的替身放在 PATH 最前（zsh 用 paddock 的 `ZDOTDIR` 加 `precmd`／`preexec` 钩子，bash 用 `--rcfile` 加 `PROMPT_COMMAND`），替身用 `corral start` 起真程序（绝对路径）、再前台 `corral attach`。
+- 验证了什么：临时交互 zsh（用户真实配置）里普通命令、别名、`FOO=1` 前缀都到了替身；bash 同样；真 `claude` 用绝对路径交给 corral 后 `kind: claude`、钩子照常（`SessionStart` → `idle`）；corral 起的 agent 不继承调用方的环境和 PATH，`--env` 能传过去。测试实例 `paddock/test-env-1/2`、`paddock/test-shim-1` 都已停，`corral ls` 里没有残留。
+- 拿主意的地方：用户配置只看“改不改 PATH、有没有给 agent 起别名”的行数，内容不进文档；原型放 scratchpad，不进仓库。
+- 没做的事：没起 paddock 窗口；fish 没装没测；`--env` 盖 PATH 和长参数留给实现时实测。要用户定的五件写在文档末尾。
