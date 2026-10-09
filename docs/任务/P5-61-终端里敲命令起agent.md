@@ -96,3 +96,10 @@
 - 相关验证：逐条 RED→GREEN 后，前台运行 `cargo test --manifest-path app/Cargo.toml --test agent_shell`（9 项）和 `cargo test --manifest-path app/Cargo.toml --lib agent_shell::tests::`（2 项），全部通过。覆盖普通 zsh／bash 对照、rc 改 PATH、127、放行参数／退出码、环境传递、失败返回 shell、ctl 接管及过长环境；未放宽断言或修改超时。格式整理后 `cargo fmt --manifest-path app/Cargo.toml --check`、`git diff --check` 通过；按主控要求未重跑全套测试或 clippy。
 - 范围核对：本次产品差异仅在 `app/src/agent_shell.rs`，另外只改对应集成测试和本完成记录。入口排序／筛选／键盘、New Agent 浮层、普通 Shell 实现、既有 ctl 命令和输出格式、P5-47／P5-66 代码均未改；上节已通过的 110 项兼容回归记录仍保留。
 - 没做的事：未启动窗口或真实 agent，未读改用户 rc／配置，未动主仓库、ranch 或 Saddle，未合并或推送。只在本分支提交，无新增需主控决定事项。
+
+## 主控审查
+
+- 结论：通过，合并。只动了该动的文件；“不要做”的一件没做（没起窗口、没读用户配置、没加依赖、环境值不进输出）。用户中途补充“已有的不能改”：新建面板 Shell、Agent… 在最前、Shell 默认选中，Agent shell 在其后；普通 Shell、New Agent、已有 ctl 命令只有新增（dev 另有一轮核对写在完成记录）。
+- 交叉审查（`docs/任务/P5-61-审查.md`，paddock/review-agentshell-1）：第一轮“改完再合并”，必须改 1（另一套替身目录会让一次性调用回到自身、无限循环），建议改 2（显示 corral 的具体失败原因；分开 ZDOTDIR 没设和设为空），三条都采纳；返工 `f4c3046`，复核“可以合并”。
+- 主控在最终提交上重跑 `cargo test --all-targets`（499 项全过）、clippy、fmt、`git diff --check` 都过。返工途中 Codex 断网中断一次，用户在窗格里续上，强度从 xhigh 改成 high。
+- 对 dev 的取舍：handoff 前刷新名单并复查窗格、私有目录按进程隔离、bash 换行拼接 PROMPT_COMMAND、未起 agent 的 Agent shell 重启后按普通 Shell 恢复，都同意（最后一条是已记的限制，用户没要求跨重启保留）。
