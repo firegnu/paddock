@@ -355,20 +355,21 @@ fn first_choice(query: &str, choices: &[Choice]) -> usize {
 /// How the split panel was asked for.
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum SplitAsk {
-    /// The pane's split button.
-    Button,
+    /// One of the pane header's split buttons: side by side (Right) or one above the other (Down).
+    Button(Direction),
     /// The title bar's split icon.
     Bar,
     /// A shortcut or menu item for that side.
     Side(Direction),
 }
 
-/// The popup after asking for the split panel while `open` is: the button opens it on Right; a
-/// side's shortcut opens it on that side, switches an open one to it, and closes it when it is
-/// already there.
+/// The popup after asking for the split panel while `open` is: a pane's split button opens it on
+/// its side, the title bar's icon on Right; a side's shortcut opens it on that side, switches an
+/// open one to it, and closes it when it is already there.
 fn split_popup(open: Option<Popup>, ask: SplitAsk) -> Option<Popup> {
     match ask {
-        SplitAsk::Button | SplitAsk::Bar => Some(Popup::Split(Direction::Right)),
+        SplitAsk::Button(direction) => Some(Popup::Split(direction)),
+        SplitAsk::Bar => Some(Popup::Split(Direction::Right)),
         SplitAsk::Side(direction) if open == Some(Popup::Split(direction)) => None,
         SplitAsk::Side(direction) => Some(Popup::Split(direction)),
     }
@@ -390,7 +391,7 @@ enum SplitFrom {
 fn split_from(ask: SplitAsk, hanging: Option<SplitFrom>, header: bool) -> SplitFrom {
     match ask {
         SplitAsk::Bar => SplitFrom::Bar,
-        SplitAsk::Button => SplitFrom::Pane,
+        SplitAsk::Button(_) => SplitFrom::Pane,
         SplitAsk::Side(_) => hanging.unwrap_or(if header {
             SplitFrom::Pane
         } else {
@@ -427,10 +428,13 @@ pub const PET_TITLE_BAR: f32 = 48.0;
 /// strip); their corners' radius.
 const CARD_GAP: f32 = 8.0;
 const CARD_RADIUS: f32 = 10.0;
-/// How opaque a card's rim is, drawn in the text's colour; the active pane's among several, a
-/// step brighter.
+/// How opaque a card's rim is, drawn in the text's colour.
 const RIM: f32 = 0.05;
-const RIM_ACTIVE: f32 = 0.16;
+/// The panes' panels on the darker frame: their corners' radius, and their rims as the cards'
+/// are drawn, the active pane's among several a step brighter (P5-59).
+const PANEL_RADIUS: f32 = 12.0;
+const PANEL_RIM: f32 = 0.09;
+const PANEL_RIM_ACTIVE: f32 = 0.20;
 /// The line a grip lights up under the mouse and while dragged, and the room on each side of it
 /// the mouse can take it by.
 const DIVIDER: f32 = 1.0;
@@ -439,10 +443,16 @@ const GRIP: f32 = 3.0;
 const DIM: f32 = 0.42;
 /// How far down a paused agent's pane its Paused panel hangs, as a share of the pane.
 const PAUSED_AT: f32 = 0.58;
-/// A split pane's header, its buttons, and the room after the last.
+/// A pane's header: its height, the room before its icon, between its parts and after its last
+/// button, its text's size, its buttons, and how strongly the buttons of a pane not active show
+/// until it is hovered.
 const PANE_HEADER: f32 = 34.0;
-const PANE_BUTTON: f32 = 28.0;
+const PANE_HEADER_START: f32 = 14.0;
+const PANE_HEADER_GAP: f32 = 8.0;
 const PANE_HEADER_END: f32 = 6.0;
+const PANE_HEADER_TEXT: f32 = 12.0;
+const PANE_BUTTON: f32 = 28.0;
+const PANE_BUTTONS_FAINT: f32 = 0.4;
 /// The kind icon in a tab or a pane's header, and the status dot on its corner.
 const BADGE_ICON: f32 = 13.0;
 const BADGE_DOT: f32 = 6.0;
@@ -515,6 +525,66 @@ const HEAD_END: f32 = 10.0;
 /// centred on the row (AppKit's buttons are 14 points tall).
 pub fn traffic_lights(height: f32) -> Point<Pixels> {
     point(px(14.0), px(((height - 14.0) / 2.0).max(0.0)))
+}
+
+/// How wide `text` is in the interface font at `size` points (scaled as the interface is) and
+/// `weight`.
+fn ui_text_width(window: &Window, ui: &UiFont, text: &str, size: f32, weight: FontWeight) -> f32 {
+    if text.is_empty() {
+        return 0.0;
+    }
+    let family = ui.family.clone().unwrap_or_else(|| ".SystemUIFont".into());
+    let run = TextRun {
+        len: text.len(),
+        font: Font {
+            weight,
+            ..gpui::font(family)
+        },
+        color: Hsla::default(),
+        background_color: None,
+        underline: None,
+        strikethrough: None,
+    };
+    let line = window
+        .text_system()
+        .shape_line(text.to_owned().into(), ui.px(size), &[run], None);
+    f32::from(line.width)
+}
+
+/// A pane header's split buttons' mark, `footer_icon::SIZE` points square times `scale`: a frame
+/// cut in two along `axis` (side by side, or one above the other), drawn as `Icon::Panes` is.
+fn split_glyph(axis: Axis, color: Hsla, scale: f32) -> Div {
+    let line = 1.25 * scale;
+    let (width, height) = (12.0 * scale, 10.0 * scale);
+    let seam = div().absolute().bg(color);
+    let seam = match axis {
+        Axis::Row => seam
+            .top_0()
+            .bottom_0()
+            .left(px((width - 3.0 * line) / 2.0))
+            .w(px(line)),
+        Axis::Column => seam
+            .left_0()
+            .right_0()
+            .top(px((height - 3.0 * line) / 2.0))
+            .h(px(line)),
+    };
+    div()
+        .flex_shrink_0()
+        .flex()
+        .items_center()
+        .justify_center()
+        .size(px(footer_icon::SIZE * scale))
+        .child(
+            div()
+                .relative()
+                .w(px(width))
+                .h(px(height))
+                .border(px(line))
+                .border_color(color)
+                .rounded(px(2.0 * scale))
+                .child(seam),
+        )
 }
 
 fn title_bar_height(ui: &UiFont, pet: bool) -> f32 {
@@ -707,7 +777,7 @@ pub fn short_dir(path: &str, home: Option<&str>) -> String {
     }
 }
 
-/// A split pane's header, and the Changes header: the name, an agent's as [`agent_name`] has it
+/// A pane's header, and the Changes header: the name, an agent's as [`agent_name`] has it
 /// among the agents `open` in the window, and the directory, short, when there is one.
 pub fn pane_name(
     subject: &Subject,
@@ -729,10 +799,63 @@ pub fn pane_name(
     }
 }
 
-/// Panes get a header only when their tab is split: alone, the terminal is all there is. A zoomed
-/// pane keeps its header, for Restore.
-pub fn header_shown(panes_in_tab: usize) -> bool {
-    panes_in_tab > 1
+/// Every pane has a header, one alone in its tab too, and a zoomed one (DESIGN §13 P5-59; before,
+/// only a split tab's panes had one).
+pub fn header_shown(_panes_in_tab: usize) -> bool {
+    true
+}
+
+/// The topic of an agent's session, from the title its program set for the terminal (Claude Code
+/// and Codex set it to the session's topic): without the status marks it starts with (a spinner's
+/// frame, `✳`, `◐`, `·`) and the spaces after them; none when nothing is left.
+pub fn session_topic(title: &str) -> Option<String> {
+    // Arrows to dingbats and braille (spinners, ✳, ◐, ⏺), and the middle dots.
+    let mark =
+        |c: char| c.is_whitespace() || ('\u{2190}'..='\u{2BFF}').contains(&c) || "·•∙*".contains(c);
+    let topic = title.trim_start_matches(mark).trim_end();
+    (!topic.is_empty()).then(|| topic.to_owned())
+}
+
+/// What a shell pane's header names: the program running in it, else the shell.
+pub fn shell_shows(program: &str, running: &[String]) -> String {
+    running
+        .first()
+        .cloned()
+        .unwrap_or_else(|| last_part(program).to_owned())
+}
+
+/// A pane header's topic and directory, `gap` apart, in the `room` points its name (whole, always)
+/// leaves them, as `width` measures text: the topic is cut in the middle first, and goes once
+/// fewer than three of its letters would show; only then the directory, cut at its start.
+pub fn fit_header(
+    topic: Option<&str>,
+    dir: Option<&str>,
+    room: f32,
+    gap: f32,
+    width: impl Fn(&str) -> f32,
+) -> (Option<String>, Option<String>) {
+    // Shown whole, or with at least three of its letters around the `…`.
+    let kept = |text: &str, cut: String| (cut == text || cut.chars().count() > 3).then_some(cut);
+    let dir_width = dir.map_or(0.0, |dir| gap + width(dir));
+    let topic = topic.and_then(|topic| {
+        kept(
+            topic,
+            tab_fit::middle(topic, room - gap - dir_width, &width),
+        )
+    });
+    let room = room - topic.as_deref().map_or(0.0, |topic| gap + width(topic)) - gap;
+    let dir = dir.and_then(|dir| {
+        let letters: Vec<char> = dir.chars().collect();
+        let cut = (0..letters.len())
+            .map(|drop| match drop {
+                0 => dir.to_owned(),
+                _ => ['…'].iter().chain(&letters[drop + 1..]).collect(),
+            })
+            .find(|cut| width(cut) <= room)
+            .unwrap_or_default();
+        kept(dir, cut)
+    });
+    (topic, dir)
 }
 
 /// The panes on screen besides the active one are dimmed; one alone is never.
@@ -2698,17 +2821,27 @@ impl PaddockWindow {
         hsla(self.theme.fg(pick), 1.0)
     }
 
-    /// A card on the frame: the terminal's ground, rounded, with a faint rim, a step brighter for
-    /// the active pane among several.
-    fn card(&self, bright: bool) -> Div {
+    /// A card on the frame, the right sidebar's: the terminal's ground, rounded, with a faint rim.
+    fn card(&self) -> Div {
         div()
             .rounded(px(CARD_RADIUS))
             .bg(hsla(self.theme.terminal().background, 1.0))
             .border_1()
-            .border_color(
-                self.fg(|t| t.agents_text)
-                    .opacity(if bright { RIM_ACTIVE } else { RIM }),
-            )
+            .border_color(self.fg(|t| t.agents_text).opacity(RIM))
+    }
+
+    /// A pane's panel on the frame: the terminal's ground, rounded, with a rim, a step brighter for
+    /// the active pane among several.
+    fn panel(&self, bright: bool) -> Div {
+        div()
+            .rounded(px(PANEL_RADIUS))
+            .bg(hsla(self.theme.terminal().background, 1.0))
+            .border_1()
+            .border_color(self.fg(|t| t.agents_text).opacity(if bright {
+                PANEL_RIM_ACTIVE
+            } else {
+                PANEL_RIM
+            }))
     }
 
     fn highlight(&self) -> Hsla {
@@ -2720,11 +2853,13 @@ impl PaddockWindow {
         self.frost.is_some() && !self.full_screen
     }
 
-    /// What lies under everything while the column shows the material: the sidebar's colour,
-    /// faintly, over the column, and opaque elsewhere, as under the cards and the rest of the
-    /// title bar; over the strip the title bar's whole row is opaque, one piece.
-    fn frosted_ground(&self, column: Bounds<Pixels>) -> Div {
-        let ground = hsla(self.theme.bg(|t| t.agents_bg), 1.0);
+    /// What lies under everything: the sidebar's colour over its column, faintly while the column
+    /// shows the material (`frosted`); elsewhere, under the panes' panels and the title bar beside
+    /// the column, the darker frame (P5-59); over the strip the title bar's whole row is the
+    /// frame, one piece.
+    fn ground(&self, column: Bounds<Pixels>, frosted: bool) -> Div {
+        let sidebar = hsla(self.theme.bg(|t| t.agents_bg), 1.0);
+        let frame = hsla(self.theme.frame(), 1.0);
         div()
             .absolute()
             .inset_0()
@@ -2735,7 +2870,11 @@ impl PaddockWindow {
                     .top(column.top())
                     .w(column.size.width)
                     .h(column.size.height)
-                    .bg(ground.opacity(self.theme.frost().wash)),
+                    .bg(if frosted {
+                        sidebar.opacity(self.theme.frost().wash)
+                    } else {
+                        sidebar
+                    }),
             )
             .when(column.top() > px(0.0), |under| {
                 under.child(
@@ -2745,7 +2884,7 @@ impl PaddockWindow {
                         .top_0()
                         .right_0()
                         .h(column.top())
-                        .bg(ground),
+                        .bg(frame),
                 )
             })
             .child(
@@ -2755,7 +2894,7 @@ impl PaddockWindow {
                     .top(column.top())
                     .right_0()
                     .bottom_0()
-                    .bg(ground),
+                    .bg(frame),
             )
     }
 
@@ -2818,27 +2957,8 @@ impl PaddockWindow {
             .iter()
             .map(|tab| self.subject(tab.active, cx))
             .collect();
-        let family = ui.family.clone().unwrap_or_else(|| ".SystemUIFont".into());
         let width = |text: &str, size: f32, weight: FontWeight| {
-            if text.is_empty() {
-                return 0.0;
-            }
-            let run = TextRun {
-                len: text.len(),
-                font: Font {
-                    weight,
-                    ..gpui::font(family.clone())
-                },
-                color: Hsla::default(),
-                background_color: None,
-                underline: None,
-                strikethrough: None,
-            };
-            let line =
-                window
-                    .text_system()
-                    .shape_line(text.to_owned().into(), ui.px(size), &[run], None);
-            f32::from(line.width)
+            ui_text_width(window, &ui, text, size, weight)
         };
         let titles: Vec<(Option<String>, String)> = subjects
             .iter()
@@ -3599,17 +3719,18 @@ impl PaddockWindow {
         node: &Node,
         shown: usize,
         agents: &[Agent],
+        window: &Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         match node {
-            Node::Pane(pane) => self.pane(*pane, shown, agents, cx),
+            Node::Pane(pane) => self.pane(*pane, shown, agents, window, cx),
             Node::Split {
                 axis,
                 ratio,
                 first,
                 second,
             } => {
-                // Each pane its own card, a seam of the frame between, which shares the split out
+                // Each pane its own panel, a seam of the frame between, which shares the split out
                 // by its ratio.
                 let axis = *axis;
                 let after = second.first_pane();
@@ -3638,9 +3759,12 @@ impl PaddockWindow {
                     Axis::Row => split.flex_row(),
                     Axis::Column => split.flex_col(),
                 }
-                .child(part(self.node(first, shown, agents, cx), *ratio))
+                .child(part(self.node(first, shown, agents, window, cx), *ratio))
                 .child(self.seam(after, axis, cx))
-                .child(part(self.node(second, shown, agents, cx), 1.0 - ratio))
+                .child(part(
+                    self.node(second, shown, agents, window, cx),
+                    1.0 - ratio,
+                ))
                 .into_any_element()
             }
         }
@@ -3782,20 +3906,21 @@ impl PaddockWindow {
         pane: PaneId,
         shown: usize,
         agents: &[Agent],
+        window: &Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let active = pane == self.workspace.active_pane();
         let header = header_shown(self.workspace.tab().panes().len());
         let background = hsla(self.theme.terminal().background, 1.0);
         let dim = dimmed(shown, active);
-        // Around the terminal, keeping it well off the card's corners (the view adds 6 itself):
+        // Around the terminal, keeping it well off the panel's corners (the view adds 6 itself):
         // roomier alone, tighter under a header, whose own height leaves room above.
         let (top, bottom, side) = if header {
             (0.0, 6.0, 10.0)
         } else {
             (8.0, 8.0, 12.0)
         };
-        self.card(shown > 1 && active)
+        self.panel(shown > 1 && active)
             .id(("pane", pane as usize))
             .group(SharedString::from(format!("pane-{pane}")))
             .relative()
@@ -3813,7 +3938,7 @@ impl PaddockWindow {
                 this.panes[&pane].update(cx, |view, cx| view.drop_files(paths, window, cx));
             }))
             .when(header, |this| {
-                this.child(self.pane_header(pane, active, agents, cx))
+                this.child(self.pane_header(pane, active, agents, window, cx))
             })
             .child(
                 div()
@@ -3827,28 +3952,32 @@ impl PaddockWindow {
             )
             .children(self.paused_overlay(pane, cx))
             .child(self.spot(Spot::Pane(pane)))
-            // A veil rather than a frame, rounded as the card: it takes no clicks, so they reach the
-            // terminal.
+            // A veil rather than a frame, rounded as the panel: it takes no clicks, so they reach
+            // the terminal.
             .when(dim, |this| {
                 this.child(
                     div()
                         .absolute()
                         .inset_0()
-                        .rounded(px(CARD_RADIUS))
+                        .rounded(px(PANEL_RADIUS))
                         .bg(background.opacity(DIM)),
                 )
             })
             .into_any_element()
     }
 
-    /// A split pane's header, at the top of its card: kind icon with the status dot, name, short
-    /// directory, and icons to split, zoom and close, always there on the active pane and on hover
-    /// on the others.
+    /// A pane's header, at the top of its panel; every pane has one (P5-59): kind icon with the
+    /// status dot, the name in bold, an agent's session topic faint (see [`session_topic`]) and the
+    /// short directory fainter, or for a shell what runs in it (see [`shell_shows`]); crowded, the
+    /// topic is cut first (see [`fit_header`]). Then icons to split side by side and one above the
+    /// other, zoom and close: the active pane's lit as ever, the others' faint until the pane is
+    /// hovered.
     fn pane_header(
         &self,
         pane: PaneId,
         active: bool,
         agents: &[Agent],
+        window: &Window,
         cx: &mut Context<Self>,
     ) -> Div {
         let ui = UiFont::get(cx);
@@ -3862,15 +3991,66 @@ impl PaddockWindow {
             _ => None,
         };
         let home = std::env::var("HOME").ok();
+        let subject = self.subject(pane, cx);
         let (name, dir) = pane_name(
-            &self.subject(pane, cx),
+            &subject,
             agent_cwd.as_deref(),
             home.as_deref(),
             &self.workspace.agents(),
         );
+        let view = self.panes[&pane].read(cx);
+        let (name, topic) = match &subject {
+            Subject::Agent(_) => (
+                name,
+                view.terminal_title().as_deref().and_then(session_topic),
+            ),
+            Subject::Shell { program, .. } => {
+                ((None, shell_shows(program, &view.shell_programs())), None)
+            }
+            Subject::Command(_) | Subject::Empty => (name, None),
+        };
+        // The room the name and the icons leave in the panel as it was last drawn; until then,
+        // the text as it is.
+        let drawn = self.spots.borrow().get(&Spot::Pane(pane)).copied();
+        let (topic, dir) = match drawn {
+            Some(bounds) => {
+                let width =
+                    |text: &str, weight| ui_text_width(window, &ui, text, PANE_HEADER_TEXT, weight);
+                let name_width = width(name.0.as_deref().unwrap_or_default(), FontWeight::NORMAL)
+                    + width(&name.1, FontWeight::SEMIBOLD);
+                let room = f32::from(bounds.size.width)
+                    - name_width
+                    - (PANE_HEADER_START
+                        + BADGE_ICON
+                        + 2.0
+                        + 3.0 * PANE_HEADER_GAP
+                        + 4.0 * PANE_BUTTON
+                        + PANE_HEADER_END)
+                        * scale;
+                fit_header(
+                    topic.as_deref(),
+                    dir.as_deref(),
+                    room,
+                    PANE_HEADER_GAP * scale,
+                    |text| width(text, FontWeight::NORMAL),
+                )
+            }
+            None => (topic, dir),
+        };
         let now = now();
         let splitting = active && self.split_hanging() == Some(SplitFrom::Pane);
-        let button = |id: &str, icon: Icon, lit: bool| {
+        let side_by_side = match self.popup {
+            Some(Popup::Split(side)) => Some(matches!(side, Direction::Left | Direction::Right)),
+            _ => None,
+        };
+        let tint = |lit: bool| {
+            if lit {
+                self.fg(|t| t.agents_text)
+            } else {
+                self.fg(|t| t.muted)
+            }
+        };
+        let button = |id: &str, icon: AnyElement, lit: bool| {
             let group = SharedString::from(format!("{id}-{pane}"));
             div()
                 .id(SharedString::from(format!("{id}-{pane}")))
@@ -3879,7 +4059,7 @@ impl PaddockWindow {
                 .flex()
                 .items_center()
                 .justify_center()
-                .size(ui.px(28.0))
+                .size(ui.px(PANE_BUTTON))
                 .cursor_pointer()
                 .child(
                     div()
@@ -3890,37 +4070,42 @@ impl PaddockWindow {
                         .rounded(px(6.0))
                         .when(lit, |button| button.bg(highlight))
                         .group_hover(group, move |style| style.bg(highlight))
-                        .child(footer_icon::icon(
-                            icon,
-                            if lit {
-                                self.fg(|t| t.agents_text)
-                            } else {
-                                self.fg(|t| t.muted)
-                            },
-                            scale,
-                        )),
+                        .child(icon),
                 )
         };
         let zoomed = self.workspace.zoomed().is_some();
+        // Lit while its panel is open, which hangs from it.
+        let split = |id: &str, axis: Axis, side: Direction| {
+            let lit = splitting && side_by_side == Some(axis == Axis::Row);
+            button(
+                id,
+                split_glyph(axis, tint(lit), scale).into_any_element(),
+                lit,
+            )
+            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                this.ask_split(SplitAsk::Button(side), window, cx)
+            }))
+        };
         let buttons = div()
             .flex_shrink_0()
             .flex()
             .items_center()
             .when(!active, |buttons| {
                 buttons
-                    .invisible()
-                    .group_hover(format!("pane-{pane}"), |style| style.visible())
+                    .opacity(PANE_BUTTONS_FAINT)
+                    .group_hover(format!("pane-{pane}"), |style| style.opacity(1.0))
             })
-            // Lit while its panel is open, which hangs from it.
-            .child(
-                button("split", Icon::Split, splitting).on_click(cx.listener(
-                    |this, _: &ClickEvent, window, cx| this.ask_split(SplitAsk::Button, window, cx),
-                )),
-            )
+            .child(split("split-right", Axis::Row, Direction::Right))
+            .child(split("split-down", Axis::Column, Direction::Down))
             .child(
                 button(
                     "zoom",
-                    if zoomed { Icon::Restore } else { Icon::Zoom },
+                    footer_icon::icon(
+                        if zoomed { Icon::Restore } else { Icon::Zoom },
+                        tint(false),
+                        scale,
+                    )
+                    .into_any_element(),
                     false,
                 )
                 .on_click(
@@ -3928,21 +4113,33 @@ impl PaddockWindow {
                 ),
             )
             .child(
-                button("close-pane", Icon::Close, false).on_click(cx.listener(
-                    move |this, _: &ClickEvent, window, cx| {
-                        this.request_close(Closing::Pane(pane), window, cx)
-                    },
-                )),
+                button(
+                    "close-pane",
+                    footer_icon::icon(Icon::Close, tint(false), scale).into_any_element(),
+                    false,
+                )
+                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                    this.request_close(Closing::Pane(pane), window, cx)
+                })),
             );
+        let faint = |text: String, color: Hsla| {
+            div()
+                .flex_shrink(1.0)
+                .min_w(px(0.0))
+                .overflow_hidden()
+                .whitespace_nowrap()
+                .text_color(color)
+                .child(text)
+        };
         div()
             .flex_shrink_0()
             .flex()
             .items_center()
-            .gap(ui.px(8.0))
+            .gap(ui.px(PANE_HEADER_GAP))
             .h(ui.px(PANE_HEADER))
-            .pl(ui.px(14.0))
+            .pl(ui.px(PANE_HEADER_START))
             .pr(ui.px(PANE_HEADER_END))
-            .text_size(ui.px(12.0))
+            .text_size(ui.px(PANE_HEADER_TEXT))
             .child(self.badge(
                 pane,
                 agents,
@@ -3953,33 +4150,14 @@ impl PaddockWindow {
             ))
             .child(
                 div()
-                    .flex_shrink(1.0)
-                    .min_w(px(0.0))
-                    .overflow_hidden()
+                    .flex_shrink_0()
                     .whitespace_nowrap()
-                    .text_ellipsis()
-                    .font_weight(if active {
-                        FontWeight::SEMIBOLD
-                    } else {
-                        FontWeight::NORMAL
-                    })
-                    .text_color(if active {
-                        self.fg(|t| t.agents_text)
-                    } else {
-                        self.fg(|t| t.muted)
-                    })
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(self.fg(|t| t.agents_text))
                     .child(grouped(name, self.fg(|t| t.agents_dimmer))),
             )
-            .children(dir.map(|dir| {
-                div()
-                    .flex_shrink(1.0)
-                    .min_w(px(0.0))
-                    .overflow_hidden()
-                    .whitespace_nowrap()
-                    .text_ellipsis()
-                    .text_color(self.fg(|t| t.agents_dim))
-                    .child(format!("· {dir}"))
-            }))
+            .children(topic.map(|topic| faint(topic, self.fg(|t| t.agents_branch))))
+            .children(dir.map(|dir| faint(dir, self.fg(|t| t.agents_dimmer))))
             .child(div().flex_1())
             .child(buttons)
     }
@@ -5022,7 +5200,7 @@ impl PaddockWindow {
                     .unwrap_or_else(|| rect(side + 10.0, 0.0, 0.0, title)),
                 Hang::BelowLeft,
             ),
-            Popup::Split(_) if self.split_hanging() == Some(SplitFrom::Pane) => {
+            Popup::Split(direction) if self.split_hanging() == Some(SplitFrom::Pane) => {
                 let pane = spots
                     .get(&Spot::Pane(self.workspace.active_pane()))
                     .copied()
@@ -5031,12 +5209,16 @@ impl PaddockWindow {
                         rect(side, title, width, f32::from(viewport.height) - title)
                     });
                 let (right, top) = (f32::from(pane.right()), f32::from(pane.top()));
-                // The header's split button, first of its three at its right end, centred on the
-                // header's height.
+                // The header's split button for that side, first (side by side) or second (one
+                // above the other) of its four at its right end, centred on the header's height.
                 let button = PANE_BUTTON * s;
+                let before = match direction {
+                    Direction::Left | Direction::Right => 4.0,
+                    Direction::Up | Direction::Down => 3.0,
+                };
                 (
                     rect(
-                        right - PANE_HEADER_END * s - 3.0 * button,
+                        right - PANE_HEADER_END * s - before * button,
                         top + (PANE_HEADER - PANE_BUTTON) * s / 2.0,
                         button,
                         button,
@@ -5538,6 +5720,15 @@ impl Render for PaddockWindow {
             None
         };
         self.fit_frost(column, window, cx);
+        // The sidebar's own column, material or not, against the frame around the panes.
+        let sidebar_column = frost_column(
+            self.collapsed,
+            false,
+            self.sidebar_width,
+            height,
+            window.viewport_size(),
+            &ui,
+        );
         // A zoomed pane fills the tab; the split waits underneath.
         let (root, shown) = match self.workspace.zoomed() {
             Some(pane) => (Node::Pane(pane), 1),
@@ -5559,7 +5750,7 @@ impl Render for PaddockWindow {
             .pr(px(CARD_GAP))
             .pb(px(CARD_GAP))
             .when(self.collapsed, |cards| cards.pl(px(CARD_GAP)))
-            .child(self.node(&root, shown, &agents, cx));
+            .child(self.node(&root, shown, &agents, window, cx));
         let right = self
             .right
             .open
@@ -5619,7 +5810,7 @@ impl Render for PaddockWindow {
                 cx.listener(|this, _: &ClickEvent, _, cx| this.toggle_right(cx)),
             );
             cards = cards.child(
-                self.card(false)
+                self.card()
                     .flex_shrink_0()
                     .w(px(width))
                     .h_full()
@@ -5671,7 +5862,7 @@ impl Render for PaddockWindow {
                 root.bg(hsla(self.theme.bg(|t| t.agents_bg), 1.0))
             })
             // First, so it lies under the rest.
-            .children(column.map(|column| self.frosted_ground(column)))
+            .children(sidebar_column.map(|under| self.ground(under, column.is_some())))
             .when(self.popup.is_some(), |root| root.key_context(menu::DIALOG))
             .on_action(
                 cx.listener(|this, _: &menu::NewTab, window, cx| this.toggle_new_tab(window, cx)),
@@ -6253,10 +6444,72 @@ mod tests {
     }
 
     #[test]
-    fn only_split_tabs_have_pane_headers() {
-        assert!(!header_shown(1));
+    fn every_pane_has_a_header_one_alone_too() {
+        assert!(header_shown(1));
         assert!(header_shown(2));
         assert!(header_shown(3));
+    }
+
+    #[test]
+    fn a_session_topic_is_the_title_without_its_status_marks() {
+        assert_eq!(
+            session_topic("✳ P5-59 pane panels"),
+            Some("P5-59 pane panels".into())
+        );
+        assert_eq!(session_topic("⠋ Fixing tests"), Some("Fixing tests".into()));
+        assert_eq!(session_topic("◐  Planning"), Some("Planning".into()));
+        assert_eq!(session_topic("· 窗格面板"), Some("窗格面板".into()));
+        assert_eq!(session_topic("Claude Code"), Some("Claude Code".into()));
+        // The marks only lead: later ones are the topic's own.
+        assert_eq!(
+            session_topic("✶ Ship it · now"),
+            Some("Ship it · now".into())
+        );
+        assert_eq!(session_topic("✳ "), None);
+        assert_eq!(session_topic(""), None);
+    }
+
+    #[test]
+    fn a_shell_header_names_what_runs_in_it_else_the_shell() {
+        assert_eq!(shell_shows("/bin/zsh", &[]), "zsh");
+        assert_eq!(shell_shows("/bin/zsh", &["cargo".into()]), "cargo");
+        assert_eq!(
+            shell_shows("/bin/zsh", &["vim".into(), "sleep".into()]),
+            "vim"
+        );
+    }
+
+    #[test]
+    fn a_crowded_header_cuts_the_topic_first_then_the_directory() {
+        // Eight points a letter.
+        let letters = |text: &str| text.chars().count() as f32 * 8.0;
+        let fit = |topic: Option<&str>, room: f32| {
+            fit_header(topic, Some("~/…/paddock"), room * 8.0, 8.0, letters)
+        };
+        let dir = Some("~/…/paddock".to_owned());
+        // Room for all: whole.
+        assert_eq!(
+            fit(Some("pane panels"), 40.0),
+            (Some("pane panels".into()), dir.clone())
+        );
+        // The topic shortens in the middle; the directory stays whole.
+        assert_eq!(
+            fit(Some("pane panels"), 1.0 + 11.0 + 1.0 + 7.0),
+            (Some("pan…els".into()), dir.clone())
+        );
+        // Fewer than three of the topic's letters: it goes, the directory still whole.
+        assert_eq!(
+            fit(Some("pane panels"), 1.0 + 11.0 + 1.0 + 3.0),
+            (None, dir.clone())
+        );
+        // Then the directory shortens, keeping its end, and goes too.
+        assert_eq!(
+            fit(Some("pane panels"), 1.0 + 7.0),
+            (None, Some("…addock".into()))
+        );
+        assert_eq!(fit(Some("pane panels"), 2.0), (None, None));
+        // No topic: the directory has the room.
+        assert_eq!(fit(None, 12.0), (None, dir));
     }
 
     #[test]
@@ -6492,11 +6745,17 @@ mod tests {
     #[test]
     fn the_split_panel_opens_on_the_side_asked_for_and_says_where() {
         use Direction::*;
-        // The split button opens it on Right; each side's shortcut on its own side.
+        // A pane's split buttons open it on their side, the title bar's icon on Right; each side's
+        // shortcut on its own side.
         assert_eq!(
-            split_popup(None, SplitAsk::Button),
+            split_popup(None, SplitAsk::Button(Right)),
             Some(Popup::Split(Right))
         );
+        assert_eq!(
+            split_popup(Some(Popup::Split(Right)), SplitAsk::Button(Down)),
+            Some(Popup::Split(Down))
+        );
+        assert_eq!(split_popup(None, SplitAsk::Bar), Some(Popup::Split(Right)));
         for side in [Right, Down, Left, Up] {
             assert_eq!(
                 split_popup(None, SplitAsk::Side(side)),
@@ -6533,8 +6792,8 @@ mod tests {
             assert_eq!(split_from(SplitAsk::Bar, None, header), Bar);
             assert_eq!(split_from(SplitAsk::Bar, Some(Pane), header), Bar);
         }
-        assert_eq!(split_from(SplitAsk::Button, None, true), Pane);
-        assert_eq!(split_from(SplitAsk::Button, Some(Bar), true), Pane);
+        assert_eq!(split_from(SplitAsk::Button(Right), None, true), Pane);
+        assert_eq!(split_from(SplitAsk::Button(Right), Some(Bar), true), Pane);
         // A shortcut or the menu: the active pane's button when panes have headers, else the
         // title bar's icon.
         for side in [Right, Down, Left, Up] {

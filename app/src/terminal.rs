@@ -1,6 +1,7 @@
 //! The terminal parser and its replies to terminal queries. From Saddle `src/terminal.rs` at
 //! commit `df1c727`, without `Screen::render`/`color` (they draw into a ratatui buffer) and the
-//! `history` field that only Saddle's history mode uses.
+//! `history` field that only Saddle's history mode uses; paddock keeps the title the program sets,
+//! for its pane's header (DESIGN §13 P5-59).
 use alacritty_terminal::{
     Term,
     event::{Event, EventListener},
@@ -36,6 +37,8 @@ pub struct Screen {
     pub term: Term<Events>,
     parser: Processor,
     events: Receiver<Event>,
+    /// What the program last set as the terminal's title, for its pane's header (P5-59).
+    title: Option<String>,
 }
 impl Screen {
     pub fn new(size: Size) -> Self {
@@ -44,6 +47,7 @@ impl Screen {
             term: Term::new(Default::default(), &size, Events(tx)),
             parser: Processor::new(),
             events,
+            title: None,
         }
     }
     pub fn process(&mut self, bytes: &[u8]) -> Vec<u8> {
@@ -61,6 +65,14 @@ impl Screen {
                     })
                 }
                 Event::ColorRequest(index, format) => format(default_rgb(index)),
+                Event::Title(title) => {
+                    self.title = Some(title);
+                    continue;
+                }
+                Event::ResetTitle => {
+                    self.title = None;
+                    continue;
+                }
                 _ => continue,
             };
             replies.extend_from_slice(reply.as_bytes());
@@ -69,6 +81,10 @@ impl Screen {
     }
     pub fn resize(&mut self, size: Size) {
         self.term.resize(size);
+    }
+    /// The title the program last set for the terminal (OSC 0 or 2), when it set one.
+    pub fn title(&self) -> Option<&str> {
+        self.title.as_deref().filter(|title| !title.is_empty())
     }
 }
 
@@ -105,4 +121,22 @@ fn default_rgb(index: usize) -> Rgb {
         _ => (229, 229, 229),
     };
     Rgb { r, g, b }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_title_a_program_sets_reaches_the_screen() {
+        let mut screen = Screen::new(Size { rows: 4, cols: 20 });
+        assert_eq!(screen.title(), None);
+        screen.process(b"\x1b]0;\xe2\x9c\xb3 Fix the seam\x07");
+        assert_eq!(screen.title(), Some("✳ Fix the seam"));
+        screen.process(b"\x1b]2;Another\x1b\\");
+        assert_eq!(screen.title(), Some("Another"));
+        // An empty title takes it back.
+        screen.process(b"\x1b]2;\x07");
+        assert_eq!(screen.title(), None);
+    }
 }

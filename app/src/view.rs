@@ -364,6 +364,13 @@ impl TerminalView {
         self.viewer.shell_programs()
     }
 
+    /// The title the program in the pane last set for its terminal, for the pane's header.
+    pub fn terminal_title(&self) -> Option<String> {
+        let session = self.session()?;
+        let screen = session.screen.lock().unwrap();
+        screen.title().map(str::to_owned)
+    }
+
     /// What `paddock ctl` reads of the pane.
     pub fn facts(&self) -> crate::control_ui::Facts {
         let shell = self.queued_shell.as_ref().or(self.viewer.shell.as_ref());

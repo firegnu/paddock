@@ -10,6 +10,9 @@ use crate::{
 };
 use anyhow::{Result, anyhow, bail};
 
+/// How much of the terminal's background the window's ground around the panes keeps.
+const FRAME: f32 = 0.55;
+
 /// A preset's own terminal colours; its default text and background follow Saddle's `text`/`bg`.
 struct Terminal {
     ansi: [Rgb; 16],
@@ -394,6 +397,14 @@ impl Theme {
         }
     }
 
+    /// The window's ground around and between the panes' panels: the terminal's background a
+    /// step darker, so each panel stands off it (DESIGN §13 P5-59).
+    pub fn frame(&self) -> Rgb {
+        let darker = |channel: u8| (f32::from(channel) * FRAME).round() as u8;
+        let (r, g, b) = self.terminal.background;
+        (darker(r), darker(g), darker(b))
+    }
+
     /// The terminal pane's colours.
     pub fn terminal(&self) -> &palette::Theme {
         &self.terminal
@@ -624,6 +635,25 @@ mod tests {
                     assert_ne!(a, b, "{key}: {colors:?}");
                 }
             }
+        }
+    }
+
+    #[test]
+    fn the_ground_under_the_panes_is_a_step_darker_than_the_terminal_in_every_theme() {
+        let sum = |(r, g, b): Rgb| u32::from(r) + u32::from(g) + u32::from(b);
+        for preset in Preset::ALL {
+            let theme = theme(&format!("theme = \"{}\"", preset.name())).unwrap();
+            let (background, frame) = (theme.terminal().background, theme.frame());
+            assert!(
+                frame.0 <= background.0 && frame.1 <= background.1 && frame.2 <= background.2,
+                "{}: {frame:?} over {background:?}",
+                preset.name()
+            );
+            assert!(
+                sum(frame) * 10 <= sum(background) * 7,
+                "{}: {frame:?} over {background:?}",
+                preset.name()
+            );
         }
     }
 
