@@ -85,3 +85,14 @@
 - 旧 ctl：只新增 `Operation::AgentShell`／`agent-shell NAME` 及对应处理；已有 inspect、instances、open、close、browse、request 的参数规则、响应构造和 JSON 字段未改，内部 `Facts.agent_shell` 不写入原有响应。帮助仍是原 JSON 格式，仅追加新请求说明。既有 open 参数、inspect 输出、身份传递、请求重放／进度及 close 确认测试通过。
 - P5-47／P5-66：原 agent 结束自动关窗格、最后一格补普通 shell、退出／关闭确认及程序探测逻辑无改动。无确认替换仅在新增 AgentShell 请求通过调用者类型／身份检查后发生；普通 close 路径、其他 shell 的确认规则保持原样。已有 agent 结束／重开／暂停／接入中测试、关闭确认测试，以及真 PTY 的前后台程序探测测试通过。
 - 本轮验证：全部命令在前台完成，复跑 `cargo test --lib control`（49）、`cargo test --lib window::tests::`（32）、`cargo test --lib new_agent::tests::`（18）、`cargo test --lib pty::tests::`（2）、`cargo test --test ctl_cli --test viewer`（3＋6），共 110 项通过；`git diff --check` 通过。未新增或放宽测试，未重复全量检查，未启动窗口、真实 agent、合并或推送。无新增待主控决定事项。
+
+### 返工（2026-10-09）
+
+按主仓库 `P5-61-审查.md` 的 R1、S1、S2 返工，三条均先改测试、确认目标行为失败，再修改实现。
+
+- R1：PATH 清理时解析当前可执行文件和各目录下四种替身的符号链接，剔除仍指向当前 paddock 的其他替身目录；真程序查找、放行 exec 的 PATH 和托管 `--env PATH` 共用清理结果。新增“两套替身目录＋真程序”两条回归，第二套经第一套链接到 paddock。RED：放行在原有 5 秒测试时限内不退出，托管参数错误地指向第二套替身；GREEN：放行实际执行真程序并返回 23，原参数保留，托管传入真程序绝对路径，两条路径都只留下真实目录及系统目录。
+- S1：失败夹具改为真实的 `ok:false`、`error`、`message` 三字段。RED：旧实现只显示错误码，缺少具体原因；GREEN：显示 `exec_failed` 和 message，拼接后仍统一遮盖环境值，合成敏感值不出现，返回非零且原 shell 继续可用。兼容仅 error／message 或 stderr 的诊断。
+- S2：单独传递原 ZDOTDIR 是否存在的标记，显式空值不再回退 HOME；未设置时保留任务原定的 HOME 回退。新增临时 HOME 下普通 zsh／Agent shell、未设置／空值的四种对照。RED：显式空值错误读取 HOME 的 `.zshenv`、`.zshrc` 并改成 HOME；GREEN：空值保持为空、不读 HOME 的两个文件，未设置时仍读取它们；已有非空自定义 ZDOTDIR 测试也通过。
+- 相关验证：逐条 RED→GREEN 后，前台运行 `cargo test --manifest-path app/Cargo.toml --test agent_shell`（9 项）和 `cargo test --manifest-path app/Cargo.toml --lib agent_shell::tests::`（2 项），全部通过。覆盖普通 zsh／bash 对照、rc 改 PATH、127、放行参数／退出码、环境传递、失败返回 shell、ctl 接管及过长环境；未放宽断言或修改超时。格式整理后 `cargo fmt --manifest-path app/Cargo.toml --check`、`git diff --check` 通过；按主控要求未重跑全套测试或 clippy。
+- 范围核对：本次产品差异仅在 `app/src/agent_shell.rs`，另外只改对应集成测试和本完成记录。入口排序／筛选／键盘、New Agent 浮层、普通 Shell 实现、既有 ctl 命令和输出格式、P5-47／P5-66 代码均未改；上节已通过的 110 项兼容回归记录仍保留。
+- 没做的事：未启动窗口或真实 agent，未读改用户 rc／配置，未动主仓库、ranch 或 Saddle，未合并或推送。只在本分支提交，无新增需主控决定事项。

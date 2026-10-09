@@ -57,7 +57,10 @@ pub fn setup(
     let mut command = vec![program.into()];
     if program.ends_with("/zsh") || program == "zsh" {
         env.push(("ZDOTDIR".into(), dir.to_string_lossy().into_owned()));
-        // Empty means the original ZDOTDIR was unset: use the shell's HOME.
+        env.push((
+            "PADDOCK_AGENT_ZDOTDIR_SET".into(),
+            if original_zdotdir.is_some() { "1" } else { "0" }.into(),
+        ));
         env.push((
             "PADDOCK_AGENT_ZDOTDIR".into(),
             original_zdotdir.unwrap_or_default().into(),
@@ -72,8 +75,12 @@ pub fn setup(
     Ok(Setup { command, env })
 }
 
-const ZSHENV: &str = r#"export ZDOTDIR=${PADDOCK_AGENT_ZDOTDIR:-$HOME}
-unset PADDOCK_AGENT_ZDOTDIR
+const ZSHENV: &str = r#"if [[ "$PADDOCK_AGENT_ZDOTDIR_SET" == 1 ]]; then
+    export ZDOTDIR=$PADDOCK_AGENT_ZDOTDIR
+else
+    export ZDOTDIR=$HOME
+fi
+unset PADDOCK_AGENT_ZDOTDIR PADDOCK_AGENT_ZDOTDIR_SET
 [[ -r "$ZDOTDIR/.zshenv" ]] && source "$ZDOTDIR/.zshenv"
 if [[ -o interactive ]]; then
     _paddock_agent_path() {
@@ -110,12 +117,23 @@ esac
 _paddock_agent_path
 "#;
 
-fn clean_path(path: &OsStr, shims: &Path) -> OsString {
+fn clean_path(path: &OsStr, shims: &Path) -> Result<OsString> {
+    let executable = std::env::current_exe()
+        .and_then(|path| path.canonicalize())
+        .context("cannot resolve Agent shell executable")?;
     let canonical = shims.canonicalize().ok();
-    std::env::join_paths(std::env::split_paths(path).filter(|dir| {
-        dir != shims && !(canonical.is_some() && dir.canonicalize().ok() == canonical)
-    }))
-    .expect("PATH entries contain no colon")
+    Ok(
+        std::env::join_paths(std::env::split_paths(path).filter(|dir| {
+            dir != shims
+                && !(canonical.is_some() && dir.canonicalize().ok() == canonical)
+                && !KINDS.iter().any(|kind| {
+                    dir.join(kind)
+                        .canonicalize()
+                        .is_ok_and(|program| program == executable)
+                })
+        }))
+        .expect("PATH entries contain no colon"),
+    )
 }
 
 fn find_program(kind: &str, path: &OsStr) -> Option<PathBuf> {
@@ -135,7 +153,13 @@ pub fn run(kind: &str) -> i32 {
                 .and_then(|p| Path::new(&p).parent().map(Path::to_owned))
         })
         .unwrap_or_default();
-    let path = clean_path(&std::env::var_os("PATH").unwrap_or_default(), &shims);
+    let path = match clean_path(&std::env::var_os("PATH").unwrap_or_default(), &shims) {
+        Ok(path) => path,
+        Err(error) => {
+            eprintln!("{kind}: {error:#}");
+            return 126;
+        }
+    };
     let Some(program) = find_program(kind, &path) else {
         eprintln!("{kind}: command not found");
         return 127;
@@ -315,10 +339,14 @@ fn start_agent(corral: &OsStr, args: &[String], env: &[(String, String)]) -> Res
         .map_err(spawn_error)?;
     let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap_or_default();
     if !output.status.success() || value["ok"] == false {
-        let detail = value["error"]
-            .as_str()
-            .unwrap_or_else(|| std::str::from_utf8(&output.stderr).unwrap_or("command failed"));
-        bail!("corral start: {}", redacted(detail, env));
+        let detail = match (value["error"].as_str(), value["message"].as_str()) {
+            (Some(code), Some(message)) => format!("{code}: {message}"),
+            (Some(detail), None) | (None, Some(detail)) => detail.to_owned(),
+            (None, None) => std::str::from_utf8(&output.stderr)
+                .unwrap_or("command failed")
+                .to_owned(),
+        };
+        bail!("corral start: {}", redacted(&detail, env));
     }
     value["name"]
         .as_str()

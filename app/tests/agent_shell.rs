@@ -103,6 +103,81 @@ fn arguments(path: PathBuf) -> Vec<String> {
 }
 
 #[test]
+fn passthrough_skips_other_shims_pointing_to_the_same_executable() {
+    let f = Fixture::new();
+    let other = f.home.path().join("other-shims");
+    fs::create_dir(&other).unwrap();
+    symlink(f.shims.join("claude"), other.join("claude")).unwrap();
+    script(
+        &f.real,
+        "claude",
+        "#!/bin/sh\nprintf '%s\\0' \"$PATH\" \"$@\" > \"$HOME/real-args\"\nexit 23\n",
+    );
+    let path = format!(
+        "{}:{}:{}:/usr/bin:/bin",
+        f.shims.display(),
+        other.display(),
+        f.real.display()
+    );
+    let mut session = f.pty("claude", &["--version", "two words"], &[("PATH", &path)]);
+    finish(&mut session);
+    assert_eq!(session.exit_code(), Some(23));
+    assert_eq!(
+        arguments(f.home.path().join("real-args")),
+        [
+            format!("{}:/usr/bin:/bin", f.real.display()),
+            "--version".into(),
+            "two words".into()
+        ]
+    );
+}
+
+#[test]
+fn managed_start_skips_other_shims_in_program_and_environment_path() {
+    let f = Fixture::new();
+    let other = f.home.path().join("other-shims");
+    fs::create_dir(&other).unwrap();
+    symlink(f.shims.join("codex"), other.join("codex")).unwrap();
+    script(&f.real, "codex", "#!/bin/sh\nexit 99\n");
+    script(
+        f.home.path(),
+        "corral",
+        r#"#!/bin/sh
+case "$1" in
+  start) printf '%s\0' "$@" > "$HOME/start-args"
+         printf '{"ok":true,"name":"demo/codex-7"}\n';;
+  attach) exit 23;;
+esac
+"#,
+    );
+    let path = format!(
+        "{}:{}:{}:/usr/bin:/bin",
+        f.shims.display(),
+        other.display(),
+        f.real.display()
+    );
+    let mut session = f.pty("codex", &["--yolo", "two words"], &[("PATH", &path)]);
+    finish(&mut session);
+    assert_eq!(session.exit_code(), Some(23));
+    let args = arguments(f.home.path().join("start-args"));
+    let command = args.iter().position(|s| s == "--").unwrap();
+    assert_eq!(
+        &args[command + 1..],
+        [
+            f.real.join("codex").to_str().unwrap(),
+            "--yolo",
+            "two words"
+        ]
+    );
+    let paths: Vec<_> = args
+        .windows(2)
+        .filter(|p| p[0] == "--env" && p[1].starts_with("PATH="))
+        .map(|p| p[1].as_str())
+        .collect();
+    assert_eq!(paths, [format!("PATH={}:/usr/bin:/bin", f.real.display())]);
+}
+
+#[test]
 fn interactive_start_transfers_environment_and_arguments_then_attaches_without_ctl() {
     let f = Fixture::new();
     script(&f.real, "codex", "#!/bin/sh\nexit 99\n");
@@ -216,7 +291,7 @@ fn start_uses_git_root_name_and_failure_returns_to_the_shell_without_logging_val
         "corral",
         r#"#!/bin/sh
 printf '%s\0' "$@" > "$HOME/start-args"
-printf '{"ok":false,"error":"rejected synthetic-secret-value"}\n'
+printf '{"ok":false,"error":"exec_failed","message":"rejected synthetic-secret-value"}\n'
 exit 2
 "#,
     );
@@ -238,7 +313,7 @@ exit 2
     );
     assert_eq!(args[4], nested.to_str().unwrap());
     let output = screen(&session);
-    assert!(output.contains("corral start: rejected [environment SYNTHETIC_SECRET]"));
+    assert!(output.contains("corral start: exec_failed: rejected [environment SYNTHETIC_SECRET]"));
     assert!(!output.contains("synthetic-secret-value"));
     assert!(!f.home.path().join("attach-args").exists());
     let command = vec![
@@ -435,6 +510,58 @@ fn agent_shell_hooks_survive_rc_path_changes_without_changing_plain_shells() {
             if agent_shell {
                 assert_eq!(dir.metadata().unwrap().permissions().mode() & 0o777, 0o700);
             }
+        }
+    }
+}
+
+#[test]
+fn agent_shell_preserves_unset_and_empty_zdotdir_startup() {
+    for original in [Some(""), None] {
+        let f = Fixture::new();
+        fs::set_permissions(f.home.path(), fs::Permissions::from_mode(0o700)).unwrap();
+        fs::write(f.home.path().join(".zshenv"), "export FROM_ZSHENV=loaded\n").unwrap();
+        fs::write(f.home.path().join(".zshrc"), "export FROM_ZSHRC=loaded\n").unwrap();
+        for agent_shell in [false, true] {
+            let mut command = Command::new("/bin/zsh");
+            command
+                .env_clear()
+                .env("HOME", f.home.path())
+                .env("PATH", "/usr/bin:/bin")
+                .current_dir(f.home.path());
+            if let Some(value) = original {
+                command.env("ZDOTDIR", value);
+            }
+            if agent_shell {
+                let setup = paddock::agent_shell::setup(
+                    "/bin/zsh",
+                    &f.home.path().join("integration"),
+                    std::path::Path::new(env!("CARGO_BIN_EXE_paddock")),
+                    original,
+                )
+                .unwrap();
+                command.envs(setup.env).args(&setup.command[1..]);
+            } else {
+                command.arg("-i");
+            }
+            let output = command
+                .args([
+                    "-c",
+                    r#"printf '%s\n' "${FROM_ZSHENV-unset}" "${FROM_ZSHRC-unset}" "${ZDOTDIR-unset}""#,
+                ])
+                .output()
+                .unwrap();
+            assert!(output.status.success());
+            assert_eq!(
+                String::from_utf8(output.stdout).unwrap(),
+                if original.is_some() {
+                    "unset\nunset\n\n".to_owned()
+                } else if agent_shell {
+                    format!("loaded\nloaded\n{}\n", f.home.path().display())
+                } else {
+                    "loaded\nloaded\nunset\n".to_owned()
+                },
+                "agent_shell={agent_shell} original={original:?}"
+            );
         }
     }
 }
