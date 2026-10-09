@@ -327,7 +327,7 @@ fn done_keeps_the_last_five_and_counts_what_it_lists() {
     };
     let board = board(&facts, &[], 2_000_000_000.0);
     // The header counts what is listed, of all.
-    assert_eq!(board.count(Column::Done, false), "5 / 7");
+    assert_eq!(board.count(Column::Done, false), "5 of 7");
     assert_eq!(board.cards(Column::Done).len(), 7);
     // Newest first.
     let done: Vec<&str> = board

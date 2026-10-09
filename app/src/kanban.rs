@@ -1787,13 +1787,13 @@ impl Board {
     }
 
     /// The count a group's header shows: how many it lists, and of how many when that is not
-    /// all of them (`5 / 73`).
+    /// all of them (`5 of 73`).
     pub fn count(&self, column: Column, all: bool) -> String {
         let (listed, total) = (self.listed(column, all).len(), self.cards(column).len());
         if listed == total {
             total.to_string()
         } else {
-            format!("{listed} / {total}")
+            format!("{listed} of {total}")
         }
     }
 
@@ -2138,7 +2138,7 @@ mod tests {
             .collect();
         assert_eq!(done, ["P1-7", "P1-6", "P1-5", "P1-4", "P1-3", "P1-1"]);
         // The header counts what is listed, of all.
-        assert_eq!(board.count(Column::Done, false), "6 / 7");
+        assert_eq!(board.count(Column::Done, false), "6 of 7");
         assert_eq!(board.count(Column::Done, true), "7");
         assert_eq!(board.listed(Column::Done, true).len(), 7);
         let card = |id: &str| {
