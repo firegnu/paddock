@@ -81,6 +81,8 @@ pub enum Icon {
     Folder,
     /// A chevron pointing down: an open group.
     Down,
+    /// A chevron pointing up: an agent card's open details, to close (P5-74).
+    Up,
     /// Two upright bars: pause an agent, or every agent.
     Pause,
     /// A triangle pointing right: resume a paused agent, or every agent.
@@ -618,6 +620,13 @@ fn shapes(icon: Icon, pose: Pose, bounds: Bounds<Pixels>, scale: f32) -> Vec<Pat
             chevron.move_to(at(3.0, 5.0));
             chevron.line_to(at(7.0, 9.0));
             chevron.line_to(at(11.0, 5.0));
+            vec![chevron]
+        }
+        Icon::Up => {
+            let mut chevron = stroke();
+            chevron.move_to(at(3.0, 9.0));
+            chevron.line_to(at(7.0, 5.0));
+            chevron.line_to(at(11.0, 9.0));
             vec![chevron]
         }
         Icon::Pause => {
