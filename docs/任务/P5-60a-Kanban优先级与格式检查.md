@@ -1,16 +1,25 @@
 # 任务：Kanban 的 Queued 按优先级排，卡片标出任务文件的格式问题
 
-2026-10-09，paddock/main 写，主控自己做。
-类型：改行为
+2026-10-09，paddock/main 交给 paddock/dev-kanban（Claude Code，常规：opus[1m] / high）。
+路由：常规 / 交叉审查不要 / 影响面：改行为（路由：三项都拿不准，档倾向重 0.84、核心规则 0.66；主控定常规：写 main 的部分照搬已审过的 Clear 的检查和提交方式）
+类型：功能变更
 依据：
 - 用户 10-08：“我在评估任务是否可以加上优先级以及可以在queue中拖动的需求”；“这个任务寄到draft中。明天讨论”。
 - 用户 10-08（同一次）：“不然优先级自由写的话会容易解析出错。”
 - 用户 10-09 选：三档优先级、卡片悬停菜单改档；主控派活照优先级（“我同意1，但是我可以在主控要求先做哪个，我制定的优先级比较高”）；New task 弹框要完整（“这样任务对话框能够覆盖任务文件的格式……而且我认为kanban还要检查格式”），同意主控拆成 P5-60a（本件）和 P5-60b（弹框）。
 - 用户 10-09：“之前的任务没有优先级这种呢？要考虑fallback”；主控给的规矩见下，写在这里给用户看。
-执行：主控
+提示：围绕已确认的使用目标完成变更，优先沿用现有机制。
+你是被委派的 agent：照本文件做，不要再开别的 agent。
+
+## 先读
+- `AGENTS.md`「开发方式」里的看板约定。
+- `docs/DESIGN.md` §13 的 P5-29 条（含“基本看板功能”和 P5-29f 清掉待用户）。
+- `app/src/kanban.rs`：`read_text`、`asks_line`、`clear_asks`、`board`；`app/src/kanban_view.rs`：卡片悬停按钮（`actions`）和 Clear 的就地确认（`clearing`）；`app/tests/kanban.rs` 里 Clear 的测试。
 
 ## 在哪里干活
 - worktree：`/Users/firegnu/Developer/personal_projs/paddock-worktrees/p5-60a-priority`，分支 `p5-60a-priority`（已从 main 建好）。
+- 只动 `app/src/kanban.rs`、`app/src/kanban_view.rs`、`app/tests/kanban.rs`、`AGENTS.md`（看板约定和开发方式那两处）、`docs/DESIGN.md` §13，和本文件末尾的完成记录。
+- 编译目录：`CARGO_TARGET_DIR=$HOME/Developer/personal_projs/paddock-worktrees/.target/p5-60a-priority`（已备好，增量编译）。
 
 ## 要做的
 1. **优先级一行**：任务文件开头（第一个 `##` 之前，和 `待用户：` 一样）可选一行 `优先：高` 或 `优先：低`，半角冒号也认。没写就是中：老任务全都没有这一行，照常是中。改回中＝删掉这一行，不写 `优先：中`（每档只有一种写法）；手写的 `优先：中` 也认作中。
@@ -37,5 +46,17 @@
 ## 怎么算做完
 - 用户原话：“三档”“卡片悬停菜单”“要考虑fallback”“kanban还要检查格式”。
 - 测试：没写优先级的老任务算中、标签不出现；认不出的值按中排并报问题；Queued 按档排；加、改、删这一行的位置；已提交和草稿两种改法（含拒绝的情况）；格式检查只查该查的列。
-- `app/` 下 `cargo test --all-targets`、`cargo clippy --all-targets -- -D warnings`、`cargo fmt --check` 都过。
+- 验证只做这些：上面列的测试先写、确认因缺功能失败再实现；`app/` 下 `cargo test --all-targets`、`cargo clippy --all-targets -- -D warnings`、`cargo fmt --check`、`git diff --check` 各跑一次。觉得不够，在回复里说，不要自己加。
 - 悬停菜单的手感留给用户试。
+
+## 不要做
+- **不要起 paddock 窗口**（`cargo run`、截图、实测都不要）：10-09 出过事故，在 agent 会话里起的测试窗口会和所有 agent 归进同一个进程组，从 Dock 上退出它把全部 agent 一起结束了（见 `docs/任务/P5-52-Dock里第二个paddock进程.md`）。界面只写代码和单元测试，样子留给用户看。
+- 测试里的 git 操作只在临时仓库里做（照 `tests/kanban.rs` 的做法），不要对本仓库或主仓库跑会写的 git 命令，除了在自己分支上提交。
+- 不要按项目名或路径批量杀进程（`pkill -f paddock` 这类）。
+- 不要对 `corral ls` 里的 agent 做 stop、send、keys。
+- 不要加新的第三方依赖。
+- 遇到要改上面“只动”以外的文件、或要改已定的看板规矩（DESIGN §13 P5-29 里本任务没提到的条目），停下来报告，等决定。
+- 不合并到 main，不推送。只在 `p5-60a-priority` 上提交。
+
+## 做完
+在本文件末尾追加「## 完成记录」（在你的分支里提交）：做了什么、验证了什么、拿主意的地方、没做的事，各几句话。回复里只写这几样，加上有没有要主控决定的事。命令都在前台跑完，全部做完后，回复最后一行写 DONE。
