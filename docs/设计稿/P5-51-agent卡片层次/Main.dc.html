@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Agent cards now</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+a{color:#7fd4bf}a:hover{color:#a6e6d6}
+</style>
+</helmet>
+<div style="width: 420px; height: 840px; position: relative; overflow: hidden; background: #3a2a55; font-family: -apple-system, 'SF Pro Text', 'Helvetica Neue', sans-serif; color: #d6e6e1; font-size: 13px">
+  <!-- the desktop behind the frosted sidebar -->
+  <div style="position: absolute; left: -80px; top: -60px; width: 420px; height: 420px; border-radius: 210px; background: #c86b9a; filter: blur(70px); opacity: 0.8"></div>
+  <div style="position: absolute; left: 140px; top: 420px; width: 380px; height: 380px; border-radius: 190px; background: #e39a4f; filter: blur(80px); opacity: 0.7"></div>
+
+  <!-- the sidebar: material with the theme's wash -->
+  <div style="position: absolute; inset: 0 40px 0 0; background: rgba(12,22,22,0.80); backdrop-filter: blur(40px); padding: 46px 10px 12px; box-sizing: border-box; display: flex; flex-direction: column; gap: 6px">
+    <div style="display: flex; align-items: center; justify-content: space-between; padding: 0 6px 8px">
+      <span style="font-size: 11.5px; color: #83a098">Agents · 5</span>
+      <span style="font-size: 11px; color: #668580">paddock</span>
+    </div>
+
+    <!-- selected -->
+    <div style="display: flex; gap: 10px; padding: 9px 12px 9px 10px; border-radius: 10px; background: rgba(29,56,51,0.85)">
+      <span style="position: relative; width: 34px; height: 34px; border-radius: 8px; background: #e48c66; flex-shrink: 0"><span style="position: absolute; right: -2px; bottom: -2px; width: 9px; height: 9px; border-radius: 5px; background: #93c79a; border: 2px solid #17302c"></span></span>
+      <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px">
+        <div style="display: flex; justify-content: space-between"><span style="font-weight: 600; color: #e8f3ef">main</span><span style="font-size: 11px; color: #83a098">2m</span></div>
+        <div style="font-size: 12px; color: #93c79a">Idle</div>
+        <div style="font-size: 11px; color: #668580">paddock · main</div>
+      </div>
+    </div>
+
+    <!-- working -->
+    <div style="display: flex; gap: 10px; padding: 9px 12px 9px 10px; border-radius: 10px; background: rgba(12,22,22,0.0)">
+      <span style="position: relative; width: 34px; height: 34px; border-radius: 8px; background: #e48c66; flex-shrink: 0"><span style="position: absolute; right: -2px; bottom: -2px; width: 9px; height: 9px; border-radius: 5px; background: #7fa8f0; border: 2px solid #0f1c1c"></span></span>
+      <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px">
+        <div style="display: flex; justify-content: space-between"><span style="font-weight: 600; color: #d6e6e1">dev-panels-1</span><span style="font-size: 11px; color: #83a098">40s</span></div>
+        <div style="font-size: 12px; color: #7fa8f0">Working · window.rs</div>
+        <div style="font-size: 11px; color: #668580">p5-59-panels · +521 −135</div>
+      </div>
+    </div>
+
+    <!-- waiting -->
+    <div style="display: flex; gap: 10px; padding: 9px 12px 9px 10px; border-radius: 10px; background: rgba(219,189,110,0.07); border: 1px solid rgba(219,189,110,0.22)">
+      <span style="position: relative; width: 34px; height: 34px; border-radius: 8px; background: #6fd3c2; flex-shrink: 0"><span style="position: absolute; right: -2px; bottom: -2px; width: 9px; height: 9px; border-radius: 5px; background: #dbbd6e; border: 2px solid #0f1c1c"></span></span>
+      <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px">
+        <div style="display: flex; justify-content: space-between"><span style="font-weight: 600; color: #d6e6e1">dev-agentshell-1</span><span style="font-size: 11px; color: #83a098">1m</span></div>
+        <div style="font-size: 12px; color: #dbbd6e">Needs you · permission</div>
+        <div style="font-size: 11px; color: #668580">p5-61-agent-shell</div>
+      </div>
+    </div>
+
+    <!-- idle -->
+    <div style="display: flex; gap: 10px; padding: 9px 12px 9px 10px; border-radius: 10px">
+      <span style="position: relative; width: 34px; height: 34px; border-radius: 8px; background: #e48c66; flex-shrink: 0"><span style="position: absolute; right: -2px; bottom: -2px; width: 9px; height: 9px; border-radius: 5px; background: #93c79a; border: 2px solid #0f1c1c"></span></span>
+      <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px">
+        <div style="display: flex; justify-content: space-between"><span style="font-weight: 600; color: #d6e6e1">cairn/main</span><span style="font-size: 11px; color: #83a098">12m</span></div>
+        <div style="font-size: 12px; color: #93c79a">Idle</div>
+        <div style="font-size: 11px; color: #668580">cairn · main</div>
+      </div>
+    </div>
+
+    <!-- paused -->
+    <div style="display: flex; gap: 10px; padding: 9px 12px 9px 10px; border-radius: 10px; opacity: 0.5">
+      <span style="position: relative; width: 34px; height: 34px; border-radius: 8px; background: #e48c66; flex-shrink: 0"></span>
+      <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px">
+        <div style="display: flex; justify-content: space-between"><span style="font-weight: 600; color: #d6e6e1">global-mesh/main</span><span style="font-size: 11px; color: #83a098">1h</span></div>
+        <div style="font-size: 12px; color: #83a098">Paused</div>
+        <div style="font-size: 11px; color: #668580">global-mesh · main</div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":420,"height":840}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>
