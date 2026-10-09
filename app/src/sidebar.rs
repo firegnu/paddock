@@ -228,9 +228,18 @@ pub fn resize(width_at_press: f32, press_x: f32, x: f32, min: f32) -> f32 {
 
 /// The room under the list's last card (P5-70): the activity panel and the footer under it lie over
 /// the list's end (P5-70b), so the list ends that far below its last card, which then scrolls clear
-/// above the panel.
-pub fn list_end(width: f32, ui: &UiFont, folded: bool) -> f32 {
-    LIST_END + ui.scale(ACTIVITY_GAP) + activity_view::height(width, ui, folded) + ui.scale(FOOTER)
+/// above the panel. On the frosted sidebar the list stops at the footer ([`list_bottom`]), which
+/// is then left out.
+pub fn list_end(width: f32, ui: &UiFont, folded: bool, frosted: bool) -> f32 {
+    let footer = if frosted { 0.0 } else { ui.scale(FOOTER) };
+    LIST_END + ui.scale(ACTIVITY_GAP) + activity_view::height(width, ui, folded) + footer
+}
+
+/// The room kept below the list itself: on the frosted sidebar the footer has no ground of its own
+/// and shows the material, as the column above it does, so no card goes on under it (P5-75); on the
+/// sidebar's own colour, none (P5-70b).
+pub fn list_bottom(ui: &UiFont, frosted: bool) -> f32 {
+    if frosted { ui.scale(FOOTER) } else { 0.0 }
 }
 
 /// Where the header row starts in the title bar.
@@ -1506,7 +1515,7 @@ impl Render for Sidebar {
         // The list runs on under the activity panel, and ends the panel's height below its last
         // card (P5-70).
         let folded = self.activity.read(cx).folded();
-        let end = list_end(self.width, &ui, folded);
+        let end = list_end(self.width, &ui, folded, self.frosted);
         let mut list = div()
             .id("agents")
             .flex_1()
@@ -1699,10 +1708,11 @@ impl Render for Sidebar {
                     .relative()
                     .flex()
                     .flex_col()
-                    .child(list)
+                    // Frosted, the list stops at the footer, which shows the material (P5-75).
+                    .child(list.mb(px(list_bottom(&ui, self.frosted))))
                     // Over the end of the list, which scrolls on its own, down to the sidebar's foot: the
-                    // panel, and the footer under it in the panel's see-through ground (P5-70b); the
-                    // strip has none.
+                    // panel, and the footer under it in the panel's see-through ground (P5-70b), or
+                    // none on the frosted sidebar (P5-75); the strip has none.
                     .child(
                         div()
                             .absolute()
@@ -1710,7 +1720,11 @@ impl Render for Sidebar {
                             .right_0()
                             .bottom_0()
                             .child(self.activity.clone())
-                            .child(footer.bg(self.activity.read(cx).ground())),
+                            .child(if self.frosted {
+                                footer
+                            } else {
+                                footer.bg(self.activity.read(cx).ground())
+                            }),
                     ),
             )
             .into_any_element()
@@ -3189,10 +3203,19 @@ mod tests {
                 let gap = LIST_END + ui.scale(ACTIVITY_GAP);
                 let footer = ui.scale(FOOTER);
                 assert_eq!(
-                    list_end(width, &ui, folded),
+                    list_end(width, &ui, folded, false),
                     panel + gap + footer,
                     "{size} {folded}"
                 );
+                assert_eq!(list_bottom(&ui, false), 0.0);
+                // On the frosted sidebar the footer shows the material, so the list stops at its
+                // top (P5-75): the room under the last card leaves it out.
+                assert_eq!(
+                    list_end(width, &ui, folded, true),
+                    panel + gap,
+                    "{size} {folded} frosted"
+                );
+                assert_eq!(list_bottom(&ui, true), footer);
             }
         }
         // The room follows the panel: folding it, or a larger interface size, changes it.
@@ -3209,16 +3232,18 @@ mod tests {
         let (column, cards) = (600.0, 1400.0);
         for size in [13.0, 16.0] {
             let ui = UiFont { family: None, size };
-            for folded in [false, true] {
+            for (folded, frosted) in [(false, false), (true, false), (false, true), (true, true)] {
                 let panel = activity_view::height(300.0, &ui, folded);
-                let scrolled = cards + list_end(300.0, &ui, folded) - column;
+                // The list's own height: the column, less what is kept under the footer.
+                let shown = column - list_bottom(&ui, frosted);
+                let scrolled = cards + list_end(300.0, &ui, folded, frosted) - shown;
                 let last_bottom = cards - scrolled;
                 // The footer lies at the column's foot and the panel on it; the last card ends above
                 // the panel, by the gap.
                 let panel_top = column - ui.scale(FOOTER) - panel;
                 assert!(
                     last_bottom + LIST_END <= panel_top,
-                    "{size} {folded}: {last_bottom} {panel_top}"
+                    "{size} {folded} {frosted}: {last_bottom} {panel_top}"
                 );
             }
         }
