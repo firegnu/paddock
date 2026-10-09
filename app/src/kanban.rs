@@ -44,8 +44,8 @@ pub struct Task {
     pub depends: Option<String>,
     /// From an optional `待用户：` line at the head of the file: what the user is waited on for.
     pub asks: Option<String>,
-    /// From an optional `执行：主控` line at the head of the file: the controller does it itself.
-    pub by_controller: bool,
+    /// From an optional `执行：` line at the head of the file; without one, the controller decides.
+    pub doer: Doer,
     /// From an optional `优先：` line at the head of the file; without one, medium.
     pub priority: Priority,
     /// What in the text the board or the controller could read wrong.
@@ -86,6 +86,41 @@ impl Priority {
     }
 }
 
+/// Who does a task: `执行：主控` or `执行：派出` at the head of its file, or, without the line, the
+/// controller decides (DESIGN §13 P5-69).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum Doer {
+    #[default]
+    Decides,
+    Controller,
+    Agent,
+}
+
+impl Doer {
+    pub const ALL: [Doer; 3] = [Doer::Decides, Doer::Controller, Doer::Agent];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Doer::Decides => "Controller decides",
+            Doer::Controller => "Controller",
+            Doer::Agent => "Agent",
+        }
+    }
+
+    /// The word its line says; none when the controller decides.
+    fn word(self) -> Option<&'static str> {
+        match self {
+            Doer::Decides => None,
+            Doer::Controller => Some("主控"),
+            Doer::Agent => Some("派出"),
+        }
+    }
+
+    fn of(word: &str) -> Option<Doer> {
+        Doer::ALL.into_iter().find(|d| d.word() == Some(word))
+    }
+}
+
 /// What in a task file the board or the controller could read wrong.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Problem {
@@ -95,6 +130,10 @@ pub enum Problem {
     Priority(String),
     /// More than one `优先：` line at the head: the first counts.
     Priorities,
+    /// An `执行：` line says something other than 主控 or 派出: the controller decides.
+    Doer(String),
+    /// More than one `执行：` line at the head: the first counts.
+    Doers,
     /// `依赖：` names a task with no file in `docs/任务/`.
     Depends(String),
 }
@@ -108,6 +147,11 @@ impl std::fmt::Display for Problem {
                 "\u{201c}优先：{said}\u{201d} isn't 高, 中 or 低, so it's sorted as medium"
             ),
             Problem::Priorities => write!(f, "More than one 优先： line; the first one counts"),
+            Problem::Doer(said) => write!(
+                f,
+                "\u{201c}执行：{said}\u{201d} isn't 主控 or 派出, so the controller decides"
+            ),
+            Problem::Doers => write!(f, "More than one 执行： line; the first one counts"),
             Problem::Depends(id) => write!(f, "依赖： {id} has no task file in {TASKS}"),
         }
     }
@@ -121,7 +165,7 @@ pub struct Text {
     branch: Option<String>,
     depends: Option<String>,
     asks: Option<String>,
-    by_controller: bool,
+    doer: Doer,
     priority: Priority,
     /// What the text alone shows to be wrong.
     problems: Vec<Problem>,
@@ -197,7 +241,7 @@ fn entry(file: &str, id: String, text: &Text) -> Task {
         branch: text.branch.clone(),
         depends: text.depends.clone(),
         asks: text.asks.clone(),
-        by_controller: text.by_controller,
+        doer: text.doer,
         priority: text.priority,
         problems: text.problems.clone(),
     }
@@ -219,7 +263,7 @@ fn read_text(text: &str) -> Text {
         out.problems.push(Problem::Title);
     }
     let mut section = "";
-    let mut prioritized = false;
+    let (mut prioritized, mut assigned) = (false, false);
     for line in text.lines() {
         let line = line.trim_end();
         if out.title.is_none()
@@ -251,13 +295,22 @@ fn read_text(text: &str) -> Text {
             out.asks = Some(rest.trim().to_owned());
             continue;
         }
-        // Also only at the head.
+        // Also only at the head; the first counts, and one it cannot read leaves it to the
+        // controller.
         if section.is_empty()
-            && let Some(rest) = line
-                .strip_prefix("执行：")
-                .or_else(|| line.strip_prefix("执行:"))
+            && let Some(rest) = doer_value(line)
         {
-            out.by_controller = rest.trim() == "主控";
+            if assigned {
+                if !out.problems.contains(&Problem::Doers) {
+                    out.problems.push(Problem::Doers);
+                }
+            } else {
+                assigned = true;
+                out.doer = Doer::of(rest).unwrap_or_else(|| {
+                    out.problems.push(Problem::Doer(rest.to_owned()));
+                    Doer::Decides
+                });
+            }
             continue;
         }
         // Also only at the head; the first counts, and one it cannot read is medium.
@@ -318,6 +371,13 @@ fn depends_value(line: &str) -> Option<Option<String>> {
 fn priority_value(line: &str) -> Option<&str> {
     line.strip_prefix("优先：")
         .or_else(|| line.strip_prefix("优先:"))
+        .map(str::trim)
+}
+
+/// What an `执行：` line says, for a line that is one.
+fn doer_value(line: &str) -> Option<&str> {
+    line.strip_prefix("执行：")
+        .or_else(|| line.strip_prefix("执行:"))
         .map(str::trim)
 }
 
@@ -945,6 +1005,8 @@ pub struct Fields {
     pub title: String,
     /// The task this one waits for: its `依赖：` line.
     pub depends: Option<String>,
+    /// Its `执行：` line, none when the controller decides.
+    pub doer: Doer,
     /// Its `优先：` line, none for medium.
     pub priority: Priority,
     /// From the first section (`## `) to the end of the file.
@@ -955,7 +1017,7 @@ pub struct Fields {
 pub const BODY: &str = "## 用户原话\n\n## 要做的\n\n## 怎么算做完\n";
 
 /// A new task file's head: its title line, the day it was made (`date`, `YYYY-MM-DD`), and the
-/// `依赖：` and `优先：` lines when there is something to say.
+/// `依赖：`, `执行：` and `优先：` lines when there is something to say.
 pub fn new_head(fields: &Fields, date: &str) -> String {
     let mut head = format!(
         "# 任务：{}\n\n{date}，用户在看板上新建。\n",
@@ -963,6 +1025,9 @@ pub fn new_head(fields: &Fields, date: &str) -> String {
     );
     if let Some(depends) = &fields.depends {
         head.push_str(&format!("依赖：{depends}\n"));
+    }
+    if let Some(line) = doer_line(fields.doer) {
+        head.push_str(&format!("{line}\n"));
     }
     if let Some(line) = priority_line(fields.priority) {
         head.push_str(&format!("{line}\n"));
@@ -1088,8 +1153,8 @@ fn one_line(title: &str) -> String {
     title.trim().to_owned()
 }
 
-/// A task file as the task dialog edits it: its title, the `依赖：` and `优先：` lines at its head,
-/// and its body from the first section on. `None` when its first line is not `# 任务：<title>`.
+/// A task file as the task dialog edits it: its title, the `依赖：`, `执行：` and `优先：` lines at its
+/// head, and its body from the first section on. `None` when its first line is not `# 任务：<title>`.
 pub fn editable(text: &str) -> Option<Fields> {
     let read = read_text(text);
     if read.problems.contains(&Problem::Title) {
@@ -1098,6 +1163,7 @@ pub fn editable(text: &str) -> Option<Fields> {
     Some(Fields {
         title: read.title.unwrap_or_default(),
         depends: head_depends(text),
+        doer: read.doer,
         priority: read.priority,
         body: text[head(text).len()..].replace("\r\n", "\n"),
     })
@@ -1112,10 +1178,10 @@ fn head_depends(text: &str) -> Option<String> {
         .next()
 }
 
-/// `text` with `fields` written in: its title line, the `依赖：` and `优先：` lines at its head,
-/// and its body; the rest of the head as it was. The title and `依赖：` lines are written only
-/// when they say something else; the `优先：` lines as [`with_priority`] writes them. For a text
-/// [`editable`] reads.
+/// `text` with `fields` written in: its title line, the `依赖：`, `执行：` and `优先：` lines at its
+/// head, and its body; the rest of the head as it was. The title, `依赖：` and `执行：` lines are
+/// written only when they say something else; the `优先：` lines as [`with_priority`] writes them.
+/// For a text [`editable`] reads.
 pub fn edited(text: &str, fields: &Fields) -> String {
     let eol = if text.contains("\r\n") { "\r\n" } else { "\n" };
     let mut out = text.to_owned();
@@ -1128,6 +1194,13 @@ pub fn edited(text: &str, fields: &Fields) -> String {
     if head_depends(&out) != fields.depends {
         let written = fields.depends.as_ref().map(|id| format!("依赖：{id}"));
         out = with_head_line(&out, |line| depends_value(line).is_some(), written);
+    }
+    if read_text(&out).doer != fields.doer {
+        out = with_head_line(
+            &out,
+            |line| doer_value(line).is_some(),
+            doer_line(fields.doer),
+        );
     }
     out = with_priority(&out, fields.priority);
     let body = body_text(&fields.body, eol);
@@ -1345,6 +1418,11 @@ pub fn with_priority(text: &str, priority: Priority) -> String {
 /// The `优先：` line for `priority`: none for medium.
 fn priority_line(priority: Priority) -> Option<String> {
     (priority != Priority::Medium).then(|| format!("优先：{}", priority.word()))
+}
+
+/// The `执行：` line for `doer`: none when the controller decides.
+fn doer_line(doer: Doer) -> Option<String> {
+    doer.word().map(|word| format!("执行：{word}"))
 }
 
 /// `text` with the lines at its head that `is` picks made `written`: the first written over where
@@ -1655,6 +1733,11 @@ impl Card {
         self.asks.is_some() && !self.draft
     }
 
+    /// The priority its left edge is striped for: high or low, on a queued card (a draft's too).
+    pub fn stripe(&self) -> Option<Priority> {
+        self.priority.filter(|p| *p != Priority::Medium)
+    }
+
     /// Where its task file is edited: a queued card's, a draft's too, in the task dialog, unless
     /// its first line is not the title; `None` for a card under way or done.
     pub fn editing(&self) -> Option<Editing> {
@@ -1765,8 +1848,9 @@ pub fn board(facts: &Facts, agents: &[Seen], now: f64) -> Board {
         let column = column(task, facts, agent);
         // A task the controller does itself shows it while under way, as its agent would show;
         // only the task's own agent moves the card on.
-        let doer =
-            agent.or(controller.filter(|_| task.by_controller && column == Column::InProgress));
+        let doer = agent
+            .or(controller
+                .filter(|_| task.doer == Doer::Controller && column == Column::InProgress));
         let branch_time = facts.branch(task).map(|b| b.time);
         let since = agent.and_then(|a| a.since).map(|s| s as i64);
         let time = match column {
@@ -1909,7 +1993,7 @@ mod tests {
                 branch: Some("p5-29a-kanban".into()),
                 depends: Some("P5-28a".into()),
                 asks: None,
-                by_controller: false,
+                doer: Doer::Decides,
                 priority: Priority::Medium,
                 problems: Vec::new(),
             }
@@ -2024,7 +2108,7 @@ mod tests {
             branch: None,
             depends: None,
             asks: asks.map(str::to_owned),
-            by_controller: false,
+            doer: Doer::Decides,
             priority: Priority::Medium,
             problems: Vec::new(),
         }
@@ -2223,23 +2307,54 @@ mod tests {
     }
 
     #[test]
-    fn a_line_at_the_head_says_the_controller_does_the_task() {
+    fn a_line_at_the_head_says_who_does_the_task() {
+        let doer = |text: &str| {
+            let task = parse("P5-2-x.md", text).unwrap();
+            (task.doer, task.problems)
+        };
+        // Old tasks: no line, the controller decides; or the controller does it itself.
+        assert_eq!(
+            doer("# 任务：x\n依据：y\n\n## 要做的\n"),
+            (Doer::Decides, vec![])
+        );
         let head = "# 任务：x\n\n依据：\n- 用户：y\n执行：主控\n\n## 要做的\n";
-        assert!(parse("P5-2-x.md", head).unwrap().by_controller);
-        assert!(
-            parse("P5-2-x.md", "# 任务：x\n执行: 主控\n")
-                .unwrap()
-                .by_controller
+        assert_eq!(doer(head), (Doer::Controller, vec![]));
+        assert_eq!(doer("# 任务：x\n执行: 主控 \n"), (Doer::Controller, vec![]));
+        // Dispatched to an agent.
+        assert_eq!(doer("# 任务：x\n执行：派出\n"), (Doer::Agent, vec![]));
+        assert_eq!(doer("# 任务：x\n执行:派出\n"), (Doer::Agent, vec![]));
+        // Not when a section quotes it.
+        let quoted = "# 任务：x\n依据：y\n\n## 完成记录\n执行：主控\n执行：dev\n";
+        assert_eq!(doer(quoted), (Doer::Decides, vec![]));
+        // One it cannot read: the controller decides, and the card says so.
+        assert_eq!(
+            doer("# 任务：x\n执行：dev\n"),
+            (Doer::Decides, vec![Problem::Doer("dev".into())])
         );
-        // Not when a section quotes it, nor for anyone else.
-        let quoted = "# 任务：x\n依据：y\n\n## 完成记录\n执行：主控\n";
-        assert!(!parse("P5-2-x.md", quoted).unwrap().by_controller);
-        assert!(
-            !parse("P5-2-x.md", "# 任务：x\n执行：dev\n")
-                .unwrap()
-                .by_controller
+        assert_eq!(
+            doer("# 任务：x\n执行：\n"),
+            (Doer::Decides, vec![Problem::Doer(String::new())])
         );
-        assert!(!parse("P5-2-x.md", "# 任务：x\n").unwrap().by_controller);
+        // Several: the first counts, and the card says so.
+        assert_eq!(
+            doer("# 任务：x\n执行：派出\n依据：y\n执行：主控\n执行：派出\n"),
+            (Doer::Agent, vec![Problem::Doers])
+        );
+        assert_eq!(
+            doer("# 任务：x\n执行：急\n执行：主控\n"),
+            (
+                Doer::Decides,
+                vec![Problem::Doer("急".into()), Problem::Doers]
+            )
+        );
+        assert_eq!(
+            Problem::Doer("dev".into()).to_string(),
+            "\u{201c}执行：dev\u{201d} isn't 主控 or 派出, so the controller decides"
+        );
+        assert_eq!(
+            Problem::Doers.to_string(),
+            "More than one 执行： line; the first one counts"
+        );
     }
 
     #[test]
@@ -2247,25 +2362,30 @@ mod tests {
         let ours = |id: &str| Task {
             worktree: Some(format!("/w/{id}")),
             branch: Some(id.to_lowercase()),
-            by_controller: true,
+            doer: Doer::Controller,
             ..bare(id, None)
         };
         let mut facts = Facts {
             repo: PathBuf::from("/w/paddock"),
             // P1-1 not started; P1-2 under way; P1-3 under way by a dev agent after all; P1-4
-            // dispatched as usual.
+            // dispatched (执行：派出) and P1-5 left to the controller (no line), neither with its
+            // agent yet.
             tasks: vec![
                 ours("P1-1"),
                 ours("P1-2"),
                 ours("P1-3"),
                 Task {
-                    by_controller: false,
+                    doer: Doer::Agent,
                     ..ours("P1-4")
+                },
+                Task {
+                    doer: Doer::Decides,
+                    ..ours("P1-5")
                 },
             ],
             ..Default::default()
         };
-        for id in ["P1-2", "P1-3", "P1-4"] {
+        for id in ["P1-2", "P1-3", "P1-4", "P1-5"] {
             facts
                 .worktrees
                 .push((format!("/w/{id}"), Some(id.to_lowercase())));
@@ -2289,8 +2409,14 @@ mod tests {
             Some((card::look(Status::Working).label.to_owned(), Tone::Agent))
         );
         assert_eq!(card("P1-3").agent.as_ref(), Some(&dev));
-        assert_eq!(card("P1-4").agent, None);
-        assert_eq!(card("P1-4").state, Some(("No agent".to_owned(), Tone::Dim)));
+        for id in ["P1-4", "P1-5"] {
+            assert_eq!(card(id).agent, None, "{id}");
+            assert_eq!(
+                card(id).state,
+                Some(("No agent".to_owned(), Tone::Dim)),
+                "{id}"
+            );
+        }
         // Waiting on the user, so is its card.
         let waiting = controller("paddock/main", "/w/paddock", Status::Waiting);
         let board = super::board(&facts, std::slice::from_ref(&waiting), 1_000.0);
@@ -2460,6 +2586,56 @@ mod tests {
     }
 
     #[test]
+    fn queued_cards_high_or_low_get_a_stripe() {
+        let at = |id: &str, priority: Priority| Task {
+            priority,
+            worktree: Some(format!("/w/{id}")),
+            branch: Some(id.to_lowercase()),
+            ..bare(id, None)
+        };
+        let mut facts = Facts {
+            tasks: vec![
+                at("P1-1", Priority::High),
+                at("P1-2", Priority::Medium),
+                at("P1-3", Priority::Low),
+                // Under way, and done: high and low, but no stripe.
+                at("P1-4", Priority::High),
+                at("P1-5", Priority::Low),
+            ],
+            drafts: vec![
+                draft("P2-1-x.md", "# 任务：x\n优先：高\n"),
+                draft("P2-2-x.md", "# 任务：x\n"),
+                draft("P2-3-x.md", "# 任务：x\n优先：低\n"),
+            ],
+            ..Default::default()
+        };
+        facts
+            .worktrees
+            .push(("/w/P1-4".into(), Some("p1-4".into())));
+        facts.wrapped.insert("P1-5".into(), 10);
+        let board = board(&facts, &[], 1_000.0);
+        let stripes: HashMap<&str, Option<Priority>> = board
+            .columns
+            .iter()
+            .flatten()
+            .map(|c| (c.id.as_str(), c.stripe()))
+            .collect();
+        let want = [
+            ("P1-1", Some(Priority::High)),
+            ("P1-2", None),
+            ("P1-3", Some(Priority::Low)),
+            ("P1-4", None),
+            ("P1-5", None),
+            ("P2-1", Some(Priority::High)),
+            ("P2-2", None),
+            ("P2-3", Some(Priority::Low)),
+        ];
+        assert_eq!(stripes, HashMap::from(want));
+        assert_eq!(board.cards(Column::InProgress)[0].id, "P1-4");
+        assert_eq!(board.cards(Column::Done)[0].id, "P1-5");
+    }
+
+    #[test]
     fn problems_show_only_on_cards_not_yet_merged() {
         // Each one's first line is wrong and it waits for a task with no file.
         let wrong = |id: &str| Task {
@@ -2613,6 +2789,7 @@ mod tests {
         Fields {
             title: title.to_owned(),
             depends: depends.map(str::to_owned),
+            doer: Doer::Decides,
             priority,
             body: body.to_owned(),
         }
@@ -2622,15 +2799,47 @@ mod tests {
     fn a_new_task_file_is_its_head_then_its_body() {
         let made = "# 任务：Kanban 卡片拖动纠正\n\n2026-10-09，用户在看板上新建。\n";
         let cases = [
-            (None, Priority::Medium, ""),
-            (Some("P5-60a"), Priority::Medium, "依赖：P5-60a\n"),
-            (None, Priority::High, "优先：高\n"),
-            (None, Priority::Low, "优先：低\n"),
-            (Some("P5-60a"), Priority::High, "依赖：P5-60a\n优先：高\n"),
-            (Some("P5-60a"), Priority::Low, "依赖：P5-60a\n优先：低\n"),
+            (None, Doer::Decides, Priority::Medium, ""),
+            (
+                Some("P5-60a"),
+                Doer::Decides,
+                Priority::Medium,
+                "依赖：P5-60a\n",
+            ),
+            (None, Doer::Decides, Priority::High, "优先：高\n"),
+            (None, Doer::Decides, Priority::Low, "优先：低\n"),
+            (
+                Some("P5-60a"),
+                Doer::Decides,
+                Priority::High,
+                "依赖：P5-60a\n优先：高\n",
+            ),
+            (
+                Some("P5-60a"),
+                Doer::Decides,
+                Priority::Low,
+                "依赖：P5-60a\n优先：低\n",
+            ),
+            (None, Doer::Controller, Priority::Medium, "执行：主控\n"),
+            (None, Doer::Agent, Priority::Medium, "执行：派出\n"),
+            (
+                Some("P5-60a"),
+                Doer::Controller,
+                Priority::High,
+                "依赖：P5-60a\n执行：主控\n优先：高\n",
+            ),
+            (
+                Some("P5-60a"),
+                Doer::Agent,
+                Priority::Low,
+                "依赖：P5-60a\n执行：派出\n优先：低\n",
+            ),
         ];
-        for (depends, priority, lines) in cases {
-            let new = fields("Kanban 卡片拖动纠正", depends, priority, BODY);
+        for (depends, doer, priority, lines) in cases {
+            let new = Fields {
+                doer,
+                ..fields("Kanban 卡片拖动纠正", depends, priority, BODY)
+            };
             assert_eq!(new_head(&new, "2026-10-09"), format!("{made}{lines}"));
             let text = draft_text(&new, "2026-10-09");
             assert_eq!(
@@ -2641,6 +2850,7 @@ mod tests {
             let task = draft("P5-69-x.md", &text);
             assert_eq!(task.title, "Kanban 卡片拖动纠正");
             assert_eq!(task.depends.as_deref(), depends);
+            assert_eq!(task.doer, doer);
             assert_eq!(task.priority, priority);
             assert_eq!(task.problems, []);
             assert_eq!(editable(&text), Some(new));
@@ -2667,13 +2877,25 @@ mod tests {
     fn the_dialog_reads_the_title_the_head_lines_and_the_body() {
         assert_eq!(
             editable(WRITTEN),
-            Some(fields(
-                "旧标题",
-                Some("P5-1"),
-                Priority::Medium,
-                "## 用户原话\n原话\n依赖：P5-9\n\n## 要做的\n- a  \n"
-            ))
+            Some(Fields {
+                doer: Doer::Controller,
+                ..fields(
+                    "旧标题",
+                    Some("P5-1"),
+                    Priority::Medium,
+                    "## 用户原话\n原话\n依赖：P5-9\n\n## 要做的\n- a  \n"
+                )
+            })
         );
+        // Who does it, as the board reads it: the first line; one it cannot read, the controller
+        // decides.
+        for (text, doer) in [
+            ("# 任务：x\n执行：派出\n执行：主控\n\n## a\n", Doer::Agent),
+            ("# 任务：x\n执行：dev\n", Doer::Decides),
+            ("# 任务：x\n\n## a\n执行：主控\n", Doer::Decides),
+        ] {
+            assert_eq!(editable(text).map(|f| f.doer), Some(doer), "{text:?}");
+        }
         assert_eq!(head(WRITTEN), WRITTEN.split_once("## 用户原话").unwrap().0);
         // The first priority line, read as the board reads it; one it cannot read is medium.
         let text = "# 任务: x\n优先：低\n优先：高\n\n## a\n";
@@ -2734,6 +2956,16 @@ mod tests {
             with(&|f| f.body = "## 要做的\n- b".into()),
             format!("{}## 要做的\n- b\n", head(WRITTEN))
         );
+        // Who does it: the 执行： line written over where it is, or taken out when the controller
+        // decides.
+        assert_eq!(
+            with(&|f| f.doer = Doer::Agent),
+            WRITTEN.replace("执行：主控\n", "执行：派出\n")
+        );
+        assert_eq!(
+            with(&|f| f.doer = Doer::Decides),
+            WRITTEN.replace("执行：主控\n", "")
+        );
         // All at once: the date, 类型, 依据, 待用户 and 执行 lines as they were.
         let all = with(&|f| {
             f.title = "新标题".into();
@@ -2749,13 +2981,54 @@ mod tests {
         );
         assert_eq!(
             editable(&all),
-            Some(fields(
-                "新标题",
-                Some("P5-60a"),
-                Priority::Low,
-                "## 用户原话\n新的\n"
-            ))
+            Some(Fields {
+                doer: Doer::Controller,
+                ..fields(
+                    "新标题",
+                    Some("P5-60a"),
+                    Priority::Low,
+                    "## 用户原话\n新的\n"
+                )
+            })
         );
+    }
+
+    #[test]
+    fn an_edit_adds_tidies_or_keeps_the_doer_line() {
+        let to = |text: &str, doer: Doer| {
+            let mut fields = editable(text).unwrap();
+            fields.doer = doer;
+            edited(text, &fields)
+        };
+        // None yet: at the end of the head, after the other lines there; the rest as it was.
+        let text = "# 任务：x\n\n2026-10-07。\n依据：y\n依赖：P5-3\n优先：高\n\n## a\n执行：主控\n";
+        assert_eq!(
+            to(text, Doer::Controller),
+            text.replace("优先：高\n", "优先：高\n执行：主控\n")
+        );
+        assert_eq!(
+            to(text, Doer::Agent),
+            text.replace("优先：高\n", "优先：高\n执行：派出\n")
+        );
+        assert_eq!(to(text, Doer::Decides), text);
+        // Several, changed: one line where the first was. Not changed: left as they are.
+        let text = "# 任务：x\n执行：主控\n依据：y\n执行: 派出\n\n## a\n";
+        assert_eq!(
+            to(text, Doer::Agent),
+            "# 任务：x\n执行：派出\n依据：y\n\n## a\n"
+        );
+        assert_eq!(to(text, Doer::Decides), "# 任务：x\n依据：y\n\n## a\n");
+        assert_eq!(to(text, Doer::Controller), text);
+        // One it cannot read, read as the controller deciding: left as it is unless changed.
+        let text = "# 任务：x\r\n执行：dev\r\n\r\n## a\r\n";
+        assert_eq!(to(text, Doer::Decides), text);
+        assert_eq!(
+            to(text, Doer::Agent),
+            "# 任务：x\r\n执行：派出\r\n\r\n## a\r\n"
+        );
+        // Written as written, the board reads it back.
+        let task = draft("P5-2-x.md", &to(text, Doer::Controller));
+        assert_eq!((task.doer, task.problems), (Doer::Controller, vec![]));
     }
 
     #[test]
