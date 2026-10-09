@@ -24,9 +24,9 @@ use gpui::{
     Animation, AnimationExt, AnyElement, App, BoxShadow, ClickEvent, Context, Div, Entity,
     EventEmitter, FocusHandle, Focusable, Font, FontStyle, FontWeight, HighlightStyle, Hsla,
     IntoElement, KeyDownEvent, MouseButton, MouseDownEvent, Pixels, Point, Render, ScrollStrategy,
-    SharedString, Stateful, StyledText, Subscription, Transformation, UnderlineStyle,
-    UniformListScrollHandle, Window, anchored, deferred, div, percentage, point, prelude::*, px,
-    relative, svg, uniform_list,
+    SharedString, Stateful, StyledText, Subscription, TextRun, Transformation, UnderlineStyle,
+    UniformListScrollHandle, Window, WindowTextSystem, anchored, deferred, div, percentage, point,
+    prelude::*, px, relative, svg, uniform_list,
 };
 use std::{
     collections::{HashMap, HashSet},
@@ -44,17 +44,63 @@ use std::{
 const EVERY: Duration = Duration::from_secs(3);
 /// How often a finished read or a due one is looked for, and the ages brought up to date.
 const TICK: Duration = Duration::from_millis(200);
-/// The buttons on a card while the mouse is on it: each one's size, over a card in the narrow list
-/// and at a tile's foot, and the room between them; the bar's padding, how far in from the card's
-/// top right corner it sits in the narrow list, and the right padding of a card there, whose first
-/// two lines make room for it.
-const BAR_BUTTON: f32 = 24.0;
+/// The buttons on a card while the mouse is on it, in a tray at its top right: each one's size, in
+/// the narrow list and in a widened column, and the room between them; the tray's padding, and how
+/// far down from the card's top and in from its right edge it sits, on a card and on a DONE line.
+const BAR_BUTTON: f32 = 22.0;
 const TILE_BUTTON: f32 = 20.0;
 const BAR_GAP: f32 = 2.0;
 const BAR_PAD: f32 = 2.0;
-const BAR_TOP: f32 = 6.0;
+const BAR_TOP: f32 = 5.0;
+const DONE_BAR_TOP: f32 = 3.0;
 const BAR_RIGHT: f32 = 8.0;
-const ROW_RIGHT: f32 = 10.0;
+/// The cards (P5-71): the narrow list's side padding; a widened board's side padding, the room
+/// between its columns and inside each; a card's padding (more on the left, for the priority
+/// stripe), the room between two cards, and its corner.
+const LIST_X: f32 = 12.0;
+const COLUMNS_X: f32 = 12.0;
+const COLUMN_GAP: f32 = 10.0;
+const COLUMN_X: f32 = 6.0;
+const CARD_LEFT: f32 = 14.0;
+const CARD_RIGHT: f32 = 12.0;
+const CARD_Y: f32 = 10.0;
+const CARD_GAP: f32 = 6.0;
+const CARD_RADIUS: f32 = 10.0;
+/// Room kept from the right sidebar's own edge when reckoning the width a text is cut to.
+const SPARE: f32 = 2.0;
+/// A card's face, edge and the light inside its top edge, in the text colour, resting and with the
+/// mouse on it, and the dark inside its bottom edge, as the left sidebar's cards over the material
+/// (P5-51b); a draft's face and dashed edge; one that needs the user, in amber.
+const FACE: f32 = 0.055;
+const FACE_HOVERED: f32 = 0.085;
+const EDGE: f32 = 0.07;
+const EDGE_HOVERED: f32 = 0.11;
+const LIGHT: f32 = 0.07;
+const LIGHT_HOVERED: f32 = 0.09;
+const BOTTOM: f32 = 0.25;
+const DRAFT_FACE: f32 = 0.03;
+const DRAFT_FACE_HOVERED: f32 = 0.05;
+const DRAFT_EDGE: f32 = 0.12;
+const DRAFT_EDGE_HOVERED: f32 = 0.18;
+const WAITING_FACE: f32 = 0.05;
+const WAITING_FACE_HOVERED: f32 = 0.08;
+const WAITING_EDGE: f32 = 0.34;
+/// The ground of the small tags and pills, and the rule over a card's agent line, in the text
+/// colour.
+const SOFT: f32 = 0.06;
+const RULE: f32 = 0.06;
+/// Text sizes: the id, an age, a DONE line's title, the agent line in the list and in a column,
+/// the branch, and the controller's `reviewer`; a group's folding arrow.
+const ID_SIZE: f32 = 11.0;
+const AGE_SIZE: f32 = 11.0;
+const DONE_SIZE: f32 = 12.5;
+const FOOT_SIZE: f32 = 12.0;
+const TILE_FOOT_SIZE: f32 = 11.5;
+const BRANCH_SIZE: f32 = 11.0;
+const REVIEWER_SIZE: f32 = 10.5;
+const ARROW: f32 = 9.0;
+/// The share of the room a branch keeps, cut, before the name beside it gives way.
+const BRANCH_SHARE: f32 = 0.4;
 
 const SPIN_TRACK: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12"><circle cx="6" cy="6" r="4.5" fill="none" stroke="#000" stroke-width="2"/></svg>"##;
 const SPIN_ARC: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12"><path d="M6 1.5a4.5 4.5 0 0 1 4.5 4.5" fill="none" stroke="#000" stroke-width="2" stroke-linecap="round"/></svg>"##;
@@ -63,6 +109,10 @@ const SPIN_ARC: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 
 const PENCIL: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12"><path d="M7.5 2.5l2 2L4 10H2V8z" fill="none" stroke="#000" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>"##;
 const LOCK: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12"><rect x="2.5" y="5.5" width="7" height="5" rx="1" fill="none" stroke="#000" stroke-width="1.3"/><path d="M4 5.5V4a2 2 0 0 1 4 0v1.5" fill="none" stroke="#000" stroke-width="1.3" stroke-linecap="round"/></svg>"##;
 const BRACKETS: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 14 14"><path d="M5 3.5L1.5 7 5 10.5M9 3.5L12.5 7 9 10.5" fill="none" stroke="#000" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>"##;
+/// A link, on the mark of what a queued card waits for; chevrons on Show all and Show fewer.
+const LINK: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><path d="M4 6l2-2M3.2 4.6l-1 1a1.6 1.6 0 002.2 2.2l1-1M6.8 5.4l1-1a1.6 1.6 0 00-2.2-2.2l-1 1" fill="none" stroke="#000" stroke-width="1.3" stroke-linecap="round"/></svg>"##;
+const CHEVRON_DOWN: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><path d="M2.5 3.8L5 6.3l2.5-2.5" fill="none" stroke="#000" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>"##;
+const CHEVRON_UP: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><path d="M2.5 6.2L5 3.7l2.5 2.5" fill="none" stroke="#000" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>"##;
 
 /// What the window tells the tab every time it draws.
 pub struct Frame {
@@ -569,6 +619,84 @@ pub struct TaskChoice {
     stands: &'static str,
 }
 
+/// Where a card is drawn: in the narrow list, or in a widened column.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Place {
+    List,
+    Tile,
+}
+
+impl Place {
+    /// A card's agent line here: its text size in points, the avatar's size and the room between
+    /// two things on it, in pixels.
+    fn foot(self, ui: &UiFont) -> (f32, f32, f32) {
+        match self {
+            Place::List => (FOOT_SIZE, ui.scale(18.0), ui.scale(8.0)),
+            Place::Tile => (TILE_FOOT_SIZE, ui.scale(16.0), ui.scale(6.0)),
+        }
+    }
+}
+
+/// Measures one line as the tab draws it, so that a text sharing a line with others is cut here,
+/// with `…`, to the room it has: GPUI's own ellipsis misjudges such text and shows `..` (P5-71; the
+/// left sidebar does the same). Text alone on its lines, a title or what the user is waited on
+/// for, GPUI cuts.
+struct Fit {
+    text: Arc<WindowTextSystem>,
+    family: SharedString,
+    mono: Font,
+    ui: UiFont,
+}
+
+impl Fit {
+    fn width(&self, line: &str, size: f32, font: Font) -> f32 {
+        if line.is_empty() {
+            return 0.0;
+        }
+        let run = TextRun {
+            len: line.len(),
+            font,
+            color: Hsla::default(),
+            background_color: None,
+            underline: None,
+            strikethrough: None,
+        };
+        let line = SharedString::from(line.to_owned());
+        f32::from(
+            self.text
+                .shape_line(line, self.ui.px(size), &[run], None)
+                .width,
+        )
+    }
+
+    /// In the interface font, at `size` points.
+    fn normal(&self, line: &str, size: f32) -> f32 {
+        self.width(line, size, gpui::font(self.family.clone()))
+    }
+
+    fn mono(&self, line: &str, size: f32) -> f32 {
+        self.width(line, size, self.mono.clone())
+    }
+}
+
+/// A pill of words: a small tag with round ends, its edge there but unseen unless coloured.
+fn pill(ui: &UiFont) -> Div {
+    div()
+        .flex_shrink_0()
+        .flex()
+        .items_center()
+        .px(ui.px(8.0))
+        .rounded_full()
+        .border_1()
+        .border_color(gpui::transparent_black())
+        .whitespace_nowrap()
+}
+
+/// An agent's name without its group (`paddock/dev-x` is `dev-x`).
+fn short_name(name: &str) -> &str {
+    name.split_once('/').map_or(name, |(_, short)| short)
+}
+
 fn now() -> f64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -576,9 +704,15 @@ fn now() -> f64 {
 }
 
 impl Render for KanbanView {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let ui = UiFont::get(cx);
         let c = self.colors;
+        let fit = Fit {
+            text: window.text_system().clone(),
+            family: ui.family.clone().unwrap_or_else(|| ".SystemUIFont".into()),
+            mono: self.mono.clone(),
+            ui: ui.clone(),
+        };
         let root = div()
             .size_full()
             .flex()
@@ -617,11 +751,11 @@ impl Render for KanbanView {
         };
         let wide = self.width >= self.wide_at;
         root.child(self.top(&board, &ui, cx))
-            .child(div().flex_shrink_0().h(px(1.0)).bg(c.rule))
+            .child(div().flex_shrink_0().h(px(1.0)).bg(c.text.opacity(RULE)))
             .child(if wide {
-                self.columns(&board, &ui, cx).into_any_element()
+                self.columns(&board, &fit, &ui, cx).into_any_element()
             } else {
-                self.list(&board, &ui, cx).into_any_element()
+                self.list(&board, &fit, &ui, cx).into_any_element()
             })
     }
 }
@@ -660,7 +794,16 @@ impl KanbanView {
             .gap(ui.px(6.0))
             .text_size(ui.px(12.0));
         if need_you > 0 {
-            right = right.child(self.needs_you(format!("{need_you} need you"), ui));
+            right = right.child(
+                pill(ui)
+                    .h(ui.px(22.0))
+                    .px(ui.px(10.0))
+                    .bg(c.yellow.opacity(0.14))
+                    .text_size(ui.px(11.5))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(c.yellow)
+                    .child(need_you_words(need_you)),
+            );
         } else if summary.is_empty() {
             right = right.text_color(c.dim).child("Nothing in progress");
         }
@@ -677,17 +820,16 @@ impl KanbanView {
             .flex()
             .items_center()
             .justify_center()
-            .size(ui.px(22.0))
-            // As tall as the line of text beside it.
-            .my(ui.px(-3.0))
-            .rounded(px(5.0))
+            .size(ui.px(26.0))
+            .rounded_full()
+            .bg(c.text.opacity(SOFT))
             .cursor_pointer()
-            .hover(move |style| style.bg(c.text.opacity(0.09)))
+            .hover(move |style| style.bg(c.text.opacity(0.12)))
             .tooltip(move |_, cx| cx.new(|_| tip.clone()).into())
             .child(footer_icon::icon(
                 Icon::Plus,
-                c.muted,
-                ui.scale(13.0 / footer_icon::SIZE),
+                c.text,
+                ui.scale(12.0 / footer_icon::SIZE),
             ))
             .on_click(cx.listener(|view, _: &ClickEvent, _, cx| view.new_task(cx)));
         div()
@@ -716,11 +858,13 @@ impl KanbanView {
                     .child(board.name.clone()),
             )
             .child(
-                div()
-                    .flex_shrink_0()
-                    .text_size(ui.px(12.0))
-                    .text_color(c.dim)
-                    .child(format!("⎇ {}", kanban::MAIN)),
+                pill(ui)
+                    .px(ui.px(7.0))
+                    .bg(c.text.opacity(SOFT))
+                    .font(self.mono.clone())
+                    .text_size(ui.px(11.0))
+                    .text_color(c.muted)
+                    .child(kanban::MAIN),
             )
             .child(div().flex_1())
             .child(right)
@@ -755,8 +899,7 @@ impl KanbanView {
     }
 
     /// Narrow: the five groups one above another, each folding.
-    fn list(&self, board: &Board, ui: &UiFont, cx: &mut Context<Self>) -> Stateful<Div> {
-        let c = self.colors;
+    fn list(&self, board: &Board, fit: &Fit, ui: &UiFont, cx: &mut Context<Self>) -> Stateful<Div> {
         let mut list = div()
             .id("kanban-list")
             .flex_1()
@@ -765,44 +908,11 @@ impl KanbanView {
             .flex()
             .flex_col()
             .pt(ui.px(4.0))
-            .px(ui.px(8.0))
+            .px(ui.px(LIST_X))
             .pb(ui.px(16.0));
-        for column in Column::ALL {
+        for (n, column) in Column::ALL.into_iter().enumerate() {
             let open = !self.folded.contains(&column);
-            // An empty group is one short, faint line.
-            let empty = board.cards(column).is_empty();
-            let mut head = div()
-                .id(("kanban-group", column as usize))
-                .flex_shrink_0()
-                .flex()
-                .items_center()
-                .gap(ui.px(8.0))
-                .h(ui.px(if empty { 22.0 } else { 30.0 }))
-                .mt(ui.px(if empty { 2.0 } else { 8.0 }))
-                .px(ui.px(8.0))
-                .rounded(px(6.0))
-                .when(empty, |head| head.opacity(0.5))
-                .cursor_pointer()
-                .hover(move |style| style.bg(c.text.opacity(0.05)))
-                .child(footer_icon::icon(
-                    if open { Icon::Down } else { Icon::Forward },
-                    c.dim,
-                    ui.scale(9.0 / footer_icon::SIZE),
-                ))
-                .child(self.square(column, ui))
-                .child(self.label(column, ui))
-                .child(
-                    div()
-                        .text_size(ui.px(11.0))
-                        .text_color(c.dim)
-                        .child(board.count(column, self.all_done)),
-                )
-                .on_click(cx.listener(move |view, _: &ClickEvent, _, cx| view.toggle(column, cx)));
-            if let Some(note) = self.note(board, column) {
-                let tip = Tip::new(note, &self.theme, ui);
-                head = head.tooltip(move |_, cx| cx.new(|_| tip.clone()).into());
-            }
-            list = list.child(head);
+            list = list.child(self.group(board, column, open, n == 0, ui, cx));
             // A folded group still shows the cards that need the user.
             let shown: Vec<&Card> = board
                 .listed(column, self.all_done)
@@ -814,17 +924,18 @@ impl KanbanView {
                     .flex_shrink_0()
                     .flex()
                     .flex_col()
-                    .gap(ui.px(2.0))
-                    .pt(ui.px(2.0))
-                    .pb(ui.px(4.0));
+                    .gap(ui.px(CARD_GAP))
+                    .pt(ui.px(4.0))
+                    .pb(ui.px(2.0));
                 for card in shown {
-                    cards = cards.child(self.row(card, ui, cx));
+                    cards = cards.child(self.card(card, Place::List, fit, ui, cx));
                 }
                 if open && column == Column::Done {
-                    cards = cards.children(
-                        self.show_all(board, ui, cx)
-                            .map(|more| more.h(ui.px(28.0)).pl(ui.px(26.0))),
-                    );
+                    cards =
+                        cards
+                            .children(self.show_all(board, ui, cx).map(|more| {
+                                div().flex().pt(ui.px(2.0)).pl(ui.px(4.0)).child(more)
+                            }));
                 }
                 list = list.child(cards);
             }
@@ -832,16 +943,70 @@ impl KanbanView {
         list
     }
 
+    /// A group's header in the narrow list: the arrow that folds it, its colour, its name and how
+    /// many it has. An empty group is one faint line with no arrow, having nothing to fold.
+    fn group(
+        &self,
+        board: &Board,
+        column: Column,
+        open: bool,
+        first: bool,
+        ui: &UiFont,
+        cx: &mut Context<Self>,
+    ) -> Stateful<Div> {
+        let c = self.colors;
+        let empty = board.cards(column).is_empty();
+        let mut head = div()
+            .id(("kanban-group", column as usize))
+            .flex_shrink_0()
+            .flex()
+            .items_center()
+            .gap(ui.px(8.0))
+            .h(ui.px(26.0))
+            .mt(ui.px(if first { 2.0 } else { 8.0 }))
+            .px(ui.px(4.0))
+            .rounded(ui.px(6.0))
+            .text_size(ui.px(12.0));
+        head = if empty {
+            head.text_color(c.dim)
+                .child(div().flex_shrink_0().w(ui.px(ARROW)))
+                .child(self.dot(column, true, ui))
+                .child(self.label(column).text_color(c.dim))
+                .child(div().text_size(ui.px(11.0)).child("0"))
+        } else {
+            head.cursor_pointer()
+                .hover(move |style| style.bg(c.text.opacity(0.05)))
+                .child(footer_icon::icon(
+                    if open { Icon::Down } else { Icon::Forward },
+                    c.dim,
+                    ui.scale(ARROW / footer_icon::SIZE),
+                ))
+                .child(self.dot(column, false, ui))
+                .child(
+                    self.label(column)
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(c.bright),
+                )
+                .child(self.count(board, column, ui))
+                .on_click(cx.listener(move |view, _: &ClickEvent, _, cx| view.toggle(column, cx)))
+        };
+        if let Some(note) = self.note(board, column) {
+            let tip = Tip::new(note, &self.theme, ui);
+            head = head.tooltip(move |_, cx| cx.new(|_| tip.clone()).into());
+        }
+        head
+    }
+
     /// Widened: five columns side by side, each scrolling on its own.
-    fn columns(&self, board: &Board, ui: &UiFont, cx: &mut Context<Self>) -> Div {
+    fn columns(&self, board: &Board, fit: &Fit, ui: &UiFont, cx: &mut Context<Self>) -> Div {
         let c = self.colors;
         let mut row = div()
             .flex_1()
             .min_h(px(0.0))
             .flex()
-            .gap(ui.px(10.0))
+            .gap(ui.px(COLUMN_GAP))
             .pt(ui.px(10.0))
-            .px(ui.px(12.0))
+            .px(ui.px(COLUMNS_X))
             .pb(ui.px(12.0));
         for column in Column::ALL {
             let mut body = div()
@@ -851,20 +1016,21 @@ impl KanbanView {
                 .overflow_y_scroll()
                 .flex()
                 .flex_col()
-                .gap(ui.px(6.0))
-                .px(ui.px(6.0))
+                .gap(ui.px(CARD_GAP))
+                .px(ui.px(COLUMN_X))
                 .pb(ui.px(8.0));
             let cards = board.listed(column, self.all_done);
             for card in &cards {
-                body = body.child(self.tile(card, ui, cx));
+                body = body.child(self.card(card, Place::Tile, fit, ui, cx));
             }
             if column == Column::Done {
                 body = body.children(
                     self.show_all(board, ui, cx)
-                        .map(|more| more.h(ui.px(30.0)).justify_center()),
+                        .map(|more| div().flex().justify_center().pt(ui.px(2.0)).child(more)),
                 );
             }
-            if cards.is_empty() {
+            let empty = cards.is_empty();
+            if empty {
                 body = body.child(
                     div()
                         .py(ui.px(14.0))
@@ -875,6 +1041,7 @@ impl KanbanView {
                         .child("Nothing here"),
                 );
             }
+            let label = self.label(column).font_weight(FontWeight::SEMIBOLD);
             row = row.child(
                 div()
                     .flex_1()
@@ -882,7 +1049,7 @@ impl KanbanView {
                     .min_h(px(0.0))
                     .flex()
                     .flex_col()
-                    .rounded(px(10.0))
+                    .rounded(ui.px(CARD_RADIUS))
                     .bg(c.faint.opacity(0.12))
                     .border_1()
                     .border_color(c.rule.opacity(0.6))
@@ -895,14 +1062,14 @@ impl KanbanView {
                             .h(ui.px(34.0))
                             .px(ui.px(10.0))
                             .min_w(px(0.0))
-                            .child(self.square(column, ui))
-                            .child(self.label(column, ui))
-                            .child(
-                                div()
-                                    .text_size(ui.px(11.0))
-                                    .text_color(c.dim)
-                                    .child(board.count(column, self.all_done)),
-                            ),
+                            .text_size(ui.px(12.0))
+                            .child(self.dot(column, empty, ui))
+                            .child(if empty {
+                                label.text_color(c.dim)
+                            } else {
+                                label.text_color(c.bright)
+                            })
+                            .child(self.count(board, column, ui)),
                     )
                     .child(body),
             );
@@ -917,8 +1084,8 @@ impl KanbanView {
         Some(column.note()).filter(|note| !note.is_empty() && (column != Column::Done || cut))
     }
 
-    /// Under DONE's cards when it has more than its last few: Show all, or while all show, Show
-    /// fewer. Kept only until the window closes.
+    /// Under DONE's cards when it has more than its last few, a button: Show all, or while all
+    /// show, Show fewer. Kept only until the window closes.
     fn show_all(
         &self,
         board: &Board,
@@ -930,22 +1097,28 @@ impl KanbanView {
         if board.listed(Column::Done, false).len() == total {
             return None;
         }
+        let (words, chevron) = if self.all_done {
+            ("Show fewer".to_owned(), CHEVRON_UP)
+        } else {
+            (format!("Show all {total}"), CHEVRON_DOWN)
+        };
         Some(
             div()
                 .id("kanban-show-all")
                 .flex_shrink_0()
                 .flex()
                 .items_center()
-                .rounded(px(6.0))
+                .gap(ui.px(6.0))
+                .h(ui.px(26.0))
+                .px(ui.px(12.0))
+                .rounded_full()
+                .bg(c.text.opacity(SOFT))
                 .text_size(ui.px(12.0))
-                .text_color(c.muted)
+                .text_color(c.bright)
                 .cursor_pointer()
-                .hover(move |style| style.bg(c.text.opacity(0.05)).text_color(c.text))
-                .child(if self.all_done {
-                    "Show fewer".to_owned()
-                } else {
-                    format!("Show all {total}")
-                })
+                .hover(move |style| style.bg(c.text.opacity(0.11)).text_color(c.text))
+                .child(words)
+                .child(svg().data(chevron).size(ui.px(10.0)).text_color(c.muted))
                 .on_click(cx.listener(|view, _: &ClickEvent, _, cx| {
                     view.all_done = !view.all_done;
                     cx.notify();
@@ -953,260 +1126,55 @@ impl KanbanView {
         )
     }
 
-    /// On a card to review, under its agent, the repository's controller as the agent is drawn:
-    /// its kind and status, its name and status, and that it reviews. A click brings its pane to
-    /// the front, as a click on its card in the sidebar does.
-    fn reviewer(
-        &self,
-        card: &Card,
-        ui: &UiFont,
-        size: f32,
-        cx: &mut Context<Self>,
-    ) -> Option<Stateful<Div>> {
-        let c = self.colors;
-        let agent = card.controller.as_ref()?;
-        let look = card::look(agent.status);
-        let short = agent
-            .name
-            .split_once('/')
-            .map_or(agent.name.as_str(), |(_, s)| s);
-        let name = agent.name.clone();
-        Some(
-            div()
-                .id(SharedString::from(format!("kanban-reviewer-{}", card.file)))
-                .flex()
-                .items_center()
-                .gap(ui.px(7.0))
-                .min_w(px(0.0))
-                .mx(ui.px(-4.0))
-                .px(ui.px(4.0))
-                .rounded(px(5.0))
-                .whitespace_nowrap()
-                .text_color(c.muted)
-                .cursor_pointer()
-                .hover(move |style| style.bg(c.text.opacity(0.06)))
-                .child(self.avatar(agent, ui, size))
-                .child(
-                    div()
-                        .flex_shrink(1.0)
-                        .min_w(px(0.0))
-                        .overflow_hidden()
-                        .text_ellipsis()
-                        .text_color(c.bright)
-                        .child(short.to_owned()),
-                )
-                .child(
-                    div()
-                        .flex_shrink_0()
-                        .text_color(hsla(self.theme.fg(look.color), 1.0))
-                        .child(look.label),
-                )
-                .child(div().flex_1())
-                .child(
-                    div()
-                        .flex_shrink_0()
-                        .text_size(ui.px(10.5))
-                        .text_color(c.dim)
-                        .child("reviewer"),
-                )
-                .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
-                    cx.stop_propagation();
-                    cx.emit(KanbanEvent::GoTo(name.clone()));
-                })),
-        )
-    }
-
-    fn square(&self, column: Column, ui: &UiFont) -> Div {
+    /// A group's colour, faint for an empty one.
+    fn dot(&self, column: Column, empty: bool, ui: &UiFont) -> Div {
         div()
             .flex_shrink_0()
-            .size(ui.px(7.0))
-            .rounded(px(2.0))
-            .bg(self.colors.column(column))
+            .size(ui.px(6.0))
+            .rounded_full()
+            .bg(if empty {
+                self.colors.faint
+            } else {
+                self.colors.column(column)
+            })
     }
 
-    fn label(&self, column: Column, ui: &UiFont) -> Div {
+    fn label(&self, column: Column) -> Div {
         div()
             .flex_shrink(1.0)
             .min_w(px(0.0))
             .overflow_hidden()
             .whitespace_nowrap()
-            .text_size(ui.px(11.0))
-            .font_weight(FontWeight::SEMIBOLD)
-            .text_color(self.colors.muted)
             .child(column.label())
     }
 
-    /// A card in the narrow list: its id, title, marks and age; then its agent, state, branch
-    /// and lines, the controller when it is to review, and what the user is waited on for; DONE
-    /// faded, on one line.
-    fn row(&self, card: &Card, ui: &UiFont, cx: &mut Context<Self>) -> Stateful<Div> {
+    /// How many a group has, in a pill: `3 of 130` while DONE lists its last few.
+    fn count(&self, board: &Board, column: Column, ui: &UiFont) -> Div {
         let c = self.colors;
-        let done = card.column == Column::Done;
-        // While the mouse is on the card its buttons sit at the end of this line, over the age,
-        // and reach down to the next one: the marks and that line keep clear of them.
-        let hovered = self.hovered.as_deref() == Some(card.file.as_str());
-        let mut clear = hovered.then(|| self.bar_reach(card, ui));
-        let end = if let Some(room) = clear {
-            div().flex_shrink_0().w(room)
-        } else {
-            div()
-                .flex_shrink_0()
-                .text_size(ui.px(11.5))
-                .text_color(c.dim)
-                .child(card.age.clone())
-        };
-        let first = self
-            .first(card, ui)
-            .flex()
-            .items_center()
-            .gap(ui.px(8.0))
-            .min_w(px(0.0))
-            .children(self.id(card, ui))
-            .child(
-                div()
-                    .flex_1()
-                    .min_w(px(0.0))
-                    .overflow_hidden()
-                    .whitespace_nowrap()
-                    .text_ellipsis()
-                    .font_weight(if done {
-                        FontWeight::NORMAL
-                    } else {
-                        FontWeight::MEDIUM
-                    })
-                    .child(card.title.clone()),
-            )
-            .children(self.marks(card, ui))
-            .child(end);
-        let meta = (!done)
-            .then(|| self.meta(card, ui, 18.0, true))
-            .flatten()
-            .map(|meta| keep_clear(meta.mt(ui.px(5.0)).text_size(ui.px(12.0)), &mut clear));
-        let reviewer = self
-            .reviewer(card, ui, 18.0, cx)
-            .map(|reviewer| keep_clear(reviewer.mt(ui.px(5.0)).text_size(ui.px(12.0)), &mut clear));
-        let asks = self
-            .asks(card)
-            .map(|asks| keep_clear(asks.mt(ui.px(5.0)).text_size(ui.px(12.0)), &mut clear));
-        let clearing = self
-            .clearing(card, ui, cx)
-            .map(|row| keep_clear(row.mt(ui.px(6.0)).text_size(ui.px(12.0)), &mut clear));
-        let prioritizing = self
-            .prioritizing(card, ui, cx)
-            .map(|row| keep_clear(row.mt(ui.px(6.0)).text_size(ui.px(12.0)), &mut clear));
-        self.hoverable(card, cx)
-            .rounded(px(8.0))
-            .pt(ui.px(8.0))
-            .pb(ui.px(8.0))
-            .pl(ui.px(26.0))
-            .pr(ui.px(ROW_RIGHT))
-            .opacity(fade(card))
-            .hover(move |style| style.bg(c.text.opacity(0.05)))
-            .children(self.stripe(card, ui))
-            .child(first)
-            .children(meta)
-            .children(reviewer)
-            .children(asks)
-            .children(clearing)
-            .children(prioritizing)
-            .children(self.actions(card, BAR_BUTTON, ui, cx).map(|bar| {
-                bar.absolute()
-                    .top(ui.px(BAR_TOP))
-                    .right(ui.px(BAR_RIGHT))
-                    .p(ui.px(BAR_PAD))
-                    .rounded(px(7.0))
-                    .bg(c.ground)
-                    .border_1()
-                    .border_color(c.rule)
-            }))
+        pill(ui)
+            .px(ui.px(7.0))
+            .bg(c.text.opacity(SOFT))
+            .text_size(ui.px(11.0))
+            .font_weight(FontWeight::MEDIUM)
+            .text_color(c.muted)
+            .child(board.count(column, self.all_done))
     }
 
-    /// A card in a widened column: its id and age, the title on up to two lines, its marks, then
-    /// its agent, state and lines, the controller when it is to review, and what the user is waited
-    /// on for.
-    fn tile(&self, card: &Card, ui: &UiFont, cx: &mut Context<Self>) -> Stateful<Div> {
-        let c = self.colors;
-        let done = card.column == Column::Done;
-        let first = self
-            .first(card, ui)
-            .flex()
-            .items_center()
-            .gap(ui.px(6.0))
-            .children(self.id(card, ui))
-            .child(div().flex_1())
-            .child(
-                div()
-                    .flex_shrink_0()
-                    .text_size(ui.px(11.0))
-                    .text_color(c.dim)
-                    .child(card.age.clone()),
-            );
-        let title = div()
-            .mt(ui.px(4.0))
-            .line_clamp(2)
-            .text_ellipsis()
-            .font_weight(if done {
-                FontWeight::NORMAL
-            } else {
-                FontWeight::MEDIUM
-            })
-            .child(card.title.clone());
-        let marks = self.marks(card, ui);
-        let marks = (!marks.is_empty()).then(|| {
-            div()
-                .mt(ui.px(6.0))
-                .flex()
-                .flex_wrap()
-                .gap(ui.px(4.0))
-                .children(marks)
-        });
-        let meta = (!done)
-            .then(|| self.meta(card, ui, 16.0, false))
-            .flatten()
-            .map(|meta| meta.mt(ui.px(7.0)).text_size(ui.px(11.5)));
-        let reviewer = self
-            .reviewer(card, ui, 16.0, cx)
-            .map(|reviewer| reviewer.mt(ui.px(6.0)).text_size(ui.px(11.5)));
-        let asks = self
-            .asks(card)
-            .map(|asks| asks.mt(ui.px(6.0)).text_size(ui.px(11.5)));
-        let clearing = self
-            .clearing(card, ui, cx)
-            .map(|row| row.mt(ui.px(7.0)).text_size(ui.px(11.5)));
-        let prioritizing = self
-            .prioritizing(card, ui, cx)
-            .map(|row| row.mt(ui.px(7.0)).text_size(ui.px(11.5)));
-        // While the mouse is on the card its buttons take a line of their own at its foot, under
-        // the rest, wrapping when the tile is narrower: a tile is too narrow to share a line with
-        // them.
-        let bar = self.actions(card, TILE_BUTTON, ui, cx).map(|bar| {
-            div()
-                .mt(ui.px(4.0))
-                .mx(ui.px(BAR_RIGHT - 10.0))
-                .flex()
-                .justify_end()
-                .child(bar.flex_wrap().justify_end().min_w(px(0.0)))
-        });
-        self.hoverable(card, cx)
-            .flex_shrink_0()
-            .rounded(px(8.0))
-            .p(ui.px(9.0))
-            .px(ui.px(10.0))
-            .bg(c.faint.opacity(0.22))
-            .border_1()
-            .border_color(c.rule)
-            .opacity(fade(card))
-            .hover(move |style| style.bg(c.faint.opacity(0.32)))
-            .children(self.stripe(card, ui))
-            .child(first)
-            .child(title)
-            .children(marks)
-            .children(meta)
-            .children(reviewer)
-            .children(asks)
-            .children(clearing)
-            .children(prioritizing)
-            .children(bar)
+    /// The width inside a card's padding, in the narrow list or a widened column, that its texts
+    /// sharing a line are cut to.
+    fn room(&self, place: Place, ui: &UiFont) -> f32 {
+        let card = match place {
+            Place::List => self.width - 2.0 * ui.scale(LIST_X),
+            Place::Tile => {
+                let row = self.width - 2.0 * ui.scale(COLUMNS_X) - 4.0 * ui.scale(COLUMN_GAP);
+                row / 5.0 - 2.0 - 2.0 * ui.scale(COLUMN_X)
+            }
+        };
+        (card - ui.scale(CARD_LEFT + CARD_RIGHT) - 2.0 - SPARE).max(0.0)
+    }
+
+    fn hovered(&self, card: &Card) -> bool {
+        self.hovered.as_deref() == Some(card.file.as_str())
     }
 
     /// A card's ground that knows when the mouse is on it.
@@ -1221,22 +1189,344 @@ impl KanbanView {
             )
     }
 
-    /// A card's first line, which tells why when the mouse is on a dropped one.
-    fn first(&self, card: &Card, ui: &UiFont) -> Stateful<Div> {
-        let first = div().id(SharedString::from(format!("kanban-first-{}", card.file)));
-        let Some(why) = &card.dropped else {
-            return first;
-        };
-        let note = Note::new(
-            if why.is_empty() {
-                "Dropped".into()
-            } else {
-                format!("Dropped: {why}").into()
-            },
-            &self.theme,
+    /// A card (P5-71), in the narrow list or a widened column, lifted off the panel as the left
+    /// sidebar's cards are (P5-51b): its id, any warning and its age; its title on up to two lines;
+    /// its marks; what the user is waited on for; a question asked on it; then, under a rule, its
+    /// agent, and the controller on one to review. A DONE card that needs nothing and was not
+    /// dropped is one short line.
+    fn card(
+        &self,
+        card: &Card,
+        place: Place,
+        fit: &Fit,
+        ui: &UiFont,
+        cx: &mut Context<Self>,
+    ) -> Stateful<Div> {
+        if card.column == Column::Done && !card.needs_you && card.dropped.is_none() {
+            return self.done_row(card, place, fit, ui, cx);
+        }
+        let c = self.colors;
+        let hovered = self.hovered(card);
+        let room = self.room(place, ui);
+        let (face, edge, lines) = self.face(card, hovered);
+        // While the mouse is on the card its buttons sit where its age is, and the age moves down
+        // to its agent's line when it has one.
+        let footer = self.footer(
+            card,
+            place,
+            hovered,
+            room,
+            c.ground.blend(face),
+            fit,
             ui,
+            cx,
         );
-        first.tooltip(move |_, cx| cx.new(|_| note.clone()).into())
+        let first = div()
+            .flex()
+            .items_center()
+            .gap(ui.px(6.0))
+            .min_w(px(0.0))
+            .min_h(ui.px(18.0))
+            .children(self.id(card, ui))
+            .children(self.warning(card, ui))
+            .child(div().flex_1())
+            .children((!hovered && !card.age.is_empty()).then(|| {
+                div()
+                    .flex_shrink_0()
+                    .text_size(ui.px(AGE_SIZE))
+                    .text_color(c.dim)
+                    .child(card.age.clone())
+            }));
+        let title = div()
+            .line_clamp(2)
+            .text_ellipsis()
+            .line_height(relative(1.4))
+            .font_weight(if card.column == Column::Done {
+                FontWeight::NORMAL
+            } else {
+                FontWeight::MEDIUM
+            })
+            .text_color(if card.draft { c.bright } else { c.text })
+            .child(card.title.clone());
+        let marks = self.marks(card, ui);
+        let marks =
+            (!marks.is_empty()).then(|| div().flex().flex_wrap().gap(ui.px(6.0)).children(marks));
+        let size = match place {
+            Place::List => BAR_BUTTON,
+            Place::Tile => TILE_BUTTON,
+        };
+        let bar = self.actions(card, size, ui, cx).map(|bar| {
+            self.tray(bar, ui)
+                .top(ui.px(BAR_TOP))
+                .when(place == Place::Tile, |bar| {
+                    bar.flex_wrap().justify_end().max_w(px(room))
+                })
+        });
+        let foot = footer.is_some();
+        self.hoverable(card, cx)
+            .flex()
+            .flex_col()
+            .gap(ui.px(6.0))
+            .pt(ui.px(CARD_Y))
+            .pb(if foot { px(0.0) } else { ui.px(CARD_Y) })
+            .pl(ui.px(CARD_LEFT))
+            .pr(ui.px(CARD_RIGHT))
+            .rounded(ui.px(CARD_RADIUS))
+            .bg(face)
+            .border_1()
+            .border_color(edge)
+            .when(card.draft, |ground| ground.border_dashed())
+            .shadow(lines)
+            .opacity(fade(card))
+            .text_size(ui.px(13.0))
+            .children(self.stripe(card, ui))
+            .child(first)
+            .child(title)
+            .children(marks)
+            .children(self.asks(card, ui))
+            .children(
+                self.clearing(card, ui, cx)
+                    .map(|row| row.text_size(ui.px(12.0))),
+            )
+            .children(
+                self.prioritizing(card, ui, cx)
+                    .map(|row| row.text_size(ui.px(12.0))),
+            )
+            .children(footer)
+            .children(bar)
+    }
+
+    /// A DONE card that needs nothing and was not dropped: one short line, its id, title and age,
+    /// the title cut with `…` to the room they leave it.
+    fn done_row(
+        &self,
+        card: &Card,
+        place: Place,
+        fit: &Fit,
+        ui: &UiFont,
+        cx: &mut Context<Self>,
+    ) -> Stateful<Div> {
+        let c = self.colors;
+        let hovered = self.hovered(card);
+        let mut room = self.room(place, ui);
+        let mut gaps = 0;
+        if !card.id.is_empty() {
+            room -= fit.mono(&card.id, ID_SIZE);
+            gaps += 1;
+        }
+        if !card.age.is_empty() {
+            room -= fit.normal(&card.age, AGE_SIZE);
+            gaps += 1;
+        }
+        room -= gaps as f32 * ui.scale(8.0);
+        let title = card::elide(&card.title, &|cut| fit.normal(cut, DONE_SIZE) <= room);
+        let bar = self
+            .actions(card, BAR_BUTTON, ui, cx)
+            .map(|bar| self.tray(bar, ui).top(ui.px(DONE_BAR_TOP)));
+        self.hoverable(card, cx)
+            .flex()
+            .items_center()
+            .gap(ui.px(8.0))
+            .py(ui.px(8.0))
+            .pl(ui.px(CARD_LEFT))
+            .pr(ui.px(CARD_RIGHT))
+            .rounded(ui.px(CARD_RADIUS))
+            // An edge no one sees, so its words line up with the cards'.
+            .border_1()
+            .border_color(gpui::transparent_black())
+            .when(hovered, |row| row.bg(c.text.opacity(0.04)))
+            .whitespace_nowrap()
+            .text_color(c.muted)
+            .children((!card.id.is_empty()).then(|| {
+                div()
+                    .flex_shrink_0()
+                    .font(self.mono.clone())
+                    .text_size(ui.px(ID_SIZE))
+                    .text_color(c.dim)
+                    .child(card.id.clone())
+            }))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w(px(0.0))
+                    .text_size(ui.px(DONE_SIZE))
+                    .child(title),
+            )
+            .children((!card.age.is_empty()).then(|| {
+                div()
+                    .flex_shrink_0()
+                    .text_size(ui.px(AGE_SIZE))
+                    .text_color(c.dim)
+                    .child(card.age.clone())
+            }))
+            .children(bar)
+    }
+
+    /// A card's face, edge, and the lines inside its top and bottom edges, resting or with the
+    /// mouse on it, as the left sidebar's cards over the material (P5-51b): a draft's fainter and
+    /// dashed, without the lines; one that needs the user rimmed in amber.
+    fn face(&self, card: &Card, hovered: bool) -> (Hsla, Hsla, Vec<BoxShadow>) {
+        let c = self.colors;
+        if card.draft {
+            return if hovered {
+                (
+                    c.text.opacity(DRAFT_FACE_HOVERED),
+                    c.text.opacity(DRAFT_EDGE_HOVERED),
+                    Vec::new(),
+                )
+            } else {
+                (
+                    c.text.opacity(DRAFT_FACE),
+                    c.text.opacity(DRAFT_EDGE),
+                    Vec::new(),
+                )
+            };
+        }
+        let (face, edge, light) = if hovered {
+            (FACE_HOVERED, EDGE_HOVERED, LIGHT_HOVERED)
+        } else {
+            (FACE, EDGE, LIGHT)
+        };
+        let lines = vec![
+            BoxShadow::new(px(0.0), px(1.0), c.text.opacity(light)).inset(),
+            BoxShadow::new(px(0.0), px(-1.0), gpui::black().opacity(BOTTOM)).inset(),
+        ];
+        if card.needs_you {
+            let face = if hovered {
+                WAITING_FACE_HOVERED
+            } else {
+                WAITING_FACE
+            };
+            return (
+                c.yellow.opacity(face),
+                c.yellow.opacity(WAITING_EDGE),
+                lines,
+            );
+        }
+        (c.text.opacity(face), c.text.opacity(edge), lines)
+    }
+
+    /// The small tray the buttons over a card sit in, at its top right.
+    fn tray(&self, bar: Div, ui: &UiFont) -> Div {
+        bar.absolute()
+            .right(ui.px(BAR_RIGHT))
+            .p(ui.px(BAR_PAD))
+            .rounded(ui.px(8.0))
+            .bg(self.colors.ground)
+            .border_1()
+            .border_color(self.colors.text.opacity(0.08))
+    }
+
+    /// Under a rule at the foot of a card under way, to review or merged: its agent's line and,
+    /// on one to review, the controller's. `ring` is the card's face over the panel, round the
+    /// avatars' status dots. `None` with nothing to say.
+    #[allow(clippy::too_many_arguments)]
+    fn footer(
+        &self,
+        card: &Card,
+        place: Place,
+        hovered: bool,
+        room: f32,
+        ring: Hsla,
+        fit: &Fit,
+        ui: &UiFont,
+        cx: &mut Context<Self>,
+    ) -> Option<Div> {
+        if matches!(card.column, Column::Queued | Column::Done) {
+            return None;
+        }
+        let size = match place {
+            Place::List => FOOT_SIZE,
+            Place::Tile => TILE_FOOT_SIZE,
+        };
+        let meta = self.meta(card, place, hovered, room, ring, fit, ui);
+        let reviewer = self.reviewer(card, place, room, ring, fit, ui, cx);
+        if meta.is_none() && reviewer.is_none() {
+            return None;
+        }
+        Some(
+            div()
+                .flex()
+                .flex_col()
+                .gap(ui.px(6.0))
+                .mt(ui.px(4.0))
+                .ml(ui.px(-CARD_LEFT))
+                .mr(ui.px(-CARD_RIGHT))
+                .pt(ui.px(8.0))
+                .pb(ui.px(9.0))
+                .pl(ui.px(CARD_LEFT))
+                .pr(ui.px(CARD_RIGHT))
+                .border_t_1()
+                .border_color(self.colors.text.opacity(RULE))
+                .text_size(ui.px(size))
+                .whitespace_nowrap()
+                .children(meta)
+                .children(reviewer),
+        )
+    }
+
+    /// On a card to review, under its agent, the repository's controller as the agent is drawn:
+    /// its kind and status, its name and status, and that it reviews. A click brings its pane to
+    /// the front, as a click on its card in the sidebar does.
+    #[allow(clippy::too_many_arguments)]
+    fn reviewer(
+        &self,
+        card: &Card,
+        place: Place,
+        room: f32,
+        ring: Hsla,
+        fit: &Fit,
+        ui: &UiFont,
+        cx: &mut Context<Self>,
+    ) -> Option<Stateful<Div>> {
+        let c = self.colors;
+        let agent = card.controller.as_ref()?;
+        let look = card::look(agent.status);
+        let (size, avatar, gap) = place.foot(ui);
+        let words = "reviewer";
+        let left = room
+            - avatar
+            - fit.normal(look.label, size)
+            - fit.normal(words, REVIEWER_SIZE)
+            - 4.0 * gap;
+        let short = card::elide(short_name(&agent.name), &|cut| {
+            fit.normal(cut, size) <= left
+        });
+        let name = agent.name.clone();
+        Some(
+            div()
+                .id(SharedString::from(format!("kanban-reviewer-{}", card.file)))
+                .flex()
+                .items_center()
+                .gap(px(gap))
+                .min_w(px(0.0))
+                .mx(ui.px(-4.0))
+                .px(ui.px(4.0))
+                .rounded(ui.px(5.0))
+                .text_color(c.muted)
+                .cursor_pointer()
+                .hover(move |style| style.bg(c.text.opacity(0.06)))
+                .child(self.avatar(agent, ui, avatar, ring))
+                .child(div().flex_shrink_0().text_color(c.bright).child(short))
+                .child(
+                    div()
+                        .flex_shrink_0()
+                        .text_color(hsla(self.theme.fg(look.color), 1.0))
+                        .child(look.label),
+                )
+                .child(div().flex_1())
+                .child(
+                    div()
+                        .flex_shrink_0()
+                        .text_size(ui.px(REVIEWER_SIZE))
+                        .text_color(c.dim)
+                        .child(words),
+                )
+                .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
+                    cx.stop_propagation();
+                    cx.emit(KanbanEvent::GoTo(name.clone()));
+                })),
+        )
     }
 
     /// A bar down a queued card's left edge, for high (red, as its High mark) or low (dim, as its
@@ -1250,150 +1540,253 @@ impl KanbanView {
             div()
                 .absolute()
                 .left(px(0.0))
-                .top(ui.px(7.0))
-                .bottom(ui.px(7.0))
+                .top(ui.px(9.0))
+                .bottom(ui.px(9.0))
                 .w(px(3.0))
                 .rounded_full()
                 .bg(color),
         )
     }
 
-    /// The id, for a card that has one.
+    /// The id, for a card that has one, on a small tag.
     fn id(&self, card: &Card, ui: &UiFont) -> Option<Div> {
         (!card.id.is_empty()).then(|| {
             div()
                 .flex_shrink_0()
+                .px(ui.px(6.0))
+                .rounded(ui.px(5.0))
+                .bg(self.colors.text.opacity(SOFT))
                 .font(self.mono.clone())
-                .text_size(ui.px(11.0))
+                .text_size(ui.px(ID_SIZE))
                 .text_color(self.colors.muted)
                 .child(card.id.clone())
         })
     }
 
-    /// The marks on a card: Draft, High or Low (medium is not marked), Dropped, a warning sign
-    /// that tells what in its task file could be read wrong, Needs you.
+    /// A warning sign beside the id that tells, when the mouse is on it, what in the card's task
+    /// file could be read wrong (P5-60a).
+    fn warning(&self, card: &Card, ui: &UiFont) -> Option<Stateful<Div>> {
+        if card.problems.is_empty() {
+            return None;
+        }
+        let said: Vec<String> = card.problems.iter().map(ToString::to_string).collect();
+        let note = Note::new(said.join("\n").into(), &self.theme, ui);
+        Some(
+            div()
+                .id(SharedString::from(format!("kanban-problems-{}", card.file)))
+                .flex_shrink_0()
+                .flex()
+                .items_center()
+                .child(footer_icon::icon(
+                    Icon::Warning,
+                    self.colors.yellow,
+                    ui.scale(12.0 / footer_icon::SIZE),
+                ))
+                .tooltip(move |_, cx| cx.new(|_| note.clone()).into()),
+        )
+    }
+
+    /// The marks under a card's title, each a pill: Draft, High or Low (medium is not marked),
+    /// what a queued card waits for, and Dropped, which tells why when the mouse is on it.
     fn marks(&self, card: &Card, ui: &UiFont) -> Vec<AnyElement> {
         let c = self.colors;
-        let quiet = |words: &'static str| {
-            div()
-                .flex_shrink_0()
-                .px(ui.px(5.0))
-                .rounded(px(4.0))
-                .border_1()
-                .border_color(c.rule)
-                .text_size(ui.px(10.5))
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(c.dim)
-                .child(words)
-        };
+        let quiet = || pill(ui).text_size(ui.px(11.0)).text_color(c.dim);
         let mut marks = Vec::new();
         if card.draft {
-            marks.push(quiet("Draft").into_any_element());
-        }
-        match card.priority {
-            Some(Priority::High) => marks.push(
-                quiet(Priority::High.label())
-                    .bg(c.red.opacity(0.12))
-                    .border_color(c.red.opacity(0.45))
-                    .text_color(c.red)
-                    .into_any_element(),
-            ),
-            Some(Priority::Low) => marks.push(quiet(Priority::Low.label()).into_any_element()),
-            _ => {}
-        }
-        if card.dropped.is_some() {
-            marks.push(quiet("Dropped").into_any_element());
-        }
-        if !card.problems.is_empty() {
-            let said: Vec<String> = card.problems.iter().map(ToString::to_string).collect();
-            let note = Note::new(said.join("\n").into(), &self.theme, ui);
             marks.push(
-                div()
-                    .id(SharedString::from(format!("kanban-problems-{}", card.file)))
-                    .flex_shrink_0()
-                    .flex()
-                    .items_center()
-                    .child(footer_icon::icon(
-                        Icon::Warning,
-                        c.yellow,
-                        ui.scale(12.0 / footer_icon::SIZE),
-                    ))
-                    .tooltip(move |_, cx| cx.new(|_| note.clone()).into())
+                quiet()
+                    .border_color(c.text.opacity(0.14))
+                    .child("Draft")
                     .into_any_element(),
             );
         }
-        if card.needs_you {
+        match card.priority {
+            Some(Priority::High) => marks.push(
+                quiet()
+                    .bg(c.red.opacity(0.14))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(c.red)
+                    .child(Priority::High.label())
+                    .into_any_element(),
+            ),
+            Some(Priority::Low) => marks.push(
+                quiet()
+                    .bg(c.text.opacity(SOFT))
+                    .child(Priority::Low.label())
+                    .into_any_element(),
+            ),
+            _ => {}
+        }
+        if card.column == Column::Queued
+            && let Some((words, _)) = &card.state
+        {
             marks.push(
-                self.needs_you("Needs you".into(), ui)
-                    .text_size(ui.px(10.5))
+                quiet()
+                    .gap(ui.px(4.0))
+                    .bg(c.text.opacity(SOFT))
+                    .text_color(c.muted)
+                    .child(svg().data(LINK).size(ui.px(10.0)).text_color(c.muted))
+                    .child(words.clone())
+                    .into_any_element(),
+            );
+        }
+        if let Some(why) = &card.dropped {
+            let note = Note::new(
+                if why.is_empty() {
+                    "Dropped".into()
+                } else {
+                    format!("Dropped: {why}").into()
+                },
+                &self.theme,
+                ui,
+            );
+            marks.push(
+                quiet()
+                    .id(SharedString::from(format!("kanban-dropped-{}", card.file)))
+                    .border_color(c.text.opacity(0.14))
+                    .child("Dropped")
+                    .tooltip(move |_, cx| cx.new(|_| note.clone()).into())
                     .into_any_element(),
             );
         }
         marks
     }
 
-    /// The mark of what needs the user, in the colour of an agent waiting on them.
-    fn needs_you(&self, words: String, ui: &UiFont) -> Div {
+    /// On a card that needs the user, a pale amber block: Needs you, then what its task file says
+    /// they are waited on for, on up to two lines and cut with `…`. One text, so GPUI wraps and
+    /// cuts it alone on its lines.
+    fn asks(&self, card: &Card, ui: &UiFont) -> Option<Div> {
+        if !card.needs_you {
+            return None;
+        }
         let c = self.colors;
-        div()
-            .flex_shrink_0()
-            .px(ui.px(6.0))
-            .rounded(px(4.0))
-            .bg(c.yellow.opacity(0.16))
-            .border_1()
-            .border_color(c.yellow.opacity(0.5))
-            .font_weight(FontWeight::SEMIBOLD)
-            .text_color(c.yellow)
-            .child(words)
-    }
-
-    /// What the task file says the user is waited on for, under the rest.
-    fn asks(&self, card: &Card) -> Option<Div> {
-        let asks = card.asks.as_ref().filter(|asks| !asks.is_empty())?;
+        let lead = "Needs you";
+        let text = match card
+            .asks
+            .as_deref()
+            .map(str::trim)
+            .filter(|a| !a.is_empty())
+        {
+            Some(asks) => format!("{lead}  {asks}"),
+            None => lead.to_owned(),
+        };
+        let bold = HighlightStyle {
+            color: Some(c.yellow),
+            font_weight: Some(FontWeight::SEMIBOLD),
+            ..HighlightStyle::default()
+        };
         Some(
             div()
-                .min_w(px(0.0))
-                .overflow_hidden()
-                .whitespace_nowrap()
+                .px(ui.px(9.0))
+                .py(ui.px(7.0))
+                .rounded(ui.px(7.0))
+                .bg(c.yellow.opacity(0.08))
+                .text_size(ui.px(12.0))
+                .line_height(relative(1.45))
+                .text_color(c.text)
+                .line_clamp(2)
                 .text_ellipsis()
-                .text_color(self.colors.muted)
-                .child(asks.clone()),
+                .child(StyledText::new(text).with_highlights([(0..lead.len(), bold)])),
         )
     }
 
-    /// The second line: the agent's kind and status, its name (in the list), the state, the
-    /// branch (in the list), and the lines added and deleted; `None` with nothing to say.
-    fn meta(&self, card: &Card, ui: &UiFont, tile: f32, full: bool) -> Option<Div> {
+    /// A card's agent line: the agent's kind and status, its name (in the list), the state, the
+    /// branch (in the list), the lines added and deleted, and while the mouse is on the card, its
+    /// age; the name and branch, or in a column the state, cut with `…` to the room left. `None`
+    /// with nothing to say.
+    #[allow(clippy::too_many_arguments)]
+    fn meta(
+        &self,
+        card: &Card,
+        place: Place,
+        hovered: bool,
+        room: f32,
+        ring: Hsla,
+        fit: &Fit,
+        ui: &UiFont,
+    ) -> Option<Div> {
         let c = self.colors;
         if card.agent.is_none() && card.state.is_none() && card.branch.is_none() {
             return None;
         }
+        let full = place == Place::List;
+        let (size, avatar, gap) = place.foot(ui);
+        let name = card
+            .agent
+            .as_ref()
+            .filter(|_| full)
+            .map(|agent| short_name(&agent.name));
+        let branch = card.branch.as_deref().filter(|_| full);
+        let (added, deleted) = card.lines.map(kanban::line_words).unwrap_or_default();
+        let age = (hovered && !card.age.is_empty()).then_some(card.age.as_str());
+        // What keeps its width, and the room between each two things on the line.
+        let mut fixed = 0.0;
+        let mut things = 1; // The room that pushes the rest to the right.
+        if card.agent.is_some() {
+            fixed += avatar;
+            things += 1;
+        }
+        let words = |text: &str, size: f32| fit.normal(text, size);
+        let lines = [&added, &deleted]
+            .into_iter()
+            .flatten()
+            .map(|l| words(l, size))
+            .collect::<Vec<_>>();
+        if !lines.is_empty() {
+            fixed += lines.iter().sum::<f32>() + (lines.len() - 1) as f32 * ui.scale(4.0);
+            things += 1;
+        }
+        if let Some(age) = age {
+            fixed += words(age, AGE_SIZE);
+            things += 1;
+        }
+        things += usize::from(name.is_some()) + usize::from(branch.is_some());
+        let state = card.state.as_ref().map(|(words, _)| words.as_str());
+        if state.is_some() {
+            things += 1;
+        }
+        let left = room - fixed - (things - 1) as f32 * gap;
+        let (state, name, branch) = if full {
+            // The name and branch give way; the state only once they are down to `…` each.
+            let floor = [name, branch]
+                .into_iter()
+                .flatten()
+                .map(|_| words("…", size))
+                .sum::<f32>();
+            let state = state.map(|s| card::elide(s, &|cut| words(cut, size) <= left - floor));
+            let pair = left - state.as_deref().map_or(0.0, |s| words(s, size));
+            let (name, branch) = share(
+                name.unwrap_or(""),
+                branch.unwrap_or(""),
+                pair,
+                &|text| words(text, size),
+                &|text| fit.mono(text, BRANCH_SIZE),
+            );
+            (
+                state,
+                Some(name).filter(|n| !n.is_empty()),
+                Some(branch).filter(|b| !b.is_empty()),
+            )
+        } else {
+            (
+                state.map(|s| card::elide(s, &|cut| words(cut, size) <= left)),
+                None,
+                None,
+            )
+        };
         let mut meta = div()
             .flex()
             .items_center()
-            .gap(ui.px(if full { 7.0 } else { 6.0 }))
+            .gap(px(gap))
             .min_w(px(0.0))
-            .whitespace_nowrap()
             .text_color(c.muted);
         if let Some(agent) = &card.agent {
-            meta = meta.child(self.avatar(agent, ui, tile));
-            if full {
-                let short = agent
-                    .name
-                    .split_once('/')
-                    .map_or(agent.name.as_str(), |(_, s)| s);
-                meta = meta.child(
-                    div()
-                        .flex_shrink(1.0)
-                        .min_w(px(0.0))
-                        .overflow_hidden()
-                        .text_ellipsis()
-                        .text_color(c.bright)
-                        .child(short.to_owned()),
-                );
-            }
+            meta = meta.child(self.avatar(agent, ui, avatar, ring));
         }
-        if let Some((words, tone)) = &card.state {
+        if let Some(name) = name {
+            meta = meta.child(div().flex_shrink_0().text_color(c.bright).child(name));
+        }
+        if let (Some(words), Some((_, tone))) = (state, &card.state) {
             let color = match tone {
                 Tone::Dim => c.dim,
                 Tone::Agent => card.agent.as_ref().map_or(c.muted, |a| {
@@ -1402,31 +1795,20 @@ impl KanbanView {
                 Tone::Review => c.yellow,
                 Tone::Merged => c.green,
             };
-            meta = meta.child(
-                div()
-                    .flex_shrink(1.0)
-                    .min_w(px(0.0))
-                    .overflow_hidden()
-                    .text_ellipsis()
-                    .text_color(color)
-                    .child(words.clone()),
-            );
-        }
-        if full && let Some(branch) = &card.branch {
-            meta = meta
-                .child(div().flex_shrink_0().text_color(c.faint).child("·"))
-                .child(
-                    div()
-                        .flex_shrink(1.0)
-                        .min_w(px(0.0))
-                        .overflow_hidden()
-                        .text_ellipsis()
-                        .child(format!("⎇ {branch}")),
-                );
+            meta = meta.child(div().flex_shrink_0().text_color(color).child(words));
         }
         meta = meta.child(div().flex_1());
-        if let Some(lines) = card.lines {
-            let (added, deleted) = kanban::line_words(lines);
+        if let Some(branch) = branch {
+            meta = meta.child(
+                div()
+                    .flex_shrink_0()
+                    .font(self.mono.clone())
+                    .text_size(ui.px(BRANCH_SIZE))
+                    .text_color(c.dim)
+                    .child(branch),
+            );
+        }
+        if !lines.is_empty() {
             meta = meta.child(
                 div()
                     .flex_shrink_0()
@@ -1436,13 +1818,22 @@ impl KanbanView {
                     .children(deleted.map(|deleted| div().text_color(c.red).child(deleted))),
             );
         }
+        if let Some(age) = age {
+            meta = meta.child(
+                div()
+                    .flex_shrink_0()
+                    .text_size(ui.px(AGE_SIZE))
+                    .text_color(c.dim)
+                    .child(age.to_owned()),
+            );
+        }
         Some(meta)
     }
 
     /// The agent's kind on a square tinted in its colour, its status on the corner: an arc
     /// turning while it works, as on the left sidebar's cards, otherwise a dot in the status's
-    /// colour.
-    fn avatar(&self, agent: &Seen, ui: &UiFont, size: f32) -> Div {
+    /// colour; `ring` round either, the ground under the avatar. `size` in pixels.
+    fn avatar(&self, agent: &Seen, ui: &UiFont, size: f32, ring: Hsla) -> Div {
         let brand = agent.kind.as_deref().map(card::brand);
         let color = hsla(
             self.theme
@@ -1450,30 +1841,24 @@ impl KanbanView {
             1.0,
         );
         let mark = match agent.kind.as_deref().and_then(kind_icon::of) {
-            Some(icon) => icon.render(ui.px(size * 0.6), color).into_any_element(),
+            Some(icon) => icon.render(px(size * 0.6), color).into_any_element(),
             None => div()
-                .text_size(ui.px(size * 0.6))
+                .text_size(px(size * 0.6))
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(color)
-                .child(crate::sidebar::initial(
-                    agent
-                        .name
-                        .split_once('/')
-                        .map_or(agent.name.as_str(), |(_, s)| s),
-                ))
+                .child(crate::sidebar::initial(short_name(&agent.name)))
                 .into_any_element(),
         };
         let status = hsla(self.theme.fg(card::look(agent.status).color), 1.0);
-        let ground = self.colors.ground;
         let badge: AnyElement = if agent.status == Status::Working {
-            let spin = ui.px(size * 0.5);
+            let spin = px(size * 0.5);
             div()
                 .absolute()
                 .right(ui.px(-3.0))
                 .bottom(ui.px(-3.0))
                 .size(spin)
                 .rounded_full()
-                .bg(ground)
+                .bg(ring)
                 .child(
                     svg()
                         .data(SPIN_TRACK)
@@ -1504,23 +1889,23 @@ impl KanbanView {
                 .absolute()
                 .right(ui.px(-2.0 - 2.0))
                 .bottom(ui.px(-2.0 - 2.0))
-                .size(ui.px(dot + 4.0))
+                .size(px(dot) + ui.px(4.0))
                 .flex()
                 .items_center()
                 .justify_center()
                 .rounded_full()
-                .bg(ground)
-                .child(div().size(ui.px(dot)).rounded_full().bg(status))
+                .bg(ring)
+                .child(div().size(px(dot)).rounded_full().bg(status))
                 .into_any_element()
         };
         div()
             .relative()
             .flex_shrink_0()
-            .size(ui.px(size))
+            .size(px(size))
             .flex()
             .items_center()
             .justify_center()
-            .rounded(ui.px(size * 0.28))
+            .rounded(px(size * 0.28))
             .bg(color.opacity(0.14))
             .child(mark)
             .child(badge)
@@ -1652,21 +2037,6 @@ impl KanbanView {
             Some(Clearing::Running | Clearing::Done)
         );
         card.priority.is_some() && !busy
-    }
-
-    /// How far the buttons over `card` reach into the first two lines of a card in the narrow list,
-    /// from its right padding: the bar, its border, and its own room from the card's edge.
-    fn bar_reach(&self, card: &Card, ui: &UiFont) -> Pixels {
-        let buttons = 1.0
-            + card
-                .agent
-                .as_ref()
-                .map_or(0.0, |agent| if agent.controller { 1.0 } else { 2.0 })
-            + if self.offers_clear(card) { 1.0 } else { 0.0 }
-            + if self.offers_priority(card) { 1.0 } else { 0.0 }
-            + if card.editing().is_some() { 1.0 } else { 0.0 };
-        let bar = buttons * BAR_BUTTON + (buttons - 1.0) * BAR_GAP + 2.0 * BAR_PAD;
-        ui.px(bar + BAR_RIGHT - ROW_RIGHT) + px(2.0)
     }
 
     /// Under a card being cleared: the question with Cancel and Clear, then that it is clearing,
@@ -3071,20 +3441,11 @@ fn take_back(acts: &mut HashMap<String, Clearing>, file: &str) -> bool {
     shown
 }
 
-/// `line` with `room` on its right, if no line before it took it.
-fn keep_clear<E: Styled>(line: E, room: &mut Option<Pixels>) -> E {
-    match room.take() {
-        Some(room) => line.pr(room),
-        None => line,
-    }
-}
-
-/// How faded a card is: a draft most, DONE less, one that needs the user not at all.
+/// How faded a card is: DONE some, one that needs the user not at all. A draft is told by its
+/// fainter, dashed card instead.
 fn fade(card: &Card) -> f32 {
     if card.needs_you {
         1.0
-    } else if card.draft {
-        0.55
     } else if card.column == Column::Done {
         0.62
     } else {
@@ -3177,9 +3538,74 @@ fn confirming(clears: &HashMap<String, Clearing>, active: bool, files: &HashSet<
             .any(|(file, clearing)| *clearing == Clearing::Asking && files.contains(file.as_str()))
 }
 
+/// How many cards need the user, as the top says it.
+fn need_you_words(n: usize) -> String {
+    if n == 1 {
+        format!("{n} needs you")
+    } else {
+        format!("{n} need you")
+    }
+}
+
+/// A name and a branch sharing `room` on one line, as `name` and `branch` measure them: whole when
+/// both fit; otherwise the branch is cut with `…` first, down to its share of the room, then the
+/// name.
+fn share(
+    name: &str,
+    branch: &str,
+    room: f32,
+    name_width: &dyn Fn(&str) -> f32,
+    branch_width: &dyn Fn(&str) -> f32,
+) -> (String, String) {
+    let (whole, long) = (name_width(name), branch_width(branch));
+    if whole + long <= room {
+        return (name.to_owned(), branch.to_owned());
+    }
+    let branch_room = (room - whole).max(long.min(room * BRANCH_SHARE));
+    let branch = card::elide(branch, &|cut| branch_width(cut) <= branch_room);
+    let left = room - branch_width(&branch);
+    (card::elide(name, &|cut| name_width(cut) <= left), branch)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn one_needs_you_and_more_need_you() {
+        assert_eq!(need_you_words(1), "1 needs you");
+        assert_eq!(need_you_words(2), "2 need you");
+        assert_eq!(need_you_words(12), "12 need you");
+    }
+
+    #[test]
+    fn a_name_and_branch_too_long_together_are_cut_with_an_ellipsis() {
+        let width = |text: &str| text.chars().count() as f32;
+        let (name, branch) = ("dev-kanbancards", "p5-71-kanban-cards");
+        // Both fit: whole.
+        assert_eq!(
+            share(name, branch, 40.0, &width, &width),
+            (name.to_owned(), branch.to_owned())
+        );
+        // The branch gives way first, the name stays whole.
+        let (n, b) = share(name, branch, 28.0, &width, &width);
+        assert_eq!(n, name);
+        assert_eq!(b, "p5-71-kanban…");
+        assert!(width(&n) + width(&b) <= 28.0);
+        // Then the name too, once the branch is down to its share.
+        let (n, b) = share(name, branch, 16.0, &width, &width);
+        assert!(n.ends_with('…') && b.ends_with('…'), "{n:?} {b:?}");
+        assert!(width(&n) + width(&b) <= 16.0, "{n:?} {b:?}");
+        // Never `..`, and nothing at all left: just the ellipsis.
+        let (n, b) = share(name, branch, 2.0, &width, &width);
+        assert!(!n.contains("..") && !b.contains(".."));
+        assert_eq!((n.as_str(), b.as_str()), ("…", "…"));
+        // No branch: the name has the room.
+        assert_eq!(
+            share(name, "", 10.0, &width, &width),
+            ("dev-kanba…".to_owned(), String::new())
+        );
+    }
 
     #[test]
     fn a_question_about_a_card_the_board_no_longer_has_is_not_up() {
