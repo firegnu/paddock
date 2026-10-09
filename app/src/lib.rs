@@ -35,6 +35,7 @@ pub mod kind_icon;
 pub mod launch;
 pub mod layout;
 pub mod layout_state;
+pub mod markdown;
 pub mod menu;
 pub mod motion;
 pub mod new_agent;

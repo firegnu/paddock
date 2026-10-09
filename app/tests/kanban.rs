@@ -488,7 +488,7 @@ fn drafts_dropped_tasks_and_tasks_waiting_on_the_user() {
 
 #[test]
 fn a_new_draft_is_written_once_and_never_over_a_taken_id() {
-    use paddock::kanban::{Place, Refused, create_draft, next_id, taken};
+    use paddock::kanban::{BODY, Fields, Place, Priority, Refused, create_draft, next_id, taken};
     let temp = common::tempdir();
     let repo = temp.path().join("repo");
     fs::create_dir_all(&repo).unwrap();
@@ -525,7 +525,15 @@ fn a_new_draft_is_written_once_and_never_over_a_taken_id() {
         Some("P5-4")
     );
 
-    let create = |id: &str, title: &str| create_draft("git", &repo, id, title, &cancel);
+    let create = |id: &str, title: &str| {
+        let fields = Fields {
+            title: title.into(),
+            depends: Some("P5-1".into()),
+            priority: Priority::High,
+            body: BODY.into(),
+        };
+        create_draft("git", &repo, id, &fields, "2026-10-09", &cancel)
+    };
     let refused = |id: &str, title: &str| create(id, title).unwrap_err().to_string();
     assert_eq!(refused("P5-1", "x"), "P5-1 is already on main");
     assert_eq!(refused("P5-2", "x"), "P5-2 is already on p5-2");
@@ -548,13 +556,12 @@ fn a_new_draft_is_written_once_and_never_over_a_taken_id() {
     };
     assert_eq!(listed(), ["P5-1-在main.md", "P5-3-草稿.md"]);
 
-    // Written: the title line and an empty 「用户原话」, the name made safe, nothing staged.
+    // Written: the head paddock writes and the body, the name made safe, nothing staged.
+    let written = "# 任务：Kanban: 新建/草稿\n\n2026-10-09，用户在看板上新建。\n依赖：P5-1\n\
+                   优先：高\n\n## 用户原话\n\n## 要做的\n\n## 怎么算做完\n";
     let path = create(" P5-4 ", " Kanban: 新建/草稿 ").unwrap();
     assert_eq!(path, tasks.join("P5-4-Kanban-新建-草稿.md"));
-    assert_eq!(
-        fs::read_to_string(&path).unwrap(),
-        "# 任务：Kanban: 新建/草稿\n\n## 用户原话\n"
-    );
+    assert_eq!(fs::read_to_string(&path).unwrap(), written);
     let status = Command::new("git")
         .args(["status", "--porcelain", "--untracked-files=all"])
         .current_dir(&repo)
@@ -570,15 +577,12 @@ fn a_new_draft_is_written_once_and_never_over_a_taken_id() {
         refused("P5-4", "again"),
         "P5-4 is already in the main worktree"
     );
-    assert_eq!(
-        fs::read_to_string(&path).unwrap(),
-        "# 任务：Kanban: 新建/草稿\n\n## 用户原话\n"
-    );
+    assert_eq!(fs::read_to_string(&path).unwrap(), written);
 }
 
 #[test]
 fn a_new_draft_makes_the_missing_task_folder_but_never_over_a_file() {
-    use paddock::kanban::{create_draft, next_id, taken};
+    use paddock::kanban::{BODY, Fields, create_draft, next_id, taken};
     let temp = common::tempdir();
     let cancel = AtomicBool::new(false);
     let status = |dir: &Path| {
@@ -590,6 +594,14 @@ fn a_new_draft_makes_the_missing_task_folder_but_never_over_a_file() {
             .unwrap();
         String::from_utf8(out.stdout).unwrap()
     };
+    let create = |repo: &Path, title: &str| {
+        let fields = Fields {
+            title: title.into(),
+            body: BODY.into(),
+            ..Fields::default()
+        };
+        create_draft("git", repo, "P1-1", &fields, "2026-10-09", &cancel)
+    };
 
     // No docs/ at all: no id to offer, and the folders are made for the draft.
     let repo = temp.path().join("bare");
@@ -599,11 +611,13 @@ fn a_new_draft_makes_the_missing_task_folder_but_never_over_a_file() {
     let ids = taken("git", &repo, &cancel).unwrap();
     assert!(ids.is_empty());
     assert_eq!(next_id(ids.keys().map(String::as_str)), None);
-    let path = create_draft("git", &repo, "P1-1", "第一件", &cancel).unwrap();
+    let path = create(&repo, "第一件").unwrap();
     assert_eq!(path, repo.join("docs/任务/P1-1-第一件.md"));
+    // Waiting for nothing, medium: neither line.
     assert_eq!(
         fs::read_to_string(&path).unwrap(),
-        "# 任务：第一件\n\n## 用户原话\n"
+        "# 任务：第一件\n\n2026-10-09，用户在看板上新建。\n\n## 用户原话\n\n## 要做的\n\n\
+         ## 怎么算做完\n"
     );
     assert_eq!(status(&repo), "?? docs/任务/P1-1-第一件.md\n");
     // The draft alone makes a board now.
@@ -617,7 +631,7 @@ fn a_new_draft_makes_the_missing_task_folder_but_never_over_a_file() {
     fs::create_dir_all(&repo).unwrap();
     git(&repo, &["init", "-q", "-b", "main"]);
     commit(&repo, "docs/任务", "不是目录\n", "start");
-    let refused = create_draft("git", &repo, "P1-1", "x", &cancel).unwrap_err();
+    let refused = create(&repo, "x").unwrap_err();
     assert_eq!(refused.to_string(), "docs/任务 is a file, not a folder");
     assert_eq!(
         fs::read_to_string(repo.join("docs/任务")).unwrap(),
@@ -630,7 +644,7 @@ fn a_new_draft_makes_the_missing_task_folder_but_never_over_a_file() {
     fs::create_dir_all(&repo).unwrap();
     git(&repo, &["init", "-q", "-b", "main"]);
     commit(&repo, "docs", "x\n", "start");
-    let refused = create_draft("git", &repo, "P1-1", "x", &cancel).unwrap_err();
+    let refused = create(&repo, "x").unwrap_err();
     assert_eq!(refused.to_string(), "docs is a file, not a folder");
     assert_eq!(fs::read_to_string(repo.join("docs")).unwrap(), "x\n");
 }
@@ -1013,4 +1027,231 @@ fn a_drafts_priority_is_written_and_not_committed() {
     // A draft no longer there: refused, nothing written.
     assert!(set_draft_priority(&repo, "P1-3-没有.md", Priority::High).is_err());
     assert!(!repo.join("docs/任务/P1-3-没有.md").exists());
+}
+
+/// A committed task file as the controller writes them, with the lines an edit never touches.
+const EDITED: &str = "docs/任务/P1-5-要改的.md";
+const WRITTEN: &str = "# 任务：旧标题\n\n2026-10-09，paddock/main 交给 paddock/dev-x。\n\
+                       依据：\n- 用户 10-09：“原话”\n依赖：P1-0\n待用户：实测 hover\n执行：主控\n\n\
+                       ## 用户原话\n原话\n\n## 要做的\n- a  \n";
+
+fn editing_repo(root: &Path, name: &str) -> std::path::PathBuf {
+    let (repo, _) = waiting_repo(root, name);
+    commit(&repo, EDITED, WRITTEN, "任务文件");
+    repo
+}
+
+#[test]
+fn saving_an_edit_writes_its_lines_and_commits_that_file_alone() {
+    use paddock::kanban::{Fields, Priority, editable, save_task};
+    let temp = common::tempdir();
+    let repo = editing_repo(temp.path(), "repo");
+    let cancel = AtomicBool::new(false);
+    fs::write(repo.join("staged.txt"), "s\n").unwrap();
+    git(&repo, &["add", "staged.txt"]);
+    fs::write(repo.join("notes.txt"), "a\nb\n").unwrap();
+    let opened = fs::read_to_string(repo.join(EDITED)).unwrap();
+    let fields = Fields {
+        title: "新标题".into(),
+        depends: None,
+        priority: Priority::High,
+        body: "## 用户原话\n新的原话\n".into(),
+    };
+    let head = said(&repo, &["rev-parse", "HEAD"]);
+    assert_eq!(
+        save_task("git", &repo, "P1-5-要改的.md", &opened, &fields, &cancel),
+        Ok(())
+    );
+    // Its title, 依赖： and 优先： lines and its body; the date, 依据, 待用户： and 执行： as they were.
+    let saved = "# 任务：新标题\n\n2026-10-09，paddock/main 交给 paddock/dev-x。\n\
+                 依据：\n- 用户 10-09：“原话”\n待用户：实测 hover\n执行：主控\n优先：高\n\n\
+                 ## 用户原话\n新的原话\n";
+    assert_eq!(fs::read_to_string(repo.join(EDITED)).unwrap(), saved);
+    assert_eq!(said(&repo, &["rev-parse", "HEAD~1"]), head);
+    let stored = said(&repo, &["cat-file", "commit", "HEAD"]);
+    assert_eq!(stored.split_once("\n\n").unwrap().1, "P1-5：编辑任务文件\n");
+    assert_eq!(
+        said(&repo, &["show", "--name-only", "--format=", "HEAD"]),
+        format!("{EDITED}\n")
+    );
+    assert_eq!(
+        said(&repo, &["diff", "--cached", "--name-only"]),
+        "staged.txt\n"
+    );
+    assert_eq!(said(&repo, &["diff", "--name-only"]), "notes.txt\n");
+    assert_eq!(said(&repo, &["remote"]), "");
+    // The board reads it as saved.
+    let Read::Board(facts) = read("git", repo.to_str().unwrap(), &cache(), &cancel) else {
+        panic!("not a board");
+    };
+    let task = facts.tasks.iter().find(|t| t.id == "P1-5").unwrap();
+    assert_eq!(
+        (task.title.as_str(), task.depends.as_deref(), task.priority),
+        ("新标题", None, Priority::High)
+    );
+    // Saved again as it is: nothing committed.
+    let after = said(&repo, &["rev-parse", "HEAD"]);
+    let fields = editable(saved).unwrap();
+    assert_eq!(
+        save_task("git", &repo, "P1-5-要改的.md", saved, &fields, &cancel),
+        Ok(())
+    );
+    assert_eq!(said(&repo, &["rev-parse", "HEAD"]), after);
+}
+
+#[test]
+fn saving_an_edit_is_refused_with_nothing_changed() {
+    use paddock::kanban::{NotChanged, Priority, editable, save_task};
+    let temp = common::tempdir();
+    let cancel = AtomicBool::new(false);
+    let mut fields = editable(WRITTEN).unwrap();
+    fields.priority = Priority::Low;
+    let save = |repo: &Path, file: &str, opened: &str| {
+        save_task("git", repo, file, opened, &fields, &cancel)
+    };
+    let file = "P1-5-要改的.md";
+    let unchanged = |repo: &Path, text: &str, head: &str| {
+        assert_eq!(fs::read_to_string(repo.join(EDITED)).unwrap(), text);
+        assert_eq!(said(repo, &["rev-parse", "HEAD"]), head);
+    };
+
+    // Not on main.
+    let repo = editing_repo(temp.path(), "branch");
+    git(&repo, &["checkout", "-q", "-b", "other"]);
+    let head = said(&repo, &["rev-parse", "HEAD"]);
+    assert_eq!(
+        save(&repo, file, WRITTEN),
+        Err(NotChanged::NotMain(Some("other".into())))
+    );
+    unchanged(&repo, WRITTEN, &head);
+
+    // The task file has changes not committed.
+    let repo = editing_repo(temp.path(), "changed");
+    let edited = format!("{WRITTEN}多一行\n");
+    fs::write(repo.join(EDITED), &edited).unwrap();
+    let head = said(&repo, &["rev-parse", "HEAD"]);
+    assert_eq!(
+        save(&repo, file, WRITTEN),
+        Err(NotChanged::Changed(EDITED.into()))
+    );
+    unchanged(&repo, &edited, &head);
+
+    // Committed again after it was opened: what was committed stays.
+    let repo = editing_repo(temp.path(), "stale");
+    let newer = WRITTEN.replace("- a  \n", "- a  \n- 主控补的\n");
+    commit(&repo, EDITED, &newer, "主控补了一条");
+    let head = said(&repo, &["rev-parse", "HEAD"]);
+    assert_eq!(
+        save(&repo, file, WRITTEN),
+        Err(NotChanged::Stale(EDITED.into()))
+    );
+    assert_eq!(
+        save(&repo, file, WRITTEN).unwrap_err().to_string(),
+        format!("{EDITED} changed after it was opened here")
+    );
+    unchanged(&repo, &newer, &head);
+
+    // Not on main at all: a draft is not committed this way.
+    let repo = editing_repo(temp.path(), "draft");
+    let draft = "docs/任务/P1-2-草稿.md";
+    fs::write(repo.join(draft), WRITTEN).unwrap();
+    let head = said(&repo, &["rev-parse", "HEAD"]);
+    assert_eq!(
+        save(&repo, "P1-2-草稿.md", WRITTEN),
+        Err(NotChanged::NotOnMain(draft.into()))
+    );
+    assert_eq!(fs::read_to_string(repo.join(draft)).unwrap(), WRITTEN);
+    assert_eq!(said(&repo, &["rev-parse", "HEAD"]), head);
+}
+
+#[test]
+fn saving_a_drafts_edit_writes_it_and_commits_nothing() {
+    use paddock::kanban::{NotChanged, Priority, editable, save_draft};
+    let temp = common::tempdir();
+    let (repo, _) = waiting_repo(temp.path(), "repo");
+    let draft = "docs/任务/P1-2-草稿.md";
+    fs::write(repo.join(draft), WRITTEN).unwrap();
+    let head = said(&repo, &["rev-parse", "HEAD"]);
+    let mut fields = editable(WRITTEN).unwrap();
+    fields.depends = Some("P1-1".into());
+    fields.priority = Priority::Low;
+    assert_eq!(save_draft(&repo, "P1-2-草稿.md", WRITTEN, &fields), Ok(()));
+    let saved = WRITTEN
+        .replace("依赖：P1-0", "依赖：P1-1")
+        .replace("执行：主控\n", "执行：主控\n优先：低\n");
+    assert_eq!(fs::read_to_string(repo.join(draft)).unwrap(), saved);
+    assert_eq!(said(&repo, &["rev-parse", "HEAD"]), head);
+    assert_eq!(said(&repo, &["diff", "--cached", "--name-only"]), "");
+    assert_eq!(
+        said(&repo, &["status", "--porcelain", "--", draft]),
+        format!("?? {draft}\n")
+    );
+    // Changed on disk after it was opened: left as it is.
+    assert_eq!(
+        save_draft(&repo, "P1-2-草稿.md", WRITTEN, &fields),
+        Err(NotChanged::Stale(draft.into()))
+    );
+    assert_eq!(fs::read_to_string(repo.join(draft)).unwrap(), saved);
+    // No longer there: refused, nothing written.
+    assert!(save_draft(&repo, "P1-3-没有.md", WRITTEN, &fields).is_err());
+    assert!(!repo.join("docs/任务/P1-3-没有.md").exists());
+}
+
+#[test]
+fn queued_cards_edit_in_the_dialog_unless_their_title_cannot_be_read() {
+    use paddock::kanban::Editing;
+    let temp = common::tempdir();
+    let root = temp.path();
+    let repo = root.join("repo");
+    fs::create_dir_all(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    commit(&repo, "README.md", "x\n", "start");
+    for (file, text) in [
+        ("P5-1-排队.md", task("排队的活", root, "p5-1", None)),
+        ("P5-2-老格式.md", "# P5-2 老格式\n\n## 要做的\n".to_owned()),
+        ("P5-3-在做.md", task("在做的活", root, "p5-3", None)),
+        ("P5-4-已收尾.md", task("已收尾的活", root, "p5-4", None)),
+    ] {
+        commit(&repo, &format!("docs/任务/{file}"), &text, "任务文件");
+    }
+    git(
+        &repo,
+        &["commit", "-q", "--allow-empty", "-m", "收尾: P5-4 x"],
+    );
+    git(
+        &repo,
+        &[
+            "worktree",
+            "add",
+            "-q",
+            "-b",
+            "p5-3",
+            root.join("p5-3").to_str().unwrap(),
+        ],
+    );
+    fs::write(repo.join("docs/任务/P5-5-草稿.md"), "# 任务：草稿\n").unwrap();
+    fs::write(repo.join("docs/任务/P5-6-草稿.md"), "草稿没有标题\n").unwrap();
+    let Read::Board(facts) = read(
+        "git",
+        repo.to_str().unwrap(),
+        &cache(),
+        &AtomicBool::new(false),
+    ) else {
+        panic!("not a board");
+    };
+    let board = board(&facts, &[], 2_000_000_000.0);
+    let editing = |id: &str| {
+        Column::ALL
+            .iter()
+            .flat_map(|c| board.cards(*c))
+            .find(|c| c.id == id)
+            .unwrap()
+            .editing()
+    };
+    assert_eq!(editing("P5-1"), Some(Editing::Dialog));
+    assert_eq!(editing("P5-2"), Some(Editing::Editor));
+    assert_eq!(editing("P5-3"), None);
+    assert_eq!(editing("P5-4"), None);
+    assert_eq!(editing("P5-5"), Some(Editing::Dialog));
+    assert_eq!(editing("P5-6"), Some(Editing::Editor));
 }

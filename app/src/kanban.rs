@@ -2,10 +2,12 @@
 //! repository's main is a card, and where it stands is read from Git and corral, never stored
 //! (DESIGN §13 P5-29). Git is read in the background with read-only commands (`read`); the agents
 //! come from the left sidebar's listing (`Seen`); `board` puts the two together. Nothing here
-//! acts on an agent. Three things write: a new draft (`create_draft`), never over a file that is
+//! acts on an agent. Four things write: a new draft (`create_draft`), never over a file that is
 //! there; taking a `待用户：` line out of a task file on main with a commit of that file alone
-//! (`clear_asks`); and a task's `优先：` line, committed the same way (`set_priority`) or, in a
-//! draft, only written (`set_draft_priority`).
+//! (`clear_asks`); a task's `优先：` line, committed the same way (`set_priority`) or, in a draft,
+//! only written (`set_draft_priority`); and the task dialog's edit of a queued task file, its head's
+//! own lines and its body, committed the same way (`save_task`) or, in a draft, only written
+//! (`save_draft`).
 use crate::{agents::Status, card, git};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -234,16 +236,9 @@ fn read_text(text: &str) -> Text {
             continue;
         }
         if out.depends.is_none()
-            && let Some(rest) = line
-                .strip_prefix("依赖：")
-                .or_else(|| line.strip_prefix("依赖:"))
+            && let Some(depends) = depends_value(line)
         {
-            let token: String = rest
-                .trim()
-                .chars()
-                .take_while(|c| c.is_ascii_alphanumeric() || *c == '-')
-                .collect();
-            out.depends = task_id(token.trim_end_matches('-'));
+            out.depends = depends;
             continue;
         }
         // Only at the head, before any section: a record that quotes the line does not count.
@@ -304,6 +299,19 @@ fn read_text(text: &str) -> Text {
         }
     }
     out
+}
+
+/// The task a `依赖：` line names, for a line that is one: the id it starts with, if any.
+fn depends_value(line: &str) -> Option<Option<String>> {
+    let rest = line
+        .strip_prefix("依赖：")
+        .or_else(|| line.strip_prefix("依赖:"))?;
+    let token: String = rest
+        .trim()
+        .chars()
+        .take_while(|c| c.is_ascii_alphanumeric() || *c == '-')
+        .collect();
+    Some(task_id(token.trim_end_matches('-')))
 }
 
 /// What a `优先：` line says, for a line that is one.
@@ -930,10 +938,61 @@ pub fn draft_file(id: &str, title: &str) -> String {
     }
 }
 
-/// What a new draft holds: its title line and an empty 「用户原话」, the rest left to the task's
-/// author.
-pub fn draft_text(title: &str) -> String {
-    format!("# 任务：{title}\n\n## 用户原话\n")
+/// What the task dialog asks for: the lines paddock writes at the head of a task file, and the
+/// body under them.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Fields {
+    pub title: String,
+    /// The task this one waits for: its `依赖：` line.
+    pub depends: Option<String>,
+    /// Its `优先：` line, none for medium.
+    pub priority: Priority,
+    /// From the first section (`## `) to the end of the file.
+    pub body: String,
+}
+
+/// The body a new task starts with: the sections every task file has.
+pub const BODY: &str = "## 用户原话\n\n## 要做的\n\n## 怎么算做完\n";
+
+/// A new task file's head: its title line, the day it was made (`date`, `YYYY-MM-DD`), and the
+/// `依赖：` and `优先：` lines when there is something to say.
+pub fn new_head(fields: &Fields, date: &str) -> String {
+    let mut head = format!(
+        "# 任务：{}\n\n{date}，用户在看板上新建。\n",
+        one_line(&fields.title)
+    );
+    if let Some(depends) = &fields.depends {
+        head.push_str(&format!("依赖：{depends}\n"));
+    }
+    if let Some(line) = priority_line(fields.priority) {
+        head.push_str(&format!("{line}\n"));
+    }
+    head
+}
+
+/// What a new draft holds: its head, a blank line, and the body.
+pub fn draft_text(fields: &Fields, date: &str) -> String {
+    let head = new_head(fields, date);
+    match body_text(&fields.body, "\n") {
+        body if body.is_empty() => head,
+        body => format!("{head}\n{body}"),
+    }
+}
+
+/// A body as written into a file whose lines end with `eol`, ending with one unless empty.
+fn body_text(body: &str, eol: &str) -> String {
+    if body.is_empty() {
+        return String::new();
+    }
+    let mut body = body.replace("\r\n", "\n");
+    if !body.ends_with('\n') {
+        body.push('\n');
+    }
+    if eol == "\n" {
+        body
+    } else {
+        body.replace('\n', eol)
+    }
 }
 
 /// Why a draft was not created.
@@ -966,25 +1025,22 @@ impl std::fmt::Display for Refused {
     }
 }
 
-/// Writes a new task file for `id` and `title` in the main worktree `repo`'s `docs/任务/`, holding
-/// only [`draft_text`]: not added to Git, and never over a file that is there. Refused for an id
-/// [`task_id`] would not read whole, an empty title, or an id that a task file has on any local
-/// branch or in the main worktree. The folders of `docs/任务` that are missing are made first; a
-/// file in their place is refused. The new file's path.
+/// Writes a new task file for `id` and `fields` in the main worktree `repo`'s `docs/任务/`, as
+/// [`draft_text`] has it on `date`: not added to Git, and never over a file that is there. Refused
+/// for an id [`task_id`] would not read whole, an empty title, or an id that a task file has on any
+/// local branch or in the main worktree. The folders of `docs/任务` that are missing are made
+/// first; a file in their place is refused. The new file's path.
 pub fn create_draft(
     program: &str,
     repo: &Path,
     id: &str,
-    title: &str,
+    fields: &Fields,
+    date: &str,
     cancel: &AtomicBool,
 ) -> Result<PathBuf, Refused> {
     use std::io::Write;
     let id = id.trim();
-    let title: String = title
-        .chars()
-        .map(|c| if c.is_control() { ' ' } else { c })
-        .collect();
-    let title = title.trim();
+    let title = one_line(&fields.title);
     if task_id(id).as_deref() != Some(id) {
         return Err(Refused::BadId);
     }
@@ -1008,7 +1064,7 @@ pub fn create_draft(
             Err(_) => std::fs::create_dir(&dir).map_err(|e| Refused::Write(e.to_string()))?,
         }
     }
-    let file = draft_file(id, title);
+    let file = draft_file(id, &title);
     let path = repo.join(TASKS).join(&file);
     let mut out = std::fs::OpenOptions::new()
         .write(true)
@@ -1018,9 +1074,136 @@ pub fn create_draft(
             std::io::ErrorKind::AlreadyExists => Refused::Exists(format!("{TASKS}/{file}")),
             _ => Refused::Write(e.to_string()),
         })?;
-    out.write_all(draft_text(title).as_bytes())
+    out.write_all(draft_text(fields, date).as_bytes())
         .map_err(|e| Refused::Write(e.to_string()))?;
     Ok(path)
+}
+
+/// A title as one line: control characters made spaces, and trimmed.
+fn one_line(title: &str) -> String {
+    let title: String = title
+        .chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect();
+    title.trim().to_owned()
+}
+
+/// A task file as the task dialog edits it: its title, the `依赖：` and `优先：` lines at its head,
+/// and its body from the first section on. `None` when its first line is not `# 任务：<title>`.
+pub fn editable(text: &str) -> Option<Fields> {
+    let read = read_text(text);
+    if read.problems.contains(&Problem::Title) {
+        return None;
+    }
+    Some(Fields {
+        title: read.title.unwrap_or_default(),
+        depends: head_depends(text),
+        priority: read.priority,
+        body: text[head(text).len()..].replace("\r\n", "\n"),
+    })
+}
+
+/// The task the first `依赖：` line at the head of `text` names.
+fn head_depends(text: &str) -> Option<String> {
+    head(text)
+        .lines()
+        .filter_map(|line| depends_value(line.trim_end()))
+        .flatten()
+        .next()
+}
+
+/// `text` with `fields` written in: its title line, the `依赖：` and `优先：` lines at its head,
+/// and its body; the rest of the head as it was. The title and `依赖：` lines are written only
+/// when they say something else; the `优先：` lines as [`with_priority`] writes them. For a text
+/// [`editable`] reads.
+pub fn edited(text: &str, fields: &Fields) -> String {
+    let eol = if text.contains("\r\n") { "\r\n" } else { "\n" };
+    let mut out = text.to_owned();
+    let title = one_line(&fields.title);
+    if read_text(text).title.as_deref() != Some(title.as_str()) {
+        let end = out.find('\n').map_or(out.len(), |at| at + 1);
+        let ending = out[out[..end].trim_end_matches(['\r', '\n']).len()..end].to_owned();
+        out = format!("# 任务：{title}{ending}{}", &out[end..]);
+    }
+    if head_depends(&out) != fields.depends {
+        let written = fields.depends.as_ref().map(|id| format!("依赖：{id}"));
+        out = with_head_line(&out, |line| depends_value(line).is_some(), written);
+    }
+    out = with_priority(&out, fields.priority);
+    let body = body_text(&fields.body, eol);
+    let mut head = head(&out).to_owned();
+    // No section before: the body goes after a blank line.
+    if head.len() == out.len() && !body.is_empty() {
+        if !head.ends_with('\n') {
+            head.push_str(eol);
+        }
+        if !head.ends_with(&format!("{eol}{eol}")) {
+            head.push_str(eol);
+        }
+    }
+    head + &body
+}
+
+/// A task file's head: up to its first section.
+pub fn head(text: &str) -> &str {
+    let mut at = 0;
+    for raw in text.split_inclusive('\n') {
+        if raw.trim_end().starts_with("## ") {
+            break;
+        }
+        at += raw.len();
+    }
+    &text[..at]
+}
+
+/// Saves the task dialog's `fields` to a committed task: in the main worktree `repo`, on main,
+/// writes the task file `file` as [`edited`] makes it and commits that file alone (`<id>：编辑任务
+/// 文件`), as [`commit_task_file`] does. Refused when the file is no longer the `opened` text; nothing
+/// is committed when nothing changes.
+pub fn save_task(
+    program: &str,
+    repo: &Path,
+    file: &str,
+    opened: &str,
+    fields: &Fields,
+    cancel: &AtomicBool,
+) -> Result<(), NotChanged> {
+    if one_line(&fields.title).is_empty() {
+        return Err(NotChanged::NoTitle);
+    }
+    let path = format!("{TASKS}/{file}");
+    commit_task_file(program, repo, file, cancel, |text| {
+        if text != opened {
+            return Err(NotChanged::Stale(path));
+        }
+        let after = edited(text, fields);
+        let id = task_id(file).unwrap_or_default();
+        Ok((after != text).then(|| (after, vec![format!("{id}：编辑任务文件")])))
+    })
+}
+
+/// Saves the task dialog's `fields` to a draft: writes the main worktree `repo`'s task file `file`
+/// as [`edited`] makes it, committing nothing. Refused when the file is no longer the `opened`
+/// text.
+pub fn save_draft(
+    repo: &Path,
+    file: &str,
+    opened: &str,
+    fields: &Fields,
+) -> Result<(), NotChanged> {
+    if one_line(&fields.title).is_empty() {
+        return Err(NotChanged::NoTitle);
+    }
+    let path = repo.join(TASKS).join(file);
+    let text = std::fs::read_to_string(&path).map_err(|e| NotChanged::Write(e.to_string()))?;
+    if text != opened {
+        return Err(NotChanged::Stale(format!("{TASKS}/{file}")));
+    }
+    let after = edited(&text, fields);
+    if after != text {
+        std::fs::write(&path, after).map_err(|e| NotChanged::Write(e.to_string()))?;
+    }
+    Ok(())
 }
 
 /// Where the `待用户：` line at the head of a task file is, as [`parse`] finds it: its bytes with
@@ -1048,9 +1231,11 @@ pub fn asks_line(text: &str) -> Option<(std::ops::Range<usize>, &str)> {
     None
 }
 
-/// Why a task file was not changed: its `待用户：` line not cleared, or its priority not set.
+/// Why a task file was not changed: its `待用户：` line not cleared, its priority not set, or the
+/// task dialog's edit not saved.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum NotChanged {
+    NoTitle,
     /// The main worktree has another branch out, or none.
     NotMain(Option<String>),
     /// A merge, rebase, cherry-pick or revert is in progress there.
@@ -1061,6 +1246,8 @@ pub enum NotChanged {
     Gone(String),
     /// Main has no such task file.
     NotOnMain(String),
+    /// The task file changed after the task dialog read it.
+    Stale(String),
     NoGit,
     Write(String),
     Commit(String),
@@ -1069,6 +1256,7 @@ pub enum NotChanged {
 impl std::fmt::Display for NotChanged {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            NotChanged::NoTitle => write!(f, "Enter a title"),
             NotChanged::NotMain(Some(branch)) => {
                 write!(f, "The main worktree is on {branch}, not {MAIN}")
             }
@@ -1077,6 +1265,7 @@ impl std::fmt::Display for NotChanged {
             NotChanged::Changed(file) => write!(f, "{file} has uncommitted changes"),
             NotChanged::Gone(file) => write!(f, "{file} on {MAIN} no longer has the line"),
             NotChanged::NotOnMain(file) => write!(f, "{file} isn't on {MAIN}"),
+            NotChanged::Stale(file) => write!(f, "{file} changed after it was opened here"),
             NotChanged::NoGit => write!(f, "Git couldn't be read, so nothing was changed"),
             NotChanged::Write(why) => write!(f, "Couldn't write the file: {why}"),
             NotChanged::Commit(why) => write!(f, "Couldn't commit: {why}"),
@@ -1146,9 +1335,24 @@ pub fn set_draft_priority(repo: &Path, file: &str, priority: Priority) -> Result
 /// over where it is and any others taken out; a new one put at the end of the head, before the
 /// blank lines above the first section; none for medium.
 pub fn with_priority(text: &str, priority: Priority) -> String {
+    with_head_line(
+        text,
+        |line| priority_value(line).is_some(),
+        priority_line(priority),
+    )
+}
+
+/// The `优先：` line for `priority`: none for medium.
+fn priority_line(priority: Priority) -> Option<String> {
+    (priority != Priority::Medium).then(|| format!("优先：{}", priority.word()))
+}
+
+/// `text` with the lines at its head that `is` picks made `written`: the first written over where
+/// it is and any others taken out; a new one put at the end of the head, before the blank lines
+/// above the first section; with `written` `None`, all of them taken out.
+fn with_head_line(text: &str, is: impl Fn(&str) -> bool, written: Option<String>) -> String {
     let mut lines: Vec<String> = text.split_inclusive('\n').map(str::to_owned).collect();
     let eol = if text.contains("\r\n") { "\r\n" } else { "\n" };
-    let written = format!("优先：{}", priority.word());
     // The head: up to the first section, as `read_text` reads it.
     let mut titled = false;
     let mut head = lines.len();
@@ -1163,25 +1367,22 @@ pub fn with_priority(text: &str, priority: Priority) -> String {
             head = at;
             break;
         }
-        if priority_value(line).is_some() {
+        if is(line) {
             found.push(at);
         }
     }
-    let keep = found
-        .first()
-        .copied()
-        .filter(|_| priority != Priority::Medium);
+    let keep = found.first().copied().filter(|_| written.is_some());
     for at in found.iter().rev() {
         if Some(*at) == keep {
             let raw = &lines[*at];
             let ending = &raw[raw.trim_end_matches(['\r', '\n']).len()..];
-            lines[*at] = format!("{written}{ending}");
+            lines[*at] = format!("{}{ending}", written.as_deref().unwrap_or_default());
         } else {
             lines.remove(*at);
             head -= 1;
         }
     }
-    if priority != Priority::Medium && keep.is_none() {
+    if let Some(written) = written.filter(|_| keep.is_none()) {
         let mut at = head;
         while at > 0 && lines[at - 1].trim().is_empty() {
             at -= 1;
@@ -1438,11 +1639,32 @@ pub struct Card {
     time: i64,
 }
 
+/// Where a card's task file is edited.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Editing {
+    /// In the task dialog.
+    Dialog,
+    /// In the user's own editor: its head cannot be read for the dialog.
+    Editor,
+}
+
 impl Card {
     /// The user can clear it: it needs them because its task file on main says so, not only
     /// because its agent is waiting.
     pub fn clearable(&self) -> bool {
         self.asks.is_some() && !self.draft
+    }
+
+    /// Where its task file is edited: a queued card's, a draft's too, in the task dialog, unless
+    /// its first line is not the title; `None` for a card under way or done.
+    pub fn editing(&self) -> Option<Editing> {
+        (self.column == Column::Queued).then(|| {
+            if self.problems.contains(&Problem::Title) {
+                Editing::Editor
+            } else {
+                Editing::Dialog
+            }
+        })
     }
 }
 
@@ -2385,5 +2607,193 @@ mod tests {
                 "{written:?}"
             );
         }
+    }
+
+    fn fields(title: &str, depends: Option<&str>, priority: Priority, body: &str) -> Fields {
+        Fields {
+            title: title.to_owned(),
+            depends: depends.map(str::to_owned),
+            priority,
+            body: body.to_owned(),
+        }
+    }
+
+    #[test]
+    fn a_new_task_file_is_its_head_then_its_body() {
+        let made = "# 任务：Kanban 卡片拖动纠正\n\n2026-10-09，用户在看板上新建。\n";
+        let cases = [
+            (None, Priority::Medium, ""),
+            (Some("P5-60a"), Priority::Medium, "依赖：P5-60a\n"),
+            (None, Priority::High, "优先：高\n"),
+            (None, Priority::Low, "优先：低\n"),
+            (Some("P5-60a"), Priority::High, "依赖：P5-60a\n优先：高\n"),
+            (Some("P5-60a"), Priority::Low, "依赖：P5-60a\n优先：低\n"),
+        ];
+        for (depends, priority, lines) in cases {
+            let new = fields("Kanban 卡片拖动纠正", depends, priority, BODY);
+            assert_eq!(new_head(&new, "2026-10-09"), format!("{made}{lines}"));
+            let text = draft_text(&new, "2026-10-09");
+            assert_eq!(
+                text,
+                format!("{made}{lines}\n## 用户原话\n\n## 要做的\n\n## 怎么算做完\n")
+            );
+            // Read back as written: the board sees no problem, and the dialog the same fields.
+            let task = draft("P5-69-x.md", &text);
+            assert_eq!(task.title, "Kanban 卡片拖动纠正");
+            assert_eq!(task.depends.as_deref(), depends);
+            assert_eq!(task.priority, priority);
+            assert_eq!(task.problems, []);
+            assert_eq!(editable(&text), Some(new));
+        }
+        // The title on one line; a body ending without a line end gets one; no body, the head alone.
+        let new = fields(" a\tb\n ", None, Priority::Medium, "## a\n- b");
+        assert_eq!(
+            draft_text(&new, "2026-10-09"),
+            "# 任务：a b\n\n2026-10-09，用户在看板上新建。\n\n## a\n- b\n"
+        );
+        let new = fields("a", None, Priority::Medium, "");
+        assert_eq!(
+            draft_text(&new, "2026-10-09"),
+            "# 任务：a\n\n2026-10-09，用户在看板上新建。\n"
+        );
+    }
+
+    /// A task file as the controller writes them, with the lines the dialog never touches.
+    const WRITTEN: &str = "# 任务：旧标题\n\n2026-10-09，paddock/main 交给 paddock/dev-x。\n\
+        类型：功能变更\n依据：\n- 用户 10-09：“原话”\n依赖：P5-1（等它合并）\n待用户：实测 hover\n\
+        执行：主控\n\n## 用户原话\n原话\n依赖：P5-9\n\n## 要做的\n- a  \n";
+
+    #[test]
+    fn the_dialog_reads_the_title_the_head_lines_and_the_body() {
+        assert_eq!(
+            editable(WRITTEN),
+            Some(fields(
+                "旧标题",
+                Some("P5-1"),
+                Priority::Medium,
+                "## 用户原话\n原话\n依赖：P5-9\n\n## 要做的\n- a  \n"
+            ))
+        );
+        assert_eq!(head(WRITTEN), WRITTEN.split_once("## 用户原话").unwrap().0);
+        // The first priority line, read as the board reads it; one it cannot read is medium.
+        let text = "# 任务: x\n优先：低\n优先：高\n\n## a\n";
+        assert_eq!(
+            editable(text),
+            Some(fields("x", None, Priority::Low, "## a\n"))
+        );
+        let text = "# 任务：x\n优先：急\n";
+        assert_eq!(
+            editable(text),
+            Some(fields("x", None, Priority::Medium, ""))
+        );
+        // Only the head's 依赖： counts; a body read with Windows line ends gets plain ones.
+        let text = "# 任务：x\r\n依据：y\r\n\r\n## a\r\n依赖：P5-2\r\n";
+        assert_eq!(
+            editable(text),
+            Some(fields("x", None, Priority::Medium, "## a\n依赖：P5-2\n"))
+        );
+        // A first line that is not the title: not for the dialog.
+        for text in [
+            "# P5-1 老格式\n\n## a\n",
+            "任务：x\n",
+            "",
+            "# 任务：  \n",
+            "\n# 任务：x\n",
+        ] {
+            assert_eq!(editable(text), None, "{text:?}");
+        }
+    }
+
+    #[test]
+    fn an_edit_changes_only_its_own_lines() {
+        let opened = editable(WRITTEN).unwrap();
+        // Nothing changed: byte for byte, the 依赖： line's note too.
+        assert_eq!(edited(WRITTEN, &opened), WRITTEN);
+        let with = |change: &dyn Fn(&mut Fields)| {
+            let mut fields = opened.clone();
+            change(&mut fields);
+            edited(WRITTEN, &fields)
+        };
+        assert_eq!(
+            with(&|f| f.title = " 新标题 ".into()),
+            WRITTEN.replace("# 任务：旧标题", "# 任务：新标题")
+        );
+        assert_eq!(
+            with(&|f| f.depends = Some("P5-2".into())),
+            WRITTEN.replace("依赖：P5-1（等它合并）", "依赖：P5-2")
+        );
+        assert_eq!(
+            with(&|f| f.depends = None),
+            WRITTEN.replace("依赖：P5-1（等它合并）\n", "")
+        );
+        assert_eq!(
+            with(&|f| f.priority = Priority::High),
+            WRITTEN.replace("执行：主控\n", "执行：主控\n优先：高\n")
+        );
+        assert_eq!(
+            with(&|f| f.body = "## 要做的\n- b".into()),
+            format!("{}## 要做的\n- b\n", head(WRITTEN))
+        );
+        // All at once: the date, 类型, 依据, 待用户 and 执行 lines as they were.
+        let all = with(&|f| {
+            f.title = "新标题".into();
+            f.depends = Some("P5-60a".into());
+            f.priority = Priority::Low;
+            f.body = "## 用户原话\n新的\n".into();
+        });
+        assert_eq!(
+            all,
+            "# 任务：新标题\n\n2026-10-09，paddock/main 交给 paddock/dev-x。\n类型：功能变更\n\
+             依据：\n- 用户 10-09：“原话”\n依赖：P5-60a\n待用户：实测 hover\n执行：主控\n优先：低\n\n\
+             ## 用户原话\n新的\n"
+        );
+        assert_eq!(
+            editable(&all),
+            Some(fields(
+                "新标题",
+                Some("P5-60a"),
+                Priority::Low,
+                "## 用户原话\n新的\n"
+            ))
+        );
+    }
+
+    #[test]
+    fn an_edit_adds_puts_in_order_and_tidies_the_head_lines() {
+        // No 依赖： or 优先： yet: both at the end of the head, 依赖： first.
+        let text = "# 任务：x\n\n2026-10-07。\n依据：y\n\n## a\nb\n";
+        assert_eq!(
+            edited(
+                text,
+                &fields("x", Some("P5-3"), Priority::High, "## a\nb\n")
+            ),
+            "# 任务：x\n\n2026-10-07。\n依据：y\n依赖：P5-3\n优先：高\n\n## a\nb\n"
+        );
+        // Several 优先： lines, or one it cannot read: one line, or none for medium.
+        let text = "# 任务：x\n优先：急\n依据：y\n优先：高\n\n## a\n";
+        assert_eq!(
+            edited(text, &editable(text).unwrap()),
+            "# 任务：x\n依据：y\n\n## a\n"
+        );
+        assert_eq!(
+            edited(text, &fields("x", None, Priority::High, "## a\n")),
+            "# 任务：x\n优先：高\n依据：y\n\n## a\n"
+        );
+        // The title line kept as written while the title is the same.
+        let text = "# 任务: x\n\n## a\n";
+        assert_eq!(edited(text, &editable(text).unwrap()), text);
+        // No section yet: a body goes after a blank line.
+        let text = "# 任务：x\n依据：y\n";
+        assert_eq!(
+            edited(text, &fields("x", None, Priority::Medium, "## a\n")),
+            "# 任务：x\n依据：y\n\n## a\n"
+        );
+        assert_eq!(edited(text, &fields("x", None, Priority::Medium, "")), text);
+        // The file's line ends, in the body too.
+        let text = "# 任务：x\r\n依据：y\r\n\r\n## a\r\n";
+        assert_eq!(
+            edited(text, &fields("y", None, Priority::High, "## a\nb\n")),
+            "# 任务：y\r\n依据：y\r\n优先：高\r\n\r\n## a\r\nb\r\n"
+        );
     }
 }
