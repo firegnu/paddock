@@ -3,7 +3,7 @@
 ## 现在在哪（2026-10-09 上午）
 
 - main 和 `origin/main`（`github.com/firegnu/paddock`，public）同步，工作区里只有六个未提交的草稿任务文件（P5-51、P5-53～P5-55、P5-59、P5-61，看板 DRAFT，见“下一步”；**是有意留的草稿，不要 `git add -A`**）。没有进行中的活，没有开着的 worktree，本地只有 main 一个分支；ranch 也一样（main 同步、无 worktree）。corral 里有 `paddock/main`（本主控，09:43 重开）、`cairn/main`、`global-mesh/main`（用户的；三个都是 09:41 事故后重开的，见 P5-52）。
-- 484 项测试通过，clippy、`cargo fmt --check` 干净。`~/Applications/paddock.app` 是合并 P5-60b 之后的版本（10-09 12:59 装，含 P5-35～P5-50、P5-56～P5-58、P5-60a、P5-60b、P5-68、P5-63～P5-67、paddock ctl；P5-56、P5-58 新图标、P5-65、P5-66 待用户重启看；P5-67 用户已看过），已用本机 Apple Development 证书签名。
+- 486 项测试通过，clippy、`cargo fmt --check` 干净。`~/Applications/paddock.app` 是合并 P5-69 之后的版本（10-09 13:47 装，含 P5-35～P5-50、P5-56～P5-58、P5-60a、P5-60b、P5-68、P5-69、P5-63～P5-67、paddock ctl；P5-56、P5-58 新图标、P5-65、P5-66 待用户重启看；P5-67 用户已看过），已用本机 Apple Development 证书签名。
 - **paddock ctl 已部署**（用户 10-07 夜在终端里跑完，主控核对过）：`~/.local/bin/paddock` 链到 app 里的程序；`paddock install-skills` 已装 `~/.claude/skills/paddock`、`~/.agents/skills/paddock`（带归属标记，与仓库源文件一致）；旧的 `~/.claude/skills/saddle` 已删。`paddock ctl instances` 找得到正在跑的窗口，`inspect` 认出 `paddock/main` 是 pane 1。重新打包安装后链接不用重建；技能正文改了要重跑 `paddock install-skills`。已开着的 agent 要重开才看到新技能。
 - 全局 `~/.local/bin/corral`、`~/.local/bin/ranch` 已是 ranch `d55defb`（10-08 R2：技能里派活和临时委派的 agent 带 `CAIRN_DISABLE=1`；程序行为与 `5c5540c` 相同，支持 pause／resume）。
 - **cairn 已全局装上（只 claude）**：`~/.claude/settings.json` 里 4 个 cairn hook 和一条放行 `cairn save` 的规则（改前备份 `~/.claude/settings.json.bak-20261008T082855…`），只有 owlet 启用（`adopt`）；其他仓库里 hook 查到没启用就直接退出。卸掉：`cairn uninstall --agent claude`。
@@ -13,6 +13,7 @@
 
 ## 10-09 上午：P5-58 应用图标换成马头
 
+- **P5-69**（用户看过 P5-60b 后：执行方式“也要拿出来让用户选”、“任务的重要性……有没有可以一眼能看出来的”）：用户选“三个选项”（主控定 默认不写／`执行：主控`／`执行：派出`，弹框 Done by 三段，AGENTS.md 已改：用户选了的照办，没选的主控逐件判断）和“卡片左边一道色标”（Queued、DRAFT，高红低灰）。派 `paddock/dev-doer-1`（Claude Code 常规），审查通过（486 项），合并、推送、收尾，dev agent 已关，13:47 重新打包安装，**待用户重启后看**。dev 中途误带 `python3 -` 自己停了；以后派活“不要做”里写明不用 Python。
 - **P5-60b**：样稿 A、B 给用户挑（画布「P5-60b 任务弹框」，源文件 `docs/设计稿/P5-60b-任务弹框/`），用户：“选A，按你的建议走。”（去掉 Done by、正文预放三节、只给 Queued 和 DRAFT 编辑）。派 `paddock/dev-taskdialog-1`（Claude Code 重档），它开工前发现弹框由 `window.rs` 承载、主控漏列，停下报告，主控准许只改那三样。审查通过（484 项），合并、推送、收尾，dev agent 已关，重新打包安装，**待用户重启后试**：新建、编辑、Preview、Show file header；点暗处不关弹框是 dev 定的，用户看了再定。建议改未排：正文写到框底不自动滚到光标处、弹框开着换主题不变色。
 - **P5-60a**（用户：“开始P5-60”）：主控和用户定了三档优先级（`优先：高／低`，没写算中，老任务全按中）、卡片悬停改档、看板检查格式、主控派活照优先级（用户点名为准），拆成 P5-60a 和 P5-60b（任务弹框重做，等 P5-60a，先出样稿；用户要“完整”：字段由程序写、正文多行加 md 预览）。主控一度又写成自己做，用户问“为什么现在分任务都是主控自己做”“把那句话忘掉”：每件活重新判断派不派（P5-56 的“你自己接着干吧”只管那一件）。P5-60a 派 `paddock/dev-kanban-1`（Claude Code 常规），审查通过（472 项），合并、推送、收尾，dev agent 已关；10:39 重新打包安装，**待用户重启后看**（High 红、Low 淡、警告黄是 dev 定的颜色，用户看过再定）。
 - **P5-56**（用户：“开始P5-56……注意fallback”；10-09 中途用户：“你自己接着干吧”）：Settings 改了立即生效、去掉 Save。主控先列了 8 个“改了不一定生效、会退回别的值”的坑写进任务文件，用户四项都选主控建议（输入框回车或离开时生效；换主题照旧清颜色、给 Undo；数字加上限；没装的字体标 “not installed”）。主控自己做，先写失败测试；合并、推送、收尾，10:08 重新打包安装，**待用户重启后试**（细节和没先看红的三个界面测试见任务文件完成记录；没截图，见 P5-52 事故）。 **P5-68**（用户：“侧栏上限统一成 560”）：Settings 里侧栏宽度上限改用拖动的同一常量 560，10:15 重新打包安装。用户说过“不用坚持必须你自己做或者必须派出去做，按照正常的判断流程走”。
