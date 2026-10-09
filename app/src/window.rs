@@ -239,26 +239,31 @@ impl Question {
     }
 }
 
-/// What to ask before closing ends `shells` (their titles) and detaches `agents` views, or quitting
-/// does: `None` when no live shell would end, so nothing needs asking. As in Saddle.
+/// A shell's line in the question: its title and what runs in it.
+pub fn shell_line(title: &str, programs: &[String]) -> String {
+    format!("{title} — {}", programs.join(", "))
+}
+
+/// What to ask before closing ends `shells` (each a `shell_line`, for the shells with something
+/// running in them) and detaches `agents` views, or quitting does: `None` when nothing runs in
+/// the shells that would end, so nothing needs asking (P5-66; Saddle asked for every live shell).
 pub fn close_question(shells: &[String], agents: usize, quit: bool) -> Option<Question> {
     if shells.is_empty() {
         return None;
     }
-    let (them, it, button) = if shells.len() == 1 {
-        ("shell", "it", "End Shell")
+    let (them, closes, button) = if shells.len() == 1 {
+        ("shell", "The shell closes too.", "End Shell")
     } else {
-        ("shells", "them", "End Shells")
+        ("shells", "The shells close too.", "End Shells")
     };
     let message = if quit {
-        format!("Quit paddock and end the running {them}?")
+        format!("Quit paddock and end what runs in the {them}?")
     } else {
-        format!("End the running {them}?")
+        format!("End what runs in the {them}?")
     };
     let mut detail = shells.join("\n");
-    detail.push_str(&format!(
-        "\n\nWhat runs in {it} in the foreground ends too."
-    ));
+    detail.push_str("\n\n");
+    detail.push_str(closes);
     if agents > 0 {
         detail.push_str(" Agent views only detach; the agents keep running.");
     }
@@ -2343,12 +2348,15 @@ impl PaddockWindow {
         }
     }
 
-    /// What to ask before closing `panes`: `None` when no live shell is among them.
+    /// What to ask before closing `panes`: `None` when no shell among them runs anything; one at
+    /// its prompt, or still starting, closes without asking.
     fn question(&self, panes: &[PaneId], quit: bool, cx: &Context<Self>) -> Option<Question> {
         let shells: Vec<String> = panes
             .iter()
-            .filter(|pane| self.panes[pane].read(cx).shell_live())
-            .map(|pane| self.title(*pane, cx))
+            .filter_map(|pane| {
+                let programs = self.panes[pane].read(cx).shell_programs();
+                (!programs.is_empty()).then(|| shell_line(&self.title(*pane, cx), &programs))
+            })
             .collect();
         let agents = panes
             .iter()
@@ -2357,8 +2365,8 @@ impl PaddockWindow {
         close_question(&shells, agents, quit)
     }
 
-    /// Closes at once, or after End Shells when live shells would end. A pane gone meanwhile is
-    /// simply not closed.
+    /// Closes at once, or after End Shells when something runs in the shells that would end. A
+    /// pane gone meanwhile is simply not closed.
     fn request_close(&mut self, closing: Closing, window: &mut Window, cx: &mut Context<Self>) {
         let panes = self.closing_panes(closing);
         let Some(question) = self.question(&panes, false, cx) else {
@@ -2400,7 +2408,7 @@ impl PaddockWindow {
         self.close(gone, window, cx);
     }
 
-    /// Whether paddock may quit: yes without live shells, else as answered.
+    /// Whether paddock may quit: yes when nothing runs in the shells, else as answered.
     pub fn confirm_quit(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Task<bool> {
         let panes: Vec<PaneId> = self
             .workspace
@@ -6379,37 +6387,39 @@ mod tests {
     }
 
     #[test]
-    fn only_live_shells_make_closing_ask() {
+    fn only_shells_running_something_make_closing_ask() {
         assert_eq!(close_question(&[], 2, false), None);
         assert_eq!(close_question(&[], 0, true), None);
-        let one = close_question(&["shell · /tmp".into()], 0, false).unwrap();
-        assert_eq!(one.message, "End the running shell?");
+        let cargo = shell_line("shell · /tmp", &["cargo".to_owned()]);
+        assert_eq!(cargo, "shell · /tmp — cargo");
+        let one = close_question(&[cargo], 0, false).unwrap();
+        assert_eq!(one.message, "End what runs in the shell?");
         assert_eq!(one.confirm, "End Shell");
-        assert!(
-            one.detail
-                .contains("What runs in it in the foreground ends too.")
-        );
-        assert!(one.detail.starts_with("shell · /tmp\n\n"));
+        assert!(one.detail.starts_with("shell · /tmp — cargo\n\n"));
+        assert!(one.detail.contains("The shell closes too."));
         assert!(!one.detail.contains("Agent"));
     }
 
     #[test]
     fn the_question_lists_every_shell_and_says_agents_only_detach() {
         let shells = vec![
-            "shell · /tmp".to_owned(),
-            "shell · /Users/me/code".to_owned(),
+            shell_line("shell · /tmp", &["npm".to_owned(), "sleep".to_owned()]),
+            shell_line("shell · /Users/me/code", &["vim".to_owned()]),
         ];
         let quit = close_question(&shells, 1, true).unwrap();
-        assert_eq!(quit.message, "Quit paddock and end the running shells?");
+        assert_eq!(
+            quit.message,
+            "Quit paddock and end what runs in the shells?"
+        );
         assert_eq!(quit.confirm, "Quit");
-        assert!(quit.detail.contains("What runs in them"));
+        assert!(quit.detail.contains("The shells close too."));
         assert_eq!(
             close_question(&shells, 0, false).unwrap().confirm,
             "End Shells"
         );
         assert!(
             quit.detail
-                .starts_with("shell · /tmp\nshell · /Users/me/code\n\n")
+                .starts_with("shell · /tmp — npm, sleep\nshell · /Users/me/code — vim\n\n")
         );
         assert!(
             quit.detail

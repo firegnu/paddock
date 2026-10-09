@@ -327,6 +327,14 @@ impl Viewer {
             .as_ref()
             .is_some_and(|s| matches!(s.state, "starting" | "running"))
     }
+    /// What runs in the shell besides the shell itself, by name; empty at its prompt, or without
+    /// a running shell.
+    pub fn shell_programs(&self) -> Vec<String> {
+        match &self.session {
+            Some(session) if self.shell_live() => session.running_programs(),
+            _ => Vec::new(),
+        }
+    }
     pub fn state(&self) -> &'static str {
         if let Some(shell) = &self.shell {
             return shell.state;
