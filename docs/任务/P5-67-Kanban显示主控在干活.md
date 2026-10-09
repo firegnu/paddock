@@ -28,3 +28,10 @@
 - 用户原话：“现在主控干活的时候，kanban看不到是主控在干活。”选“A 任务文件写一行”“头像加实时状态”。
 - `app/` 下 `cargo test --all-targets`、`cargo clippy --all-targets -- -D warnings`、`cargo fmt --check` 都过。
 - 本任务自己的卡片在做的过程中就应显示主控，留给用户在看板上看。
+
+## 完成记录
+
+- 做了什么：`kanban.rs` 的 `Task` 加 `by_controller`，任务文件开头（还没进任何一节时）的 `执行：主控`／`执行: 主控` 把它设为真；`board()` 里这件活在 In progress、`agent_for` 没找到 agent 时，用 `controller_for` 找到的主控当作卡片的 agent（状态文字、头像、Needs you 都按它），分列、卡片时间仍只看任务自己的 agent。`kanban_view.rs` 的悬停按钮：卡片的 agent 是主控时只给 Go to agent，不给 Show changes，按钮条宽度跟着少算一个按钮。AGENTS.md 看板约定加 `执行：主控` 一条；DESIGN §13 加 P5-67 条。本任务文件自己开头就有这一行。
+- 验证了什么：先写两项测试、看到因缺功能失败（解析恒为假；卡片上没有主控），再实现。解析：开头的两种写法认；完成记录里引用的、`执行：dev`、没有这一行的都不认。看板：没建 worktree 的仍在 Queued 且没人；进行中的显示主控、状态是它的 Working，主控回复以 DONE 结尾也不进 To review；有带标签的 dev agent 时显示 dev agent；没写这一行的照旧 “No agent”；主控 Waiting 时卡片 Needs you。`app/` 下 `cargo test --all-targets`（456 项全过）、`cargo clippy --all-targets -- -D warnings`、`cargo fmt --check`、`git diff --check` 都过。
+- 拿主意的地方：Show changes 对主控不给——Changes 标签显示的是 agent 自己工作目录的改动，主控的是主仓库，点了会看到 main 的改动而不是这件活的，容易误会；要看这件活的改动，以后可以另做“按 worktree 显示”的入口（没做）。
+- 没做的事：真看板上的样子留给用户：下一件主控自己做的活进行中时，卡片应显示主控（本任务合并后已进 Merged／Done，看不到进行中的样子）。
