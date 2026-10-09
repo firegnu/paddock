@@ -221,10 +221,11 @@ pub fn resize(width_at_press: f32, press_x: f32, x: f32, min: f32) -> f32 {
         .round()
 }
 
-/// The room under the list's last card (P5-70): the activity panel lies over the list's end, so the
-/// list ends that far below its last card, which then scrolls clear above the panel.
+/// The room under the list's last card (P5-70): the activity panel and the footer under it lie over
+/// the list's end (P5-70b), so the list ends that far below its last card, which then scrolls clear
+/// above the panel.
 pub fn list_end(width: f32, ui: &UiFont, folded: bool) -> f32 {
-    LIST_END + ui.scale(ACTIVITY_GAP) + activity_view::height(width, ui, folded)
+    LIST_END + ui.scale(ACTIVITY_GAP) + activity_view::height(width, ui, folded) + ui.scale(FOOTER)
 }
 
 /// How strongly the panel's top fades into the list, 0 to 1: as far as the list can still scroll
@@ -1715,17 +1716,19 @@ impl Render for Sidebar {
                     .flex()
                     .flex_col()
                     .child(list)
-                    // Over the end of the list, which scrolls on its own; the strip has none.
+                    // Over the end of the list, which scrolls on its own, down to the sidebar's foot: the
+                    // panel, and the footer under it in the panel's see-through ground (P5-70b); the
+                    // strip has none.
                     .child(
                         div()
                             .absolute()
                             .left_0()
                             .right_0()
                             .bottom_0()
-                            .child(self.activity.clone()),
+                            .child(self.activity.clone())
+                            .child(footer.bg(self.activity.read(cx).ground())),
                     ),
             )
-            .child(footer)
             .into_any_element()
     }
 }
@@ -3112,7 +3115,7 @@ mod tests {
     }
 
     #[test]
-    fn the_list_ends_the_activity_panel_and_its_gap_below_its_last_card() {
+    fn the_list_ends_the_activity_panel_its_gap_and_the_footer_below_its_last_card() {
         let width = 300.0;
         let mut heights = Vec::new();
         for size in [13.0, 16.0] {
@@ -3120,9 +3123,15 @@ mod tests {
             for folded in [false, true] {
                 let panel = activity_view::height(width, &ui, folded);
                 heights.push(panel);
-                // The list's end and the panel's gap, as when the panel lay under the list.
+                // The list's end and the panel's gap, as when the panel lay under the list, and the
+                // footer, which lies over the list too (P5-70b).
                 let gap = LIST_END + ui.scale(ACTIVITY_GAP);
-                assert_eq!(list_end(width, &ui, folded), panel + gap, "{size} {folded}");
+                let footer = ui.scale(FOOTER);
+                assert_eq!(
+                    list_end(width, &ui, folded),
+                    panel + gap + footer,
+                    "{size} {folded}"
+                );
             }
         }
         // The room follows the panel: folding it, or a larger interface size, changes it.
@@ -3143,8 +3152,9 @@ mod tests {
                 let panel = activity_view::height(300.0, &ui, folded);
                 let scrolled = cards + list_end(300.0, &ui, folded) - column;
                 let last_bottom = cards - scrolled;
-                // The panel lies at the column's foot; the last card ends above it, by the gap.
-                let panel_top = column - panel;
+                // The footer lies at the column's foot and the panel on it; the last card ends above
+                // the panel, by the gap.
+                let panel_top = column - ui.scale(FOOTER) - panel;
                 assert!(
                     last_bottom + LIST_END <= panel_top,
                     "{size} {folded}: {last_bottom} {panel_top}"
