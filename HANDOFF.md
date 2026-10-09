@@ -3,7 +3,7 @@
 ## 现在在哪（2026-10-09 上午）
 
 - main 和 `origin/main`（`github.com/firegnu/paddock`，public）同步，工作区里只有六个未提交的草稿任务文件（P5-51、P5-53～P5-55、P5-59、P5-61，看板 DRAFT，见“下一步”；**是有意留的草稿，不要 `git add -A`**）。没有进行中的活，没有开着的 worktree，本地只有 main 一个分支；ranch 也一样（main 同步、无 worktree）。corral 里有 `paddock/main`（本主控，09:43 重开）、`cairn/main`、`global-mesh/main`（用户的；三个都是 09:41 事故后重开的，见 P5-52）。
-- 504 项测试通过，clippy、`cargo fmt --check` 干净。`~/Applications/paddock.app` 是合并 P5-51 之后的版本（10-09 15:54 装，P5-51 左侧栏卡片浮起来；P5-59b 侧栏和窗格之间补上 8pt 缝，用户看过：“cool。我看到了。”；含 P5-35～P5-50、P5-56～P5-61、P5-68、P5-69、P5-63～P5-67、paddock ctl；P5-56、P5-58 新图标、P5-65、P5-66 待用户重启看；P5-67 用户已看过），已用本机 Apple Development 证书签名。
+- 505 项测试通过，clippy、`cargo fmt --check` 干净。`~/Applications/paddock.app` 是合并 P5-51b 之后的版本（10-09 16:03 装，P5-51 左侧栏卡片浮起来、P5-51b 磨砂下卡片不发暗；P5-59b 侧栏和窗格之间补上 8pt 缝，用户看过：“cool。我看到了。”；含 P5-35～P5-50、P5-56～P5-61、P5-68、P5-69、P5-63～P5-67、paddock ctl；P5-56、P5-58 新图标、P5-65、P5-66 待用户重启看；P5-67 用户已看过），已用本机 Apple Development 证书签名。
 - **paddock ctl 已部署**（用户 10-07 夜在终端里跑完，主控核对过）：`~/.local/bin/paddock` 链到 app 里的程序；`paddock install-skills` 已装 `~/.claude/skills/paddock`、`~/.agents/skills/paddock`（带归属标记，与仓库源文件一致）；旧的 `~/.claude/skills/saddle` 已删。`paddock ctl instances` 找得到正在跑的窗口，`inspect` 认出 `paddock/main` 是 pane 1。重新打包安装后链接不用重建；技能正文改了要重跑 `paddock install-skills`。已开着的 agent 要重开才看到新技能。
 - 全局 `~/.local/bin/corral`、`~/.local/bin/ranch` 已是 ranch `d55defb`（10-08 R2：技能里派活和临时委派的 agent 带 `CAIRN_DISABLE=1`；程序行为与 `5c5540c` 相同，支持 pause／resume）。
 - **cairn 已全局装上（只 claude）**：`~/.claude/settings.json` 里 4 个 cairn hook 和一条放行 `cairn save` 的规则（改前备份 `~/.claude/settings.json.bak-20261008T082855…`），只有 owlet 启用（`adopt`）；其他仓库里 hook 查到没启用就直接退出。卸掉：`cairn uninstall --agent claude`。
@@ -13,7 +13,7 @@
 
 ## 10-09 上午：P5-58 应用图标换成马头
 
-- **P5-51 agent 卡片层次**（用户：“左侧的agents区域中的各个agent现在比较flat。没有那种浮在上面的层次感”，没有参考截图）：样稿两档（`docs/设计稿/P5-51-agent卡片层次/`），用户选 A。派 `paddock/dev-cards-1`（Claude Code 常规），审查通过（504 项），合并、推送、收尾，15:54 重新打包安装，**待用户重启后看**；卡片间距实际从 2 加到 8（样稿“现状”画成了 6）；悬停不做渐变（和原来一样），要做另开。完成提醒晚到（合并、关掉 agent 之后才到），用户提醒才去审查。
+- **P5-51 agent 卡片层次**（用户：“左侧的agents区域中的各个agent现在比较flat。没有那种浮在上面的层次感”，没有参考截图）：样稿两档（`docs/设计稿/P5-51-agent卡片层次/`），用户选 A。派 `paddock/dev-cards-1`（Claude Code 常规），审查通过（504 项），合并、推送、收尾，15:54 重新打包安装，**待用户重启后看**；卡片间距实际从 2 加到 8（样稿“现状”画成了 6）；悬停不做渐变（和原来一样），要做另开。完成提醒晚到（合并、关掉 agent 之后才到），用户提醒才去审查。 **P5-51b**：用户截图里卡片比四周磨砂暗（GPUI 外投影铺在半透明的面底下透出来），用户：“做吧，P5-51b 你自己改”；磨砂下去掉外投影、改用面里上亮下暗两道线、面提亮 1.45 倍，16:03 重新打包安装，**待用户重启后看**。
 - **P5-61 Agent shell**（用户：“开始P5-61”）：用户选真 shell、普通终端的用法（“就像herdr那种的……这个后台你得默认让corral托管”）。主控先做调研 P5-61r（`docs/调研/P5-61r-agent-shell.md`：PATH 替身、corral 起的 agent 不继承调用方环境、一次性用法要放行），用户定：起来后换成 agent 窗格、名字全自动、一次性放行、整个环境传过去；“已经有的不能改”。派 `paddock/dev-agentshell-1`（Codex 重档），碰要害、交叉审查 `paddock/review-agentshell-1`：必须改 1（另一套替身目录导致无限循环）、建议改 2，返工后复核可以合并（`docs/任务/P5-61-审查.md`）。返工中 Codex 断网一次，用户在窗格续上。合并、推送、收尾，15:07 重新打包安装，**待用户重启后试**（新建面板第三行 Agent shell；只支持 zsh、bash）。
 - **P5-59 窗格面板**：用户给 superlogical 截图（不入库），选样稿 A（独立面板 8pt 缝、单窗格也要标题行，`docs/设计稿/P5-59-窗格面板/`）；等 P5-61 合并后派 `paddock/dev-panels-1`（Claude Code 常规），审查通过（504 项），合并、推送、收尾，dev agent 已关，15:22 重新打包安装，**待用户重启后看**：面板、底色（标题栏一起压暗，同样稿 A）、单窗格标题行；agent 窗格的会话题目要看 `corral attach` 会不会把标题转出来，不显示就改读 `corral status` 的 `title`。
 - **P5-69**（用户看过 P5-60b 后：执行方式“也要拿出来让用户选”、“任务的重要性……有没有可以一眼能看出来的”）：用户选“三个选项”（主控定 默认不写／`执行：主控`／`执行：派出`，弹框 Done by 三段，AGENTS.md 已改：用户选了的照办，没选的主控逐件判断）和“卡片左边一道色标”（Queued、DRAFT，高红低灰）。派 `paddock/dev-doer-1`（Claude Code 常规），审查通过（486 项），合并、推送、收尾，dev agent 已关，13:47 重新打包安装。用户看过：“基本满足我的要求”（10-09，连同 P5-60a、P5-60b）。dev 中途误带 `python3 -` 自己停了；以后派活“不要做”里写明不用 Python。
