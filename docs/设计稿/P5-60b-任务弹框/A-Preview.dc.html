@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>New task — preview and file header</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#7fd4bf}a:hover{color:#a6e6d6}
+button{font:inherit;color:inherit;cursor:pointer;background:none;border:0;padding:0}
+</style>
+</helmet>
+<div style="width: 1280px; height: 800px; position: relative; overflow: hidden; background: #0c1616; font-family: -apple-system, 'SF Pro Text', 'Helvetica Neue', sans-serif; color: #d6e6e1; font-size: 13px">
+
+  <div style="position: absolute; inset: 0; display: flex; flex-direction: column">
+    <div style="height: 38px; display: flex; align-items: center; gap: 8px; padding: 0 14px; background: #0f1c1c; border-bottom: 1px solid #1f3633">
+      <span style="width: 12px; height: 12px; border-radius: 6px; background: #263f3b"></span>
+      <span style="width: 12px; height: 12px; border-radius: 6px; background: #263f3b"></span>
+      <span style="width: 12px; height: 12px; border-radius: 6px; background: #263f3b"></span>
+      <div style="margin-left: 240px; display: flex; gap: 4px">
+        <span style="padding: 5px 12px; border-radius: 999px; background: #1d3833; font-size: 12px; color: #d6e6e1">paddock/main</span>
+        <span style="padding: 5px 12px; border-radius: 999px; font-size: 12px; color: #83a098">shell · ~/paddock</span>
+      </div>
+    </div>
+    <div style="flex: 1; display: flex; min-height: 0">
+      <div style="width: 254px; background: #0f1d1c; border-right: 1px solid #1f3633; padding: 14px 12px; display: flex; flex-direction: column; gap: 8px">
+        <div style="font-size: 11px; color: #668580; padding: 0 4px 6px">Agents</div>
+        <div style="height: 54px; border-radius: 10px; background: #172b2a"></div>
+        <div style="height: 54px; border-radius: 10px; background: #132423"></div>
+        <div style="height: 54px; border-radius: 10px; background: #132423"></div>
+      </div>
+      <div style="flex: 1; padding: 18px 22px; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12.5px; line-height: 1.7; color: #83a098">
+        <div>❯ cargo test --all-targets</div>
+        <div>test result: ok. 472 passed; 0 failed</div>
+      </div>
+      <div style="width: 340px; background: #0f1d1c; border-left: 1px solid #1f3633; padding: 12px; display: flex; flex-direction: column; gap: 8px">
+        <div style="display: flex; gap: 14px; font-size: 12px; color: #83a098; padding: 2px 4px 8px"><span>Changes</span><span>Browser</span><span style="color: #d6e6e1">Kanban</span></div>
+        <div style="display: flex; align-items: center; justify-content: space-between; padding: 0 4px"><span style="font-size: 11px; color: #668580">Queued · 8</span><span style="font-size: 11.5px; color: #7fd4bf">+ New task</span></div>
+        <div style="height: 50px; border-radius: 9px; background: #132423"></div>
+        <div style="height: 50px; border-radius: 9px; background: #132423"></div>
+        <div style="height: 50px; border-radius: 9px; background: #132423"></div>
+      </div>
+    </div>
+  </div>
+
+  <div style="position: absolute; inset: 0; background: rgba(3, 9, 9, 0.62)"></div>
+
+  <div style="position: absolute; left: 320px; top: 40px; width: 640px; background: #122120; border: 1px solid #2c4743; border-radius: 16px; box-shadow: 0 24px 60px rgba(0,0,0,0.55); display: flex; flex-direction: column">
+
+    <div style="display: flex; align-items: center; justify-content: space-between; padding: 16px 18px 10px 20px">
+      <div style="display: flex; flex-direction: column; gap: 3px">
+        <div style="font-size: 15px; font-weight: 600; color: #e8f3ef">New task</div>
+        <div style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11px; color: #668580">docs/任务/P5-69-Kanban卡片拖动纠正.md · draft, not committed</div>
+      </div>
+      <button aria-label="Close" style="width: 28px; height: 28px; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: #83a098">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M2 2l8 8M10 2l-8 8"></path></svg>
+      </button>
+    </div>
+
+    <div style="display: flex; gap: 10px; padding: 4px 20px 0">
+      <label style="display: flex; flex-direction: column; gap: 5px; width: 104px">
+        <span style="font-size: 11px; color: #83a098">ID</span>
+        <span style="height: 32px; box-sizing: border-box; padding: 0 10px; display: flex; align-items: center; border-radius: 8px; background: #0c1616; border: 1px solid #2c4743; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12.5px; color: #e8f3ef">P5-69</span>
+      </label>
+      <label style="display: flex; flex-direction: column; gap: 5px; flex: 1">
+        <span style="font-size: 11px; color: #83a098">Title</span>
+        <span style="height: 32px; box-sizing: border-box; padding: 0 10px; display: flex; align-items: center; border-radius: 8px; background: #0c1616; border: 1px solid #2c4743; font-size: 13px; color: #e8f3ef">Kanban 卡片拖动纠正</span>
+      </label>
+    </div>
+
+    <div style="display: flex; gap: 18px; padding: 14px 20px 0; align-items: flex-end">
+      <div style="display: flex; flex-direction: column; gap: 5px">
+        <span style="font-size: 11px; color: #83a098">Priority</span>
+        <div style="display: flex; padding: 2px; border-radius: 8px; background: #0c1616; border: 1px solid #263f3b">
+          <button style="padding: 5px 12px; border-radius: 6px; font-size: 12px; color: #e47a74; background: rgba(228,122,116,0.14); font-weight: 600">High</button>
+          <button style="padding: 5px 12px; border-radius: 6px; font-size: 12px; color: #b8cdc6">Medium</button>
+          <button style="padding: 5px 12px; border-radius: 6px; font-size: 12px; color: #b8cdc6">Low</button>
+        </div>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 5px">
+        <span style="font-size: 11px; color: #83a098">Waits for</span>
+        <button style="height: 32px; box-sizing: border-box; padding: 0 10px; display: flex; align-items: center; gap: 12px; border-radius: 8px; background: #0c1616; border: 1px solid #263f3b; font-size: 12px; color: #e8f3ef"><span style="font-family: 'JetBrains Mono', ui-monospace, monospace">P5-60a</span>
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="#83a098" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3.5l3 3 3-3"></path></svg>
+        </button>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 5px">
+        <span style="font-size: 11px; color: #83a098">Done by</span>
+        <div style="display: flex; padding: 2px; border-radius: 8px; background: #0c1616; border: 1px solid #263f3b">
+          <button style="padding: 5px 12px; border-radius: 6px; font-size: 12px; color: #e8f3ef; background: #1d3833; font-weight: 600">Controller decides</button>
+          <button style="padding: 5px 12px; border-radius: 6px; font-size: 12px; color: #b8cdc6">Controller itself</button>
+        </div>
+      </div>
+    </div>
+
+    <div style="margin: 16px 20px 0; border-radius: 10px; border: 1px solid #263f3b; background: #0c1616; display: flex; flex-direction: column">
+      <div style="display: flex; align-items: center; justify-content: space-between; padding: 6px 8px 0 8px; border-bottom: 1px solid #1f3633">
+        <div style="display: flex; gap: 2px">
+          <button style="padding: 6px 12px 8px; font-size: 12px; color: #83a098; border-bottom: 2px solid transparent">Write</button>
+          <button style="padding: 6px 12px 8px; font-size: 12px; color: #e8f3ef; border-bottom: 2px solid #7fd4bf; font-weight: 600">Preview</button>
+        </div>
+        <span style="font-size: 11px; color: #668580; padding-right: 6px">Markdown</span>
+      </div>
+      <div style="height: 236px; box-sizing: border-box; padding: 14px 18px; display: flex; flex-direction: column; gap: 8px; font-size: 13px; line-height: 1.6; color: #d6e6e1">
+        <div style="font-size: 14px; font-weight: 600; color: #e8f3ef">用户原话</div>
+        <div style="color: #b8cdc6">看板上卡片推错列的时候，我想直接拖过去纠正，不想每次都找主控补提交。</div>
+        <div style="font-size: 14px; font-weight: 600; color: #e8f3ef; margin-top: 6px">要做的</div>
+        <div style="display: flex; gap: 8px; color: #b8cdc6"><span style="color: #668580">•</span><span>卡片可以拖到相邻的列；放下时问一句再改。</span></div>
+        <div style="display: flex; gap: 8px; color: #b8cdc6"><span style="color: #668580">•</span><span>只改任务文件里的一行，照 Clear 只提交这一个文件。</span></div>
+        <div style="font-size: 14px; font-weight: 600; color: #e8f3ef; margin-top: 6px">怎么算做完</div>
+        <div style="display: flex; gap: 8px; color: #b8cdc6"><span style="color: #668580">•</span><span style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; background: #172b2a; padding: 0 5px; border-radius: 4px">cargo test --all-targets</span></div>
+      </div>
+    </div>
+
+    <div style="margin: 12px 20px 0; border-radius: 10px; background: #0f1d1c; border: 1px dashed #2c4743; padding: 10px 14px; display: flex; flex-direction: column; gap: 6px">
+      <div style="display: flex; justify-content: space-between; font-size: 11px; color: #83a098"><span>File header · written by paddock</span><span style="color: #668580">edit the fields above to change it</span></div>
+      <div style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; line-height: 1.65; color: #b8cdc6; white-space: pre"><span style="color: #82cbd6"># 任务：Kanban 卡片拖动纠正</span>
+
+2026-10-09，用户在看板上新建。
+依赖：P5-60a
+优先：高</div>
+    </div>
+
+    <div style="display: flex; align-items: center; justify-content: space-between; padding: 14px 18px 16px 20px">
+      <button style="display: flex; align-items: center; gap: 7px; font-size: 12px; color: #d6e6e1">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3.5L1.5 7 5 10.5M9 3.5L12.5 7 9 10.5"></path></svg>
+        Hide file header
+      </button>
+      <div style="display: flex; gap: 8px; align-items: center">
+        <button style="height: 32px; padding: 0 14px; border-radius: 999px; font-size: 12.5px; color: #b8cdc6">Cancel</button>
+        <button style="height: 32px; padding: 0 16px; border-radius: 999px; font-size: 12.5px; font-weight: 600; background: #7fd4bf; color: #0a1414; display: flex; align-items: center; gap: 8px">Create draft <span style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11px; opacity: 0.7">⌘↵</span></button>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":800}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>
