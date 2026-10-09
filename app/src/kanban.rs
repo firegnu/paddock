@@ -41,6 +41,8 @@ pub struct Task {
     pub depends: Option<String>,
     /// From an optional `待用户：` line at the head of the file: what the user is waited on for.
     pub asks: Option<String>,
+    /// From an optional `执行：主控` line at the head of the file: the controller does it itself.
+    pub by_controller: bool,
 }
 
 /// What a task file's text gives, apart from its name.
@@ -51,6 +53,7 @@ pub struct Text {
     branch: Option<String>,
     depends: Option<String>,
     asks: Option<String>,
+    by_controller: bool,
     /// It has a `## 完成记录` section.
     record: bool,
 }
@@ -123,6 +126,7 @@ fn entry(file: &str, id: String, text: &Text) -> Task {
         branch: text.branch.clone(),
         depends: text.depends.clone(),
         asks: text.asks.clone(),
+        by_controller: text.by_controller,
     }
 }
 
@@ -170,6 +174,15 @@ fn read_text(text: &str) -> Text {
                 .or_else(|| line.strip_prefix("待用户:"))
         {
             out.asks = Some(rest.trim().to_owned());
+            continue;
+        }
+        // Also only at the head.
+        if section.is_empty()
+            && let Some(rest) = line
+                .strip_prefix("执行：")
+                .or_else(|| line.strip_prefix("执行:"))
+        {
+            out.by_controller = rest.trim() == "主控";
             continue;
         }
         // The first worktree line of 「在哪里干活」: an earlier mention, such as a prototype's
@@ -1294,6 +1307,10 @@ pub fn board(facts: &Facts, agents: &[Seen], now: f64) -> Board {
     for task in &facts.tasks {
         let agent = agent_for(task, agents);
         let column = column(task, facts, agent);
+        // A task the controller does itself shows it while under way, as its agent would show;
+        // only the task's own agent moves the card on.
+        let doer =
+            agent.or(controller.filter(|_| task.by_controller && column == Column::InProgress));
         let branch_time = facts.branch(task).map(|b| b.time);
         let since = agent.and_then(|a| a.since).map(|s| s as i64);
         let time = match column {
@@ -1309,7 +1326,7 @@ pub fn board(facts: &Facts, agents: &[Seen], now: f64) -> Board {
                 .as_ref()
                 .filter(|dep| !facts.wrapped.contains_key(*dep))
                 .map(|dep| (format!("Waits for {dep}"), Tone::Dim)),
-            Column::InProgress => Some(match agent {
+            Column::InProgress => Some(match doer {
                 Some(a) => (card::look(a.status).label.to_owned(), Tone::Agent),
                 None => ("No agent".to_owned(), Tone::Dim),
             }),
@@ -1338,7 +1355,7 @@ pub fn board(facts: &Facts, agents: &[Seen], now: f64) -> Board {
             file: task.file.clone(),
             column,
             age: time.map_or_else(String::new, |t| card::short_time(Some(now - t as f64))),
-            agent: agent.filter(|_| column != Column::Done).cloned(),
+            agent: doer.filter(|_| column != Column::Done).cloned(),
             controller: controller.filter(|_| column == Column::ToReview).cloned(),
             state,
             branch: task.branch.clone().filter(|_| shows_branch),
@@ -1346,7 +1363,7 @@ pub fn board(facts: &Facts, agents: &[Seen], now: f64) -> Board {
                 .then(|| facts.lines.get(&task.id).copied())
                 .flatten(),
             draft: false,
-            needs_you: task.asks.is_some() || agent.is_some_and(|a| a.status == Status::Waiting),
+            needs_you: task.asks.is_some() || doer.is_some_and(|a| a.status == Status::Waiting),
             asks: task.asks.clone(),
             dropped: facts
                 .dropped
@@ -1435,6 +1452,7 @@ mod tests {
                 branch: Some("p5-29a-kanban".into()),
                 depends: Some("P5-28a".into()),
                 asks: None,
+                by_controller: false,
             }
         );
         assert!(!has_record(text));
@@ -1547,6 +1565,7 @@ mod tests {
             branch: None,
             depends: None,
             asks: asks.map(str::to_owned),
+            by_controller: false,
         }
     }
 
@@ -1740,6 +1759,82 @@ mod tests {
         // No controller, no line.
         let without = super::board(&facts, std::slice::from_ref(&dev), 1_000.0);
         assert_eq!(without.cards(Column::ToReview)[0].controller, None);
+    }
+
+    #[test]
+    fn a_line_at_the_head_says_the_controller_does_the_task() {
+        let head = "# 任务：x\n\n依据：\n- 用户：y\n执行：主控\n\n## 要做的\n";
+        assert!(parse("P5-2-x.md", head).unwrap().by_controller);
+        assert!(
+            parse("P5-2-x.md", "# 任务：x\n执行: 主控\n")
+                .unwrap()
+                .by_controller
+        );
+        // Not when a section quotes it, nor for anyone else.
+        let quoted = "# 任务：x\n依据：y\n\n## 完成记录\n执行：主控\n";
+        assert!(!parse("P5-2-x.md", quoted).unwrap().by_controller);
+        assert!(
+            !parse("P5-2-x.md", "# 任务：x\n执行：dev\n")
+                .unwrap()
+                .by_controller
+        );
+        assert!(!parse("P5-2-x.md", "# 任务：x\n").unwrap().by_controller);
+    }
+
+    #[test]
+    fn the_controller_shows_on_a_card_in_progress_it_does_itself() {
+        let ours = |id: &str| Task {
+            worktree: Some(format!("/w/{id}")),
+            branch: Some(id.to_lowercase()),
+            by_controller: true,
+            ..bare(id, None)
+        };
+        let mut facts = Facts {
+            repo: PathBuf::from("/w/paddock"),
+            // P1-1 not started; P1-2 under way; P1-3 under way by a dev agent after all; P1-4
+            // dispatched as usual.
+            tasks: vec![
+                ours("P1-1"),
+                ours("P1-2"),
+                ours("P1-3"),
+                Task {
+                    by_controller: false,
+                    ..ours("P1-4")
+                },
+            ],
+            ..Default::default()
+        };
+        for id in ["P1-2", "P1-3", "P1-4"] {
+            facts
+                .worktrees
+                .push((format!("/w/{id}"), Some(id.to_lowercase())));
+        }
+        let main = Seen {
+            said_done: true,
+            ..controller("paddock/main", "/w/paddock", Status::Working)
+        };
+        let dev = seen("paddock/dev-a", None, Some("P1-3"), Status::Idle);
+        let board = board(&facts, &[main.clone(), dev.clone()], 1_000.0);
+        // Not started: still queued, no one on it.
+        let queued = board.cards(Column::Queued);
+        assert_eq!(queued.len(), 1);
+        assert_eq!(queued[0].agent, None);
+        // Its reply ending in DONE does not move the card on.
+        let going = board.cards(Column::InProgress);
+        let card = |id: &str| going.iter().find(|c| c.id == id).unwrap();
+        assert_eq!(card("P1-2").agent.as_ref(), Some(&main));
+        assert_eq!(
+            card("P1-2").state,
+            Some((card::look(Status::Working).label.to_owned(), Tone::Agent))
+        );
+        assert_eq!(card("P1-3").agent.as_ref(), Some(&dev));
+        assert_eq!(card("P1-4").agent, None);
+        assert_eq!(card("P1-4").state, Some(("No agent".to_owned(), Tone::Dim)));
+        // Waiting on the user, so is its card.
+        let waiting = controller("paddock/main", "/w/paddock", Status::Waiting);
+        let board = super::board(&facts, std::slice::from_ref(&waiting), 1_000.0);
+        let going = board.cards(Column::InProgress);
+        assert!(going.iter().find(|c| c.id == "P1-2").unwrap().needs_you);
     }
 
     #[test]

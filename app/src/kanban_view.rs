@@ -1392,16 +1392,18 @@ impl KanbanView {
         );
         if let Some(agent) = &card.agent {
             let (go, show) = (agent.name.clone(), agent.name.clone());
-            bar = bar
-                .child(
-                    button("kanban-agent", Icon::NewShell, "Go to agent").on_click(cx.listener(
-                        move |_, _: &ClickEvent, _, cx| {
-                            cx.stop_propagation();
-                            cx.emit(KanbanEvent::GoTo(go.clone()));
-                        },
-                    )),
-                )
-                .child(
+            bar = bar.child(
+                button("kanban-agent", Icon::NewShell, "Go to agent").on_click(cx.listener(
+                    move |_, _: &ClickEvent, _, cx| {
+                        cx.stop_propagation();
+                        cx.emit(KanbanEvent::GoTo(go.clone()));
+                    },
+                )),
+            );
+            // Changes shows an agent's own directory: the controller's is the main worktree, not
+            // the task's (P5-67).
+            if !agent.controller {
+                bar = bar.child(
                     button("kanban-changes", Icon::Changes, "Show changes").on_click(cx.listener(
                         move |_, _: &ClickEvent, _, cx| {
                             cx.stop_propagation();
@@ -1409,6 +1411,7 @@ impl KanbanView {
                         },
                     )),
                 );
+            }
         }
         if self.offers_clear(card) {
             let file = card.file.clone();
@@ -1441,7 +1444,10 @@ impl KanbanView {
     /// from its right padding: the bar, its border, and its own room from the card's edge.
     fn bar_reach(&self, card: &Card, ui: &UiFont) -> Pixels {
         let buttons = 1.0
-            + if card.agent.is_some() { 2.0 } else { 0.0 }
+            + card
+                .agent
+                .as_ref()
+                .map_or(0.0, |agent| if agent.controller { 1.0 } else { 2.0 })
             + if self.offers_clear(card) { 1.0 } else { 0.0 };
         let bar = buttons * BAR_BUTTON + (buttons - 1.0) * BAR_GAP + 2.0 * BAR_PAD;
         ui.px(bar + BAR_RIGHT - ROW_RIGHT) + px(2.0)
