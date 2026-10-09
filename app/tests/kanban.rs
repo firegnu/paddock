@@ -736,7 +736,7 @@ fn clearing_takes_the_line_out_and_commits_that_file_alone() {
 
 #[test]
 fn clearing_is_refused_with_nothing_changed() {
-    use paddock::kanban::{NotCleared, clear_asks};
+    use paddock::kanban::{NotChanged, clear_asks};
     let temp = common::tempdir();
     let cancel = AtomicBool::new(false);
     // Each refusal leaves the file, HEAD and the index as they were.
@@ -754,7 +754,7 @@ fn clearing_is_refused_with_nothing_changed() {
     let head = said(&repo, &["rev-parse", "HEAD"]);
     assert_eq!(
         clear(&repo, asks),
-        Err(NotCleared::NotMain(Some("other".into())))
+        Err(NotChanged::NotMain(Some("other".into())))
     );
     assert_eq!(
         clear(&repo, asks).unwrap_err().to_string(),
@@ -762,7 +762,7 @@ fn clearing_is_refused_with_nothing_changed() {
     );
     unchanged(&repo, &text, &head, "");
     git(&repo, &["checkout", "-q", "--detach"]);
-    assert_eq!(clear(&repo, asks), Err(NotCleared::NotMain(None)));
+    assert_eq!(clear(&repo, asks), Err(NotChanged::NotMain(None)));
 
     // A merge in progress, stopped on a conflict.
     let (repo, text) = waiting_repo(temp.path(), "merging");
@@ -779,7 +779,7 @@ fn clearing_is_refused_with_nothing_changed() {
         .unwrap();
     assert!(!merge.status.success(), "the merge was to conflict");
     let head = said(&repo, &["rev-parse", "HEAD"]);
-    assert_eq!(clear(&repo, asks), Err(NotCleared::Busy("merge")));
+    assert_eq!(clear(&repo, asks), Err(NotChanged::Busy("merge")));
     unchanged(&repo, &text, &head, "notes.txt\n");
 
     // The task file changed, not staged and then staged.
@@ -787,10 +787,10 @@ fn clearing_is_refused_with_nothing_changed() {
     let edited = format!("{text}多一行\n");
     fs::write(repo.join(WAITING), &edited).unwrap();
     let head = said(&repo, &["rev-parse", "HEAD"]);
-    assert_eq!(clear(&repo, asks), Err(NotCleared::Changed(WAITING.into())));
+    assert_eq!(clear(&repo, asks), Err(NotChanged::Changed(WAITING.into())));
     unchanged(&repo, &edited, &head, "");
     git(&repo, &["add", WAITING]);
-    assert_eq!(clear(&repo, asks), Err(NotCleared::Changed(WAITING.into())));
+    assert_eq!(clear(&repo, asks), Err(NotChanged::Changed(WAITING.into())));
     unchanged(&repo, &edited, &head, &format!("{WAITING}\n"));
 
     // The line no longer there, or saying something else than the card did.
@@ -798,20 +798,20 @@ fn clearing_is_refused_with_nothing_changed() {
     let head = said(&repo, &["rev-parse", "HEAD"]);
     assert_eq!(
         clear(&repo, "别的事"),
-        Err(NotCleared::Gone(WAITING.into()))
+        Err(NotChanged::Gone(WAITING.into()))
     );
     unchanged(&repo, &text, &head, "");
     let without = text.replace("待用户：实测 hover 的样子\n", "");
     commit(&repo, WAITING, &without, "主控删了");
     let head = said(&repo, &["rev-parse", "HEAD"]);
-    assert_eq!(clear(&repo, asks), Err(NotCleared::Gone(WAITING.into())));
+    assert_eq!(clear(&repo, asks), Err(NotChanged::Gone(WAITING.into())));
     unchanged(&repo, &without, &head, "");
 
     // Git fails to commit: the index is locked. The file is put back as it was.
     let (repo, text) = waiting_repo(temp.path(), "locked");
     fs::write(repo.join(".git/index.lock"), "").unwrap();
     let head = said(&repo, &["rev-parse", "HEAD"]);
-    assert!(matches!(clear(&repo, asks), Err(NotCleared::Commit(_))));
+    assert!(matches!(clear(&repo, asks), Err(NotChanged::Commit(_))));
     fs::remove_file(repo.join(".git/index.lock")).unwrap();
     unchanged(&repo, &text, &head, "");
 }
@@ -857,4 +857,160 @@ fn only_a_task_file_waiting_on_the_user_can_be_cleared() {
     assert!(!card("P1-2").clearable());
     assert!(card("P1-1").needs_you);
     assert!(card("P1-1").clearable());
+}
+
+#[test]
+fn setting_a_priority_writes_the_line_and_commits_that_file_alone() {
+    use paddock::kanban::{Priority, set_priority};
+    let temp = common::tempdir();
+    let (repo, text) = waiting_repo(temp.path(), "repo");
+    let cancel = AtomicBool::new(false);
+    fs::write(repo.join("staged.txt"), "s\n").unwrap();
+    git(&repo, &["add", "staged.txt"]);
+    let set = |priority| set_priority("git", &repo, "P1-1-等用户.md", priority, &cancel);
+    let subject = || {
+        let stored = said(&repo, &["cat-file", "commit", "HEAD"]);
+        stored.split_once("\n\n").unwrap().1.to_owned()
+    };
+    let priority = || {
+        let Read::Board(facts) = read("git", repo.to_str().unwrap(), &cache(), &cancel) else {
+            panic!("not a board");
+        };
+        board(&facts, &[], 2_000_000_000.0).cards(Column::Queued)[0].priority
+    };
+    assert_eq!(priority(), Some(Priority::Medium));
+
+    let head = said(&repo, &["rev-parse", "HEAD"]);
+    assert_eq!(set(Priority::High), Ok(()));
+    let high = text.replace(
+        "待用户：实测 hover 的样子\n",
+        "待用户：实测 hover 的样子\n优先：高\n",
+    );
+    assert_eq!(fs::read_to_string(repo.join(WAITING)).unwrap(), high);
+    assert_eq!(said(&repo, &["rev-parse", "HEAD~1"]), head);
+    assert_eq!(subject(), "P1-1：优先级改为高\n");
+    assert_eq!(
+        said(&repo, &["show", "--name-only", "--format=", "HEAD"]),
+        format!("{WAITING}\n")
+    );
+    assert_eq!(
+        said(&repo, &["diff", "--cached", "--name-only"]),
+        "staged.txt\n"
+    );
+    assert_eq!(said(&repo, &["remote"]), "");
+    assert_eq!(priority(), Some(Priority::High));
+
+    // Over where it is.
+    assert_eq!(set(Priority::Low), Ok(()));
+    assert_eq!(
+        fs::read_to_string(repo.join(WAITING)).unwrap(),
+        high.replace("优先：高", "优先：低")
+    );
+    assert_eq!(subject(), "P1-1：优先级改为低\n");
+    // Back to medium: the line taken out.
+    assert_eq!(set(Priority::Medium), Ok(()));
+    assert_eq!(fs::read_to_string(repo.join(WAITING)).unwrap(), text);
+    assert_eq!(subject(), "P1-1：优先级改为中\n");
+    assert_eq!(priority(), Some(Priority::Medium));
+    // Already so: nothing committed.
+    let after = said(&repo, &["rev-parse", "HEAD"]);
+    assert_eq!(set(Priority::Medium), Ok(()));
+    assert_eq!(said(&repo, &["rev-parse", "HEAD"]), after);
+}
+
+#[test]
+fn setting_a_priority_is_refused_with_nothing_changed() {
+    use paddock::kanban::{NotChanged, Priority, set_priority};
+    let temp = common::tempdir();
+    let cancel = AtomicBool::new(false);
+    let set = |repo: &Path, file: &str| set_priority("git", repo, file, Priority::High, &cancel);
+    let file = "P1-1-等用户.md";
+
+    // Not on main.
+    let (repo, text) = waiting_repo(temp.path(), "branch");
+    git(&repo, &["checkout", "-q", "-b", "other"]);
+    let head = said(&repo, &["rev-parse", "HEAD"]);
+    assert_eq!(
+        set(&repo, file),
+        Err(NotChanged::NotMain(Some("other".into())))
+    );
+    assert_eq!(fs::read_to_string(repo.join(WAITING)).unwrap(), text);
+    assert_eq!(said(&repo, &["rev-parse", "HEAD"]), head);
+
+    // The task file changed and not committed.
+    let (repo, text) = waiting_repo(temp.path(), "changed");
+    let edited = format!("{text}多一行\n");
+    fs::write(repo.join(WAITING), &edited).unwrap();
+    let head = said(&repo, &["rev-parse", "HEAD"]);
+    assert_eq!(set(&repo, file), Err(NotChanged::Changed(WAITING.into())));
+    assert_eq!(fs::read_to_string(repo.join(WAITING)).unwrap(), edited);
+    assert_eq!(said(&repo, &["rev-parse", "HEAD"]), head);
+
+    // Not on main at all: a draft is not committed this way.
+    let (repo, _) = waiting_repo(temp.path(), "draft");
+    let draft = "docs/任务/P1-2-草稿.md";
+    fs::write(repo.join(draft), "# 任务：草稿\n").unwrap();
+    let head = said(&repo, &["rev-parse", "HEAD"]);
+    assert_eq!(
+        set(&repo, "P1-2-草稿.md"),
+        Err(NotChanged::NotOnMain(draft.into()))
+    );
+    assert_eq!(
+        set(&repo, "P1-2-草稿.md").unwrap_err().to_string(),
+        format!("{draft} isn't on main")
+    );
+    assert_eq!(
+        fs::read_to_string(repo.join(draft)).unwrap(),
+        "# 任务：草稿\n"
+    );
+    assert_eq!(said(&repo, &["rev-parse", "HEAD"]), head);
+}
+
+#[test]
+fn a_drafts_priority_is_written_and_not_committed() {
+    use paddock::kanban::{Priority, set_draft_priority};
+    let temp = common::tempdir();
+    let (repo, _) = waiting_repo(temp.path(), "repo");
+    let draft = "docs/任务/P1-2-草稿.md";
+    fs::write(repo.join(draft), "# 任务：草稿\n\n## 用户原话\n").unwrap();
+    let head = said(&repo, &["rev-parse", "HEAD"]);
+    assert_eq!(
+        set_draft_priority(&repo, "P1-2-草稿.md", Priority::Low),
+        Ok(())
+    );
+    assert_eq!(
+        fs::read_to_string(repo.join(draft)).unwrap(),
+        "# 任务：草稿\n优先：低\n\n## 用户原话\n"
+    );
+    assert_eq!(said(&repo, &["rev-parse", "HEAD"]), head);
+    assert_eq!(said(&repo, &["diff", "--cached", "--name-only"]), "");
+    assert_eq!(
+        said(&repo, &["status", "--porcelain", "--", draft]),
+        format!("?? {draft}\n")
+    );
+    let Read::Board(facts) = read(
+        "git",
+        repo.to_str().unwrap(),
+        &cache(),
+        &AtomicBool::new(false),
+    ) else {
+        panic!("not a board");
+    };
+    let board = board(&facts, &[], 2_000_000_000.0);
+    // Low: after P1-1, medium as it has no line.
+    let queued: Vec<(&str, bool, Option<Priority>)> = board
+        .cards(Column::Queued)
+        .iter()
+        .map(|c| (c.id.as_str(), c.draft, c.priority))
+        .collect();
+    assert_eq!(
+        queued,
+        [
+            ("P1-1", false, Some(Priority::Medium)),
+            ("P1-2", true, Some(Priority::Low)),
+        ]
+    );
+    // A draft no longer there: refused, nothing written.
+    assert!(set_draft_priority(&repo, "P1-3-没有.md", Priority::High).is_err());
+    assert!(!repo.join("docs/任务/P1-3-没有.md").exists());
 }

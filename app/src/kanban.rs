@@ -2,9 +2,10 @@
 //! repository's main is a card, and where it stands is read from Git and corral, never stored
 //! (DESIGN §13 P5-29). Git is read in the background with read-only commands (`read`); the agents
 //! come from the left sidebar's listing (`Seen`); `board` puts the two together. Nothing here
-//! acts on an agent. Two things write: a new draft (`create_draft`), never over a file that is
-//! there, and taking a `待用户：` line out of a task file on main with a commit of that file alone
-//! (`clear_asks`).
+//! acts on an agent. Three things write: a new draft (`create_draft`), never over a file that is
+//! there; taking a `待用户：` line out of a task file on main with a commit of that file alone
+//! (`clear_asks`); and a task's `优先：` line, committed the same way (`set_priority`) or, in a
+//! draft, only written (`set_draft_priority`).
 use crate::{agents::Status, card, git};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -43,6 +44,71 @@ pub struct Task {
     pub asks: Option<String>,
     /// From an optional `执行：主控` line at the head of the file: the controller does it itself.
     pub by_controller: bool,
+    /// From an optional `优先：` line at the head of the file; without one, medium.
+    pub priority: Priority,
+    /// What in the text the board or the controller could read wrong.
+    pub problems: Vec<Problem>,
+}
+
+/// A task's priority: `优先：高` or `优先：低` at the head of its file, or medium without the line.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Priority {
+    High,
+    #[default]
+    Medium,
+    Low,
+}
+
+impl Priority {
+    pub const ALL: [Priority; 3] = [Priority::High, Priority::Medium, Priority::Low];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Priority::High => "High",
+            Priority::Medium => "Medium",
+            Priority::Low => "Low",
+        }
+    }
+
+    /// The word its line says.
+    fn word(self) -> &'static str {
+        match self {
+            Priority::High => "高",
+            Priority::Medium => "中",
+            Priority::Low => "低",
+        }
+    }
+
+    fn of(word: &str) -> Option<Priority> {
+        Priority::ALL.into_iter().find(|p| p.word() == word)
+    }
+}
+
+/// What in a task file the board or the controller could read wrong.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Problem {
+    /// The first line is not `# 任务：<title>`.
+    Title,
+    /// A `优先：` line says something other than 高, 中 or 低: read as medium.
+    Priority(String),
+    /// More than one `优先：` line at the head: the first counts.
+    Priorities,
+    /// `依赖：` names a task with no file in `docs/任务/`.
+    Depends(String),
+}
+
+impl std::fmt::Display for Problem {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Problem::Title => write!(f, "The first line isn't \u{201c}# 任务：<title>\u{201d}"),
+            Problem::Priority(said) => write!(
+                f,
+                "\u{201c}优先：{said}\u{201d} isn't 高, 中 or 低, so it's sorted as medium"
+            ),
+            Problem::Priorities => write!(f, "More than one 优先： line; the first one counts"),
+            Problem::Depends(id) => write!(f, "依赖： {id} has no task file in {TASKS}"),
+        }
+    }
 }
 
 /// What a task file's text gives, apart from its name.
@@ -54,6 +120,9 @@ pub struct Text {
     depends: Option<String>,
     asks: Option<String>,
     by_controller: bool,
+    priority: Priority,
+    /// What the text alone shows to be wrong.
+    problems: Vec<Problem>,
     /// It has a `## 完成记录` section.
     record: bool,
 }
@@ -127,6 +196,8 @@ fn entry(file: &str, id: String, text: &Text) -> Task {
         depends: text.depends.clone(),
         asks: text.asks.clone(),
         by_controller: text.by_controller,
+        priority: text.priority,
+        problems: text.problems.clone(),
     }
 }
 
@@ -137,7 +208,16 @@ pub fn has_record(text: &str) -> bool {
 
 fn read_text(text: &str) -> Text {
     let mut out = Text::default();
+    let first = text.lines().next().unwrap_or_default().trim_end();
+    let titled = ["# 任务：", "# 任务:"]
+        .iter()
+        .find_map(|prefix| first.strip_prefix(prefix))
+        .is_some_and(|title| !title.trim().is_empty());
+    if !titled {
+        out.problems.push(Problem::Title);
+    }
     let mut section = "";
+    let mut prioritized = false;
     for line in text.lines() {
         let line = line.trim_end();
         if out.title.is_none()
@@ -185,6 +265,23 @@ fn read_text(text: &str) -> Text {
             out.by_controller = rest.trim() == "主控";
             continue;
         }
+        // Also only at the head; the first counts, and one it cannot read is medium.
+        if section.is_empty()
+            && let Some(rest) = priority_value(line)
+        {
+            if prioritized {
+                if !out.problems.contains(&Problem::Priorities) {
+                    out.problems.push(Problem::Priorities);
+                }
+            } else {
+                prioritized = true;
+                out.priority = Priority::of(rest).unwrap_or_else(|| {
+                    out.problems.push(Problem::Priority(rest.to_owned()));
+                    Priority::Medium
+                });
+            }
+            continue;
+        }
         // The first worktree line of 「在哪里干活」: an earlier mention, such as a prototype's
         // branch in the background, is not this task's.
         if section == "在哪里干活"
@@ -207,6 +304,13 @@ fn read_text(text: &str) -> Text {
         }
     }
     out
+}
+
+/// What a `优先：` line says, for a line that is one.
+fn priority_value(line: &str) -> Option<&str> {
+    line.strip_prefix("优先：")
+        .or_else(|| line.strip_prefix("优先:"))
+        .map(str::trim)
 }
 
 /// A title line's words after `任务：` (and any id before it, as in `任务 P3-1：`).
@@ -944,9 +1048,9 @@ pub fn asks_line(text: &str) -> Option<(std::ops::Range<usize>, &str)> {
     None
 }
 
-/// Why `待用户：` was not cleared.
+/// Why a task file was not changed: its `待用户：` line not cleared, or its priority not set.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum NotCleared {
+pub enum NotChanged {
     /// The main worktree has another branch out, or none.
     NotMain(Option<String>),
     /// A merge, rebase, cherry-pick or revert is in progress there.
@@ -955,53 +1059,168 @@ pub enum NotCleared {
     Changed(String),
     /// Main's task file no longer has the line.
     Gone(String),
+    /// Main has no such task file.
+    NotOnMain(String),
     NoGit,
     Write(String),
     Commit(String),
 }
 
-impl std::fmt::Display for NotCleared {
+impl std::fmt::Display for NotChanged {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            NotCleared::NotMain(Some(branch)) => {
+            NotChanged::NotMain(Some(branch)) => {
                 write!(f, "The main worktree is on {branch}, not {MAIN}")
             }
-            NotCleared::NotMain(None) => write!(f, "The main worktree isn't on {MAIN}"),
-            NotCleared::Busy(what) => write!(f, "A {what} is in progress in the main worktree"),
-            NotCleared::Changed(file) => write!(f, "{file} has uncommitted changes"),
-            NotCleared::Gone(file) => write!(f, "{file} on {MAIN} no longer has the line"),
-            NotCleared::NoGit => write!(f, "Git couldn't be read, so nothing was changed"),
-            NotCleared::Write(why) => write!(f, "Couldn't write the file: {why}"),
-            NotCleared::Commit(why) => write!(f, "Couldn't commit: {why}"),
+            NotChanged::NotMain(None) => write!(f, "The main worktree isn't on {MAIN}"),
+            NotChanged::Busy(what) => write!(f, "A {what} is in progress in the main worktree"),
+            NotChanged::Changed(file) => write!(f, "{file} has uncommitted changes"),
+            NotChanged::Gone(file) => write!(f, "{file} on {MAIN} no longer has the line"),
+            NotChanged::NotOnMain(file) => write!(f, "{file} isn't on {MAIN}"),
+            NotChanged::NoGit => write!(f, "Git couldn't be read, so nothing was changed"),
+            NotChanged::Write(why) => write!(f, "Couldn't write the file: {why}"),
+            NotChanged::Commit(why) => write!(f, "Couldn't commit: {why}"),
         }
     }
 }
 
 /// Clears what the user was waited on for: in the main worktree `repo`, on main, takes the
 /// `待用户：` line saying `asks` out of the task file `file` and commits that file alone (`<id>：用户
-/// 已处理 待用户`, the line as the message's body), leaving whatever else is staged staged. Never
-/// pushes. Refused, with nothing changed, off main, while a merge, rebase, cherry-pick or revert is
-/// in progress, when the file has changes of its own, when main's file no longer has that line, or
-/// when Git fails; the file is put back as it was when the commit fails.
+/// 已处理 待用户`, the line as the message's body), as [`commit_task_file`] does.
 pub fn clear_asks(
     program: &str,
     repo: &Path,
     file: &str,
     asks: &str,
     cancel: &AtomicBool,
-) -> Result<(), NotCleared> {
-    let run = |args: &[&str]| git::git(program, repo, args, cancel).ok_or(NotCleared::NoGit);
+) -> Result<(), NotChanged> {
+    let path = format!("{TASKS}/{file}");
+    commit_task_file(program, repo, file, cancel, |text| {
+        let Some((range, line)) = asks_line(text).filter(|(_, line)| {
+            let rest = line
+                .strip_prefix("待用户：")
+                .or_else(|| line.strip_prefix("待用户:"));
+            rest.map(str::trim) == Some(asks.trim())
+        }) else {
+            return Err(NotChanged::Gone(path));
+        };
+        let after = format!("{}{}", &text[..range.start], &text[range.end..]);
+        let id = task_id(file).unwrap_or_default();
+        Ok(Some((
+            after,
+            vec![format!("{id}：用户已处理 待用户"), line.to_owned()],
+        )))
+    })
+}
+
+/// Sets a committed task's priority: in the main worktree `repo`, on main, writes the task file
+/// `file`'s `优先：` line as [`with_priority`] does and commits that file alone (`<id>：优先级改为
+/// 高`), as [`commit_task_file`] does. Nothing is committed when the file already says so.
+pub fn set_priority(
+    program: &str,
+    repo: &Path,
+    file: &str,
+    priority: Priority,
+    cancel: &AtomicBool,
+) -> Result<(), NotChanged> {
+    commit_task_file(program, repo, file, cancel, |text| {
+        let after = with_priority(text, priority);
+        let id = task_id(file).unwrap_or_default();
+        Ok((after != text).then(|| (after, vec![format!("{id}：优先级改为{}", priority.word())])))
+    })
+}
+
+/// Sets a draft's priority: writes the main worktree `repo`'s task file `file` as [`with_priority`]
+/// does, committing nothing.
+pub fn set_draft_priority(repo: &Path, file: &str, priority: Priority) -> Result<(), NotChanged> {
+    let path = repo.join(TASKS).join(file);
+    let text = std::fs::read_to_string(&path).map_err(|e| NotChanged::Write(e.to_string()))?;
+    let after = with_priority(&text, priority);
+    if after != text {
+        std::fs::write(&path, after).map_err(|e| NotChanged::Write(e.to_string()))?;
+    }
+    Ok(())
+}
+
+/// `text` with its priority line saying `priority`: the first `优先：` line at the head written
+/// over where it is and any others taken out; a new one put at the end of the head, before the
+/// blank lines above the first section; none for medium.
+pub fn with_priority(text: &str, priority: Priority) -> String {
+    let mut lines: Vec<String> = text.split_inclusive('\n').map(str::to_owned).collect();
+    let eol = if text.contains("\r\n") { "\r\n" } else { "\n" };
+    let written = format!("优先：{}", priority.word());
+    // The head: up to the first section, as `read_text` reads it.
+    let mut titled = false;
+    let mut head = lines.len();
+    let mut found = Vec::new();
+    for (at, raw) in lines.iter().enumerate() {
+        let line = raw.trim_end();
+        if !titled && line.starts_with("# ") {
+            titled = true;
+            continue;
+        }
+        if line.starts_with("## ") {
+            head = at;
+            break;
+        }
+        if priority_value(line).is_some() {
+            found.push(at);
+        }
+    }
+    let keep = found
+        .first()
+        .copied()
+        .filter(|_| priority != Priority::Medium);
+    for at in found.iter().rev() {
+        if Some(*at) == keep {
+            let raw = &lines[*at];
+            let ending = &raw[raw.trim_end_matches(['\r', '\n']).len()..];
+            lines[*at] = format!("{written}{ending}");
+        } else {
+            lines.remove(*at);
+            head -= 1;
+        }
+    }
+    if priority != Priority::Medium && keep.is_none() {
+        let mut at = head;
+        while at > 0 && lines[at - 1].trim().is_empty() {
+            at -= 1;
+        }
+        if let Some(before) = at.checked_sub(1).map(|b| &mut lines[b])
+            && !before.ends_with('\n')
+        {
+            before.push_str(eol);
+        }
+        lines.insert(at, format!("{written}{eol}"));
+    }
+    lines.concat()
+}
+
+/// In the main worktree `repo`, on main, writes the task file `file` as `edit` makes it from its
+/// text, and commits that file alone with `edit`'s message, one paragraph each, leaving whatever
+/// else is staged staged. `edit` may refuse, or say there is nothing to change. Never pushes.
+/// Refused, with nothing changed, off main, while a merge, rebase, cherry-pick or revert is in
+/// progress, when main has no such file, when the file has changes of its own, or when Git fails;
+/// the file is put back as it was when the commit fails.
+fn commit_task_file(
+    program: &str,
+    repo: &Path,
+    file: &str,
+    cancel: &AtomicBool,
+    edit: impl FnOnce(&str) -> Result<Option<(String, Vec<String>)>, NotChanged>,
+) -> Result<(), NotChanged> {
+    let run = |args: &[&str]| git::git(program, repo, args, cancel).ok_or(NotChanged::NoGit);
     let path = format!("{TASKS}/{file}");
     let head = run(&["symbolic-ref", "--quiet", "--short", "HEAD"])?;
     let branch = String::from_utf8_lossy(&head.stdout).trim_end().to_owned();
     if !head.status.success() {
         return Err(match head.status.code() {
-            Some(1) => NotCleared::NotMain(None),
-            _ => NotCleared::NoGit,
+            Some(1) => NotChanged::NotMain(None),
+            _ => NotChanged::NoGit,
         });
     }
     if branch != MAIN {
-        return Err(NotCleared::NotMain(Some(branch)));
+        return Err(NotChanged::NotMain(Some(branch)));
     }
     let busy = [
         ("MERGE_HEAD", "merge"),
@@ -1016,7 +1235,7 @@ pub fn clear_asks(
     }
     let paths = run(&args)?;
     if !paths.status.success() {
-        return Err(NotCleared::NoGit);
+        return Err(NotChanged::NoGit);
     }
     let paths = String::from_utf8_lossy(&paths.stdout).into_owned();
     if let Some((_, what)) = paths
@@ -1025,14 +1244,14 @@ pub fn clear_asks(
         .map(|(at, (_, what))| (at, what))
         .find(|(at, _)| Path::new(at).exists())
     {
-        return Err(NotCleared::Busy(what));
+        return Err(NotChanged::Busy(what));
     }
     let tree = run(&["ls-tree", "-z", "--name-only", "HEAD", "--", &path])?;
     if !tree.status.success() {
-        return Err(NotCleared::NoGit);
+        return Err(NotChanged::NoGit);
     }
     if tree.stdout.is_empty() {
-        return Err(NotCleared::Gone(path));
+        return Err(NotChanged::NotOnMain(path));
     }
     let status = run(&[
         "status",
@@ -1043,45 +1262,24 @@ pub fn clear_asks(
         &path,
     ])?;
     if !status.status.success() {
-        return Err(NotCleared::NoGit);
+        return Err(NotChanged::NoGit);
     }
     if !status.stdout.is_empty() {
-        return Err(NotCleared::Changed(path));
+        return Err(NotChanged::Changed(path));
     }
     let on_disk = repo.join(&path);
-    let before = std::fs::read(&on_disk).map_err(|e| NotCleared::Write(e.to_string()))?;
-    let text = std::str::from_utf8(&before).map_err(|_| NotCleared::Gone(path.clone()))?;
-    let Some((range, line)) = asks_line(text).filter(|(_, line)| {
-        let rest = line
-            .strip_prefix("待用户：")
-            .or_else(|| line.strip_prefix("待用户:"));
-        rest.map(str::trim) == Some(asks.trim())
-    }) else {
-        return Err(NotCleared::Gone(path));
+    let before = std::fs::read(&on_disk).map_err(|e| NotChanged::Write(e.to_string()))?;
+    let text = std::str::from_utf8(&before).map_err(|_| NotChanged::Gone(path.clone()))?;
+    let Some((after, message)) = edit(text)? else {
+        return Ok(());
     };
-    let mut after = before[..range.start].to_vec();
-    after.extend_from_slice(&before[range.end..]);
-    std::fs::write(&on_disk, &after).map_err(|e| NotCleared::Write(e.to_string()))?;
-    let id = task_id(file).unwrap_or_default();
-    let subject = format!("{id}：用户已处理 待用户");
-    let committed = git::git_write(
-        program,
-        repo,
-        &[
-            "commit",
-            "--quiet",
-            "--only",
-            "--cleanup=verbatim",
-            "-m",
-            &subject,
-            "-m",
-            line,
-            "--",
-            &path,
-        ],
-        cancel,
-    );
-    match committed {
+    std::fs::write(&on_disk, &after).map_err(|e| NotChanged::Write(e.to_string()))?;
+    let mut args = vec!["commit", "--quiet", "--only", "--cleanup=verbatim"];
+    for paragraph in &message {
+        args.extend(["-m", paragraph]);
+    }
+    args.extend(["--", &path]);
+    match git::git_write(program, repo, &args, cancel) {
         Some(out) if out.status.success() => Ok(()),
         failed => {
             // Put back what was there; the commit did not happen.
@@ -1097,7 +1295,7 @@ pub fn clear_asks(
                         .to_owned()
                 },
             );
-            Err(NotCleared::Commit(why))
+            Err(NotChanged::Commit(why))
         }
     }
 }
@@ -1232,6 +1430,10 @@ pub struct Card {
     pub asks: Option<String>,
     /// Wrapped up without being done, and why.
     pub dropped: Option<String>,
+    /// Its priority, on a queued card (a draft's too); `None` in the other columns.
+    pub priority: Option<Priority>,
+    /// What in its task file could be read wrong, on a card not yet merged.
+    pub problems: Vec<Problem>,
     /// When it last moved, for ordering.
     time: i64,
 }
@@ -1304,6 +1506,38 @@ impl Board {
 pub fn board(facts: &Facts, agents: &[Seen], now: f64) -> Board {
     let mut columns: [Vec<Card>; 5] = Default::default();
     let controller = controller_for(&facts.repo, agents);
+    // The ids with a task file in `docs/任务/`, on main or a draft, for what `依赖：` names.
+    let ids: HashSet<&str> = facts
+        .tasks
+        .iter()
+        .chain(&facts.drafts)
+        .map(|task| task.id.as_str())
+        .filter(|id| !id.is_empty())
+        .collect();
+    // What could be read wrong, on a card not yet merged.
+    let problems = |task: &Task, column: Column| -> Vec<Problem> {
+        if !matches!(
+            column,
+            Column::Queued | Column::InProgress | Column::ToReview
+        ) {
+            return Vec::new();
+        }
+        let mut problems = task.problems.clone();
+        problems.extend(
+            task.depends
+                .as_ref()
+                .filter(|dep| !ids.contains(dep.as_str()))
+                .map(|dep| Problem::Depends(dep.clone())),
+        );
+        problems
+    };
+    // What a queued card, a draft's too, waits for, until that is wrapped up.
+    let waits = |task: &Task| {
+        task.depends
+            .as_ref()
+            .filter(|dep| !facts.wrapped.contains_key(*dep))
+            .map(|dep| (format!("Waits for {dep}"), Tone::Dim))
+    };
     for task in &facts.tasks {
         let agent = agent_for(task, agents);
         let column = column(task, facts, agent);
@@ -1321,11 +1555,7 @@ pub fn board(facts: &Facts, agents: &[Seen], now: f64) -> Board {
         };
         let worktree = facts.worktree(task).is_some();
         let state = match column {
-            Column::Queued => task
-                .depends
-                .as_ref()
-                .filter(|dep| !facts.wrapped.contains_key(*dep))
-                .map(|dep| (format!("Waits for {dep}"), Tone::Dim)),
+            Column::Queued => waits(task),
             Column::InProgress => Some(match doer {
                 Some(a) => (card::look(a.status).label.to_owned(), Tone::Agent),
                 None => ("No agent".to_owned(), Tone::Dim),
@@ -1370,6 +1600,8 @@ pub fn board(facts: &Facts, agents: &[Seen], now: f64) -> Board {
                 .get(&task.id)
                 .filter(|_| column == Column::Done)
                 .cloned(),
+            priority: (column == Column::Queued).then_some(task.priority),
+            problems: problems(task, column),
             time: time.unwrap_or(0),
         });
     }
@@ -1383,20 +1615,23 @@ pub fn board(facts: &Facts, agents: &[Seen], now: f64) -> Board {
             age: String::new(),
             agent: None,
             controller: None,
-            state: None,
+            state: waits(task),
             branch: None,
             lines: None,
             draft: true,
             needs_you: false,
             asks: None,
             dropped: None,
+            priority: Some(task.priority),
+            problems: problems(task, Column::Queued),
             time: 0,
         });
     }
     for (column, cards) in Column::ALL.iter().zip(columns.iter_mut()) {
-        // Queued in the order of their ids, drafts first; the rest most recent first.
+        // Queued by priority, then drafts first, then in the order of their ids (as read); the
+        // rest most recent first.
         if *column == Column::Queued {
-            cards.sort_by_key(|c| !c.draft);
+            cards.sort_by_key(|c| (c.priority, !c.draft));
         } else {
             cards.sort_by(|a, b| b.time.cmp(&a.time).then_with(|| natural(&a.id, &b.id)));
         }
@@ -1453,6 +1688,8 @@ mod tests {
                 depends: Some("P5-28a".into()),
                 asks: None,
                 by_controller: false,
+                priority: Priority::Medium,
+                problems: Vec::new(),
             }
         );
         assert!(!has_record(text));
@@ -1566,6 +1803,8 @@ mod tests {
             depends: None,
             asks: asks.map(str::to_owned),
             by_controller: false,
+            priority: Priority::Medium,
+            problems: Vec::new(),
         }
     }
 
@@ -1898,5 +2137,253 @@ mod tests {
         assert!(!Seen::of(&agent, Status::Idle, Some("DONE? not yet")).said_done);
         assert!(!Seen::of(&agent, Status::Working, Some("DONE")).said_done);
         assert!(!Seen::of(&agent, Status::Idle, None).said_done);
+    }
+
+    #[test]
+    fn a_line_at_the_head_gives_the_priority_and_none_is_medium() {
+        let read = |text: &str| {
+            let task = parse("P5-2-x.md", text).unwrap();
+            (task.priority, task.problems)
+        };
+        // An old task, without the line: medium, nothing wrong.
+        let old = "# 任务：x\n\n依据：y\n依赖：P5-1\n\n## 要做的\n";
+        assert_eq!(read(old), (Priority::Medium, vec![]));
+        assert_eq!(
+            read("# 任务：x\n依据：y\n优先：高\n\n## 要做的\n"),
+            (Priority::High, vec![])
+        );
+        assert_eq!(read("# 任务：x\n优先: 低 \n"), (Priority::Low, vec![]));
+        assert_eq!(read("# 任务：x\n优先：中\n"), (Priority::Medium, vec![]));
+        // A value it cannot read: medium, and said so.
+        assert_eq!(
+            read("# 任务：x\n优先：急\n"),
+            (Priority::Medium, vec![Problem::Priority("急".into())])
+        );
+        // Several: the first counts.
+        assert_eq!(
+            read("# 任务：x\n优先：低\n依据：y\n优先：高\n"),
+            (Priority::Low, vec![Problem::Priorities])
+        );
+        // Not when a section quotes it.
+        assert_eq!(
+            read("# 任务：x\n依据：y\n\n## 完成记录\n优先：高\n优先：急\n"),
+            (Priority::Medium, vec![])
+        );
+    }
+
+    #[test]
+    fn the_first_line_must_be_the_task_title() {
+        let problems = |text: &str| draft("P5-2-x.md", text).problems;
+        assert_eq!(problems("# 任务：x\n"), []);
+        assert_eq!(problems("# 任务: x\n"), []);
+        for text in [
+            "",
+            "\n# 任务：x\n",
+            "依据：y\n# 任务：x\n",
+            "# 任务 P3-1：x\n",
+            "# 任务：\n",
+            "# x\n",
+        ] {
+            assert_eq!(problems(text), [Problem::Title], "{text:?}");
+        }
+    }
+
+    #[test]
+    fn queued_goes_by_priority_then_drafts_then_id() {
+        let at = |id: &str, priority: Priority| Task {
+            priority,
+            ..bare(id, None)
+        };
+        let mut facts = Facts {
+            tasks: vec![
+                at("P1-1", Priority::Low),
+                at("P1-2", Priority::Medium),
+                at("P1-3", Priority::High),
+                at("P1-10", Priority::Medium),
+                at("P1-5", Priority::High),
+            ],
+            drafts: vec![
+                draft("想法.md", "# 任务：想法\n优先：低\n"),
+                draft("P2-1-x.md", "# 任务：x\n优先：高\n"),
+                draft("P2-2-x.md", "# 任务：x\n"),
+            ],
+            ..Default::default()
+        };
+        facts.wrapped.insert("P1-5".into(), 10);
+        let board = board(&facts, &[], 1_000.0);
+        let queued: Vec<(&str, bool, Option<Priority>)> = board
+            .cards(Column::Queued)
+            .iter()
+            .map(|c| (c.id.as_str(), c.draft, c.priority))
+            .collect();
+        let (high, medium, low) = (
+            Some(Priority::High),
+            Some(Priority::Medium),
+            Some(Priority::Low),
+        );
+        assert_eq!(
+            queued,
+            [
+                ("P2-1", true, high),
+                ("P1-3", false, high),
+                ("P2-2", true, medium),
+                ("P1-2", false, medium),
+                ("P1-10", false, medium),
+                ("", true, low),
+                ("P1-1", false, low),
+            ]
+        );
+        // Done: no priority shown.
+        assert_eq!(board.cards(Column::Done)[0].priority, None);
+    }
+
+    #[test]
+    fn problems_show_only_on_cards_not_yet_merged() {
+        // Each one's first line is wrong and it waits for a task with no file.
+        let wrong = |id: &str| Task {
+            worktree: Some(format!("/w/{id}")),
+            branch: Some(id.to_lowercase()),
+            depends: Some("P9-9".into()),
+            problems: vec![Problem::Title],
+            ..bare(id, None)
+        };
+        let mut facts = Facts {
+            repo: PathBuf::from("/w/paddock"),
+            tasks: ["P1-1", "P1-2", "P1-3", "P1-4", "P1-5"].map(wrong).to_vec(),
+            drafts: vec![draft("P2-1-x.md", "依据：x\n依赖：P9-9\n")],
+            ..Default::default()
+        };
+        // P1-1 queued; P1-2 in progress; P1-3 to review; P1-4 merged; P1-5 done.
+        facts
+            .worktrees
+            .push(("/w/P1-2".into(), Some("p1-2".into())));
+        facts.records.insert("P1-3".into());
+        facts.merges.insert("P1-4".into(), 10);
+        facts.wrapped.insert("P1-5".into(), 20);
+        let board = board(&facts, &[], 1_000.0);
+        let both = vec![Problem::Title, Problem::Depends("P9-9".into())];
+        for column in Column::ALL {
+            for card in board.cards(column) {
+                let want = match column {
+                    Column::Queued | Column::InProgress | Column::ToReview => both.clone(),
+                    Column::Merged | Column::Done => vec![],
+                };
+                assert_eq!(card.problems, want, "{column:?} {}", card.file);
+            }
+        }
+        assert_eq!(board.cards(Column::Queued).len(), 2);
+    }
+
+    #[test]
+    fn a_dependency_on_a_task_file_there_is_no_problem() {
+        let on = |id: &str, dep: &str| Task {
+            depends: Some(dep.into()),
+            ..bare(id, None)
+        };
+        let mut facts = Facts {
+            // On a task on main, wrapped up or not, and on a draft.
+            tasks: vec![bare("P1-1", None), on("P1-2", "P1-1"), on("P1-3", "P2-1")],
+            drafts: vec![
+                draft("P2-1-x.md", "# 任务：x\n依赖：P1-2\n"),
+                draft("P2-2-x.md", "# 任务：x\n依赖：P1-1\n"),
+            ],
+            ..Default::default()
+        };
+        facts.wrapped.insert("P1-1".into(), 10);
+        let board = board(&facts, &[], 1_000.0);
+        let queued = board.cards(Column::Queued);
+        assert!(queued.iter().all(|c| c.problems.is_empty()), "{queued:?}");
+        // A draft says what it waits for, as a task on main does; not once that is wrapped up.
+        let state = |id: &str| {
+            queued
+                .iter()
+                .find(|c| c.id == id)
+                .unwrap()
+                .state
+                .clone()
+                .map(|(words, _)| words)
+        };
+        assert_eq!(state("P2-1").as_deref(), Some("Waits for P1-2"));
+        assert_eq!(state("P1-3").as_deref(), Some("Waits for P2-1"));
+        assert_eq!(state("P2-2"), None);
+    }
+
+    #[test]
+    fn the_priority_line_goes_at_the_end_of_the_head() {
+        let cases = [
+            // Added after the last line of the head, before the blank line above the first section.
+            (
+                "# 任务：x\n\n依据：y\n待用户：z\n\n## 要做的\n- a\n",
+                Priority::High,
+                "# 任务：x\n\n依据：y\n待用户：z\n优先：高\n\n## 要做的\n- a\n",
+            ),
+            (
+                "# 任务：x\n## a\n",
+                Priority::Low,
+                "# 任务：x\n优先：低\n## a\n",
+            ),
+            // No section: at the end, the blank lines kept after it.
+            (
+                "# 任务：x\n依据：y",
+                Priority::Low,
+                "# 任务：x\n依据：y\n优先：低\n",
+            ),
+            ("# 任务：x\n\n", Priority::High, "# 任务：x\n优先：高\n\n"),
+            ("", Priority::High, "优先：高\n"),
+            // The file's line ends.
+            (
+                "# 任务：x\r\n依据：y\r\n\r\n## a\r\n",
+                Priority::High,
+                "# 任务：x\r\n依据：y\r\n优先：高\r\n\r\n## a\r\n",
+            ),
+            // Written over where it is; one in a section left alone.
+            (
+                "# 任务：x\n优先：低\n依据：y\n\n## a\n优先：低\n",
+                Priority::High,
+                "# 任务：x\n优先：高\n依据：y\n\n## a\n优先：低\n",
+            ),
+            (
+                "# 任务：x\r\n优先：高\r\n",
+                Priority::Low,
+                "# 任务：x\r\n优先：低\r\n",
+            ),
+            // The others taken out.
+            (
+                "# 任务：x\n优先：急\n依据：y\n优先: 高\n\n## a\n",
+                Priority::Low,
+                "# 任务：x\n优先：低\n依据：y\n\n## a\n",
+            ),
+            // Medium: no line at all.
+            (
+                "# 任务：x\n优先：高\n依据：y\n优先：低\n\n## a\n",
+                Priority::Medium,
+                "# 任务：x\n依据：y\n\n## a\n",
+            ),
+            (
+                "# 任务：x\n依据：y\n\n## a\n",
+                Priority::Medium,
+                "# 任务：x\n依据：y\n\n## a\n",
+            ),
+            ("# 任务：x\n优先：中\n", Priority::Medium, "# 任务：x\n"),
+            // Already so: as it was.
+            (
+                "# 任务：x\n优先：高\n\n## a\n",
+                Priority::High,
+                "# 任务：x\n优先：高\n\n## a\n",
+            ),
+        ];
+        for (text, priority, want) in cases {
+            let written = with_priority(text, priority);
+            assert_eq!(written, want, "{text:?} {priority:?}");
+            let task = draft("P5-2-x.md", &written);
+            assert_eq!(task.priority, priority, "{written:?}");
+            assert!(
+                !task
+                    .problems
+                    .iter()
+                    .any(|p| matches!(p, Problem::Priority(_) | Problem::Priorities)),
+                "{written:?}"
+            );
+        }
     }
 }
