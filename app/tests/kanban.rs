@@ -488,7 +488,9 @@ fn drafts_dropped_tasks_and_tasks_waiting_on_the_user() {
 
 #[test]
 fn a_new_draft_is_written_once_and_never_over_a_taken_id() {
-    use paddock::kanban::{BODY, Fields, Place, Priority, Refused, create_draft, next_id, taken};
+    use paddock::kanban::{
+        BODY, Doer, Fields, Place, Priority, Refused, create_draft, next_id, taken,
+    };
     let temp = common::tempdir();
     let repo = temp.path().join("repo");
     fs::create_dir_all(&repo).unwrap();
@@ -529,6 +531,7 @@ fn a_new_draft_is_written_once_and_never_over_a_taken_id() {
         let fields = Fields {
             title: title.into(),
             depends: Some("P5-1".into()),
+            doer: Doer::Agent,
             priority: Priority::High,
             body: BODY.into(),
         };
@@ -557,7 +560,7 @@ fn a_new_draft_is_written_once_and_never_over_a_taken_id() {
     assert_eq!(listed(), ["P5-1-在main.md", "P5-3-草稿.md"]);
 
     // Written: the head paddock writes and the body, the name made safe, nothing staged.
-    let written = "# 任务：Kanban: 新建/草稿\n\n2026-10-09，用户在看板上新建。\n依赖：P5-1\n\
+    let written = "# 任务：Kanban: 新建/草稿\n\n2026-10-09，用户在看板上新建。\n依赖：P5-1\n执行：派出\n\
                    优先：高\n\n## 用户原话\n\n## 要做的\n\n## 怎么算做完\n";
     let path = create(" P5-4 ", " Kanban: 新建/草稿 ").unwrap();
     assert_eq!(path, tasks.join("P5-4-Kanban-新建-草稿.md"));
@@ -1043,7 +1046,7 @@ fn editing_repo(root: &Path, name: &str) -> std::path::PathBuf {
 
 #[test]
 fn saving_an_edit_writes_its_lines_and_commits_that_file_alone() {
-    use paddock::kanban::{Fields, Priority, editable, save_task};
+    use paddock::kanban::{Doer, Fields, Priority, editable, save_task};
     let temp = common::tempdir();
     let repo = editing_repo(temp.path(), "repo");
     let cancel = AtomicBool::new(false);
@@ -1054,6 +1057,7 @@ fn saving_an_edit_writes_its_lines_and_commits_that_file_alone() {
     let fields = Fields {
         title: "新标题".into(),
         depends: None,
+        doer: Doer::Controller,
         priority: Priority::High,
         body: "## 用户原话\n新的原话\n".into(),
     };

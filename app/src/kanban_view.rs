@@ -13,7 +13,7 @@ use crate::{
     card, changes,
     fonts::UiFont,
     footer_icon::{self, Icon},
-    kanban::{self, Board, Cache, Card, Column, Priority, Read, Seen, Tone},
+    kanban::{self, Board, Cache, Card, Column, Doer, Priority, Read, Seen, Tone},
     kind_icon, markdown, menu, popover,
     right_panel::Tip,
     text_input::{self, Changed, TextInput},
@@ -1102,6 +1102,7 @@ impl KanbanView {
             .pr(ui.px(ROW_RIGHT))
             .opacity(fade(card))
             .hover(move |style| style.bg(c.text.opacity(0.05)))
+            .children(self.stripe(card, ui))
             .child(first)
             .children(meta)
             .children(reviewer)
@@ -1196,6 +1197,7 @@ impl KanbanView {
             .border_color(c.rule)
             .opacity(fade(card))
             .hover(move |style| style.bg(c.faint.opacity(0.32)))
+            .children(self.stripe(card, ui))
             .child(first)
             .child(title)
             .children(marks)
@@ -1235,6 +1237,25 @@ impl KanbanView {
             ui,
         );
         first.tooltip(move |_, cx| cx.new(|_| note.clone()).into())
+    }
+
+    /// A bar down a queued card's left edge, for high (red, as its High mark) or low (dim, as its
+    /// Low mark); none for medium or in the other columns.
+    fn stripe(&self, card: &Card, ui: &UiFont) -> Option<Div> {
+        let color = match card.stripe()? {
+            Priority::High => self.colors.red,
+            _ => self.colors.dim,
+        };
+        Some(
+            div()
+                .absolute()
+                .left(px(0.0))
+                .top(ui.px(7.0))
+                .bottom(ui.px(7.0))
+                .w(px(3.0))
+                .rounded_full()
+                .bg(color),
+        )
     }
 
     /// The id, for a card that has one.
@@ -1821,9 +1842,9 @@ const DIALOG_TOP: f32 = 0.1;
 /// Rows the Waits for list shows before it scrolls.
 const WAITS_ROWS: usize = 8;
 
-/// The task dialog over the dimmed window (DESIGN §13 P5-60b), for a new task or a queued one, a
-/// draft's too: the lines paddock writes at the head of the task file (its id, title, priority and
-/// the task it waits for), and its body, written as Markdown, with a preview. ⌘↩ writes it: a new
+/// The task dialog over the dimmed window (DESIGN §13 P5-60b, P5-69), for a new task or a queued
+/// one, a draft's too: the lines paddock writes at the head of the task file (its id, title,
+/// priority, the task it waits for and who does it), and its body, written as Markdown, with a preview. ⌘↩ writes it: a new
 /// draft with [`kanban::create_draft`], or the task file with [`kanban::save_task`] (committed alone
 /// to main) or [`kanban::save_draft`]; when that is refused it says why and stays open. Esc, Cancel
 /// and × close it. ↑↓, Tab and ↩ in a one-line field move between the fields.
@@ -1838,6 +1859,7 @@ pub struct TaskDialog {
     title: Entity<TextInput>,
     body: Entity<TextInput>,
     priority: Priority,
+    doer: Doer,
     depends: Option<String>,
     /// What Waits for offers.
     tasks: Vec<TaskChoice>,
@@ -1977,6 +1999,7 @@ impl TaskDialog {
             title,
             body,
             priority: fields.priority,
+            doer: fields.doer,
             depends: fields.depends,
             tasks,
             waits: None,
@@ -1995,6 +2018,7 @@ impl TaskDialog {
         kanban::Fields {
             title: self.title.read(cx).text().to_owned(),
             depends: self.depends.clone(),
+            doer: self.doer,
             priority: self.priority,
             body: self.body.read(cx).text().to_owned(),
         }
@@ -2357,7 +2381,7 @@ impl Render for TaskDialog {
                     .min_w(px(0.0)),
             );
 
-        // Priority, and the task this one waits for.
+        // Priority, the task this one waits for, and who does it.
         let mut priorities = popover::choices(&theme, &ui).items_center().h(ui.px(32.0));
         for (n, priority) in Priority::ALL.into_iter().enumerate() {
             priorities = priorities.child(
@@ -2370,6 +2394,23 @@ impl Render for TaskDialog {
                 )
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     this.priority = priority;
+                    this.refused = None;
+                    cx.notify();
+                })),
+            );
+        }
+        let mut doers = popover::choices(&theme, &ui).items_center().h(ui.px(32.0));
+        for (n, doer) in Doer::ALL.into_iter().enumerate() {
+            doers = doers.child(
+                popover::choice(
+                    &theme,
+                    &ui,
+                    ("task-doer", n),
+                    doer.label(),
+                    self.doer == doer,
+                )
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    this.doer = doer;
                     this.refused = None;
                     cx.notify();
                 })),
@@ -2444,7 +2485,8 @@ impl Render for TaskDialog {
             .pt(ui.px(14.0))
             .px(ui.px(20.0))
             .child(labelled("Priority", priorities.into_any_element()).flex_shrink_0())
-            .child(labelled("Waits for", waits.into_any_element()).min_w(px(0.0)));
+            .child(labelled("Waits for", waits.into_any_element()).min_w(px(0.0)))
+            .child(labelled("Done by", doers.into_any_element()).flex_shrink_0());
 
         // The body: Write or Preview.
         let tab = |id: &'static str, label: &'static str, on: bool, preview: bool| {
