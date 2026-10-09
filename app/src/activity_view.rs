@@ -15,8 +15,8 @@ use crate::{
 };
 use gpui::{
     Anchor, Animation, AnimationExt, AnyElement, BoxShadow, ClickEvent, Context, Div, EventEmitter,
-    Font, FontWeight, Hsla, IntoElement, Render, Stateful, Window, anchored, deferred, div,
-    linear_color_stop, linear_gradient, point, prelude::*, px, relative,
+    Font, FontWeight, Hsla, IntoElement, Render, Stateful, Window, anchored, deferred, div, point,
+    prelude::*, px, relative,
 };
 use std::{
     rc::Rc,
@@ -37,9 +37,6 @@ pub struct Frame {
     pub active: bool,
     /// An agent in the list is working.
     pub working: bool,
-    /// How strongly the panel's top fades into the list it lies over, 0 (nothing of the list
-    /// under it) to 1 (P5-70).
-    pub fade: f32,
 }
 
 /// The panel was folded (`true`) or opened: save it with the layout.
@@ -58,10 +55,10 @@ const RADIUS: f32 = 12.0;
 const ROW_GAP: f32 = 8.0;
 /// A line's height for its text's size, as the sidebar sets it.
 const LINE: f32 = 1.3;
-/// The panel's ground, over the list's end: this opaque, so the cards under it show faintly; and
-/// how far above it the ground fades out into the list (P5-70).
+/// The panel's ground, over the list's end: this opaque, so the cards under it show faintly
+/// (P5-70). Nothing fades out above it: GPUI has no mask, so a fade was a square block of the
+/// ground, dark over the lighter cards (P5-73).
 const SEE_THROUGH: f32 = 0.78;
-const FADE: f32 = 28.0;
 const CELL: f32 = 11.0;
 const GAP: f32 = 3.0;
 /// A cell's corners, as a share of its size.
@@ -269,8 +266,6 @@ pub struct ActivityView {
     rose: Option<(Instant, Vec<Day>)>,
     /// The draw already asked for while the sweep runs, so each is asked for once.
     wake: Option<Instant>,
-    /// As the latest frame said.
-    fade: f32,
 }
 
 impl ActivityView {
@@ -307,7 +302,6 @@ impl ActivityView {
             shown_at: None,
             rose: None,
             wake: None,
-            fade: 0.0,
         };
         view.weeks = view.sizes(&UiFont::get(cx)).weeks;
         view.ask();
@@ -356,10 +350,6 @@ impl ActivityView {
         }
         if frame.mono != self.mono {
             self.mono = frame.mono;
-            changed = true;
-        }
-        if frame.fade != self.fade {
-            self.fade = frame.fade;
             changed = true;
         }
         if frame.width != self.width {
@@ -744,19 +734,7 @@ impl ActivityView {
 
 impl Render for ActivityView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let ui = UiFont::get(cx);
-        let ground = self.colors.ground;
-        let panel = self.panel(window, cx);
-        // Above the panel its ground fades out into the list, as far as the list goes on under
-        // it (GPUI has no mask): only drawn, the cards under it take the mouse as ever.
-        let fade = (self.fade > 0.0).then(|| {
-            div().mx(px(MARGIN_X)).h(ui.px(FADE)).bg(linear_gradient(
-                180.0,
-                linear_color_stop(ground.opacity(0.0), 0.0),
-                linear_color_stop(ground.opacity(self.fade), 1.0),
-            ))
-        });
-        div().flex().flex_col().children(fade).child(panel)
+        div().flex().flex_col().child(self.panel(window, cx))
     }
 }
 
@@ -980,11 +958,6 @@ pub fn height(width: f32, ui: &UiFont, folded: bool) -> f32 {
         + line(ui, SMALL_SIZE)
         + 3.0 * ui.scale(ROW_GAP)
         + ui.scale(PAD_BOTTOM)
-}
-
-/// How far above the panel its ground fades out into the list.
-pub fn fade_height(ui: &UiFont) -> f32 {
-    ui.scale(FADE)
 }
 
 /// Where the card's outer edge is, from the sidebar's left edge: its margin.
