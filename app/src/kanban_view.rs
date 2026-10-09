@@ -4,13 +4,14 @@
 //! left sidebar each frame, and the board is drawn again only when it changed. A hovered card
 //! offers its task file, its agent and the agent's changes, nothing that changes the work; the
 //! things it writes are a new draft task file, from New task, and, on a card its task file says
-//! needs the user, Clear: that line taken out and committed once confirmed (DESIGN §13 P5-29).
+//! needs the user, Clear: that line taken out and committed once confirmed; on a queued card, its
+//! priority line, committed the same way or, in a draft, only written (DESIGN §13 P5-29).
 use crate::{
     agents::Status,
     card, changes,
     fonts::UiFont,
     footer_icon::{self, Icon},
-    kanban::{self, Board, Cache, Card, Column, Read, Seen, Tone},
+    kanban::{self, Board, Cache, Card, Column, Priority, Read, Seen, Tone},
     kind_icon, menu, popover,
     right_panel::Tip,
     text_input::{self, Changed, TextInput},
@@ -92,13 +93,13 @@ struct Pending {
     out: Arc<Mutex<Option<Read>>>,
 }
 
-/// Where a card's Clear stands.
+/// Where a card's Clear, or a change of its priority, stands.
 #[derive(Clone, Debug, PartialEq)]
 enum Clearing {
-    /// Asking to confirm, while the mouse stays on the card.
+    /// Asking to confirm, or which priority, while the mouse stays on the card.
     Asking,
     Running,
-    /// Committed: until the board is read again.
+    /// Committed, or a draft written: until the board is read again.
     Done,
     /// Nothing was changed, and why; until the mouse leaves the card.
     Refused(String),
@@ -179,6 +180,8 @@ pub struct KanbanView {
     new_task_at: Rc<Cell<Option<Bounds<Pixels>>>>,
     /// The cards being cleared of `待用户：` or asked to be, by task file.
     clears: HashMap<String, Clearing>,
+    /// The cards whose priority is being changed or asked for, by task file.
+    priorities: HashMap<String, Clearing>,
 }
 
 impl KanbanView {
@@ -211,6 +214,7 @@ impl KanbanView {
             wide_at: changes::WIDE,
             new_task_at: Rc::default(),
             clears: HashMap::new(),
+            priorities: HashMap::new(),
         }
     }
 
@@ -273,10 +277,11 @@ impl KanbanView {
                 self.pending = None;
                 self.last = Some(Instant::now());
                 // Begun after the commit, so the board it gives no longer has the line.
-                let before = self.clears.len();
-                self.clears
-                    .retain(|_, clearing| *clearing != Clearing::Done);
-                if self.clears.len() != before {
+                let before = self.clears.len() + self.priorities.len();
+                for acts in [&mut self.clears, &mut self.priorities] {
+                    acts.retain(|_, clearing| *clearing != Clearing::Done);
+                }
+                if self.clears.len() + self.priorities.len() != before {
                     cx.notify();
                 }
                 // A failed round keeps what is shown, unless there is nothing yet.
@@ -353,15 +358,13 @@ impl KanbanView {
     }
 
     fn hover(&mut self, file: &str, hovered: bool, cx: &mut Context<Self>) {
-        // Leaving takes back the question, or why it was not cleared.
-        if !hovered
-            && matches!(
-                self.clears.get(file),
-                Some(Clearing::Asking | Clearing::Refused(_))
-            )
-        {
-            self.clears.remove(file);
-            cx.notify();
+        // Leaving takes back the question, or why it was not cleared or changed.
+        if !hovered {
+            for acts in [&mut self.clears, &mut self.priorities] {
+                if take_back(acts, file) {
+                    cx.notify();
+                }
+            }
         }
         let now = if hovered {
             Some(file.to_owned())
@@ -384,7 +387,67 @@ impl KanbanView {
         ) {
             return;
         }
+        take_back(&mut self.priorities, file);
         self.clears.insert(file.to_owned(), Clearing::Asking);
+        cx.notify();
+    }
+
+    /// The priority button on a card: ask which, unless it is being changed already.
+    fn ask_priority(&mut self, file: &str, cx: &mut Context<Self>) {
+        if matches!(
+            self.priorities.get(file),
+            Some(Clearing::Running | Clearing::Done)
+        ) {
+            return;
+        }
+        take_back(&mut self.clears, file);
+        self.priorities.insert(file.to_owned(), Clearing::Asking);
+        cx.notify();
+    }
+
+    /// A priority picked: its line written in the background, committed for a card on main, and
+    /// the board read again once it is. The one it has already just closes the question.
+    fn set_priority(&mut self, card: &Card, priority: Priority, cx: &mut Context<Self>) {
+        let file = card.file.clone();
+        if self.priorities.get(&file) != Some(&Clearing::Asking) {
+            return;
+        }
+        if card.priority == Some(priority) {
+            self.priorities.remove(&file);
+            cx.notify();
+            return;
+        }
+        let Some(repo) = self.board.as_ref().map(|board| board.repo.clone()) else {
+            return;
+        };
+        self.priorities.insert(file.clone(), Clearing::Running);
+        let (name, draft) = (file.clone(), card.draft);
+        let task = cx.background_spawn(async move {
+            if draft {
+                kanban::set_draft_priority(&repo, &name, priority)
+            } else {
+                kanban::set_priority("git", &repo, &name, priority, &AtomicBool::new(false))
+            }
+        });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |view, cx| {
+                match result {
+                    Ok(()) => {
+                        view.priorities.insert(file, Clearing::Done);
+                        // A read begun before the change would bring the old one back a while.
+                        view.cancel();
+                        view.last = None;
+                    }
+                    Err(why) => {
+                        view.priorities
+                            .insert(file, Clearing::Refused(why.to_string()));
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
         cx.notify();
     }
 
@@ -495,7 +558,7 @@ impl Render for KanbanView {
 }
 
 impl KanbanView {
-    /// A card is asking whether to clear its task.
+    /// A card is asking whether to clear its task, or which priority it gets.
     pub fn confirming(&self) -> bool {
         let files: HashSet<&str> = self
             .board
@@ -504,6 +567,7 @@ impl KanbanView {
             .map(|card| card.file.as_str())
             .collect();
         confirming(&self.clears, self.active, &files)
+            || confirming(&self.priorities, self.active, &files)
     }
 
     /// The repository, main, how many need the user, are in progress and to review, and New task.
@@ -976,6 +1040,9 @@ impl KanbanView {
         let clearing = self
             .clearing(card, ui, cx)
             .map(|row| keep_clear(row.mt(ui.px(6.0)).text_size(ui.px(12.0)), &mut clear));
+        let prioritizing = self
+            .prioritizing(card, ui, cx)
+            .map(|row| keep_clear(row.mt(ui.px(6.0)).text_size(ui.px(12.0)), &mut clear));
         self.hoverable(card, cx)
             .rounded(px(8.0))
             .pt(ui.px(8.0))
@@ -989,6 +1056,7 @@ impl KanbanView {
             .children(reviewer)
             .children(asks)
             .children(clearing)
+            .children(prioritizing)
             .children(self.actions(card, BAR_BUTTON, ui, cx).map(|bar| {
                 bar.absolute()
                     .top(ui.px(BAR_TOP))
@@ -1053,6 +1121,9 @@ impl KanbanView {
         let clearing = self
             .clearing(card, ui, cx)
             .map(|row| row.mt(ui.px(7.0)).text_size(ui.px(11.5)));
+        let prioritizing = self
+            .prioritizing(card, ui, cx)
+            .map(|row| row.mt(ui.px(7.0)).text_size(ui.px(11.5)));
         // While the mouse is on the card its buttons take a line of their own at its foot, under
         // the rest, wrapping when the tile is narrower: a tile is too narrow to share a line with
         // them.
@@ -1081,6 +1152,7 @@ impl KanbanView {
             .children(reviewer)
             .children(asks)
             .children(clearing)
+            .children(prioritizing)
             .children(bar)
     }
 
@@ -1126,8 +1198,9 @@ impl KanbanView {
         })
     }
 
-    /// The words that mark a card: Draft, Dropped, Needs you.
-    fn marks(&self, card: &Card, ui: &UiFont) -> Vec<Div> {
+    /// The marks on a card: Draft, High or Low (medium is not marked), Dropped, a warning sign
+    /// that tells what in its task file could be read wrong, Needs you.
+    fn marks(&self, card: &Card, ui: &UiFont) -> Vec<AnyElement> {
         let c = self.colors;
         let quiet = |words: &'static str| {
             div()
@@ -1143,15 +1216,45 @@ impl KanbanView {
         };
         let mut marks = Vec::new();
         if card.draft {
-            marks.push(quiet("Draft"));
+            marks.push(quiet("Draft").into_any_element());
+        }
+        match card.priority {
+            Some(Priority::High) => marks.push(
+                quiet(Priority::High.label())
+                    .bg(c.red.opacity(0.12))
+                    .border_color(c.red.opacity(0.45))
+                    .text_color(c.red)
+                    .into_any_element(),
+            ),
+            Some(Priority::Low) => marks.push(quiet(Priority::Low.label()).into_any_element()),
+            _ => {}
         }
         if card.dropped.is_some() {
-            marks.push(quiet("Dropped"));
+            marks.push(quiet("Dropped").into_any_element());
+        }
+        if !card.problems.is_empty() {
+            let said: Vec<String> = card.problems.iter().map(ToString::to_string).collect();
+            let note = Note::new(said.join("\n").into(), &self.theme, ui);
+            marks.push(
+                div()
+                    .id(SharedString::from(format!("kanban-problems-{}", card.file)))
+                    .flex_shrink_0()
+                    .flex()
+                    .items_center()
+                    .child(footer_icon::icon(
+                        Icon::Warning,
+                        c.yellow,
+                        ui.scale(12.0 / footer_icon::SIZE),
+                    ))
+                    .tooltip(move |_, cx| cx.new(|_| note.clone()).into())
+                    .into_any_element(),
+            );
         }
         if card.needs_you {
             marks.push(
                 self.needs_you("Needs you".into(), ui)
-                    .text_size(ui.px(10.5)),
+                    .text_size(ui.px(10.5))
+                    .into_any_element(),
             );
         }
         marks
@@ -1353,7 +1456,7 @@ impl KanbanView {
 
     /// While the mouse is on the card, its ways out, `size` each and placed by the caller: the task
     /// file, and with an agent, its pane and its changes; on a card its task file says needs the
-    /// user, Clear, which asks first.
+    /// user, Clear, which asks first; on a queued card, Set priority, which asks which.
     fn actions(&self, card: &Card, size: f32, ui: &UiFont, cx: &mut Context<Self>) -> Option<Div> {
         if self.hovered.as_deref() != Some(card.file.as_str()) {
             return None;
@@ -1427,6 +1530,17 @@ impl KanbanView {
                 })),
             );
         }
+        if self.offers_priority(card) {
+            let file = card.file.clone();
+            bar = bar.child(
+                button("kanban-priority", Icon::Sort, "Set priority").on_click(cx.listener(
+                    move |view, _: &ClickEvent, _, cx| {
+                        cx.stop_propagation();
+                        view.ask_priority(&file, cx);
+                    },
+                )),
+            );
+        }
         Some(bar)
     }
 
@@ -1440,6 +1554,16 @@ impl KanbanView {
         card.clearable() && !busy
     }
 
+    /// Whether the buttons over `card` include Set priority: it is queued, a draft or not, and its
+    /// priority is not being changed or changed already.
+    fn offers_priority(&self, card: &Card) -> bool {
+        let busy = matches!(
+            self.priorities.get(&card.file),
+            Some(Clearing::Running | Clearing::Done)
+        );
+        card.priority.is_some() && !busy
+    }
+
     /// How far the buttons over `card` reach into the first two lines of a card in the narrow list,
     /// from its right padding: the bar, its border, and its own room from the card's edge.
     fn bar_reach(&self, card: &Card, ui: &UiFont) -> Pixels {
@@ -1448,7 +1572,8 @@ impl KanbanView {
                 .agent
                 .as_ref()
                 .map_or(0.0, |agent| if agent.controller { 1.0 } else { 2.0 })
-            + if self.offers_clear(card) { 1.0 } else { 0.0 };
+            + if self.offers_clear(card) { 1.0 } else { 0.0 }
+            + if self.offers_priority(card) { 1.0 } else { 0.0 };
         let bar = buttons * BAR_BUTTON + (buttons - 1.0) * BAR_GAP + 2.0 * BAR_PAD;
         ui.px(bar + BAR_RIGHT - ROW_RIGHT) + px(2.0)
     }
@@ -1528,6 +1653,91 @@ impl KanbanView {
             Clearing::Running => row.child(words("Clearing\u{2026}".into(), c.dim)),
             Clearing::Done => row.child(words("Cleared".into(), c.dim)),
             Clearing::Refused(why) => row.child(words(format!("Not cleared: {why}"), c.red)),
+        })
+    }
+
+    /// Under a card whose priority is asked for, as under one being cleared: High, Medium and Low,
+    /// the one it has marked, and Cancel; then that it is changing, or why it was not.
+    fn prioritizing(&self, card: &Card, ui: &UiFont, cx: &mut Context<Self>) -> Option<Div> {
+        let c = self.colors;
+        let row = div()
+            .flex()
+            .flex_wrap()
+            .items_center()
+            .gap(ui.px(6.0))
+            .min_w(px(0.0));
+        let words = |words: String, color: Hsla| {
+            div()
+                .flex_shrink(1.0)
+                .min_w(px(0.0))
+                .whitespace_normal()
+                .text_color(color)
+                .child(words)
+        };
+        Some(match self.priorities.get(&card.file)? {
+            Clearing::Asking => {
+                let button = |id: (&'static str, usize), words: &'static str| {
+                    div()
+                        .id(id)
+                        .flex_shrink_0()
+                        .px(ui.px(8.0))
+                        .h(ui.px(20.0))
+                        .flex()
+                        .items_center()
+                        .rounded(px(5.0))
+                        .border_1()
+                        .cursor_pointer()
+                        .child(words)
+                };
+                let mut buttons = div().flex_shrink_0().flex().gap(ui.px(6.0));
+                for (n, priority) in Priority::ALL.into_iter().enumerate() {
+                    let picked = card.clone();
+                    let choice = button(("kanban-priority-pick", n), priority.label()).on_click(
+                        cx.listener(move |view, _: &ClickEvent, _, cx| {
+                            cx.stop_propagation();
+                            view.set_priority(&picked, priority, cx);
+                        }),
+                    );
+                    buttons = buttons.child(if card.priority == Some(priority) {
+                        choice
+                            .bg(c.yellow.opacity(0.16))
+                            .border_color(c.yellow.opacity(0.5))
+                            .text_color(c.yellow)
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .hover(move |style| style.bg(c.yellow.opacity(0.26)))
+                    } else {
+                        choice
+                            .border_color(c.rule)
+                            .text_color(c.text)
+                            .hover(move |style| style.bg(c.text.opacity(0.09)))
+                    });
+                }
+                let leave = card.file.clone();
+                buttons = buttons.child(
+                    button(("kanban-priority-cancel", 0), "Cancel")
+                        .border_color(c.rule)
+                        .text_color(c.muted)
+                        .hover(move |style| style.bg(c.text.opacity(0.09)))
+                        .on_click(cx.listener(move |view, _: &ClickEvent, _, cx| {
+                            cx.stop_propagation();
+                            if view.priorities.remove(&leave).is_some() {
+                                cx.notify();
+                            }
+                        })),
+                );
+                let question = if card.draft {
+                    "Priority?"
+                } else {
+                    "Priority? Commits to main."
+                };
+                row.child(words(question.into(), c.text))
+                    .child(div().flex_1())
+                    // The buttons stay together when the row wraps.
+                    .child(buttons)
+            }
+            Clearing::Running => row.child(words("Setting priority\u{2026}".into(), c.dim)),
+            Clearing::Done => row.child(words("Priority set".into(), c.dim)),
+            Clearing::Refused(why) => row.child(words(format!("Not changed: {why}"), c.red)),
         })
     }
 }
@@ -1769,6 +1979,19 @@ impl Render for NewTask {
     }
 }
 
+/// Takes back a question about `file` in `acts`, or why it was refused; not one under way.
+/// Whether there was one.
+fn take_back(acts: &mut HashMap<String, Clearing>, file: &str) -> bool {
+    let shown = matches!(
+        acts.get(file),
+        Some(Clearing::Asking | Clearing::Refused(_))
+    );
+    if shown {
+        acts.remove(file);
+    }
+    shown
+}
+
 /// `line` with `room` on its right, if no line before it took it.
 fn keep_clear<E: Styled>(line: E, room: &mut Option<Pixels>) -> E {
     match room.take() {
@@ -1864,8 +2087,8 @@ fn root_empty(title: &str, sub: &str, c: &Colors, ui: &UiFont) -> Div {
         )
 }
 
-/// Whether a Clear question is up for the user: one of `clears` asking about a card still among
-/// the board's `files`, with the tab showing (`active`).
+/// Whether a Clear or priority question is up for the user: one of `clears` asking about a card
+/// still among the board's `files`, with the tab showing (`active`).
 /// A question left about a card the board no longer has can be neither answered nor taken back
 /// by leaving the card, so it does not count.
 fn confirming(clears: &HashMap<String, Clearing>, active: bool, files: &HashSet<&str>) -> bool {
