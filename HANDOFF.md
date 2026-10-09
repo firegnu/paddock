@@ -2,8 +2,8 @@
 
 ## 现在在哪（2026-10-09 上午）
 
-- main 和 `origin/main`（`github.com/firegnu/paddock`，public）同步，工作区里只有十二个未提交的草稿任务文件（P5-51～P5-56、P5-59～P5-62、P5-66、P5-67，看板 DRAFT，见“下一步”；**是有意留的草稿，不要 `git add -A`**）。没有进行中的活，没有开着的 worktree，本地只有 main 一个分支；ranch 也一样（main 同步、无 worktree）。corral 里只有 `paddock/main`（本主控）；今天派出去的 dev agent 都已关，owlet/main、global-mesh/main 用户已关。
-- 452 项测试通过，clippy、`cargo fmt --check` 干净。`~/Applications/paddock.app` 是合并 P5-58 之后的版本（10-09 09:01 装，含 P5-35～P5-50、P5-57、P5-58、P5-63～P5-65、paddock ctl；P5-58 新图标、P5-65 待用户重启看），已用本机 Apple Development 证书签名。
+- main 和 `origin/main`（`github.com/firegnu/paddock`，public）同步，工作区里只有十一个未提交的草稿任务文件（P5-51～P5-56、P5-59～P5-62、P5-67，看板 DRAFT，见“下一步”；**是有意留的草稿，不要 `git add -A`**）。没有进行中的活，没有开着的 worktree，本地只有 main 一个分支；ranch 也一样（main 同步、无 worktree）。corral 里只有 `paddock/main`（本主控）；今天派出去的 dev agent 都已关，owlet/main、global-mesh/main 用户已关。
+- 454 项测试通过，clippy、`cargo fmt --check` 干净。`~/Applications/paddock.app` 是合并 P5-66 之后的版本（10-09 09:13 装，含 P5-35～P5-50、P5-57、P5-58、P5-63～P5-66、paddock ctl；P5-58 新图标、P5-65、P5-66 待用户重启看），已用本机 Apple Development 证书签名。
 - **paddock ctl 已部署**（用户 10-07 夜在终端里跑完，主控核对过）：`~/.local/bin/paddock` 链到 app 里的程序；`paddock install-skills` 已装 `~/.claude/skills/paddock`、`~/.agents/skills/paddock`（带归属标记，与仓库源文件一致）；旧的 `~/.claude/skills/saddle` 已删。`paddock ctl instances` 找得到正在跑的窗口，`inspect` 认出 `paddock/main` 是 pane 1。重新打包安装后链接不用重建；技能正文改了要重跑 `paddock install-skills`。已开着的 agent 要重开才看到新技能。
 - 全局 `~/.local/bin/corral`、`~/.local/bin/ranch` 已是 ranch `d55defb`（10-08 R2：技能里派活和临时委派的 agent 带 `CAIRN_DISABLE=1`；程序行为与 `5c5540c` 相同，支持 pause／resume）。
 - **cairn 已全局装上（只 claude）**：`~/.claude/settings.json` 里 4 个 cairn hook 和一条放行 `cairn save` 的规则（改前备份 `~/.claude/settings.json.bak-20261008T082855…`），只有 owlet 启用（`adopt`）；其他仓库里 hook 查到没启用就直接退出。卸掉：`cairn uninstall --agent claude`。
@@ -15,6 +15,8 @@
 
 - 用户问 HANDOFF 里三项“等用户”要决定什么：都不用决定，只是用到时看；P5-36c 用户 10-07 已定“暂时不改”。HANDOFF 已改（`4d72471`）。
 - **P5-58**：主题从项目名来（放牧、赶牲口的路）；用户给了 superlogical 的图标截图（深靛紫底、橙→品红→紫渐变的抽象恐龙头，截图不入库），**superlogical 就是这个参考**。两种风格（甲可爱多彩、乙沿用极简）× 马、高地牛、公羊出样稿，用户选甲、马；再出四组配色 × 尖、圆鬃毛，用户选 Candy、圆鬃毛；主控加额毛、压暗鬃毛和脸的交界、32 及以下简化版，用户“都同意，开始做吧”。主控自己做：图标改成两份 SVG（`app/src/icon/`），`icon::icon` 用 GPUI 已锁的 resvg 0.46 画，删掉手写的猫头光栅化；合并、推送、收尾，09:01 重新打包安装，**待用户重启看程序坞和 About**。样稿画布「P5-58 paddock 应用图标」，源文件 `docs/设计稿/P5-58-应用图标/`。
+- **P5-67**（新草稿）：主控自己做的活，Kanban 卡片写 “No agent”，看不出是主控在做；三种认法见草稿，用户还没定。
+- **P5-66**：主控先调查（实测前台进程组判断、用户真实 zsh 配置下提示符时 shell 没有子进程），用户：“都按你的建议，开始做吧”。⌘Q、关窗口、关窗格、关标签只在 shell 前台有程序或有后台任务时才问，确认框列“窗格标题 — 程序名”；`paddock ctl close` 不变。主控自己做，先写失败测试再实现（真 pty 测试），合并、推送、收尾，09:13 重新打包安装，**待用户重启后试**（停在提示符 ⌘Q 应直接退出；跑着 `sleep 30` 或 `sleep 30 &` 时应问）。
 
 ## 10-08 深夜：侧栏染色试 0.25 后统一回到 0.45（P5-63～P5-65）；Kanban 优先级等三份新草稿
 
@@ -99,7 +101,7 @@
 
 ## 下一步（按优先级）
 
-**十二份未提交的草稿任务文件（看板显示 DRAFT）**：用户 10-08 夜列的九件剩七件（P5-57、P5-58 已做完），加上深夜讨论新记的 P5-60～P5-62、P5-66，10-09 新记的 P5-67。主控建议的先后见上面“10-08 深夜”一节（用户还没表态）。开工时补全那一件、再按路径提交，别用 `git add -A`。每份草稿里有用户原话和“开工前要定”。其中 P5-51、P5-59 参考 **superlogical**：用户 10-09 给过它的应用图标截图（P5-58 用了），P5-51、P5-59 要的是它的界面（卡片、轮廓线），开工前还要请用户给界面截图，照惯例先出样稿给用户挑。
+**十一份未提交的草稿任务文件（看板显示 DRAFT）**：用户 10-08 夜列的九件剩七件（P5-57、P5-58 已做完），加上深夜讨论新记的 P5-60～P5-62（P5-66 已做完），10-09 新记的 P5-67。主控建议的先后见上面“10-08 深夜”一节（用户还没表态）。开工时补全那一件、再按路径提交，别用 `git add -A`。每份草稿里有用户原话和“开工前要定”。其中 P5-51、P5-59 参考 **superlogical**：用户 10-09 给过它的应用图标截图（P5-58 用了），P5-51、P5-59 要的是它的界面（卡片、轮廓线），开工前还要请用户给界面截图，照惯例先出样稿给用户挑。
 - **P5-51** 整体界面再美化，左侧栏 agent 卡片照 superlogical 做（和 P5-59 范围重叠，考虑合成一件）。
 - **P5-52** 查 Dock 里偶尔多出第二个 paddock 后台进程（先只查不改；主控猜测：`~/.local/bin/paddock` 是 app 包里的程序，跑 `paddock ctl …` 时 macOS 也给它挂了 Dock 图标；另用 `paddock ctl instances` 查残留实例）。
 - **P5-53** 在 paddock 仓库开始试 cairn（`adopt`；paddock AGENTS.md 要求开会话先读 HANDOFF，要不要照 owlet 方案 A 改，和用户定）。
@@ -110,7 +112,6 @@
 - **P5-60** Kanban 的 Queued 加优先级（可能加拖动），连带 New task 弹框做精细（编号、优先级选项、md 编辑）：用户在评估，明天讨论。和 DESIGN §13 P5-29 “不能拖，列内不排序”、P5-29r2 “不做多行输入框”等已定条目冲突，要做先改 DESIGN；主控建议见草稿。
 - **P5-61** 新建 agent 的快捷方式：弹出终端直接敲 `claude`、`codex --yolo`、`pi` 回车就跑（照 herdr），现有 New Agent 浮层不变。用户已确认跑起来的是 corral 托管的 agent；入口、名字、目录、命令提示还是真 shell 等待定，详见草稿。
 - **P5-62** 要不要装 Metal 工具链、改回编译期编着色器（现在靠 `runtime_shaders` 启动时编）：主控建议先测启动时编着色器的耗时再定；装属于系统安装，由用户在终端跑。
-- **P5-66** ⌘Q 退出时的确认框（“Quit paddock and end the running shell?”）：现在只要有活着的 shell 就问，停在提示符也问；P5-47 后窗口里几乎总有 shell，所以几乎每次都弹。用户选 B：只在 shell 前台有程序在跑时才问，停在提示符直接退出；细节见草稿。 10-09 主控已调查、写了方案（草稿“调查结果”“主控的方案”两节），等用户定后台任务算不算、`ctl close` 跟不跟。
 - **P5-67** 主控自己做的活，Kanban 的 In progress 卡片现在写 “No agent”，看不出是主控在做（主控在主仓库目录、没有 task 标签）。主控倾向在任务文件里写一行“谁做：主控”让 Kanban 认，另有“有 worktree 没 agent 就当主控”和“corral 给运行中的 agent 改标签”两种，见草稿。
 
 0. **cairn 试点（owlet，10-08 晚起，用一两周再定留不留）**：owlet 按方案 A 试“cairn 替代手写交接”（owlet `c35a288`：HANDOFF 减到 47 行只留稳定背景；AGENTS.md 改为开会话以 cairn 注入为准、进度不再手写进 HANDOFF、派出去的 agent 不用 cairn，写明试点期和退回办法）。验证过：重开 owlet/main、要求“不读文件、只用开会话时已知的”回答上次做到哪，它准确说出停点、已完成、下一步和待用户决定；之前两次只说“继续”时它弹 AskUserQuestion 问方向，不是没记住。要看：隔天重开是否照样接上、旧会话的记录注入会不会越堆越长。留：再定要不要把“新会话第一句主动复述停点”转给 cairn 主控，再按真实需要设计 paddock 面板；不留：用户 `cairn uninstall --agent claude`，R2 的 `CAIRN_DISABLE=1` 留着无害。paddock 的 Recap 面板、New Agent 的 cairn 开关、给 cairn 提 JSON 约定都**暂不做**（面板看不到“到底注入了没有”，那只在 cairn 库里）。确认某次注入了没有：主控只读查 `~/.local/state/cairn/cairn.db` 的 injections 表（`sqlite3 -readonly`）；日常看 `cairn list`／`cairn show`。来历见上面“10-08 下午：cairn 试点、ranch R2”一节。
