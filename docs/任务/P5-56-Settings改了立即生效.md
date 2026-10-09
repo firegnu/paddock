@@ -51,3 +51,18 @@
 - 上面的坑各有测试：中间值、低于下限和高于上限、侧栏宽度取整、磁盘上被改过、文件坏了不覆盖、换主题清颜色和 Undo、没装的字体。
 - `app/` 下 `cargo test --all-targets`、`cargo clippy --all-targets -- -D warnings`、`cargo fmt --check` 都过。
 - 真窗口里的手感（回车、离开输入框、点主题）留给用户试（主控不模拟按键）。
+
+## 完成记录
+
+- 做了什么：
+  - `settings.rs`：`range()` 给数字定上下限（界面字号 6～24、终端字号 6～72、行高 0.5～3、侧栏宽度 10～800、刷新至少 250），`value()` 超出就报 “<名字> must be from A to B”／“at least A”，`problem()` 和写入用同一套检查。`Draft::commit(disk)` 把草稿套在磁盘上此刻的文件上生成要写的内容，之后以它为底、草稿清空；文件不是合法配置时报错、不写、草稿不动。`drop_invalid()` 丢掉写不进去的值并给出名字。`theme_setting()`／`restore_theme()` 记下和恢复主题加自定义颜色（Undo 用）。`discard()` 改为只清草稿；删掉 `unsaved()`（保存条的“几处未保存”没了）。`save()` 和 `Conflict` 保留，侧栏拖动写宽度还用。
+  - `settings_view.rs`：点选类经 `edit()` 立即写；输入框打字只进草稿（预览），回车（`menu::OpenSelected`）或失焦（`cx.on_blur`）时 `commit()`，Escape（`menu::Cancel`）退回正在用的值。`commit()` 先 `drop_invalid()`（保存条红字 “Not valid, so not changed: …”），再读磁盘、写入、发 `SettingsEvent::Saved` 给主窗口；文件坏了就丢掉改动、保存条说明，绝不覆盖。写完侧栏宽度比当前界面字号下的最小宽度窄时，再按最小宽度写一次并提示。窗口回到前台时 `reload()` 重读文件。换主题清掉了自定义颜色（点当前主题也算）时保存条写 “Switched to <主题>; N custom colors cleared.” 加 Undo，Undo 在下一次写入后消失、提示不自动消失。步进器停在上限。Fallback 标签、终端或界面字体没装时变暗并写 “not installed”（按名字不分大小写比，字体列表还没读完或以点开头的隐藏字体不标）。保存条改为只显示提示（`message_bar`），删掉 Revert／Save、磁盘冲突的 Keep／Discard、关窗口的 Save／Don't Save／Cancel。
+  - `windows.rs`：Settings 关窗口、退出 paddock 前调 `finish()` 把还在输入的值生效，不再问。`menu.rs`：删掉 `SaveSettings` 和 ⌘S。
+  - DESIGN §13 加 P5-56 条。
+- 验证了什么：先写 `settings.rs` 的 5 个新测试（上下限、套在磁盘新内容上写、坏文件不覆盖、丢掉不合法的值、换主题后恢复），放空函数确认它们因行为不对失败，再实现到通过。界面层的 3 个新测试（步进器停在上限、保存条两句话、字体是否已装）和实现一起写的，没有先单独看红。旧测试里 `font_size = 0` 等几条的报错改由范围检查给出，断言文字跟着换成新的文字（仍要求报错、不写）；删掉随功能一起去掉的 `unsaved` 和保存条计数两个测试。`app/` 下 `cargo test --all-targets`（462 项全过）、`cargo clippy --all-targets -- -D warnings`、`cargo fmt --check`、`git diff --check` 都过。
+- 拿主意的地方：
+  - 生效时把所有还在草稿里的值一起写（同一时刻最多只有正在输入的那一个），点别处的按钮等于先离开输入框。
+  - 写不进去（文件坏了、磁盘写失败）时退回文件里的值，不留一个“看着改了其实没生效”的值在框里。
+  - 侧栏宽度上限按用户定的 800；拖动侧栏的上限仍是 560，两者不同，没改拖动。
+  - 刷新间隔直接输入低于 250 现在算不合法（以前只有步进器拦），用户定的“下限照步进器”。
+- 没做的事：没起真窗口截图（10-09 事故后主控暂不在 agent 会话里起测试窗口，见 P5-52）。回车、离开输入框、Escape、点主题和 Undo、“not installed” 的样子和手感都留给用户试。

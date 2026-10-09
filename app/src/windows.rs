@@ -1,6 +1,6 @@
 //! paddock's windows: the main one, and at most one Settings and one About window beside it.
 //! Opening one that is already open brings it to the front. Quitting, or closing the main window,
-//! first lets a Settings window with unsaved edits ask what to do with them.
+//! first puts a value still being typed in Settings into effect.
 use crate::{
     about::AboutView,
     fonts::UiFont,
@@ -113,11 +113,11 @@ pub fn open_settings(cx: &mut App) {
     let Some((handle, settings)) = open(
         options,
         |window, cx| {
-            let view = SettingsView::new(theme, crate::config::default_path(), cx);
+            let view = SettingsView::new(theme, crate::config::default_path(), window, cx);
             let this = cx.entity().downgrade();
-            window.on_window_should_close(cx, move |window, cx| {
-                let _ = this.update(cx, |view, cx| view.request_close(window, cx));
-                false
+            window.on_window_should_close(cx, move |_, cx| {
+                let _ = this.update(cx, |view, cx| view.finish(cx));
+                true
             });
             view
         },
@@ -192,8 +192,8 @@ pub fn open_about(cx: &mut App) {
     cx.default_global::<Windows>().about = handle.map(|(handle, _)| handle);
 }
 
-/// Quits, once a Settings window with unsaved edits has been saved or its edits dropped, and live
-/// shells may end; either Cancel keeps paddock running.
+/// Quits, once a value still being typed in Settings is in effect and live shells may end; Cancel
+/// keeps paddock running.
 pub fn quit(cx: &mut App) {
     let windows = cx.default_global::<Windows>();
     if windows.quitting {
@@ -203,16 +203,10 @@ pub fn quit(cx: &mut App) {
     let (settings, main) = (windows.settings, windows.main);
     cx.spawn(async move |cx| {
         let mut go = true;
-        if let Some(settings) = settings
-            && let Ok(answer) = settings.update(cx, |view, window, cx| {
-                window.activate_window();
-                view.confirm_close(window, cx)
-            })
-        {
-            go = answer.await;
+        if let Some(settings) = settings {
+            let _ = settings.update(cx, |view, _, cx| view.finish(cx));
         }
-        if go
-            && let Some(main) = main
+        if let Some(main) = main
             && let Ok(answer) = main.update(cx, |view, window, cx| {
                 window.activate_window();
                 view.confirm_quit(window, cx)

@@ -6,7 +6,6 @@ actions!(
     [
         About,
         OpenSettings,
-        SaveSettings,
         Quit,
         NewTab,
         NewShell,
@@ -108,7 +107,6 @@ pub fn bindings() -> Vec<KeyBinding> {
         KeyBinding::new("cmd-9", Tab9, None),
         KeyBinding::new("escape", Cancel, Some(DIALOG)),
         KeyBinding::new("cmd-,", OpenSettings, None),
-        KeyBinding::new("cmd-s", SaveSettings, Some(crate::settings_view::CONTEXT)),
         KeyBinding::new("cmd-w", CloseWindow, Some(crate::settings_view::CONTEXT)),
         KeyBinding::new("cmd-w", CloseWindow, Some(crate::about::CONTEXT)),
         KeyBinding::new("cmd-shift-n", NewAgent, None),
@@ -393,7 +391,6 @@ mod tests {
             ("cmd-9", "paddock::Tab9"),
             ("escape", "paddock::Cancel"),
             ("cmd-,", "paddock::OpenSettings"),
-            ("cmd-s", "paddock::SaveSettings"),
             ("cmd-w", "paddock::CloseWindow"),
             ("cmd-shift-n", "paddock::NewAgent"),
             ("cmd-enter", "paddock::CreateAgent"),

@@ -1,9 +1,11 @@
-//! What the Settings page edits and how it saves, apart from drawing. The rules follow Saddle's
-//! Settings (`src/settings.rs` at commit `df1c727`): edits are a draft; Save writes only the keys
-//! that changed, keeping the file's comments and everything else; Default resets one value (and is
-//! written on Save); a colour set back to Default follows the theme again (its key is removed);
-//! choosing another theme loads its colours and drops the colour overrides; a file changed on disk
-//! since it was read is never overwritten.
+//! What the Settings page edits and how it writes, apart from drawing. The rules follow Saddle's
+//! Settings (`src/settings.rs` at commit `df1c727`), with every edit put into effect at once
+//! (P5-56): an edit is drafted, then committed over the file as it is at that moment, writing only
+//! the keys that changed and keeping the file's comments and everything else; a value that can't
+//! be written is dropped rather than written; Default resets one value; a colour set back to
+//! Default follows the theme again (its key is removed); choosing another theme loads its colours
+//! and drops the colour overrides, which can be drafted back; a file that isn't a valid config is
+//! never written over. Numbers stay inside a range.
 use crate::{
     config::Config,
     footer_icon::Icon,
@@ -270,6 +272,13 @@ pub enum Saved {
 #[derive(Debug, PartialEq)]
 pub struct Conflict;
 
+/// The theme and the colour overrides as the file has them, to put back after another theme.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ThemeSetting {
+    pub theme: Option<String>,
+    pub colors: BTreeMap<String, String>,
+}
+
 pub struct Draft {
     fields: Vec<Field>,
     /// The file as read, `None` when there was none.
@@ -376,22 +385,6 @@ impl Draft {
         shown(&Config::default(), key)
     }
 
-    /// The settings drafted differently from the file as read, in display order.
-    pub fn unsaved(&self) -> Vec<&Field> {
-        self.fields
-            .iter()
-            .filter(|field| self.changes.contains_key(&field.key))
-            .filter(|field| match field.color() {
-                Some(name) => self.override_of(&field.key) != self.config.colors.get(name).cloned(),
-                None => !same(
-                    field,
-                    &self.value(&field.key),
-                    &shown(&self.config, &field.key),
-                ),
-            })
-            .collect()
-    }
-
     /// Why the drafted value of `key` can't be saved, as Save would say; `None` when it can or
     /// is not drafted.
     pub fn problem(&self, key: &str) -> Option<String> {
@@ -475,7 +468,7 @@ impl Draft {
         }
     }
 
-    /// Takes the file as it is now as the base, keeping the draft's edits on top (Keep my edits).
+    /// Takes the file as it is now as the base, keeping the draft's edits on top.
     pub fn rebase(&mut self, disk: Option<String>) -> Result<()> {
         if let Some(text) = &disk {
             self.config = Config::parse(text)?;
@@ -486,10 +479,77 @@ impl Draft {
         Ok(())
     }
 
-    /// Drops the draft and takes the file as it is now (Discard my edits).
-    pub fn discard(&mut self, disk: Option<String>) -> Result<()> {
+    /// Drops every drafted value: the file as read again.
+    pub fn discard(&mut self) {
         self.changes.clear();
-        self.rebase(disk)
+    }
+
+    /// Drops the drafted values that can't be written, which then read as the file has them;
+    /// gives their labels in display order.
+    pub fn drop_invalid(&mut self) -> Vec<String> {
+        let wrong: Vec<Field> = self
+            .fields
+            .iter()
+            .filter(|field| self.problem(&field.key).is_some())
+            .cloned()
+            .collect();
+        for field in &wrong {
+            self.changes.remove(&field.key);
+        }
+        wrong.into_iter().map(|field| field.label).collect()
+    }
+
+    /// Builds everything drafted over the file as it is now on `disk`, which then becomes the
+    /// base with nothing left drafted; the caller writes the text. A file that isn't a valid
+    /// config, or a drafted value that can't be written, gives an error and leaves the draft.
+    pub fn commit(&mut self, disk: Option<String>) -> Result<Saved> {
+        let mut over = Draft::new(disk.clone())?;
+        over.changes = self.changes.clone();
+        let Ok(saved) = over.save(disk.as_deref())? else {
+            unreachable!("built over the same text it is checked against");
+        };
+        let text = match &saved {
+            Saved::Written { text, .. } => Some(text.clone()),
+            Saved::Unchanged => disk,
+        };
+        self.rebase(text)?;
+        self.changes.clear();
+        Ok(saved)
+    }
+
+    /// The theme and colour overrides as the file has them.
+    pub fn theme_setting(&self) -> ThemeSetting {
+        ThemeSetting {
+            theme: self.config.theme.clone(),
+            colors: self.config.colors.clone(),
+        }
+    }
+
+    /// Drafts `setting` back: its theme, its colour overrides, and no other.
+    pub fn restore_theme(&mut self, setting: ThemeSetting) {
+        let theme = match setting.theme {
+            Some(name) => Change::Set(name),
+            None => Change::Default,
+        };
+        self.changes.insert("theme".into(), theme);
+        let colors: Vec<(String, String)> = self
+            .fields
+            .iter()
+            .filter_map(|f| Some((f.key.clone(), f.color()?.to_owned())))
+            .collect();
+        for (key, name) in colors {
+            match setting.colors.get(&name) {
+                Some(value) => {
+                    self.changes.insert(key, Change::Set(value.clone()));
+                }
+                None if self.override_of(&key).is_some() => {
+                    self.changes.insert(key, Change::Default);
+                }
+                None => {
+                    self.changes.remove(&key);
+                }
+            }
+        }
     }
 
     /// Checks the draft against the file as it is on `disk` and builds what to write.
@@ -539,6 +599,33 @@ impl Draft {
     }
 }
 
+/// The least a number setting takes and, where there is one, the most: the steppers stop there,
+/// and a typed value outside can't be written.
+pub fn range(key: &str) -> Option<(f64, Option<f64>)> {
+    Some(match key {
+        "ui_font_size" => (6.0, Some(24.0)),
+        "font_size" => (6.0, Some(72.0)),
+        "line_height" => (0.5, Some(3.0)),
+        "sidebar_width" => (10.0, Some(800.0)),
+        "refresh_ms" => (250.0, None),
+        _ => return None,
+    })
+}
+
+/// A number of `field` inside its [`range`].
+fn within(field: &Field, value: f64) -> Result<()> {
+    let label = &field.label;
+    match range(&field.key) {
+        Some((least, Some(most))) if !(least..=most).contains(&value) => {
+            bail!("{label} must be from {} to {}", number(least), number(most))
+        }
+        Some((least, None)) if value < least => {
+            bail!("{label} must be at least {}", number(least))
+        }
+        _ => Ok(()),
+    }
+}
+
 /// Two texts of `field` that save the same: numbers by value, lists item by item.
 fn same(field: &Field, a: &str, b: &str) -> bool {
     match field.kind {
@@ -565,16 +652,20 @@ fn value(field: &Field, text: &str) -> Result<Value> {
     let text = text.trim();
     let label = &field.label;
     Ok(match field.kind {
-        Kind::Integer => Value::from(
-            text.parse::<i64>()
-                .with_context(|| format!("{label} must be a whole number"))?,
-        ),
+        Kind::Integer => {
+            let number = text
+                .parse::<i64>()
+                .with_context(|| format!("{label} must be a whole number"))?;
+            within(field, number as f64)?;
+            Value::from(number)
+        }
         Kind::Number => {
             let number: f64 = text
                 .parse()
                 .ok()
                 .filter(|n: &f64| n.is_finite())
                 .with_context(|| format!("{label} must be a number"))?;
+            within(field, number)?;
             if number.fract() == 0.0 {
                 Value::from(number as i64)
             } else {
@@ -791,8 +882,8 @@ mod tests {
             ),
             ("mascot", "dog", "unknown mascot"),
             ("colors.focus", "chartreuse", "focus"),
-            ("font_size", "0", "font_size"),
-            ("ui_font_size", "-1", "ui_font_size"),
+            ("font_size", "0", "Terminal size must be from 6 to 72"),
+            ("ui_font_size", "-1", "Interface size must be from 6 to 24"),
             ("ui_font_size", "big", "Interface size must be a number"),
         ] {
             let mut draft = Draft::new(Some(FILE.into())).unwrap();
@@ -813,8 +904,8 @@ mod tests {
         draft.rebase(Some(disk.clone())).unwrap();
         let (text, _) = written(&draft);
         assert!(text.contains("line_height = 1.4") && text.contains("sidebar_width = 400"));
-        // Discard my edits: the file as it is, no edits left.
-        draft.discard(Some(disk.clone())).unwrap();
+        // Dropped: the file as it is, no edits left.
+        draft.discard();
         assert!(!draft.edited());
         assert_eq!(draft.value("sidebar_width"), "380");
     }
@@ -886,24 +977,140 @@ mod tests {
         assert_eq!(draft.default_shown("mascot"), "clawd");
     }
 
+    /// What `commit` wrote, or `None` when it wrote nothing.
+    fn committed(draft: &mut Draft, disk: Option<&str>) -> Option<String> {
+        match draft.commit(disk.map(str::to_owned)).unwrap() {
+            Saved::Written { text, .. } => Some(text),
+            Saved::Unchanged => None,
+        }
+    }
+
     #[test]
-    fn unsaved_lists_only_what_differs_from_the_file() {
+    fn numbers_stay_between_the_steppers_least_and_a_most() {
         let mut draft = Draft::new(Some(FILE.into())).unwrap();
-        assert!(draft.unsaved().is_empty());
-        draft.set("font_size", "15");
-        draft.set("colors.claude", "#d97757");
-        let labels = |draft: &Draft| -> Vec<String> {
-            draft.unsaved().iter().map(|f| f.label.clone()).collect()
-        };
-        assert_eq!(labels(&draft), ["Terminal size", "claude"]);
-        // Typed back to what the file says: an edit, but nothing to save.
-        draft.set("font_size", "14");
-        draft.reset("colors.claude");
-        assert!(draft.edited());
-        assert!(draft.unsaved().is_empty());
-        // Another theme drops the file's colour override too.
+        for (key, value, says) in [
+            ("font_size", "1", "Terminal size must be from 6 to 72"),
+            ("font_size", "73", "Terminal size must be from 6 to 72"),
+            ("ui_font_size", "5", "Interface size must be from 6 to 24"),
+            ("ui_font_size", "30", "Interface size must be from 6 to 24"),
+            ("line_height", "0.3", "Line height must be from 0.5 to 3"),
+            ("line_height", "3.5", "Line height must be from 0.5 to 3"),
+            ("sidebar_width", "5", "Sidebar width must be from 10 to 800"),
+            (
+                "sidebar_width",
+                "900",
+                "Sidebar width must be from 10 to 800",
+            ),
+            ("refresh_ms", "100", "Refresh interval must be at least 250"),
+        ] {
+            draft.set(key, value);
+            let problem = draft.problem(key).unwrap_or_default();
+            assert!(problem.contains(says), "{key} {value}: {problem}");
+        }
+        for (key, value) in [
+            ("font_size", "6"),
+            ("font_size", "72"),
+            ("ui_font_size", "24"),
+            ("line_height", "0.5"),
+            ("line_height", "3"),
+            ("sidebar_width", "800"),
+            ("refresh_ms", "250"),
+            ("refresh_ms", "60000"),
+        ] {
+            draft.set(key, value);
+            assert_eq!(draft.problem(key), None, "{key} {value}");
+        }
+        assert_eq!(range("font_size"), Some((6.0, Some(72.0))));
+        assert_eq!(range("refresh_ms"), Some((250.0, None)));
+        assert_eq!(range("font"), None);
+    }
+
+    #[test]
+    fn a_commit_writes_over_the_file_as_it_is_now() {
+        let mut draft = Draft::new(Some(FILE.into())).unwrap();
+        // Changed elsewhere since Settings read it: the edit goes on top, the rest stays.
+        let disk = format!("line_height = 1.4\n{FILE}");
+        draft.set("sidebar_width", "400");
+        let text = committed(&mut draft, Some(&disk)).unwrap();
+        assert!(
+            text.starts_with("line_height = 1.4\n# my paddock\n"),
+            "{text}"
+        );
+        assert!(text.contains("sidebar_width = 400\n"), "{text}");
+        // What was written is now the base: nothing left drafted.
+        assert!(!draft.edited());
+        assert_eq!(draft.value("line_height"), "1.4");
+        assert_eq!(draft.value("sidebar_width"), "400");
+        // Nothing drafted writes nothing.
+        assert_eq!(committed(&mut draft, Some(&text)), None);
+        // No file yet: one is made.
+        let mut draft = Draft::new(None).unwrap();
+        draft.set("mascot", "cat");
+        let text = committed(&mut draft, None).unwrap();
+        assert_eq!(Config::parse(&text).unwrap().mascot, Pet::Cat);
+    }
+
+    #[test]
+    fn a_broken_file_is_never_written_over() {
+        for broken in ["theme = ", "no_such_key = 1\n", "sidebar_width = -3\n"] {
+            let mut draft = Draft::new(Some(FILE.into())).unwrap();
+            draft.set("font_size", "15");
+            assert!(draft.commit(Some(broken.into())).is_err(), "{broken}");
+            // The edit stays drafted, for the page to drop.
+            assert!(draft.edited());
+        }
+    }
+
+    #[test]
+    fn values_that_cant_be_written_are_dropped_and_named() {
+        let mut draft = Draft::new(Some(FILE.into())).unwrap();
+        draft.set("font_size", "1");
+        draft.set("colors.focus", "#ff");
+        draft.set("sidebar_width", "400");
+        assert_eq!(draft.drop_invalid(), ["Terminal size", "focus"]);
+        // Back to what the file says.
+        assert_eq!(draft.value("font_size"), "14");
+        assert_eq!(draft.value("colors.focus"), "yellow");
+        // The valid one is still there to be written.
+        let text = committed(&mut draft, Some(FILE)).unwrap();
+        assert!(text.contains("sidebar_width = 400\n"), "{text}");
+        assert!(text.contains("focus = \"yellow\""), "{text}");
+        assert!(draft.drop_invalid().is_empty());
+    }
+
+    #[test]
+    fn another_theme_can_be_undone_with_its_colours() {
+        let file = format!("{FILE}claude = \"#d97757\"\n");
+        let mut draft = Draft::new(Some(file.clone())).unwrap();
+        let before = draft.theme_setting();
+        assert_eq!(before.theme.as_deref(), Some("tide"));
+        assert_eq!(before.colors.len(), 2);
         draft.set("theme", "lagoon");
-        assert_eq!(labels(&draft), ["Theme", "focus"]);
+        let text = committed(&mut draft, Some(&file)).unwrap();
+        assert!(Config::parse(&text).unwrap().colors.is_empty(), "{text}");
+        // Undo: the theme and every colour come back.
+        draft.restore_theme(before);
+        let text = committed(&mut draft, Some(&text)).unwrap();
+        let config = Config::parse(&text).unwrap();
+        assert_eq!(config.theme.as_deref(), Some("tide"));
+        assert_eq!(
+            config.colors,
+            BTreeMap::from([
+                ("claude".to_owned(), "#d97757".to_owned()),
+                ("focus".to_owned(), "yellow".to_owned()),
+            ])
+        );
+        // A colour set after the switch goes again on undo; no theme written means the default.
+        let mut draft = Draft::new(Some("font = \"Menlo\"\n".into())).unwrap();
+        let before = draft.theme_setting();
+        draft.set("theme", "lagoon");
+        draft.set("colors.focus", "#cfc27a");
+        let text = committed(&mut draft, Some("font = \"Menlo\"\n")).unwrap();
+        draft.restore_theme(before);
+        let text = committed(&mut draft, Some(&text)).unwrap();
+        let config = Config::parse(&text).unwrap();
+        assert!(config.colors.is_empty(), "{text}");
+        assert_eq!(draft.theme_name(), "dune");
     }
 
     #[test]
@@ -917,8 +1124,8 @@ mod tests {
                 "1.5",
                 "Refresh interval must be a whole number",
             ),
-            ("refresh_ms", "0", "refresh_ms"),
-            ("font_size", "0", "font_size"),
+            ("refresh_ms", "0", "Refresh interval must be at least 250"),
+            ("font_size", "0", "Terminal size must be from 6 to 72"),
             ("colors.focus", "chartreuse", "focus"),
             ("corral", " ", "corral"),
         ] {
