@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>马 · 配色与鬃毛</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div style="width: 1440px; height: 980px; box-sizing: border-box; padding: 56px; background: #1e1e22; color: #e8e8ec; font-family: -apple-system, 'PingFang SC', 'Hiragino Sans GB', sans-serif; display: flex; flex-direction: column; gap: 40px">
+<svg width="0" height="0" style="position: absolute" aria-hidden="true">
+<defs>
+  <path id="hEar" d="M405 178 C428 200 442 236 445 272 L398 300 C390 262 392 215 405 178 Z"></path>
+  <path id="hHead" d="M458 150 C495 186 512 236 514 286 C602 292 692 350 752 430 C802 495 852 560 860 615 C868 690 817 728 754 724 C707 722 670 708 642 692 C625 730 628 810 648 874 L400 874 C380 874 360 860 350 840 L400 300 C420 250 440 200 458 150 Z"></path>
+  <circle id="hCheek" cx="592" cy="590" r="104"></circle>
+  <path id="hMane" d="M430 240 C400 225 350 245 330 300 C360 290 380 300 398 335 C368 330 320 350 300 400 C330 395 355 405 375 435 C345 435 298 460 278 505 C310 498 336 510 358 540 C328 545 282 570 262 612 C295 606 322 618 346 645 C316 652 272 680 252 720 C285 715 314 727 340 750 C310 760 268 790 250 830 C280 826 316 835 345 862 L436 862 C404 784 462 716 432 640 C406 572 462 502 442 432 C426 372 468 318 480 240 Z"></path>
+  <filter id="fShadow" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="20"></feGaussianBlur></filter>
+  <filter id="fSpec" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="28"></feGaussianBlur></filter>
+  <filter id="fSoft" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="10"></feGaussianBlur></filter>
+  <linearGradient id="gSheen" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffffff" stop-opacity=".08"></stop><stop offset=".35" stop-color="#ffffff" stop-opacity="0"></stop></linearGradient>
+  <radialGradient id="gRim" gradientUnits="userSpaceOnUse" cx="720" cy="300" r="520"><stop offset="0" stop-color="#ffffff" stop-opacity=".75"></stop><stop offset=".6" stop-color="#ffffff" stop-opacity=".15"></stop><stop offset="1" stop-color="#ffffff" stop-opacity="0"></stop></radialGradient>
+  <radialGradient id="gLo" gradientUnits="userSpaceOnUse" cx="290" cy="900" r="520"><stop offset="0" stop-color="#000000" stop-opacity=".34"></stop><stop offset="1" stop-color="#000000" stop-opacity="0"></stop></radialGradient>
+  <clipPath id="cHead"><use href="#hHead"></use><use href="#hCheek"></use></clipPath>
+</defs>
+</svg>
+
+<div style="display: flex; flex-direction: column; gap: 6px">
+  <div style="font-size: 26px; font-weight: 600">马 · 可爱多彩：配色和鬃毛</div>
+  <div style="font-size: 15px; color: #a4a4ae">每格大图下面是 64 · 32 · 16 px</div>
+</div>
+
+<sc-for list="{{rows}}" as="row" hint-placeholder-count="2">
+<div style="display: grid; grid-template-columns: 120px repeat(4, minmax(0, 1fr)); column-gap: 40px; align-items: start">
+  <div style="font-size: 20px; font-weight: 600; padding-top: 100px">{{row.label}}</div>
+  <sc-for list="{{row.icons}}" as="ic" hint-placeholder-count="4">
+  <div style="display: flex; flex-direction: column; align-items: flex-start; gap: 14px">
+    <svg width="240" height="240" viewBox="0 0 1024 1024" role="img" aria-label="马 {{ic.name}} {{row.label}}">
+      <defs>
+        <linearGradient id="gG-{{ic.id}}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="{{ic.g1}}"></stop><stop offset="1" stop-color="{{ic.g2}}"></stop></linearGradient>
+        <linearGradient id="gBody-{{ic.id}}" gradientUnits="userSpaceOnUse" x1="830" y1="180" x2="320" y2="880"><stop offset="0" stop-color="{{ic.c1}}"></stop><stop offset=".45" stop-color="{{ic.c2}}"></stop><stop offset="1" stop-color="{{ic.c3}}"></stop></linearGradient>
+        <linearGradient id="gDeep-{{ic.id}}" gradientUnits="userSpaceOnUse" x1="520" y1="200" x2="250" y2="860"><stop offset="0" stop-color="{{ic.c2}}"></stop><stop offset=".5" stop-color="{{ic.c3}}"></stop><stop offset="1" stop-color="{{ic.c4}}"></stop></linearGradient>
+        <mask id="m-{{ic.id}}" maskUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024"><g fill="#ffffff"><use href="#hEar"></use><use href="#hHead"></use><use href="#hCheek"></use><use href="#hMane" stroke="{{ic.maskStroke}}" stroke-width="40" stroke-linejoin="round"></use></g></mask>
+      </defs>
+      <g id="icon-{{ic.id}}">
+        <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#gG-{{ic.id}})"></rect>
+        <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#gSheen)"></rect>
+        <rect x="102" y="102" width="820" height="820" rx="183" fill="none" stroke="#ffffff" stroke-opacity=".12" stroke-width="4"></rect>
+        <g filter="url(#fShadow)" opacity=".55" transform="translate(0 26)"><rect width="1024" height="1024" fill="#000000" mask="url(#m-{{ic.id}})"></rect></g>
+        <use href="#hEar" fill="url(#gDeep-{{ic.id}})"></use>
+        <use href="#hHead" fill="url(#gBody-{{ic.id}})"></use>
+        <use href="#hCheek" fill="url(#gBody-{{ic.id}})"></use>
+        <g clip-path="url(#cHead)"><use href="#hHead" fill="none" stroke="url(#gRim)" stroke-width="22"></use></g>
+        <g filter="url(#fSoft)" opacity=".35" transform="translate(10 12)" clip-path="url(#cHead)"><use href="#hMane" fill="#000000" stroke="{{ic.shadowStroke}}" stroke-width="40" stroke-linejoin="round"></use></g>
+        <use href="#hMane" fill="url(#gDeep-{{ic.id}})" stroke="{{ic.maneStroke}}" stroke-width="40" stroke-linejoin="round"></use>
+        <rect width="1024" height="1024" fill="url(#gLo)" mask="url(#m-{{ic.id}})"></rect>
+        <g mask="url(#m-{{ic.id}})"><g filter="url(#fSpec)"><ellipse cx="660" cy="350" rx="150" ry="62" transform="rotate(32 660 350)" fill="#ffffff" opacity=".55"></ellipse></g></g>
+        <ellipse cx="660" cy="606" rx="46" ry="25" fill="{{ic.blush}}" opacity=".55"></ellipse>
+        <ellipse cx="588" cy="418" rx="33" ry="45" fill="{{ic.eye}}"></ellipse>
+        <circle cx="599" cy="400" r="12" fill="#ffffff"></circle>
+        <circle cx="578" cy="440" r="5" fill="#ffffff" opacity=".8"></circle>
+        <ellipse cx="808" cy="628" rx="14" ry="20" fill="{{ic.eye}}" opacity=".7"></ellipse>
+      </g>
+    </svg>
+    <div style="display: flex; align-items: flex-end; gap: 14px; width: 240px">
+      <svg width="64" height="64" viewBox="0 0 1024 1024" aria-hidden="true"><use href="#icon-{{ic.id}}"></use></svg>
+      <svg width="32" height="32" viewBox="0 0 1024 1024" aria-hidden="true"><use href="#icon-{{ic.id}}"></use></svg>
+      <svg width="16" height="16" viewBox="0 0 1024 1024" aria-hidden="true"><use href="#icon-{{ic.id}}"></use></svg>
+      <div style="font-size: 15px; color: #c4c4cc; margin-left: auto">{{ic.name}}</div>
+    </div>
+  </div>
+  </sc-for>
+</div>
+</sc-for>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":980}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const palettes = [
+      { key: 'lagoon', name: 'Lagoon 青绿', g1: '#0f3a40', g2: '#061317', c1: '#e2ffe6', c2: '#6fe0c2', c3: '#3f8fe0', c4: '#6a52d9', eye: '#0a1a20', blush: '#ff7eb6' },
+      { key: 'sunset', name: 'Sunset 日落', g1: '#2d1247', g2: '#10061c', c1: '#ffd56b', c2: '#ff7a6b', c3: '#e8459a', c4: '#7b3fe0', eye: '#22082e', blush: '#ff4f8f' },
+      { key: 'candy', name: 'Candy 糖果', g1: '#1d2152', g2: '#0a0b24', c1: '#fff3a6', c2: '#ff9ad5', c3: '#9b7cff', c4: '#4f6bff', eye: '#15123a', blush: '#ff6fae' },
+      { key: 'aurora', name: 'Aurora 极光', g1: '#0d1d3e', g2: '#050a18', c1: '#d8ff9e', c2: '#4fe3c1', c3: '#4c8dff', c4: '#a65cff', eye: '#0b1430', blush: '#ff7eb6' }
+    ];
+    const row = (mane, label, round) => ({
+      label,
+      icons: palettes.map((p) => ({
+        ...p,
+        id: mane + '-' + p.key,
+        maneStroke: round ? 'url(#gDeep-' + mane + '-' + p.key + ')' : 'none',
+        maskStroke: round ? '#ffffff' : 'none',
+        shadowStroke: round ? '#000000' : 'none'
+      }))
+    });
+    return { rows: [row('a', '尖鬃毛', false), row('b', '圆鬃毛', true)] };
+  }
+}
+</script>
+</body>
+</html>

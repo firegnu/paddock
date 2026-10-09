@@ -3889,6 +3889,7 @@ dependencies = [
  "png 0.18.1",
  "portable-pty",
  "raw-window-handle",
+ "resvg",
  "serde",
  "serde_json",
  "shell-words",

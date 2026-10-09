@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- `paddock.svg` for 32 pixels and below: no blush, glare, rim light or shadow on the face,
+       which only smudge at this size; a bigger eye with one highlight. -->
+  <defs>
+    <path id="ear" d="M405 178 C428 200 442 236 445 272 L398 300 C390 262 392 215 405 178 Z"/>
+    <path id="head" d="M458 150 C495 186 512 236 514 286 C602 292 692 350 752 430 C802 495 852 560 860 615 C868 690 817 728 754 724 C707 722 670 708 642 692 C625 730 628 810 648 874 L400 874 C380 874 360 860 350 840 L400 300 C420 250 440 200 458 150 Z"/>
+    <circle id="cheek" cx="592" cy="590" r="104"/>
+    <path id="mane" d="M430 240 C400 225 350 245 330 300 C360 290 380 300 398 335 C368 330 320 350 300 400 C330 395 355 405 375 435 C345 435 298 460 278 505 C310 498 336 510 358 540 C328 545 282 570 262 612 C295 606 322 618 346 645 C316 652 272 680 252 720 C285 715 314 727 340 750 C310 760 268 790 250 830 C280 826 316 835 345 862 L436 862 C404 784 462 716 432 640 C406 572 462 502 442 432 C426 372 468 318 480 240 C512 248 542 270 564 304 C548 258 505 222 452 222 C440 228 434 234 430 240 Z"/>
+
+    <linearGradient id="ground" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1d2152"/><stop offset="1" stop-color="#0a0b24"/>
+    </linearGradient>
+    <linearGradient id="sheen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".08"/><stop offset=".35" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="face" gradientUnits="userSpaceOnUse" x1="830" y1="180" x2="320" y2="880">
+      <stop offset="0" stop-color="#fff3a6"/><stop offset=".45" stop-color="#ff9ad5"/><stop offset="1" stop-color="#9b7cff"/>
+    </linearGradient>
+    <linearGradient id="hair" gradientUnits="userSpaceOnUse" x1="620" y1="200" x2="250" y2="860">
+      <stop offset="0" stop-color="#ff9ad5"/><stop offset=".5" stop-color="#9b7cff"/><stop offset="1" stop-color="#4f6bff"/>
+    </linearGradient>
+    <radialGradient id="dusk" gradientUnits="userSpaceOnUse" cx="290" cy="900" r="520">
+      <stop offset="0" stop-color="#000000" stop-opacity=".34"/><stop offset="1" stop-color="#000000" stop-opacity="0"/>
+    </radialGradient>
+
+    <filter id="drop" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="20"/></filter>
+
+    <mask id="horse" maskUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024">
+      <g fill="#ffffff">
+        <use href="#ear"/><use href="#head"/><use href="#cheek"/>
+        <use href="#mane" stroke="#ffffff" stroke-width="40" stroke-linejoin="round"/>
+      </g>
+    </mask>
+  </defs>
+
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#ground)"/>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#sheen)"/>
+
+  <g filter="url(#drop)" opacity=".55" transform="translate(0 26)">
+    <rect width="1024" height="1024" fill="#000000" mask="url(#horse)"/>
+  </g>
+
+  <use href="#ear" fill="url(#hair)"/>
+  <use href="#head" fill="url(#face)"/>
+  <use href="#cheek" fill="url(#face)"/>
+  <use href="#mane" fill="url(#hair)" stroke="url(#hair)" stroke-width="40" stroke-linejoin="round"/>
+  <rect width="1024" height="1024" fill="url(#dusk)" mask="url(#horse)"/>
+
+  <ellipse cx="590" cy="420" rx="42" ry="54" fill="#15123a"/>
+  <circle cx="604" cy="400" r="15" fill="#ffffff"/>
+  <ellipse cx="808" cy="628" rx="18" ry="24" fill="#15123a" opacity=".8"/>
+</svg>

@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- The P5-58 app icon: a horse's head facing right, Candy colours, rounded mane.
+       `paddock-small.svg` is the same horse for 32 pixels and below. -->
+  <defs>
+    <path id="ear" d="M405 178 C428 200 442 236 445 272 L398 300 C390 262 392 215 405 178 Z"/>
+    <path id="head" d="M458 150 C495 186 512 236 514 286 C602 292 692 350 752 430 C802 495 852 560 860 615 C868 690 817 728 754 724 C707 722 670 708 642 692 C625 730 628 810 648 874 L400 874 C380 874 360 860 350 840 L400 300 C420 250 440 200 458 150 Z"/>
+    <circle id="cheek" cx="592" cy="590" r="104"/>
+    <!-- Drawn with a 40-unit round-joined stroke on top of its fill, which rounds the tufts. -->
+    <path id="mane" d="M430 240 C400 225 350 245 330 300 C360 290 380 300 398 335 C368 330 320 350 300 400 C330 395 355 405 375 435 C345 435 298 460 278 505 C310 498 336 510 358 540 C328 545 282 570 262 612 C295 606 322 618 346 645 C316 652 272 680 252 720 C285 715 314 727 340 750 C310 760 268 790 250 830 C280 826 316 835 345 862 L436 862 C404 784 462 716 432 640 C406 572 462 502 442 432 C426 372 468 318 480 240 C512 248 542 270 564 304 C548 258 505 222 452 222 C440 228 434 234 430 240 Z"/>
+
+    <linearGradient id="ground" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1d2152"/><stop offset="1" stop-color="#0a0b24"/>
+    </linearGradient>
+    <linearGradient id="sheen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".08"/><stop offset=".35" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="face" gradientUnits="userSpaceOnUse" x1="830" y1="180" x2="320" y2="880">
+      <stop offset="0" stop-color="#fff3a6"/><stop offset=".45" stop-color="#ff9ad5"/><stop offset="1" stop-color="#9b7cff"/>
+    </linearGradient>
+    <linearGradient id="hair" gradientUnits="userSpaceOnUse" x1="620" y1="200" x2="250" y2="860">
+      <stop offset="0" stop-color="#ff9ad5"/><stop offset=".5" stop-color="#9b7cff"/><stop offset="1" stop-color="#4f6bff"/>
+    </linearGradient>
+    <radialGradient id="rim" gradientUnits="userSpaceOnUse" cx="720" cy="300" r="520">
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".75"/><stop offset=".6" stop-color="#ffffff" stop-opacity=".15"/><stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="dusk" gradientUnits="userSpaceOnUse" cx="290" cy="900" r="520">
+      <stop offset="0" stop-color="#000000" stop-opacity=".34"/><stop offset="1" stop-color="#000000" stop-opacity="0"/>
+    </radialGradient>
+
+    <filter id="drop" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="20"/></filter>
+    <filter id="soft" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="10"/></filter>
+    <filter id="glare" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="28"/></filter>
+
+    <clipPath id="face-clip"><use href="#head"/><use href="#cheek"/></clipPath>
+    <mask id="horse" maskUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024">
+      <g fill="#ffffff">
+        <use href="#ear"/><use href="#head"/><use href="#cheek"/>
+        <use href="#mane" stroke="#ffffff" stroke-width="40" stroke-linejoin="round"/>
+      </g>
+    </mask>
+  </defs>
+
+  <!-- The macOS grid square: 824 of 1024, corners 22.5% -->
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#ground)"/>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#sheen)"/>
+  <rect x="102" y="102" width="820" height="820" rx="183" fill="none" stroke="#ffffff" stroke-opacity=".12" stroke-width="4"/>
+
+  <!-- Shadow on the square -->
+  <g filter="url(#drop)" opacity=".55" transform="translate(0 26)">
+    <rect width="1024" height="1024" fill="#000000" mask="url(#horse)"/>
+  </g>
+
+  <use href="#ear" fill="url(#hair)"/>
+  <use href="#head" fill="url(#face)"/>
+  <use href="#cheek" fill="url(#face)"/>
+  <!-- Rim light on the upper right of the face -->
+  <g clip-path="url(#face-clip)"><use href="#head" fill="none" stroke="url(#rim)" stroke-width="22"/></g>
+  <!-- The mane's shadow on the face -->
+  <g filter="url(#soft)" opacity=".5" transform="translate(22 12)" clip-path="url(#face-clip)">
+    <use href="#mane" fill="#000000" stroke="#000000" stroke-width="40" stroke-linejoin="round"/>
+  </g>
+  <use href="#mane" fill="url(#hair)" stroke="url(#hair)" stroke-width="40" stroke-linejoin="round"/>
+
+  <!-- Darker to the lower left, a soft glare on the forehead -->
+  <rect width="1024" height="1024" fill="url(#dusk)" mask="url(#horse)"/>
+  <g mask="url(#horse)">
+    <g filter="url(#glare)">
+      <ellipse cx="660" cy="350" rx="150" ry="62" transform="rotate(32 660 350)" fill="#ffffff" opacity=".55"/>
+    </g>
+  </g>
+
+  <ellipse cx="660" cy="606" rx="46" ry="25" fill="#ff6fae" opacity=".55"/>
+  <ellipse cx="588" cy="418" rx="33" ry="45" fill="#15123a"/>
+  <circle cx="599" cy="400" r="12" fill="#ffffff"/>
+  <circle cx="578" cy="440" r="5" fill="#ffffff" opacity=".8"/>
+  <ellipse cx="808" cy="628" rx="14" ry="20" fill="#15123a" opacity=".7"/>
+</svg>

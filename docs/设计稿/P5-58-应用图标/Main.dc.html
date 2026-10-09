@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>paddock 图标样稿</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div style="width: 1520px; height: 1180px; box-sizing: border-box; padding: 56px; background: #1e1e22; color: #e8e8ec; font-family: -apple-system, 'PingFang SC', 'Hiragino Sans GB', sans-serif; display: flex; flex-direction: column; gap: 40px">
+<svg width="0" height="0" style="position: absolute" aria-hidden="true">
+<defs>
+  <linearGradient id="gMinGround" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1c1c21"></stop><stop offset="1" stop-color="#050506"></stop></linearGradient>
+  <linearGradient id="gCuteGround" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="{{g1}}"></stop><stop offset="1" stop-color="{{g2}}"></stop></linearGradient>
+  <linearGradient id="gSheen" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffffff" stop-opacity=".08"></stop><stop offset=".35" stop-color="#ffffff" stop-opacity="0"></stop></linearGradient>
+  <linearGradient id="gBody" gradientUnits="userSpaceOnUse" x1="820" y1="190" x2="300" y2="880"><stop offset="0" stop-color="{{c1}}"></stop><stop offset=".5" stop-color="{{c2}}"></stop><stop offset="1" stop-color="{{c3}}"></stop></linearGradient>
+  <linearGradient id="gDeep" gradientUnits="userSpaceOnUse" x1="700" y1="200" x2="250" y2="860"><stop offset="0" stop-color="{{c2}}"></stop><stop offset=".55" stop-color="{{c3}}"></stop><stop offset="1" stop-color="{{c4}}"></stop></linearGradient>
+  <linearGradient id="gHorn" gradientUnits="userSpaceOnUse" x1="560" y1="190" x2="250" y2="640"><stop offset="0" stop-color="{{h1}}"></stop><stop offset="1" stop-color="{{h2}}"></stop></linearGradient>
+  <linearGradient id="gMuzzle" x1=".5" y1="0" x2=".5" y2="1"><stop offset="0" stop-color="#ffffff" stop-opacity=".95"></stop><stop offset="1" stop-color="{{c1}}"></stop></linearGradient>
+  <radialGradient id="gHi" gradientUnits="userSpaceOnUse" cx="690" cy="320" r="470"><stop offset="0" stop-color="#ffffff" stop-opacity=".55"></stop><stop offset="1" stop-color="#ffffff" stop-opacity="0"></stop></radialGradient>
+  <radialGradient id="gLo" gradientUnits="userSpaceOnUse" cx="290" cy="890" r="500"><stop offset="0" stop-color="#000000" stop-opacity=".32"></stop><stop offset="1" stop-color="#000000" stop-opacity="0"></stop></radialGradient>
+  <filter id="fGlow" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="26"></feGaussianBlur></filter>
+  <filter id="fShadow" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="20"></feGaussianBlur></filter>
+  <filter id="fSoft" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="9"></feGaussianBlur></filter>
+
+  <path id="horseEar" d="M405 178 C428 200 442 236 445 272 L398 300 C390 262 392 215 405 178 Z"></path>
+  <path id="horseHead" d="M458 150 C495 186 512 236 514 286 C602 292 692 350 752 430 C802 495 852 560 860 615 C868 690 817 728 754 724 C707 722 670 708 642 692 C625 730 628 810 648 874 L400 874 C380 874 360 860 350 840 L400 300 C420 250 440 200 458 150 Z"></path>
+  <circle id="horseCheek" cx="592" cy="590" r="104"></circle>
+  <path id="horseMane" d="M430 240 C400 225 350 245 330 300 C360 290 380 300 398 335 C368 330 320 350 300 400 C330 395 355 405 375 435 C345 435 298 460 278 505 C310 498 336 510 358 540 C328 545 282 570 262 612 C295 606 322 618 346 645 C316 652 272 680 252 720 C285 715 314 727 340 750 C310 760 268 790 250 830 C280 826 316 835 345 862 L436 862 C404 784 462 716 432 640 C406 572 462 502 442 432 C426 372 468 318 480 240 Z"></path>
+  <path id="cowHornL" d="M420 372 C320 385 238 352 206 268 C196 238 198 205 210 182 C232 240 276 282 340 296 C380 305 410 306 432 306 Z"></path>
+  <path id="cowHornR" d="M604 372 C704 385 786 352 818 268 C828 238 826 205 814 182 C792 240 748 282 684 296 C644 305 614 306 592 306 Z"></path>
+  <path id="cowEarL" d="M345 446 C300 424 246 428 212 460 C248 494 306 498 352 480 Z"></path>
+  <path id="cowEarR" d="M679 446 C724 424 778 428 812 460 C776 494 718 498 672 480 Z"></path>
+  <path id="cowHead" d="M512 300 C610 300 680 340 690 430 C700 530 670 610 640 690 C625 770 590 826 512 828 C434 826 399 770 384 690 C354 610 324 530 334 430 C344 340 414 300 512 300 Z"></path>
+  <path id="cowFringe" d="M322 440 C322 330 416 262 512 262 C608 262 702 330 702 440 C704 480 690 520 672 548 C662 520 650 505 636 500 C630 540 615 575 596 590 C588 555 574 535 556 528 C546 565 530 590 512 600 C494 590 478 565 468 528 C450 535 436 555 428 590 C409 575 394 540 388 500 C374 505 362 520 352 548 C334 520 320 480 322 440 Z"></path>
+  <path id="cowTuft" d="M420 290 C436 250 458 236 474 244 C482 220 500 206 512 222 C526 204 548 216 552 242 C570 234 592 252 604 290 Z"></path>
+  <ellipse id="cowMuzzle" cx="512" cy="742" rx="124" ry="86"></ellipse>
+  <path id="ramHead" d="M470 290 C580 280 680 330 760 450 C810 520 845 585 838 645 C830 705 782 724 732 718 C682 712 640 692 602 672 C566 702 530 770 516 850 L344 850 C340 700 362 560 404 420 C422 360 446 310 470 290 Z"></path>
+  <path id="ramHorn1" d="M548 330 C505 225 330 215 268 330 C218 425 250 565 362 594"></path>
+  <path id="ramHorn2" d="M362 594 C452 616 515 535 486 462"></path>
+  <path id="ramHorn3" d="M486 462 C462 405 392 402 382 450"></path>
+
+  <mask id="mHorse" maskUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024">
+    <g fill="#fff"><use href="#horseEar"></use><use href="#horseHead"></use><use href="#horseCheek"></use><use href="#horseMane"></use></g>
+    <ellipse cx="590" cy="420" rx="25" ry="35" fill="#000"></ellipse><ellipse cx="808" cy="628" rx="14" ry="20" fill="#000"></ellipse>
+  </mask>
+  <mask id="mCow" maskUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024">
+    <g fill="#fff"><use href="#cowHornL"></use><use href="#cowHornR"></use><use href="#cowEarL"></use><use href="#cowEarR"></use><use href="#cowHead"></use></g>
+    <use href="#cowFringe" fill="#fff" stroke="#000" stroke-width="22" stroke-linejoin="round"></use>
+    <use href="#cowTuft" fill="#fff"></use>
+    <use href="#cowMuzzle" fill="#fff" stroke="#000" stroke-width="20"></use>
+    <ellipse cx="470" cy="752" rx="16" ry="22" fill="#000"></ellipse><ellipse cx="554" cy="752" rx="16" ry="22" fill="#000"></ellipse>
+  </mask>
+  <mask id="mRam" maskUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024">
+    <use href="#ramHead" fill="#fff"></use>
+    <g fill="none" stroke="#000" stroke-linecap="round"><use href="#ramHorn1" stroke-width="128"></use><use href="#ramHorn2" stroke-width="112"></use><use href="#ramHorn3" stroke-width="92"></use></g>
+    <g fill="none" stroke="#fff" stroke-linecap="round"><use href="#ramHorn1" stroke-width="100"></use><use href="#ramHorn2" stroke-width="84"></use><use href="#ramHorn3" stroke-width="64"></use></g>
+    <ellipse cx="625" cy="452" rx="24" ry="33" fill="#000"></ellipse><ellipse cx="796" cy="636" rx="13" ry="19" fill="#000"></ellipse>
+  </mask>
+  <mask id="mCowFill" maskUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024">
+    <g fill="#fff"><use href="#cowHornL"></use><use href="#cowHornR"></use><use href="#cowEarL"></use><use href="#cowEarR"></use><use href="#cowHead"></use><use href="#cowFringe"></use><use href="#cowTuft"></use></g>
+  </mask>
+  <mask id="mRamFill" maskUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024">
+    <use href="#ramHead" fill="#fff"></use>
+    <g fill="none" stroke="#fff" stroke-linecap="round"><use href="#ramHorn1" stroke-width="100"></use><use href="#ramHorn2" stroke-width="84"></use><use href="#ramHorn3" stroke-width="64"></use></g>
+  </mask>
+</defs>
+
+<symbol id="horseMin" viewBox="0 0 1024 1024">
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#gMinGround)"></rect><rect x="100" y="100" width="824" height="824" rx="185" fill="url(#gSheen)"></rect><rect x="102" y="102" width="820" height="820" rx="183" fill="none" stroke="#ffffff" stroke-opacity=".09" stroke-width="4"></rect>
+  <g filter="url(#fGlow)" opacity=".26"><rect width="1024" height="1024" fill="#ffffff" mask="url(#mHorse)"></rect></g>
+  <g transform="translate(6.3 3.2)"><rect width="1024" height="1024" fill="#ff3bd4" fill-opacity=".92" mask="url(#mHorse)"></rect></g>
+  <g transform="translate(-6.3 0)"><rect width="1024" height="1024" fill="#29e6ff" fill-opacity=".92" mask="url(#mHorse)"></rect></g>
+  <rect width="1024" height="1024" fill="#f7f7f9" mask="url(#mHorse)"></rect>
+</symbol>
+<symbol id="horseMinS" viewBox="0 0 1024 1024">
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#gMinGround)"></rect><rect x="100" y="100" width="824" height="824" rx="185" fill="url(#gSheen)"></rect><rect x="102" y="102" width="820" height="820" rx="183" fill="none" stroke="#ffffff" stroke-opacity=".09" stroke-width="4"></rect>
+  <rect width="1024" height="1024" fill="#f7f7f9" mask="url(#mHorse)"></rect>
+</symbol>
+<symbol id="cowMin" viewBox="0 0 1024 1024">
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#gMinGround)"></rect><rect x="100" y="100" width="824" height="824" rx="185" fill="url(#gSheen)"></rect><rect x="102" y="102" width="820" height="820" rx="183" fill="none" stroke="#ffffff" stroke-opacity=".09" stroke-width="4"></rect>
+  <g filter="url(#fGlow)" opacity=".26"><rect width="1024" height="1024" fill="#ffffff" mask="url(#mCow)"></rect></g>
+  <g transform="translate(6.3 3.2)"><rect width="1024" height="1024" fill="#ff3bd4" fill-opacity=".92" mask="url(#mCow)"></rect></g>
+  <g transform="translate(-6.3 0)"><rect width="1024" height="1024" fill="#29e6ff" fill-opacity=".92" mask="url(#mCow)"></rect></g>
+  <rect width="1024" height="1024" fill="#f7f7f9" mask="url(#mCow)"></rect>
+</symbol>
+<symbol id="cowMinS" viewBox="0 0 1024 1024">
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#gMinGround)"></rect><rect x="100" y="100" width="824" height="824" rx="185" fill="url(#gSheen)"></rect><rect x="102" y="102" width="820" height="820" rx="183" fill="none" stroke="#ffffff" stroke-opacity=".09" stroke-width="4"></rect>
+  <rect width="1024" height="1024" fill="#f7f7f9" mask="url(#mCow)"></rect>
+</symbol>
+<symbol id="ramMin" viewBox="0 0 1024 1024">
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#gMinGround)"></rect><rect x="100" y="100" width="824" height="824" rx="185" fill="url(#gSheen)"></rect><rect x="102" y="102" width="820" height="820" rx="183" fill="none" stroke="#ffffff" stroke-opacity=".09" stroke-width="4"></rect>
+  <g filter="url(#fGlow)" opacity=".26"><rect width="1024" height="1024" fill="#ffffff" mask="url(#mRam)"></rect></g>
+  <g transform="translate(6.3 3.2)"><rect width="1024" height="1024" fill="#ff3bd4" fill-opacity=".92" mask="url(#mRam)"></rect></g>
+  <g transform="translate(-6.3 0)"><rect width="1024" height="1024" fill="#29e6ff" fill-opacity=".92" mask="url(#mRam)"></rect></g>
+  <rect width="1024" height="1024" fill="#f7f7f9" mask="url(#mRam)"></rect>
+</symbol>
+<symbol id="ramMinS" viewBox="0 0 1024 1024">
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#gMinGround)"></rect><rect x="100" y="100" width="824" height="824" rx="185" fill="url(#gSheen)"></rect><rect x="102" y="102" width="820" height="820" rx="183" fill="none" stroke="#ffffff" stroke-opacity=".09" stroke-width="4"></rect>
+  <rect width="1024" height="1024" fill="#f7f7f9" mask="url(#mRam)"></rect>
+</symbol>
+<symbol id="horseCute" viewBox="0 0 1024 1024">
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#gCuteGround)"></rect><rect x="100" y="100" width="824" height="824" rx="185" fill="url(#gSheen)"></rect><rect x="102" y="102" width="820" height="820" rx="183" fill="none" stroke="#ffffff" stroke-opacity=".12" stroke-width="4"></rect>
+  <g filter="url(#fShadow)" opacity=".5" transform="translate(0 24)"><rect width="1024" height="1024" fill="#000000" mask="url(#mHorse)"></rect></g>
+  <use href="#horseEar" fill="url(#gDeep)"></use>
+  <use href="#horseHead" fill="url(#gBody)"></use><use href="#horseCheek" fill="url(#gBody)"></use>
+  <use href="#horseMane" fill="url(#gDeep)"></use>
+  <rect width="1024" height="1024" fill="url(#gHi)" mask="url(#mHorse)"></rect>
+  <rect width="1024" height="1024" fill="url(#gLo)" mask="url(#mHorse)"></rect>
+  <ellipse cx="652" cy="606" rx="44" ry="24" fill="{{blush}}" opacity=".55"></ellipse>
+  <ellipse cx="590" cy="420" rx="27" ry="37" fill="{{eye}}"></ellipse><circle cx="599" cy="405" r="9" fill="#ffffff"></circle>
+  <ellipse cx="808" cy="628" rx="14" ry="20" fill="{{eye}}" opacity=".75"></ellipse>
+</symbol>
+<symbol id="cowCute" viewBox="0 0 1024 1024">
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#gCuteGround)"></rect><rect x="100" y="100" width="824" height="824" rx="185" fill="url(#gSheen)"></rect><rect x="102" y="102" width="820" height="820" rx="183" fill="none" stroke="#ffffff" stroke-opacity=".12" stroke-width="4"></rect>
+  <g filter="url(#fShadow)" opacity=".5" transform="translate(0 24)"><rect width="1024" height="1024" fill="#000000" mask="url(#mCowFill)"></rect></g>
+  <use href="#cowHornL" fill="url(#gHorn)"></use><use href="#cowHornR" fill="url(#gHorn)"></use>
+  <use href="#cowEarL" fill="url(#gDeep)"></use><use href="#cowEarR" fill="url(#gDeep)"></use>
+  <use href="#cowHead" fill="url(#gBody)"></use>
+  <g filter="url(#fSoft)" opacity=".35" transform="translate(0 16)"><use href="#cowFringe" fill="#000000"></use></g>
+  <use href="#cowFringe" fill="url(#gDeep)"></use><use href="#cowTuft" fill="url(#gDeep)"></use>
+  <g filter="url(#fSoft)" opacity=".25" transform="translate(0 10)"><use href="#cowMuzzle" fill="#000000"></use></g>
+  <use href="#cowMuzzle" fill="url(#gMuzzle)"></use>
+  <rect width="1024" height="1024" fill="url(#gHi)" mask="url(#mCowFill)"></rect>
+  <rect width="1024" height="1024" fill="url(#gLo)" mask="url(#mCowFill)"></rect>
+  <ellipse cx="470" cy="752" rx="16" ry="22" fill="{{eye}}" opacity=".8"></ellipse><ellipse cx="554" cy="752" rx="16" ry="22" fill="{{eye}}" opacity=".8"></ellipse>
+</symbol>
+<symbol id="ramCute" viewBox="0 0 1024 1024">
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#gCuteGround)"></rect><rect x="100" y="100" width="824" height="824" rx="185" fill="url(#gSheen)"></rect><rect x="102" y="102" width="820" height="820" rx="183" fill="none" stroke="#ffffff" stroke-opacity=".12" stroke-width="4"></rect>
+  <g filter="url(#fShadow)" opacity=".5" transform="translate(0 24)"><rect width="1024" height="1024" fill="#000000" mask="url(#mRamFill)"></rect></g>
+  <use href="#ramHead" fill="url(#gBody)"></use>
+  <g filter="url(#fSoft)" opacity=".4" transform="translate(0 14)" fill="none" stroke="#000000" stroke-linecap="round"><use href="#ramHorn1" stroke-width="100"></use><use href="#ramHorn2" stroke-width="84"></use><use href="#ramHorn3" stroke-width="64"></use></g>
+  <g fill="none" stroke="url(#gHorn)" stroke-linecap="round"><use href="#ramHorn1" stroke-width="100"></use><use href="#ramHorn2" stroke-width="84"></use><use href="#ramHorn3" stroke-width="64"></use></g>
+  <g fill="none" stroke="{{h2}}" stroke-opacity=".55" stroke-dasharray="7 44"><use href="#ramHorn1" stroke-width="96"></use><use href="#ramHorn2" stroke-width="80"></use></g>
+  <rect width="1024" height="1024" fill="url(#gHi)" mask="url(#mRamFill)"></rect>
+  <rect width="1024" height="1024" fill="url(#gLo)" mask="url(#mRamFill)"></rect>
+  <ellipse cx="686" cy="600" rx="40" ry="22" fill="{{blush}}" opacity=".55"></ellipse>
+  <ellipse cx="625" cy="452" rx="26" ry="35" fill="{{eye}}"></ellipse><circle cx="634" cy="437" r="9" fill="#ffffff"></circle>
+  <ellipse cx="796" cy="636" rx="13" ry="19" fill="{{eye}}" opacity=".75"></ellipse>
+</symbol>
+</svg>
+
+<div style="display: grid; grid-template-columns: 120px minmax(0, 1fr) minmax(0, 1fr); column-gap: 48px; align-items: end">
+  <div></div>
+  <div style="display: flex; flex-direction: column; gap: 6px">
+    <div style="font-size: 26px; font-weight: 600">甲 · 可爱多彩</div>
+    <div style="font-size: 15px; color: #a4a4ae">圆块动物头、整块渐变、柔光；大图之后依次是 128 · 64 · 32 · 16 px</div>
+  </div>
+  <div style="display: flex; flex-direction: column; gap: 6px">
+    <div style="font-size: 26px; font-weight: 600">乙 · 极简</div>
+    <div style="font-size: 15px; color: #a4a4ae">沿用现在的黑底、白剪影、青／品红色散；32 及以下去掉色散和光晕</div>
+  </div>
+</div>
+
+<sc-for list="{{rows}}" as="row" hint-placeholder-count="3">
+<div style="display: grid; grid-template-columns: 120px minmax(0, 1fr) minmax(0, 1fr); column-gap: 48px; align-items: center">
+  <div style="font-size: 22px; font-weight: 600">{{row.name}}</div>
+  <div style="display: flex; align-items: flex-end; gap: 16px">
+    <svg width="280" height="280" viewBox="0 0 1024 1024" role="img" aria-label="{{row.name}} 可爱多彩 大图"><use href="{{row.cute}}"></use></svg>
+    <svg width="128" height="128" viewBox="0 0 1024 1024" aria-hidden="true"><use href="{{row.cute}}"></use></svg>
+    <svg width="64" height="64" viewBox="0 0 1024 1024" aria-hidden="true"><use href="{{row.cute}}"></use></svg>
+    <svg width="32" height="32" viewBox="0 0 1024 1024" aria-hidden="true"><use href="{{row.cute}}"></use></svg>
+    <svg width="16" height="16" viewBox="0 0 1024 1024" aria-hidden="true"><use href="{{row.cute}}"></use></svg>
+  </div>
+  <div style="display: flex; align-items: flex-end; gap: 16px">
+    <svg width="280" height="280" viewBox="0 0 1024 1024" role="img" aria-label="{{row.name}} 极简 大图"><use href="{{row.min}}"></use></svg>
+    <svg width="128" height="128" viewBox="0 0 1024 1024" aria-hidden="true"><use href="{{row.min}}"></use></svg>
+    <svg width="64" height="64" viewBox="0 0 1024 1024" aria-hidden="true"><use href="{{row.min}}"></use></svg>
+    <svg width="32" height="32" viewBox="0 0 1024 1024" aria-hidden="true"><use href="{{row.minS}}"></use></svg>
+    <svg width="16" height="16" viewBox="0 0 1024 1024" aria-hidden="true"><use href="{{row.minS}}"></use></svg>
+  </div>
+</div>
+</sc-for>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1520,"height":1180},"palette":{"editor":"enum","options":["lagoon","ember","heather"],"default":"lagoon"}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const palettes = {
+      lagoon: { g1: '#0f3a40', g2: '#061317', c1: '#e2ffe6', c2: '#6fe0c2', c3: '#3f8fe0', c4: '#6a52d9', h1: '#fff6dc', h2: '#f2b45a', eye: '#0a1a20', blush: '#ff7eb6' },
+      ember: { g1: '#3b1552', g2: '#14071f', c1: '#ffe39a', c2: '#ff8a5c', c3: '#f0457f', c4: '#9a3fd0', h1: '#fff8ec', h2: '#c9a6ff', eye: '#22082e', blush: '#ff4f8f' },
+      heather: { g1: '#2a2150', g2: '#0d0a20', c1: '#fde2ff', c2: '#d49cf5', c3: '#8a6cf0', c4: '#4b4fc9', h1: '#fff7e6', h2: '#f0b860', eye: '#1a1030', blush: '#ff7eb6' }
+    };
+    const p = palettes[this.props.palette ?? 'lagoon'] ?? palettes.lagoon;
+    return {
+      ...p,
+      rows: [
+        { name: '马', cute: '#horseCute', min: '#horseMin', minS: '#horseMinS' },
+        { name: '高地牛', cute: '#cowCute', min: '#cowMin', minS: '#cowMinS' },
+        { name: '公羊', cute: '#ramCute', min: '#ramMin', minS: '#ramMinS' }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>
