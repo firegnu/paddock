@@ -91,7 +91,7 @@ paddock 与 Saddle 在代码上完全分开：用到的 Saddle 代码迁入 padd
 - **不依赖 ratatui**（用户 10-05：“不能依赖ratatui”）：应用、插件 SDK 和仓库里维护的插件都不用 ratatui（也不用 crossterm）。别人写的插件程序在它自己的进程里用什么库，不算 paddock 的依赖。
 - 编译目录：`$HOME/Developer/personal_projs/paddock-worktrees/.target/<子目录>`，不与 Saddle 共用；每个工作目录一个子目录（主仓库 `main`、任务 worktree 用分支名、审查用 `review`），避免并行 worktree 互相覆盖同名包的产物（用户 10-05 同意）。
 - GPUI：`gpui-pre =0.3.8` / `gpui-pre-platform =0.3.8`（zed@279fe07 的第三方快照，发布者 huacnlee，Apache-2.0），特性 `font-kit`、`runtime_shaders`。所有 `gpui-pre-*` 一起精确固定、一起升级。
-- `runtime_shaders`：本机 Xcode 27 缺 Metal 工具链组件；安装属于系统安装，未做，改为运行时编译着色器。
+- `runtime_shaders`：本机 Xcode 27 缺 Metal 工具链组件；安装属于系统安装，未做，改为运行时编译着色器。代价实测（P5-62，10-09，M4 Max）：每开一个窗口编一次（主窗口、Settings、About 各一次）；同一份着色器第一次编约 130～180 ms，之后系统着色器缓存跨进程命中，约 1 ms，只有 GPUI 升级改了着色器、或系统清掉缓存后的第一次才付这笔。结论：不装工具链，`runtime_shaders` 保留。
 - 工具链：本机默认 stable `rustc 1.96.0` 可以编过；暂未加 `rust-toolchain.toml`。写精确版本会让 rustup 另装一份同版本工具链，等 GPUI 要求更新的 Rust 时再与用户确定。
 
 ## 5. 原型结论（2026-10-05）
