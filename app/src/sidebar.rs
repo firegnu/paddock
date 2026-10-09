@@ -193,6 +193,11 @@ const NOTE_FADE: Duration = Duration::from_millis(600);
 /// A card's icon buttons, Copy, Pause (or Resume) and Stop…, and their corners.
 const CARD_BUTTON: f32 = 24.0;
 const CARD_BUTTON_RADIUS: f32 = 7.0;
+/// The arrow after a card's time that opens or closes its details, its corners and its icon's
+/// scale: no taller than the name's line (P5-74).
+const ARROW_BOX: f32 = 18.0;
+const ARROW_RADIUS: f32 = 5.0;
+const ARROW_ICON: f32 = 0.8;
 /// How strongly a paused agent's card and tile show.
 const PAUSED_OPACITY: f32 = 0.55;
 /// What a card asks before pausing an agent in a turn.
@@ -1327,6 +1332,14 @@ impl Sidebar {
                 }
             })
         };
+        let details = {
+            let name = card.name.clone();
+            cx.listener(move |this, _: &ClickEvent, _, cx| {
+                cx.stop_propagation();
+                this.listing.panel.toggle_details(&name);
+                cx.notify();
+            })
+        };
         CardActions {
             reply: Box::new(reply),
             copy,
@@ -1335,6 +1348,7 @@ impl Sidebar {
             cancel: Box::new(cancel),
             leave: Box::new(leave),
             stop: Box::new(stop),
+            details: Box::new(details),
         }
     }
 }
@@ -1415,7 +1429,8 @@ impl Render for Sidebar {
                     let mut left = room
                         - ui.scale(MARK_GAP)
                         - TIME_PAD
-                        - width(&card.time, NOTE_SIZE, FontWeight::NORMAL, &tabular());
+                        - width(&card.time, NOTE_SIZE, FontWeight::NORMAL, &tabular())
+                        - ui.scale(MARK_GAP + ARROW_BOX);
                     if card.unread {
                         left -= ui.scale(MARK_GAP + UNREAD_BOX);
                     }
@@ -2018,6 +2033,8 @@ struct CardActions {
     /// The pointer came over the card or left it.
     leave: OnHover,
     stop: OnClick,
+    /// The arrow: open or close the details, without showing the agent (P5-74).
+    details: OnClick,
 }
 
 /// One agent, read like a conversation: its kind's avatar with the status on the corner; the name,
@@ -2186,7 +2203,36 @@ impl RenderOnce for AgentCard {
                     .font_features(tabular())
                     .text_color(age)
                     .child(card.time.clone()),
-            );
+            )
+            .child({
+                // Its room is always kept, so the time never moves; closed, it shows only while
+                // the pointer is over the card.
+                let arrow = arrow(card.expanded);
+                let tip = tip(arrow.tip.into());
+                let lit = text.opacity(0.08);
+                div()
+                    .id("details")
+                    .flex_shrink_0()
+                    .size(ui.px(ARROW_BOX))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded(ui.px(ARROW_RADIUS))
+                    .cursor_pointer()
+                    .hover(move |style| style.bg(lit))
+                    .tooltip(move |_, cx| cx.new(|_| tip.clone()).into())
+                    .on_click(actions.details)
+                    .when(!arrow.always, |button| {
+                        button
+                            .opacity(0.0)
+                            .group_hover(group.clone(), |style| style.opacity(1.0))
+                    })
+                    .child(footer_icon::icon(
+                        arrow.icon,
+                        fg(|t| t.agents_dim),
+                        ui.scale(ARROW_ICON),
+                    ))
+            });
 
         // Up to two lines, six when open, cut by GPUI with an ellipsis.
         let preview = card.preview.as_ref().map(|preview| {
@@ -3018,6 +3064,32 @@ fn name_weight(selected: bool) -> FontWeight {
     }
 }
 
+/// The arrow after a card's time, which opens or closes its details in one click whether or not
+/// the card is the one shown (P5-74).
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Arrow {
+    icon: Icon,
+    tip: &'static str,
+    /// Shown all the time, not only while the pointer is over the card.
+    always: bool,
+}
+
+fn arrow(expanded: bool) -> Arrow {
+    if expanded {
+        Arrow {
+            icon: Icon::Up,
+            tip: "Hide details",
+            always: true,
+        }
+    } else {
+        Arrow {
+            icon: Icon::Down,
+            tip: "Show details",
+            always: false,
+        }
+    }
+}
+
 /// Digits of equal width, so ages line up.
 fn tabular() -> FontFeatures {
     FontFeatures(Arc::new(vec![("tnum".into(), 1)]))
@@ -3067,6 +3139,26 @@ fn now() -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_closed_card_shows_its_arrow_down_on_hover_and_an_open_one_up_always() {
+        assert_eq!(
+            arrow(false),
+            Arrow {
+                icon: Icon::Down,
+                tip: "Show details",
+                always: false
+            }
+        );
+        assert_eq!(
+            arrow(true),
+            Arrow {
+                icon: Icon::Up,
+                tip: "Hide details",
+                always: true
+            }
+        );
+    }
 
     #[test]
     fn frosted_cards_cast_no_shadow_under_their_see_through_face() {
