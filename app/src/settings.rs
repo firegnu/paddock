@@ -606,7 +606,8 @@ pub fn range(key: &str) -> Option<(f64, Option<f64>)> {
         "ui_font_size" => (6.0, Some(24.0)),
         "font_size" => (6.0, Some(72.0)),
         "line_height" => (0.5, Some(3.0)),
-        "sidebar_width" => (10.0, Some(800.0)),
+        // As wide as a drag can make it.
+        "sidebar_width" => (10.0, Some(f64::from(crate::sidebar::MAX_WIDTH))),
         "refresh_ms" => (250.0, None),
         _ => return None,
     })
@@ -995,11 +996,16 @@ mod tests {
             ("ui_font_size", "30", "Interface size must be from 6 to 24"),
             ("line_height", "0.3", "Line height must be from 0.5 to 3"),
             ("line_height", "3.5", "Line height must be from 0.5 to 3"),
-            ("sidebar_width", "5", "Sidebar width must be from 10 to 800"),
+            ("sidebar_width", "5", "Sidebar width must be from 10 to 560"),
+            (
+                "sidebar_width",
+                "561",
+                "Sidebar width must be from 10 to 560",
+            ),
             (
                 "sidebar_width",
                 "900",
-                "Sidebar width must be from 10 to 800",
+                "Sidebar width must be from 10 to 560",
             ),
             ("refresh_ms", "100", "Refresh interval must be at least 250"),
         ] {
@@ -1013,7 +1019,7 @@ mod tests {
             ("ui_font_size", "24"),
             ("line_height", "0.5"),
             ("line_height", "3"),
-            ("sidebar_width", "800"),
+            ("sidebar_width", "560"),
             ("refresh_ms", "250"),
             ("refresh_ms", "60000"),
         ] {
@@ -1023,6 +1029,22 @@ mod tests {
         assert_eq!(range("font_size"), Some((6.0, Some(72.0))));
         assert_eq!(range("refresh_ms"), Some((250.0, None)));
         assert_eq!(range("font"), None);
+    }
+
+    #[test]
+    fn the_sidebar_fits_its_most_at_the_largest_interface_size() {
+        // Settings writes the least the header needs when a width is narrower; it must be one it
+        // can write.
+        let (_, most) = range("ui_font_size").unwrap();
+        let config = Config {
+            ui_font_size: most.unwrap() as f32,
+            ..Config::default()
+        };
+        let least = crate::sidebar::min_width(&crate::fonts::UiFont::from_config(&config));
+        assert!(
+            f64::from(least) <= range("sidebar_width").unwrap().1.unwrap(),
+            "{least}"
+        );
     }
 
     #[test]

@@ -2457,7 +2457,7 @@ mod tests {
         assert_eq!(stepped("72", "14", 1.0, steps("font_size")), "72");
         assert_eq!(stepped("24", "13", 1.0, steps("ui_font_size")), "24");
         assert_eq!(stepped("3", "1.3", 1.0, steps("line_height")), "3");
-        assert_eq!(stepped("800", "380", 1.0, steps("sidebar_width")), "800");
+        assert_eq!(stepped("560", "380", 1.0, steps("sidebar_width")), "560");
         // Out of range already (written by hand): back inside.
         assert_eq!(stepped("90", "14", -1.0, steps("font_size")), "72");
     }
