@@ -75,3 +75,13 @@
 - 实测：只用自己创建、带 `role=test` 的 `paddock/test-p5-61-env-*` 实例运行合成 `/bin/sh` 探针，确认真实 corral 的 `--env PATH=…` 覆盖生效、65,536 字节合成环境值完整到达；随后 `corral stop` 成功，临时探针目录已清理。没有启动真实 AI、接触其他 agent，环境值不进日志或快照。
 - 拿主意的地方：新 agent 可能尚未进入侧栏缓存，所以 handoff 单独刷新公开名单；在途检查返回后重新核对窗格，避免替换已被用户换掉的内容。私有脚本按进程隔离，避免同时运行的 paddock 互相改替身指向。Bash 保留已有 PROMPT_COMMAND，最后再提升替身 PATH。布局格式不扩展，尚未起 agent 的 Agent shell 保存、恢复时沿用普通 Shell。
 - 没做的事：没有启动 paddock 窗口、截图、模拟系统输入，没有读改用户 rc／配置，没有改 ranch／Saddle，没有合并、推送、安装。真窗口里的手感与任务指定的交叉审查留给主控安排；没有新增需要主控决定的设计问题。
+
+### 主控补充核对：只新增，不改已有流程（2026-10-09）
+
+用户原话：“现在做的这一套是新增的一套new agent入口。已经有的不能改哦”。按主控列出的三条逐项核对 `7679565` 相对其父提交的差异，本轮无需修改产品代码，只补完成记录。
+
+- 入口和键盘：`choices` 明确是 Shell、Agent…、Agent shell、已有 agent；前两行的渲染、点击处理与原来一致。`agent_matches`、`first_choice`、上下键 `move_selection`、回车 `open_selected` 的逻辑未改；只为插入一行调整标题后的滚动索引和列表计数。已有筛选测试仍确认大小写／多词匹配、输入后选首个匹配 agent、无匹配回到 Shell；滚动测试仍确认上下键定位到选中行，前两行位置不变。
+- New Agent／普通 Shell：`new_agent.rs`、`new_agent_view.rs`、`pty.rs`、`menu.rs`、`layout_state.rs` 与任务前完全无差异。普通入口、恢复布局及旧 ctl 的 Shell 路径均设 `agent_shell=false`，沿用原来的 `[program, "-i"]`、cwd、身份环境和 `Session::spawn_shell`；只有新入口设 true 并注入替身配置。原浮层、快捷键及布局格式未改。
+- 旧 ctl：只新增 `Operation::AgentShell`／`agent-shell NAME` 及对应处理；已有 inspect、instances、open、close、browse、request 的参数规则、响应构造和 JSON 字段未改，内部 `Facts.agent_shell` 不写入原有响应。帮助仍是原 JSON 格式，仅追加新请求说明。既有 open 参数、inspect 输出、身份传递、请求重放／进度及 close 确认测试通过。
+- P5-47／P5-66：原 agent 结束自动关窗格、最后一格补普通 shell、退出／关闭确认及程序探测逻辑无改动。无确认替换仅在新增 AgentShell 请求通过调用者类型／身份检查后发生；普通 close 路径、其他 shell 的确认规则保持原样。已有 agent 结束／重开／暂停／接入中测试、关闭确认测试，以及真 PTY 的前后台程序探测测试通过。
+- 本轮验证：全部命令在前台完成，复跑 `cargo test --lib control`（49）、`cargo test --lib window::tests::`（32）、`cargo test --lib new_agent::tests::`（18）、`cargo test --lib pty::tests::`（2）、`cargo test --test ctl_cli --test viewer`（3＋6），共 110 项通过；`git diff --check` 通过。未新增或放宽测试，未重复全量检查，未启动窗口、真实 agent、合并或推送。无新增待主控决定事项。
