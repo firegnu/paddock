@@ -129,6 +129,51 @@ fn shell() -> Content {
     Content::Shell { cwd: None }
 }
 
+#[test]
+fn agent_shell_handoff_replaces_only_the_callers_live_agent_shell_with_a_listed_agent() {
+    let mut f = Fixture::new();
+    f.facts.get_mut(&1).unwrap().agent_shell = true;
+    let operation = || Operation::AgentShell { name: "p/b".into() };
+    assert_eq!(
+        f.plan(operation(), shell_caller(ME, 1), &[]),
+        Plan::ReplaceShell {
+            pane: 1,
+            name: "p/b".into(),
+            cwd: Some("/tmp".into()),
+            instance: Some("i-b".into()),
+        }
+    );
+    for caller in [
+        shell_caller(ME, 2),
+        shell_caller(ME, 99),
+        shell_caller("other", 1),
+        agent_caller("p/a", "i-a"),
+        Caller::default(),
+    ] {
+        assert_eq!(reply(f.plan(operation(), caller, &[]))["ok"], false);
+    }
+    f.facts.get_mut(&1).unwrap().agent_shell = false;
+    assert_eq!(
+        reply(f.plan(operation(), shell_caller(ME, 1), &[]))["error"]["code"],
+        "not_agent_shell"
+    );
+    f.facts.get_mut(&1).unwrap().agent_shell = true;
+    f.listed.retain(|a| a.name != "p/b");
+    assert_eq!(
+        reply(f.plan(operation(), shell_caller(ME, 1), &[]))["error"]["code"],
+        "invalid_target"
+    );
+    f.facts.get_mut(&1).unwrap().shell_live = false;
+    assert_eq!(
+        reply(f.plan(operation(), shell_caller(ME, 1), &[]))["error"]["code"],
+        "caller_unresolved"
+    );
+    assert!(
+        serde_json::from_value::<Operation>(json!({"command":"agent_shell","name":"p/b","pane":2}))
+            .is_err()
+    );
+}
+
 fn reply(plan: Plan) -> Value {
     match plan {
         Plan::Reply(value) => value,

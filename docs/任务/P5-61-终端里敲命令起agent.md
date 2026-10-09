@@ -63,3 +63,15 @@
 
 ## 做完
 在本文件末尾追加「## 完成记录」（在你的分支里提交）：做了什么、验证了什么、拿主意的地方、没做的事，各几句话。回复里只写这几样，加上有没有要主控决定的事。命令都在前台跑完，全部做完后，回复最后一行写 DONE。
+
+## 完成记录
+
+2026-10-09，p5-61-agent-shell。
+
+- 做了什么：新建标签／分屏面板增加 Agent shell 和说明；非 zsh／bash 时禁用并给悬停说明。新增 `agent_shell.rs`，在 GPUI 初始化前按程序名分派四种替身；私有目录沿用 ctl 的权限检查，按 paddock 进程隔离，启动时原子重写 rc 文件和符号链接。普通 Shell 和 New Agent 浮层维持原路径。托管启动复用名字清理、model／effort 读取规则，传真程序绝对路径、原参数和过滤后的完整环境；一次性命令直接 exec，找不到程序退出 127，start 失败返回原 shell；过长环境明确报错，不丢变量，错误中的环境值作遮盖。
+- 做了什么（ctl）：新增 `paddock ctl agent-shell NAME` 及帮助，只能替换调用者自己的、仍活着的 Agent shell。先查调用者，再异步读公开 `corral ls`，返回后复查窗格 revision、身份、类型及 agent 名单，随后用现有 attach 路径替换；不会询问关闭 shell，也不移动焦点。请求和进度沿用既有记录机制。ctl 不通或拒绝接管时说明后在当前终端前台 attach，返回它的退出码。DESIGN §13 已记录四项用户决定及边界。
+- 验证了什么：放行表、真程序查找／127、假 corral 记录启动参数及环境、zsh／bash 真 PTY 钩子、ctl 身份计划／命令行／socket 通信均保留功能性 RED→GREEN；测试修正过长 socket 路径及权限的夹具失败不计 RED。覆盖自定义 ZDOTDIR、rc 和后续命令改 PATH、重复替身目录、含换行和等号及空值的环境、git 子目录取顶层名字、start 失败返回仍活着的 shell及错误遮盖、操作系统参数长度上限。纯 UI 入口通过源码与原选择器回归检查；新增行导致的键盘滚动索引错位也先复现再修正。
+- 验证了什么（规定检查）：在独立编译目录前台完成 `app/` 的 `cargo test --all-targets`（496 项通过）、`cargo clippy --all-targets -- -D warnings`、`cargo fmt --check`，各一次。收尾发现既有 Bash PROMPT_COMMAND 以分号结尾时拼接会失效，补入同一 PTY 测试确认 RED，改为换行拼接后，6 项 Agent shell 集成测试全部通过；没有重复全量检查。最后 `git diff --check` 通过。未放宽断言、修改超时或增加依赖。
+- 实测：只用自己创建、带 `role=test` 的 `paddock/test-p5-61-env-*` 实例运行合成 `/bin/sh` 探针，确认真实 corral 的 `--env PATH=…` 覆盖生效、65,536 字节合成环境值完整到达；随后 `corral stop` 成功，临时探针目录已清理。没有启动真实 AI、接触其他 agent，环境值不进日志或快照。
+- 拿主意的地方：新 agent 可能尚未进入侧栏缓存，所以 handoff 单独刷新公开名单；在途检查返回后重新核对窗格，避免替换已被用户换掉的内容。私有脚本按进程隔离，避免同时运行的 paddock 互相改替身指向。Bash 保留已有 PROMPT_COMMAND，最后再提升替身 PATH。布局格式不扩展，尚未起 agent 的 Agent shell 保存、恢复时沿用普通 Shell。
+- 没做的事：没有启动 paddock 窗口、截图、模拟系统输入，没有读改用户 rc／配置，没有改 ranch／Saddle，没有合并、推送、安装。真窗口里的手感与任务指定的交叉审查留给主控安排；没有新增需要主控决定的设计问题。

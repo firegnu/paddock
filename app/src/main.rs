@@ -49,6 +49,14 @@ const INHERITED: [&str; 19] = [
 ];
 
 fn main() -> Result<()> {
+    if let Some(program) = std::env::args_os().next()
+        && let Some(kind) = std::path::Path::new(&program)
+            .file_name()
+            .and_then(|s| s.to_str())
+        && paddock::agent_shell::KINDS.contains(&kind)
+    {
+        std::process::exit(paddock::agent_shell::run(kind));
+    }
     // Headless commands keep caller identity and skip desktop PATH/config/window setup.
     let mut command_args = std::env::args().skip(1);
     match command_args.next().as_deref() {
@@ -174,6 +182,7 @@ fn main() -> Result<()> {
             program,
             cwd,
             env: Vec::new(),
+            agent_shell: false,
         }
     };
     // Started plainly, paddock opens the saved layout; asked for an agent or a program, it opens

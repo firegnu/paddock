@@ -11,6 +11,7 @@ pub struct Shell {
     pub state: &'static str,
     pub exit_code: Option<u32>,
     pub env: Vec<(String, String)>,
+    pub agent_shell: bool,
 }
 
 #[derive(Clone, Default)]
@@ -260,11 +261,32 @@ impl Viewer {
             let command = vec![shell.program.clone(), "-i".into()];
             let cwd = std::path::PathBuf::from(&shell.cwd);
             let env = shell.env.clone();
+            let agent_shell = shell.agent_shell;
+            let corral = self.corral.clone();
             let size = size.unwrap_or(Size { rows: 24, cols: 80 });
             self.spawning = Some((
                 self.generation,
                 String::new(),
-                thread::spawn(move || Session::spawn_shell(&command, &cwd, size, &env)),
+                thread::spawn(move || {
+                    let (command, env) = if agent_shell {
+                        let dir = crate::control::runtime_dir()?
+                            .join(format!("agent-shell-{}", std::process::id()));
+                        let original = std::env::var("ZDOTDIR").ok();
+                        let setup = crate::agent_shell::setup(
+                            &command[0],
+                            &dir,
+                            &std::env::current_exe()?,
+                            original.as_deref(),
+                        )?;
+                        let mut env = env;
+                        env.extend(setup.env);
+                        env.push(("PADDOCK_AGENT_CORRAL".into(), corral));
+                        (setup.command, env)
+                    } else {
+                        (command, env)
+                    };
+                    Session::spawn_shell(&command, &cwd, size, &env)
+                }),
             ));
         }
         Ok(())

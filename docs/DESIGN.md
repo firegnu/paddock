@@ -244,6 +244,10 @@ paddock 与 Saddle 在代码上完全分开：用到的 Saddle 代码迁入 padd
 
 ## 13. 界面改版（10-06）
 
+- **Agent shell（P5-61，用户 10-09 定）**：新建标签／分屏面板新增 Agent shell，仍是可正常使用的真 shell，敲 `claude`、`codex`、`pi`、`omp` 默认经 corral 托管；原 New Agent 浮层和普通 Shell 不变。只支持 zsh／bash，其他 shell 的入口禁用并说明。zsh 用私有 ZDOTDIR 的 `.zshenv` 恢复原 ZDOTDIR、读取用户 `.zshenv`，precmd／preexec 把替身目录放到 PATH 首位；bash 用私有 rcfile 读取 `.bashrc` 后经 PROMPT_COMMAND 保持替身优先。不写用户配置，私有目录 0700，每次启动重写脚本和程序符号链接。
+  - 四个用户决定：启动后换成普通 agent 窗格（结束原 shell，不适用 P5-66 确认）；名字全自动（git 顶层目录名或当前目录名作前缀，`<前缀>/<种类>` 加 `--unique`）；一次性用法放行；传 shell 整个环境。corral 不继承调用方环境，须用 `--env` 显式传递，排除 CORRAL／PADDOCK／SADDLE 身份及终端、shell 临时变量，并从 PATH 去掉替身目录；环境值不进入日志，过长明确报错。非终端调用、打印／帮助／版本参数及已知管理子命令直接 exec 真程序，避免意外托管。真程序从去掉替身目录的 PATH 找到，传绝对路径，原参数不变。
+  - `ctl agent-shell NAME` 只接受调用者自己的、仍活着的 Agent shell 窗格，按既有 PADDOCK_INSTANCE／PADDOCK_PANE 身份核对，并核对公开 `corral ls` 名单；不能指定别的窗格。换成 agent 后沿用普通接入与 P5-47 生命周期。ctl 不通时替身说明后前台 `corral attach`，采用它的退出码；start 失败保留 shell 并显示错误。
+
 用户 10-06：“整体的界面你觉得还有没有可以调整的地方，已经用了gpui了，没必要在固定到tui上一些没法表现的地方了。我的要求就是优雅。还是优雅。”看过网页样稿（`docs/设计稿/P5-界面改版/`）后：“方向没问题，按区域拆活派出去吧，活一定要细，要优雅。你的方案没问题”。
 
 - **原则**：层次靠字号、字重、颜色深浅，不靠边框和分隔线；只显示有用的信息，内部字段放进展开详情；控件平时安静（图标、悬停才出现）；一套字号阶梯、间距、圆角；取色只用主题，动效克制。

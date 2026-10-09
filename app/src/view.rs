@@ -101,6 +101,7 @@ pub enum Launch {
         program: String,
         cwd: String,
         env: Vec<(String, String)>,
+        agent_shell: bool,
     },
     /// `corral attach NAME` through Saddle's viewer, for the instance public corral named
     /// (`viewer::public_metadata`), when it did.
@@ -201,13 +202,19 @@ impl TerminalView {
                 viewer.note = EMPTY_NOTE.into();
                 ("empty".to_owned(), String::new())
             }
-            Launch::Shell { program, cwd, env } => {
+            Launch::Shell {
+                program,
+                cwd,
+                env,
+                agent_shell,
+            } => {
                 viewer.start_shell(Shell {
                     program: program.clone(),
                     cwd: cwd.clone(),
                     state: "starting",
                     exit_code: None,
                     env,
+                    agent_shell,
                 });
                 (format!("{program} · {cwd}"), format!("shell · {cwd}"))
             }
@@ -341,6 +348,7 @@ impl TerminalView {
             state: "starting",
             exit_code: None,
             env,
+            agent_shell: false,
         });
         cx.notify();
     }
@@ -381,6 +389,7 @@ impl TerminalView {
             attached,
             instance: self.viewer.target_metadata().instance.clone(),
             shell_live: self.shell_live(),
+            agent_shell: shell.is_some_and(|shell| shell.agent_shell),
             identity,
             cwd: shell
                 .map(|s| s.cwd.clone())

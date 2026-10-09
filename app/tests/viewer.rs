@@ -168,6 +168,7 @@ fn input_flows_again_once_the_pane_shows_something_else() {
     assert!(!viewer.paused);
     viewer.paused = true;
     viewer.start_shell(Shell {
+        agent_shell: false,
         program: "/bin/sh".into(),
         cwd: "/".into(),
         state: "starting",
