@@ -3,7 +3,7 @@
 ## 现在在哪（2026-10-09 上午）
 
 - main 和 `origin/main`（`github.com/firegnu/paddock`，public）同步，工作区里只有七个未提交的草稿任务文件（P5-51、P5-53～P5-55、P5-59～P5-61，看板 DRAFT，见“下一步”；**是有意留的草稿，不要 `git add -A`**）。没有进行中的活，没有开着的 worktree，本地只有 main 一个分支；ranch 也一样（main 同步、无 worktree）。corral 里有 `paddock/main`（本主控，09:43 重开）、`cairn/main`、`global-mesh/main`（用户的；三个都是 09:41 事故后重开的，见 P5-52）。
-- 462 项测试通过，clippy、`cargo fmt --check` 干净。`~/Applications/paddock.app` 是合并 P5-56 之后的版本（10-09 10:08 装，含 P5-35～P5-50、P5-56～P5-58、P5-63～P5-67、paddock ctl；P5-56、P5-58 新图标、P5-65、P5-66 待用户重启看；P5-67 用户已看过），已用本机 Apple Development 证书签名。
+- 463 项测试通过，clippy、`cargo fmt --check` 干净。`~/Applications/paddock.app` 是合并 P5-68 之后的版本（10-09 10:15 装，含 P5-35～P5-50、P5-56～P5-58、P5-68、P5-63～P5-67、paddock ctl；P5-56、P5-58 新图标、P5-65、P5-66 待用户重启看；P5-67 用户已看过），已用本机 Apple Development 证书签名。
 - **paddock ctl 已部署**（用户 10-07 夜在终端里跑完，主控核对过）：`~/.local/bin/paddock` 链到 app 里的程序；`paddock install-skills` 已装 `~/.claude/skills/paddock`、`~/.agents/skills/paddock`（带归属标记，与仓库源文件一致）；旧的 `~/.claude/skills/saddle` 已删。`paddock ctl instances` 找得到正在跑的窗口，`inspect` 认出 `paddock/main` 是 pane 1。重新打包安装后链接不用重建；技能正文改了要重跑 `paddock install-skills`。已开着的 agent 要重开才看到新技能。
 - 全局 `~/.local/bin/corral`、`~/.local/bin/ranch` 已是 ranch `d55defb`（10-08 R2：技能里派活和临时委派的 agent 带 `CAIRN_DISABLE=1`；程序行为与 `5c5540c` 相同，支持 pause／resume）。
 - **cairn 已全局装上（只 claude）**：`~/.claude/settings.json` 里 4 个 cairn hook 和一条放行 `cairn save` 的规则（改前备份 `~/.claude/settings.json.bak-20261008T082855…`），只有 owlet 启用（`adopt`）；其他仓库里 hook 查到没启用就直接退出。卸掉：`cairn uninstall --agent claude`。
@@ -13,7 +13,7 @@
 
 ## 10-09 上午：P5-58 应用图标换成马头
 
-- **P5-56**（用户：“开始P5-56……注意fallback”；10-09 中途用户：“你自己接着干吧”）：Settings 改了立即生效、去掉 Save。主控先列了 8 个“改了不一定生效、会退回别的值”的坑写进任务文件，用户四项都选主控建议（输入框回车或离开时生效；换主题照旧清颜色、给 Undo；数字加上限；没装的字体标 “not installed”）。主控自己做，先写失败测试；合并、推送、收尾，10:08 重新打包安装，**待用户重启后试**（细节和没先看红的三个界面测试见任务文件完成记录；没截图，见 P5-52 事故）。用户说过“不用坚持必须你自己做或者必须派出去做，按照正常的判断流程走”。
+- **P5-56**（用户：“开始P5-56……注意fallback”；10-09 中途用户：“你自己接着干吧”）：Settings 改了立即生效、去掉 Save。主控先列了 8 个“改了不一定生效、会退回别的值”的坑写进任务文件，用户四项都选主控建议（输入框回车或离开时生效；换主题照旧清颜色、给 Undo；数字加上限；没装的字体标 “not installed”）。主控自己做，先写失败测试；合并、推送、收尾，10:08 重新打包安装，**待用户重启后试**（细节和没先看红的三个界面测试见任务文件完成记录；没截图，见 P5-52 事故）。 **P5-68**（用户：“侧栏上限统一成 560”）：Settings 里侧栏宽度上限改用拖动的同一常量 560，10:15 重新打包安装。用户说过“不用坚持必须你自己做或者必须派出去做，按照正常的判断流程走”。
 - 用户问 HANDOFF 里三项“等用户”要决定什么：都不用决定，只是用到时看；P5-36c 用户 10-07 已定“暂时不改”。HANDOFF 已改（`4d72471`）。
 - **P5-58**：主题从项目名来（放牧、赶牲口的路）；用户给了 superlogical 的图标截图（深靛紫底、橙→品红→紫渐变的抽象恐龙头，截图不入库），**superlogical 就是这个参考**。两种风格（甲可爱多彩、乙沿用极简）× 马、高地牛、公羊出样稿，用户选甲、马；再出四组配色 × 尖、圆鬃毛，用户选 Candy、圆鬃毛；主控加额毛、压暗鬃毛和脸的交界、32 及以下简化版，用户“都同意，开始做吧”。主控自己做：图标改成两份 SVG（`app/src/icon/`），`icon::icon` 用 GPUI 已锁的 resvg 0.46 画，删掉手写的猫头光栅化；合并、推送、收尾，09:01 重新打包安装，**待用户重启看程序坞和 About**。样稿画布「P5-58 paddock 应用图标」，源文件 `docs/设计稿/P5-58-应用图标/`。
 - **P5-67**：主控自己做的活，Kanban 卡片原来写 “No agent”。用户选“任务文件写一行”“头像加实时状态”：任务文件开头写 `执行：主控`（已写进 AGENTS.md 看板约定），进行中又没有自己的 agent 时卡片显示主控；只影响显示；对主控不给 Show changes（会显示主仓库的改动）。主控自己做，合并、推送、收尾、重新打包安装。**以后主控自己做的活，任务文件都要写这一行。** 用户问过“是你判断你改就好了不需要委派？”——是，主控判断小、上下文在手就自己做；用户只想知道原因，规则不改。
