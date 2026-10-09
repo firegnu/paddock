@@ -1,7 +1,9 @@
 //! The Settings window: pages on the left, the page's settings in cards on the right, and a bar
-//! that rises at the bottom while the draft differs from the file (Revert, Save) or Save has
-//! something to say. Closing it with unsaved edits asks Save / Don't Save / Cancel. The rules are
-//! in `settings.rs`; this file draws them and keeps one text field per typed setting.
+//! that rises at the bottom when an edit has something to say. Every edit takes effect at once:
+//! a choice when it is made, a typed value on Return or on leaving its field (one that can't be
+//! written goes back to the value in effect). Each is written over the config file as it is then
+//! and handed to the main window. The rules are in `settings.rs`; this file draws them and keeps
+//! one text field per typed setting.
 use crate::{
     config::Config,
     diagnostics::{self, Checks, Report, clock},
@@ -9,20 +11,20 @@ use crate::{
     footer_icon::{self, Icon},
     menu,
     preset::Preset,
-    settings::{Conflict, Draft, Field, Kind, Page, Saved},
+    settings::{self, Draft, Field, Kind, Page, Saved, ThemeSetting},
     text_input::{self, TextInput},
     theme::Theme,
     view::hsla,
 };
 use gpui::{
     AnyElement, ClickEvent, Context, Div, ElementId, Entity, EventEmitter, FocusHandle, Focusable,
-    FontWeight, Hsla, MouseButton, Pixels, PromptLevel, Render, ScrollStrategy, SharedString,
-    Stateful, Subscription, Task, TextRun, UniformListScrollHandle, Window, anchored, deferred,
-    div, prelude::*, px, relative, uniform_list,
+    FontWeight, Hsla, MouseButton, Pixels, Render, ScrollStrategy, SharedString, Stateful,
+    Subscription, TextRun, UniformListScrollHandle, Window, anchored, deferred, div, prelude::*,
+    px, relative, uniform_list,
 };
 use std::{collections::HashMap, path::PathBuf, rc::Rc, time::Duration};
 
-/// The key context of the Settings window: ⌘S saves, ⌘W closes.
+/// The key context of the Settings window: ⌘W closes.
 pub const CONTEXT: &str = "PaddockSettings";
 
 /// The top row at the base interface size: the traffic lights over the pages, the page's title
@@ -35,7 +37,7 @@ const MESSAGE_TIME: Duration = Duration::from_secs(4);
 type Pick = fn(&crate::preset::Theme) -> crate::preset::Color;
 
 pub enum SettingsEvent {
-    /// Saved: the config as written, and the settings that wait for a restart.
+    /// Written: the config as written, and the settings that wait for a restart.
     Saved {
         config: Box<Config>,
         restart: Vec<String>,
@@ -48,13 +50,12 @@ pub struct SettingsView {
     draft: Draft,
     page: Page,
     inputs: HashMap<String, Entity<TextInput>>,
-    /// What Save last said, and whether it reports a problem; shown in the bar.
+    /// What the last edit said, and whether it reports a problem; shown in the bar.
     message: Option<(String, bool)>,
     /// Counts messages, so one timing out leaves a newer one alone.
     said: usize,
-    conflict: bool,
-    /// The Save / Don't Save / Cancel question is showing.
-    asking: bool,
+    /// The theme and colours from before another theme cleared some, while the bar offers Undo.
+    undo: Option<ThemeSetting>,
     /// Appearance lists every colour, not only those set over the theme.
     all_colors: bool,
     /// The field a fallback font is being typed into.
@@ -104,6 +105,13 @@ fn read(path: &PathBuf) -> std::io::Result<Option<String>> {
     }
 }
 
+/// How the bar starts when the config file can't be read as one.
+const BROKEN: &str = "The config file has a problem";
+
+fn broken(error: &anyhow::Error) -> String {
+    format!("{BROKEN}: {error:#}. Nothing is written over it.")
+}
+
 /// The path with the home directory written `~`.
 fn shown_path(path: &std::path::Path) -> String {
     let text = path.display().to_string();
@@ -124,19 +132,24 @@ fn unit(key: &str) -> Option<&'static str> {
     }
 }
 
-/// How − and + step a number setting: by how much, and the least they go to.
-fn steps(key: &str) -> (f64, f64) {
-    match key {
-        "ui_font_size" | "font_size" => (1.0, 6.0),
-        "sidebar_width" => (10.0, 10.0),
-        "line_height" => (0.1, 0.5),
-        "refresh_ms" => (250.0, 250.0),
-        _ => (1.0, 1.0),
-    }
+/// How − and + step a number setting: by how much, and the range they stay in.
+fn steps(key: &str) -> (f64, (f64, Option<f64>)) {
+    let step = match key {
+        "sidebar_width" => 10.0,
+        "line_height" => 0.1,
+        "refresh_ms" => 250.0,
+        _ => 1.0,
+    };
+    (step, settings::range(key).unwrap_or((step, None)))
 }
 
-/// `text` stepped `by` steps; text that is not a number steps from `default`.
-fn stepped(text: &str, default: &str, by: f64, (step, least): (f64, f64)) -> String {
+/// `text` stepped `by` steps, inside the range; text that is not a number steps from `default`.
+fn stepped(
+    text: &str,
+    default: &str,
+    by: f64,
+    (step, (least, most)): (f64, (f64, Option<f64>)),
+) -> String {
     let current = text
         .trim()
         .parse::<f64>()
@@ -144,7 +157,9 @@ fn stepped(text: &str, default: &str, by: f64, (step, least): (f64, f64)) -> Str
         .filter(|n| n.is_finite())
         .or_else(|| default.parse().ok())
         .unwrap_or(least);
-    let next = (((current + by * step) * 100.0).round() / 100.0).max(least);
+    let next = (((current + by * step) * 100.0).round() / 100.0)
+        .max(least)
+        .min(most.unwrap_or(f64::INFINITY));
     if next.fract() == 0.0 {
         format!("{}", next as i64)
     } else {
@@ -211,18 +226,24 @@ fn items(text: &str) -> Vec<String> {
         .collect()
 }
 
-/// The bar's count of unsaved settings, and which they are, the first few by name.
-fn unsaved_summary(labels: &[String]) -> (String, String) {
-    let count = labels.len();
-    let head = format!(
-        "{count} unsaved change{}",
-        if count == 1 { "" } else { "s" }
-    );
-    let mut names = labels[..count.min(3)].join(", ");
-    if count > 3 {
-        names.push_str(&format!(" and {} more", count - 3));
-    }
-    (head, names)
+/// The bar's line for typed values that can't be written and so stay as they were.
+fn not_valid(labels: &[String]) -> String {
+    format!("Not valid, so not changed: {}.", labels.join(", "))
+}
+
+/// The bar's line after another theme cleared `count` colour overrides.
+fn switched(theme: &str, count: usize) -> String {
+    let name = Preset::parse(theme).map_or(theme.to_owned(), |preset| preset.label().to_owned());
+    let plural = if count == 1 { "" } else { "s" };
+    format!("Switched to {name}; {count} custom color{plural} cleared.")
+}
+
+/// Whether `name` is among the installed families `all`, in any case. Hidden families (a leading
+/// dot) are not listed, and before the list is read nothing is known: both count as installed.
+fn installed(all: &[String], name: &str) -> bool {
+    all.is_empty()
+        || name.starts_with('.')
+        || all.iter().any(|family| family.eq_ignore_ascii_case(name))
 }
 
 /// How many theme cards sit side by side in `width`: up to four, each at least `least` wide.
@@ -263,16 +284,22 @@ fn write(path: &PathBuf, text: &str) -> std::io::Result<()> {
 }
 
 impl SettingsView {
-    pub fn new(theme: Rc<Theme>, path: PathBuf, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        theme: Rc<Theme>,
+        path: PathBuf,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let (draft, message) = match read(&path)
             .map_err(anyhow::Error::from)
             .and_then(Draft::new)
         {
             Ok(draft) => (draft, None),
-            // A file that can't be read or parsed: show the defaults, and why; Save will refuse.
+            // A file that can't be read or parsed: show the defaults, and why; nothing is written
+            // over it.
             Err(error) => (
                 Draft::new(None).expect("defaults parse"),
-                Some((format!("The config file has a problem: {error:#}"), true)),
+                Some((broken(&error), true)),
             ),
         };
         let mut view = Self {
@@ -283,8 +310,7 @@ impl SettingsView {
             inputs: HashMap::new(),
             message,
             said: 0,
-            conflict: false,
-            asking: false,
+            undo: None,
             all_colors: false,
             adding: None,
             report: None,
@@ -295,9 +321,36 @@ impl SettingsView {
             focus: cx.focus_handle(),
             _subscriptions: Vec::new(),
         };
-        view.make_inputs(cx);
+        view.make_inputs(window, cx);
         view.load_fonts(cx);
+        // Back in front: the file may have changed meanwhile (a sidebar drag, an editor).
+        let activation = cx.observe_window_activation(window, |this, window, cx| {
+            if window.is_window_active() {
+                this.reload(cx);
+            }
+        });
+        view._subscriptions.push(activation);
         view
+    }
+
+    /// Takes the file as it is now, keeping any value still being typed.
+    fn reload(&mut self, cx: &mut Context<Self>) {
+        let result = read(&self.path)
+            .map_err(anyhow::Error::from)
+            .and_then(|disk| self.draft.rebase(disk));
+        match result {
+            Ok(()) => {
+                if self
+                    .message
+                    .as_ref()
+                    .is_some_and(|(text, _)| text.starts_with(BROKEN))
+                {
+                    self.message = None;
+                }
+            }
+            Err(error) => self.say(broken(&error), true, cx),
+        }
+        self.refresh_inputs(cx);
     }
 
     /// Reads the installed families off the UI thread, then measures which are monospace; both are
@@ -426,7 +479,7 @@ impl SettingsView {
         }
     }
 
-    /// Drafts the font at `index` of the open list's matches and closes it; Save applies it.
+    /// Puts the font at `index` of the open list's matches into effect and closes the list.
     fn pick(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
         let Some(name) = self.picker_matches(cx).into_iter().nth(index) else {
             return;
@@ -465,7 +518,7 @@ impl SettingsView {
         }
     }
 
-    fn make_inputs(&mut self, cx: &mut Context<Self>) {
+    fn make_inputs(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let typed: Vec<Field> = self
             .draft
             .fields()
@@ -488,6 +541,7 @@ impl SettingsView {
             let input = cx.new(|cx| TextInput::new(text, placeholder, colors, cx));
             let key = field.key.clone();
             let color = field.kind == Kind::Color;
+            // Typing only drafts: the page previews it, nothing else changes yet.
             self._subscriptions.push(cx.subscribe(
                 &input,
                 move |this, input, _: &text_input::Changed, cx| {
@@ -498,10 +552,15 @@ impl SettingsView {
                     } else {
                         this.draft.set(&key, &text);
                     }
-                    this.message = None;
                     cx.notify();
                 },
             ));
+            // Leaving the field puts it into effect.
+            let handle = input.read(cx).focus_handle(cx);
+            self._subscriptions
+                .push(cx.on_blur(&handle, window, |this, _, cx| {
+                    this.commit(cx);
+                }));
             self.inputs.insert(field.key, input);
         }
     }
@@ -521,16 +580,46 @@ impl SettingsView {
         hsla(self.theme.fg(pick), 1.0)
     }
 
+    /// A choice: in effect at once.
     fn set(&mut self, key: &str, value: &str, cx: &mut Context<Self>) {
-        self.draft.set(key, value);
-        self.message = None;
-        self.refresh_inputs(cx);
+        self.edit(cx, |draft| draft.set(key, value));
     }
 
+    /// Reset: in effect at once.
     fn reset(&mut self, key: &str, cx: &mut Context<Self>) {
-        self.draft.reset(key);
-        self.message = None;
-        self.refresh_inputs(cx);
+        self.edit(cx, |draft| draft.reset(key));
+    }
+
+    /// Drafts `change` over the file as it is now and puts it into effect, with anything still
+    /// typed elsewhere. A theme that clears colour overrides says so and offers Undo.
+    fn edit(&mut self, cx: &mut Context<Self>, change: impl FnOnce(&mut Draft)) {
+        self.reload(cx);
+        let before = self.draft.theme_setting();
+        change(&mut self.draft);
+        let theme = self.draft.changed("theme");
+        if self.commit(cx) && theme {
+            let after = self.draft.theme_setting();
+            let count = before
+                .colors
+                .keys()
+                .filter(|name| !after.colors.contains_key(*name))
+                .count();
+            // The theme already chosen counts too: choosing it again loads its own colours.
+            if count > 0 {
+                let name = self.draft.theme_name();
+                self.say(switched(&name, count), false, cx);
+                self.undo = Some(before);
+            }
+        }
+    }
+
+    /// Undo in the bar: the theme and colours from before.
+    fn undo(&mut self, cx: &mut Context<Self>) {
+        if let Some(before) = self.undo.take() {
+            self.reload(cx);
+            self.draft.restore_theme(before);
+            self.commit(cx);
+        }
     }
 
     /// − or + on a number setting.
@@ -576,7 +665,8 @@ impl SettingsView {
         }
     }
 
-    /// Shows `text` in the bar; one that reports no problem goes after a few seconds.
+    /// Shows `text` in the bar; one that reports no problem goes after a few seconds, unless it
+    /// offers Undo.
     fn say(&mut self, text: impl Into<String>, problem: bool, cx: &mut Context<Self>) {
         self.message = Some((text.into(), problem));
         self.said += 1;
@@ -585,7 +675,7 @@ impl SettingsView {
             cx.spawn(async move |this, cx| {
                 cx.background_executor().timer(MESSAGE_TIME).await;
                 this.update(cx, |this, cx| {
-                    if this.said == said {
+                    if this.said == said && this.undo.is_none() {
                         this.message = None;
                         cx.notify();
                     }
@@ -596,98 +686,84 @@ impl SettingsView {
         cx.notify();
     }
 
-    pub fn save(&mut self, _: &menu::SaveSettings, _: &mut Window, cx: &mut Context<Self>) {
-        self.save_draft(cx);
+    /// Puts what is drafted into effect: a value that can't be written goes back to the one in
+    /// effect, named in the bar; the rest is written over the file as it is now and handed to the
+    /// main window. A file that isn't a valid config is never written over: the edits go back
+    /// and the bar says why. True when something was written.
+    fn commit(&mut self, cx: &mut Context<Self>) -> bool {
+        let dropped = self.draft.drop_invalid();
+        let written = self.write_draft(cx);
+        if !dropped.is_empty() {
+            self.say(not_valid(&dropped), true, cx);
+        }
+        self.refresh_inputs(cx);
+        written
     }
 
-    /// Saves the draft; false when nothing was written because of a problem, now shown below.
-    fn save_draft(&mut self, cx: &mut Context<Self>) -> bool {
-        let disk = match read(&self.path) {
-            Ok(disk) => disk,
-            Err(error) => {
-                self.say(format!("Not saved: {error}"), true, cx);
-                return false;
-            }
-        };
-        let mut saved = false;
-        match self.draft.save(disk.as_deref()) {
-            Ok(Ok(Saved::Written {
+    fn write_draft(&mut self, cx: &mut Context<Self>) -> bool {
+        if !self.draft.edited() {
+            return false;
+        }
+        let result = read(&self.path)
+            .map_err(anyhow::Error::from)
+            .and_then(|disk| self.draft.commit(disk));
+        let (text, config, restart) = match result {
+            Ok(Saved::Written {
                 text,
                 config,
                 restart,
-            })) => {
-                if let Err(error) = write(&self.path, &text) {
-                    self.say(format!("Not saved: {error}"), true, cx);
-                } else {
-                    self.draft = Draft::new(Some(text)).expect("just validated");
-                    self.refresh_inputs(cx);
-                    if restart.is_empty() {
-                        self.say("Saved.", false, cx);
-                    } else {
-                        self.say(
-                            format!("Saved. Restart paddock for: {}.", restart.join(", ")),
-                            false,
-                            cx,
-                        );
-                    }
-                    if let Ok(theme) = Theme::from_config(&config) {
-                        self.theme = Rc::new(theme);
-                        let fields = self.draft.fields().to_vec();
-                        for field in &fields {
-                            let colors = self.colors_for(field);
-                            if let Some(input) = self.inputs.get(&field.key) {
-                                input.update(cx, |input, cx| input.set_colors(colors, cx));
-                            }
-                        }
-                    }
-                    cx.emit(SettingsEvent::Saved { config, restart });
-                    saved = true;
-                }
+            }) => (text, config, restart),
+            Ok(Saved::Unchanged) => return false,
+            Err(error) => {
+                self.draft.discard();
+                self.say(broken(&error), true, cx);
+                return false;
             }
-            Ok(Ok(Saved::Unchanged)) => {
-                self.say("Nothing to save.", false, cx);
-                saved = true;
-            }
-            Ok(Err(Conflict)) => {
-                self.conflict = true;
+        };
+        if let Err(error) = write(&self.path, &text) {
+            // Not written: back to the file as it is.
+            let _ = read(&self.path)
+                .map_err(anyhow::Error::from)
+                .and_then(|disk| self.draft.rebase(disk));
+            self.say(format!("Not changed: {error}"), true, cx);
+            return false;
+        }
+        self.undo = None;
+        // The sidebar is never narrower than its header needs at this interface size: write what
+        // is drawn, so the page shows the width in effect.
+        let least = crate::sidebar::min_width(&UiFont::from_config(&config));
+        if config.sidebar_width < least {
+            self.draft.set("sidebar_width", &least.to_string());
+            if self.write_draft(cx) {
                 self.say(
-                    "The config file changed on disk; nothing was saved.",
-                    true,
+                    format!("Sidebar width is at least {least} pt at this interface size."),
+                    false,
                     cx,
                 );
+                return true;
             }
-            Err(error) => self.say(format!("Not saved: {error:#}"), true, cx),
         }
-        cx.notify();
-        saved
-    }
-
-    fn resolve_conflict(&mut self, keep: bool, cx: &mut Context<Self>) {
-        let result = read(&self.path)
-            .map_err(anyhow::Error::from)
-            .and_then(|disk| {
-                if keep {
-                    self.draft.rebase(disk)
-                } else {
-                    self.draft.discard(disk)
-                }
-            });
-        self.conflict = false;
-        self.message = None;
-        match result {
-            Ok(()) if keep => self.say(
-                "Your edits now sit on the file as it is; Save again.",
+        if restart.is_empty() {
+            self.message = None;
+        } else {
+            self.say(
+                format!("Restart paddock for: {}.", restart.join(", ")),
                 false,
                 cx,
-            ),
-            Ok(()) => {}
-            Err(error) => self.say(
-                format!("The config file has a problem: {error:#}"),
-                true,
-                cx,
-            ),
+            );
         }
-        self.refresh_inputs(cx);
+        if let Ok(theme) = Theme::from_config(&config) {
+            self.theme = Rc::new(theme);
+            let fields = self.draft.fields().to_vec();
+            for field in &fields {
+                let colors = self.colors_for(field);
+                if let Some(input) = self.inputs.get(&field.key) {
+                    input.update(cx, |input, cx| input.set_colors(colors, cx));
+                }
+            }
+        }
+        cx.emit(SettingsEvent::Saved { config, restart });
+        true
     }
 
     /// Collects what Diagnostics shows: at once from the main window, then the command and file
@@ -943,63 +1019,15 @@ impl SettingsView {
         cx.notify();
     }
 
-    /// Drops the draft; the window stays open.
-    fn revert(&mut self, cx: &mut Context<Self>) {
-        let result = read(&self.path)
-            .map_err(anyhow::Error::from)
-            .and_then(|disk| self.draft.discard(disk));
-        self.conflict = false;
-        self.message = None;
-        if let Err(error) = result {
-            self.say(
-                format!("The config file has a problem: {error:#}"),
-                true,
-                cx,
-            );
-        }
-        self.refresh_inputs(cx);
-    }
-
-    /// Whether the window may close: yes without unsaved edits; otherwise as answered to Save /
-    /// Don't Save / Cancel, where a Save that fails keeps the window open with the reason shown.
-    pub fn confirm_close(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Task<bool> {
-        if self.draft.unsaved().is_empty() {
-            return Task::ready(true);
-        }
-        if self.asking {
-            return Task::ready(false);
-        }
-        self.asking = true;
-        let answer = window.prompt(
-            PromptLevel::Warning,
-            "Save your changes to Settings?",
-            Some("If you don't save them, your edits are lost."),
-            &["Save", "Don't Save", "Cancel"],
-            cx,
-        );
-        cx.spawn_in(window, async move |this, cx| {
-            let answer = answer.await;
-            this.update(cx, |this, cx| {
-                this.asking = false;
-                match answer {
-                    Ok(0) => this.save_draft(cx),
-                    Ok(1) => true,
-                    _ => false,
-                }
-            })
-            .unwrap_or(false)
-        })
+    /// Before the window closes or paddock quits: what is still being typed goes into effect.
+    pub fn finish(&mut self, cx: &mut Context<Self>) {
+        self.commit(cx);
     }
 
     /// The red button or ⌘W.
     pub fn request_close(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let close = self.confirm_close(window, cx);
-        cx.spawn_in(window, async move |_, cx| {
-            if close.await {
-                let _ = cx.update(|window, _| window.remove_window());
-            }
-        })
-        .detach();
+        self.finish(cx);
+        window.remove_window();
     }
 
     /// The window's ground.
@@ -1297,6 +1325,9 @@ impl SettingsView {
             .bg(self.field_ground())
             .border_1()
             .border_color(self.edge(self.draft.problem(key).is_some(), focused))
+            .key_context(menu::DIALOG)
+            .on_action(cx.listener(Self::enter))
+            .on_action(cx.listener(Self::escape))
             .overflow_hidden()
             .font_family(MONO)
             .text_size(ui.px(size));
@@ -1310,6 +1341,17 @@ impl SettingsView {
                 .child(div().flex_1().min_w(px(0.0)).overflow_hidden().child(input));
         }
         field
+    }
+
+    /// Return in a typed field: its value into effect, the field kept.
+    fn enter(&mut self, _: &menu::OpenSelected, _: &mut Window, cx: &mut Context<Self>) {
+        self.commit(cx);
+    }
+
+    /// Escape in a typed field: back to the value in effect.
+    fn escape(&mut self, _: &menu::Cancel, _: &mut Window, cx: &mut Context<Self>) {
+        self.draft.discard();
+        self.refresh_inputs(cx);
     }
 
     /// A number setting: − and + either side of its value, which can be typed, and its unit.
@@ -1376,6 +1418,9 @@ impl SettingsView {
             .bg(self.field_ground())
             .border_1()
             .border_color(self.edge(self.draft.problem(key).is_some(), focused))
+            .key_context(menu::DIALOG)
+            .on_action(cx.listener(Self::enter))
+            .on_action(cx.listener(Self::escape))
             .child(less)
             .child(value)
             .child(more)
@@ -1407,14 +1452,21 @@ impl SettingsView {
             .into_iter()
             .enumerate()
         {
+            // Skipped by the terminal, so shown quieter and said.
+            let missing = !installed(&self.fonts.all, &name);
             area = area.child(
                 pill()
                     .pl(px(10.0))
                     .pr(px(4.0))
                     .gap(px(4.0))
                     .bg(field)
-                    .text_color(self.fg(|t| t.agents_branch))
+                    .text_color(if missing {
+                        self.fg(|t| t.agents_dimmer)
+                    } else {
+                        self.fg(|t| t.agents_branch)
+                    })
                     .child(name)
+                    .when(missing, |pill| pill.child(self.not_installed(ui)))
                     .child(
                         div()
                             .id(("fallback-remove", index))
@@ -1478,6 +1530,16 @@ impl SettingsView {
     }
 
     /// A font setting: its font in a box that opens the list of installed ones below it.
+    /// The note on a font that isn't installed: the system falls back to another one.
+    fn not_installed(&self, ui: &UiFont) -> Div {
+        div()
+            .flex_shrink_0()
+            .font_family(ui.family.clone().unwrap_or_else(|| ".SystemUIFont".into()))
+            .text_size(ui.px(11.0))
+            .text_color(self.fg(|t| t.agents_dimmer))
+            .child("not installed")
+    }
+
     fn font_control(&self, field: &Field, ui: &UiFont, cx: &mut Context<Self>) -> Div {
         let key = field.key.clone();
         let mono = field.kind == Kind::MonoFont;
@@ -1506,6 +1568,10 @@ impl SettingsView {
                     .when(!value.is_empty(), |name| name.font_family(value.clone()))
                     .when(mono, |name| name.text_size(ui.px(12.5)))
                     .child(self.font_label(&key)),
+            )
+            .when(
+                !value.is_empty() && !installed(&self.fonts.all, &value),
+                |button| button.child(self.not_installed(ui)),
             )
             .child(footer_icon::icon(
                 Icon::Down,
@@ -2164,151 +2230,43 @@ impl SettingsView {
             .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| click(this, window, cx)))
     }
 
-    /// The bar's accent button: Save ⌘S, or Keep my edits.
-    fn bar_action(
-        &self,
-        id: &'static str,
-        label: &'static str,
-        keys: Option<&'static str>,
-        ui: &UiFont,
-        cx: &mut Context<Self>,
-        click: fn(&mut Self, &mut Window, &mut Context<Self>),
-    ) -> Stateful<Div> {
-        let accent = self.fg(|t| t.agents_accent);
-        div()
-            .id(id)
-            .flex_shrink_0()
-            .h(ui.px(30.0))
-            .px(px(14.0))
+    /// The bar at the bottom: what the last edit said, a problem in red with ×, and after a theme
+    /// that cleared colours, Undo.
+    fn message_bar(&self, ui: &UiFont, cx: &mut Context<Self>) -> Option<Stateful<Div>> {
+        let (text, problem) = self.message.clone()?;
+        let dot = if problem {
+            self.fg(|t| t.agents_red)
+        } else {
+            self.fg(|t| t.agents_green)
+        };
+        let mut bar = div()
+            .id("message-bar")
+            .occlude()
+            .min_w(px(0.0))
+            .h(ui.px(46.0))
+            .pl(px(16.0))
+            .pr(px(8.0))
             .flex()
             .items_center()
-            .gap(px(8.0))
+            .gap(px(12.0))
             .rounded_full()
-            .bg(accent)
-            .text_color(self.ground())
-            .font_weight(FontWeight::SEMIBOLD)
-            .cursor_pointer()
-            .hover(move |style| style.bg(accent.opacity(0.88)))
-            .child(label)
-            .children(keys.map(|keys| {
-                div()
-                    .opacity(0.7)
-                    .font_family(MONO)
-                    .text_size(ui.px(11.0))
-                    .font_weight(FontWeight::MEDIUM)
-                    .child(keys)
-            }))
-            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| click(this, window, cx)))
-    }
-
-    /// The bar at the bottom: the file changed on disk (Keep, Discard); or what Save last said; or
-    /// how many settings differ from the file. Revert and Save while any do.
-    fn save_bar(&self, ui: &UiFont, cx: &mut Context<Self>) -> Option<Stateful<Div>> {
-        let unsaved: Vec<String> = self
-            .draft
-            .unsaved()
-            .into_iter()
-            .map(|field| field.label.clone())
-            .collect();
-        let pill = |id: &'static str| {
-            div()
-                .id(id)
-                .occlude()
-                .min_w(px(0.0))
-                .h(ui.px(46.0))
-                .pl(px(16.0))
-                .pr(px(8.0))
-                .flex()
-                .items_center()
-                .gap(px(12.0))
-                .rounded_full()
-                .bg(self.lifted(0.08))
-                .border_1()
-                .shadow_lg()
-                .whitespace_nowrap()
-                .text_size(ui.px(13.0))
-                .text_color(self.fg(|t| t.agents_branch))
-        };
-        let words = |text: String| {
-            div()
-                .min_w(px(0.0))
-                .overflow_hidden()
-                .text_ellipsis()
-                .child(text)
-        };
-        if self.conflict {
-            let yellow = self.fg(|t| t.agents_yellow);
-            let text = self
-                .message
-                .as_ref()
-                .map(|(text, _)| text.clone())
-                .unwrap_or_default();
-            return Some(
-                pill("conflict")
-                    .border_color(yellow.opacity(0.35))
-                    .child(footer_icon::icon(
-                        Icon::Warning,
-                        yellow,
-                        ui.scale(15.0) / footer_icon::SIZE,
-                    ))
-                    .child(words(text))
-                    .child(
-                        self.bar_button("discard", "Discard my edits", ui, cx, |this, _, cx| {
-                            this.resolve_conflict(false, cx)
-                        }),
-                    )
-                    .child(self.bar_action(
-                        "keep",
-                        "Keep my edits",
-                        None,
-                        ui,
-                        cx,
-                        |this, _, cx| this.resolve_conflict(true, cx),
-                    )),
-            );
-        }
-        let (dot, text, detail, problem) = match &self.message {
-            Some((text, problem)) => (
-                if *problem {
-                    self.fg(|t| t.agents_red)
-                } else {
-                    self.fg(|t| t.agents_green)
-                },
-                text.clone(),
-                None,
-                *problem,
-            ),
-            None if !unsaved.is_empty() => {
-                let (head, names) = unsaved_summary(&unsaved);
-                (self.fg(|t| t.agents_accent), head, Some(names), false)
-            }
-            None => return None,
-        };
-        let mut bar = pill("save-bar")
+            .bg(self.lifted(0.08))
+            .border_1()
             .border_color(self.faint(0.08))
+            .shadow_lg()
+            .whitespace_nowrap()
+            .text_size(ui.px(13.0))
+            .text_color(self.fg(|t| t.agents_branch))
             .child(div().flex_shrink_0().size(px(7.0)).rounded_full().bg(dot))
             .child(
                 div()
-                    .flex()
                     .min_w(px(0.0))
                     .overflow_hidden()
-                    .gap(px(6.0))
-                    .child(div().flex_shrink_0().child(text))
-                    .children(detail.map(|names| {
-                        words(format!("· {names}")).text_color(self.fg(|t| t.agents_dim))
-                    })),
+                    .text_ellipsis()
+                    .child(text),
             );
-        if !unsaved.is_empty() {
-            bar = bar
-                .child(self.bar_button("revert", "Revert", ui, cx, |this, _, cx| this.revert(cx)))
-                .child(self.bar_action(
-                    "save",
-                    "Save",
-                    Some("⌘S"),
-                    ui,
-                    cx,
-                    |this, window, cx| this.save(&menu::SaveSettings, window, cx),
-                ));
+        if self.undo.is_some() {
+            bar = bar.child(self.bar_button("undo", "Undo", ui, cx, |this, _, cx| this.undo(cx)));
         } else if problem {
             let (dim, text) = (self.fg(|t| t.agents_dim), self.fg(|t| t.agents_text));
             bar = bar.child(
@@ -2419,7 +2377,7 @@ impl Render for SettingsView {
                     .pb(ui.px(90.0))
                     .children(items),
             )
-            .children(self.save_bar(&ui, cx).map(|pill| {
+            .children(self.message_bar(&ui, cx).map(|pill| {
                 div()
                     .absolute()
                     .left_0()
@@ -2435,7 +2393,6 @@ impl Render for SettingsView {
             .id("settings")
             .key_context(CONTEXT)
             .track_focus(&self.focus)
-            .on_action(cx.listener(Self::save))
             // After a font list's own button has seen the press.
             .on_mouse_down(
                 MouseButton::Left,
@@ -2496,19 +2453,45 @@ mod tests {
     }
 
     #[test]
-    fn the_bar_counts_and_names_the_first_few() {
+    fn steps_stop_at_the_most_too() {
+        assert_eq!(stepped("72", "14", 1.0, steps("font_size")), "72");
+        assert_eq!(stepped("24", "13", 1.0, steps("ui_font_size")), "24");
+        assert_eq!(stepped("3", "1.3", 1.0, steps("line_height")), "3");
+        assert_eq!(stepped("800", "380", 1.0, steps("sidebar_width")), "800");
+        // Out of range already (written by hand): back inside.
+        assert_eq!(stepped("90", "14", -1.0, steps("font_size")), "72");
+    }
+
+    #[test]
+    fn the_bar_names_what_was_not_changed_and_what_another_theme_cleared() {
         let labels = |names: &[&str]| names.iter().map(|s| s.to_string()).collect::<Vec<_>>();
         assert_eq!(
-            unsaved_summary(&labels(&["Terminal size"])),
-            ("1 unsaved change".into(), "Terminal size".into())
+            not_valid(&labels(&["Terminal size"])),
+            "Not valid, so not changed: Terminal size."
         );
         assert_eq!(
-            unsaved_summary(&labels(&["Theme", "focus", "claude", "codex", "pi"])),
-            (
-                "5 unsaved changes".into(),
-                "Theme, focus, claude and 2 more".into()
-            )
+            not_valid(&labels(&["Terminal size", "focus"])),
+            "Not valid, so not changed: Terminal size, focus."
         );
+        assert_eq!(
+            switched("lagoon", 3),
+            "Switched to Lagoon; 3 custom colors cleared."
+        );
+        assert_eq!(
+            switched("tokyonight", 1),
+            "Switched to Tokyo Night; 1 custom color cleared."
+        );
+    }
+
+    #[test]
+    fn a_font_is_installed_when_listed_in_any_case() {
+        let all = ["Menlo".to_owned(), "Symbols Nerd Font Mono".to_owned()];
+        assert!(installed(&all, "Menlo"));
+        assert!(installed(&all, "symbols nerd font mono"));
+        assert!(!installed(&all, "FiraCode Nerd Font"));
+        // Hidden families are left out of the list, and nothing is known before it is read.
+        assert!(installed(&all, ".AppleSystemUIFont"));
+        assert!(installed(&[], "FiraCode Nerd Font"));
     }
 
     #[test]
