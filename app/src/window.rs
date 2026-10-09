@@ -631,10 +631,9 @@ fn frost_column(
 /// Where the cards sit across the window, in points from its left edge.
 #[derive(Debug, PartialEq)]
 struct Across {
-    /// Where the panes' card starts: right against the sidebar, which keeps its own room, or a
-    /// seam after the strip.
+    /// Where the panes' card starts: a seam after the sidebar or the strip, on the frame.
     panes: f32,
-    /// The middle of the seam the sidebar's grip takes; none beside the strip.
+    /// The middle of the seam after the sidebar, which its grip takes; none beside the strip.
     left_grip: Option<f32>,
     /// The middle of the seam before the right sidebar's card, when it is open.
     right_grip: Option<f32>,
@@ -645,12 +644,8 @@ struct Across {
 fn across(window: f32, sidebar: f32, collapsed: bool, right: Option<f32>) -> Across {
     let half = CARD_GAP / 2.0;
     Across {
-        panes: if collapsed {
-            sidebar + CARD_GAP
-        } else {
-            sidebar
-        },
-        left_grip: (!collapsed).then_some(sidebar - half),
+        panes: sidebar + CARD_GAP,
+        left_grip: (!collapsed).then_some(sidebar + half),
         right_grip: right.map(|width| window - CARD_GAP - width - half),
     }
 }
@@ -1426,7 +1421,7 @@ impl PaddockWindow {
         let ui = UiFont::get(cx);
         Room {
             window: f32::from(window.viewport_size().width),
-            // Besides the cards: the sidebar (and the seam after the strip), and the seams before
+            // Besides the cards: the sidebar or the strip and the seam after it, and the seams before
             // and after this card.
             others: across(0.0, self.sidebar_shown(&ui), self.collapsed, None).panes
                 + CARD_GAP
@@ -5740,7 +5735,8 @@ impl Render for PaddockWindow {
         let agents = self.sidebar.read(cx).agents();
         let now = now();
         // The cards stand on the frame, their tops on the title bar's bottom edge, where the pet
-        // walks; seams between them and along the right and bottom edges, and after the strip.
+        // walks; seams between them, along the right and bottom edges, and after the sidebar or the
+        // strip.
         let mut cards = div()
             .flex_1()
             .min_w(px(0.0))
@@ -5749,7 +5745,7 @@ impl Render for PaddockWindow {
             .gap(px(CARD_GAP))
             .pr(px(CARD_GAP))
             .pb(px(CARD_GAP))
-            .when(self.collapsed, |cards| cards.pl(px(CARD_GAP)))
+            .pl(px(CARD_GAP))
             .child(self.node(&root, shown, &agents, window, cx));
         let right = self
             .right
@@ -6617,22 +6613,22 @@ mod tests {
     }
 
     #[test]
-    fn the_cards_sit_against_the_sidebar_or_a_seam_in_and_the_grips_take_the_seams() {
-        // Expanded: the panes' card starts at the sidebar, which keeps its own room; the grips
-        // take the middle of the seam before each card.
+    fn the_cards_sit_after_a_seam_and_the_grips_take_the_seams() {
+        // Expanded: a seam after the sidebar too, on the darker frame (P5-59b); the grips take the
+        // middle of the seam before each card.
         assert_eq!(
             across(1200.0, 300.0, false, Some(400.0)),
             Across {
-                panes: 300.0,
-                left_grip: Some(296.0),
+                panes: 308.0,
+                left_grip: Some(304.0),
                 right_grip: Some(788.0),
             }
         );
         assert_eq!(
             across(1200.0, 300.0, false, None),
             Across {
-                panes: 300.0,
-                left_grip: Some(296.0),
+                panes: 308.0,
+                left_grip: Some(304.0),
                 right_grip: None,
             }
         );
