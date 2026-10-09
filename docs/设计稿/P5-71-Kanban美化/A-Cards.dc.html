@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Kanban as cards</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#cba6f7}a:hover{color:#ddc3fb}
+button{font:inherit;color:inherit;cursor:pointer;background:none;border:0;padding:0}
+</style>
+</helmet>
+<div style="width: 380px; height: 1180px; box-sizing: border-box; background: #181825; font-family: -apple-system, 'SF Pro Text', 'Helvetica Neue', sans-serif; color: #cdd6f4; font-size: 13px; display: flex; flex-direction: column">
+
+  <div style="display: flex; align-items: center; gap: 4px; padding: 10px 12px 6px">
+    <span style="padding: 6px 10px; font-size: 12.5px; color: #a6adc8">± Changes</span>
+    <span style="padding: 6px 10px; font-size: 12.5px; color: #a6adc8">Browser</span>
+    <span style="padding: 6px 10px; font-size: 12.5px; color: #cdd6f4; background: #313244; border-radius: 8px; font-weight: 600">Kanban</span>
+  </div>
+  <div style="display: flex; align-items: center; gap: 8px; padding: 6px 14px 12px; border-bottom: 1px solid rgba(205,214,244,0.06)">
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="#a6adc8" stroke-width="1.4" stroke-linejoin="round"><path d="M2 4.5h4l1.5 1.5H14v6.5H2z"></path></svg>
+    <span style="font-weight: 600; font-size: 14px">paddock</span>
+    <span style="padding: 1px 7px; border-radius: 999px; background: rgba(205,214,244,0.06); font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #a6adc8">main</span>
+    <span style="flex: 1"></span>
+    <span style="padding: 3px 10px; border-radius: 999px; background: rgba(249,226,175,0.14); color: #f9e2af; font-size: 11.5px; font-weight: 600">1 needs you</span>
+    <button aria-label="New task" style="width: 26px; height: 26px; border-radius: 13px; background: rgba(205,214,244,0.06); display: flex; align-items: center; justify-content: center; color: #cdd6f4"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M6 2v8M2 6h8"></path></svg></button>
+  </div>
+
+  <div style="padding: 8px 12px 14px; display: flex; flex-direction: column; gap: 6px">
+
+    <!-- Queued -->
+    <div style="display: flex; align-items: center; gap: 8px; padding: 8px 4px 4px; font-size: 12px; font-weight: 600; color: #bac2de">
+      <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="#7f849c" stroke-width="1.4" stroke-linecap="round"><path d="M2.5 3.8L5 6.3l2.5-2.5"></path></svg>
+      <span style="width: 6px; height: 6px; border-radius: 3px; background: #9399b2"></span>Queued
+      <span style="padding: 0 7px; border-radius: 999px; background: rgba(205,214,244,0.06); font-weight: 500; font-size: 11px; color: #a6adc8">4</span>
+    </div>
+
+    <div style="position: relative; padding: 10px 12px 10px 14px; border-radius: 10px; background: rgba(205,214,244,0.045); border: 1px solid rgba(205,214,244,0.07); box-shadow: inset 0 1px 0 rgba(205,214,244,0.07), inset 0 -1px 0 rgba(0,0,0,0.25); display: flex; flex-direction: column; gap: 6px">
+      <span style="position: absolute; left: 0; top: 9px; bottom: 9px; width: 3px; border-radius: 2px; background: #f38ba8"></span>
+      <div style="display: flex; align-items: center; justify-content: space-between"><span style="padding: 1px 6px; border-radius: 5px; background: rgba(205,214,244,0.06); font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #a6adc8">P5-72</span></div>
+      <div style="font-size: 13.5px; line-height: 1.4; color: #e2e7f8">Kanban 卡片能拖到别的列纠正</div>
+      <div style="display: flex; gap: 6px"><span style="padding: 1px 8px; border-radius: 999px; background: rgba(243,139,168,0.14); color: #f38ba8; font-size: 11px; font-weight: 600">High</span></div>
+    </div>
+
+    <div style="position: relative; padding: 10px 12px 10px 14px; border-radius: 10px; background: rgba(205,214,244,0.03); border: 1px dashed rgba(205,214,244,0.12); display: flex; flex-direction: column; gap: 6px">
+      <div style="display: flex; align-items: center; justify-content: space-between"><span style="padding: 1px 6px; border-radius: 5px; background: rgba(205,214,244,0.06); font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #a6adc8">P5-53</span></div>
+      <div style="font-size: 13.5px; line-height: 1.4; color: #bac2de">在 paddock 仓库开始试 cairn</div>
+      <div style="display: flex; gap: 6px"><span style="padding: 1px 8px; border-radius: 999px; border: 1px solid rgba(205,214,244,0.14); color: #9399b2; font-size: 11px">Draft</span></div>
+    </div>
+
+    <div style="position: relative; padding: 10px 12px 10px 14px; border-radius: 10px; background: rgba(205,214,244,0.03); border: 1px dashed rgba(205,214,244,0.12); display: flex; flex-direction: column; gap: 6px">
+      <div style="display: flex; align-items: center; justify-content: space-between"><span style="padding: 1px 6px; border-radius: 5px; background: rgba(205,214,244,0.06); font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #a6adc8">P5-54</span></div>
+      <div style="font-size: 13.5px; line-height: 1.4; color: #bac2de; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden">Browser 选中元素、Changes 选中 diff 后送给 agent，写上要怎么改</div>
+      <div style="display: flex; gap: 6px"><span style="padding: 1px 8px; border-radius: 999px; border: 1px solid rgba(205,214,244,0.14); color: #9399b2; font-size: 11px">Draft</span></div>
+    </div>
+
+    <div style="position: relative; padding: 10px 12px 10px 14px; border-radius: 10px; background: rgba(205,214,244,0.03); border: 1px dashed rgba(205,214,244,0.12); display: flex; flex-direction: column; gap: 6px">
+      <span style="position: absolute; left: 0; top: 9px; bottom: 9px; width: 3px; border-radius: 2px; background: #6c7086"></span>
+      <div style="display: flex; align-items: center; justify-content: space-between"><span style="padding: 1px 6px; border-radius: 5px; background: rgba(205,214,244,0.06); font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #a6adc8">P5-55</span></div>
+      <div style="font-size: 13.5px; line-height: 1.4; color: #bac2de">paddock 里做 cairn 面板</div>
+      <div style="display: flex; gap: 6px; flex-wrap: wrap">
+        <span style="padding: 1px 8px; border-radius: 999px; border: 1px solid rgba(205,214,244,0.14); color: #9399b2; font-size: 11px">Draft</span>
+        <span style="padding: 1px 8px; border-radius: 999px; background: rgba(205,214,244,0.06); color: #9399b2; font-size: 11px">Low</span>
+        <span style="display: flex; align-items: center; gap: 4px; padding: 1px 8px; border-radius: 999px; background: rgba(205,214,244,0.06); color: #a6adc8; font-size: 11px"><svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M4 6l2-2M3.2 4.6l-1 1a1.6 1.6 0 002.2 2.2l1-1M6.8 5.4l1-1a1.6 1.6 0 00-2.2-2.2l-1 1"></path></svg>Waits for P5-53</span>
+      </div>
+    </div>
+
+    <!-- In progress, hovered: the three buttons -->
+    <div style="display: flex; align-items: center; gap: 8px; padding: 12px 4px 4px; font-size: 12px; font-weight: 600; color: #bac2de">
+      <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="#7f849c" stroke-width="1.4" stroke-linecap="round"><path d="M2.5 3.8L5 6.3l2.5-2.5"></path></svg>
+      <span style="width: 6px; height: 6px; border-radius: 3px; background: #94e2d5"></span>In progress
+      <span style="padding: 0 7px; border-radius: 999px; background: rgba(205,214,244,0.06); font-weight: 500; font-size: 11px; color: #a6adc8">1</span>
+    </div>
+    <div style="position: relative; padding: 10px 12px 0 14px; border-radius: 10px; background: rgba(205,214,244,0.07); border: 1px solid rgba(205,214,244,0.11); box-shadow: inset 0 1px 0 rgba(205,214,244,0.09), inset 0 -1px 0 rgba(0,0,0,0.25); display: flex; flex-direction: column; gap: 6px; overflow: hidden">
+      <div style="display: flex; align-items: center; justify-content: space-between">
+        <span style="padding: 1px 6px; border-radius: 5px; background: rgba(205,214,244,0.06); font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #a6adc8">P5-71</span>
+        <div style="display: flex; gap: 2px; padding: 2px; border-radius: 8px; background: rgba(17,17,27,0.6); border: 1px solid rgba(205,214,244,0.08)">
+          <button aria-label="Open task file" style="width: 24px; height: 22px; border-radius: 6px; display: flex; align-items: center; justify-content: center; color: #bac2de"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M3 1.5h4l2 2v7H3z"></path></svg></button>
+          <button aria-label="Go to agent" style="width: 24px; height: 22px; border-radius: 6px; display: flex; align-items: center; justify-content: center; color: #bac2de"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M2 6h7M6.5 3.5L9 6 6.5 8.5"></path></svg></button>
+          <button aria-label="Show changes" style="width: 24px; height: 22px; border-radius: 6px; display: flex; align-items: center; justify-content: center; color: #bac2de; font-size: 12px">±</button>
+        </div>
+      </div>
+      <div style="font-size: 13.5px; line-height: 1.4; color: #e2e7f8">Kanban 界面美化：卡片和精修列表</div>
+      <div style="display: flex; align-items: center; gap: 8px; margin: 4px -12px 0 -14px; padding: 8px 12px 9px 14px; border-top: 1px solid rgba(205,214,244,0.06); font-size: 12px">
+        <span style="position: relative; width: 18px; height: 18px; border-radius: 5px; background: #fab387; flex-shrink: 0"><span style="position: absolute; right: -2px; bottom: -2px; width: 7px; height: 7px; border-radius: 4px; background: #89b4fa; border: 1.5px solid #252536"></span></span>
+        <span style="color: #cdd6f4">dev-kanban-1</span><span style="color: #89b4fa">Working</span>
+        <span style="flex: 1"></span>
+        <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #7f849c">p5-71</span><span style="color: #a6e3a1; font-size: 11.5px">+120</span><span style="color: #f38ba8; font-size: 11.5px">−34</span>
+        <span style="font-size: 11px; color: #7f849c">8m</span>
+      </div>
+    </div>
+
+    <!-- To review -->
+    <div style="display: flex; align-items: center; gap: 8px; padding: 12px 4px 4px; font-size: 12px; font-weight: 600; color: #bac2de">
+      <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="#7f849c" stroke-width="1.4" stroke-linecap="round"><path d="M2.5 3.8L5 6.3l2.5-2.5"></path></svg>
+      <span style="width: 6px; height: 6px; border-radius: 3px; background: #fab387"></span>To review
+      <span style="padding: 0 7px; border-radius: 999px; background: rgba(205,214,244,0.06); font-weight: 500; font-size: 11px; color: #a6adc8">1</span>
+    </div>
+    <div style="position: relative; padding: 10px 12px 0 14px; border-radius: 10px; background: rgba(205,214,244,0.045); border: 1px solid rgba(205,214,244,0.07); box-shadow: inset 0 1px 0 rgba(205,214,244,0.07), inset 0 -1px 0 rgba(0,0,0,0.25); display: flex; flex-direction: column; gap: 6px; overflow: hidden">
+      <div style="display: flex; align-items: center; justify-content: space-between"><span style="padding: 1px 6px; border-radius: 5px; background: rgba(205,214,244,0.06); font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #a6adc8">P5-54a</span><span style="font-size: 11px; color: #7f849c">2m</span></div>
+      <div style="font-size: 13.5px; line-height: 1.4; color: #e2e7f8">Changes 选中 diff 送给 agent</div>
+      <div style="display: flex; flex-direction: column; margin: 4px -12px 0 -14px; border-top: 1px solid rgba(205,214,244,0.06)">
+        <div style="display: flex; align-items: center; gap: 8px; padding: 8px 12px 4px 14px; font-size: 12px"><span style="width: 18px; height: 18px; border-radius: 5px; background: #94e2d5; flex-shrink: 0"></span><span>dev-diff-1</span><span style="color: #a6e3a1">Done</span><span style="flex: 1"></span><span style="color: #a6e3a1; font-size: 11.5px">+64</span><span style="color: #f38ba8; font-size: 11.5px">−8</span></div>
+        <div style="display: flex; align-items: center; gap: 8px; padding: 4px 12px 9px 14px; font-size: 12px"><span style="width: 18px; height: 18px; border-radius: 5px; background: #fab387; flex-shrink: 0"></span><span>main</span><span style="color: #9399b2">Reviewing</span></div>
+      </div>
+    </div>
+
+    <!-- Merged, empty -->
+    <div style="display: flex; align-items: center; gap: 8px; padding: 12px 4px 4px; font-size: 12px; color: #6c7086">
+      <span style="width: 10px"></span><span style="width: 6px; height: 6px; border-radius: 3px; background: #45475a"></span>Merged<span style="font-size: 11px">0</span>
+    </div>
+
+    <!-- Done -->
+    <div style="display: flex; align-items: center; gap: 8px; padding: 12px 4px 4px; font-size: 12px; font-weight: 600; color: #bac2de">
+      <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="#7f849c" stroke-width="1.4" stroke-linecap="round"><path d="M2.5 3.8L5 6.3l2.5-2.5"></path></svg>
+      <span style="width: 6px; height: 6px; border-radius: 3px; background: #7f849c"></span>Done
+      <span style="padding: 0 7px; border-radius: 999px; background: rgba(205,214,244,0.06); font-weight: 500; font-size: 11px; color: #a6adc8">3 of 130</span>
+    </div>
+    <div style="position: relative; padding: 10px 12px 10px 14px; border-radius: 10px; background: rgba(249,226,175,0.05); border: 1px solid rgba(249,226,175,0.34); box-shadow: inset 0 1px 0 rgba(205,214,244,0.07); display: flex; flex-direction: column; gap: 6px">
+      <div style="display: flex; align-items: center; justify-content: space-between"><span style="padding: 1px 6px; border-radius: 5px; background: rgba(205,214,244,0.06); font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #a6adc8">P5-28c</span><span style="font-size: 11px; color: #7f849c">52h</span></div>
+      <div style="font-size: 13.5px; line-height: 1.4; color: #e2e7f8">Browser 收尾：本地开发页面一定能打开</div>
+      <div style="padding: 7px 9px; border-radius: 7px; background: rgba(249,226,175,0.08); font-size: 12px; line-height: 1.45; color: #f5e3b8; display: flex; gap: 7px">
+        <span style="flex-shrink: 0; font-weight: 600; color: #f9e2af">Needs you</span>
+        <span style="display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden">按本文件完成记录末尾 8 条清单实测（第 1 条本地开发地址最要紧）。</span>
+      </div>
+    </div>
+    <div style="padding: 9px 12px 9px 14px; border-radius: 10px; display: flex; gap: 8px; align-items: baseline; color: #a6adc8"><span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #7f849c">P5-70b</span><span style="flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Activity 下面那一截（底栏）也半透明</span><span style="font-size: 11px; color: #7f849c">27m</span></div>
+    <div style="padding: 9px 12px 9px 14px; border-radius: 10px; display: flex; gap: 8px; align-items: baseline; color: #a6adc8"><span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #7f849c">P5-70</span><span style="flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Activity 叠在 agent 列表上、半透明，后面的卡片隐约透出</span><span style="font-size: 11px; color: #7f849c">34m</span></div>
+    <button style="align-self: flex-start; margin: 4px 0 0 4px; padding: 5px 12px; border-radius: 999px; background: rgba(205,214,244,0.06); font-size: 12px; color: #bac2de; display: flex; align-items: center; gap: 6px">Show all 130<svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M2.5 3.8L5 6.3l2.5-2.5"></path></svg></button>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":380,"height":1180}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>
