@@ -4,7 +4,7 @@
 
 ## 现在在哪（2026-10-10）
 
-- main 和 `origin/main`（`github.com/firegnu/paddock`，public）同步；没有进行中的活、没有 worktree，本地只有 main。工作区里一份未提交的草稿任务文件（P5-54，看板 DRAFT；**有意留的，不要 `git add -A`**）。ranch 同样干净。corral 里除 `paddock/main`（本主控）之外都是用户的。
+- main 和 `origin/main`（`github.com/firegnu/paddock`，public）同步；没有进行中的活、没有 worktree，本地只有 main。工作区里三份未提交的草稿任务文件（P5-54、P5-79、P5-80，看板 DRAFT）和 P5-79 的样稿目录 `docs/设计稿/P5-79-Cairn记录列表/`（**有意留的，不要 `git add -A`**）。ranch 同样干净。corral 里除 `paddock/main`（本主控）之外都是用户的。
 - 542 项测试通过，clippy、`cargo fmt --check` 干净。`~/Applications/paddock.app` 是合并 P5-78 之后的版本（10-10 装，本机 Apple Development 证书签名）；P5-78 Cairn 标签状态行在已采用的仓库里写出每家 hook 最近一次触发离现在多久（`Claude ✓ 2m`），装了从没触发过写黄色 `never`（用户：“P5-78都按你的建议来，开始做吧”），用户 10-10 重开后看过：先是 `Claude ✓ 22s   Codex never`，在这个仓库里直接开了一个 Codex 后：“我开了一个codex，现在好了。”；P5-55 右侧栏第四个标签 Cairn（cairn 的状态、下次会话会接到的记录全文；没采用的仓库确认后可 Adopt；右侧栏最窄从 320 变成 426），**待用户看**（主控没起窗口看过）；P5-77d 名字签不跟着光标、固定在输入框右上角（用户用了 P5-77c 后：“现在追随光标我觉得有点影响我。我想使用右边那个方案”），**待用户看**；P5-77c 名字签亮起时跟着光标、变大、滑出，打字期间一直亮（样稿 D，用户嫌 P5-77 的位置和效果不明显），用户 10-10 试过：“这个看起来永远都不会看漏了。哈哈哈”；P5-77 开始打字时输入框角上亮出名字签（样稿 B）、P5-77b 换了打字对象后的第一个字一定亮（用户反馈切换 agent 后该亮不亮），用户 10-10 试过：“codex-1现在可以了”；P5-76 分屏标签的图标叠成一摞卡片、前卡歪着，用户 10-10 看过：“看到了，做的真好”；P5-70～P5-75 用户都看过或试过，没问题。
 - 重新打包安装：在 `app/` 下 `cargo build --release`，再 `cargo run --release --example bundle -- --install`（编译目录 `.target/main`）。打包默认选本机 Apple Development 身份，可用 `PADDOCK_SIGN_IDENTITY` 指定；退回 ad-hoc 时会提示授权会失效。
 - **paddock ctl 已部署**：`~/.local/bin/paddock` 链到 app 里的程序，重新打包后不用重建；技能正文改了要重跑 `paddock install-skills`（装在 `~/.claude/skills/paddock`、`~/.agents/skills/paddock`），已开着的 agent 要重开才看到。
@@ -17,14 +17,15 @@
 
 1. **P5-53 试点中**（10-10 已 adopt，HANDOFF 全量保留、规矩没改）：10-24 前后和用户回看，定 HANDOFF 瘦不瘦、“先读 HANDOFF”改不改。owlet 试点情况：HANDOFF 减到只留稳定背景，重开后能准确说出停点、已完成、下一步、待用户决定。确认某次注入了没有：只读查 `~/.local/state/cairn/cairn.db` 的 injections 表（`sqlite3 -readonly`）；日常看 `cairn list`／`cairn show`。
 2. **P5-54** Browser 选中元素、Changes 选中 diff 写上要怎么改后送给 agent（优先：高）。主控提议（用户还没表态）：设计和交互样稿主控自己做；实现派 Claude Code 常规档，拆成 P5-54a Changes、P5-54b Browser（WKWebView 注入 JS 加 WKScriptMessageHandler，代码库里还没有），a 合并后再派 b；测试只用假 corral。下次从列出待定问题开始。
-3. **P5-55 之后**（Cairn 标签第一版已合并，没排）：历史记录列表、点开单条记录要等 cairn 出 `cairn list --json`（给 cairn 主控提需求，用户定）；Unadopt、更正／撤回记录用户没要。
-4. 以后：Changes 第二步（行上评论发给 agent、暂存、撤销，可能和 P5-54a 合并考虑）；Kanban 能拖来纠正（用户：排在后面）。
+3. **P5-79** Cairn 标签正文改成一条条记录的列表、点开看单条（用户 10-10：“这块的界面要整理一下，现在的太乱了。我不知道展示的是什么信息。而且没有cairn中的我理解是不是一条条的item，然后可以按照时间点开看这种。而且你要让我看得懂，这条记录是什么时间之类的。这个你要好好规划一下展示”；看过样稿和主控列的三处后：“都按你的建议来，写任务文件吧”）。样稿：claude.ai 私有画布「P5-79 Cairn 记录列表」和 `docs/设计稿/P5-79-Cairn记录列表/`。任务文件已写全但没提交：**等 cairn 出新版**（`cairn list --json`、单条记录的 JSON 进公开约定；需求 10-10 已 `corral send` 给 `cairn/main`，用户同意；它定了字段会 `corral send paddock/main`），字段补进任务文件「cairn 给的东西」一节、给用户看过，再提交、建 worktree `p5-79-cairn-notes`、派 Claude Code 常规档。Unadopt、更正／撤回记录用户没要。
+4. **P5-80** 同一个仓库的 agent 在左侧栏分在同一组（用户 10-10：“jbfine的两个codex，codex-1委派任务的时候倒是成功了，但是没有在一个jb-finetune下。”）。草稿，原因已查清（左侧栏按名字前缀分组，`jb-finetune/` 和 `jbfinetune/` 差一个短横），做法三选一等用户定（主控建议按仓库分组）。
+5. 以后：Changes 第二步（行上评论发给 agent、暂存、撤销，可能和 P5-54a 合并考虑）；Kanban 能拖来纠正（用户：排在后面）。
 
 ## 用户用到时顺带看（不用决定、不挡任何事）
 
 主控没法替用户试的只有真实悬停、拖动、键盘、输入法：
 
-- P5-78 状态行（用户看过默认宽度下的样子，没问题）：右侧栏拖到最窄 426、界面字号调大时挤不挤没看过；小时的写法是 `3.0h`（跟卡片一样）。Cairn 标签正文那一大段是写给下一个 agent 的交接条，用户第一眼：“我看不懂这个”；主控提过可以改成先显示给人看的摘要（比如只显示“停点”和“待用户决定”，其余折叠），用户没表态。
+- P5-78 状态行（用户看过默认宽度下的样子，没问题）：右侧栏拖到最窄 426、界面字号调大时挤不挤没看过；小时的写法是 `3.0h`（跟卡片一样）。Cairn 标签正文那一大段原文用户看不懂，改法见下一步的 P5-79。
 - P5-55 Cairn 标签（主控没起窗口看过）：右侧栏拖到最窄（426）时四个标签和两个按钮是不是正好一行，界面字号调大后也看一眼；正文的分节、折行；面板开着时 `N uncollected` 基本是 0（`cairn show` 读的时候会顺手收取）；在一个没采用的仓库里看 `Adopt…` 和确认卡片（真点 `Adopt` 会采用那个仓库，`cairn unadopt` 撤回）；hook 没装、没装 cairn 这些状态平时碰不到。
 - P5-77c、P5-77d 名字签（P5-77d 起两枚都在输入框右上角，主控没起窗口看过）：在右边够不够醒目（不够可加样稿 D 里“窗格的边同时亮一下”）；输入折到多行时落在哪（应在输入框上边框的右端，不压自己打的字）；Codex 里落在哪（找不到空行会跑到右下角）；实心强调色在各主题下刺不刺眼；打字期间一直亮、停 3 秒或回车后淡回的手感。
 - P5-61 Agent shell（新建面板第三行；只支持 zsh、bash）；P5-59 agent 窗格标题行里会话题目（`corral attach` 不转标题的话改读 `corral status` 的 `title`）。
