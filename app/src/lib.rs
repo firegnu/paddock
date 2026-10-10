@@ -8,6 +8,8 @@ pub mod agents;
 pub mod attention;
 pub mod browser;
 pub mod browser_view;
+pub mod cairn;
+pub mod cairn_view;
 pub mod card;
 pub mod changes;
 pub mod command;

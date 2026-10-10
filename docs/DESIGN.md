@@ -43,6 +43,7 @@ paddock 与 Saddle 在代码上完全分开：用到的 Saddle 代码迁入 padd
   | `corral` 命令（`ls`/`status`/`attach`/`start`/`stop` 等）及其 JSON 输出 | ranch（迁入前随 Saddle 安装） | 照公开格式调用；格式变化时 paddock 跟进 |
   | 插件协议 | ranch（迁入前在 Saddle） | paddock 做自己的插件系统：进程、命令、生命周期部分沿用这份协议，界面部分 paddock 自定（下文“插件”） |
   | 遥测命令（迁入前是 `saddle telemetry …`）、Drover 的公开命令 | 遥测归 ranch；Drover 在 Saddle（第 8 步再定） | 需要时照公开命令调用 |
+  | `cairn` 命令（PATH 上的 `cairn`）及其 JSON 输出 | 独立仓库 `../cairn` | 只调用 `cairn status --json`、`cairn show --json`、`cairn adopt` 三条（P5-55）；不读它的数据库、配置和 hook 文件，不装不卸 hook。cairn 的命令接口在它自己的设计里还标着“草案”，格式变了 paddock 跟进 |
 
 - **运行时要求**：机器上要有 `corral` 命令，由 ranch 安装（`~/.local/bin/corral` → `~/.local/share/ranch/versions/…/bin/corral`，10-05 起）；paddock 不需要 Saddle TUI 在运行。
 - **单独分发**（用户 10-05 定）：paddock 要能不装 Saddle 单独使用，所需的运行时随 paddock 打包（见下一条）。
@@ -454,3 +455,19 @@ paddock 与 Saddle 在代码上完全分开：用到的 Saddle 代码迁入 padd
   - 不重画整窗：只在滑出和淡回的那零点几秒按帧重画；亮着不动的时候不请求帧，到该淡回时由窗格视图自己的轮询叫一次。
   - 没做：窗格的边亮一下、Settings 开关、缩放动画。
 - **名字签不跟着光标，固定在输入框右上角（P5-77d，改 P5-77c 的位置）**（用户 10-10 用了 P5-77c 之后：“稍等，咱们再回到之前的那个agent提醒，现在追随光标我觉得有点影响我。我想使用右边那个方案。你还记得吧？”即样稿 D 的 Tweaks 里 `position` 的“右边（现在）”那一档；任务文件给用户看过：“可以，开始做吧”）：平时和亮起的两枚都贴终端区域右边（留 10pt），不随光标在哪一列而动；仍放在光标上方最近的一条空行上（P5-77c 的不压字规则，检查的是名字签左边到终端右边的那几格），找不到时照旧在右下角。亮起的样子、滑出、打字期间一直亮、停 3 秒或回车淡回、换对象收回都照 P5-77c 不变。位置回到了用户最初嫌“不太明显”的地方，靠变大、实心底色、滑出和一直亮着来醒目；还不够的话可加样稿里“窗格的边同时亮一下”。
+- **右侧栏第四个标签 Cairn（P5-55）**（用户 10-08：“paddock写cairn的面板”；10-10：“那就开始P5-55 这个任务，来确定cairn工作正常。咱们俩先确定一下scope。之后再委派”。主控列了第一版范围后，用户：“如果没接入cairn的情况你是不是要考虑，或者监测到cairn但是没adopt这种，是否提供adopt接入。但是不给安装cairn或者hook的选项。这个要讨论一下”；主控按状态给了建议，用户：“都按你的建议来，出样稿吧。”看过样稿 `docs/设计稿/P5-55-Cairn面板/` 后问“hooks是不是不支持？”，主控答面板不装也不卸 hook，用户：“加一句提示命令的文字吧，然后写任务文件”）：看 cairn 在不在工作、下次会话会接到什么。
+  - 位置：排在 Kanban 后面，带一个叠石小图标。右侧栏的最小宽度从 320 改为 426，四个标签加右边两个按钮仍在一行（按系统字体 12.5pt 量出的四个标签字宽算）；首次打开的宽度 420 没改，比最小宽度小，实际按 426 打开。旧的布局文件照常读，里面比 426 窄的宽度原样留着、按 426 画。
+  - 跟着当前窗格的目录（和 Kanban 一样）；只在右侧栏开着、正显示这个标签时读：显示出来时读一次，窗格换了目录再读，之后每 5 秒读一次，切走或收起就停。命令在后台跑，5 秒超时。
+  - 只用 cairn 的三条命令（§3）：先 `cairn status --json`（`agents.claude.installed`、`agents.codex.installed`、`project.status`、`spool.pending_json`）；只有 `project.status` 是 `adopted`、且至少一家装了 hook，才跑 `cairn show --json`（它会先把存了没收的记录收进 cairn 的数据库，所以没采用的仓库里不跑；采没采用只看 `status`）。`project.status` 还有第三个值 `no_data`（cairn 还没有数据库，比如刚装好），当作没采用，和 `not_adopted` 一样处理（主控 10-10 定）。仓库名和分支另用只读的 git 命令：仓库名取主工作区的目录名（worktree 里也是仓库的名字，和 cairn 按整个仓库算采用一致），不在仓库里就是目录名；分支是窗格所在工作区的，没有就不画。
+  - 各状态：
+    - 找不到 `cairn` 命令：`cairn is not installed` 加一句说明，没有按钮。
+    - 命令退出码非 0、超时、JSON 读不出要用的字段：`Could not read cairn` 加 `cairn <命令>: ` 和错误的第一行，没有按钮。
+    - 其余都有头部（仓库名、分支、绿的 `Adopted` 或灰的 `Not adopted`）和状态行（`Hooks`，`Claude`、`Codex` 各带一个勾或一道变淡的短横；已采用时右边 `N uncollected`，0 时很淡，不是 0 时黄色小胶囊），下面：
+    - hook 一家都没装：`cairn's hooks are not installed`、一句说明、两行等宽字的命令文字 `cairn install --agent claude`、`cairn install --agent codex`（只是文字）；不给 Adopt，也不跑 `show`。
+    - 没采用，在 Git 仓库里：一段说明、仓库路径（主目录写成 `~`）、`Adopt…` 按钮。
+    - 没采用，不在 Git 仓库里：`This folder has not adopted cairn` 和 `Adopt is offered inside Git repositories only.`，没有按钮。
+    - 已采用，还没记录（`show` 返回 `no_data`，或 `record_ids` 为空）：`No records yet` 加一句说明。
+    - 已采用，有记录：正文。
+  - 正文：`show` 的 `text` 从第一个以 `### ` 开头的行起显示（前面是写给 agent 的约定说明），找不到这样的行就全文；按 Markdown 画（`markdown.rs`），能上下滚动，不解析里面的内容。cairn 的标题层级是反的，所以三级标题画成淡的分节小标题加一条细线，其余级别画成加粗小标题。段落和列表项里的换行照换行画（“现场对比”一行一条事实），`markdown.rs` 为此加了一个入口，Kanban 的 Preview 仍把换行并成空格。很长的词在行尾任意处折行。
+  - Adopt：点 `Adopt…`，说明换成确认卡片（标题带仓库名、仓库路径、立即生效的那段话、派出去的 agent 不受影响和用 `cairn unadopt` 撤回、`Cancel`／`Adopt`）；点 `Adopt` 才在这个窗格的目录里后台跑 `cairn adopt`，跑完马上重读（成功后卡片上写 `Adopted`，等重读回来换成已采用的样子）；失败就在卡片里显示错误的第一行，卡片留着，可以再点 `Adopt` 或 `Cancel`。点 `Cancel`、窗格换了仓库、切走标签或收起右侧栏，卡片收起。这是面板唯一的写操作。
+  - 不做：历史记录列表、点开单条记录、Unadopt、更正／撤回／删除记录、安装或卸载 cairn 和 hook 的按钮、手动刷新按钮、设置项、`cairn` 路径的配置项。
