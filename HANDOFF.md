@@ -9,13 +9,13 @@
 - 重新打包安装：在 `app/` 下 `cargo build --release`，再 `cargo run --release --example bundle -- --install`（编译目录 `.target/main`）。打包默认选本机 Apple Development 身份，可用 `PADDOCK_SIGN_IDENTITY` 指定；退回 ad-hoc 时会提示授权会失效。
 - **paddock ctl 已部署**：`~/.local/bin/paddock` 链到 app 里的程序，重新打包后不用重建；技能正文改了要重跑 `paddock install-skills`（装在 `~/.claude/skills/paddock`、`~/.agents/skills/paddock`），已开着的 agent 要重开才看到。
 - 全局 `~/.local/bin/corral`、`ranch` 是 ranch `d55defb`（R2：派活和临时委派的 agent 带 `CAIRN_DISABLE=1`；支持 pause／resume）。
-- **cairn 已全局装进 Claude Code**（`~/.claude/settings.json` 里 4 个 hook 和放行 `cairn save` 的规则，改前备份 `~/.claude/settings.json.bak-20261008T082855…`）；只有 owlet `adopt` 了，**paddock 还没有**（`cairn status`：未采用），hook 在这里直接退出。卸掉：`cairn uninstall --agent claude`。
+- **cairn 已全局装进 Claude Code**（`~/.claude/settings.json` 里 4 个 hook 和放行 `cairn save` 的规则，改前备份 `~/.claude/settings.json.bak-20261008T082855…`）；owlet 和 **paddock 都已 `adopt`**（paddock 10-10 起，P5-53：和全量 HANDOFF 并存试一两周，10-24 前后和用户定 HANDOFF 里“进度”那部分删不删；试点看新会话里 cairn 注入的停点、下一步、待用户决定准不准）。退回：`cairn unadopt`（记录留着）；卸掉：`cairn uninstall --agent claude`。
 - 已合并：第一至第三阶段、迁移 M0–M3、P4-1～P4-3、P5-1～P5-77（P5-52 只查明原因、改法用户暂不定；P5-53～P5-55 还是草稿）。
 - 上下文：`AGENTS.md`（规矩，含「开发方式」里的看板约定）、`docs/DESIGN.md`（§13 是界面改版的全部决定和用户原话）、`docs/背景与决策记录.md`、`docs/设计稿/`、`docs/调研/`。
 
 ## 下一步
 
-1. **P5-53 在 paddock 用 cairn**（用户 10-09 看过 owlet 的 `cairn show`：“这个内容我觉得够了”；先做了这次 HANDOFF 瘦身）。主控方案，待写成任务文件给用户看：`cairn adopt`（用户在终端跑或同意后主控跑）；CLAUDE.md 的“先读 HANDOFF”改成“会话进度以 cairn 注入为准，HANDOFF 只放长期状态”；试一两周，看新会话能否不读 HANDOFF 自动接上、有没有漏记错记；cairn 出问题时靠收尾提交、看板、任务文件接上。adopt 后主控每轮会多跑一小轮存停点，侧栏会早一点显示空闲；派出去的 agent 已关 cairn。owlet 试点情况：HANDOFF 减到只留稳定背景，重开后能准确说出停点、已完成、下一步、待用户决定。确认某次注入了没有：只读查 `~/.local/state/cairn/cairn.db` 的 injections 表（`sqlite3 -readonly`）；日常看 `cairn list`／`cairn show`。
+1. **P5-53 试点中**（10-10 已 adopt，HANDOFF 全量保留、规矩没改）：10-24 前后和用户回看，定 HANDOFF 瘦不瘦、“先读 HANDOFF”改不改。owlet 试点情况：HANDOFF 减到只留稳定背景，重开后能准确说出停点、已完成、下一步、待用户决定。确认某次注入了没有：只读查 `~/.local/state/cairn/cairn.db` 的 injections 表（`sqlite3 -readonly`）；日常看 `cairn list`／`cairn show`。
 2. **P5-54** Browser 选中元素、Changes 选中 diff 写上要怎么改后送给 agent（优先：高）。主控提议（用户还没表态）：设计和交互样稿主控自己做；实现派 Claude Code 常规档，拆成 P5-54a Changes、P5-54b Browser（WKWebView 注入 JS 加 WKScriptMessageHandler，代码库里还没有），a 合并后再派 b；测试只用假 corral。下次从列出待定问题开始。
 3. **P5-55** paddock 里做 cairn 面板（依赖 P5-53；数据用 `cairn show`／`list` 的文字还是先请 cairn 定 JSON 约定、面板放哪，要定）。
 4. 以后：Changes 第二步（行上评论发给 agent、暂存、撤销，可能和 P5-54a 合并考虑）；Kanban 能拖来纠正（用户：排在后面）。
