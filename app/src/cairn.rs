@@ -1,10 +1,16 @@
 //! The right sidebar's Cairn tab, what it knows: whether cairn is at work in the focused pane's
-//! directory, and what the next session there would be given (DESIGN §13 P5-55). All of it comes
-//! from cairn's own commands, `cairn status --json` and, in a repository that has adopted it,
-//! `cairn show --json`, and from Git for the repository's name and branch; cairn's database,
-//! settings and hook files are never read (DESIGN §3). One thing writes: `adopt`, which runs
-//! `cairn adopt`, and the tab runs it only once the user has confirmed (`Adopting`).
-use crate::{card::short_time, command, git};
+//! directory, the handover notes agents have saved there, and what the next session would be given
+//! (DESIGN §13 P5-55, P5-79). All of it comes from cairn's own commands, `cairn status --json` and,
+//! in a repository that has adopted it, `cairn show --json` and `cairn list --json`, then
+//! `cairn show <ID> --json` for a note that is opened, and from Git for the repository's name and
+//! branch; cairn's database, settings and hook files are never read (DESIGN §3). One thing writes:
+//! `adopt`, which runs `cairn adopt`, and the tab runs it only once the user has confirmed
+//! (`Adopting`).
+use crate::{
+    activity::{self, MONTHS},
+    card::short_time,
+    command, git,
+};
 use serde::Deserialize;
 use std::{
     collections::HashMap,
@@ -17,6 +23,9 @@ use std::{
 /// The command, as PATH finds it.
 pub const PROGRAM: &str = "cairn";
 const TIMEOUT: Duration = Duration::from_secs(5);
+const DAY: i64 = 86_400;
+/// How many records are asked for at first, and how many more with each Show older.
+pub const PAGE: usize = 50;
 
 /// What a read of a directory found.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -36,6 +45,8 @@ pub struct Found {
     pub cwd: String,
     /// The repository's name, or outside one the directory's.
     pub name: String,
+    /// The repository's main worktree, in one: what its notes are kept by.
+    pub repo: Option<PathBuf>,
     /// The branch out in the directory's worktree, when there is one.
     pub branch: Option<String>,
     pub adopted: bool,
@@ -73,8 +84,69 @@ pub enum Body {
     Outside,
     /// Adopted, with nothing recorded yet.
     NoRecords,
-    /// Adopted: what the next session would be given, from its first section on (`shown`).
-    Records(String),
+    /// Adopted, with something on record.
+    Records(Records),
+}
+
+/// What an adopted repository has on record.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Records {
+    /// What the next session would be given, from its first section on (`shown`).
+    pub text: String,
+    /// The handover notes; `None` from a cairn before 0.3.0, which does not list them.
+    pub notes: Option<Notes>,
+}
+
+/// The handover notes of a repository: its checkpoints, as `cairn list --json` gives them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Notes {
+    /// The days notes were saved on, the latest first.
+    pub days: Vec<Day>,
+    /// cairn has more records than were asked for.
+    pub older: bool,
+}
+
+/// The notes saved on one day of this machine's calendar, the newest first.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Day {
+    /// `Today` or `Yesterday`, for those two.
+    pub name: Option<&'static str>,
+    /// `Sat, Oct 10`, and the year after it when that is not this one.
+    pub date: String,
+    pub notes: Vec<Note>,
+}
+
+/// One handover note in the list.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Note {
+    pub id: String,
+    /// When it was saved, on this machine's clock: `17:44`.
+    pub time: String,
+    /// For one saved today, how long before the read: `2m ago`.
+    pub ago: Option<String>,
+    /// Who saved it: `Claude`, `Codex`, `Manual` for none of the agents, or what cairn calls it.
+    pub by: String,
+    pub branch: Option<String>,
+    /// Its one line, as the agent wrote it; empty without one.
+    pub summary: String,
+    /// The next session here is given this one.
+    pub next: bool,
+}
+
+/// One handover note in full, as `cairn show <ID> --json` gives it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Full {
+    /// When it was saved, on this machine's clock: `Oct 10, 2026 at 17:44:51`.
+    pub saved: String,
+    /// Who saved it, as [`Note::by`].
+    pub by: String,
+    /// The first eight characters of the agent's session, for one saved in a session.
+    pub session: Option<String>,
+    pub branch: Option<String>,
+    /// Its text, Markdown; `None` once deleted, or for a record that has none.
+    pub body: Option<String>,
+    /// The latest correction written for it: when that was saved, and its text.
+    pub correction: Option<(String, Option<String>)>,
 }
 
 /// Why a cairn command gave nothing.
@@ -82,13 +154,15 @@ enum Trouble {
     /// There is no such command.
     Missing,
     Failed(String),
+    /// It left with 2, as cairn does over arguments it does not know.
+    Unknown(String),
 }
 
 impl From<Trouble> for Read {
     fn from(trouble: Trouble) -> Self {
         match trouble {
             Trouble::Missing => Read::NotInstalled,
-            Trouble::Failed(why) => Read::Failed(why),
+            Trouble::Failed(why) | Trouble::Unknown(why) => Read::Failed(why),
         }
     }
 }
@@ -139,13 +213,45 @@ struct Spool {
 struct Show {
     status: Option<String>,
     text: Option<String>,
-    record_ids: Option<Vec<serde_json::Value>>,
+    record_ids: Option<Vec<String>>,
+}
+
+/// What `cairn list --json` prints.
+#[derive(Deserialize)]
+struct List {
+    total: u64,
+    records: Vec<Record>,
+}
+
+/// A record as `cairn list --json` and `cairn show <ID> --json` give one: the first with its
+/// `summary`, the second with its `body` and `correction`.
+#[derive(Deserialize)]
+struct Record {
+    id: String,
+    created_at: String,
+    agent: String,
+    session_id: Option<String>,
+    branch: Option<String>,
+    kind: String,
+    #[serde(default)]
+    summary: String,
+    body: Option<String>,
+    correction: Option<Box<Record>>,
 }
 
 /// Reads `cwd`: `cairn status --json`, and only where it says the project is adopted and some
 /// agent has its hooks, `cairn show --json`, which takes saved records into cairn's database
-/// before it answers.
-pub fn read(program: &str, git: &str, cwd: &str, now: SystemTime, cancel: &AtomicBool) -> Read {
+/// before it answers, then `cairn list --json` for the newest `limit` of them. Times are written
+/// as of `now`, on the clock `offset` gives: how far east of UTC it is at a time.
+pub fn read(
+    program: &str,
+    git: &str,
+    cwd: &str,
+    limit: usize,
+    now: SystemTime,
+    offset: &dyn Fn(i64) -> i64,
+    cancel: &AtomicBool,
+) -> Read {
     let status = match run(program, &["status", "--json"], cwd, cancel) {
         Ok(out) => out,
         Err(trouble) => return trouble.into(),
@@ -177,16 +283,17 @@ pub fn read(program: &str, git: &str, cwd: &str, now: SystemTime, cancel: &Atomi
     let body = if !claude && !codex {
         Body::NoHooks
     } else if adopted {
-        match show(program, cwd, cancel) {
+        match records(program, cwd, limit, now, offset, cancel) {
             Ok(body) => body,
             Err(trouble) => return trouble.into(),
         }
     } else {
-        repo.map_or(Body::Outside, Body::NotAdopted)
+        repo.clone().map_or(Body::Outside, Body::NotAdopted)
     };
     Read::Found(Found {
         cwd: cwd.to_owned(),
         name,
+        repo,
         branch,
         adopted,
         claude,
@@ -250,25 +357,183 @@ fn unix(text: &str) -> Option<u64> {
     Some(days * 86_400 + hour * 3_600 + minute * 60 + second)
 }
 
-/// What `cairn show --json` in `cwd` has for an adopted project.
-fn show(program: &str, cwd: &str, cancel: &AtomicBool) -> Result<Body, Trouble> {
+/// What an adopted project in `cwd` has on record: `cairn show --json`, then the notes.
+fn records(
+    program: &str,
+    cwd: &str,
+    limit: usize,
+    now: SystemTime,
+    offset: &dyn Fn(i64) -> i64,
+    cancel: &AtomicBool,
+) -> Result<Body, Trouble> {
+    let Some((text, next)) = show(program, cwd, cancel)? else {
+        return Ok(Body::NoRecords);
+    };
+    let notes = notes(program, cwd, limit, &next, now, offset, cancel)?;
+    let none = next.is_empty() && notes.as_ref().is_none_or(|notes| notes.days.is_empty());
+    Ok(if none {
+        Body::NoRecords
+    } else {
+        Body::Records(Records {
+            text: shown(&text).to_owned(),
+            notes,
+        })
+    })
+}
+
+/// What `cairn show --json` in `cwd` has for an adopted project: the text the next session would
+/// be given and the records in it, or with no database yet nothing.
+fn show(
+    program: &str,
+    cwd: &str,
+    cancel: &AtomicBool,
+) -> Result<Option<(String, Vec<String>)>, Trouble> {
     let out = run(program, &["show", "--json"], cwd, cancel)?;
     match serde_json::from_slice::<Show>(&out) {
         Ok(Show {
             status: Some(status),
             ..
-        }) if status == "no_data" => Ok(Body::NoRecords),
+        }) if status == "no_data" => Ok(None),
         Ok(Show {
             text: Some(text),
             record_ids: Some(ids),
             ..
-        }) => Ok(if ids.is_empty() {
-            Body::NoRecords
-        } else {
-            Body::Records(shown(&text).to_owned())
-        }),
+        }) => Ok(Some((text, ids))),
         _ => Err(Trouble::Failed("cairn show: unexpected output".into())),
     }
+}
+
+/// The project's handover notes, the newest `limit` records' worth, those in `next` marked as what
+/// the next session is given; `None` from a cairn that does not list them.
+fn notes(
+    program: &str,
+    cwd: &str,
+    limit: usize,
+    next: &[String],
+    now: SystemTime,
+    offset: &dyn Fn(i64) -> i64,
+    cancel: &AtomicBool,
+) -> Result<Option<Notes>, Trouble> {
+    let limit = limit.to_string();
+    let out = match run(program, &["list", "--json", "--limit", &limit], cwd, cancel) {
+        Ok(out) => out,
+        // cairn before 0.3.0, whose `list` has no `--json`.
+        Err(Trouble::Unknown(_)) => return Ok(None),
+        Err(trouble) => return Err(trouble),
+    };
+    let unexpected = || Trouble::Failed("cairn list: unexpected output".into());
+    let list = serde_json::from_slice::<List>(&out).map_err(|_| unexpected())?;
+    let now = now
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |since| since.as_secs() as i64);
+    let today = activity::day_of(now, offset(now));
+    let older = (list.records.len() as u64) < list.total;
+    // The days so far, each beside which day it is.
+    let mut days: Vec<(activity::Day, Day)> = Vec::new();
+    // Corrections, retractions, restores and kinds yet to come are records too, but not notes.
+    for record in list.records.into_iter().filter(|r| r.kind == "checkpoint") {
+        let at = unix(&record.created_at).ok_or_else(unexpected)? as i64;
+        let local = at + offset(at);
+        let on = local.div_euclid(DAY);
+        let of_day = local.rem_euclid(DAY);
+        let note = Note {
+            next: next.contains(&record.id),
+            id: record.id,
+            time: format!("{:02}:{:02}", of_day / 3600, of_day % 3600 / 60),
+            ago: (on == today)
+                .then(|| format!("{} ago", short_time(Some((now - at).max(0) as f64)))),
+            by: by(&record.agent),
+            branch: record.branch.filter(|branch| !branch.is_empty()),
+            summary: record.summary,
+        };
+        match days.last_mut() {
+            Some((last, day)) if *last == on => day.notes.push(note),
+            _ => {
+                let year = |day| activity::date(day).0;
+                let mut date = activity::label(on);
+                if year(on) != year(today) {
+                    date = format!("{date}, {}", year(on));
+                }
+                let name = match today - on {
+                    0 => Some("Today"),
+                    1 => Some("Yesterday"),
+                    _ => None,
+                };
+                days.push((
+                    on,
+                    Day {
+                        name,
+                        date,
+                        notes: vec![note],
+                    },
+                ));
+            }
+        }
+    }
+    Ok(Some(Notes {
+        days: days.into_iter().map(|(_, day)| day).collect(),
+        older,
+    }))
+}
+
+/// One note in full: `cairn show <ID> --json` run in `cwd`, which takes saved records into
+/// cairn's database first; or `cairn show <ID>: ` and the first line of why not.
+pub fn note(
+    program: &str,
+    cwd: &str,
+    id: &str,
+    offset: &dyn Fn(i64) -> i64,
+    cancel: &AtomicBool,
+) -> Result<Full, String> {
+    let out = match run(program, &["show", id, "--json"], cwd, cancel) {
+        Ok(out) => out,
+        Err(Trouble::Missing) => return Err(format!("cairn show {id}: cairn is not installed")),
+        Err(Trouble::Failed(why) | Trouble::Unknown(why)) => return Err(why),
+    };
+    let unexpected = || format!("cairn show {id}: unexpected output");
+    let record = serde_json::from_slice::<Record>(&out).map_err(|_| unexpected())?;
+    let saved = |record: &Record| {
+        let at = unix(&record.created_at)? as i64;
+        let local = at + offset(at);
+        let (year, month, day) = activity::date(local.div_euclid(DAY));
+        let of_day = local.rem_euclid(DAY);
+        Some(format!(
+            "{} {day}, {year} at {:02}:{:02}:{:02}",
+            MONTHS[month as usize - 1],
+            of_day / 3600,
+            of_day % 3600 / 60,
+            of_day % 60
+        ))
+    };
+    let correction = match record.correction.as_deref() {
+        Some(correction) => Some((
+            saved(correction).ok_or_else(unexpected)?,
+            correction.body.clone(),
+        )),
+        None => None,
+    };
+    Ok(Full {
+        saved: saved(&record).ok_or_else(unexpected)?,
+        by: by(&record.agent),
+        session: record
+            .session_id
+            .map(|session| session.chars().take(8).collect()),
+        branch: record.branch.filter(|branch| !branch.is_empty()),
+        body: record.body,
+        correction,
+    })
+}
+
+/// Who saved a record, from what cairn calls its agent: `local` is none of them, a save by hand
+/// or a correction the user wrote; one cairn learns of later goes by its own name.
+fn by(agent: &str) -> String {
+    match agent {
+        "claude" => "Claude",
+        "codex" => "Codex",
+        "local" => "Manual",
+        other => other,
+    }
+    .to_owned()
 }
 
 /// What the tab shows of `text`, what `cairn show` gives a session: from its first section, a line
@@ -290,22 +555,30 @@ pub fn adopt(program: &str, cwd: &str, cancel: &AtomicBool) -> Result<(), String
     match run(program, &["adopt"], cwd, cancel) {
         Ok(_) => Ok(()),
         Err(Trouble::Missing) => Err("cairn adopt: cairn is not installed".into()),
-        Err(Trouble::Failed(why)) => Err(why),
+        Err(Trouble::Failed(why) | Trouble::Unknown(why)) => Err(why),
     }
 }
 
 /// Runs `cairn` with `args` in `cwd`: what it printed, or why not, as `cairn <command>: ` and the
-/// first line of what it said.
+/// first line of what it said, the command being the words before its first option (`show`,
+/// `show <ID>`).
 fn run(program: &str, args: &[&str], cwd: &str, cancel: &AtomicBool) -> Result<Vec<u8>, Trouble> {
-    let failed = |why: &str| Trouble::Failed(format!("cairn {}: {why}", args[0]));
+    let words = args.iter().take_while(|arg| !arg.starts_with("--"));
+    let command = words.copied().collect::<Vec<_>>().join(" ");
+    let why = |why: &str| format!("cairn {command}: {why}");
+    let failed = |text: &str| Trouble::Failed(why(text));
     let started = Instant::now();
     match command::run(program, args, Some(Path::new(cwd)), TIMEOUT, cancel) {
         Ok(out) if out.status.success() => Ok(out.stdout),
-        Ok(out) => Err(failed(
-            &first_line(&out.stderr)
+        Ok(out) => {
+            let said = first_line(&out.stderr)
                 .or_else(|| first_line(&out.stdout))
-                .unwrap_or_else(|| out.status.to_string()),
-        )),
+                .unwrap_or_else(|| out.status.to_string());
+            Err(match out.status.code() {
+                Some(2) => Trouble::Unknown(why(&said)),
+                _ => failed(&said),
+            })
+        }
         Err(_) if started.elapsed() >= TIMEOUT => Err(failed("timed out")),
         Err(error) => {
             // A directory that is gone fails to start a command the same way a missing one does.

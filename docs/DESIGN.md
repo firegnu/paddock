@@ -43,7 +43,7 @@ paddock 与 Saddle 在代码上完全分开：用到的 Saddle 代码迁入 padd
   | `corral` 命令（`ls`/`status`/`attach`/`start`/`stop` 等）及其 JSON 输出 | ranch（迁入前随 Saddle 安装） | 照公开格式调用；格式变化时 paddock 跟进 |
   | 插件协议 | ranch（迁入前在 Saddle） | paddock 做自己的插件系统：进程、命令、生命周期部分沿用这份协议，界面部分 paddock 自定（下文“插件”） |
   | 遥测命令（迁入前是 `saddle telemetry …`）、Drover 的公开命令 | 遥测归 ranch；Drover 在 Saddle（第 8 步再定） | 需要时照公开命令调用 |
-  | `cairn` 命令（PATH 上的 `cairn`）及其 JSON 输出 | 独立仓库 `../cairn` | 只调用 `cairn status --json`、`cairn show --json`、`cairn adopt` 三条（P5-55）；不读它的数据库、配置和 hook 文件，不装不卸 hook。这三条的输出从 cairn 0.2.0 起是它的公开约定（cairn DESIGN §7.1，只加不改）：`status --json` 的 `agents.*.installed`、`agents.*.last_seen`（P5-78）、`project.status`、`spool.pending_json`，`show --json` 的 `text`、`record_ids` 和 `{"status":"no_data"}`，`adopt` 的退出码。不认识的字段忽略；0.1.0 没有 `last_seen`，照样能用 |
+  | `cairn` 命令（PATH 上的 `cairn`）及其 JSON 输出 | 独立仓库 `../cairn` | 只调用 `cairn status --json`、`cairn show --json`、`cairn adopt` 三条（P5-55），和 cairn 0.3.0 起的 `cairn list --json --limit N`、`cairn show <ID> --json` 两条（P5-79）；不读它的数据库、配置和 hook 文件，不装不卸 hook。前三条的输出从 cairn 0.2.0 起是它的公开约定（cairn DESIGN §7.1，只加不改）：`status --json` 的 `agents.*.installed`、`agents.*.last_seen`（P5-78）、`project.status`、`spool.pending_json`，`show --json` 的 `text`、`record_ids` 和 `{"status":"no_data"}`，`adopt` 的退出码。后两条是 0.3.0 加进同一份约定的：`list --json` 的 `total` 和 `records` 里每条的 `id`、`created_at`、`agent`、`branch`、`kind`、`summary`（只读，不收取暂存区）；`show <ID> --json` 的 `created_at`、`agent`、`session_id`、`branch`、`body` 和 `correction`（同样的字段；它会先收取暂存区）。不认识的字段忽略；0.1.0 没有 `last_seen`，0.2.0 及更早的 `list` 不认识 `--json`（退出码 2），都照样能用 |
 
 - **运行时要求**：机器上要有 `corral` 命令，由 ranch 安装（`~/.local/bin/corral` → `~/.local/share/ranch/versions/…/bin/corral`，10-05 起）；paddock 不需要 Saddle TUI 在运行。
 - **单独分发**（用户 10-05 定）：paddock 要能不装 Saddle 单独使用，所需的运行时随 paddock 打包（见下一条）。
@@ -475,10 +475,24 @@ paddock 与 Saddle 在代码上完全分开：用到的 Saddle 代码迁入 padd
     - 已采用，有记录：正文。
   - 正文：`show` 的 `text` 从第一个以 `### ` 开头的行起显示（前面是写给 agent 的约定说明），找不到这样的行就全文；按 Markdown 画（`markdown.rs`），能上下滚动，不解析里面的内容。cairn 的标题层级是反的，所以三级标题画成淡的分节小标题加一条细线，其余级别画成加粗小标题。段落和列表项里的换行照换行画（“现场对比”一行一条事实），`markdown.rs` 为此加了一个入口，Kanban 的 Preview 仍把换行并成空格。很长的词在行尾任意处折行。
   - Adopt：点 `Adopt…`，说明换成确认卡片（标题带仓库名、仓库路径、立即生效的那段话、派出去的 agent 不受影响和用 `cairn unadopt` 撤回、`Cancel`／`Adopt`）；点 `Adopt` 才在这个窗格的目录里后台跑 `cairn adopt`，跑完马上重读（成功后卡片上写 `Adopted`，等重读回来换成已采用的样子）；失败就在卡片里显示错误的第一行，卡片留着，可以再点 `Adopt` 或 `Cancel`。点 `Cancel`、窗格换了仓库、切走标签或收起右侧栏，卡片收起。这是面板唯一的写操作。
-  - 不做：历史记录列表、点开单条记录、Unadopt、更正／撤回／删除记录、安装或卸载 cairn 和 hook 的按钮、手动刷新按钮、设置项、`cairn` 路径的配置项。
+  - 不做：Unadopt、更正／撤回／删除记录、安装或卸载 cairn 和 hook 的按钮、手动刷新按钮、设置项、`cairn` 路径的配置项。（历史记录列表、点开单条记录当时也不做，后来由 P5-79 做了；上面“只用三条命令”和“正文”两条也以 P5-79 为准。）
 - **Cairn 标签的状态行写出每家 hook 最近一次触发离现在多久（P5-78）**（用户 10-10 做 P5-55 时要“来确定cairn工作正常”；P5-55 的勾只说明 hook 写进了配置，分不出“装了但没触发”，比如 Codex 的 hook 没在 `/hooks` 里信任。cairn 那一半用户让主控直接在 cairn 仓库做：“我觉得你直接再cairn中干吧…问题不要最小化操作。就是一次解决。”，即 cairn 0.2.0 的 `last_seen`。面板的画法主控给了建议，用户：“P5-78都按你的建议来，开始做吧”）：
   - 读 `cairn status --json` 里每家的 `last_seen`（当前仓库里四种 hook 事件各自最近一次被 cairn 处理的时间，没有是 `null`），取四个里最晚的一个，不分开列。
   - 只在已采用的仓库、装了 hook 的那一家画：有时间，勾后面用淡色写离读取时多久，写法和卡片上的时长一样（`45s`、`2m`、`3.0h`、`10d`）；四个都是 `null`，勾换成黄色的 `never`。没采用的仓库 cairn 什么都不记，所以不画 `never`，照 P5-55 的样子。
   - 旧版 cairn（没有这个字段）、时间读不出来：当作不知道，照 P5-55 的样子画，不算出错。
   - `never` 不一定是 hook 坏了（cairn DESIGN §8.7）：带 `CAIRN_DISABLE=1` 的会话不记（派出去的 agent 都带），hook 触发了但处理出错也不记。面板不解释（用户定），不放心时跑 `cairn status`。
   - 时间跟着面板每 5 秒一次的读取更新：读的时候算成文字，文字变了才重画，不另起定时器；所以最多晚 5 秒。
+- **Cairn 标签正文改成一条条记录的列表，点开看单条（P5-79，改 P5-55 的“正文”）**（用户 10-10 看了 P5-55 的整段原文后：“这块的界面要整理一下，现在的太乱了。我不知道展示的是什么信息。而且没有cairn中的我理解是不是一条条的item，然后可以按照时间点开看这种。而且你要让我看得懂，这条记录是什么时间之类的。这个你要好好规划一下展示”；更早一次对同一块：“我看不懂这个”。主控出了样稿 `docs/设计稿/P5-79-Cairn记录列表/`、列了三处要定的事（就地展开、cairn 那一半交给 cairn 主控、现场对比只留在底部原文里），用户：“都按你的建议来，写任务文件吧”）：
+  - 读：`status --json`、`show --json` 和各状态的判断照 P5-55。已采用、至少一家装了 hook、`show` 不是 `no_data` 时，在 `show --json` 之后（它会收取刚存的记录）再跑只读的 `cairn list --json --limit 50`；列表里只留 `kind` 是 `checkpoint` 的，更正、撤回、恢复和不认识的种类不画。点开某条时才跑 `cairn show <ID> --json` 读全文。
+  - 旧版 cairn（`list --json` 退出码 2）：不算出错，正文照 P5-55 的样子只画那段原文，不折叠。`list` 退出码 1、读不出 `total`／`records`、某条记录的时间读不出：和别的命令出错一样画 `Could not read cairn`。
+  - 顶上两行和没装 cairn、没装 hook、没采用、出错、Adopt 确认这些状态不变。已采用但 `record_ids` 为空、列表里也没有一条 checkpoint：照旧 `No records yet`。
+  - 标题一行 `Handover notes`，下面一行小字说明。不写条数：cairn 的 `total` 把更正、撤回也算在内，对不上画出来的条数。
+  - 记录按本机时区的日期分组，新的在上。组头：今天 `Today`、昨天 `Yesterday`，后面淡色写日期（`Sat, Oct 10`）；更早的只写日期；不是今年的带年份（`Wed, Dec 31, 2025`）。
+  - 每条第一行：折叠箭头、本地时间 `17:44`（等宽字）、今天的记录后面淡色写离读取时多久（写法同 Hooks 那行再加 ` ago`，更早的不写）、右边哪家（`claude` 写 `Claude`、`codex` 写 `Codex`、`local` 写 `Manual`，别的值原样写）和分支小签（没有分支不画）；下面是摘要，最多两行，没有摘要就不画这一行。
+  - `show --json` 的 `record_ids` 里的记录（下次会话会接到的）画成高亮卡片：强调色的淡底和细边，顶上一行 `→ Next session starts from this`，摘要最多三行。
+  - 点一条就地展开（摘要换成全文），再点收起，同时只开一条；窗格换了仓库就收起，`Show older` 加出来的条数和底部原文的展开也一并复位。展开后先 `Saved`（`Oct 10, 2026 at 17:44:51`）、`By`（`Claude, session bfb02923`，没有会话编号只写哪家）、`Branch`（没有分支不画这一行）、`Record` 几行，再是正文，按 Markdown 画（画法同 P5-55 的正文，小标题和正文一样大）；`body` 是 `null` 就只有那几行。有更正时正文后加一条细线、一行淡色的 `Corrected` 加更正的保存时间，再画更正的正文。全文没读到时写 `Loading…`；读失败在展开处写 `cairn show <编号>: ` 加错误第一行，列表照常，收起再点开会重读。
+  - 读到的全文留着，标签开着期间不重复读；切走标签或收起右侧栏就放掉，回来时开着的那条重读一次（更正是后来才有的，这样能看到）。
+  - 列表末尾：`records` 的条数比 `total` 少时一个 `Show older`，点了把 `--limit` 加 50 马上重读。
+  - 最下面一行收起的 `Exact text the next session receives`：列表短时贴在面板底部，点开在它下面画 P5-55 的那段原文（画法原样，含“现场对比”），再点收起；主界面不单独画“现场对比”和“之后观测到的事件”。列表、展开的全文和这段原文在同一个滚动区里。
+  - 离现在多久的文字和 P5-78 一样在读的时候算好，读到的东西变了才重画，最多晚 5 秒。
+  - 不做：被撤回、被取代记录的显示和筛选；更正、撤回、删除记录；搜索、按 agent 或分支筛选；点开底部原文或某条记录时自动滚到它。
