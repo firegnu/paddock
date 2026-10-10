@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Cairn tab, adopted with records</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#cba6f7}a:hover{color:#ddc3fb}
+button{font:inherit;color:inherit;cursor:pointer;background:none;border:0;padding:0}
+</style>
+</helmet>
+<div style="width: 400px; height: 1120px; box-sizing: border-box; background: #181825; font-family: -apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif; color: #cdd6f4; font-size: 13px; display: flex; flex-direction: column">
+
+  <div style="display: flex; align-items: center; gap: 4px; padding: 10px 12px 6px">
+    <span style="padding: 6px 10px; font-size: 12.5px; color: #a6adc8">± Changes</span>
+    <span style="padding: 6px 10px; font-size: 12.5px; color: #a6adc8">Browser</span>
+    <span style="padding: 6px 10px; font-size: 12.5px; color: #a6adc8">Kanban</span>
+    <span style="display: flex; align-items: center; gap: 6px; padding: 6px 10px; font-size: 12.5px; color: #cdd6f4; background: #313244; border-radius: 8px; font-weight: 600"><svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"><ellipse cx="6" cy="9.6" rx="4.6" ry="1.6"></ellipse><ellipse cx="6" cy="6" rx="3.2" ry="1.5"></ellipse><ellipse cx="6" cy="2.7" rx="1.9" ry="1.3"></ellipse></svg>Cairn</span>
+  </div>
+
+  <div style="display: flex; align-items: center; gap: 8px; padding: 6px 14px 10px">
+    <svg aria-hidden="true" width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="#a6adc8" stroke-width="1.4" stroke-linejoin="round"><path d="M2 4.5h4l1.5 1.5H14v6.5H2z"></path></svg>
+    <span style="font-weight: 600; font-size: 14px">paddock</span>
+    <span style="padding: 1px 7px; border-radius: 999px; background: rgba(205,214,244,0.06); font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #a6adc8">main</span>
+    <span style="flex: 1"></span>
+    <span style="display: flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; background: rgba(166,227,161,0.12); color: #a6e3a1; font-size: 11.5px; font-weight: 600"><span style="width: 6px; height: 6px; border-radius: 3px; background: #a6e3a1"></span>Adopted</span>
+  </div>
+
+  <div style="display: flex; align-items: center; gap: 12px; padding: 0 14px 11px; border-bottom: 1px solid rgba(205,214,244,0.06); font-size: 12px; color: #a6adc8">
+    <span style="color: #7f849c">Hooks</span>
+    <span style="display: flex; align-items: center; gap: 5px">Claude<svg role="img" aria-label="installed" width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="#a6e3a1" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 6.4l2.3 2.3 4.7-5"></path></svg></span>
+    <span style="display: flex; align-items: center; gap: 5px">Codex<svg role="img" aria-label="installed" width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="#a6e3a1" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 6.4l2.3 2.3 4.7-5"></path></svg></span>
+    <span style="flex: 1"></span>
+    <span style="color: #7f849c">0 uncollected</span>
+  </div>
+
+  <div lang="zh" style="padding: 4px 16px 20px; display: flex; flex-direction: column; line-height: 1.55; color: #cdd6f4">
+
+    <div style="display: flex; align-items: center; gap: 10px; margin: 14px 0 8px; font-size: 11.5px; font-weight: 600; letter-spacing: 0.04em; color: #9399b2"><span>本工作线</span><span style="flex: 1; height: 1px; background: rgba(205,214,244,0.07)"></span></div>
+    <p style="margin: 0; font-size: 12.5px; color: #bac2de; overflow-wrap: anywhere">记录 01M4K2R7T9XQ4C8NVB3HZD6WEA · 来源 claude:5f0c9a1e-7b42-4d3a-9e61-2c8d0b7a4f13 · main · 8 分钟前（2026-10-10T07:17:41.865Z）</p>
+
+    <h2 style="margin: 16px 0 4px; font-size: 13.5px; font-weight: 600; color: #e2e7f8">停点</h2>
+    <p style="margin: 0">P5-77d 已合并安装，等用户重开 paddock 看效果。main 和 origin 同步，没有进行中的分支和 worktree。</p>
+
+    <h2 style="margin: 16px 0 4px; font-size: 13.5px; font-weight: 600; color: #e2e7f8">已完成及验证</h2>
+    <div style="display: flex; flex-direction: column; gap: 4px">
+      <div style="display: flex; gap: 8px"><span style="flex-shrink: 0; width: 4px; height: 4px; margin-top: 8px; border-radius: 2px; background: #7f849c"></span><span>P5-77d：两枚名字签都固定在输入框右上角；533 项测试全过，clippy、fmt 干净。没起窗口看过。</span></div>
+      <div style="display: flex; gap: 8px"><span style="flex-shrink: 0; width: 4px; height: 4px; margin-top: 8px; border-radius: 2px; background: #7f849c"></span><span>P5-53 已 <code style="padding: 1px 5px; border-radius: 4px; background: rgba(205,214,244,0.07); font-family: 'JetBrains Mono', monospace; font-size: 11.5px">cairn adopt</code>，和全量 HANDOFF 并存试点。</span></div>
+    </div>
+
+    <h2 style="margin: 16px 0 4px; font-size: 13.5px; font-weight: 600; color: #e2e7f8">下一步（建议，非授权）</h2>
+    <div style="display: flex; flex-direction: column; gap: 4px">
+      <div style="display: flex; gap: 8px"><span style="flex-shrink: 0; width: 4px; height: 4px; margin-top: 8px; border-radius: 2px; background: #7f849c"></span><span>用户看过 P5-77d 后，把原话记进 HANDOFF。</span></div>
+      <div style="display: flex; gap: 8px"><span style="flex-shrink: 0; width: 4px; height: 4px; margin-top: 8px; border-radius: 2px; background: #7f849c"></span><span>然后是 P5-55：先出样稿，再写正式任务文件。</span></div>
+    </div>
+
+    <h2 style="margin: 16px 0 4px; font-size: 13.5px; font-weight: 600; color: #e2e7f8">待用户决定</h2>
+    <div style="display: flex; gap: 8px"><span style="flex-shrink: 0; width: 4px; height: 4px; margin-top: 8px; border-radius: 2px; background: #7f849c"></span><span>P5-77d 在右边够不够醒目。</span></div>
+
+    <h2 style="margin: 16px 0 4px; font-size: 13.5px; font-weight: 600; color: #e2e7f8">用户原话与边界（模型转述，可能有误）</h2>
+    <div style="display: flex; gap: 8px"><span style="flex-shrink: 0; width: 4px; height: 4px; margin-top: 8px; border-radius: 2px; background: #7f849c"></span><span>“现在追随光标我觉得有点影响我。我想使用右边那个方案。”</span></div>
+
+    <h2 style="margin: 16px 0 4px; font-size: 13.5px; font-weight: 600; color: #e2e7f8">未落盘的讨论要点</h2>
+    <div style="display: flex; gap: 8px"><span style="flex-shrink: 0; width: 4px; height: 4px; margin-top: 8px; border-radius: 2px; background: #7f849c"></span><span>HANDOFF 里约三分之一是进度，其余以后可拆去别处，试点后再定。</span></div>
+
+    <p style="margin: 16px 0 0">之后观测到的事件：0 个回合结束时没有确认；未观测到会话结束（可能仍在运行、hook 未触发或异常退出，无法区分）。</p>
+
+    <div style="display: flex; align-items: center; gap: 10px; margin: 20px 0 8px; font-size: 11.5px; font-weight: 600; letter-spacing: 0.04em; color: #9399b2"><span>现场对比</span><span style="flex: 1; height: 1px; background: rgba(205,214,244,0.07)"></span></div>
+    <p style="margin: 0; overflow-wrap: anywhere">相对记录 01M4K2R7T9XQ4C8NVB3HZD6WEA：<br>HEAD 比记录时多 2 个提交<br>相对本地 upstream ref origin/main ahead 0 / behind 0（只基于本地 ref，不代表远端实际状态）<br>当前有 0 个已暂存 / 0 个未暂存 / 2 个未跟踪文件<br>现场变化不说明记录叙述过时。</p>
+
+    <p style="margin: 12px 0 0">未显示的来源：0；查看 <code style="padding: 1px 5px; border-radius: 4px; background: rgba(205,214,244,0.07); font-family: 'JetBrains Mono', monospace; font-size: 11.5px">cairn list --line</code>。</p>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":400,"height":1120}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>
