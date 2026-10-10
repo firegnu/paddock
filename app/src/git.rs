@@ -33,6 +33,8 @@ pub struct Changes {
 /// Read-only Git state of one worktree; `None` fields could not be determined.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Summary {
+    /// The repository's main worktree, read with the summary; unknown when Git cannot tell.
+    pub main_repository: Option<PathBuf>,
     pub head: Head,
     /// Commits on HEAD beyond the base: local main, or the upstream when on main.
     pub ahead: Option<(u64, String)>,
@@ -142,6 +144,10 @@ impl Worktree<'_> {
             .filter(|o| o.status.success())
             .map(|o| o.stdout.iter().filter(|b| **b == 0).count() as u64);
         Summary {
+            main_repository: self
+                .top
+                .to_str()
+                .and_then(|cwd| crate::activity::main_repository(self.program, cwd, self.cancel)),
             head,
             ahead,
             changes,

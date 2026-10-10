@@ -536,7 +536,9 @@ fn details(
 #[derive(Clone, Debug)]
 pub struct Card {
     pub name: String,
-    /// The name without its group prefix.
+    /// Repository group name, falling back to the agent name's prefix.
+    pub group: String,
+    /// The name without its prefix, unless another card in its group has the same short name.
     pub short: String,
     pub status: Status,
     pub look: Look,
@@ -632,23 +634,34 @@ pub fn lines(
         .into_iter()
         .collect();
     let ordered = panel.ordered(now);
+    let mut short_counts = std::collections::HashMap::new();
+    for agent in &ordered {
+        let short = &agent.name[group(&agent.name).len()..];
+        *short_counts.entry((panel.group(agent), short)).or_insert(0) += 1;
+    }
     let mut previous = None;
     for (index, a) in ordered.iter().enumerate() {
-        let prefix = group(&a.name);
-        if previous != Some(prefix) {
+        let project = panel.group(a);
+        if previous != Some(project) {
             let mut bar: Vec<Status> = ordered[index..]
                 .iter()
-                .take_while(|agent| group(&agent.name) == prefix)
+                .take_while(|agent| panel.group(agent) == project)
                 .map(|agent| panel.shown(agent, now))
                 .collect();
             bar.sort_by_key(|status| bar_rank(*status));
-            let title = if prefix.is_empty() { "agents/" } else { prefix };
-            lines.push(Line::Group(title.to_owned(), bar.len(), bar));
-            previous = Some(prefix);
+            let title = if project.is_empty() {
+                "agents"
+            } else {
+                project
+            };
+            lines.push(Line::Group(format!("{title}/"), bar.len(), bar));
+            previous = Some(project);
         }
-        lines.push(Line::Agent(Box::new(card(
-            panel, a, prefix, selected, here, home, now,
-        ))));
+        let mut card = card(panel, a, group(&a.name), selected, here, home, now);
+        if short_counts[&(project, card.short.as_str())] > 1 {
+            card.short.clone_from(&a.name);
+        }
+        lines.push(Line::Agent(Box::new(card)));
     }
     lines
 }
@@ -685,6 +698,7 @@ fn card(
     };
     Card {
         name: a.name.clone(),
+        group: panel.group(a).to_owned(),
         status,
         selected: selected == Some(a.name.as_str()),
         expanded: panel.expanded.contains(&a.name),
@@ -766,6 +780,7 @@ mod tests {
 
     fn summary(added: u64, deleted: u64) -> Option<Summary> {
         Some(Summary {
+            main_repository: None,
             head: Head::Branch("p2d-render".into()),
             ahead: Some((2, "main".into())),
             changes: Some(Changes {
@@ -985,6 +1000,7 @@ mod tests {
         // Changes from Git: none counted means none shown; binary files stay in the details.
         let git = |added, deleted, binary| {
             Some(Summary {
+                main_repository: None,
                 head: Head::Branch("main".into()),
                 ahead: Some((0, "origin/main".into())),
                 changes: Some(Changes {
@@ -1424,6 +1440,7 @@ mod tests {
         );
         assert_eq!(cards[1].details.path.as_deref(), Some("/w/p/b"));
         let clean = Summary {
+            main_repository: None,
             head: Head::Branch("main".into()),
             ahead: Some((1, "origin/main".into())),
             changes: Some(Changes {

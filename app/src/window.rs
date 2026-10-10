@@ -4486,13 +4486,14 @@ impl PaddockWindow {
                 .next()
                 .unwrap_or(&item.label)
                 .to_owned();
-            let project = crate::agents::group(&item.label)
-                .trim_end_matches('/')
-                .to_owned();
             let agent = item
                 .agent
                 .as_ref()
                 .and_then(|name| agents.iter().find(|a| &a.name == name));
+            let project = agent
+                .map(|agent| self.sidebar.read(cx).panel().group(agent))
+                .unwrap_or_default()
+                .to_owned();
             // Since the agent came to this state, when corral says.
             let age = agent
                 .and_then(|agent| agent.state_started)
@@ -4955,7 +4956,7 @@ impl PaddockWindow {
                 let now = now();
                 let home = std::env::var("HOME").ok();
                 let groups = search::everything(
-                    &search::agents(&agents, now, home.as_deref()),
+                    &search::agents(self.sidebar.read(cx).panel(), now, home.as_deref()),
                     &self.tab_rows(&agents, now, cx),
                     &search::settings(),
                     &palette.commands,
@@ -5598,10 +5599,8 @@ impl PaddockWindow {
                 }
                 Choice::Agent(name) => {
                     let color = self.fg(dot(&Shown::Agent(name.clone()), &agents, now));
-                    let kind = agents
-                        .iter()
-                        .find(|a| &a.name == name)
-                        .and_then(|a| a.kind.as_deref());
+                    let agent = agents.iter().find(|a| &a.name == name);
+                    let kind = agent.and_then(|a| a.kind.as_deref());
                     let (ground, hovered) = if lit {
                         (popover::lit(theme), None)
                     } else {
@@ -5611,7 +5610,10 @@ impl PaddockWindow {
                     };
                     let dot = self.agent_mark(kind, color, ground, hovered, &ui);
                     let short = name.rsplit('/').next().unwrap_or(name).to_owned();
-                    let project = crate::agents::group(name).trim_end_matches('/').to_owned();
+                    let project = agent
+                        .map(|agent| self.sidebar.read(cx).panel().group(agent))
+                        .unwrap_or_default()
+                        .to_owned();
                     popover::lead_row(theme, &ui, id, dot, lit)
                         .child(
                             div()

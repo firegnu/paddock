@@ -104,6 +104,7 @@ fn worktrees_report_branch_commits_against_base_uncommitted_lines_and_untracked_
     assert_eq!(
         get(&cwds[0]),
         Some(Summary {
+            main_repository: Some(main.canonicalize().unwrap()),
             head: Head::Branch("main".into()),
             ahead: Some((1, "origin/main".into())),
             changes: changes(0, 0, 0),
@@ -111,6 +112,7 @@ fn worktrees_report_branch_commits_against_base_uncommitted_lines_and_untracked_
         })
     );
     let dev_summary = Some(Summary {
+        main_repository: Some(main.canonicalize().unwrap()),
         head: Head::Branch("dev".into()),
         ahead: Some((2, "main".into())),
         changes: changes(5, 1, 1),
@@ -149,6 +151,7 @@ fn undeterminable_fields_stay_unknown_instead_of_zero() {
     assert_eq!(
         get(0),
         Summary {
+            main_repository: Some(unborn.canonicalize().unwrap()),
             head: Head::Branch("main".into()),
             ahead: None,
             changes: None,
