@@ -520,6 +520,10 @@ impl TerminalView {
             self.quiet = None;
             cx.notify();
         }
+        // The name tag starts to fade with nothing else to draw it (`to_tag`).
+        if self.typing.due(Instant::now()) {
+            cx.notify();
+        }
         let changed = self
             .session()
             .is_some_and(|s| damage::take_changed(&mut s.screen.lock().unwrap().term));
@@ -577,37 +581,55 @@ impl TerminalView {
         cx.notify();
     }
 
-    /// Text from the keyboard for the program: the pane's name tag lights when it is the first
-    /// after a pause (`to_tag`).
+    /// Text from the keyboard for the program: the pane's name tag is lit while it comes
+    /// (`to_tag`).
     fn typed(&mut self, text: &str, cx: &mut Context<Self>) {
-        if self.typing.typed(text, Instant::now()) {
-            cx.notify();
-        }
+        self.typing.typed(text, Instant::now());
+        cx.notify();
     }
 
-    /// The typing goes to someone else than before through this pane: the next text lights its
-    /// name tag, whatever the pause.
-    pub fn rearm_tag(&mut self) {
-        self.typing.rearm();
+    /// The typing goes to someone else than before through this pane: its lit name tag goes at
+    /// once.
+    pub fn tag_elsewhere(&mut self) {
+        self.typing.elsewhere();
     }
 
-    /// How lit the pane's name tag is at `now`, 0 at rest to 1.
-    pub fn tag_glow(&self, now: Instant) -> f32 {
-        self.typing.glow(now)
+    /// How lit the pane's name tag is at `now`, 0 at rest to 1; how many points below its place
+    /// it is, sliding up; and whether it is on its way, to be drawn anew each frame.
+    pub fn tag_lit(&self, now: Instant) -> (f32, f32, bool) {
+        let typing = &self.typing;
+        (typing.glow(now), typing.rise(now), typing.moving(now))
     }
 
-    /// How far below the top of the terminal the top of the pane's name tag goes, `tag` tall, by
-    /// where the cursor is now; none for the terminal's lower right corner (see [`to_tag::top`]).
-    pub fn tag_top(&self, tag: f32) -> Option<f32> {
-        let line = self.metrics?.line_height;
+    /// Where a name tag `width` wide and `tag` tall goes in the terminal's area: how far from its
+    /// left and from its top. From `left` when given, as the tag at rest; else from the cursor's
+    /// cell, as the lit one ([`to_tag::left`]). On the nearest row above the cursor whose cells
+    /// there hold nothing ([`to_tag::free_row`]); none for the terminal's lower right corner.
+    pub fn tag_spot(&self, left: Option<f32>, width: f32, tag: f32) -> Option<(f32, f32)> {
+        let Metrics {
+            cell_width: cell,
+            line_height,
+        } = self.metrics?;
         let screen = self.session()?.screen.lock().unwrap();
-        let grid = screen.term.grid();
-        let row = to_tag::row_in_view(
-            grid.cursor.point.line.0,
-            grid.display_offset(),
-            screen.term.screen_lines(),
-        );
-        to_tag::top(row, line, tag)
+        let term = &screen.term;
+        let grid = term.grid();
+        let offset = grid.display_offset();
+        let cols = self.size.cols.min(term.columns() as u16);
+        let cursor = grid.cursor.point;
+        let row = to_tag::row_in_view(cursor.line.0, offset, term.screen_lines());
+        let left = left.unwrap_or_else(|| {
+            let room = f32::from(cols) * cell;
+            to_tag::left(cursor.column.0 as u16, cell, width, room)
+        });
+        // The cells the tag would cover on a row.
+        let first = (left / cell).floor() as u16;
+        let end = (((left + width) / cell).ceil() as u16).min(cols);
+        let free = |row: u16| {
+            let line = Line(i32::from(row) - offset as i32);
+            (first..end).all(|col| to_tag::blank(grid[line][Column(usize::from(col))].c))
+        };
+        let on = to_tag::free_row(row, free)?;
+        Some((left, to_tag::top_on(on, line_height, tag)))
     }
 
     fn paste(&mut self, text: &str, cx: &mut Context<Self>) {
@@ -676,6 +698,11 @@ impl TerminalView {
         }
         let application_cursor = self.mode().contains(TermMode::APP_CURSOR);
         if let Some(bytes) = keys::key_bytes(keystroke, application_cursor) {
+            // Enter alone sends what was typed: the name tag fades (`to_tag`).
+            let held = &keystroke.modifiers;
+            if keystroke.key == "enter" && !(held.shift || held.alt || held.control) {
+                self.typing.sent(Instant::now());
+            }
             self.write(bytes, cx);
             cx.stop_propagation();
         }
