@@ -60,7 +60,7 @@ cairn 那边写明的三个限制（cairn DESIGN §8.7），界面的措辞不�
 2026-10-10，paddock/main。
 
 - **做了什么**：`app/src/cairn.rs` 读每家的 `last_seen`，取最晚的一个，在读的时候算成 `Fired`（`Unknown`／`Never`／`Ago("2m")`），`Found` 多两个字段 `claude_fired`、`codex_fired`；`read` 多一个参数“现在几点”（测试用固定时间）。`app/src/cairn_view.rs` 状态行：有时间在勾后面淡色写多久，装了从没触发过把勾换成黄色 `never`，其余照旧。DESIGN §13 加一条、§3 的 cairn 一行改成公开约定的说法。
-- **验证**：先写测试并看到它因为没实现而失败（期望 `Ago("2m")`、`Never`，得到 `Unknown`），再实现。`app/tests/cairn.rs` 新增一项，用假 `cairn` 脚本：取四个里最晚的；秒、小时、天的写法；时间比本机钟还晚算 `0s`；没采用（`not_adopted`、`no_data`）和没装 hook 的那家是 `Unknown`；没有这个字段（旧版）是 `Unknown`；读不出来的时间是 `Unknown`。`cargo test --all-targets` 542 项通过，`cargo clippy --all-targets -- -D warnings`、`cargo fmt --check`、`git diff --check` 干净。
+- **验证**：先写测试并看到它因为没实现而失败（期望 `Ago("2m")`、`Never`，得到 `Unknown`），再实现。`app/tests/cairn.rs` 新增一项，用假 `cairn` 脚本：取四个里最晚的；秒、小时、天的写法；时间比本机钟还晚算 `0s`；没采用（`not_adopted`、`no_data`）和没装 hook 的那家是 `Unknown`；没有这个字段（旧版）是 `Unknown`；读不出来的时间是 `Unknown`。自查时发现年份离谱的时间会让算天数溢出（调试版会崩），补了用例（先看到它崩）并把年份限制在 1970 到 9999。`cargo test --all-targets` 542 项通过，`cargo clippy --all-targets -- -D warnings`、`cargo fmt --check`、`git diff --check` 干净。
 - **拿主意的地方**：
   - 时长在读的时候算成文字存进 `Found`，不存时间戳：面板只在读到的东西变了才重画，存时间戳的话 agent 闲着时画面上的“2m”会一直不动。
   - 时间自己解析（cairn 固定写 `2026-10-10T09:43:55.004Z` 这种），不为此加日期库；四个时间里有一个读不出来就整家当作不知道，不猜。
