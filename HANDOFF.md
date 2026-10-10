@@ -2,15 +2,15 @@
 
 只记长期状态：现在装的哪一版、下一步、悬着的事。每件活做了什么、怎么验的、用户怎么说，在 `docs/任务/<编号>…md`（完成记录、主控审查）和 git 的「合并」「收尾」提交里；设计和理由在 `docs/DESIGN.md`。10-09 起不再写按日期的流水账（之前的在 git 历史里，`git log -p HANDOFF.md`）。
 
-## 现在在哪（2026-10-09 晚）
+## 现在在哪（2026-10-10）
 
-- main 和 `origin/main`（`github.com/firegnu/paddock`，public）同步；没有进行中的活、没有 worktree，本地只有 main。工作区里三份未提交的草稿任务文件（P5-53～P5-55，看板 DRAFT；**有意留的，不要 `git add -A`**）。ranch 同样干净。corral 里有 `paddock/main`（本主控）、`cairn/main`（用户的）。
-- 510 项测试通过，clippy、`cargo fmt --check` 干净。`~/Applications/paddock.app` 是合并 P5-75 之后的版本（10-09 装，本机 Apple Development 证书签名）；P5-70～P5-75 用户都看过或试过，没问题。
+- main 和 `origin/main`（`github.com/firegnu/paddock`，public）同步；没有进行中的活、没有 worktree，本地只有 main。工作区里三份未提交的草稿任务文件（P5-53～P5-55，看板 DRAFT；**有意留的，不要 `git add -A`**）。ranch 同样干净。corral 里除 `paddock/main`（本主控）之外都是用户的。
+- 517 项测试通过，clippy、`cargo fmt --check` 干净。`~/Applications/paddock.app` 是合并 P5-76 之后的版本（10-10 装，本机 Apple Development 证书签名）；P5-76 分屏标签的图标叠成一摞卡片、前卡歪着，**待用户看**（要看的几处见下面“用户用到时顺带看”）；P5-70～P5-75 用户都看过或试过，没问题。
 - 重新打包安装：在 `app/` 下 `cargo build --release`，再 `cargo run --release --example bundle -- --install`（编译目录 `.target/main`）。打包默认选本机 Apple Development 身份，可用 `PADDOCK_SIGN_IDENTITY` 指定；退回 ad-hoc 时会提示授权会失效。
 - **paddock ctl 已部署**：`~/.local/bin/paddock` 链到 app 里的程序，重新打包后不用重建；技能正文改了要重跑 `paddock install-skills`（装在 `~/.claude/skills/paddock`、`~/.agents/skills/paddock`），已开着的 agent 要重开才看到。
 - 全局 `~/.local/bin/corral`、`ranch` 是 ranch `d55defb`（R2：派活和临时委派的 agent 带 `CAIRN_DISABLE=1`；支持 pause／resume）。
 - **cairn 已全局装进 Claude Code**（`~/.claude/settings.json` 里 4 个 hook 和放行 `cairn save` 的规则，改前备份 `~/.claude/settings.json.bak-20261008T082855…`）；只有 owlet `adopt` 了，**paddock 还没有**（`cairn status`：未采用），hook 在这里直接退出。卸掉：`cairn uninstall --agent claude`。
-- 已合并：第一至第三阶段、迁移 M0–M3、P4-1～P4-3、P5-1～P5-75（P5-52 只查明原因、改法用户暂不定；P5-53～P5-55 还是草稿）。
+- 已合并：第一至第三阶段、迁移 M0–M3、P4-1～P4-3、P5-1～P5-76（P5-52 只查明原因、改法用户暂不定；P5-53～P5-55 还是草稿）。
 - 上下文：`AGENTS.md`（规矩，含「开发方式」里的看板约定）、`docs/DESIGN.md`（§13 是界面改版的全部决定和用户原话）、`docs/背景与决策记录.md`、`docs/设计稿/`、`docs/调研/`。
 
 ## 下一步
@@ -24,6 +24,7 @@
 
 主控没法替用户试的只有真实悬停、拖动、键盘、输入法：
 
+- P5-76 分屏标签的卡片摞（主控和 dev 都没起窗口看过）：歪的方向和角度；各主题（尤其浅色）下卡片的深色边；原图转过以后清不清楚；状态点的位置；暂停的标签变淡时这一摞跟不跟着淡；两张时后面那张没压暗（只压暗第三张，照样稿）。
 - P5-61 Agent shell（新建面板第三行；只支持 zsh、bash）；P5-59 agent 窗格标题行里会话题目（`corral attach` 不转标题的话改读 `corral status` 的 `title`）。
 - P5-66 退出时只在 shell 有程序时才问（停在提示符 ⌘Q 直接退；跑着 `sleep 30` 或 `sleep 30 &` 时问）；P5-56 Settings 改了立即生效、Undo、“not installed”。
 - 10-07 那批：拖缝调大小和双击；⌘Z／⇧⌘Z 和输入法；标签“+N”菜单；四套新主题（Rosé Pine 光标偏暗）；ctl 的 busy、`--focus`、`--attach`；格子图扫光、光晕、呼吸；一键暂停（会冻住包括主控在内的全部 agent）。
