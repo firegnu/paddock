@@ -18,7 +18,7 @@
 1. **P5-53 试点中**（10-10 已 adopt，HANDOFF 全量保留、规矩没改）：10-24 前后和用户回看，定 HANDOFF 瘦不瘦、“先读 HANDOFF”改不改。owlet 试点情况：HANDOFF 减到只留稳定背景，重开后能准确说出停点、已完成、下一步、待用户决定。确认某次注入了没有：只读查 `~/.local/state/cairn/cairn.db` 的 injections 表（`sqlite3 -readonly`）；日常看 `cairn list`／`cairn show`。
 2. **P5-54** Browser 选中元素、Changes 选中 diff 写上要怎么改后送给 agent（优先：高）。主控提议（用户还没表态）：设计和交互样稿主控自己做；实现派 Claude Code 常规档，拆成 P5-54a Changes、P5-54b Browser（WKWebView 注入 JS 加 WKScriptMessageHandler，代码库里还没有），a 合并后再派 b；测试只用假 corral。下次从列出待定问题开始。
 3. **P5-79** Cairn 标签正文改成一条条记录的列表、点开看单条（用户 10-10：“这块的界面要整理一下，现在的太乱了。我不知道展示的是什么信息。而且没有cairn中的我理解是不是一条条的item，然后可以按照时间点开看这种。而且你要让我看得懂，这条记录是什么时间之类的。这个你要好好规划一下展示”；看过样稿和主控列的三处后：“都按你的建议来，写任务文件吧”）。样稿：claude.ai 私有画布「P5-79 Cairn 记录列表」和 `docs/设计稿/P5-79-Cairn记录列表/`。任务文件已写全但没提交：**等 cairn 出新版**（`cairn list --json`、单条记录的 JSON 进公开约定；需求 10-10 已 `corral send` 给 `cairn/main`，用户同意；它定了字段会 `corral send paddock/main`），字段补进任务文件「cairn 给的东西」一节、给用户看过，再提交、建 worktree `p5-79-cairn-notes`、派 Claude Code 常规档。Unadopt、更正／撤回记录用户没要。
-4. **P5-80** 同一个仓库的 agent 在左侧栏分在同一组（用户 10-10：“jbfine的两个codex，codex-1委派任务的时候倒是成功了，但是没有在一个jb-finetune下。”）。草稿，原因已查清（左侧栏按名字前缀分组，`jb-finetune/` 和 `jbfinetune/` 差一个短横），做法三选一等用户定（主控建议按仓库分组）。
+4. **P5-80** 同一个仓库的 agent 在左侧栏分在同一组（用户 10-10：“jbfine的两个codex，codex-1委派任务的时候倒是成功了，但是没有在一个jb-finetune下。”）。原因：左侧栏按名字前缀分组，`jb-finetune/` 和 `jbfinetune/` 差一个短横。用户：“P5-80按甲来，写任务文件吧”（甲：按 agent 启动目录所属的主仓库分组，不在仓库里的照旧按前缀）。任务文件已写全但没提交：等用户看过（尤其「主控拿的主意」四条）再提交、建 worktree `p5-80-repo-groups`、派 Codex 常规档。
 5. 以后：Changes 第二步（行上评论发给 agent、暂存、撤销，可能和 P5-54a 合并考虑）；Kanban 能拖来纠正（用户：排在后面）。
 
 ## 用户用到时顺带看（不用决定、不挡任何事）
