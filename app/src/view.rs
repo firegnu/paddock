@@ -601,11 +601,11 @@ impl TerminalView {
         (typing.glow(now), typing.rise(now), typing.moving(now))
     }
 
-    /// Where a name tag `width` wide and `tag` tall goes in the terminal's area: how far from its
-    /// left and from its top. From `left` when given, as the tag at rest; else from the cursor's
-    /// cell, as the lit one ([`to_tag::left`]). On the nearest row above the cursor whose cells
-    /// there hold nothing ([`to_tag::free_row`]); none for the terminal's lower right corner.
-    pub fn tag_spot(&self, left: Option<f32>, width: f32, tag: f32) -> Option<(f32, f32)> {
+    /// How far below the top of the terminal's area a name tag `width` wide and `tag` tall goes,
+    /// kept `end` in from the terminal's right ([`to_tag::flush_right`]): on the nearest row
+    /// above the cursor whose cells there hold nothing ([`to_tag::free_row`]); none for the
+    /// terminal's lower right corner.
+    pub fn tag_top(&self, width: f32, tag: f32, end: f32) -> Option<f32> {
         let Metrics {
             cell_width: cell,
             line_height,
@@ -615,21 +615,16 @@ impl TerminalView {
         let grid = term.grid();
         let offset = grid.display_offset();
         let cols = self.size.cols.min(term.columns() as u16);
-        let cursor = grid.cursor.point;
-        let row = to_tag::row_in_view(cursor.line.0, offset, term.screen_lines());
-        let left = left.unwrap_or_else(|| {
-            let room = f32::from(cols) * cell;
-            to_tag::left(cursor.column.0 as u16, cell, width, room)
-        });
-        // The cells the tag would cover on a row.
+        let row = to_tag::row_in_view(grid.cursor.point.line.0, offset, term.screen_lines());
+        // The cells the tag would cover on a row: from its left to the terminal's right.
+        let left = to_tag::flush_right(width, f32::from(cols) * cell, end);
         let first = (left / cell).floor() as u16;
-        let end = (((left + width) / cell).ceil() as u16).min(cols);
         let free = |row: u16| {
             let line = Line(i32::from(row) - offset as i32);
-            (first..end).all(|col| to_tag::blank(grid[line][Column(usize::from(col))].c))
+            (first..cols).all(|col| to_tag::blank(grid[line][Column(usize::from(col))].c))
         };
         let on = to_tag::free_row(row, free)?;
-        Some((left, to_tag::top_on(on, line_height, tag)))
+        Some(to_tag::top_on(on, line_height, tag))
     }
 
     fn paste(&mut self, text: &str, cx: &mut Context<Self>) {

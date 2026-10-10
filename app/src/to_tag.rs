@@ -1,8 +1,8 @@
-//! The name tag on the active pane's terminal (DESIGN §13 P5-77, P5-77c): who the typing goes to,
-//! by the input. At rest a faint capsule with the agent's name, at the left of the nearest free
-//! row above the cursor. While the pane is typed in, a larger, solid one over the cursor, with
-//! `To` and the session's topic: it slides up as the typing begins, follows the cursor, and fades
-//! three seconds after the last text or when Enter sends it. The rules live here: when it is
+//! The name tag on the active pane's terminal (DESIGN §13 P5-77, P5-77c, P5-77d): who the typing
+//! goes to, by the input. At rest a faint capsule with the agent's name, at the right of the
+//! nearest free row above the cursor. While the pane is typed in, a larger, solid one in its
+//! place, with `To` and the session's topic: it slides up as the typing begins, and fades three
+//! seconds after the last text or when Enter sends it. The rules live here: when it is
 //! lit, where the tags go and what they say. The window draws them (`window.rs`), the pane's
 //! view tells when it was typed in, where its cursor is and which rows are free (`view.rs`).
 use crate::layout::PaneId;
@@ -126,11 +126,11 @@ pub fn row_in_view(line: i32, offset: usize, rows: usize) -> Option<u16> {
     u16::try_from(row).ok().filter(|_| row < rows)
 }
 
-/// How far from the terminal's left the lit tag starts, `width` wide over a cursor on column
-/// `col` of cells `cell` wide: at the cursor's cell, and further left where it would reach out
-/// of the `room` the terminal has.
-pub fn left(col: u16, cell: f32, width: f32, room: f32) -> f32 {
-    (f32::from(col) * cell).min(room - width).max(0.0)
+/// How far from the terminal's left a tag `width` wide starts, kept to the right of the `room`
+/// the terminal has, `end` in from it: wherever the cursor is, not to move as the typing goes
+/// (P5-77d). From the terminal's left when there is no room for it.
+pub fn flush_right(width: f32, room: f32, end: f32) -> f32 {
+    (room - end - width).max(0.0)
 }
 
 /// Whether a cell showing `c` leaves a tag room: a space, or a line of a drawn box, as the
@@ -351,14 +351,13 @@ mod tests {
     }
 
     #[test]
-    fn the_lit_tag_starts_at_the_cursor_s_cell_and_gives_way_at_the_right() {
-        assert_eq!(left(0, 8.0, 200.0, 1000.0), 0.0);
-        assert_eq!(left(10, 8.0, 200.0, 1000.0), 80.0);
-        assert_eq!(left(100, 8.0, 200.0, 1000.0), 800.0);
-        // Past that it would reach out of the terminal: it stays in, left of the cursor.
-        assert_eq!(left(110, 8.0, 200.0, 1000.0), 800.0);
-        // Wider than the terminal, from its left.
-        assert_eq!(left(10, 8.0, 1200.0, 1000.0), 0.0);
+    fn a_tag_keeps_to_the_terminal_s_right_wherever_the_cursor_is() {
+        // Its right end ten points in from the terminal's.
+        assert_eq!(flush_right(200.0, 1000.0, 10.0), 790.0);
+        assert_eq!(flush_right(90.0, 1000.0, 10.0), 900.0);
+        // No room for it and the ten points: from the terminal's left.
+        assert_eq!(flush_right(995.0, 1000.0, 10.0), 0.0);
+        assert_eq!(flush_right(1200.0, 1000.0, 10.0), 0.0);
     }
 
     #[test]

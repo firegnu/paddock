@@ -4239,14 +4239,14 @@ impl PaddockWindow {
             .child(buttons)
     }
 
-    /// The name tags over the active pane's terminal (P5-77, P5-77c, see `to_tag`), for an agent
-    /// corral still lists: who the typing goes to, by the input. `inset` is the room above, below
-    /// and beside the terminal's view in what holds it. At rest a faint capsule at the left of the
-    /// nearest free row above the cursor: the kind's icon and the agent's whole name. While the
-    /// pane is typed in, and not while another window is the active one, a larger one in the
-    /// accent, from the cursor's cell on that row: `To`, the icon, the name in bold and the
-    /// session's topic, cut to the room the terminal leaves; it slides up as it begins. Nothing in
-    /// them listens, so the mouse reaches the terminal.
+    /// The name tags over the active pane's terminal (P5-77, P5-77c, P5-77d, see `to_tag`), for an
+    /// agent corral still lists: who the typing goes to, by the input. `inset` is the room above,
+    /// below and beside the terminal's view in what holds it. At rest a faint capsule at the right
+    /// of the nearest free row above the cursor: the kind's icon and the agent's whole name. While
+    /// the pane is typed in, and not while another window is the active one, a larger one in the
+    /// accent in its place: `To`, the icon, the name in bold and the session's topic, cut to the
+    /// room the terminal leaves; it slides up as it begins. Nothing in them listens, so the mouse
+    /// reaches the terminal.
     fn to_tag(
         &self,
         pane: PaneId,
@@ -4337,14 +4337,17 @@ impl PaddockWindow {
                 )
                 .children(label.topic.map(|topic| part().child(format!("· {topic}"))))
         };
-        // A tag where the view has room for it, `down` points below that; else in the terminal's
-        // lower right corner.
-        let place = |tag: Div, spot: Option<(f32, f32)>, down: f32| match spot {
-            Some((left, top)) => tag.left(px(left)).top(px(top + down)),
-            None => tag.right(px(TO_TAG_END)).bottom(px(-down)),
+        // A tag at the terminal's right, on the row the view has room for it, `down` points below
+        // that; else in the terminal's lower right corner.
+        let place = |tag: Div, top: Option<f32>, down: f32| {
+            let tag = tag.right(px(TO_TAG_END));
+            match top {
+                Some(top) => tag.top(px(top + down)),
+                None => tag.bottom(px(-down)),
+            }
         };
-        let spot = view.tag_spot(Some(TO_TAG_END), bare(false), ui.scale(TO_TAG[0]));
-        let rest = place(tag(to_tag::label(name, None, false)), spot, 0.0)
+        let on = view.tag_top(bare(false), ui.scale(TO_TAG[0]), TO_TAG_END);
+        let rest = place(tag(to_tag::label(name, None, false)), on, 0.0)
             .bg(ground)
             .border_color(text.opacity(TO_TAG_RIM))
             .text_color(self.fg(|t| t.agents_dimmer));
@@ -4360,8 +4363,8 @@ impl PaddockWindow {
             }
             let topic = label.topic.as_deref();
             let wide = taken + topic.map_or(0.0, |topic| gap + dotted(topic));
-            let spot = view.tag_spot(None, wide, ui.scale(TO_TAG[1]));
-            place(tag(label), spot, rise)
+            let on = view.tag_top(wide, ui.scale(TO_TAG[1]), TO_TAG_END);
+            place(tag(label), on, rise)
                 .bg(accent)
                 .border_color(accent)
                 .shadow_md()
