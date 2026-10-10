@@ -1,13 +1,19 @@
 //! The Cairn tab's reads and its Adopt, through a fake `cairn` and made-up JSON (DESIGN §13
 //! P5-55); never the real one.
 mod common;
-use paddock::cairn::{Adopting, Body, Found, Read, adopt, read, shown};
+use paddock::cairn::{Adopting, Body, Fired, Found, Read, adopt, read, shown};
 use std::{
     fs,
     path::{Path, PathBuf},
     process::Command,
     sync::atomic::AtomicBool,
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
+
+/// When the tab reads: 2026-10-10T09:45:00Z.
+fn now() -> SystemTime {
+    UNIX_EPOCH + Duration::from_secs(1_791_625_500)
+}
 
 /// A fake cairn that logs each call after the directory it ran in, and answers a command from the
 /// files beside it: `<command>.out`, `<command>.err` and `<command>.code`.
@@ -90,7 +96,7 @@ fn the_two_commands_tell_the_seven_states() {
     let (bin, repo, plain) = places(temp.path());
     let program = cairn(&bin);
     let none = AtomicBool::new(false);
-    let at = |place: &Path| read(&program, "git", dir(place), &none);
+    let at = |place: &Path| read(&program, "git", dir(place), now(), &none);
     let found = |place: &Path| match at(place) {
         Read::Found(found) => found,
         other => panic!("{other:?}"),
@@ -101,7 +107,7 @@ fn the_two_commands_tell_the_seven_states() {
     // 1. No cairn command.
     let missing = bin.join("no-such-cairn");
     assert_eq!(
-        read(dir(&missing), "git", dir(&repo), &none),
+        read(dir(&missing), "git", dir(&repo), now(), &none),
         Read::NotInstalled
     );
 
@@ -139,6 +145,8 @@ fn the_two_commands_tell_the_seven_states() {
             adopted: false,
             claude: false,
             codex: false,
+            claude_fired: Fired::Unknown,
+            codex_fired: Fired::Unknown,
             uncollected: 0,
             body: Body::NoHooks,
         })
@@ -333,4 +341,100 @@ fn adopt_runs_only_once_confirmed_in_the_panes_directory_and_says_why_it_failed(
     adopting.ask(&plain);
     adopting.finish(&repo, result);
     assert_eq!(adopting, Adopting::Asking(plain.clone()));
+}
+
+/// `cairn status --json` from cairn 0.2.0 in an adopted project unless `project` says otherwise:
+/// each agent with its hooks installed and `last_seen` as given.
+fn seen(claude: serde_json::Value, codex: serde_json::Value, project: &str) -> String {
+    serde_json::json!({
+        "agents": {
+            "claude": { "installed": true, "last_seen": claude },
+            "codex": { "installed": true, "last_seen": codex },
+        },
+        "project": { "status": project },
+        "spool": { "pending_json": 0 },
+    })
+    .to_string()
+}
+
+#[test]
+fn each_agents_hooks_tell_how_long_ago_they_last_ran_in_an_adopted_repository() {
+    let temp = common::tempdir();
+    let (bin, repo, _) = places(temp.path());
+    let program = cairn(&bin);
+    let none = AtomicBool::new(false);
+    let put = |file: &str, text: &str| fs::write(bin.join(file), text).unwrap();
+    let fired = |status: &str| {
+        put("status.out", status);
+        match read(&program, "git", dir(&repo), now(), &none) {
+            Read::Found(found) => (found.claude_fired, found.codex_fired),
+            other => panic!("{other:?}"),
+        }
+    };
+    put("show.out", "{\"status\":\"no_data\"}");
+    let never = serde_json::json!({
+        "SessionStart": null, "UserPromptSubmit": null, "Stop": null, "SessionEnd": null,
+    });
+    let ago = |text: &str| Fired::Ago(text.into());
+
+    // The latest of the four, written as the cards write ages; none of them is never.
+    let claude = serde_json::json!({
+        "SessionStart": "2026-10-10T08:50:43.687Z",
+        "UserPromptSubmit": "2026-10-10T09:41:02.118Z",
+        "Stop": "2026-10-10T09:42:55.004Z",
+        "SessionEnd": null,
+    });
+    assert_eq!(
+        fired(&seen(claude.clone(), never.clone(), "adopted")),
+        (ago("2m"), Fired::Never)
+    );
+    let hours = serde_json::json!({ "SessionStart": "2026-10-10T06:44:59.000Z" });
+    let days = serde_json::json!({ "Stop": "2026-09-30T09:45:00.000Z", "SessionEnd": null });
+    assert_eq!(
+        fired(&seen(hours, days, "adopted")),
+        (ago("3.0h"), ago("10d"))
+    );
+    // A clock a little behind cairn's is no time at all, and seconds count.
+    let ahead = serde_json::json!({ "Stop": "2026-10-10T09:45:07.250Z" });
+    let seconds = serde_json::json!({ "Stop": "2026-10-10T09:44:15.999Z" });
+    assert_eq!(
+        fired(&seen(ahead, seconds, "adopted")),
+        (ago("0s"), ago("45s"))
+    );
+
+    // Where the project is not adopted cairn records nothing, so "never" would say nothing.
+    for project in ["not_adopted", "no_data"] {
+        assert_eq!(
+            fired(&seen(claude.clone(), never.clone(), project)),
+            (Fired::Unknown, Fired::Unknown)
+        );
+    }
+    // An agent without its hooks has not run them, whatever an old row says.
+    let uninstalled = serde_json::json!({
+        "agents": {
+            "claude": { "installed": true, "last_seen": never },
+            "codex": { "installed": false, "last_seen": claude },
+        },
+        "project": { "status": "adopted" },
+        "spool": { "pending_json": 0 },
+    })
+    .to_string();
+    assert_eq!(fired(&uninstalled), (Fired::Never, Fired::Unknown));
+    // cairn before 0.2.0 does not say, and a time that cannot be read is not guessed at.
+    assert_eq!(
+        fired(&status(true, true, "adopted", 0)),
+        (Fired::Unknown, Fired::Unknown)
+    );
+    for odd in [
+        "yesterday",
+        "2026-13-10T09:42:55.004Z",
+        "2026-10-10 09:42:55",
+        "18446744073709551615-10-10T09:42:55.004Z",
+    ] {
+        let odd = serde_json::json!({ "Stop": odd, "SessionStart": "2026-10-10T09:42:55.004Z" });
+        assert_eq!(
+            fired(&seen(odd, never.clone(), "adopted")),
+            (Fired::Unknown, Fired::Never)
+        );
+    }
 }
