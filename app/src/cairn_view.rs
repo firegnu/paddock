@@ -1,12 +1,16 @@
-//! The right sidebar's Cairn tab: whether cairn is at work in the focused pane's directory, and
-//! what the next session there would be given, as `cairn.rs` reads them. cairn is read in the
-//! background while the tab shows: at once when it comes up or the pane's directory changes, then
-//! every few seconds. Under the repository's name and whether it has adopted cairn, a line of which
-//! agents have their hooks and how many saves wait to be taken in, then the text, drawn as
-//! Markdown. A repository that has not adopted it offers Adopt, which asks first; nothing else
-//! here changes anything (DESIGN §13 P5-55).
+//! The right sidebar's Cairn tab: whether cairn is at work in the focused pane's directory, the
+//! handover notes saved there, and what the next session would be given, as `cairn.rs` reads them.
+//! cairn is read in the background while the tab shows: at once when it comes up or the pane's
+//! directory changes, then every few seconds. Under the repository's name and whether it has
+//! adopted cairn, a line of which agents have their hooks and how many saves wait to be taken in,
+//! then the notes by the day they were saved on, the one the next session starts from set apart;
+//! a note opens in place to its full text, read when it is first opened, and at the foot the exact
+//! text the next session receives unfolds, drawn as Markdown. A repository that has not adopted
+//! cairn offers Adopt, which asks first; nothing else here changes anything (DESIGN §13 P5-55,
+//! P5-79).
 use crate::{
-    cairn::{self, Adopting, Body, Fired, Found, Read},
+    activity::local_offset,
+    cairn::{self, Adopting, Body, Fired, Found, Full, Note, Notes, Read, Records},
     fonts::UiFont,
     footer_icon::{self, Icon},
     markdown,
@@ -18,6 +22,7 @@ use gpui::{
     Render, Stateful, StyledText, Task, UnderlineStyle, Window, div, prelude::*, px, relative,
 };
 use std::{
+    collections::HashMap,
     path::{Path, PathBuf},
     rc::Rc,
     sync::{
@@ -37,6 +42,18 @@ const CODE: f32 = 0.07;
 /// The confirmation card's face in the text colour, and its edge in the accent.
 const CARD_FACE: f32 = 0.045;
 const CARD_EDGE: f32 = 0.34;
+/// The face and the edge, both in the accent, of the note the next session starts from; the
+/// ground of an open note's facts, in the ground colour on that one and in the text colour on the
+/// others; and the rule between two notes.
+const NEXT_FACE: f32 = 0.07;
+const NEXT_EDGE: f32 = 0.26;
+const FACTS_ON_NEXT: f32 = 0.55;
+const FACTS: f32 = 0.04;
+const BETWEEN: f32 = 0.05;
+/// How far in a note's words start: its arrow and the room after it.
+const INDENT: f32 = 18.0;
+/// The arrows that fold a note and the exact text.
+const ARROW: f32 = 10.0;
 
 /// What the window tells the tab every time it draws.
 pub struct Frame {
@@ -95,6 +112,18 @@ pub struct CairnView {
     watching: Option<(Task<()>, Arc<AtomicBool>)>,
     adopting: Adopting,
     home: Option<PathBuf>,
+    /// The repository the latest read found: what is below is about its notes, and starts over
+    /// when the pane is in another.
+    repo: Option<PathBuf>,
+    /// How many records cairn is asked for: a page, and one more with each Show older.
+    limit: usize,
+    /// The note that is open, by its id.
+    open: Option<String>,
+    /// The notes read in full since the tab came up, or why one could not be; `None` while one is
+    /// being read.
+    full: HashMap<String, Option<Result<Full, String>>>,
+    /// The exact text the next session receives is unfolded.
+    exact: bool,
 }
 
 impl CairnView {
@@ -109,6 +138,11 @@ impl CairnView {
             watching: None,
             adopting: Adopting::default(),
             home: std::env::var_os("HOME").map(PathBuf::from),
+            repo: None,
+            limit: cairn::PAGE,
+            open: None,
+            full: HashMap::new(),
+            exact: false,
         }
     }
 
@@ -119,11 +153,14 @@ impl CairnView {
         if moved || frame.active != self.active {
             self.cwd = frame.cwd;
             self.active = frame.active;
-            // Left for another tab or closed: a question still up is taken back.
+            // Left for another tab or closed: a question still up is taken back, and the notes
+            // read in full are let go, the open one to be read again on coming back.
             if !self.active {
                 changed |= self.adopting.follow(None);
+                self.full.clear();
             }
             self.watch(cx);
+            self.load(cx);
             changed |= moved;
         }
         if !Rc::ptr_eq(&frame.theme, &self.theme) {
@@ -153,11 +190,22 @@ impl CairnView {
         let stop = cancel.clone();
         let task = cx.spawn(async move |this, cx| {
             loop {
+                let Ok(limit) = this.update(cx, |view, _| view.limit) else {
+                    break;
+                };
                 let (dir, stop) = (cwd.clone(), stop.clone());
                 let read = cx
                     .background_executor()
                     .spawn(async move {
-                        cairn::read(cairn::PROGRAM, "git", &dir, SystemTime::now(), &stop)
+                        cairn::read(
+                            cairn::PROGRAM,
+                            "git",
+                            &dir,
+                            limit,
+                            SystemTime::now(),
+                            &local_offset,
+                            &stop,
+                        )
                     })
                     .await;
                 if this.update(cx, |view, cx| view.accept(read, cx)).is_err() {
@@ -170,8 +218,18 @@ impl CairnView {
     }
 
     /// A read came back: drawn when it differs, and a confirmation card that is not about what
-    /// it shows closes.
+    /// it shows closes. In another repository than the last, what was open folds and the list is
+    /// a page again.
     fn accept(&mut self, read: Read, cx: &mut Context<Self>) {
+        if let Read::Found(found) = &read
+            && found.repo != self.repo
+        {
+            self.repo = found.repo.clone();
+            self.limit = cairn::PAGE;
+            self.open = None;
+            self.full.clear();
+            self.exact = false;
+        }
         let repo = match &read {
             Read::Found(Found {
                 body: Body::NotAdopted(repo),
@@ -214,6 +272,53 @@ impl CairnView {
         })
         .detach();
         cx.notify();
+    }
+
+    /// A note was clicked: it opens, any other folding, and is read in full if it has not been;
+    /// the open one folds.
+    fn toggle(&mut self, id: &str, cx: &mut Context<Self>) {
+        if self.open.as_deref() == Some(id) {
+            self.open = None;
+        } else {
+            self.open = Some(id.to_owned());
+            self.load(cx);
+        }
+        cx.notify();
+    }
+
+    /// Reads the open note in full, in the background, in the directory shown, unless it has been
+    /// read or is being read; one that failed is tried again.
+    fn load(&mut self, cx: &mut Context<Self>) {
+        let (true, Some(id), Some(Read::Found(found))) = (self.active, &self.open, &self.read)
+        else {
+            return;
+        };
+        if matches!(self.full.get(id), Some(None | Some(Ok(_)))) {
+            return;
+        }
+        let (id, cwd) = (id.clone(), found.cwd.clone());
+        self.full.insert(id.clone(), None);
+        let reading = id.clone();
+        let task = cx.background_spawn(async move {
+            cairn::note(
+                cairn::PROGRAM,
+                &cwd,
+                &reading,
+                &local_offset,
+                &AtomicBool::new(false),
+            )
+        });
+        cx.spawn(async move |this, cx| {
+            let full = task.await;
+            let _ = this.update(cx, |view, cx| {
+                // Let go since, with the tab left or the pane in another repository: not kept.
+                if let Some(slot) = view.full.get_mut(&id) {
+                    *slot = Some(full);
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
     }
 
     /// The card Adopt has up for `repo`, if any.
@@ -471,13 +576,372 @@ impl CairnView {
                 Some(adopting) => self.confirm(found, repo, adopting, ui, cx),
                 None => self.offer(repo, ui, cx),
             },
-            Body::Records(text) => div()
-                .flex_1()
-                .min_h(px(0.0))
+            Body::Records(records) => {
+                div()
+                    .flex_1()
+                    .min_h(px(0.0))
+                    .flex()
+                    .flex_col()
+                    .child(match &records.notes {
+                        Some(notes) => self.notes(records, notes, ui, cx),
+                        // A cairn that does not list them: the text alone.
+                        None => self.text(&records.text, ui),
+                    })
+            }
+        }
+    }
+
+    /// The handover notes, scrolling: what they are, then each day's under its name, Show older
+    /// when cairn has more, and at the foot the exact text the next session receives, folded.
+    fn notes(
+        &self,
+        records: &Records,
+        notes: &Notes,
+        ui: &UiFont,
+        cx: &mut Context<Self>,
+    ) -> Stateful<Div> {
+        let c = self.colors;
+        let head = div()
+            .flex_shrink_0()
+            .flex()
+            .flex_col()
+            .gap(ui.px(4.0))
+            .pt(ui.px(16.0))
+            .px(ui.px(16.0))
+            .pb(ui.px(4.0))
+            .child(
+                div()
+                    .text_size(ui.px(13.5))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(c.title)
+                    .child("Handover notes"),
+            )
+            .child(
+                div()
+                    .text_size(ui.px(12.0))
+                    .line_height(relative(1.5))
+                    .text_color(c.muted)
+                    .child(
+                        "Agents write one when a turn ends. A new session in this repository \
+                         starts from the newest.",
+                    ),
+            );
+        let mut list = div()
+            .flex_shrink_0()
+            .flex()
+            .flex_col()
+            .px(ui.px(8.0))
+            .pb(ui.px(10.0));
+        let mut nth = 0;
+        for day in &notes.days {
+            let date = div()
+                .font_weight(FontWeight::NORMAL)
+                .text_color(c.dim)
+                .child(day.date.clone());
+            list = list.child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(ui.px(8.0))
+                    .pt(ui.px(if nth == 0 { 14.0 } else { 16.0 }))
+                    .px(ui.px(8.0))
+                    .pb(ui.px(6.0))
+                    .text_size(ui.px(11.5))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(c.muted)
+                    .map(|head| match day.name {
+                        Some(name) => head.child(name).child(date),
+                        None => head.child(day.date.clone()),
+                    }),
+            );
+            for (at, note) in day.notes.iter().enumerate() {
+                let last = at + 1 == day.notes.len();
+                list = list.child(self.note(note, nth, last, ui, cx));
+                nth += 1;
+            }
+        }
+        if notes.older {
+            list = list.child(
+                div().flex().mt(ui.px(10.0)).mx(ui.px(8.0)).child(
+                    self.button("cairn-older", "Show older", false, ui)
+                        .px(ui.px(12.0))
+                        .rounded(ui.px(7.0))
+                        .text_size(ui.px(12.0))
+                        .text_color(c.bright)
+                        .on_click(cx.listener(|view, _: &ClickEvent, _, cx| {
+                            view.limit += cairn::PAGE;
+                            view.watch(cx);
+                        })),
+                ),
+            );
+        }
+        let exact = div()
+            .id("cairn-exact")
+            .flex_shrink_0()
+            .flex()
+            .items_center()
+            .gap(ui.px(8.0))
+            .px(ui.px(19.0))
+            .py(ui.px(13.0))
+            .border_t_1()
+            .border_color(c.text.opacity(RULE))
+            .text_size(ui.px(12.0))
+            .text_color(c.muted)
+            .cursor_pointer()
+            .child(self.arrow(self.exact, c.muted, ui))
+            .child("Exact text the next session receives")
+            .on_click(cx.listener(|view, _: &ClickEvent, _, cx| {
+                view.exact = !view.exact;
+                cx.notify();
+            }));
+        div()
+            .id("cairn-notes")
+            .flex_1()
+            .min_h(px(0.0))
+            .overflow_y_scroll()
+            .flex()
+            .flex_col()
+            .child(head)
+            .child(list)
+            // The fold sits at the foot of the tab while the notes leave room above it.
+            .child(div().flex_1())
+            .child(exact)
+            .children(self.exact.then(|| {
+                let text = div()
+                    .flex_shrink_0()
+                    .flex()
+                    .flex_col()
+                    .px(ui.px(16.0))
+                    .pb(ui.px(20.0))
+                    .line_height(relative(1.55));
+                self.written(text, &records.text, false, ui)
+            }))
+    }
+
+    /// One note: when it was saved, how long ago for one of today's, who by and on which branch,
+    /// and under them its line; open, what `details` has in place of the line. The one the next
+    /// session starts from is a card that says so; the others have a rule after them, but for the
+    /// `last` of a day.
+    fn note(
+        &self,
+        note: &Note,
+        nth: usize,
+        last: bool,
+        ui: &UiFont,
+        cx: &mut Context<Self>,
+    ) -> Div {
+        let c = self.colors;
+        let open = self.open.as_deref() == Some(note.id.as_str());
+        let id = note.id.clone();
+        let line = div()
+            .flex()
+            .items_center()
+            .gap(ui.px(8.0))
+            .min_w(px(0.0))
+            .child(self.arrow(
+                open,
+                match (open, note.next) {
+                    (true, _) => c.text,
+                    (false, true) => c.muted,
+                    (false, false) => c.dim,
+                },
+                ui,
+            ))
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .font(self.mono.clone())
+                    .text_size(ui.px(12.5))
+                    .when(note.next, |time| {
+                        time.font_weight(FontWeight::MEDIUM).text_color(c.title)
+                    })
+                    .child(note.time.clone()),
+            )
+            .children(note.ago.clone().map(|ago| {
+                div()
+                    .flex_shrink_0()
+                    .whitespace_nowrap()
+                    .text_size(ui.px(11.5))
+                    .text_color(c.dim)
+                    .child(ago)
+            }))
+            .child(div().flex_1())
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .text_size(ui.px(11.5))
+                    .text_color(c.muted)
+                    .child(note.by.clone()),
+            )
+            .children(note.branch.clone().map(|branch| {
+                div()
+                    .flex_shrink(1.0)
+                    .min_w(px(0.0))
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .text_ellipsis()
+                    .px(ui.px(7.0))
+                    .py(ui.px(1.0))
+                    .rounded_full()
+                    .bg(c.text.opacity(SOFT))
+                    .font(self.mono.clone())
+                    .text_size(ui.px(10.5))
+                    .text_color(c.muted)
+                    .child(branch)
+            }));
+        let summary = (!open && !note.summary.is_empty()).then(|| {
+            div()
+                .pl(ui.px(INDENT))
+                .text_size(ui.px(12.5))
+                .line_height(relative(1.5))
+                .text_color(if note.next { c.text } else { c.muted })
+                .line_clamp(if note.next { 3 } else { 2 })
+                .text_ellipsis()
+                .child(note.summary.clone())
+        });
+        let head = div()
+            .id(("cairn-note", nth))
+            .flex()
+            .flex_col()
+            .gap(ui.px(if note.next { 6.0 } else { 5.0 }))
+            .p(ui.px(if note.next { 10.0 } else { 11.0 }))
+            .cursor_pointer()
+            .children(note.next.then(|| {
+                div()
+                    .pl(ui.px(INDENT))
+                    .text_size(ui.px(11.0))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(c.accent)
+                    .child("\u{2192} Next session starts from this")
+            }))
+            .child(line)
+            .children(summary)
+            .on_click(cx.listener(move |view, _: &ClickEvent, _, cx| view.toggle(&id, cx)));
+        let whole = div()
+            .flex_shrink_0()
+            .flex()
+            .flex_col()
+            .child(head)
+            .children(open.then(|| self.details(note, ui)));
+        if note.next {
+            whole
+                .rounded(ui.px(9.0))
+                .border_1()
+                .border_color(c.accent.opacity(NEXT_EDGE))
+                .bg(c.accent.opacity(NEXT_FACE))
+        } else if last {
+            whole
+        } else {
+            whole.border_b_1().border_color(c.text.opacity(BETWEEN))
+        }
+    }
+
+    /// An open note, under its line: when it was saved, who by, on which branch and as which
+    /// record, then its text, and after a rule the correction written for it; before that is
+    /// read, that it is being, and when it could not be, why.
+    fn details(&self, note: &Note, ui: &UiFont) -> Div {
+        let c = self.colors;
+        let under = div()
+            .flex()
+            .flex_col()
+            .pl(ui.px(if note.next { 10.0 } else { 11.0 } + INDENT))
+            .pr(ui.px(12.0))
+            .pb(ui.px(14.0));
+        let full = match self.full.get(&note.id) {
+            Some(Some(Ok(full))) => full,
+            Some(Some(Err(why))) => return under.child(self.refusal(why, ui)),
+            _ => {
+                return under
+                    .text_size(ui.px(12.0))
+                    .text_color(c.dim)
+                    .child("Loading\u{2026}");
+            }
+        };
+        let fact = |label: &'static str, value: Div| {
+            div()
+                .flex()
+                .gap(ui.px(8.0))
+                .child(
+                    div()
+                        .flex_shrink_0()
+                        .w(ui.px(50.0))
+                        .text_color(c.muted)
+                        .child(label),
+                )
+                .child(value.flex_1().min_w(px(0.0)))
+        };
+        let code = || div().font(self.mono.clone()).text_size(ui.px(11.0));
+        let by = match &full.session {
+            Some(session) => {
+                let words = format!("{}, session {session}", full.by);
+                let session = words.len() - session.len()..words.len();
+                div().child(
+                    StyledText::new(words)
+                        .with_font_family_overrides(vec![(session, self.mono.family.clone())]),
+                )
+            }
+            None => div().child(full.by.clone()),
+        };
+        let facts = div()
+            .flex()
+            .flex_col()
+            .gap(ui.px(4.0))
+            .px(ui.px(11.0))
+            .py(ui.px(9.0))
+            .rounded(ui.px(7.0))
+            .bg(if note.next {
+                c.ground.opacity(FACTS_ON_NEXT)
+            } else {
+                c.text.opacity(FACTS)
+            })
+            .text_size(ui.px(11.5))
+            .line_height(relative(1.45))
+            .child(fact("Saved", div().child(full.saved.clone())))
+            .child(fact("By", by))
+            .children(
+                full.branch
+                    .clone()
+                    .map(|branch| fact("Branch", code().child(branch))),
+            )
+            .child(fact(
+                "Record",
+                code().text_color(c.muted).child(note.id.clone()),
+            ));
+        let text = |text: &str| {
+            let words = div()
                 .flex()
                 .flex_col()
-                .child(self.text(text, ui)),
-        }
+                .text_size(ui.px(12.5))
+                .line_height(relative(1.55));
+            self.written(words, text, true, ui)
+        };
+        under
+            .child(facts)
+            .children(full.body.as_deref().map(|body| text(body).pt(ui.px(2.0))))
+            .children(full.correction.as_ref().map(|(saved, body)| {
+                div()
+                    .flex()
+                    .flex_col()
+                    .child(div().mt(ui.px(14.0)).h(px(1.0)).bg(c.text.opacity(RULE)))
+                    .child(
+                        div()
+                            .mt(ui.px(10.0))
+                            .mb(ui.px(6.0))
+                            .text_size(ui.px(11.5))
+                            .text_color(c.dim)
+                            .child(format!("Corrected {saved}")),
+                    )
+                    .children(body.as_deref().map(&text))
+            }))
+    }
+
+    /// The arrow before what folds: down when it is open.
+    fn arrow(&self, open: bool, color: Hsla, ui: &UiFont) -> impl IntoElement + use<> {
+        footer_icon::icon(
+            if open { Icon::Down } else { Icon::Forward },
+            color,
+            ui.scale(ARROW / footer_icon::SIZE),
+        )
     }
 
     /// A repository that has not adopted cairn: what adopting does, where, and Adopt….
@@ -603,20 +1067,9 @@ impl CairnView {
             .child(card)
     }
 
-    /// The text the next session would be given, as Markdown, scrolling. cairn writes its
-    /// sections as third-level headings and the parts of a record as second-level ones: a section
-    /// is a quiet label with a rule after it, a part a small bold heading.
+    /// The text the next session would be given, as Markdown, scrolling.
     fn text(&self, text: &str, ui: &UiFont) -> Stateful<Div> {
-        /// What the block before was, for the room between the two.
-        #[derive(Clone, Copy, PartialEq)]
-        enum Before {
-            Nothing,
-            Heading,
-            Words,
-            Item,
-        }
-        let c = self.colors;
-        let mut out = div()
+        let out = div()
             .id("cairn-text")
             .flex_1()
             .min_h(px(0.0))
@@ -627,6 +1080,22 @@ impl CairnView {
             .px(ui.px(16.0))
             .pb(ui.px(20.0))
             .line_height(relative(1.55));
+        self.written(out, text, false, ui)
+    }
+
+    /// `text` as Markdown, its blocks added to `out`. cairn writes its sections as third-level
+    /// headings and the parts of a record as second-level ones: a section is a quiet label with a
+    /// rule after it, a part a small bold heading, no larger than the words in an open `note`.
+    fn written<E: ParentElement>(&self, mut out: E, text: &str, note: bool, ui: &UiFont) -> E {
+        /// What the block before was, for the room between the two.
+        #[derive(Clone, Copy, PartialEq)]
+        enum Before {
+            Nothing,
+            Heading,
+            Words,
+            Item,
+        }
+        let c = self.colors;
         let mut before = Before::Nothing;
         for block in markdown::blocks_by_line(text) {
             let apart = |after_words: f32, after_item: f32| match before {
@@ -666,9 +1135,9 @@ impl CairnView {
                 ),
                 markdown::Block::Heading(_, spans) => (
                     div()
-                        .mt(ui.px(16.0))
+                        .mt(ui.px(if note { 14.0 } else { 16.0 }))
                         .mb(ui.px(4.0))
-                        .text_size(ui.px(13.5))
+                        .text_size(ui.px(if note { 12.5 } else { 13.5 }))
                         .font_weight(FontWeight::SEMIBOLD)
                         .text_color(c.title)
                         .child(self.styled(spans)),
