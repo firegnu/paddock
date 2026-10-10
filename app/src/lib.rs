@@ -56,6 +56,7 @@ pub mod settings_view;
 pub mod sidebar;
 pub mod skills;
 pub mod tab_fit;
+pub mod tab_stack;
 pub mod terminal;
 pub mod text_input;
 pub mod theme;

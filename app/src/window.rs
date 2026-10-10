@@ -32,6 +32,7 @@ use crate::{
     settings::{Conflict, Draft, Saved},
     sidebar::{self, Sidebar, SidebarEvent, status_dot},
     tab_fit::{self, Bar, TabSize, Title},
+    tab_stack::{self, Face, Inks},
     text_input::{self, Changed, TextInput},
     theme::Theme,
     view::{AttachEnded, Launch, Options, TerminalView, hsla},
@@ -501,13 +502,6 @@ const NAME_LIFT: f32 = 0.5;
 /// A paused agent's tab: how strongly it shows, and its pause mark's scale.
 const PAUSED_TAB: f32 = 0.55;
 const PAUSE_MARK: f32 = 0.7;
-/// A split tab's pane count, in a small pill after its title: the pill's height and sides, the
-/// room between its icon and count, the count's size and the icon's scale.
-const PANES_HEIGHT: f32 = 18.0;
-const PANES_X: f32 = 6.0;
-const PANES_GAP: f32 = 3.0;
-const PANES_TEXT: f32 = 11.0;
-const PANES_ICON: f32 = 0.75;
 /// The `+N` capsule for the tabs with no room in the bar: its count's size, the room at its ends
 /// and before its amber dot and chevron, the dot, and the chevron's scale.
 const MORE_TEXT: f32 = 12.5;
@@ -549,6 +543,29 @@ fn ui_text_width(window: &Window, ui: &UiFont, text: &str, size: f32, weight: Fo
         .text_system()
         .shape_line(text.to_owned().into(), ui.px(size), &[run], None);
     f32::from(line.width)
+}
+
+/// A tab's width around its title (see [`TabSize`]), in points: for one holding `panes` panes, the
+/// active one `empty` or not, its agent `paused` or not, the `active` tab or another, the
+/// interface `s` times its base size. A split tab has its panes' stack where another has its one
+/// icon, or its bare dot when it is empty.
+fn tab_chrome(panes: usize, empty: bool, paused: bool, active: bool, s: f32) -> f32 {
+    let badge = match panes {
+        1 if empty => 7.0,
+        1 => BADGE_ICON + 2.0,
+        _ => tab_stack::width(panes),
+    };
+    let pause = if paused {
+        TAB_GAP + footer_icon::SIZE * PAUSE_MARK
+    } else {
+        0.0
+    };
+    let end = if active {
+        TAB_GAP + TAB_CLOSE + ACTIVE_TAB_END
+    } else {
+        TAB_END
+    };
+    (TAB_START + badge + TAB_GAP + pause + end) * s + 2.0 * TAB_RING
 }
 
 /// A pane header's split buttons' mark, `footer_icon::SIZE` points square times `scale`: a frame
@@ -733,7 +750,7 @@ pub fn more_panes(panes: usize) -> Option<String> {
     (panes > 1).then(|| format!("+{}", panes - 1))
 }
 
-/// The hover text of the small split icon after a split tab's title: how many panes it holds.
+/// The hover text of a split tab's stack of cards: how many panes it holds.
 pub fn panes_tip(panes: usize) -> Option<String> {
     (panes > 1).then(|| format!("{panes} panes"))
 }
@@ -2750,12 +2767,86 @@ impl PaddockWindow {
         Some(icon.render(ui.px(BADGE_ICON), color))
     }
 
+    /// A split tab's mark: a card for each of `panes`, stacked, the front one's first (see
+    /// `tab_stack`), with that pane's status dot on the front card's lower right corner, as
+    /// [`Self::badge`] has it on an icon's.
+    fn stack(
+        &self,
+        panes: &[PaneId],
+        agents: &[Agent],
+        now: f64,
+        ground: Hsla,
+        hovered: Option<(SharedString, Hsla)>,
+        ui: &UiFont,
+    ) -> Div {
+        let faces: Vec<Face> = panes
+            .iter()
+            .map(|&pane| match self.workspace.shown(pane) {
+                Shown::Agent(name) => {
+                    let kind = agents
+                        .iter()
+                        .find(|a| &a.name == name)
+                        .and_then(|a| a.kind.as_deref())
+                        .unwrap_or_default();
+                    let color = self.fg(card::brand(kind).color);
+                    match kind_icon::of(kind) {
+                        Some(icon) => Face::Kind(icon, color),
+                        None => Face::Blank(color),
+                    }
+                }
+                Shown::Shell => Face::Shell,
+                Shown::Empty => Face::Blank(self.fg(|t| t.agents_faint)),
+            })
+            .collect();
+        // The darker of the frame and the text for the cards' edge, so it is dark in a light
+        // theme too; the lighter of the text and the terminal's ground for what is light.
+        let text = self.fg(|t| t.agents_text);
+        let frame = hsla(self.theme.frame(), 1.0);
+        let inks = if text.l < frame.l {
+            Inks {
+                edge: text,
+                light: hsla(self.theme.terminal().background, 1.0),
+            }
+        } else {
+            Inks {
+                edge: frame,
+                light: text,
+            }
+        };
+        let dot = (self.dot(panes[0], agents, now), false);
+        let dot = self.corner_dot(dot, (2.0, 2.0), ground, hovered, ui);
+        tab_stack::stack(&faces, inks, dot, ui.scale(1.0))
+    }
+
     /// `icon` with the status dot `(colour, breathing)` on its lower right corner, ringed in
     /// `ground` (`hovered` while the group is hovered) to stand off the icon.
     fn dotted(
         &self,
         icon: AnyElement,
+        dot: (Hsla, bool),
+        ground: Hsla,
+        hovered: Option<(SharedString, Hsla)>,
+        ui: &UiFont,
+    ) -> AnyElement {
+        div()
+            .relative()
+            .flex_shrink_0()
+            .flex()
+            .items_center()
+            .justify_center()
+            .size(ui.px(BADGE_ICON + 2.0))
+            .child(icon)
+            .child(self.corner_dot(dot, (2.0, 1.0), ground, hovered, ui))
+            .into_any_element()
+    }
+
+    /// The status dot `(colour, breathing)` for the lower right corner of what holds it, this far
+    /// past its `(right, bottom)` edges, ringed in `ground` (`hovered` while the group is
+    /// hovered) to stand off it.
+    fn corner_dot(
+        &self,
         (dot, breathing): (Hsla, bool),
+        (right, bottom): (f32, f32),
         ground: Hsla,
         hovered: Option<(SharedString, Hsla)>,
         ui: &UiFont,
@@ -2763,8 +2854,8 @@ impl PaddockWindow {
         let ring = 2.0;
         let mark = div()
             .absolute()
-            .right(px(-(ui.scale(2.0) + ring)))
-            .bottom(px(-(ui.scale(1.0) + ring)))
+            .right(px(-(ui.scale(right) + ring)))
+            .bottom(px(-(ui.scale(bottom) + ring)))
             .size(px(ui.scale(BADGE_DOT) + 2.0 * ring))
             .rounded_full()
             .border_2()
@@ -2774,7 +2865,7 @@ impl PaddockWindow {
             Some((group, color)) => mark.group_hover(group, move |style| style.border_color(color)),
             None => mark,
         };
-        let mark = if breathing {
+        if breathing {
             let reach = ui.scale(3.0);
             mark.with_animation(
                 "breath",
@@ -2799,17 +2890,7 @@ impl PaddockWindow {
             .into_any_element()
         } else {
             mark.into_any_element()
-        };
-        div()
-            .relative()
-            .flex_shrink_0()
-            .flex()
-            .items_center()
-            .justify_center()
-            .size(ui.px(BADGE_ICON + 2.0))
-            .child(icon)
-            .child(mark)
-            .into_any_element()
+        }
     }
 
     fn fg(&self, pick: Pick) -> Hsla {
@@ -2974,33 +3055,11 @@ impl PaddockWindow {
                 } else {
                     FontWeight::NORMAL
                 };
-                let badge = match self.workspace.shown(tab.active) {
-                    Shown::Empty => 7.0,
-                    _ => BADGE_ICON + 2.0,
-                };
-                let panes = match tab.panes().len() {
-                    1 => 0.0,
-                    count => {
-                        width(&count.to_string(), PANES_TEXT, FontWeight::NORMAL)
-                            + (TAB_GAP + 2.0 * PANES_X + footer_icon::SIZE * PANES_ICON + PANES_GAP)
-                                * s
-                    }
-                };
-                let pause = if marks[index].paused {
-                    TAB_GAP + footer_icon::SIZE * PAUSE_MARK
-                } else {
-                    0.0
-                };
-                let end = if index == active {
-                    TAB_GAP + TAB_CLOSE + ACTIVE_TAB_END
-                } else {
-                    TAB_END
-                };
+                let panes = tab.panes().len();
+                let empty = matches!(self.workspace.shown(tab.active), Shown::Empty);
                 let group = group.as_deref().unwrap_or_default();
                 TabSize {
-                    chrome: (TAB_START + badge + TAB_GAP + pause + end) * s
-                        + panes
-                        + 2.0 * TAB_RING,
+                    chrome: tab_chrome(panes, empty, marks[index].paused, index == active, s),
                     full: width(group, TAB_TEXT, FontWeight::NORMAL)
                         + width(name, TAB_TEXT, weight),
                     short: width(&short[index], TAB_TEXT, weight),
@@ -3187,6 +3246,34 @@ impl PaddockWindow {
             } else {
                 gpui::transparent_black()
             };
+            // The active pane's icon and status dot; in a split tab, its panes' cards in a stack,
+            // which tells how many they are on hover.
+            let (ground, hovered) = if active {
+                (chosen, None)
+            } else {
+                let group = SharedString::from(format!("tab-{index}"));
+                (rest, Some((group, lit)))
+            };
+            let panes = tab.panes();
+            let mark = match panes_tip(panes.len()) {
+                Some(text) => {
+                    let tip = BarTip {
+                        text: text.into(),
+                        keys: String::new(),
+                        size: ui.px(11.5),
+                        color: self.fg(|t| t.agents_text),
+                        dim,
+                        background: hsla(self.theme.bg(|t| t.agents_bg), 1.0),
+                        border: self.fg(|t| t.agents_rule),
+                    };
+                    let cards = tab_stack::cards(&panes, tab.active);
+                    self.stack(&cards, agents, now, ground, hovered, &ui)
+                        .id(("tab-panes", index))
+                        .tooltip(move |_, cx| cx.new(|_| tip.clone()).into())
+                        .into_any_element()
+                }
+                None => self.badge(tab.active, agents, now, ground, hovered, &ui),
+            };
             let mut item = div()
                 .id(("tab", index))
                 .group(SharedString::from(format!("tab-{index}")))
@@ -3206,12 +3293,7 @@ impl PaddockWindow {
                 .on_hover(cx.listener(move |this, hovered: &bool, _, cx| {
                     this.hover_tab(index, *hovered, cx)
                 }))
-                .child(if active {
-                    self.badge(tab.active, agents, now, chosen, None, &ui)
-                } else {
-                    let group = SharedString::from(format!("tab-{index}"));
-                    self.badge(tab.active, agents, now, rest, Some((group, lit)), &ui)
-                })
+                .child(mark)
                 .child(
                     div()
                         .flex_shrink(1.0)
@@ -3228,34 +3310,7 @@ impl PaddockWindow {
                         dim,
                         scale * PAUSE_MARK,
                     ))
-                })
-                .children(panes_tip(tab.panes().len()).map(|text| {
-                    let tip = BarTip {
-                        text: text.into(),
-                        keys: String::new(),
-                        size: ui.px(11.5),
-                        color: self.fg(|t| t.agents_text),
-                        dim,
-                        background: hsla(self.theme.bg(|t| t.agents_bg), 1.0),
-                        border: self.fg(|t| t.agents_rule),
-                    };
-                    div()
-                        .id(("tab-panes", index))
-                        .flex_shrink_0()
-                        .flex()
-                        .items_center()
-                        .gap(ui.px(PANES_GAP))
-                        .h(ui.px(PANES_HEIGHT))
-                        .px(ui.px(PANES_X))
-                        .rounded_full()
-                        .bg(self.fg(|t| t.agents_text).opacity(0.08))
-                        .text_size(ui.px(PANES_TEXT))
-                        .text_color(dim)
-                        .font_weight(FontWeight::NORMAL)
-                        .tooltip(move |_, cx| cx.new(|_| tip.clone()).into())
-                        .child(footer_icon::icon(Icon::Panes, dim, scale * PANES_ICON))
-                        .child(tab.panes().len().to_string())
-                }));
+                });
             // Short of room, the other tabs narrow first; the active one keeps its title.
             item = if active {
                 item.flex_shrink_0()
@@ -6396,10 +6451,32 @@ mod tests {
     }
 
     #[test]
-    fn a_split_tab_shows_the_panes_icon_with_how_many_panes_it_holds() {
+    fn a_split_tab_s_stack_tells_how_many_panes_it_holds() {
         assert_eq!(panes_tip(1), None);
         assert_eq!(panes_tip(2).as_deref(), Some("2 panes"));
         assert_eq!(panes_tip(4).as_deref(), Some("4 panes"));
+    }
+
+    #[test]
+    fn a_split_tab_s_width_counts_its_stack_and_nothing_after_its_title() {
+        let around = |panes| tab_chrome(panes, false, false, false, 1.0);
+        let icon = BADGE_ICON + 2.0;
+        let one = TAB_START + icon + TAB_GAP + TAB_END + 2.0 * TAB_RING;
+        assert_eq!(around(1), one);
+        // The stack in place of the one icon, and no pill after the title.
+        assert_eq!(around(2) - one, tab_stack::width(2) - icon);
+        assert_eq!(around(3) - one, tab_stack::width(3) - icon);
+        // No wider past three cards.
+        assert_eq!(around(6), around(3));
+        // An empty pane alone is a bare dot; in a split tab it has a card like any other.
+        assert_eq!(tab_chrome(1, true, false, false, 1.0), one - icon + 7.0);
+        assert_eq!(tab_chrome(2, true, false, false, 1.0), around(2));
+        // Everything but the ring grows with the interface.
+        let ring = 2.0 * TAB_RING;
+        assert_eq!(
+            tab_chrome(3, false, false, false, 2.0),
+            2.0 * (around(3) - ring) + ring
+        );
     }
 
     #[test]
