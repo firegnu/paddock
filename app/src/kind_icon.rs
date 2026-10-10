@@ -5,8 +5,8 @@
 //! from) is drawn in the theme's colour for its kind. The originals are read once, the first time
 //! an icon is asked for, and drawn at each size from memory.
 use gpui::{
-    AnyElement, App, Corners, DevicePixels, Hsla, IntoElement, Pixels, RenderImage, Styled,
-    SvgRenderer, SvgSize, canvas, size, svg,
+    AnyElement, App, Bounds, Corners, DevicePixels, Hsla, IntoElement, Pixels, RenderImage, Rgba,
+    Styled, SvgRenderer, SvgSize, Transformation, canvas, px, radians, size, svg,
 };
 use std::{
     cell::RefCell,
@@ -54,6 +54,50 @@ pub struct Picture {
     /// Whether it brings its own ground: squarish and opaque nearly to the edges of its cut, like
     /// an app icon, rather than a glyph meant to sit on something.
     pub tile: bool,
+    /// The file as a `data:` address, how big it is laid out, and the part of that which is its
+    /// picture (`x`, `y`, width, height), to wrap it again turned ([`Picture::turned`]).
+    href: String,
+    whole: (f32, f32),
+    cut: (f32, f32, f32, f32),
+    /// The mean colour of its opaque pixels: red, green, blue.
+    tint: [u8; 3],
+}
+
+/// How an original is drawn on a card: turned clockwise by `degrees` about its centre, its
+/// corners cut round by `round` of its height.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Turn {
+    degrees: f32,
+    round: f32,
+}
+
+/// The room a box `width` by `height` takes once turned by `degrees`.
+fn reach((width, height): (f32, f32), degrees: f32) -> (f32, f32) {
+    let (sin, cos) = degrees.to_radians().sin_cos();
+    let (sin, cos) = (sin.abs(), cos.abs());
+    (width * cos + height * sin, width * sin + height * cos)
+}
+
+impl Picture {
+    /// An SVG document showing the picture as `turn` says, in the room that takes ([`reach`]). A
+    /// tile is made square first, as it is drawn (see [`KindIcon::render_tile`]).
+    fn turned(&self, turn: Turn) -> String {
+        let (x, y, width, height) = self.cut;
+        let squash = if self.tile { height / width } else { 1.0 };
+        let (x, width) = (x * squash, width * squash);
+        let (across, down) = reach((width, height), turn.degrees);
+        let (centre_x, centre_y) = (x + width / 2.0, y + height / 2.0);
+        format!(
+            r#"<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="{across}" height="{down}" viewBox="{} {} {across} {down}"><clipPath id="cut"><rect x="{x}" y="{y}" width="{width}" height="{height}" rx="{}"/></clipPath><g transform="rotate({} {centre_x} {centre_y})"><g clip-path="url(#cut)"><image width="{}" height="{}" preserveAspectRatio="none" xlink:href="{}"/></g></g></svg>"#,
+            centre_x - across / 2.0,
+            centre_y - down / 2.0,
+            turn.round * height,
+            turn.degrees,
+            self.whole.0 * squash,
+            self.whole.1,
+            self.href
+        )
+    }
 }
 
 /// The icon for `kind`: this machine's original when it has a good one, else the silhouette;
@@ -154,9 +198,14 @@ fn picture(renderer: &SvgRenderer, kind: usize, extension: &str, bytes: &[u8]) -
     let pixels = probe.as_bytes(0)?;
     let (mut left, mut top, mut right, mut bottom) = (columns, rows, 0, 0);
     let mut solid = 0;
+    let mut sum = [0u64; 3];
     for (index, pixel) in pixels.chunks_exact(4).enumerate() {
         if pixel[3] >= SOLID {
             solid += 1;
+            // Kept as blue, green, red.
+            for (sum, channel) in sum.iter_mut().zip([pixel[2], pixel[1], pixel[0]]) {
+                *sum += u64::from(channel);
+            }
             let (x, y) = (index % columns, index / columns);
             left = left.min(x);
             right = right.max(x + 1);
@@ -181,6 +230,10 @@ fn picture(renderer: &SvgRenderer, kind: usize, extension: &str, bytes: &[u8]) -
         document: wrap(&href, cut, (width, height)).into_bytes(),
         aspect,
         tile: TILE_ASPECT.contains(&aspect) && cover >= TILE_COVER,
+        href,
+        whole: (width, height),
+        cut,
+        tint: sum.map(|sum| (sum / solid as u64) as u8),
     })
 }
 
@@ -213,24 +266,46 @@ fn base64(bytes: &[u8]) -> String {
     text
 }
 
-/// `picture` drawn `height` device pixels tall, drawn once per size and kept.
-fn raster(picture: &Picture, height: u32, cx: &App) -> Option<Arc<RenderImage>> {
+/// `picture` drawn `height` device pixels tall, turned as `turn` says (then in the room that
+/// takes, see [`reach`]) or upright; drawn once per size and turn and kept.
+fn raster(
+    picture: &Picture,
+    height: u32,
+    turn: Option<Turn>,
+    cx: &App,
+) -> Option<Arc<RenderImage>> {
+    type Key = (usize, u32, Option<(u32, u32)>);
     thread_local! {
-        static RASTERS: RefCell<HashMap<(usize, u32), Arc<RenderImage>>> = RefCell::default();
+        static RASTERS: RefCell<HashMap<Key, Arc<RenderImage>>> = RefCell::default();
     }
+    let key = (
+        picture.kind,
+        height,
+        turn.map(|turn| (turn.degrees.to_bits(), turn.round.to_bits())),
+    );
     RASTERS.with_borrow_mut(|rasters| {
-        if let Some(image) = rasters.get(&(picture.kind, height)) {
+        if let Some(image) = rasters.get(&key) {
             return Some(image.clone());
         }
         let renderer = cx.svg_renderer();
-        let width = (height as f32 * picture.aspect).round().max(1.0) as i32;
+        let height = height as f32;
+        let turned;
+        let (document, room) = match turn {
+            Some(turn) => {
+                let aspect = if picture.tile { 1.0 } else { picture.aspect };
+                turned = picture.turned(turn).into_bytes();
+                (&turned, reach((height * aspect, height), turn.degrees))
+            }
+            None => (&picture.document, (height * picture.aspect, height)),
+        };
+        let pixels = |length: f32| DevicePixels(length.round().max(1.0) as i32);
         let image = renderer
             .render_parsed(
-                &renderer.parse_svg(&picture.document).ok()?,
-                SvgSize::Size(size(DevicePixels(width), DevicePixels(height as i32))),
+                &renderer.parse_svg(document).ok()?,
+                SvgSize::Size(size(pixels(room.0), pixels(room.1))),
             )
             .ok()?;
-        rasters.insert((picture.kind, height), image.clone());
+        rasters.insert(key, image.clone());
         Some(image)
     })
 }
@@ -239,7 +314,13 @@ impl KindIcon {
     /// The icon `height` tall, centred in its width: a silhouette in `color`, an original in its
     /// own colours.
     pub fn render(self, height: Pixels, color: Hsla) -> AnyElement {
-        self.draw(height, color, Pixels::ZERO)
+        self.draw(height, color, Pixels::ZERO, 0.0)
+    }
+
+    /// The icon as [`Self::render`] draws it, turned clockwise by `degrees` about its centre; its
+    /// corners reach past its box.
+    pub fn render_turned(self, height: Pixels, color: Hsla, degrees: f32) -> AnyElement {
+        self.draw(height, color, Pixels::ZERO, degrees)
     }
 
     /// Whether this is one of this machine's originals rather than a silhouette.
@@ -255,26 +336,70 @@ impl KindIcon {
     /// A [tile](Self::tile) drawn `side` square with its corners rounded `radius`, to stand in for
     /// a square of that size.
     pub fn render_tile(self, side: Pixels, radius: Pixels) -> AnyElement {
-        let icon = KindIcon { width: 1.0, ..self };
-        icon.draw(side, gpui::transparent_black(), radius)
+        self.render_tile_turned(side, radius, 0.0)
     }
 
-    fn draw(self, height: Pixels, color: Hsla, radius: Pixels) -> AnyElement {
+    /// A tile as [`Self::render_tile`] draws it, turned clockwise by `degrees` about its centre;
+    /// its corners reach past its box.
+    pub fn render_tile_turned(self, side: Pixels, radius: Pixels, degrees: f32) -> AnyElement {
+        let icon = KindIcon { width: 1.0, ..self };
+        icon.draw(side, gpui::transparent_black(), radius, degrees)
+    }
+
+    /// A [tile](Self::tile)'s own colour, the mean of its picture's, for what stands in for it
+    /// too small to show it; `None` for any other icon.
+    pub fn tint(self) -> Option<Hsla> {
         match self.look {
-            Look::Mask(data) => svg()
-                .data(data)
-                .flex_shrink_0()
-                .w(height * self.width)
-                .h(height)
-                .text_color(color)
-                .into_any_element(),
+            Look::Picture(picture) if picture.tile => {
+                let [r, g, b] = picture.tint.map(|channel| f32::from(channel) / 255.0);
+                Some(Rgba { r, g, b, a: 1.0 }.into())
+            }
+            _ => None,
+        }
+    }
+
+    fn draw(self, height: Pixels, color: Hsla, radius: Pixels, degrees: f32) -> AnyElement {
+        let turn = (degrees != 0.0).then(|| Turn {
+            degrees,
+            round: radius / height,
+        });
+        match self.look {
+            Look::Mask(data) => {
+                let icon = svg()
+                    .data(data)
+                    .flex_shrink_0()
+                    .w(height * self.width)
+                    .h(height)
+                    .text_color(color);
+                match turn {
+                    Some(turn) => icon.with_transformation(Transformation::rotate(radians(
+                        turn.degrees.to_radians(),
+                    ))),
+                    None => icon,
+                }
+                .into_any_element()
+            }
             Look::Picture(picture) => canvas(
                 |_, _, _| {},
                 move |bounds, _, window, cx| {
                     let pixels = f32::from(bounds.size.height) * window.scale_factor();
-                    if let Some(image) = raster(picture, pixels.round().max(1.0) as u32, cx) {
-                        let corners = Corners::all(radius);
-                        let _ = window.paint_image(bounds, bounds, corners, image, 0, false);
+                    let pixels = pixels.round().max(1.0) as u32;
+                    // A turned picture has its corners cut in its document, and is drawn over the
+                    // room it turns into.
+                    let (corners, room) = match turn {
+                        Some(turn) => {
+                            let upright = (bounds.size.width.into(), bounds.size.height.into());
+                            let (across, down) = reach(upright, turn.degrees);
+                            let room = size(px(across), px(down));
+                            (
+                                Corners::default(),
+                                Bounds::centered_at(bounds.center(), room),
+                            )
+                        }
+                        None => (Corners::all(radius), bounds),
+                    };
+                    if let Some(image) = raster(picture, pixels, turn, cx) {
+                        let _ = window.paint_image(room, room, corners, image, 0, false);
                     }
                 },
             )
@@ -421,6 +546,61 @@ mod tests {
         assert!(!tile(2), "a glyph");
         assert!(tile(3), "solid once its margin is cut away");
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A square of one colour: a tile.
+    const SQUARE: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="#4D9ABF"/></svg>"##;
+
+    #[test]
+    fn a_picture_s_tint_is_the_mean_colour_of_what_it_shows() {
+        let renderer = SvgRenderer::new(Arc::new(()));
+        let square = picture(&renderer, 0, "svg", SQUARE.as_bytes()).unwrap();
+        assert!(square.tile);
+        assert_eq!(square.tint, [0x4D, 0x9A, 0xBF]);
+        // The transparent margin is not counted: the colour of its middle, give or take what
+        // enlarging it blurs.
+        let tint = picture(&renderer, 0, "png", &png()).unwrap().tint;
+        for (got, want) in tint.into_iter().zip([200u8, 80, 40]) {
+            assert!(got.abs_diff(want) <= 3, "{tint:?}");
+        }
+    }
+
+    #[test]
+    fn a_turned_picture_leans_the_way_asked_in_the_room_that_takes_its_corners_cut_round() {
+        let renderer = SvgRenderer::new(Arc::new(()));
+        let square = picture(&renderer, 0, "svg", SQUARE.as_bytes()).unwrap();
+        // Six degrees anticlockwise, a pixel to each unit of the square's side.
+        let shown = |round: f32| {
+            let turn = Turn {
+                degrees: -6.0,
+                round,
+            };
+            let (across, down) = reach((100.0, 100.0), turn.degrees);
+            assert!((across - 109.9).abs() < 0.1 && across == down);
+            let image = renderer
+                .render_parsed(
+                    &renderer.parse_svg(square.turned(turn).as_bytes()).unwrap(),
+                    SvgSize::Size(size(DevicePixels(110), DevicePixels(110))),
+                )
+                .unwrap();
+            assert_eq!(image.size(0), size(DevicePixels(110), DevicePixels(110)));
+            let pixels = image.as_bytes(0).unwrap().to_vec();
+            move |x: usize, y: usize| pixels[(y * 110 + x) * 4 + 3] > SOLID
+        };
+        // Its top edge runs from ten pixels down on the left up to the top right corner.
+        let square_cornered = shown(0.0);
+        assert!(square_cornered(55, 55));
+        assert!(
+            !square_cornered(10, 3),
+            "the left of its top edge went down"
+        );
+        assert!(square_cornered(95, 3), "the right of its top edge went up");
+        assert!(square_cornered(3, 14) && !square_cornered(106, 14));
+        // With its corners cut, the corner is gone and the middle of each edge stays.
+        let rounded = shown(0.28);
+        assert!(rounded(55, 55));
+        assert!(!rounded(95, 3) && !rounded(3, 14));
+        assert!(rounded(50, 8) && rounded(8, 60));
     }
 
     #[test]
