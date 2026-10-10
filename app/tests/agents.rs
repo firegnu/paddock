@@ -71,6 +71,7 @@ fn git_results_are_kept_only_for_directories_agents_currently_use() {
     use paddock::git::{Head, Summary};
     let summary = |branch: &str| {
         Some(Summary {
+            main_repository: None,
             head: Head::Branch(branch.into()),
             ahead: None,
             changes: None,

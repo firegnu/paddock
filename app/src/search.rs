@@ -5,7 +5,6 @@
 use crate::{
     agents::Panel,
     card::{self, Pick},
-    corral::Agent,
     layout::PaneId,
     menu,
     settings::Page,
@@ -117,9 +116,10 @@ pub const PER_PANE: usize = 20;
 /// Room kept before a match in a long line; the rest of its start gives way to `…`.
 const BEFORE: usize = 24;
 
-/// The agents by name: a status dot, the name, the status and the short directory.
-pub fn agents(agents: &[Agent], now: f64, home: Option<&str>) -> Vec<Row> {
-    let mut agents: Vec<&Agent> = agents.iter().collect();
+/// The agents by name: a status dot, the full name, status and short directory; the group only
+/// when it adds information beyond the name's prefix.
+pub fn agents(panel: &Panel, now: f64, home: Option<&str>) -> Vec<Row> {
+    let mut agents: Vec<_> = panel.agents.iter().collect();
     agents.sort_by(|a, b| a.name.cmp(&b.name));
     agents
         .into_iter()
@@ -128,6 +128,13 @@ pub fn agents(agents: &[Agent], now: f64, home: Option<&str>) -> Vec<Row> {
             let detail = match agent.cwd.as_deref().filter(|cwd| !cwd.is_empty()) {
                 Some(cwd) => format!("{} · {}", look.label, short_dir(cwd, home)),
                 None => look.label.to_owned(),
+            };
+            let project = panel.group(agent);
+            let prefix = agent.name.split_once('/').map_or("", |(prefix, _)| prefix);
+            let detail = if project.is_empty() || project == prefix {
+                detail
+            } else {
+                format!("{project} · {detail}")
             };
             Row {
                 target: Target::Agent(agent.name.clone()),
@@ -357,6 +364,13 @@ pub fn child(groups: &[Group], index: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::corral::Agent;
+
+    fn panel(agents: Vec<Agent>) -> Panel {
+        let mut panel = Panel::default();
+        panel.absorb(agents, None, 0.0);
+        panel
+    }
 
     fn agent(name: &str, cwd: &str) -> Agent {
         Agent {
@@ -416,11 +430,11 @@ mod tests {
     #[test]
     fn agents_by_name_or_project_ignoring_case() {
         let agents = agents(
-            &[
+            &panel(vec![
                 agent("web/main", "/code/Shop"),
                 agent("api/review", "/code/api/"),
                 agent("api/main", "/code/api"),
-            ],
+            ]),
             0.0,
             None,
         );
@@ -447,7 +461,7 @@ mod tests {
         let mut paused = agent("paddock/main", "/Users/me/code/paddock");
         paused.state = Some("working".into());
         paused.paused = true;
-        let rows = agents(&[paused], 0.0, Some("/Users/me"));
+        let rows = agents(&panel(vec![paused]), 0.0, Some("/Users/me"));
         assert_eq!(rows[0].detail, "Paused · ~/…/paddock");
         assert!(matches!(
             rows[0].lead,
@@ -465,7 +479,7 @@ mod tests {
         working.kind = Some("codex".into());
         let mut gone = agent("ranch/test", "");
         gone.state = Some("exited".into());
-        let rows = agents(&[working, gone], 0.0, Some("/Users/me"));
+        let rows = agents(&panel(vec![working, gone]), 0.0, Some("/Users/me"));
         assert_eq!(rows[0].title, "paddock/main");
         assert_eq!(rows[0].detail, "Working · ~/…/paddock");
         assert!(matches!(
@@ -489,7 +503,7 @@ mod tests {
 
     #[test]
     fn settings_pages_and_commands_follow_the_agents_and_tabs() {
-        let agents = agents(&[agent("colors/main", "/code/x")], 0.0, None);
+        let agents = agents(&panel(vec![agent("colors/main", "/code/x")]), 0.0, None);
         let tabs = rows(&["zsh · colors", "main"]);
         let settings = settings();
         let commands = commands(&menu::commands());

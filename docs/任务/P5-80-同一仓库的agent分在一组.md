@@ -69,3 +69,61 @@
 
 ## 做完
 在本文件末尾追加「## 完成记录」（在你的分支里提交）：做了什么、验证了什么、拿主意的地方、没做的事，各几句话。回复里只写这几样，加上有没有要主控决定的事。命令都在前台跑完，全部做完后，回复最后一行写 DONE。
+
+## 完成记录
+
+### 做了什么
+
+- `git::Summary` 随现有后台 Git 轮询携带主工作区路径，复用 `activity::main_repository` 的只读命令；同一 worktree 的各子目录仍共享一次摘要，分支与改动数仍各按自己的 worktree 读取。没有新增轮询，也没有在 UI 线程执行 Git。
+- `Panel::group` 统一用主工作区目录名分组，未读取／不可读时退回名字前缀。侧栏分组、组名排序、上下键顺序、组头计数和状态条、窄条悬停说明，以及 Attention、新标签／分屏弹层、命令面板的项目名使用这一结果。⌘P 同时认组名和原全名。
+- 卡片仍取第一个 `/` 后的短名，只给同组重名卡片显示全名；不同组的同名卡片不受影响。DESIGN §13 已加入 P5-80 及用户原话。
+
+### 前缀用途清单
+
+检索了仓库内的 `agents::group`／`group(&…name)`、按 `/` 拆名、从短名反推前缀，以及“前缀／项目／分组”相关说明：
+
+| 位置 | 处理 |
+| --- | --- |
+| `agents.rs` 的 `Panel::ordered`、由它驱动的 `move_selection` | 改用缓存里的仓库组名；原自由函数 `group(name)` 保留为前缀回退及短名拆分工具。 |
+| `card.rs` 的 `lines`（组头、计数、状态条）、`card` | 组头按统一组名，卡片携带组名；短名只在同组重名时带原前缀。 |
+| `sidebar.rs` 的 `Listing`／Git 结果接收、`RailTip::of` | 沿用摘要接收流程；悬停不再用全名减短名反推组名，直接使用卡片的组名。 |
+| `window.rs` 的 Attention 行及 `Choice::Agent` 行（新标签／分屏） | 两处原 `crate::agents::group` 调用改用 `Panel::group`。 |
+| `search.rs::agents`、`window.rs::palette_groups` | 传入已有 Panel，命令面板详情列入组名，匹配原全名和组名。 |
+| `card.rs::card`／`title` 的名字前缀处理 | 有意保留：短名与会话题目去掉自身名字前缀的规则不随仓库组名变化。 |
+| `sidebar.rs::kind_mark`／`initial` | 有意保留：头像字母仍从原本第一个 `/` 后的短名取，不从重名时显示的全名取。 |
+| `window.rs::agent_name` 及标签、窗格、Changes 的使用处 | 有意保留：原撞名时带前缀的标题规则不变。Attention／弹层行自身的短名取法也没改。 |
+| `window.rs::agent_matches`／`choices` | 有意保留：新标签弹层原本对全名做文字过滤，没有独立的项目字段；本任务仅改变它显示的项目名，新增按组名检索限定在 ⌘P。 |
+| `new_agent.rs::suggest_prefix`／Form、`new_agent_view.rs`、`agent_shell.rs` | 有意保留：新建 agent 的前缀建议、完整名字与启动规则不变。 |
+| `kanban_view.rs::short_name`、`kanban.rs` 的 agent 对应关系 | 有意保留：任务里的 agent 短名及匹配规则不变。 |
+| `activity.rs`／`activity_view.rs`、`control.rs`／`control_ui.rs` | 有意保留：复用主工作区读取函数但不改其行为；Activity 仓库列表、ctl 输出不变。 |
+| `HANDOFF.md`、旧任务与 `docs/调研/P5-29r-Kanban集成.md` 的前缀分组描述 | 有意保留：属于本任务范围外的交接及历史记录；新规则集中记入 DESIGN §13。 |
+
+其余 `/` 拆分用于目录缩写、文件路径、URL 或程序名；Settings／GPUI 的 `group` 是设置分类或悬停样式分组，均与 agent 仓库归组无关，没有修改。
+
+### 验证了什么
+
+- RED：先加 `Summary` 归属字段及给定归属的合成输入，尚未实现归组／读取时运行测试。`repo_groups` 三项因仍按前缀分组、重名仍只写 `main`、搜 `jb-finetune` 无结果而失败；现有临时 Git 仓库／worktree 测试扩充的主工作区断言因返回 `None` 失败，均非编译或夹具错误。
+- GREEN：实现后 `cargo test --manifest-path app/Cargo.toml --test repo_groups --test git` 10 项通过。覆盖不同前缀同仓库、未读取时回退、不可读／非仓库回退、组名相同并组、原排序及移动顺序、同组短名冲突、跨组短名不冲突、按组名及原全名搜索；临时真实仓库、worktree 及子目录均读到主工作区。
+- 使用独立 `CARGO_TARGET_DIR=$HOME/Developer/personal_projs/paddock-worktrees/.target/p5-80-repo-groups`，前台完成：`cargo test --manifest-path app/Cargo.toml --all-targets`（545 项通过）、`cargo clippy --manifest-path app/Cargo.toml --all-targets -- -D warnings`、`cargo fmt --manifest-path app/Cargo.toml --check`、`git diff --check`，四项各运行一次并通过。Cargo 仍提示已有依赖 `block v0.1.6` 的 future-incompatibility，未改依赖。
+
+### 拿主意的地方、没做的事
+
+- 复用现有主工作区读取函数，在每个 worktree 的摘要中保存路径，由纯内存分组函数取目录名；无新配置和持久化格式。测试复用现有临时仓库／worktree 夹具，没有另建一套 Git 测试设施。
+- 没起窗口、没截图、没操作真实 agent，也没改 corral／ranch、别的项目或任务。视觉效果留给用户实际看。只在 `p5-80-repo-groups` 提交，不合并、不推送。
+- 要主控决定的事：无。
+
+### 主控审查补充：⌘P 省略重复组名
+
+- 按主控补充，只调整 `search.rs::agents`：组名非空且不同于名字第一个 `/` 前的前缀时才放进 detail；相同或没有额外组名信息时只显示原来的状态和目录。不同前缀的仓库组名仍可搜索，相同前缀可由原全名匹配，DESIGN §13 已补充此规则。
+- 恢复 search 单元测试原来的三条 detail 断言；保留 `repo_groups` 的不同前缀按组名／全名搜索测试，新增同前缀不重复显示的测试并核对搜索结果。先运行新增测试，因实际仍显示 `paddock · Working · ~/…/paddock` 而失败，再实现并通过。
+- 本轮仅运行指定验证，均使用原独立编译目录、前台完成：`cargo test --manifest-path app/Cargo.toml --test repo_groups`（4 项通过）、`cargo test --manifest-path app/Cargo.toml --lib search::tests`（11 项通过）、`cargo clippy --manifest-path app/Cargo.toml --all-targets -- -D warnings`、`cargo fmt --manifest-path app/Cargo.toml --check`。没有重跑全量测试，没有其他功能改动；仍只在本分支提交。无需主控决定事项。
+
+## 主控审查
+
+2026-10-10，paddock/main。结论：可以合并。
+
+- diff（`de3e50f`、`aaff442`）只动了分组相关的代码、测试、`docs/DESIGN.md` 和本文件；「不要做」里的一件都没做（没改名字、corral、新建前缀、Kanban、Activity、ctl）。「怎么算做完」逐条达到：主仓库和它 worktree 里的 agent 同组，组名是主工作区目录名；读不到退回前缀；组名相同并组；同组短名相同显示全名。
+- 第一轮后主控在它的 worktree 里重跑 `cargo test --all-targets`：545 项通过，和它报的一致。
+- 交回去改过一处（主控的补充，任务文件没写清，不算没达到验收）：⌘P 的 agent 行原先每行都加组名，和名字前缀重复；改成只在两者不同时才写。返工后主控只复跑了 `cargo test --test repo_groups`（4 项）和 search 的单元测试（11 项），通过。
+- 它列的取舍，同意：归属放进现有 Git 摘要一起读（每个 worktree 每轮多一条 `git worktree list`）；新标签弹层的文字过滤仍只认全名，按组名找限定在 ⌘P。
+- 没验证的：没起窗口。启动时或新 agent 刚出现时会先按前缀放、读到仓库后挪一次组，实际看着突不突兀留给用户。

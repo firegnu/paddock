@@ -1156,6 +1156,10 @@ impl Sidebar {
         self.listing.panel.agents.clone()
     }
 
+    pub fn panel(&self) -> &Panel {
+        &self.listing.panel
+    }
+
     /// The agents as the Kanban tab sees them: with their status as the cards show it and, while
     /// idle, the last reply read.
     pub fn seen(&self) -> Vec<crate::kanban::Seen> {
@@ -2952,11 +2956,7 @@ impl RailTip {
         } else {
             format!("{state} · {}", card.time)
         };
-        let group = card
-            .name
-            .strip_suffix(&card.short)
-            .filter(|prefix| !prefix.is_empty())
-            .map(str::to_owned);
+        let group = (!card.group.is_empty()).then(|| format!("{}/", card.group));
         Self {
             group,
             name: card.short.clone(),
