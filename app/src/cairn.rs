@@ -4,13 +4,14 @@
 //! `cairn show --json`, and from Git for the repository's name and branch; cairn's database,
 //! settings and hook files are never read (DESIGN §3). One thing writes: `adopt`, which runs
 //! `cairn adopt`, and the tab runs it only once the user has confirmed (`Adopting`).
-use crate::{command, git};
+use crate::{card::short_time, command, git};
 use serde::Deserialize;
 use std::{
+    collections::HashMap,
     io::ErrorKind,
     path::{Path, PathBuf},
     sync::atomic::AtomicBool,
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 /// The command, as PATH finds it.
@@ -41,9 +42,24 @@ pub struct Found {
     /// Whether each agent's hooks are installed.
     pub claude: bool,
     pub codex: bool,
+    /// When each agent's hooks last ran here.
+    pub claude_fired: Fired,
+    pub codex_fired: Fired,
     /// The records agents have saved that cairn has not yet taken into its database.
     pub uncollected: u64,
     pub body: Body,
+}
+
+/// When an agent's hooks last ran in the repository read, as far as cairn tells.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Fired {
+    /// Not told: cairn before 0.2.0, an agent without its hooks, or a project that is not
+    /// adopted, where cairn records nothing.
+    Unknown,
+    /// cairn has recorded none.
+    Never,
+    /// How long before the read the latest one ran, as the cards write ages (`short_time`).
+    Ago(String),
 }
 
 /// What the tab shows under its header.
@@ -94,6 +110,9 @@ struct Agents {
 #[derive(Deserialize)]
 struct Agent {
     installed: bool,
+    /// From cairn 0.2.0: when each of the agent's hook events last ran in this project, null for
+    /// one that has not.
+    last_seen: Option<HashMap<String, Option<String>>>,
 }
 
 #[derive(Deserialize)]
@@ -126,7 +145,7 @@ struct Show {
 /// Reads `cwd`: `cairn status --json`, and only where it says the project is adopted and some
 /// agent has its hooks, `cairn show --json`, which takes saved records into cairn's database
 /// before it answers.
-pub fn read(program: &str, git: &str, cwd: &str, cancel: &AtomicBool) -> Read {
+pub fn read(program: &str, git: &str, cwd: &str, now: SystemTime, cancel: &AtomicBool) -> Read {
     let status = match run(program, &["status", "--json"], cwd, cancel) {
         Ok(out) => out,
         Err(trouble) => return trouble.into(),
@@ -172,9 +191,63 @@ pub fn read(program: &str, git: &str, cwd: &str, cancel: &AtomicBool) -> Read {
         adopted,
         claude,
         codex,
+        claude_fired: fired(&status.agents.claude, adopted, now),
+        codex_fired: fired(&status.agents.codex, adopted, now),
         uncollected: status.spool.pending_json,
         body,
     })
+}
+
+/// When `agent`'s hooks last ran before `now`: the latest of its events.
+fn fired(agent: &Agent, adopted: bool, now: SystemTime) -> Fired {
+    let Some(seen) = agent
+        .last_seen
+        .as_ref()
+        .filter(|_| adopted && agent.installed)
+    else {
+        return Fired::Unknown;
+    };
+    let mut latest = None;
+    for at in seen.values().flatten() {
+        let Some(at) = unix(at) else {
+            return Fired::Unknown;
+        };
+        latest = latest.max(Some(at));
+    }
+    let Some(latest) = latest else {
+        return Fired::Never;
+    };
+    let now = now
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |since| since.as_secs());
+    Fired::Ago(short_time(Some(now.saturating_sub(latest) as f64)))
+}
+
+/// The seconds since 1970 of a time as cairn writes them, RFC 3339 in UTC:
+/// `2026-10-10T09:43:55.004Z`. The fraction of a second is dropped.
+fn unix(text: &str) -> Option<u64> {
+    let (date, time) = text.strip_suffix('Z')?.split_once('T')?;
+    let three = |text: &str, by: char| {
+        let mut parts = text.splitn(3, by).map(|part| part.parse::<u64>().ok());
+        Some((parts.next()??, parts.next()??, parts.next()??))
+    };
+    let (year, month, day) = three(date, '-')?;
+    let (hour, minute, second) = three(time.split('.').next()?, ':')?;
+    if year < 1970
+        || !(1..=12).contains(&month)
+        || !(1..=31).contains(&day)
+        || hour > 23
+        || minute > 59
+        || second > 60
+    {
+        return None;
+    }
+    // Days since 1970-01-01, counting years from March so a leap day ends one.
+    let year = if month <= 2 { year - 1 } else { year };
+    let (era, of_era) = (year / 400, year % 400);
+    let of_year = (153 * ((month + 9) % 12) + 2) / 5 + day - 1;
+    let days = era * 146_097 + of_era * 365 + of_era / 4 - of_era / 100 + of_year - 719_468;
+    Some(days * 86_400 + hour * 3_600 + minute * 60 + second)
 }
 
 /// What `cairn show --json` in `cwd` has for an adopted project.

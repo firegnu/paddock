@@ -6,7 +6,7 @@
 //! Markdown. A repository that has not adopted it offers Adopt, which asks first; nothing else
 //! here changes anything (DESIGN §13 P5-55).
 use crate::{
-    cairn::{self, Adopting, Body, Found, Read},
+    cairn::{self, Adopting, Body, Fired, Found, Read},
     fonts::UiFont,
     footer_icon::{self, Icon},
     markdown,
@@ -24,7 +24,7 @@ use std::{
         Arc,
         atomic::{AtomicBool, Ordering},
     },
-    time::Duration,
+    time::{Duration, SystemTime},
 };
 
 /// How often cairn is read again while the tab shows.
@@ -156,7 +156,9 @@ impl CairnView {
                 let (dir, stop) = (cwd.clone(), stop.clone());
                 let read = cx
                     .background_executor()
-                    .spawn(async move { cairn::read(cairn::PROGRAM, "git", &dir, &stop) })
+                    .spawn(async move {
+                        cairn::read(cairn::PROGRAM, "git", &dir, SystemTime::now(), &stop)
+                    })
                     .await;
                 if this.update(cx, |view, cx| view.accept(read, cx)).is_err() {
                     break;
@@ -354,12 +356,19 @@ impl CairnView {
             )
     }
 
-    /// Which agents have cairn's hooks, and in an adopted repository how many saves cairn has
-    /// not yet taken in.
+    /// Which agents have cairn's hooks, and in an adopted repository how long ago each one's last
+    /// ran there and how many saves cairn has not yet taken in.
     fn hooks(&self, found: &Found, ui: &UiFont) -> Div {
         let c = self.colors;
-        let agent = |name: &'static str, installed: bool| {
-            let mark = if installed {
+        let agent = |name: &'static str, installed: bool, fired: &Fired| {
+            // Installed and never run is the one worth a look: say so where the check would be.
+            let mark = if *fired == Fired::Never {
+                div()
+                    .flex_shrink_0()
+                    .text_color(c.yellow)
+                    .child("never")
+                    .into_any_element()
+            } else if installed {
                 footer_icon::icon(Icon::Check, c.green, ui.scale(11.0 / footer_icon::SIZE))
                     .into_any_element()
             } else {
@@ -379,6 +388,12 @@ impl CairnView {
                 .text_color(if installed { c.muted } else { c.dim })
                 .child(name)
                 .child(mark)
+                .children(match fired {
+                    Fired::Ago(ago) => {
+                        Some(div().flex_shrink_0().text_color(c.dim).child(ago.clone()))
+                    }
+                    Fired::Unknown | Fired::Never => None,
+                })
         };
         let waiting = found.adopted.then(|| {
             let words = format!("{} uncollected", found.uncollected);
@@ -406,8 +421,8 @@ impl CairnView {
             .border_color(c.text.opacity(RULE))
             .text_size(ui.px(12.0))
             .child(div().flex_shrink_0().text_color(c.dim).child("Hooks"))
-            .child(agent("Claude", found.claude))
-            .child(agent("Codex", found.codex))
+            .child(agent("Claude", found.claude, &found.claude_fired))
+            .child(agent("Codex", found.codex, &found.codex_fired))
             .child(div().flex_1())
             .children(waiting)
     }

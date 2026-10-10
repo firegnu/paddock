@@ -43,7 +43,7 @@ paddock 与 Saddle 在代码上完全分开：用到的 Saddle 代码迁入 padd
   | `corral` 命令（`ls`/`status`/`attach`/`start`/`stop` 等）及其 JSON 输出 | ranch（迁入前随 Saddle 安装） | 照公开格式调用；格式变化时 paddock 跟进 |
   | 插件协议 | ranch（迁入前在 Saddle） | paddock 做自己的插件系统：进程、命令、生命周期部分沿用这份协议，界面部分 paddock 自定（下文“插件”） |
   | 遥测命令（迁入前是 `saddle telemetry …`）、Drover 的公开命令 | 遥测归 ranch；Drover 在 Saddle（第 8 步再定） | 需要时照公开命令调用 |
-  | `cairn` 命令（PATH 上的 `cairn`）及其 JSON 输出 | 独立仓库 `../cairn` | 只调用 `cairn status --json`、`cairn show --json`、`cairn adopt` 三条（P5-55）；不读它的数据库、配置和 hook 文件，不装不卸 hook。cairn 的命令接口在它自己的设计里还标着“草案”，格式变了 paddock 跟进 |
+  | `cairn` 命令（PATH 上的 `cairn`）及其 JSON 输出 | 独立仓库 `../cairn` | 只调用 `cairn status --json`、`cairn show --json`、`cairn adopt` 三条（P5-55）；不读它的数据库、配置和 hook 文件，不装不卸 hook。这三条的输出从 cairn 0.2.0 起是它的公开约定（cairn DESIGN §7.1，只加不改）：`status --json` 的 `agents.*.installed`、`agents.*.last_seen`（P5-78）、`project.status`、`spool.pending_json`，`show --json` 的 `text`、`record_ids` 和 `{"status":"no_data"}`，`adopt` 的退出码。不认识的字段忽略；0.1.0 没有 `last_seen`，照样能用 |
 
 - **运行时要求**：机器上要有 `corral` 命令，由 ranch 安装（`~/.local/bin/corral` → `~/.local/share/ranch/versions/…/bin/corral`，10-05 起）；paddock 不需要 Saddle TUI 在运行。
 - **单独分发**（用户 10-05 定）：paddock 要能不装 Saddle 单独使用，所需的运行时随 paddock 打包（见下一条）。
@@ -471,3 +471,9 @@ paddock 与 Saddle 在代码上完全分开：用到的 Saddle 代码迁入 padd
   - 正文：`show` 的 `text` 从第一个以 `### ` 开头的行起显示（前面是写给 agent 的约定说明），找不到这样的行就全文；按 Markdown 画（`markdown.rs`），能上下滚动，不解析里面的内容。cairn 的标题层级是反的，所以三级标题画成淡的分节小标题加一条细线，其余级别画成加粗小标题。段落和列表项里的换行照换行画（“现场对比”一行一条事实），`markdown.rs` 为此加了一个入口，Kanban 的 Preview 仍把换行并成空格。很长的词在行尾任意处折行。
   - Adopt：点 `Adopt…`，说明换成确认卡片（标题带仓库名、仓库路径、立即生效的那段话、派出去的 agent 不受影响和用 `cairn unadopt` 撤回、`Cancel`／`Adopt`）；点 `Adopt` 才在这个窗格的目录里后台跑 `cairn adopt`，跑完马上重读（成功后卡片上写 `Adopted`，等重读回来换成已采用的样子）；失败就在卡片里显示错误的第一行，卡片留着，可以再点 `Adopt` 或 `Cancel`。点 `Cancel`、窗格换了仓库、切走标签或收起右侧栏，卡片收起。这是面板唯一的写操作。
   - 不做：历史记录列表、点开单条记录、Unadopt、更正／撤回／删除记录、安装或卸载 cairn 和 hook 的按钮、手动刷新按钮、设置项、`cairn` 路径的配置项。
+- **Cairn 标签的状态行写出每家 hook 最近一次触发离现在多久（P5-78）**（用户 10-10 做 P5-55 时要“来确定cairn工作正常”；P5-55 的勾只说明 hook 写进了配置，分不出“装了但没触发”，比如 Codex 的 hook 没在 `/hooks` 里信任。cairn 那一半用户让主控直接在 cairn 仓库做：“我觉得你直接再cairn中干吧…问题不要最小化操作。就是一次解决。”，即 cairn 0.2.0 的 `last_seen`。面板的画法主控给了建议，用户：“P5-78都按你的建议来，开始做吧”）：
+  - 读 `cairn status --json` 里每家的 `last_seen`（当前仓库里四种 hook 事件各自最近一次被 cairn 处理的时间，没有是 `null`），取四个里最晚的一个，不分开列。
+  - 只在已采用的仓库、装了 hook 的那一家画：有时间，勾后面用淡色写离读取时多久，写法和卡片上的时长一样（`45s`、`2m`、`3.0h`、`10d`）；四个都是 `null`，勾换成黄色的 `never`。没采用的仓库 cairn 什么都不记，所以不画 `never`，照 P5-55 的样子。
+  - 旧版 cairn（没有这个字段）、时间读不出来：当作不知道，照 P5-55 的样子画，不算出错。
+  - `never` 不一定是 hook 坏了（cairn DESIGN §8.7）：带 `CAIRN_DISABLE=1` 的会话不记（派出去的 agent 都带），hook 触发了但处理出错也不记。面板不解释（用户定），不放心时跑 `cairn status`。
+  - 时间跟着面板每 5 秒一次的读取更新：读的时候算成文字，文字变了才重画，不另起定时器；所以最多晚 5 秒。
