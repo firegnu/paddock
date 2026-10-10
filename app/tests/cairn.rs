@@ -429,6 +429,7 @@ fn each_agents_hooks_tell_how_long_ago_they_last_ran_in_an_adopted_repository() 
         "yesterday",
         "2026-13-10T09:42:55.004Z",
         "2026-10-10 09:42:55",
+        "18446744073709551615-10-10T09:42:55.004Z",
     ] {
         let odd = serde_json::json!({ "Stop": odd, "SessionStart": "2026-10-10T09:42:55.004Z" });
         assert_eq!(
