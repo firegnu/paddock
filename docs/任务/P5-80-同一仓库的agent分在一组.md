@@ -117,3 +117,13 @@
 - 按主控补充，只调整 `search.rs::agents`：组名非空且不同于名字第一个 `/` 前的前缀时才放进 detail；相同或没有额外组名信息时只显示原来的状态和目录。不同前缀的仓库组名仍可搜索，相同前缀可由原全名匹配，DESIGN §13 已补充此规则。
 - 恢复 search 单元测试原来的三条 detail 断言；保留 `repo_groups` 的不同前缀按组名／全名搜索测试，新增同前缀不重复显示的测试并核对搜索结果。先运行新增测试，因实际仍显示 `paddock · Working · ~/…/paddock` 而失败，再实现并通过。
 - 本轮仅运行指定验证，均使用原独立编译目录、前台完成：`cargo test --manifest-path app/Cargo.toml --test repo_groups`（4 项通过）、`cargo test --manifest-path app/Cargo.toml --lib search::tests`（11 项通过）、`cargo clippy --manifest-path app/Cargo.toml --all-targets -- -D warnings`、`cargo fmt --manifest-path app/Cargo.toml --check`。没有重跑全量测试，没有其他功能改动；仍只在本分支提交。无需主控决定事项。
+
+## 主控审查
+
+2026-10-10，paddock/main。结论：可以合并。
+
+- diff（`de3e50f`、`aaff442`）只动了分组相关的代码、测试、`docs/DESIGN.md` 和本文件；「不要做」里的一件都没做（没改名字、corral、新建前缀、Kanban、Activity、ctl）。「怎么算做完」逐条达到：主仓库和它 worktree 里的 agent 同组，组名是主工作区目录名；读不到退回前缀；组名相同并组；同组短名相同显示全名。
+- 第一轮后主控在它的 worktree 里重跑 `cargo test --all-targets`：545 项通过，和它报的一致。
+- 交回去改过一处（主控的补充，任务文件没写清，不算没达到验收）：⌘P 的 agent 行原先每行都加组名，和名字前缀重复；改成只在两者不同时才写。返工后主控只复跑了 `cargo test --test repo_groups`（4 项）和 search 的单元测试（11 项），通过。
+- 它列的取舍，同意：归属放进现有 Git 摘要一起读（每个 worktree 每轮多一条 `git worktree list`）；新标签弹层的文字过滤仍只认全名，按组名找限定在 ⌘P。
+- 没验证的：没起窗口。启动时或新 agent 刚出现时会先按前缀放、读到仓库后挪一次组，实际看着突不突兀留给用户。
