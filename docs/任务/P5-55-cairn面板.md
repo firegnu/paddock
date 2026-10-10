@@ -83,3 +83,46 @@
 
 ## 做完
 在本文件末尾追加「## 完成记录」（在你的分支里提交）：做了什么、验证了什么、拿主意的地方、没做的事，各几句话。回复里只写这几样，加上有没有要主控决定的事。命令都在前台跑完，全部做完后，回复最后一行写 DONE。
+
+## 完成记录
+
+2026-10-10，paddock/dev-cairn。
+
+### 做了什么
+- 右侧栏第四个标签 `Cairn`（`right_panel.rs`），叠石图标（`footer_icon.rs` 的 `Icon::Cairn`：三块由大到小的扁椭圆）。
+- `app/src/cairn.rs`（知道什么）：`read` 先跑 `cairn status --json`，只有已采用且至少一家装了 hook 才跑 `cairn show --json`；仓库名、分支用只读的 git 命令（`git::repository`、`symbolic-ref`）。`shown` 取正文（第一个 `### ` 行起，找不到就全文）。`adopt` 跑 `cairn adopt`。`Adopting` 是“先确认再做”的那几步（问、取消、确认、跑完、重读后收起）。
+- `app/src/cairn_view.rs`（画）：照四张样稿画七种状态、头部、状态行、确认卡片、正文；标签显示时读一次，窗格换目录再读，之后每 5 秒读一次，切走或收起就停并取消在跑的命令；命令都在后台跑。
+- `markdown.rs` 加 `blocks_by_line`（段落和列表项里的换行照换行留着），`blocks` 的行为没变，Kanban 的 Preview 不受影响。
+- `window.rs`：建视图、每帧把当前窗格的目录和“是否正显示”告诉它、按标签选内容。
+- `docs/DESIGN.md`：§3 表格加 cairn 一行，§13 加 P5-55 一条。
+
+### 验证了什么
+- 测试都是先看它失败再实现的（先写空壳让它能编译，断言失败后再填实现；`no_data` 那条也是先失败）。
+- `app/tests/cairn.rs`（假 `cairn` 脚本加合成 JSON，不碰真的 cairn）：从两条命令的输出判断出七种状态；`no_data` 当作没采用；没采用、hook 都没装时不跑 `show`；`status` 在前 `show` 在后、都在窗格目录里跑；worktree 里仓库名和路径是主仓库的、分支是自己的；正文从第一个 `### ` 行起、找不到就全文；Adopt 没问过不跑、确认一次只跑一次、在窗格目录里跑、失败带回 `cairn adopt: ` 加错误第一行且卡片留着、换仓库或切走后收起；读的过程中只出现 `status`、`show` 两条命令。
+- `right_panel.rs` 的单元测试：四种 `tab` 值的旧布局文件照常读、写回原样；比新最小宽度窄的旧宽度原样留着、按最小宽度画；最小宽度按四个标签加两个按钮一行算。
+- `markdown.rs` 的单元测试：换行并成空格（原行为）和照换行留着两种。
+- `app/` 下各跑一次：`cargo test --all-targets`（541 项全过，原来 533）、`cargo clippy --all-targets -- -D warnings`、`cargo fmt --check`、`git diff --check`，都干净。
+- 没起窗口，样子没看过，留给用户看。
+
+### 拿主意的地方
+- **`project.status` 的第三个值 `no_data`**：任务文件只写了 `adopted`／`not_adopted`，cairn 源码（`crates/cairn/src/status.rs`）在还没有数据库时返回 `no_data`。停下来问了主控，主控定：当作没采用，和 `not_adopted` 一样处理。已照做并补了测试。
+- **最小宽度 426**（主控定：按量的定，默认宽度 420 不动、不改 `layout_state.rs`）。怎么量的：在临时目录写了一个小 Rust 程序（不进仓库），用 CoreText 取系统界面字体 12.5pt，量四个标签的字宽：Changes 51.54、Browser 47.62、Kanban 43.95、Cairn 30.93（粗体分别是 54.78、51.60、46.93、33.38；选中的那个是半粗，按最多多 4pt 算）。一行要的宽度 = 左边距 10 + 四个标签（每个：左右各 11、图标 12、图标后 7、字宽）+ 标签间 2×3 + 选中加粗 4 + 间隔 2 + 伸缩空位 + 间隔 2 + 按钮 26 + 间隔 2 + 按钮 26 + 右边距 8 = 424.04，取 426。这些数写在 `right_panel.rs` 的测试里。
+  - 顺带量出来：三个标签时一行要约 350，原来的 320 是只有两个标签时定的，之后没跟着改过。
+  - 默认宽度 420 比 426 小，所以首次打开实际是 426；`right_panel.rs` 里三条原先默认“420 在范围内”的测试改成用 500 起步，另加一条断言写明默认宽度按最小宽度画。窗口很窄时右侧栏保最小宽度，终端会比以前少 106pt。
+- hook 一家都没装时不跑 `show`（它的结果这时不显示，少一次收取的副作用）；这时头部照样按 `status` 显示 `Adopted` 或 `Not adopted`。
+- 仓库名和 Adopt 卡片上的路径取主工作区（公共 `.git` 目录的上一级），所以在 worktree 窗格里显示的是仓库本身，和 cairn 按整个仓库算采用一致；公共目录不叫 `.git`（裸仓库、子模块）时用工作区自己的目录。分支是窗格所在工作区的。
+- 错误那一行写成 `cairn <命令>: ` 加 stderr 的第一行（没有就取 stdout 的，再没有写退出状态）；超时写 `timed out`。cairn 自己的 stderr 不带前缀，所以和样稿的 `cairn status: database is locked` 一致。
+- `cairn adopt` 成功后，卡片先写 `Adopted`，等重读回来才换成已采用的样子（照 Kanban 的 `Done`），免得中间闪回 `Adopt…` 按钮。失败后卡片上 `Cancel`、`Adopt` 都还在，可以再试。
+- 样稿没画的两种：没有窗格在焦点上写 `No pane in focus`，窗格没有目录写 `No directory to read`，下面都是 `Cairn follows the focused pane's directory`（照 Kanban 的写法）。窗格换目录时，旧内容留到新的一次读回来（约零点几秒），和 Kanban 一样。
+- 正文里画 Markdown 行内样式的那个函数（`styled`）在 `kanban_view.rs` 里是私有的，那个文件不在“只动”清单里，所以在 `cairn_view.rs` 里另写了一份同样的。
+- 样稿里“本工作线”下第一段（记录编号那一行）比正文小一号、淡一点：要认出这一段就得解析正文内容，没做，所有段落一个样。分节小标题的字距（样稿 0.04em）也没做。
+- 三级以外的标题（一、二、四级以上）都画成加粗小标题。
+
+### 没做的事
+- 任务文件“不做”里列的都没做：历史记录列表、点开单条记录、Unadopt、更正／撤回／删除记录、安装或卸载 cairn 和 hook 的按钮、手动刷新、设置项、`cairn` 路径配置。
+- 没起 paddock 窗口，没截图，没跑真的 `cairn adopt`／`show`（只在本仓库里跑过一次 `cairn status --json` 看输出的样子）。
+- 没合并，没推送。
+
+### 留给用户看的
+- 把右侧栏拖到最窄，四个标签和右边两个按钮是不是正好一行；界面字号调大后也看一眼。
+- 七种状态的样子、正文的分节和折行、Adopt 的确认卡片（真点 `Adopt` 会采用那个仓库，可用 `cairn unadopt` 撤回）。

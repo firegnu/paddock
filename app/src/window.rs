@@ -7,6 +7,7 @@ use crate::{
     attention::Kind as AttentionKind,
     browser::{self, Owner, cover},
     browser_view::{BrowserView, Handoff, Visited},
+    cairn_view::{self, CairnView},
     card,
     changes::{self, ChangesView, Follow, Frame},
     config::Config,
@@ -1111,6 +1112,8 @@ pub struct PaddockWindow {
     browser: Entity<BrowserView>,
     /// The right sidebar's Kanban tab, the focused pane's repository's task files.
     kanban: Entity<KanbanView>,
+    /// The right sidebar's Cairn tab, what cairn has for the focused pane's directory.
+    cairn: Entity<CairnView>,
     /// A press on the title bar's empty part: moving now drags the window.
     dragging: bool,
     /// The title bar height the traffic lights were last centred on.
@@ -1203,6 +1206,10 @@ impl PaddockWindow {
             cx.new(|cx| KanbanView::new(theme, mono, folded, cx))
         };
         cx.subscribe_in(&kanban, window, Self::on_kanban).detach();
+        let cairn = {
+            let (theme, mono) = (theme.clone(), mono_font(&options));
+            cx.new(|_| CairnView::new(theme, mono))
+        };
         let shown = match &options.launch {
             Launch::Empty => Shown::Empty,
             Launch::Agent { name, .. } => Shown::Agent(name.clone()),
@@ -1252,6 +1259,7 @@ impl PaddockWindow {
             changes,
             browser,
             kanban,
+            cairn,
             dragging: false,
             lights: None,
             store,
@@ -5994,6 +6002,12 @@ impl Render for PaddockWindow {
             mono: mono_font(&self.template),
             agents: self.sidebar.read(cx).seen(),
         };
+        let cairn = cairn_view::Frame {
+            cwd: follow.as_ref().map(|f| f.cwd.clone()),
+            active: right.is_some() && self.right.tab == RightTab::Cairn,
+            theme: self.theme.clone(),
+            mono: mono_font(&self.template),
+        };
         let frame = Frame {
             follow,
             active: right.is_some() && self.right.tab == RightTab::Changes,
@@ -6005,6 +6019,8 @@ impl Render for PaddockWindow {
             .update(cx, |changes, cx| changes.frame(frame, cx));
         // The Kanban tab follows the same pane's repository, and reads only while it shows.
         self.kanban.update(cx, |view, cx| view.frame(kanban, cx));
+        // The Cairn tab follows the same pane's directory, and reads only while it shows.
+        self.cairn.update(cx, |view, cx| view.frame(cairn, cx));
         // The right sidebar, a card pushed out from the right edge: the terminal narrows for it.
         if let Some(width) = right {
             let content = match self.right.tab {
@@ -6013,6 +6029,9 @@ impl Render for PaddockWindow {
                     .into_any_element(),
                 RightTab::Browser => self.browser.clone().into_any_element(),
                 RightTab::Kanban => AnyView::from(self.kanban.clone())
+                    .cached(StyleRefinement::default().size_full())
+                    .into_any_element(),
+                RightTab::Cairn => AnyView::from(self.cairn.clone())
                     .cached(StyleRefinement::default().size_full())
                     .into_any_element(),
             };

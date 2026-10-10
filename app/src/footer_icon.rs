@@ -75,6 +75,9 @@ pub enum Icon {
     External,
     /// Three rounded bars hanging from one line, of different lengths: the right sidebar's Kanban.
     Kanban,
+    /// Three flat stones, one on another, each smaller than the one under it: the right sidebar's
+    /// Cairn.
+    Cairn,
     /// A page with its corner folded and two lines: a Kanban card's task file.
     Document,
     /// A folder: the repository the Kanban shows.
@@ -579,6 +582,14 @@ fn shapes(icon: Icon, pose: Pose, bounds: Bounds<Pixels>, scale: f32) -> Vec<Pat
                 bar
             })
             .collect(),
+        Icon::Cairn => [(10.85, 5.37, 1.87), (6.65, 3.73, 1.75), (2.8, 2.22, 1.52)]
+            .into_iter()
+            .map(|(y, rx, ry)| {
+                let mut stone = stroke();
+                ellipse(&mut stone, at(7.0, y), rx * scale, ry * scale);
+                stone
+            })
+            .collect(),
         Icon::Document => {
             let mut page = stroke();
             page.move_to(at(3.25, 1.6));
@@ -725,6 +736,15 @@ fn circle(path: &mut PathBuilder, centre: Point<Pixels>, r: f32) {
     path.move_to(point(centre.x + r, centre.y));
     path.arc_to(radii, px(0.0), false, true, point(centre.x - r, centre.y));
     path.arc_to(radii, px(0.0), false, true, point(centre.x + r, centre.y));
+    path.close();
+}
+
+/// A closed ellipse round `centre`, `rx` wide and `ry` high from it.
+fn ellipse(path: &mut PathBuilder, centre: Point<Pixels>, rx: f32, ry: f32) {
+    let (rx, radii) = (px(rx), point(px(rx), px(ry)));
+    path.move_to(point(centre.x + rx, centre.y));
+    path.arc_to(radii, px(0.0), false, true, point(centre.x - rx, centre.y));
+    path.arc_to(radii, px(0.0), false, true, point(centre.x + rx, centre.y));
     path.close();
 }
 

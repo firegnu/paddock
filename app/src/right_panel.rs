@@ -1,8 +1,9 @@
 //! The right sidebar: pushed out from the window's right edge, narrowing the terminal rather than
-//! covering it, with three tabs, Changes, Browser and Kanban, a button to widen it and one to close
-//! it. Changes shows the focused pane's worktree (`changes.rs`); Browser a web page
+//! covering it, with four tabs, Changes, Browser, Kanban and Cairn, a button to widen it and one to
+//! close it. Changes shows the focused pane's worktree (`changes.rs`); Browser a web page
 //! (`browser_view.rs`); Kanban the task files of the focused pane's repository
-//! (`kanban_view.rs`). The window draws the card it sits in and lays it out; the rules for its
+//! (`kanban_view.rs`); Cairn what cairn has recorded for the focused pane's directory
+//! (`cairn_view.rs`). The window draws the card it sits in and lays it out; the rules for its
 //! width live here, so they can be tested without a window.
 use crate::{
     browser,
@@ -21,9 +22,9 @@ use std::rc::Rc;
 
 /// The width it opens at the first time, in points.
 pub const DEFAULT_WIDTH: f32 = 420.0;
-/// The narrowest it goes at the base interface size; larger sizes widen it alike, so the tab row
-/// keeps to one line.
-pub const MIN_WIDTH: f32 = 320.0;
+/// The narrowest it goes at the base interface size; larger sizes widen it alike, so the tab row,
+/// its four tabs and two buttons, keeps to one line.
+pub const MIN_WIDTH: f32 = 426.0;
 /// The widest it goes, as a share of the window.
 pub const MAX_SHARE: f32 = 0.7;
 /// What it always leaves the terminal, when the window has room for both: about 44 columns at
@@ -39,16 +40,18 @@ pub enum Tab {
     Changes,
     Browser,
     Kanban,
+    Cairn,
 }
 
 impl Tab {
-    pub const ALL: [Tab; 3] = [Tab::Changes, Tab::Browser, Tab::Kanban];
+    pub const ALL: [Tab; 4] = [Tab::Changes, Tab::Browser, Tab::Kanban, Tab::Cairn];
 
     pub fn label(self) -> &'static str {
         match self {
             Tab::Changes => "Changes",
             Tab::Browser => "Browser",
             Tab::Kanban => "Kanban",
+            Tab::Cairn => "Cairn",
         }
     }
 
@@ -58,6 +61,7 @@ impl Tab {
             Tab::Changes => "Changes will show here",
             Tab::Browser => "Open a page",
             Tab::Kanban => "Tasks will show here",
+            Tab::Cairn => "Handover records will show here",
         }
     }
 }
@@ -227,11 +231,11 @@ impl RightPanel {
                     .justify_center()
                     .child("±")
                     .into_any_element(),
-                Tab::Browser | Tab::Kanban => footer_icon::icon(
-                    if tab == Tab::Browser {
-                        Icon::Browser
-                    } else {
-                        Icon::Kanban
+                Tab::Browser | Tab::Kanban | Tab::Cairn => footer_icon::icon(
+                    match tab {
+                        Tab::Browser => Icon::Browser,
+                        Tab::Kanban => Icon::Kanban,
+                        _ => Icon::Cairn,
                     },
                     if on {
                         fg(|t| t.agents_accent)
@@ -336,6 +340,7 @@ pub fn placeholder(theme: &Theme, ui: &UiFont, tab: Tab) -> Div {
         Tab::Changes => Icon::Changes,
         Tab::Browser => Icon::Browser,
         Tab::Kanban => Icon::Kanban,
+        Tab::Cairn => Icon::Cairn,
     };
     div()
         .flex_1()
@@ -416,8 +421,10 @@ mod tests {
     #[test]
     fn its_width_keeps_within_reach_and_leaves_the_terminal_room() {
         let room = room();
-        assert_eq!(room.clamp(DEFAULT_WIDTH), DEFAULT_WIDTH);
+        assert_eq!(room.clamp(500.0), 500.0);
         assert_eq!(room.clamp(100.0), MIN_WIDTH);
+        // The width it first opens at is under what four tabs take: it opens at the least.
+        assert_eq!(room.clamp(DEFAULT_WIDTH), MIN_WIDTH);
         // The terminal keeps its least: 1440 - 382 - 360.
         assert_eq!(room.clamp(1200.0), 698.0);
         assert_eq!(room.clamp(1440.0 - 382.0 - 300.0), 698.0);
@@ -437,18 +444,80 @@ mod tests {
         let large = Room { min: 443.0, ..room };
         assert_eq!(large.clamp(DEFAULT_WIDTH), 443.0);
         // Whole points.
-        assert_eq!(room.clamp(400.4), 400.0);
+        assert_eq!(room.clamp(500.4), 500.0);
+    }
+
+    #[test]
+    fn its_least_width_keeps_the_four_tabs_and_the_buttons_on_one_line() {
+        // Each label at 12.5 points in the system font, as Core Text measures it (P5-55), and
+        // what the selected one gains at most by being heavier.
+        let labels = [
+            ("Changes", 51.54),
+            ("Browser", 47.62),
+            ("Kanban", 43.95),
+            ("Cairn", 30.93),
+        ];
+        let heavier = 4.0;
+        assert_eq!(
+            Tab::ALL.map(Tab::label).as_slice(),
+            labels.map(|(label, _)| label).as_slice()
+        );
+        // A tab: its padding, its icon, the room after it, its label. Two points between tabs.
+        let tabs = labels
+            .iter()
+            .map(|(_, label)| 11.0 + 12.0 + 7.0 + label + 11.0)
+            .sum::<f32>()
+            + 2.0 * (labels.len() - 1) as f32
+            + heavier;
+        // The row: its left padding, the tabs, the room that stretches, the two buttons, its
+        // right padding, two points between each.
+        let row = 10.0 + tabs + 2.0 + 2.0 + 26.0 + 2.0 + 26.0 + 8.0;
+        assert!(MIN_WIDTH >= row, "{MIN_WIDTH} < {row}");
+        // And no wider than that asks, to a few points.
+        assert!(MIN_WIDTH - row < 4.0, "{MIN_WIDTH} against {row}");
+    }
+
+    #[test]
+    fn a_layout_file_from_before_the_cairn_tab_reads_as_it_did_and_cairn_is_kept() {
+        for (word, tab) in [
+            ("changes", Tab::Changes),
+            ("browser", Tab::Browser),
+            ("kanban", Tab::Kanban),
+            ("cairn", Tab::Cairn),
+        ] {
+            let file = serde_json::json!({ "open": true, "width": 500.0, "tab": word });
+            let saved: Saved = serde_json::from_value(file).unwrap();
+            assert_eq!(
+                saved,
+                Saved {
+                    open: true,
+                    width: 500.0,
+                    tab,
+                    ..Saved::default()
+                }
+            );
+            assert_eq!(serde_json::to_value(&saved).unwrap()["tab"], word);
+            assert_eq!(RightPanel::new(&saved).saved(), saved);
+        }
+        // A width narrower than four tabs take stays as the file has it, and is drawn at the least.
+        let narrow: Saved = serde_json::from_value(serde_json::json!({ "width": 320.0 })).unwrap();
+        let panel = RightPanel::new(&narrow);
+        assert_eq!(panel.saved().width, 320.0);
+        assert_eq!(panel.shown(room()), MIN_WIDTH);
     }
 
     #[test]
     fn dragging_the_divider_follows_the_mouse_within_reach() {
         let room = room();
-        let mut panel = RightPanel::new(&Saved::default());
+        let mut panel = RightPanel::new(&Saved {
+            width: 500.0,
+            ..Saved::default()
+        });
         panel.press(room, 1000.0);
         assert!(panel.resizing());
         // Left widens it, right narrows it.
         assert!(panel.drag(room, 950.0));
-        assert_eq!(panel.width, 470.0);
+        assert_eq!(panel.width, 550.0);
         assert!(panel.drag(room, 1300.0));
         assert_eq!(panel.width, MIN_WIDTH);
         assert!(panel.drag(room, 0.0));
@@ -468,14 +537,17 @@ mod tests {
             others: 54.0,
             ..room()
         };
-        let mut panel = RightPanel::new(&Saved::default());
-        assert_eq!(panel.shown(room), DEFAULT_WIDTH);
+        let mut panel = RightPanel::new(&Saved {
+            width: 500.0,
+            ..Saved::default()
+        });
+        assert_eq!(panel.shown(room), 500.0);
         panel.wide = true;
         assert_eq!(panel.shown(room), 720.0);
         // Its own width is kept, and comes back.
-        assert_eq!(panel.saved().width, DEFAULT_WIDTH);
+        assert_eq!(panel.saved().width, 500.0);
         panel.wide = false;
-        assert_eq!(panel.shown(room), DEFAULT_WIDTH);
+        assert_eq!(panel.shown(room), 500.0);
         // Half the window is held to the limits too: here the terminal's least.
         panel.wide = true;
         assert_eq!(

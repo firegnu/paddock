@@ -41,6 +41,17 @@ pub enum Block {
 
 /// `source`'s blocks.
 pub fn blocks(source: &str) -> Vec<Block> {
+    read(source, " ")
+}
+
+/// As [`blocks`], a line break within a paragraph or a list item kept as one: the Cairn tab's
+/// text puts a fact on each line.
+pub fn blocks_by_line(source: &str) -> Vec<Block> {
+    read(source, "\n")
+}
+
+/// `source`'s blocks, a line break within one read as `soft`.
+fn read(source: &str, soft: &str) -> Vec<Block> {
     let mut read = Reader::default();
     for (event, range) in Parser::new(source).into_offset_iter() {
         match event {
@@ -102,7 +113,7 @@ pub fn blocks(source: &str) -> Vec<Block> {
             },
             Event::Code(text) => read.words(&text, true),
             Event::Html(text) | Event::InlineHtml(text) => read.words(&text, false),
-            Event::SoftBreak => read.words(" ", false),
+            Event::SoftBreak => read.words(soft, false),
             Event::HardBreak => read.words("\n", false),
             Event::Rule => {
                 read.line();
@@ -224,6 +235,30 @@ mod tests {
                 Block::Heading(6, vec![plain("六")]),
             ]
         );
+    }
+
+    #[test]
+    fn a_line_break_within_a_block_is_a_space_or_kept_when_asked() {
+        let source = "### 现场对比\n相对记录 01：\nHEAD 多 2 个提交\n没有变化。\n\n- a\n  b\n";
+        assert_eq!(
+            blocks(source),
+            [
+                Block::Heading(3, vec![plain("现场对比")]),
+                Block::Paragraph(vec![plain("相对记录 01： HEAD 多 2 个提交 没有变化。")]),
+                item(0, Some(Marker::Bullet), "a b"),
+            ]
+        );
+        assert_eq!(
+            blocks_by_line(source),
+            [
+                Block::Heading(3, vec![plain("现场对比")]),
+                Block::Paragraph(vec![plain("相对记录 01：\nHEAD 多 2 个提交\n没有变化。")]),
+                item(0, Some(Marker::Bullet), "a\nb"),
+            ]
+        );
+        // Nothing else differs.
+        let other = "## 停点\n一行。\n\n1. x\n\n```\ncode\nmore\n```\n";
+        assert_eq!(blocks_by_line(other), blocks(other));
     }
 
     #[test]
