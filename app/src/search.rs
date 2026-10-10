@@ -116,7 +116,8 @@ pub const PER_PANE: usize = 20;
 /// Room kept before a match in a long line; the rest of its start gives way to `…`.
 const BEFORE: usize = 24;
 
-/// The agents by name: a status dot, the full name, the group, status and short directory.
+/// The agents by name: a status dot, the full name, status and short directory; the group only
+/// when it adds information beyond the name's prefix.
 pub fn agents(panel: &Panel, now: f64, home: Option<&str>) -> Vec<Row> {
     let mut agents: Vec<_> = panel.agents.iter().collect();
     agents.sort_by(|a, b| a.name.cmp(&b.name));
@@ -129,7 +130,8 @@ pub fn agents(panel: &Panel, now: f64, home: Option<&str>) -> Vec<Row> {
                 None => look.label.to_owned(),
             };
             let project = panel.group(agent);
-            let detail = if project.is_empty() {
+            let prefix = agent.name.split_once('/').map_or("", |(prefix, _)| prefix);
+            let detail = if project.is_empty() || project == prefix {
                 detail
             } else {
                 format!("{project} · {detail}")
@@ -460,7 +462,7 @@ mod tests {
         paused.state = Some("working".into());
         paused.paused = true;
         let rows = agents(&panel(vec![paused]), 0.0, Some("/Users/me"));
-        assert_eq!(rows[0].detail, "paddock · Paused · ~/…/paddock");
+        assert_eq!(rows[0].detail, "Paused · ~/…/paddock");
         assert!(matches!(
             rows[0].lead,
             Lead::Dot {
@@ -479,7 +481,7 @@ mod tests {
         gone.state = Some("exited".into());
         let rows = agents(&panel(vec![working, gone]), 0.0, Some("/Users/me"));
         assert_eq!(rows[0].title, "paddock/main");
-        assert_eq!(rows[0].detail, "paddock · Working · ~/…/paddock");
+        assert_eq!(rows[0].detail, "Working · ~/…/paddock");
         assert!(matches!(
             rows[0].lead,
             Lead::Dot {
@@ -489,7 +491,7 @@ mod tests {
             } if kind == "codex"
         ));
         assert!(matches!(rows[1].lead, Lead::Dot { kind: None, .. }));
-        assert_eq!(rows[1].detail, "ranch · Exited");
+        assert_eq!(rows[1].detail, "Exited");
         assert!(matches!(
             rows[1].lead,
             Lead::Dot {

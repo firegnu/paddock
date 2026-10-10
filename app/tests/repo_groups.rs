@@ -143,3 +143,21 @@ fn search_matches_the_repository_group_and_the_original_full_name() {
         );
     }
 }
+
+#[test]
+fn search_detail_omits_the_group_when_the_name_prefix_already_says_it() {
+    let cwd = "/Users/me/code/paddock";
+    let mut panel = panel(&[("paddock/main", cwd, "working")]);
+    repository(&mut panel, cwd, cwd);
+    let rows = search::agents(&panel, 100.0, Some("/Users/me"));
+    assert_eq!(rows[0].title, "paddock/main");
+    assert_eq!(rows[0].detail, "Working · ~/…/paddock");
+    for query in ["paddock", "paddock/main"] {
+        let found = search::everything(&rows, &[], &[], &[], query);
+        assert_eq!(found.len(), 1, "{query}");
+        assert_eq!(
+            found[0].rows[0].target,
+            search::Target::Agent("paddock/main".into())
+        );
+    }
+}

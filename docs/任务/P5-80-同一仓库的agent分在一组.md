@@ -111,3 +111,9 @@
 - 复用现有主工作区读取函数，在每个 worktree 的摘要中保存路径，由纯内存分组函数取目录名；无新配置和持久化格式。测试复用现有临时仓库／worktree 夹具，没有另建一套 Git 测试设施。
 - 没起窗口、没截图、没操作真实 agent，也没改 corral／ranch、别的项目或任务。视觉效果留给用户实际看。只在 `p5-80-repo-groups` 提交，不合并、不推送。
 - 要主控决定的事：无。
+
+### 主控审查补充：⌘P 省略重复组名
+
+- 按主控补充，只调整 `search.rs::agents`：组名非空且不同于名字第一个 `/` 前的前缀时才放进 detail；相同或没有额外组名信息时只显示原来的状态和目录。不同前缀的仓库组名仍可搜索，相同前缀可由原全名匹配，DESIGN §13 已补充此规则。
+- 恢复 search 单元测试原来的三条 detail 断言；保留 `repo_groups` 的不同前缀按组名／全名搜索测试，新增同前缀不重复显示的测试并核对搜索结果。先运行新增测试，因实际仍显示 `paddock · Working · ~/…/paddock` 而失败，再实现并通过。
+- 本轮仅运行指定验证，均使用原独立编译目录、前台完成：`cargo test --manifest-path app/Cargo.toml --test repo_groups`（4 项通过）、`cargo test --manifest-path app/Cargo.toml --lib search::tests`（11 项通过）、`cargo clippy --manifest-path app/Cargo.toml --all-targets -- -D warnings`、`cargo fmt --manifest-path app/Cargo.toml --check`。没有重跑全量测试，没有其他功能改动；仍只在本分支提交。无需主控决定事项。
