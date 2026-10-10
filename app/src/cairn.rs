@@ -233,7 +233,7 @@ fn unix(text: &str) -> Option<u64> {
     };
     let (year, month, day) = three(date, '-')?;
     let (hour, minute, second) = three(time.split('.').next()?, ':')?;
-    if year < 1970
+    if !(1970..=9999).contains(&year)
         || !(1..=12).contains(&month)
         || !(1..=31).contains(&day)
         || hour > 23
