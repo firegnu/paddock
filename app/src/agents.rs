@@ -174,11 +174,25 @@ impl Panel {
         self.select(Some(ordered[at].name.clone()));
     }
 
+    /// The main worktree's directory name, or the original prefix while unread/unavailable.
+    /// This only consults the background Git results, never the filesystem.
+    pub fn group<'a>(&'a self, agent: &'a Agent) -> &'a str {
+        agent
+            .cwd
+            .as_ref()
+            .and_then(|cwd| self.git.get(cwd))
+            .and_then(Option::as_ref)
+            .and_then(|summary| summary.main_repository.as_ref())
+            .and_then(|main| main.file_name())
+            .and_then(|name| name.to_str())
+            .unwrap_or_else(|| group(&agent.name).trim_end_matches('/'))
+    }
+
     pub fn ordered(&self, now: f64) -> Vec<&Agent> {
         let mut agents: Vec<_> = self.agents.iter().collect();
         agents.sort_by(|a, b| {
-            group(&a.name)
-                .cmp(group(&b.name))
+            self.group(a)
+                .cmp(self.group(b))
                 .then_with(|| {
                     if self.by_name {
                         std::cmp::Ordering::Equal
