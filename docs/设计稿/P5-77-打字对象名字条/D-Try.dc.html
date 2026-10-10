@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="zh-Hans">
+<head>
+<meta charset="utf-8">
+<title>D: type to try the name tag</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#7fd4bf}a:hover{color:#a6e6d6}
+button{font:inherit;color:inherit;cursor:pointer;background:none;border:0;padding:0;text-align:left}
+button:focus-visible{outline:2px solid #7fd4bf;outline-offset:2px}
+input{font:inherit;color:inherit;background:none;border:0;padding:0;outline:none}
+</style>
+</helmet>
+<div style="width: 1440px; height: 640px; box-sizing: border-box; padding: 28px 32px 32px; background: #1a1f1f; font-family: -apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif; color: #d6e6e1; font-size: 13px; display: flex; flex-direction: column; gap: 12px">
+
+  <div style="font-size: 13px; line-height: 18px; color: #a9c0b9">点 Play 后在下面的输入框里打字；点左边的卡片换 agent，回车发送。位置、动作、时长在 Tweaks 里换。</div>
+
+  <div style="flex: 1; min-height: 0; border-radius: 12px; overflow: hidden; background: #060d0d; display: flex; flex-direction: column; box-shadow: 0 20px 50px rgba(0,0,0,0.5)">
+    <div style="height: 36px; flex-shrink: 0; display: flex; align-items: center; gap: 7px; padding: 0 12px">
+      <span style="width: 11px; height: 11px; border-radius: 6px; background: #ec6a5e"></span>
+      <span style="width: 11px; height: 11px; border-radius: 6px; background: #f4bf4f"></span>
+      <span style="width: 11px; height: 11px; border-radius: 6px; background: #61c554"></span>
+      <span style="margin-left: 144px; display: flex; align-items: center; gap: 6px; padding: 4px 11px 4px 8px; border-radius: 999px; background: #1d3833; font-size: 11.5px; color: #e8f3ef"><span style="width: 12px; height: 12px; border-radius: 3px; background: {{icon}}"></span>{{name}}</span>
+    </div>
+    <div style="flex: 1; min-height: 0; display: flex; gap: 8px; padding: 0 8px 8px 0">
+
+      <div style="width: 190px; flex-shrink: 0; background: #0f1d1c; padding: 8px; box-sizing: border-box; display: flex; flex-direction: column; gap: 6px">
+        <sc-for list="{{agents}}" as="a" hint-placeholder-count="3">
+          <button type="button" onClick="{{a.pick}}" aria-pressed="{{a.chosen}}" style="height: 48px; border-radius: 9px; background: {{a.ground}}; display: flex; align-items: center; gap: 9px; padding: 0 10px">
+            <span style="position: relative; width: 14px; height: 14px; border-radius: 4px; background: {{a.icon}}; flex-shrink: 0"><span style="position: absolute; right: -2px; bottom: -2px; width: 6px; height: 6px; border-radius: 3px; background: {{a.dot}}; border: 1.5px solid {{a.ground}}"></span></span>
+            <span style="display: flex; flex-direction: column; gap: 1px; min-width: 0"><span style="font-size: 12px; color: #e8f3ef; font-weight: 600">{{a.short}}</span><span style="font-size: 10.5px; color: #a9c0b9">{{a.status}}</span></span>
+          </button>
+        </sc-for>
+      </div>
+
+      <div style="flex: 1; min-width: 0; background: #0c1616; border-radius: 12px; border: 1px solid {{paneEdge}}; box-shadow: {{paneGlow}}; transition: border-color 200ms, box-shadow 200ms; display: flex; flex-direction: column; overflow: hidden">
+        <div style="height: 34px; flex-shrink: 0; display: flex; align-items: center; gap: 7px; padding: 0 12px; font-size: 12px">
+          <span style="position: relative; width: 13px; height: 13px; border-radius: 3px; background: {{icon}}; flex-shrink: 0"><span style="position: absolute; right: -2px; bottom: -2px; width: 6px; height: 6px; border-radius: 3px; background: {{dot}}; border: 1.5px solid #0c1616"></span></span>
+          <span style="color: #e8f3ef; font-weight: 600; flex-shrink: 0">{{short}}</span>
+          <span style="color: #b8cdc6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0">{{topic}}</span>
+          <span style="color: #7d9a93; flex-shrink: 0">{{dir}}</span>
+        </div>
+        <div style="flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: flex-end; gap: 10px; padding: 4px 14px 10px; font-family: 'JetBrains Mono', ui-monospace, 'PingFang SC', monospace; font-size: 13px; line-height: 1.7; color: #b8cdc6">
+          <div style="min-height: 0; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end; margin-bottom: 8px">
+            <sc-for list="{{lines}}" as="line" hint-placeholder-count="6">
+              <div style="color: {{line.color}}; white-space: pre"><span style="color: {{line.markColor}}">{{line.mark}}</span>{{line.text}}</div>
+            </sc-for>
+          </div>
+          <div style="position: relative; flex-shrink: 0; border: 1px solid rgba(214,230,225,0.24); border-radius: 6px; padding: 5px 10px; display: flex; align-items: center; gap: 8px">
+            <span aria-hidden="true" style="color: #7fd4bf">❯</span>
+            <input type="text" aria-label="Message to the agent" autocomplete="off" spellcheck="false" ref="{{inputRef}}" value="{{text}}" onChange="{{onType}}" onKeyDown="{{onKey}}" onCompositionStart="{{onCompose}}" style="flex: 1; min-width: 0; color: #e8f3ef; caret-color: #b8cdc6">
+            <span aria-hidden="true" style="position: absolute; left: {{tagLeft}}; right: {{tagRight}}; top: -12px; height: 22px; box-sizing: border-box; display: flex; align-items: center; gap: 6px; padding: 0 9px 0 7px; border-radius: 11px; background: #0c1616; border: 1px solid rgba(214,230,225,0.14); font-family: -apple-system, 'SF Pro Text', 'PingFang SC', sans-serif; font-size: 11px; line-height: 1; color: #6f8a84; white-space: nowrap; pointer-events: none">
+              <span style="width: 11px; height: 11px; border-radius: 3px; background: {{icon}}; opacity: 0.5"></span>
+              <span>{{name}}</span>
+            </span>
+            <span aria-live="polite" style="position: absolute; left: {{tagLeft}}; right: {{tagRight}}; top: {{litTop}}; height: {{litHeight}}; box-sizing: border-box; display: flex; align-items: center; gap: 7px; padding: {{litPad}}; border-radius: 999px; background: {{litGround}}; border: 1px solid {{litEdge}}; box-shadow: 0 6px 18px rgba(0,0,0,0.5); font-family: -apple-system, 'SF Pro Text', 'PingFang SC', sans-serif; font-size: {{litFont}}; line-height: 1; color: {{topicColor}}; white-space: nowrap; pointer-events: none; opacity: {{litOpacity}}; transform: {{litTransform}}; transform-origin: {{litOrigin}}; transition: {{litTransition}}">
+              <span style="color: {{toColor}}">To</span>
+              <span style="width: {{iconSize}}; height: {{iconSize}}; border-radius: 3px; background: {{icon}}"></span>
+              <span style="color: {{nameColor}}; font-weight: 600">{{name}}</span>
+              <span>· {{topic}}</span>
+            </span>
+          </div>
+          <div style="flex-shrink: 0; display: flex; justify-content: space-between; font-size: 11.5px; line-height: 1.5; color: #7d9a93"><span>? for shortcuts</span><span>38% context</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"position":{"editor":"enum","default":"左上角","options":["左上角","跟着光标","右边（现在）"]},"bigger":{"editor":"boolean","default":true},"slideIn":{"editor":"boolean","default":true},"stayLit":{"editor":"enum","default":"打字期间一直亮","options":["1 秒（现在）","2 秒","打字期间一直亮"]},"paneRing":{"editor":"boolean","default":false},"pauseSeconds":{"editor":"range","default":10,"min":2,"max":15,"step":1,"unit":"s"},"accent":{"editor":"color","default":"#7fd4bf","options":["#7fd4bf","#f0b866","#8fb4f2"]},"$preview":{"width":1440,"height":640}}'>
+class Component extends DCLogic {
+state = { target: 0, drafts: ['', '', ''], sent: [[], [], []], lit: false };
+
+agents() {
+const ok = '#9cc98e';
+const said = (text) => ({ mark: '● ', markColor: ok, text: text, color: '#b8cdc6' });
+const sub = (text) => ({ mark: '', markColor: ok, text: '  └ ' + text, color: '#83a098' });
+const asked = (text) => ({ mark: '❯ ', markColor: '#7fd4bf', text: text, color: '#b8cdc6' });
+return [
+{ name: 'paddock/main', short: 'main', icon: '#e48c66', dot: '#93c79a', status: 'Idle', topic: '读取 HANDOFF 进入状态', dir: '~/…/paddock',
+lines: [asked('p5-76开始做吧'), said('Dispatching P5-76 to a Claude Code agent.'), sub('paddock/dev-tabstack-1 · opus[1m] / high'), said('Merged, pushed and installed.'), sub('~/Applications/paddock.app'), asked('看到了，做的真好'), said('Recorded in HANDOFF.')] },
+{ name: 'paddock/dev-tabstack', short: 'dev-tabstack', icon: '#e48c66', dot: '#7fd4bf', status: 'Working', topic: 'P5-76 分屏标签图标叠放', dir: '~/…/p5-76-tab-stack',
+lines: [said('Reading docs/任务/P5-76-分屏标签图标叠放.md'), said('Writing the failing tests first.'), sub('5 tests, all failing on the missing stack'), said('Drawing the leaning card with a path.'), sub('app/src/tab_stack.rs')] },
+{ name: 'mock_server/codex-1', short: 'codex-1', icon: '#dfe7e4', dot: '#93c79a', status: 'Idle', topic: '修接口超时', dir: '~/…/mock_server',
+lines: [asked('接口为什么偶尔超时'), said('The handler waits on a lock held across the upstream call.'), sub('server/handlers/orders.rs'), said('Moved the call out of the lock. Tests pass.')] }
+];
+}
+
+componentWillUnmount() {
+clearTimeout(this.timer);
+}
+
+light(ms) {
+clearTimeout(this.timer);
+this.setState({ lit: true });
+this.timer = setTimeout(() => this.setState({ lit: false }), ms);
+}
+
+typed() {
+const stay = this.props.stayLit ?? '打字期间一直亮';
+const now = Date.now();
+if (stay === '打字期间一直亮') {
+this.light(3000);
+} else {
+const pause = (this.props.pauseSeconds ?? 10) * 1000;
+if (this.last == null || now - this.last >= pause) {
+this.light(stay === '2 秒' ? 2000 : 1000);
+}
+}
+this.last = now;
+}
+
+pick(index) {
+if (index !== this.state.target) {
+clearTimeout(this.timer);
+this.last = null;
+this.setState({ target: index, lit: false });
+}
+if (this.input) {
+this.input.focus();
+}
+}
+
+renderVals() {
+const p = this.props;
+const s = this.state;
+const accent = p.accent ?? '#7fd4bf';
+const position = p.position ?? '左上角';
+const bigger = p.bigger ?? true;
+const slide = p.slideIn ?? true;
+const ring = p.paneRing ?? false;
+const all = this.agents();
+const current = all[s.target];
+const text = s.drafts[s.target];
+const lit = s.lit;
+const onRight = position === '右边（现在）';
+let caret = 26;
+for (const ch of text) {
+caret += ch.charCodeAt(0) > 0x2e7f ? 13 : 7.8;
+}
+const height = bigger ? 28 : 22;
+const setDraft = (value) => {
+const drafts = s.drafts.slice();
+drafts[s.target] = value;
+return drafts;
+};
+return {
+name: current.name,
+short: current.short,
+icon: current.icon,
+dot: current.dot,
+topic: current.topic,
+dir: current.dir,
+text: text,
+agents: all.map((agent, index) => ({
+short: agent.short,
+status: agent.status,
+icon: agent.icon,
+dot: agent.dot,
+chosen: index === s.target,
+ground: index === s.target ? '#1d3833' : '#132423',
+pick: () => this.pick(index)
+})),
+lines: current.lines.concat(s.sent[s.target].map((line) => ({ mark: '❯ ', markColor: '#7fd4bf', text: line, color: '#b8cdc6' }))),
+inputRef: (element) => { this.input = element; },
+onType: (event) => {
+const value = event.target.value;
+if (value.length > text.length) {
+this.typed();
+}
+this.setState({ drafts: setDraft(value) });
+},
+onCompose: () => this.typed(),
+onKey: (event) => {
+if (event.key !== 'Enter' || event.nativeEvent.isComposing) {
+return;
+}
+if (text.trim()) {
+const sent = s.sent.slice();
+sent[s.target] = sent[s.target].concat([text]).slice(-4);
+this.setState({ sent: sent, drafts: setDraft('') });
+}
+if ((p.stayLit ?? '打字期间一直亮') === '打字期间一直亮') {
+clearTimeout(this.timer);
+this.setState({ lit: false });
+}
+},
+tagLeft: onRight ? 'auto' : position === '跟着光标' ? 'min(' + caret + 'px, calc(100% - 380px))' : '10px',
+tagRight: onRight ? '10px' : 'auto',
+litTop: (-(height / 2) - 1) + 'px',
+litHeight: height + 'px',
+litFont: bigger ? '13px' : '11px',
+litPad: bigger ? '0 14px 0 10px' : '0 10px 0 8px',
+iconSize: bigger ? '14px' : '11px',
+litGround: bigger ? accent : 'color-mix(in srgb, ' + accent + ' 22%, #0c1616)',
+litEdge: bigger ? accent : 'color-mix(in srgb, ' + accent + ' 60%, transparent)',
+toColor: bigger ? 'rgba(6,35,29,0.74)' : accent,
+nameColor: bigger ? '#06231d' : '#f2faf7',
+topicColor: bigger ? 'rgba(6,35,29,0.82)' : '#c3d8d1',
+litOpacity: lit ? 1 : 0,
+litTransform: lit || !slide ? 'none' : 'translateY(10px) scale(0.9)',
+litOrigin: onRight ? 'right center' : 'left center',
+litTransition: lit ? 'opacity 120ms ease-out, transform 240ms cubic-bezier(0.2, 0.9, 0.3, 1.35)' : 'opacity 400ms ease-in, transform 400ms ease-in',
+paneEdge: lit && ring ? accent : 'rgba(214,230,225,0.09)',
+paneGlow: lit && ring ? '0 0 0 1px ' + accent : 'none'
+};
+}
+}
+</script>
+</body>
+</html>
