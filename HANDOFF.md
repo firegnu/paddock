@@ -5,7 +5,7 @@
 ## 现在在哪（2026-10-10）
 
 - main 和 `origin/main`（`github.com/firegnu/paddock`，public）同步；没有进行中的活、没有 worktree，本地只有 main。工作区里三份未提交的草稿任务文件（P5-53～P5-55，看板 DRAFT；**有意留的，不要 `git add -A`**）。ranch 同样干净。corral 里除 `paddock/main`（本主控）之外都是用户的。
-- 533 项测试通过，clippy、`cargo fmt --check` 干净。`~/Applications/paddock.app` 是合并 P5-77c 之后的版本（10-10 装，本机 Apple Development 证书签名）；P5-77c 名字签亮起时跟着光标、变大、滑出，打字期间一直亮（样稿 D，用户嫌 P5-77 的位置和效果不明显），用户 10-10 试过：“这个看起来永远都不会看漏了。哈哈哈”；P5-77 开始打字时输入框角上亮出名字签（样稿 B）、P5-77b 换了打字对象后的第一个字一定亮（用户反馈切换 agent 后该亮不亮），用户 10-10 试过：“codex-1现在可以了”；P5-76 分屏标签的图标叠成一摞卡片、前卡歪着，用户 10-10 看过：“看到了，做的真好”；P5-70～P5-75 用户都看过或试过，没问题。
+- 533 项测试通过，clippy、`cargo fmt --check` 干净。`~/Applications/paddock.app` 是合并 P5-77d 之后的版本（10-10 装，本机 Apple Development 证书签名）；P5-77d 名字签不跟着光标、固定在输入框右上角（用户用了 P5-77c 后：“现在追随光标我觉得有点影响我。我想使用右边那个方案”），**待用户看**；P5-77c 名字签亮起时跟着光标、变大、滑出，打字期间一直亮（样稿 D，用户嫌 P5-77 的位置和效果不明显），用户 10-10 试过：“这个看起来永远都不会看漏了。哈哈哈”；P5-77 开始打字时输入框角上亮出名字签（样稿 B）、P5-77b 换了打字对象后的第一个字一定亮（用户反馈切换 agent 后该亮不亮），用户 10-10 试过：“codex-1现在可以了”；P5-76 分屏标签的图标叠成一摞卡片、前卡歪着，用户 10-10 看过：“看到了，做的真好”；P5-70～P5-75 用户都看过或试过，没问题。
 - 重新打包安装：在 `app/` 下 `cargo build --release`，再 `cargo run --release --example bundle -- --install`（编译目录 `.target/main`）。打包默认选本机 Apple Development 身份，可用 `PADDOCK_SIGN_IDENTITY` 指定；退回 ad-hoc 时会提示授权会失效。
 - **paddock ctl 已部署**：`~/.local/bin/paddock` 链到 app 里的程序，重新打包后不用重建；技能正文改了要重跑 `paddock install-skills`（装在 `~/.claude/skills/paddock`、`~/.agents/skills/paddock`），已开着的 agent 要重开才看到。
 - 全局 `~/.local/bin/corral`、`ranch` 是 ranch `d55defb`（R2：派活和临时委派的 agent 带 `CAIRN_DISABLE=1`；支持 pause／resume）。
@@ -24,7 +24,7 @@
 
 主控没法替用户试的只有真实悬停、拖动、键盘、输入法：
 
-- P5-77c 名字签（用户试过、满意；下面几处没单独确认）：输入折到多行时落在哪（应在输入框上边框上、光标正上方，不压自己打的字）；Codex 里落在哪（找不到空行会跑到右下角）；实心强调色在各主题下刺不刺眼；打字期间一直亮、停 3 秒或回车后淡回的手感。
+- P5-77c、P5-77d 名字签（P5-77d 起两枚都在输入框右上角，主控没起窗口看过）：在右边够不够醒目（不够可加样稿 D 里“窗格的边同时亮一下”）；输入折到多行时落在哪（应在输入框上边框上、光标正上方，不压自己打的字）；Codex 里落在哪（找不到空行会跑到右下角）；实心强调色在各主题下刺不刺眼；打字期间一直亮、停 3 秒或回车后淡回的手感。
 - P5-61 Agent shell（新建面板第三行；只支持 zsh、bash）；P5-59 agent 窗格标题行里会话题目（`corral attach` 不转标题的话改读 `corral status` 的 `title`）。
 - P5-66 退出时只在 shell 有程序时才问（停在提示符 ⌘Q 直接退；跑着 `sleep 30` 或 `sleep 30 &` 时问）；P5-56 Settings 改了立即生效、Undo、“not installed”。
 - 10-07 那批：拖缝调大小和双击；⌘Z／⇧⌘Z 和输入法；标签“+N”菜单；四套新主题（Rosé Pine 光标偏暗）；ctl 的 busy、`--focus`、`--attach`；格子图扫光、光晕、呼吸；一键暂停（会冻住包括主控在内的全部 agent）。
