@@ -4,21 +4,22 @@
 
 ## 现在在哪（2026-10-10）
 
-- main 和 `origin/main`（`github.com/firegnu/paddock`，public）同步；没有进行中的活、没有 worktree，本地只有 main。工作区里一份未提交的草稿任务文件（P5-54，看板 DRAFT；**有意留的，不要 `git add -A`**）。ranch 同样干净。corral 里除 `paddock/main`（本主控）之外都是用户的。
+- main 和 `origin/main`（`github.com/firegnu/paddock`，public）同步；没有进行中的活、没有 worktree，本地只有 main。工作区里两份未提交的草稿任务文件（P5-54、P5-78，看板 DRAFT；**有意留的，不要 `git add -A`**）。ranch 同样干净。corral 里除 `paddock/main`（本主控）之外都是用户的。
 - 541 项测试通过，clippy、`cargo fmt --check` 干净。`~/Applications/paddock.app` 是合并 P5-55 之后的版本（10-10 装，本机 Apple Development 证书签名）；P5-55 右侧栏第四个标签 Cairn（cairn 的状态、下次会话会接到的记录全文；没采用的仓库确认后可 Adopt；右侧栏最窄从 320 变成 426），**待用户看**（主控没起窗口看过）；P5-77d 名字签不跟着光标、固定在输入框右上角（用户用了 P5-77c 后：“现在追随光标我觉得有点影响我。我想使用右边那个方案”），**待用户看**；P5-77c 名字签亮起时跟着光标、变大、滑出，打字期间一直亮（样稿 D，用户嫌 P5-77 的位置和效果不明显），用户 10-10 试过：“这个看起来永远都不会看漏了。哈哈哈”；P5-77 开始打字时输入框角上亮出名字签（样稿 B）、P5-77b 换了打字对象后的第一个字一定亮（用户反馈切换 agent 后该亮不亮），用户 10-10 试过：“codex-1现在可以了”；P5-76 分屏标签的图标叠成一摞卡片、前卡歪着，用户 10-10 看过：“看到了，做的真好”；P5-70～P5-75 用户都看过或试过，没问题。
 - 重新打包安装：在 `app/` 下 `cargo build --release`，再 `cargo run --release --example bundle -- --install`（编译目录 `.target/main`）。打包默认选本机 Apple Development 身份，可用 `PADDOCK_SIGN_IDENTITY` 指定；退回 ad-hoc 时会提示授权会失效。
 - **paddock ctl 已部署**：`~/.local/bin/paddock` 链到 app 里的程序，重新打包后不用重建；技能正文改了要重跑 `paddock install-skills`（装在 `~/.claude/skills/paddock`、`~/.agents/skills/paddock`），已开着的 agent 要重开才看到。
 - 全局 `~/.local/bin/corral`、`ranch` 是 ranch `d55defb`（R2：派活和临时委派的 agent 带 `CAIRN_DISABLE=1`；支持 pause／resume）。
-- **cairn 已全局装进 Claude Code**（`~/.claude/settings.json` 里 4 个 hook 和放行 `cairn save` 的规则，改前备份 `~/.claude/settings.json.bak-20261008T082855…`）；owlet 和 **paddock 都已 `adopt`**（paddock 10-10 起，P5-53：和全量 HANDOFF 并存试一两周，10-24 前后和用户定 HANDOFF 里“进度”那部分删不删；试点看新会话里 cairn 注入的停点、下一步、待用户决定准不准）。退回：`cairn unadopt`（记录留着）；卸掉：`cairn uninstall --agent claude`。**Codex 的 hook 10-10 也装了**（用户：“给codex也装上吧”；`~/.codex/hooks.json` 加了 4 处 `cairn hook codex`，改前备份 `~/.codex/hooks.json.bak-20261010T071731…`）：直接启动的 Codex 要用户到 `/hooks` 里信任（corral 启动的跳过），没在真实 Codex 会话里验证过触发；卸掉：`cairn uninstall --agent codex`。paddock 现在调用 `cairn status --json`、`cairn show --json`、`cairn adopt` 三条（DESIGN §3）；AGENTS.md 里“只通过 `corral`、`ranch` 命令打交道”那句还没把 cairn 写进去，要不要补问用户。
+- **cairn 已全局装进 Claude Code**（`~/.claude/settings.json` 里 4 个 hook 和放行 `cairn save` 的规则，改前备份 `~/.claude/settings.json.bak-20261008T082855…`）；owlet 和 **paddock 都已 `adopt`**（paddock 10-10 起，P5-53：和全量 HANDOFF 并存试一两周，10-24 前后和用户定 HANDOFF 里“进度”那部分删不删；试点看新会话里 cairn 注入的停点、下一步、待用户决定准不准）。退回：`cairn unadopt`（记录留着）；卸掉：`cairn uninstall --agent claude`。**Codex 的 hook 10-10 也装了**（用户：“给codex也装上吧”；`~/.codex/hooks.json` 加了 4 处 `cairn hook codex`，改前备份 `~/.codex/hooks.json.bak-20261010T071731…`）：直接启动的 Codex 要用户到 `/hooks` 里信任（corral 启动的跳过），没在真实 Codex 会话里验证过触发；卸掉：`cairn uninstall --agent codex`。paddock 现在调用 `cairn status --json`、`cairn show --json`、`cairn adopt` 三条（DESIGN §3）；AGENTS.md 里“只通过 `corral`、`ranch` 命令打交道”那句还没把 cairn 写进去，要不要补问用户。**cairn 10-10 升到 0.2.0**（用户让主控直接在 cairn 仓库做的 F2，cairn 的 `docs/tasks/F2-*.md`、它的 HANDOFF 已更新）：`cairn status --json` 每家多了 `last_seen`（当前仓库里四种 hook 各自最近一次触发的时间），这三条命令的输出写成了 cairn DESIGN §7.1 的公开约定（只加不改）；数据库升到版本 2，升级前的备份在 `~/.local/state/cairn-backup-20261010-before-v2/`。
 - 已合并：第一至第三阶段、迁移 M0–M3、P4-1～P4-3、P5-1～P5-77（P5-52 只查明原因、改法用户暂不定；P5-54 还是草稿）。
 - 上下文：`AGENTS.md`（规矩，含「开发方式」里的看板约定）、`docs/DESIGN.md`（§13 是界面改版的全部决定和用户原话）、`docs/背景与决策记录.md`、`docs/设计稿/`、`docs/调研/`。
 
 ## 下一步
 
-1. **P5-53 试点中**（10-10 已 adopt，HANDOFF 全量保留、规矩没改）：10-24 前后和用户回看，定 HANDOFF 瘦不瘦、“先读 HANDOFF”改不改。owlet 试点情况：HANDOFF 减到只留稳定背景，重开后能准确说出停点、已完成、下一步、待用户决定。确认某次注入了没有：只读查 `~/.local/state/cairn/cairn.db` 的 injections 表（`sqlite3 -readonly`）；日常看 `cairn list`／`cairn show`。
-2. **P5-54** Browser 选中元素、Changes 选中 diff 写上要怎么改后送给 agent（优先：高）。主控提议（用户还没表态）：设计和交互样稿主控自己做；实现派 Claude Code 常规档，拆成 P5-54a Changes、P5-54b Browser（WKWebView 注入 JS 加 WKScriptMessageHandler，代码库里还没有），a 合并后再派 b；测试只用假 corral。下次从列出待定问题开始。
-3. **P5-55 之后**（Cairn 标签第一版已合并，没排）：历史记录列表、点开单条记录要等 cairn 出 `cairn list --json`（给 cairn 主控提需求，用户定）；Unadopt、更正／撤回记录用户没要。
-4. 以后：Changes 第二步（行上评论发给 agent、暂存、撤销，可能和 P5-54a 合并考虑）；Kanban 能拖来纠正（用户：排在后面）。
+1. **P5-78** Cairn 标签状态行显示每家 hook 最近一次触发的时间（草稿，执行：主控；cairn 那一半已做完装好）：等用户看任务文件、答两处（只写“最近一次”还是四种事件分开列；`never` 下面加不加一行小字），答完主控自己做。
+2. **P5-53 试点中**（10-10 已 adopt，HANDOFF 全量保留、规矩没改）：10-24 前后和用户回看，定 HANDOFF 瘦不瘦、“先读 HANDOFF”改不改。owlet 试点情况：HANDOFF 减到只留稳定背景，重开后能准确说出停点、已完成、下一步、待用户决定。确认某次注入了没有：只读查 `~/.local/state/cairn/cairn.db` 的 injections 表（`sqlite3 -readonly`）；日常看 `cairn list`／`cairn show`。
+3. **P5-54** Browser 选中元素、Changes 选中 diff 写上要怎么改后送给 agent（优先：高）。主控提议（用户还没表态）：设计和交互样稿主控自己做；实现派 Claude Code 常规档，拆成 P5-54a Changes、P5-54b Browser（WKWebView 注入 JS 加 WKScriptMessageHandler，代码库里还没有），a 合并后再派 b；测试只用假 corral。下次从列出待定问题开始。
+4. **P5-55 之后**（Cairn 标签第一版已合并，没排）：历史记录列表、点开单条记录要等 cairn 出 `cairn list --json`（给 cairn 主控提需求，用户定）；Unadopt、更正／撤回记录用户没要。
+5. 以后：Changes 第二步（行上评论发给 agent、暂存、撤销，可能和 P5-54a 合并考虑）；Kanban 能拖来纠正（用户：排在后面）。
 
 ## 用户用到时顺带看（不用决定、不挡任何事）
 
