@@ -24,3 +24,10 @@
 - 用户原话：“感觉有时候该亮的时候没有亮”“这种问题通常发生在切换agent之后”。
 - 先写一条测试并看它因为这个缺陷失败：在一个对象上打字，3 秒后换了对象再打字，要亮；接着打不再亮。再改到通过。`app/` 下 `cargo test --all-targets`、`cargo clippy --all-targets -- -D warnings`、`cargo fmt --check`、`git diff --check` 都过。
 - 样子留给用户看：重点是切到 Codex 后第一个字亮不亮（主控只能解释到“多半是刚在别处打完字就切过去”，修完要用户再看）。
+
+## 完成记录
+
+- 做了什么：`to_tag.rs` 加 `Typing::rearm`（清掉“上次打字的时间”，下一段文字必亮）和 `Target`（记“当前窗格＋它显示的 agent”，`moved` 回答和上次比变没变）。`window.rs` 的 `focus_active`（所有换标签、换焦点、换显示的 agent、关窗格之后都走它）在把键盘交给当前窗格时比一下对象，变了就让那个窗格的视图 `rearm_tag`（`view.rs` 新加，一行转发）。DESIGN §13 的 P5-77 条“什么时候亮”补上“或者换了打字对象”，另加 P5-77b 一条。
+- 验证了什么：先写两条测试并看它们因为这个缺陷失败——`the_first_text_after_the_typing_goes_elsewhere_lights_the_tag_whatever_the_pause`（打字 3 秒后换对象再打字，断言要亮，实际不亮）、`the_typing_goes_elsewhere_with_another_pane_or_another_agent_in_the_same_pane`（同一个窗格换 agent 要算换了对象）；实现后通过。`app/` 下 `cargo test --all-targets`（526 项全过：原 524 加新增 2）、`cargo clippy --all-targets -- -D warnings`、`cargo fmt --check`、`git diff --check` 都过。
+- 拿主意的地方：比对放在 `focus_active` 而不是每个改布局的地方各写一遍（它是这些路径共用的收尾）；不改对象的调用（关弹框后把键盘还给窗格等）不会重新点亮。当前窗格换成 shell 或空窗格再换回 agent 也算换了对象。`rearm` 只清“上次打字的时间”，正亮着的不受影响。
+- 没做的事：没起 paddock 窗口，切换后亮不亮留给用户看。窗口这一段（`focus_active` 里的三行）没有自动测试，只测了它用的两条规则。Codex “一直都不行”只解释到“刚在别处打完字就切过去”；如果停很久再去 Codex 打字仍不亮，另有原因，要再查。没加回车触发；查找条被盖、窄窗格名字被裁没动。

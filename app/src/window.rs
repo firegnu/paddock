@@ -1052,6 +1052,8 @@ pub struct PaddockWindow {
     sidebar: Entity<Sidebar>,
     workspace: Workspace,
     panes: HashMap<PaneId, Entity<TerminalView>>,
+    /// Who the typing went to when the keyboard was last given to the active pane (`to_tag`).
+    typing_to: to_tag::Target,
     /// Font, size and corral program for new panes; its launch is replaced each time.
     template: Options,
     new_shell: NewShell,
@@ -1219,6 +1221,7 @@ impl PaddockWindow {
             sidebar,
             workspace,
             panes: HashMap::new(),
+            typing_to: to_tag::Target::default(),
             template: Options {
                 launch: Launch::Empty,
                 ..options.clone()
@@ -1715,9 +1718,14 @@ impl PaddockWindow {
 
     fn focus_active(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.tabs.scroll_to_item(self.workspace.active_tab);
-        if let Some(view) = self.panes.get(&self.workspace.active_pane()) {
+        let active = self.workspace.active_pane();
+        if let Some(view) = self.panes.get(&active) {
             let focus: FocusHandle = view.read(cx).focus_handle(cx);
             window.focus(&focus, cx);
+            // The typing goes elsewhere than before: the first text there lights its name tag.
+            if self.typing_to.moved(active, self.workspace.active_agent()) {
+                view.update(cx, |view, _| view.rearm_tag());
+            }
         }
         self.sync(cx);
     }
