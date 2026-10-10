@@ -585,6 +585,12 @@ impl TerminalView {
         }
     }
 
+    /// The typing goes to someone else than before through this pane: the next text lights its
+    /// name tag, whatever the pause.
+    pub fn rearm_tag(&mut self) {
+        self.typing.rearm();
+    }
+
     /// How lit the pane's name tag is at `now`, 0 at rest to 1.
     pub fn tag_glow(&self, now: Instant) -> f32 {
         self.typing.glow(now)

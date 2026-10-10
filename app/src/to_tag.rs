@@ -1,8 +1,10 @@
 //! The name tag on the active pane's terminal (DESIGN §13 P5-77): who the typing goes to, by the
 //! input. Faint at rest, with the agent's name alone; lit for a moment, with `To` and the
-//! session's topic, by the first text typed after a pause. The rules live here: when it lights,
+//! session's topic, by the first text typed after a pause, or after the typing goes to someone
+//! else than before (P5-77b). The rules live here: when it lights,
 //! where it goes and what it says. The window draws it (`window.rs`), the pane's view tells when
 //! it was typed in and where its cursor is (`view.rs`).
+use crate::layout::PaneId;
 use std::time::{Duration, Instant};
 
 /// How long a pane goes without typing before the next text lights its tag; how long the tag
@@ -21,9 +23,9 @@ pub struct Typing {
 impl Typing {
     /// `text` went from the keyboard to the pane's program at `now`: a key's letter, digit,
     /// symbol or space, what the input method composes or commits, or a paste. Whether the tag
-    /// lit: the pane had not been typed in for [`PAUSE`]. No text (a composition given up) is
-    /// no typing. The keys that bring no text never come here: the terminal encodes them itself
-    /// (`keys`), and ⌘ shortcuts are the menu's.
+    /// lit: the pane had not been typed in for [`PAUSE`], or since [`Self::rearm`]. No text (a
+    /// composition given up) is no typing. The keys that bring no text never come here: the
+    /// terminal encodes them itself (`keys`), and ⌘ shortcuts are the menu's.
     pub fn typed(&mut self, text: &str, now: Instant) -> bool {
         if text.is_empty() {
             return false;
@@ -38,6 +40,12 @@ impl Typing {
         paused
     }
 
+    /// The typing goes to someone else than before through this pane (see [`Target`]): the next
+    /// text lights the tag, whatever the pause.
+    pub fn rearm(&mut self) {
+        self.last = None;
+    }
+
     /// How lit the tag is at `now`, 0 at rest to 1.
     pub fn glow(&self, now: Instant) -> f32 {
         let Some(lit) = self.lit else {
@@ -45,6 +53,22 @@ impl Typing {
         };
         let fading = now.saturating_duration_since(lit).saturating_sub(LIT);
         (1.0 - fading.as_secs_f32() / FADE.as_secs_f32()).max(0.0)
+    }
+}
+
+/// Who the typing goes to, as the window last had it: the active pane and the agent it shows.
+#[derive(Debug, Default)]
+pub struct Target(Option<(PaneId, Option<String>)>);
+
+impl Target {
+    /// Takes the active `pane` and the `agent` it shows. Whether the typing goes elsewhere than
+    /// before: to another pane, or through the same pane to another agent, as when the one pane
+    /// of a window shows whichever agent the sidebar chose.
+    pub fn moved(&mut self, pane: PaneId, agent: Option<&str>) -> bool {
+        let now = Some((pane, agent.map(str::to_owned)));
+        let moved = self.0 != now;
+        self.0 = now;
+        moved
     }
 }
 
@@ -133,6 +157,41 @@ mod tests {
         one.typed("a", start);
         assert!(other.typed("b", start + secs(3.0)));
         assert!(!one.typed("c", start + secs(6.0)));
+    }
+
+    #[test]
+    fn the_first_text_after_the_typing_goes_elsewhere_lights_the_tag_whatever_the_pause() {
+        let start = Instant::now();
+        let mut typing = Typing::default();
+        typing.typed("a", start);
+        // Three seconds on the pane shows another agent: its first text lights the tag.
+        typing.rearm();
+        assert!(typing.typed("b", start + secs(3.0)));
+        assert_eq!(typing.glow(start + secs(3.0)), 1.0);
+        // Only its first.
+        assert!(!typing.typed("c", start + secs(3.5)));
+        // Gone elsewhere and back with nothing typed between: once, all the same.
+        typing.rearm();
+        typing.rearm();
+        assert!(typing.typed("d", start + secs(4.0)));
+        assert!(!typing.typed("e", start + secs(4.2)));
+    }
+
+    #[test]
+    fn the_typing_goes_elsewhere_with_another_pane_or_another_agent_in_the_same_pane() {
+        let mut target = Target::default();
+        assert!(target.moved(1, Some("paddock/main")));
+        assert!(!target.moved(1, Some("paddock/main")));
+        // The one pane of a window, showing the agent the sidebar chose.
+        assert!(target.moved(1, Some("mock_server/codex-1")));
+        assert!(!target.moved(1, Some("mock_server/codex-1")));
+        assert!(target.moved(1, Some("paddock/main")));
+        // Another tab or another pane of a split.
+        assert!(target.moved(2, Some("global-mesh/main")));
+        // A shell or an empty pane, and back to an agent in it.
+        assert!(target.moved(3, None));
+        assert!(!target.moved(3, None));
+        assert!(target.moved(3, Some("paddock/main")));
     }
 
     #[test]
