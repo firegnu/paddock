@@ -35,6 +35,7 @@ use crate::{
     tab_stack::{self, Face, Inks},
     text_input::{self, Changed, TextInput},
     theme::Theme,
+    to_tag,
     view::{AttachEnded, Launch, Options, TerminalView, hsla},
     viewer::AgentMetadata,
     windows,
@@ -454,6 +455,21 @@ const PANE_HEADER_END: f32 = 6.0;
 const PANE_HEADER_TEXT: f32 = 12.0;
 const PANE_BUTTON: f32 = 28.0;
 const PANE_BUTTONS_FAINT: f32 = 0.4;
+/// The active pane's name tag (P5-77, see `to_tag`): its height, how far in from the terminal's
+/// sides it stays, the room before its first part and after its last (at rest, then lit) and
+/// between its parts, and the size of its text and of its icon. At rest, how opaque its rim is,
+/// drawn in the text's colour, and its icon; lit, how far its ground is from the terminal's
+/// towards the accent, and how opaque its rim is, drawn in the accent.
+const TO_TAG: f32 = 22.0;
+const TO_TAG_END: f32 = 10.0;
+const TO_TAG_PAD: [(f32, f32); 2] = [(7.0, 9.0), (8.0, 10.0)];
+const TO_TAG_GAP: f32 = 6.0;
+const TO_TAG_TEXT: f32 = 11.0;
+const TO_TAG_ICON: f32 = 11.0;
+const TO_TAG_RIM: f32 = 0.14;
+const TO_TAG_ICON_REST: f32 = 0.5;
+const TO_TAG_FILL: f32 = 0.22;
+const TO_TAG_RIM_LIT: f32 = 0.6;
 /// The kind icon in a tab or a pane's header, and the status dot on its corner.
 const BADGE_ICON: f32 = 13.0;
 const BADGE_DOT: f32 = 6.0;
@@ -3992,13 +4008,17 @@ impl PaddockWindow {
             })
             .child(
                 div()
+                    .relative()
                     .flex_1()
                     .min_h(px(0.0))
                     .overflow_hidden()
                     .pt(px(top))
                     .pb(px(bottom))
                     .px(px(side))
-                    .child(self.panes[&pane].clone()),
+                    .child(self.panes[&pane].clone())
+                    .when(active, |this| {
+                        this.children(self.to_tag(pane, (top, bottom, side), agents, window, cx))
+                    }),
             )
             .children(self.paused_overlay(pane, cx))
             .child(self.spot(Spot::Pane(pane)))
@@ -4210,6 +4230,131 @@ impl PaddockWindow {
             .children(dir.map(|dir| faint(dir, self.fg(|t| t.agents_dimmer))))
             .child(div().flex_1())
             .child(buttons)
+    }
+
+    /// The name tag over the active pane's terminal (P5-77, see `to_tag`), for an agent corral
+    /// still lists: who the typing goes to, by the input. `inset` is the room above, below and
+    /// beside the terminal's view in what holds it. At rest a faint capsule: the kind's icon and
+    /// the agent's whole name. Over it, as lit as the pane's typing has it and not while another
+    /// window is the active one: `To`, the icon, the name in bold and the session's topic, cut to
+    /// the room the terminal leaves. Nothing in it listens, so the mouse reaches the terminal.
+    fn to_tag(
+        &self,
+        pane: PaneId,
+        (top, bottom, side): (f32, f32, f32),
+        agents: &[Agent],
+        window: &Window,
+        cx: &Context<Self>,
+    ) -> Option<Div> {
+        let Shown::Agent(name) = self.workspace.shown(pane) else {
+            return None;
+        };
+        let agent = agents.iter().find(|a| &a.name == name)?;
+        let ui = UiFont::get(cx);
+        let scale = ui.scale(1.0);
+        let view = self.panes[&pane].read(cx);
+        let glow = if window.is_window_active() {
+            view.tag_glow(Instant::now())
+        } else {
+            0.0
+        };
+        if glow > 0.0 {
+            window.request_animation_frame();
+        }
+        let at = view.tag_top(ui.scale(TO_TAG));
+        // The view keeps its terminal 6 from its own edges.
+        let (top, bottom, side) = (top + 6.0, bottom + 6.0, side + 6.0);
+        // Across the terminal as the panel was last drawn, less the room at the tag's sides.
+        let room = self
+            .spots
+            .borrow()
+            .get(&Spot::Pane(pane))
+            .map(|panel| f32::from(panel.size.width) - 2.0 * (side + TO_TAG_END));
+        // The kind's icon as a badge has it, smaller.
+        let icon = agent.kind.as_deref().and_then(|kind| {
+            let color = self.fg(card::brand(kind).color).opacity(0.85);
+            Some((kind_icon::of(kind)?, color))
+        });
+        let text = self.fg(|t| t.agents_text);
+        let accent = self.fg(|t| t.agents_accent);
+        let ground = hsla(self.theme.terminal().background, 1.0);
+        let tag = |label: to_tag::Label| {
+            let lit = label.to;
+            let (start, end) = TO_TAG_PAD[usize::from(lit)];
+            let part = || div().flex_shrink_0();
+            let tag = div()
+                .absolute()
+                .right(px(TO_TAG_END))
+                .h(ui.px(TO_TAG))
+                .flex()
+                .items_center()
+                .gap(ui.px(TO_TAG_GAP))
+                .pl(ui.px(start))
+                .pr(ui.px(end))
+                .rounded_full()
+                .border_1()
+                .overflow_hidden()
+                .whitespace_nowrap()
+                .text_size(ui.px(TO_TAG_TEXT))
+                .when_some(room, |tag, room| tag.max_w(px(room.max(0.0))))
+                .when(lit, |tag| tag.child(part().text_color(accent).child("To")))
+                .children(icon.map(|(icon, color)| {
+                    part()
+                        .when(!lit, |icon| icon.opacity(TO_TAG_ICON_REST))
+                        .child(icon.render(ui.px(TO_TAG_ICON), color))
+                }))
+                .child(
+                    part()
+                        .when(lit, |name| {
+                            name.font_weight(FontWeight::SEMIBOLD).text_color(text)
+                        })
+                        .child(label.name),
+                )
+                .children(label.topic.map(|topic| part().child(format!("· {topic}"))));
+            match at {
+                Some(top) => tag.top(px(top)),
+                None => tag.bottom_0(),
+            }
+        };
+        let rest = tag(to_tag::label(name, None, false))
+            .bg(ground)
+            .border_color(text.opacity(TO_TAG_RIM))
+            .text_color(self.fg(|t| t.agents_dimmer));
+        let lit = (glow > 0.0).then(|| {
+            let topic = view.terminal_title().as_deref().and_then(session_topic);
+            let mut label = to_tag::label(name, topic.as_deref(), true);
+            // The name whole, always; the topic in what it leaves.
+            if let (Some(topic), Some(room)) = (&label.topic, room) {
+                let width =
+                    |text: &str, weight| ui_text_width(window, &ui, text, TO_TAG_TEXT, weight);
+                let (start, end) = TO_TAG_PAD[1];
+                let icon = icon.map_or(0.0, |_| TO_TAG_ICON + TO_TAG_GAP);
+                // The rim's two points, the room at the ends, `To` and the icon with their gaps.
+                let taken = 2.0
+                    + (start + end + TO_TAG_GAP + icon) * scale
+                    + width("To", FontWeight::NORMAL)
+                    + width(&label.name, FontWeight::SEMIBOLD);
+                let dotted = |topic: &str| width(&format!("· {topic}"), FontWeight::NORMAL);
+                let gap = TO_TAG_GAP * scale;
+                label.topic = fit_header(Some(topic), None, room - taken, gap, dotted).0;
+            }
+            tag(label)
+                .bg(motion::mix(ground, accent, TO_TAG_FILL))
+                .border_color(accent.opacity(TO_TAG_RIM_LIT))
+                .shadow_md()
+                .text_color(self.fg(|t| t.agents_branch))
+                .opacity(glow)
+        });
+        Some(
+            div()
+                .absolute()
+                .top(px(top))
+                .bottom(px(bottom))
+                .left(px(side))
+                .right(px(side))
+                .child(rest)
+                .children(lit),
+        )
     }
 
     fn toggle_attention(&mut self, window: &mut Window, cx: &mut Context<Self>) {

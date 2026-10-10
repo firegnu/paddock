@@ -16,6 +16,7 @@ use crate::{
     rows::{self, Run, Span, Style},
     text_input::{self, Changed, TextInput},
     theme,
+    to_tag::{self, Typing},
 };
 use crate::{
     pty::Session,
@@ -151,6 +152,8 @@ pub struct TerminalView {
     pressed: Option<Press>,
     /// Cursor cell of the last frame, for the input method's candidate window.
     cursor_cell: (u16, u16),
+    /// When the pane was typed in, for its name tag (`to_tag`).
+    typing: Typing,
     note: String,
     title: String,
     stats: Option<Rc<RefCell<Stats>>>,
@@ -265,6 +268,7 @@ impl TerminalView {
             scroll: Scroll::default(),
             pressed: None,
             cursor_cell: (0, 0),
+            typing: Typing::default(),
             note,
             title: String::new(),
             stats: options
@@ -573,6 +577,33 @@ impl TerminalView {
         cx.notify();
     }
 
+    /// Text from the keyboard for the program: the pane's name tag lights when it is the first
+    /// after a pause (`to_tag`).
+    fn typed(&mut self, text: &str, cx: &mut Context<Self>) {
+        if self.typing.typed(text, Instant::now()) {
+            cx.notify();
+        }
+    }
+
+    /// How lit the pane's name tag is at `now`, 0 at rest to 1.
+    pub fn tag_glow(&self, now: Instant) -> f32 {
+        self.typing.glow(now)
+    }
+
+    /// How far below the top of the terminal the top of the pane's name tag goes, `tag` tall, by
+    /// where the cursor is now; none for the terminal's lower right corner (see [`to_tag::top`]).
+    pub fn tag_top(&self, tag: f32) -> Option<f32> {
+        let line = self.metrics?.line_height;
+        let screen = self.session()?.screen.lock().unwrap();
+        let grid = screen.term.grid();
+        let row = to_tag::row_in_view(
+            grid.cursor.point.line.0,
+            grid.display_offset(),
+            screen.term.screen_lines(),
+        );
+        to_tag::top(row, line, tag)
+    }
+
     fn paste(&mut self, text: &str, cx: &mut Context<Self>) {
         let bracketed = self.mode().contains(TermMode::BRACKETED_PASTE);
         // Without bracketed paste a newline must arrive as Enter.
@@ -622,6 +653,7 @@ impl TerminalView {
             return;
         }
         if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
+            self.typed(&text, cx);
             self.paste(&text, cx);
         }
     }
@@ -1443,6 +1475,7 @@ impl EntityInputHandler for TerminalView {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.typed(text, cx);
         let bytes = self.ime.commit(text);
         self.write(bytes, cx);
     }
@@ -1455,6 +1488,7 @@ impl EntityInputHandler for TerminalView {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.typed(text, cx);
         self.ime.mark(text);
         cx.notify();
     }
