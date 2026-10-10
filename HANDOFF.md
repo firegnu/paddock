@@ -5,12 +5,12 @@
 ## 现在在哪（2026-10-10）
 
 - main 和 `origin/main`（`github.com/firegnu/paddock`，public）同步；没有进行中的活、没有 worktree，本地只有 main。工作区里三份未提交的草稿任务文件（P5-53～P5-55，看板 DRAFT；**有意留的，不要 `git add -A`**）。ranch 同样干净。corral 里除 `paddock/main`（本主控）之外都是用户的。
-- 517 项测试通过，clippy、`cargo fmt --check` 干净。`~/Applications/paddock.app` 是合并 P5-76 之后的版本（10-10 装，本机 Apple Development 证书签名）；P5-76 分屏标签的图标叠成一摞卡片、前卡歪着，用户 10-10 看过：“看到了，做的真好”；P5-70～P5-75 用户都看过或试过，没问题。
+- 524 项测试通过，clippy、`cargo fmt --check` 干净。`~/Applications/paddock.app` 是合并 P5-77 之后的版本（10-10 装，本机 Apple Development 证书签名）；P5-77 开始打字时输入框角上亮出名字签（样稿 B），**待用户看**（要看的几处见下面“用户用到时顺带看”）；P5-76 分屏标签的图标叠成一摞卡片、前卡歪着，用户 10-10 看过：“看到了，做的真好”；P5-70～P5-75 用户都看过或试过，没问题。
 - 重新打包安装：在 `app/` 下 `cargo build --release`，再 `cargo run --release --example bundle -- --install`（编译目录 `.target/main`）。打包默认选本机 Apple Development 身份，可用 `PADDOCK_SIGN_IDENTITY` 指定；退回 ad-hoc 时会提示授权会失效。
 - **paddock ctl 已部署**：`~/.local/bin/paddock` 链到 app 里的程序，重新打包后不用重建；技能正文改了要重跑 `paddock install-skills`（装在 `~/.claude/skills/paddock`、`~/.agents/skills/paddock`），已开着的 agent 要重开才看到。
 - 全局 `~/.local/bin/corral`、`ranch` 是 ranch `d55defb`（R2：派活和临时委派的 agent 带 `CAIRN_DISABLE=1`；支持 pause／resume）。
 - **cairn 已全局装进 Claude Code**（`~/.claude/settings.json` 里 4 个 hook 和放行 `cairn save` 的规则，改前备份 `~/.claude/settings.json.bak-20261008T082855…`）；只有 owlet `adopt` 了，**paddock 还没有**（`cairn status`：未采用），hook 在这里直接退出。卸掉：`cairn uninstall --agent claude`。
-- 已合并：第一至第三阶段、迁移 M0–M3、P4-1～P4-3、P5-1～P5-76（P5-52 只查明原因、改法用户暂不定；P5-53～P5-55 还是草稿）。
+- 已合并：第一至第三阶段、迁移 M0–M3、P4-1～P4-3、P5-1～P5-77（P5-52 只查明原因、改法用户暂不定；P5-53～P5-55 还是草稿）。
 - 上下文：`AGENTS.md`（规矩，含「开发方式」里的看板约定）、`docs/DESIGN.md`（§13 是界面改版的全部决定和用户原话）、`docs/背景与决策记录.md`、`docs/设计稿/`、`docs/调研/`。
 
 ## 下一步
@@ -24,6 +24,7 @@
 
 主控没法替用户试的只有真实悬停、拖动、键盘、输入法：
 
+- P5-77 名字签（主控和 dev 都没起窗口看过）：Claude Code、Codex 里光标是不是停在输入那一行（名字签跟光标走，不对的话会跑到别处）；多行输入时压不压字；亮起约 1 秒再淡回的手感；各主题下平时那枚够不够淡、亮起那枚够不够醒目。
 - P5-61 Agent shell（新建面板第三行；只支持 zsh、bash）；P5-59 agent 窗格标题行里会话题目（`corral attach` 不转标题的话改读 `corral status` 的 `title`）。
 - P5-66 退出时只在 shell 有程序时才问（停在提示符 ⌘Q 直接退；跑着 `sleep 30` 或 `sleep 30 &` 时问）；P5-56 Settings 改了立即生效、Undo、“not installed”。
 - 10-07 那批：拖缝调大小和双击；⌘Z／⇧⌘Z 和输入法；标签“+N”菜单；四套新主题（Rosé Pine 光标偏暗）；ctl 的 busy、`--focus`、`--attach`；格子图扫光、光晕、呼吸；一键暂停（会冻住包括主控在内的全部 agent）。
@@ -35,7 +36,7 @@
 - **auto 模式拦下主控改 `~/.local/bin`**：ranch 部署（切链接、`upgrade --all`、装技能）由主控打包、核对，用户在普通终端里跑。
 - Saddle 用户基本不用了；Saddle 仓库里的 `t76-*` 分支、worktree 由 Saddle 主控处理。
 - 从程序坞菜单“退出”或注销时由系统直接结束，不问运行中的 shell（GPUI 没有拦截）。Claude Code 带的 `caffeinate` 冻住后“不睡眠”断言仍在，暂停 agent 不等于让 Mac 能睡。
-- 建议改未排：任务弹框正文写到框底不自动滚到光标处、弹框开着换主题不变色（P5-60b）；New Agent 的弹出框不能用键盘上下选（P5-37）；DESIGN §13 的 P5-20 条重复了一遍；卡片悬停不做渐变（P5-51）。
+- 建议改未排：名字签在查找条（⌘F）开着且光标在最上面几行时会盖住查找条、窗格窄到放不下名字时右端被裁（P5-77）；任务弹框正文写到框底不自动滚到光标处、弹框开着换主题不变色（P5-60b）；New Agent 的弹出框不能用键盘上下选（P5-37）；DESIGN §13 的 P5-20 条重复了一遍；卡片悬停不做渐变（P5-51）。
 - `docs/DESIGN.md` §7 其余待定：GPUI 依赖渠道、pre-1.0 是否接受、gpui-component 与首期是否只做 macOS、发布方式（只做了本机签名，不公证、不分发）。Metal 工具链不装，靠 `runtime_shaders`（P5-62 量过代价很小）。
 - 主控做法备忘：
   - 自己做的小活：建 worktree 后 `cp -cR ../paddock-worktrees/.target/main ../paddock-worktrees/.target/<分支>`（APFS 克隆）给它一份编译目录，只做增量编译；收尾一并删掉。
