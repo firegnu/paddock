@@ -5,7 +5,7 @@
 ## 现在在哪（2026-10-10）
 
 - main 和 `origin/main`（`github.com/firegnu/paddock`，public）同步；没有进行中的活、没有 worktree，本地只有 main。工作区里三份未提交的草稿任务文件（P5-53～P5-55，看板 DRAFT；**有意留的，不要 `git add -A`**）。ranch 同样干净。corral 里除 `paddock/main`（本主控）之外都是用户的。
-- 524 项测试通过，clippy、`cargo fmt --check` 干净。`~/Applications/paddock.app` 是合并 P5-77 之后的版本（10-10 装，本机 Apple Development 证书签名）；P5-77 开始打字时输入框角上亮出名字签（样稿 B），**待用户看**（要看的几处见下面“用户用到时顺带看”）；P5-76 分屏标签的图标叠成一摞卡片、前卡歪着，用户 10-10 看过：“看到了，做的真好”；P5-70～P5-75 用户都看过或试过，没问题。
+- 526 项测试通过，clippy、`cargo fmt --check` 干净。`~/Applications/paddock.app` 是合并 P5-77b 之后的版本（10-10 装，本机 Apple Development 证书签名）；P5-77 开始打字时输入框角上亮出名字签（样稿 B）、P5-77b 换了打字对象后的第一个字一定亮（用户反馈切换 agent 后该亮不亮），**待用户看**（要看的几处见下面“用户用到时顺带看”）；P5-76 分屏标签的图标叠成一摞卡片、前卡歪着，用户 10-10 看过：“看到了，做的真好”；P5-70～P5-75 用户都看过或试过，没问题。
 - 重新打包安装：在 `app/` 下 `cargo build --release`，再 `cargo run --release --example bundle -- --install`（编译目录 `.target/main`）。打包默认选本机 Apple Development 身份，可用 `PADDOCK_SIGN_IDENTITY` 指定；退回 ad-hoc 时会提示授权会失效。
 - **paddock ctl 已部署**：`~/.local/bin/paddock` 链到 app 里的程序，重新打包后不用重建；技能正文改了要重跑 `paddock install-skills`（装在 `~/.claude/skills/paddock`、`~/.agents/skills/paddock`），已开着的 agent 要重开才看到。
 - 全局 `~/.local/bin/corral`、`ranch` 是 ranch `d55defb`（R2：派活和临时委派的 agent 带 `CAIRN_DISABLE=1`；支持 pause／resume）。
@@ -24,7 +24,7 @@
 
 主控没法替用户试的只有真实悬停、拖动、键盘、输入法：
 
-- P5-77 名字签（主控和 dev 都没起窗口看过）：Claude Code、Codex 里光标是不是停在输入那一行（名字签跟光标走，不对的话会跑到别处）；多行输入时压不压字；亮起约 1 秒再淡回的手感；各主题下平时那枚够不够淡、亮起那枚够不够醒目。
+- P5-77、P5-77b 名字签（主控和 dev 都没起窗口看过）：切到别的 agent 后第一个字亮不亮，尤其 Codex（用户说它“一直都不行”，P5-77b 只解释到“刚在别处打完字就切过去”，停很久再去打字仍不亮的话另有原因）；Claude Code、Codex 里光标是不是停在输入那一行（名字签跟光标走，不对的话会跑到别处）；多行输入时压不压字；亮起约 1 秒再淡回的手感；各主题下平时那枚够不够淡、亮起那枚够不够醒目。
 - P5-61 Agent shell（新建面板第三行；只支持 zsh、bash）；P5-59 agent 窗格标题行里会话题目（`corral attach` 不转标题的话改读 `corral status` 的 `title`）。
 - P5-66 退出时只在 shell 有程序时才问（停在提示符 ⌘Q 直接退；跑着 `sleep 30` 或 `sleep 30 &` 时问）；P5-56 Settings 改了立即生效、Undo、“not installed”。
 - 10-07 那批：拖缝调大小和双击；⌘Z／⇧⌘Z 和输入法；标签“+N”菜单；四套新主题（Rosé Pine 光标偏暗）；ctl 的 busy、`--focus`、`--attach`；格子图扫光、光晕、呼吸；一键暂停（会冻住包括主控在内的全部 agent）。
