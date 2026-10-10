@@ -60,6 +60,7 @@ pub mod tab_stack;
 pub mod terminal;
 pub mod text_input;
 pub mod theme;
+pub mod to_tag;
 pub mod view;
 pub mod viewer;
 pub mod window;
