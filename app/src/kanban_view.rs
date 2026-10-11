@@ -9,7 +9,8 @@
 //! queued card), and, on a card its task file says needs the user, Clear: that line taken out and
 //! committed once confirmed; on a queued card, its priority line, committed the same way or, in a
 //! draft, only written (DESIGN §13 P5-29, P5-60b). A draft can be deleted, its file moved to the
-//! Trash, and a queued task dropped, with the wrap-up commit that says so (P5-86).
+//! Trash, and a queued task dropped, with the wrap-up commit that says so, a draft's task file
+//! committed before it (P5-86).
 use crate::{
     activity,
     agents::Status,
@@ -713,9 +714,24 @@ impl KanbanView {
         }
     }
 
+    /// Whether a reason is typed in the field under `file`'s card.
+    fn typed(&self, file: &str, cx: &App) -> bool {
+        self.reason
+            .as_ref()
+            .is_some_and(|r| r.file == file && !r.input.read(cx).text().is_empty())
+    }
+
+    /// The card of the task file `file`, when the board has it to drop.
+    fn to_drop(&self, file: &str) -> Option<&Card> {
+        let board = self.board.as_ref()?;
+        let mut cards = board.columns.iter().flatten();
+        cards.find(|card| card.file == file && board.droppable(card))
+    }
+
     fn hover(&mut self, file: &str, hovered: bool, window: &mut Window, cx: &mut Context<Self>) {
-        // Leaving takes back the question, or why it was not cleared, changed, deleted or dropped.
-        if !hovered && self.take_back(file, window, cx) {
+        // Leaving takes back the question, or why it was not cleared, changed, deleted or dropped;
+        // but a reason typed for dropping stays, with its question, until Cancel or Esc.
+        if !hovered && !self.typed(file, cx) && self.take_back(file, window, cx) {
             cx.notify();
         }
         let now = if hovered {
@@ -771,11 +787,11 @@ impl KanbanView {
     }
 
     /// Drop task on a card: ask first, with a field for why that takes the keys, unless it is
-    /// being dropped already.
+    /// asked already, a reason typed perhaps, or being dropped.
     fn ask_drop(&mut self, file: &str, window: &mut Window, cx: &mut Context<Self>) {
         if matches!(
             self.drops.get(file),
-            Some(Clearing::Running | Clearing::Done)
+            Some(Clearing::Asking | Clearing::Running | Clearing::Done)
         ) {
             return;
         }
@@ -834,23 +850,18 @@ impl KanbanView {
         cx.notify();
     }
 
-    /// Confirmed, with the reason in the field: the wrap-up commit made in the background, and the
-    /// board read again once it is. Not for a card the board, as it is now, no longer offers it on.
+    /// Confirmed, with the reason in the field: the wrap-up commit made in the background, a
+    /// draft's task file committed before it, and the board read again once it is. Not for a card
+    /// the board, as it is now, no longer offers it on.
     fn drop_task(&mut self, file: &str, window: &mut Window, cx: &mut Context<Self>) {
         if self.drops.get(file) != Some(&Clearing::Asking) {
             return;
         }
-        let Some(repo) = self
-            .board
-            .as_ref()
-            .filter(|board| {
-                let mut cards = board.columns.iter().flatten();
-                cards.any(|card| card.file == file && board.droppable(card))
-            })
-            .map(|board| board.repo.clone())
+        let (Some(draft), Some(board)) = (self.to_drop(file).map(|card| card.draft), &self.board)
         else {
             return;
         };
+        let repo = board.repo.clone();
         let why = match &self.reason {
             Some(reason) if reason.file == file => reason.input.read(cx).text().to_owned(),
             _ => String::new(),
@@ -860,17 +871,25 @@ impl KanbanView {
         self.drops.insert(file.clone(), Clearing::Running);
         let name = file.clone();
         let task = cx.background_spawn(async move {
-            kanban::drop_task("git", &repo, &name, &why, &AtomicBool::new(false))
+            let cancel = AtomicBool::new(false);
+            if draft {
+                kanban::drop_draft("git", &repo, &name, &why, &cancel)
+            } else {
+                kanban::drop_task("git", &repo, &name, &why, &cancel)
+            }
         });
         cx.spawn(async move |this, cx| {
             let result = task.await;
             let _ = this.update(cx, |view, cx| {
+                // A read begun before a commit would keep the card as it was for a while: queued,
+                // or a draft when only its own commit was made.
+                if matches!(result, Ok(()) | Err(kanban::NotChanged::Half(_))) {
+                    view.cancel();
+                    view.last = None;
+                }
                 match result {
                     Ok(()) => {
                         view.drops.insert(file, Clearing::Done);
-                        // A read begun before the commit would keep it queued for a while.
-                        view.cancel();
-                        view.last = None;
                     }
                     Err(why) => {
                         view.drops.insert(file, Clearing::Refused(why.to_string()));
@@ -1123,6 +1142,17 @@ fn now() -> f64 {
 
 impl Render for KanbanView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // A reason typed keeps its question up with the mouse elsewhere: it goes, the keys back
+        // where they were, once the board no longer has the card to drop.
+        if let Some(file) = self.reason.as_ref().map(|reason| reason.file.clone())
+            && self.to_drop(&file).is_none()
+        {
+            cx.defer_in(window, move |view, window, cx| {
+                if view.to_drop(&file).is_none() && view.take_back(&file, window, cx) {
+                    cx.notify();
+                }
+            });
+        }
         let ui = UiFont::get(cx);
         let c = self.colors;
         let fit = Fit {
@@ -2633,7 +2663,7 @@ impl KanbanView {
     /// While the mouse is on the card, its ways out, `size` each and placed by the caller: the task
     /// file, and with an agent, its pane and its changes; on a card its task file says needs the
     /// user, Clear, which asks first; on a queued card, Set priority, which asks which; on a draft,
-    /// Delete draft, and on a queued card on main, Drop task, which ask first.
+    /// Delete draft, and on a queued card, a draft too, Drop task, which ask first.
     fn actions(&self, card: &Card, size: f32, ui: &UiFont, cx: &mut Context<Self>) -> Option<Div> {
         if self.hovered.as_deref() != Some(card.file.as_str()) {
             return None;
@@ -3025,8 +3055,9 @@ impl KanbanView {
     }
 
     /// Under a queued card being dropped: a field for why, which may stay empty, with Cancel and
-    /// Drop (↩ in the field drops, Esc cancels); then that it is being dropped, or why it was not.
-    /// The question goes once the board no longer has the card to drop.
+    /// Drop (↩ in the field drops, Esc cancels), and on a draft that it is committed first; then
+    /// that it is being dropped, or why it was not. The question goes once the board no longer
+    /// has the card to drop.
     fn dropping(&self, card: &Card, ui: &UiFont, cx: &mut Context<Self>) -> Option<Div> {
         let c = self.colors;
         Some(match self.drops.get(&card.file)? {
@@ -3085,7 +3116,11 @@ impl KanbanView {
                         cx.stop_propagation();
                         view.drop_task(&file, window, cx);
                     }));
+                let first = card
+                    .draft
+                    .then(|| said("Commits this draft to main first.".into(), c.text));
                 asked(ui)
+                    .children(first)
                     .child(field)
                     // The two buttons stay together when the row wraps.
                     .child(

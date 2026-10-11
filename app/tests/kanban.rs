@@ -1292,10 +1292,12 @@ fn only_drafts_are_deleted_and_only_queued_tasks_dropped() {
             root.join("p5-2").to_str().unwrap(),
         ],
     );
-    // Drafts: one with its own id, one with a committed task's, one with none.
+    // Drafts: one with its own id, one with a committed task's, one whose first line is not its
+    // title, one with no id.
     fs::write(repo.join("docs/任务/P5-6-草稿.md"), "# 任务：草稿\n").unwrap();
     fs::write(repo.join("docs/任务/P5-3-另一份.md"), "# 任务：另一份\n").unwrap();
-    fs::write(repo.join("docs/任务/想法.md"), "随手记\n").unwrap();
+    fs::write(repo.join("docs/任务/P5-7-没标题.md"), "随手记\n").unwrap();
+    fs::write(repo.join("docs/任务/想法.md"), "# 任务：想法\n").unwrap();
     let Read::Board(facts) = read(
         "git",
         repo.to_str().unwrap(),
@@ -1335,10 +1337,180 @@ fn only_drafts_are_deleted_and_only_queued_tasks_dropped() {
             // An agent has it.
             ("P5-4-有人做.md", false, false),
             ("P5-5-已收尾.md", false, false),
-            ("P5-6-草稿.md", true, false),
+            // A draft with an id of its own and its title: deleted, or dropped.
+            ("P5-6-草稿.md", true, true),
+            // Nothing to commit it by: no title, no id.
+            ("P5-7-没标题.md", true, false),
             ("想法.md", true, false),
         ]
     );
+}
+
+#[test]
+fn dropping_a_draft_commits_it_alone_then_wraps_it_up() {
+    use paddock::kanban::drop_draft;
+    let temp = common::tempdir();
+    let (repo, text) = waiting_repo(temp.path(), "repo");
+    let cancel = AtomicBool::new(false);
+    let draft = "docs/任务/P1-2-草稿.md";
+    let written = "# 任务：不要了的草稿\n\n## 用户原话\n原话\n";
+    fs::write(repo.join(draft), written).unwrap();
+    fs::write(repo.join("docs/任务/P1-3-别的草稿.md"), "# 任务：别的\n").unwrap();
+    // Something else staged, and something else changed but not staged: neither goes in.
+    fs::write(repo.join("staged.txt"), "s\n").unwrap();
+    git(&repo, &["add", "staged.txt"]);
+    fs::write(repo.join("notes.txt"), "a\nb\n").unwrap();
+    let head = said(&repo, &["rev-parse", "HEAD"]);
+
+    assert_eq!(
+        drop_draft("git", &repo, "P1-2-草稿.md", "想法变了", &cancel),
+        Ok(())
+    );
+    // Two commits on main: the task file alone, then the empty wrap-up.
+    assert_eq!(said(&repo, &["rev-parse", "HEAD~2"]), head);
+    assert_eq!(said(&repo, &["symbolic-ref", "--short", "HEAD"]), "main\n");
+    assert_eq!(
+        said(&repo, &["log", "-2", "--format=%s"]),
+        "收尾: P1-2 不做：想法变了\n任务: P1-2 不要了的草稿\n"
+    );
+    assert_eq!(
+        said(&repo, &["show", "--name-only", "--format=", "HEAD~1"]),
+        format!("{draft}\n")
+    );
+    assert_eq!(
+        said(&repo, &["show", "--name-only", "--format=", "HEAD"]),
+        ""
+    );
+    // The file is on main as it was written, and still on disk.
+    assert_eq!(said(&repo, &["show", &format!("HEAD:{draft}")]), written);
+    assert_eq!(fs::read_to_string(repo.join(draft)).unwrap(), written);
+    // What was staged is still, and the rest as it was.
+    assert_eq!(
+        said(&repo, &["status", "--porcelain", "--untracked-files=all"]),
+        " M notes.txt\nA  staged.txt\n?? docs/任务/P1-3-别的草稿.md\n"
+    );
+    assert_eq!(fs::read_to_string(repo.join(WAITING)).unwrap(), text);
+    assert_eq!(said(&repo, &["remote"]), "");
+    // The board read again has it in DONE, dropped, with the reason, and no longer a draft.
+    let Read::Board(facts) = read("git", repo.to_str().unwrap(), &cache(), &cancel) else {
+        panic!("not a board");
+    };
+    let board = board(&facts, &[], 2_000_000_000.0);
+    assert_eq!(ids(&board, Column::Queued), ["P1-1", "P1-3"]);
+    let done = &board.cards(Column::Done)[0];
+    assert_eq!(
+        (done.id.as_str(), done.draft, done.dropped.as_deref()),
+        ("P1-2", false, Some("想法变了"))
+    );
+
+    // A draft already staged, and no reason given: committed as it is on disk.
+    git(&repo, &["add", "docs/任务/P1-3-别的草稿.md"]);
+    assert_eq!(
+        drop_draft("git", &repo, "P1-3-别的草稿.md", "", &cancel),
+        Ok(())
+    );
+    assert_eq!(
+        said(&repo, &["log", "-2", "--format=%s"]),
+        "收尾: P1-3 不做：未写原因\n任务: P1-3 别的\n"
+    );
+    assert_eq!(
+        said(&repo, &["status", "--porcelain", "--untracked-files=all"]),
+        " M notes.txt\nA  staged.txt\n"
+    );
+}
+
+#[test]
+fn dropping_a_draft_is_refused_or_stops_half_way() {
+    use paddock::kanban::{NotChanged, drop_draft};
+    let temp = common::tempdir();
+    let cancel = AtomicBool::new(false);
+    let file = "P1-2-草稿.md";
+    let draft = format!("docs/任务/{file}");
+    let drop = |repo: &Path, file: &str| drop_draft("git", repo, file, "不要了", &cancel);
+    // Each refusal leaves HEAD and the index as they were, and the draft a draft.
+    let unchanged = |repo: &Path, head: &str| {
+        assert_eq!(said(repo, &["rev-parse", "HEAD"]), head);
+        assert_eq!(
+            said(repo, &["status", "--porcelain", "--untracked-files=all"]),
+            format!("?? {draft}\n")
+        );
+    };
+
+    // Not on main: neither commit is made.
+    let (repo, _) = waiting_repo(temp.path(), "branch");
+    fs::write(repo.join(&draft), "# 任务：草稿\n").unwrap();
+    git(&repo, &["checkout", "-q", "-b", "other"]);
+    let head = said(&repo, &["rev-parse", "HEAD"]);
+    assert_eq!(
+        drop(&repo, file),
+        Err(NotChanged::NotMain(Some("other".into())))
+    );
+    unchanged(&repo, &head);
+
+    // Its first line is not its title: there is nothing to commit it by.
+    let (repo, _) = waiting_repo(temp.path(), "untitled");
+    fs::write(repo.join(&draft), "随手记\n").unwrap();
+    let head = said(&repo, &["rev-parse", "HEAD"]);
+    assert_eq!(drop(&repo, file), Err(NotChanged::Unnamed(draft.clone())));
+    assert_eq!(
+        drop(&repo, file).unwrap_err().to_string(),
+        format!("{draft} needs an id in its name and a first line “# 任务：<title>”")
+    );
+    unchanged(&repo, &head);
+
+    // On main by now: no longer a draft, and dropped as a queued task is.
+    assert_eq!(
+        drop(&repo, "P1-1-等用户.md"),
+        Err(NotChanged::Committed(WAITING.into()))
+    );
+    unchanged(&repo, &head);
+
+    // The commit fails, a hook refusing it: the draft is not left staged.
+    let (repo, _) = waiting_repo(temp.path(), "hooked");
+    fs::write(repo.join(&draft), "# 任务：草稿\n").unwrap();
+    let hooks = temp.path().join("hooked-hooks");
+    let pre = common::script(&hooks, "pre-commit", "#!/bin/sh\nexit 1\n");
+    let head = said(&repo, &["rev-parse", "HEAD"]);
+    assert!(matches!(drop(&repo, file), Err(NotChanged::Commit(_))));
+    unchanged(&repo, &head);
+    fs::remove_file(pre).unwrap();
+
+    // The first commit is made and the second is not, main's ref locked in between: the file
+    // stays on main, a queued task, and the reason says so.
+    common::script(
+        &hooks,
+        "post-commit",
+        "#!/bin/sh\n: > \"$(git rev-parse --git-dir)/refs/heads/main.lock\"\n",
+    );
+    let refused = drop(&repo, file).unwrap_err();
+    assert!(matches!(refused, NotChanged::Half(_)), "{refused:?}");
+    assert!(
+        refused
+            .to_string()
+            .starts_with("The draft is on main now, but it wasn't dropped: "),
+        "{refused}"
+    );
+    fs::remove_file(repo.join(".git/refs/heads/main.lock")).unwrap();
+    assert_eq!(said(&repo, &["rev-parse", "HEAD~1"]), head);
+    assert_eq!(
+        said(&repo, &["log", "-1", "--format=%s"]),
+        "任务: P1-2 草稿\n"
+    );
+    assert_eq!(
+        said(&repo, &["status", "--porcelain", "--untracked-files=all"]),
+        ""
+    );
+    let Read::Board(facts) = read("git", repo.to_str().unwrap(), &cache(), &cancel) else {
+        panic!("not a board");
+    };
+    let board = board(&facts, &[], 2_000_000_000.0);
+    let queued: Vec<(&str, bool)> = board
+        .cards(Column::Queued)
+        .iter()
+        .map(|c| (c.id.as_str(), c.draft))
+        .collect();
+    assert_eq!(queued, [("P1-1", false), ("P1-2", false)]);
+    assert!(board.droppable(&board.cards(Column::Queued)[1]));
 }
 
 #[test]

@@ -1328,6 +1328,11 @@ pub enum NotChanged {
     Commit(String),
     /// The Trash did not take the file, and why.
     Trash(String),
+    /// A draft cannot be committed for dropping: its name has no id, or its first line is not
+    /// its title.
+    Unnamed(String),
+    /// A draft being dropped was committed, and the wrap-up commit then failed, and why.
+    Half(String),
 }
 
 impl std::fmt::Display for NotChanged {
@@ -1348,6 +1353,16 @@ impl std::fmt::Display for NotChanged {
             NotChanged::Write(why) => write!(f, "Couldn't write the file: {why}"),
             NotChanged::Commit(why) => write!(f, "Couldn't commit: {why}"),
             NotChanged::Trash(why) => write!(f, "Couldn't move the file to the Trash: {why}"),
+            NotChanged::Unnamed(file) => write!(
+                f,
+                "{file} needs an id in its name and a first line \u{201c}# 任务：<title>\u{201d}"
+            ),
+            NotChanged::Half(why) => {
+                write!(
+                    f,
+                    "The draft is on {MAIN} now, but it wasn't dropped: {why}"
+                )
+            }
         }
     }
 }
@@ -1465,6 +1480,19 @@ pub fn drop_task(
     let Some(id) = task_id(file).filter(|_| !tree.stdout.is_empty()) else {
         return Err(NotChanged::NotOnMain(path));
     };
+    wrap_up_dropped(program, repo, &id, why, cancel)
+}
+
+/// Adds the empty wrap-up commit that drops the task `id` (`收尾: <id> 不做：<why>`, `未写原因`
+/// when `why` is blank) to the branch the main worktree `repo` has out.
+fn wrap_up_dropped(
+    program: &str,
+    repo: &Path,
+    id: &str,
+    why: &str,
+    cancel: &AtomicBool,
+) -> Result<(), NotChanged> {
+    let run = |args: &[&str]| git::git(program, repo, args, cancel).ok_or(NotChanged::NoGit);
     let head = run(&["rev-parse", "--verify", "--quiet", "HEAD^{commit}"])?;
     if !head.status.success() {
         return Err(NotChanged::NoGit);
@@ -1493,6 +1521,73 @@ pub fn drop_task(
     let reflog = format!("commit: {subject}");
     write(&["update-ref", "-m", &reflog, "HEAD", &commit, &head])?;
     Ok(())
+}
+
+/// Drops a draft, so that it leaves a record: in the main worktree `repo`, on main, commits the
+/// task file `file` alone (`任务: <id> <title>`), leaving whatever else is staged staged, then
+/// adds the wrap-up commit [`drop_task`] does. Never pushes. Refused, with nothing committed, off
+/// main, while a merge, rebase, cherry-pick or revert is in progress, when main has the file by
+/// now, when its name has no id or its first line is not its title, or when Git fails. When only
+/// the wrap-up fails the file stays on main, a queued task that can be dropped again.
+pub fn drop_draft(
+    program: &str,
+    repo: &Path,
+    file: &str,
+    why: &str,
+    cancel: &AtomicBool,
+) -> Result<(), NotChanged> {
+    let run = |args: &[&str]| git::git(program, repo, args, cancel).ok_or(NotChanged::NoGit);
+    let path = format!("{TASKS}/{file}");
+    settled_on_main(program, repo, cancel)?;
+    let tree = run(&["ls-tree", "-z", "--name-only", "HEAD", "--", &path])?;
+    if !tree.status.success() {
+        return Err(NotChanged::NoGit);
+    }
+    if !tree.stdout.is_empty() {
+        return Err(NotChanged::Committed(path));
+    }
+    let text =
+        std::fs::read_to_string(repo.join(&path)).map_err(|e| NotChanged::Write(e.to_string()))?;
+    let (Some(id), Some(fields)) = (task_id(file), editable(&text)) else {
+        return Err(NotChanged::Unnamed(path));
+    };
+    // Git commits a path only once it knows it: a draft not staged is, and is taken back out of
+    // the index when the commit fails.
+    let staged = run(&["ls-files", "-z", "--cached", "--", &path])?;
+    if !staged.status.success() {
+        return Err(NotChanged::NoGit);
+    }
+    let write = |args: &[&str]| match git::git_write(program, repo, args, cancel) {
+        Some(out) if out.status.success() => Ok(()),
+        failed => Err(NotChanged::Commit(why_failed(failed))),
+    };
+    let added = staged.stdout.is_empty();
+    if added {
+        write(&["add", "--", &path])?;
+    }
+    let subject = format!("任务: {id} {}", one_line(&fields.title));
+    let commit = [
+        "commit",
+        "--quiet",
+        "--only",
+        "--cleanup=verbatim",
+        "-m",
+        &subject,
+        "--",
+        &path,
+    ];
+    if let Err(why) = write(&commit) {
+        if added {
+            let _ = write(&["reset", "--quiet", "--", &path]);
+        }
+        return Err(why);
+    }
+    wrap_up_dropped(program, repo, &id, why, cancel).map_err(|why| {
+        NotChanged::Half(match why {
+            NotChanged::Commit(why) => why,
+            other => other.to_string(),
+        })
+    })
 }
 
 /// Whether the main worktree `repo` can take a commit from the board: it has main out, and no
@@ -1905,13 +2000,14 @@ impl Board {
         }
     }
 
-    /// The user can drop `card`: its task file is on main and it is still queued, with no worktree
-    /// and no agent, and no other task file, a draft's either, has its id: the wrap-up commit
-    /// names the id alone, and would take them all.
+    /// The user can drop `card`: it is still queued, with no worktree and no agent, and no other
+    /// task file, a draft's either, has its id: the wrap-up commit names the id alone, and would
+    /// take them all. A draft is committed first, so its first line must be its title too.
     pub fn droppable(&self, card: &Card) -> bool {
         let same = |other: &&Card| other.id == card.id;
-        !card.draft
-            && card.column == Column::Queued
+        card.column == Column::Queued
+            && !card.id.is_empty()
+            && !(card.draft && card.problems.contains(&Problem::Title))
             && self.columns.iter().flatten().filter(same).count() == 1
     }
 
