@@ -8,7 +8,9 @@
 //! things it writes are a task file, new or queued, from the task dialog (New task, or Edit on a
 //! queued card), and, on a card its task file says needs the user, Clear: that line taken out and
 //! committed once confirmed; on a queued card, its priority line, committed the same way or, in a
-//! draft, only written (DESIGN §13 P5-29, P5-60b).
+//! draft, only written (DESIGN §13 P5-29, P5-60b). A draft can be deleted, its file moved to the
+//! Trash, and a queued task dropped, with the wrap-up commit that says so, a draft's task file
+//! committed before it (P5-86).
 use crate::{
     activity,
     agents::Status,
@@ -31,6 +33,7 @@ use gpui::{
     Transformation, UnderlineStyle, UniformListScrollHandle, Window, WindowTextSystem, anchored,
     deferred, div, percentage, point, prelude::*, px, relative, svg, uniform_list,
 };
+use objc2_foundation::{NSFileManager, NSString, NSURL};
 use std::{
     collections::{HashMap, HashSet},
     path::{Path, PathBuf},
@@ -112,6 +115,9 @@ const SPIN_ARC: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 
 const PENCIL: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12"><path d="M7.5 2.5l2 2L4 10H2V8z" fill="none" stroke="#000" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>"##;
 const LOCK: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12"><rect x="2.5" y="5.5" width="7" height="5" rx="1" fill="none" stroke="#000" stroke-width="1.3"/><path d="M4 5.5V4a2 2 0 0 1 4 0v1.5" fill="none" stroke="#000" stroke-width="1.3" stroke-linecap="round"/></svg>"##;
 const BRACKETS: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 14 14"><path d="M5 3.5L1.5 7 5 10.5M9 3.5L12.5 7 9 10.5" fill="none" stroke="#000" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>"##;
+/// For a card's Delete draft and Drop task: a bin, and a circle struck through.
+const BIN: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12"><path d="M2.5 3.5h7M5 3.5v-1h2v1M3.5 3.5l.5 6.5h4l.5-6.5" fill="none" stroke="#000" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>"##;
+const STRUCK: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12"><circle cx="6" cy="6" r="4" fill="none" stroke="#000" stroke-width="1.3"/><path d="M3.2 8.8l5.6-5.6" fill="none" stroke="#000" stroke-width="1.3" stroke-linecap="round"/></svg>"##;
 /// A link, on the mark of what a queued card waits for; chevrons on Show all and Show fewer.
 const LINK: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><path d="M4 6l2-2M3.2 4.6l-1 1a1.6 1.6 0 002.2 2.2l1-1M6.8 5.4l1-1a1.6 1.6 0 00-2.2-2.2l-1 1" fill="none" stroke="#000" stroke-width="1.3" stroke-linecap="round"/></svg>"##;
 const CHEVRON_DOWN: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><path d="M2.5 3.8L5 6.3l2.5-2.5" fill="none" stroke="#000" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>"##;
@@ -167,16 +173,25 @@ struct Pending {
     out: Arc<Mutex<Option<Read>>>,
 }
 
-/// Where a card's Clear, or a change of its priority, stands.
+/// Where a card's Clear, a change of its priority, its draft's deletion or its task's dropping
+/// stands.
 #[derive(Clone, Debug, PartialEq)]
 enum Clearing {
-    /// Asking to confirm, or which priority, while the mouse stays on the card.
+    /// Asking to confirm, which priority, or why it is dropped, while the mouse stays on the card.
     Asking,
     Running,
-    /// Committed, or a draft written: until the board is read again.
+    /// Committed, a draft written, or its file in the Trash: until the board is read again.
     Done,
     /// Nothing was changed, and why; until the mouse leaves the card.
     Refused(String),
+}
+
+/// The field for why a task is dropped, under the card asked about.
+struct Reason {
+    file: String,
+    input: Entity<TextInput>,
+    /// What had the keys before it took them, to give them back to.
+    back: Option<FocusHandle>,
 }
 
 /// The open menu under the repository's name.
@@ -282,6 +297,12 @@ pub struct KanbanView {
     clears: HashMap<String, Clearing>,
     /// The cards whose priority is being changed or asked for, by task file.
     priorities: HashMap<String, Clearing>,
+    /// The drafts being deleted or asked to be, by task file.
+    deletes: HashMap<String, Clearing>,
+    /// The cards being dropped or asked to be, by task file.
+    drops: HashMap<String, Clearing>,
+    /// The field for why, while a card is asked whether to drop it.
+    reason: Option<Reason>,
 }
 
 impl KanbanView {
@@ -334,6 +355,9 @@ impl KanbanView {
             wide_at: changes::WIDE,
             clears: HashMap::new(),
             priorities: HashMap::new(),
+            deletes: HashMap::new(),
+            drops: HashMap::new(),
+            reason: None,
         }
     }
 
@@ -571,11 +595,13 @@ impl KanbanView {
                 self.pending = None;
                 self.last = Some(Instant::now());
                 // Begun after the commit, so the board it gives no longer has the line.
-                let before = self.clears.len() + self.priorities.len();
-                for acts in [&mut self.clears, &mut self.priorities] {
+                let mut settled = false;
+                for acts in self.acts() {
+                    let before = acts.len();
                     acts.retain(|_, clearing| *clearing != Clearing::Done);
+                    settled |= acts.len() != before;
                 }
-                if self.clears.len() + self.priorities.len() != before {
+                if settled {
                     cx.notify();
                 }
                 // A failed round keeps what is shown, unless there is nothing yet.
@@ -652,14 +678,61 @@ impl KanbanView {
         cx.notify();
     }
 
-    fn hover(&mut self, file: &str, hovered: bool, cx: &mut Context<Self>) {
-        // Leaving takes back the question, or why it was not cleared or changed.
-        if !hovered {
-            for acts in [&mut self.clears, &mut self.priorities] {
-                if take_back(acts, file) {
-                    cx.notify();
-                }
+    /// What the cards are asked or having done, each kind by task file.
+    fn acts(&mut self) -> [&mut HashMap<String, Clearing>; 4] {
+        [
+            &mut self.clears,
+            &mut self.priorities,
+            &mut self.deletes,
+            &mut self.drops,
+        ]
+    }
+
+    /// Takes back whatever is asked about `file`'s card, or why it was refused, the field for a
+    /// reason with it; not what is under way. Whether there was anything.
+    fn take_back(&mut self, file: &str, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        let mut shown = false;
+        for acts in self.acts() {
+            shown |= take_back(acts, file);
+        }
+        if self.reason.as_ref().is_some_and(|r| r.file == file) {
+            self.close_reason(window, cx);
+        }
+        shown
+    }
+
+    /// The field for a reason goes, the keys back to what had them before it.
+    fn close_reason(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(reason) = self.reason.take() else {
+            return;
+        };
+        if reason.input.read(cx).focus_handle(cx).is_focused(window) {
+            match &reason.back {
+                Some(back) => window.focus(back, cx),
+                None => window.blur(cx),
             }
+        }
+    }
+
+    /// Whether a reason is typed in the field under `file`'s card.
+    fn typed(&self, file: &str, cx: &App) -> bool {
+        self.reason
+            .as_ref()
+            .is_some_and(|r| r.file == file && !r.input.read(cx).text().is_empty())
+    }
+
+    /// The card of the task file `file`, when the board has it to drop.
+    fn to_drop(&self, file: &str) -> Option<&Card> {
+        let board = self.board.as_ref()?;
+        let mut cards = board.columns.iter().flatten();
+        cards.find(|card| card.file == file && board.droppable(card))
+    }
+
+    fn hover(&mut self, file: &str, hovered: bool, window: &mut Window, cx: &mut Context<Self>) {
+        // Leaving takes back the question, or why it was not cleared, changed, deleted or dropped;
+        // but a reason typed for dropping stays, with its question, until Cancel or Esc.
+        if !hovered && !self.typed(file, cx) && self.take_back(file, window, cx) {
+            cx.notify();
         }
         let now = if hovered {
             Some(file.to_owned())
@@ -675,28 +748,157 @@ impl KanbanView {
     }
 
     /// Clear on a card: ask first, unless it is being cleared already.
-    fn ask_clear(&mut self, file: &str, cx: &mut Context<Self>) {
+    fn ask_clear(&mut self, file: &str, window: &mut Window, cx: &mut Context<Self>) {
         if matches!(
             self.clears.get(file),
             Some(Clearing::Running | Clearing::Done)
         ) {
             return;
         }
-        take_back(&mut self.priorities, file);
+        self.take_back(file, window, cx);
         self.clears.insert(file.to_owned(), Clearing::Asking);
         cx.notify();
     }
 
     /// The priority button on a card: ask which, unless it is being changed already.
-    fn ask_priority(&mut self, file: &str, cx: &mut Context<Self>) {
+    fn ask_priority(&mut self, file: &str, window: &mut Window, cx: &mut Context<Self>) {
         if matches!(
             self.priorities.get(file),
             Some(Clearing::Running | Clearing::Done)
         ) {
             return;
         }
-        take_back(&mut self.clears, file);
+        self.take_back(file, window, cx);
         self.priorities.insert(file.to_owned(), Clearing::Asking);
+        cx.notify();
+    }
+
+    /// Delete draft on a card: ask first, unless it is being deleted already.
+    fn ask_delete(&mut self, file: &str, window: &mut Window, cx: &mut Context<Self>) {
+        if matches!(
+            self.deletes.get(file),
+            Some(Clearing::Running | Clearing::Done)
+        ) {
+            return;
+        }
+        self.take_back(file, window, cx);
+        self.deletes.insert(file.to_owned(), Clearing::Asking);
+        cx.notify();
+    }
+
+    /// Drop task on a card: ask first, with a field for why that takes the keys, unless it is
+    /// asked already, a reason typed perhaps, or being dropped.
+    fn ask_drop(&mut self, file: &str, window: &mut Window, cx: &mut Context<Self>) {
+        if matches!(
+            self.drops.get(file),
+            Some(Clearing::Asking | Clearing::Running | Clearing::Done)
+        ) {
+            return;
+        }
+        // There is one field: a question still up on another card goes with it.
+        if let Some(other) = self.reason.as_ref().map(|reason| reason.file.clone()) {
+            self.take_back(&other, window, cx);
+        }
+        self.take_back(file, window, cx);
+        let colors = input_colors(&self.theme);
+        let input = cx.new(|cx| TextInput::new("", "Reason (optional)", colors, cx));
+        let back = window.focused(cx);
+        window.focus(&input.read(cx).focus_handle(cx), cx);
+        self.reason = Some(Reason {
+            file: file.to_owned(),
+            input,
+            back,
+        });
+        self.drops.insert(file.to_owned(), Clearing::Asking);
+        cx.notify();
+    }
+
+    /// Confirmed: the draft's file moved to the Trash in the background, and the board read again
+    /// once it is.
+    fn delete(&mut self, file: &str, cx: &mut Context<Self>) {
+        if self.deletes.get(file) != Some(&Clearing::Asking) {
+            return;
+        }
+        let Some(repo) = self.board.as_ref().map(|board| board.repo.clone()) else {
+            return;
+        };
+        self.deletes.insert(file.to_owned(), Clearing::Running);
+        let name = file.to_owned();
+        let task = cx.background_spawn(async move {
+            kanban::delete_draft("git", &repo, &name, &AtomicBool::new(false), trash)
+        });
+        let file = file.to_owned();
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |view, cx| {
+                match result {
+                    Ok(()) => {
+                        view.deletes.insert(file, Clearing::Done);
+                        // A read begun before would bring the card back for a while.
+                        view.cancel();
+                        view.last = None;
+                    }
+                    Err(why) => {
+                        view.deletes
+                            .insert(file, Clearing::Refused(why.to_string()));
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+        cx.notify();
+    }
+
+    /// Confirmed, with the reason in the field: the wrap-up commit made in the background, a
+    /// draft's task file committed before it, and the board read again once it is. Not for a card
+    /// the board, as it is now, no longer offers it on.
+    fn drop_task(&mut self, file: &str, window: &mut Window, cx: &mut Context<Self>) {
+        if self.drops.get(file) != Some(&Clearing::Asking) {
+            return;
+        }
+        let (Some(draft), Some(board)) = (self.to_drop(file).map(|card| card.draft), &self.board)
+        else {
+            return;
+        };
+        let repo = board.repo.clone();
+        let why = match &self.reason {
+            Some(reason) if reason.file == file => reason.input.read(cx).text().to_owned(),
+            _ => String::new(),
+        };
+        self.close_reason(window, cx);
+        let file = file.to_owned();
+        self.drops.insert(file.clone(), Clearing::Running);
+        let name = file.clone();
+        let task = cx.background_spawn(async move {
+            let cancel = AtomicBool::new(false);
+            if draft {
+                kanban::drop_draft("git", &repo, &name, &why, &cancel)
+            } else {
+                kanban::drop_task("git", &repo, &name, &why, &cancel)
+            }
+        });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |view, cx| {
+                // A read begun before a commit would keep the card as it was for a while: queued,
+                // or a draft when only its own commit was made.
+                if matches!(result, Ok(()) | Err(kanban::NotChanged::Half(_))) {
+                    view.cancel();
+                    view.last = None;
+                }
+                match result {
+                    Ok(()) => {
+                        view.drops.insert(file, Clearing::Done);
+                    }
+                    Err(why) => {
+                        view.drops.insert(file, Clearing::Refused(why.to_string()));
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
         cx.notify();
     }
 
@@ -940,6 +1142,17 @@ fn now() -> f64 {
 
 impl Render for KanbanView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // A reason typed keeps its question up with the mouse elsewhere: it goes, the keys back
+        // where they were, once the board no longer has the card to drop.
+        if let Some(file) = self.reason.as_ref().map(|reason| reason.file.clone())
+            && self.to_drop(&file).is_none()
+        {
+            cx.defer_in(window, move |view, window, cx| {
+                if view.to_drop(&file).is_none() && view.take_back(&file, window, cx) {
+                    cx.notify();
+                }
+            });
+        }
         let ui = UiFont::get(cx);
         let c = self.colors;
         let fit = Fit {
@@ -1009,7 +1222,8 @@ impl Render for KanbanView {
 }
 
 impl KanbanView {
-    /// A card is asking whether to clear its task, or which priority it gets.
+    /// A card is asking whether to clear its task, which priority it gets, or whether to delete
+    /// or drop it.
     pub fn confirming(&self) -> bool {
         let files: HashSet<&str> = self
             .board
@@ -1017,8 +1231,9 @@ impl KanbanView {
             .flat_map(|board| board.columns.iter().flatten())
             .map(|card| card.file.as_str())
             .collect();
-        confirming(&self.clears, self.active, &files)
-            || confirming(&self.priorities, self.active, &files)
+        [&self.clears, &self.priorities, &self.deletes, &self.drops]
+            .into_iter()
+            .any(|acts| confirming(acts, self.active, &files))
     }
 
     /// The repository's button and, over a board, main, how many need the user, are in progress
@@ -1710,9 +1925,9 @@ impl KanbanView {
             .id(SharedString::from(format!("kanban-card-{}", card.file)))
             .relative()
             .flex_shrink_0()
-            .on_hover(
-                cx.listener(move |view, hovered: &bool, _, cx| view.hover(&file, *hovered, cx)),
-            )
+            .on_hover(cx.listener(move |view, hovered: &bool, window, cx| {
+                view.hover(&file, *hovered, window, cx)
+            }))
     }
 
     /// A card (P5-71), in the narrow list or a widened column, lifted off the panel as the left
@@ -1816,6 +2031,14 @@ impl KanbanView {
             )
             .children(
                 self.prioritizing(card, ui, cx)
+                    .map(|row| row.text_size(ui.px(12.0))),
+            )
+            .children(
+                self.deleting(card, ui, cx)
+                    .map(|row| row.text_size(ui.px(12.0))),
+            )
+            .children(
+                self.dropping(card, ui, cx)
                     .map(|row| row.text_size(ui.px(12.0))),
             )
             .children(footer)
@@ -2439,7 +2662,8 @@ impl KanbanView {
 
     /// While the mouse is on the card, its ways out, `size` each and placed by the caller: the task
     /// file, and with an agent, its pane and its changes; on a card its task file says needs the
-    /// user, Clear, which asks first; on a queued card, Set priority, which asks which.
+    /// user, Clear, which asks first; on a queued card, Set priority, which asks which; on a draft,
+    /// Delete draft, and on a queued card, a draft too, Drop task, which ask first.
     fn actions(&self, card: &Card, size: f32, ui: &UiFont, cx: &mut Context<Self>) -> Option<Div> {
         if self.hovered.as_deref() != Some(card.file.as_str()) {
             return None;
@@ -2507,9 +2731,9 @@ impl KanbanView {
                     Icon::Check,
                     "Clear \u{201c}Needs you\u{201d}",
                 )
-                .on_click(cx.listener(move |view, _: &ClickEvent, _, cx| {
+                .on_click(cx.listener(move |view, _: &ClickEvent, window, cx| {
                     cx.stop_propagation();
-                    view.ask_clear(&file, cx);
+                    view.ask_clear(&file, window, cx);
                 })),
             );
         }
@@ -2517,9 +2741,9 @@ impl KanbanView {
             let file = card.file.clone();
             bar = bar.child(
                 button("kanban-priority", Icon::Sort, "Set priority").on_click(cx.listener(
-                    move |view, _: &ClickEvent, _, cx| {
+                    move |view, _: &ClickEvent, window, cx| {
                         cx.stop_propagation();
-                        view.ask_priority(&file, cx);
+                        view.ask_priority(&file, window, cx);
                     },
                 )),
             );
@@ -2542,7 +2766,56 @@ impl KanbanView {
                 },
             )));
         }
+        let drawn = |data: &'static [u8]| {
+            svg()
+                .data(data)
+                .size(ui.px(13.0))
+                .text_color(c.muted)
+                .into_any_element()
+        };
+        if self.offers_delete(card) {
+            let file = card.file.clone();
+            bar = bar.child(glyph("kanban-delete", drawn(BIN), "Delete draft").on_click(
+                cx.listener(move |view, _: &ClickEvent, window, cx| {
+                    cx.stop_propagation();
+                    view.ask_delete(&file, window, cx);
+                }),
+            ));
+        }
+        if self.offers_drop(card) {
+            let file = card.file.clone();
+            bar = bar.child(glyph("kanban-drop", drawn(STRUCK), "Drop task").on_click(
+                cx.listener(move |view, _: &ClickEvent, window, cx| {
+                    cx.stop_propagation();
+                    view.ask_drop(&file, window, cx);
+                }),
+            ));
+        }
         Some(bar)
+    }
+
+    /// Whether the buttons over `card` include Delete draft: it is a draft, and is not being
+    /// deleted or deleted already.
+    fn offers_delete(&self, card: &Card) -> bool {
+        let busy = matches!(
+            self.deletes.get(&card.file),
+            Some(Clearing::Running | Clearing::Done)
+        );
+        card.deletable() && !busy
+    }
+
+    /// Whether the buttons over `card` include Drop task: the board has it to drop
+    /// ([`Board::droppable`]), and it is not being dropped or dropped already.
+    fn offers_drop(&self, card: &Card) -> bool {
+        let busy = matches!(
+            self.drops.get(&card.file),
+            Some(Clearing::Running | Clearing::Done)
+        );
+        !busy
+            && self
+                .board
+                .as_ref()
+                .is_some_and(|board| board.droppable(card))
     }
 
     /// Whether the buttons over `card` include Clear: its task file says it needs the user, and it
@@ -2727,6 +3000,192 @@ impl KanbanView {
             Clearing::Refused(why) => row.child(words(format!("Not changed: {why}"), c.red)),
         })
     }
+
+    /// Under a draft being deleted, as under a card being cleared: the question with Cancel and
+    /// Delete, then that it is being deleted, or why it was not. The question goes once the card
+    /// is no longer a draft.
+    fn deleting(&self, card: &Card, ui: &UiFont, cx: &mut Context<Self>) -> Option<Div> {
+        let c = self.colors;
+        Some(match self.deletes.get(&card.file)? {
+            Clearing::Asking => {
+                if !card.deletable() {
+                    return None;
+                }
+                let (file, leave) = (card.file.clone(), card.file.clone());
+                let cancel = answer("kanban-delete-cancel", "Cancel", ui)
+                    .border_color(c.rule)
+                    .text_color(c.muted)
+                    .hover(move |style| style.bg(c.text.opacity(0.09)))
+                    .on_click(cx.listener(move |view, _: &ClickEvent, _, cx| {
+                        cx.stop_propagation();
+                        if view.deletes.remove(&leave).is_some() {
+                            cx.notify();
+                        }
+                    }));
+                let confirm = answer("kanban-delete-confirm", "Delete", ui)
+                    .bg(c.red.opacity(0.16))
+                    .border_color(c.red.opacity(0.5))
+                    .text_color(c.red)
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .hover(move |style| style.bg(c.red.opacity(0.26)))
+                    .on_click(cx.listener(move |view, _: &ClickEvent, _, cx| {
+                        cx.stop_propagation();
+                        view.delete(&file, cx);
+                    }));
+                asked(ui)
+                    .child(said(
+                        "Delete this draft? It goes to the Trash.".into(),
+                        c.text,
+                    ))
+                    .child(div().flex_1())
+                    // The two buttons stay together when the row wraps.
+                    .child(
+                        div()
+                            .flex_shrink_0()
+                            .flex()
+                            .gap(ui.px(6.0))
+                            .child(cancel)
+                            .child(confirm),
+                    )
+            }
+            Clearing::Running => asked(ui).child(said("Deleting\u{2026}".into(), c.dim)),
+            Clearing::Done => asked(ui).child(said("Moved to the Trash".into(), c.dim)),
+            Clearing::Refused(why) => asked(ui).child(said(format!("Not deleted: {why}"), c.red)),
+        })
+    }
+
+    /// Under a queued card being dropped: a field for why, which may stay empty, with Cancel and
+    /// Drop (↩ in the field drops, Esc cancels), and on a draft that it is committed first; then
+    /// that it is being dropped, or why it was not. The question goes once the board no longer
+    /// has the card to drop.
+    fn dropping(&self, card: &Card, ui: &UiFont, cx: &mut Context<Self>) -> Option<Div> {
+        let c = self.colors;
+        Some(match self.drops.get(&card.file)? {
+            Clearing::Asking => {
+                let reason = self.reason.as_ref().filter(|r| r.file == card.file)?;
+                if !self.board.as_ref()?.droppable(card) {
+                    return None;
+                }
+                let (file, entered, leave, left) = (
+                    card.file.clone(),
+                    card.file.clone(),
+                    card.file.clone(),
+                    card.file.clone(),
+                );
+                let field = div()
+                    .id("kanban-drop-reason")
+                    .flex_1()
+                    .min_w(ui.px(120.0))
+                    .h(ui.px(20.0))
+                    .flex()
+                    .items_center()
+                    .px(ui.px(6.0))
+                    .rounded(px(5.0))
+                    .border_1()
+                    .border_color(c.rule)
+                    .overflow_hidden()
+                    .on_key_down(cx.listener(move |view, event: &KeyDownEvent, window, cx| {
+                        match event.keystroke.key.as_str() {
+                            "enter" => view.drop_task(&entered, window, cx),
+                            "escape" => {
+                                view.take_back(&left, window, cx);
+                                cx.notify();
+                            }
+                            _ => return,
+                        }
+                        cx.stop_propagation();
+                    }))
+                    .child(div().flex_1().min_w(px(0.0)).child(reason.input.clone()));
+                let cancel = answer("kanban-drop-cancel", "Cancel", ui)
+                    .border_color(c.rule)
+                    .text_color(c.muted)
+                    .hover(move |style| style.bg(c.text.opacity(0.09)))
+                    .on_click(cx.listener(move |view, _: &ClickEvent, window, cx| {
+                        cx.stop_propagation();
+                        if view.take_back(&leave, window, cx) {
+                            cx.notify();
+                        }
+                    }));
+                let confirm = answer("kanban-drop-confirm", "Drop", ui)
+                    .bg(c.red.opacity(0.16))
+                    .border_color(c.red.opacity(0.5))
+                    .text_color(c.red)
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .hover(move |style| style.bg(c.red.opacity(0.26)))
+                    .on_click(cx.listener(move |view, _: &ClickEvent, window, cx| {
+                        cx.stop_propagation();
+                        view.drop_task(&file, window, cx);
+                    }));
+                let first = card
+                    .draft
+                    .then(|| said("Commits this draft to main first.".into(), c.text));
+                asked(ui)
+                    .children(first)
+                    .child(field)
+                    // The two buttons stay together when the row wraps.
+                    .child(
+                        div()
+                            .flex_shrink_0()
+                            .flex()
+                            .gap(ui.px(6.0))
+                            .child(cancel)
+                            .child(confirm),
+                    )
+            }
+            Clearing::Running => asked(ui).child(said("Dropping\u{2026}".into(), c.dim)),
+            Clearing::Done => asked(ui).child(said("Dropped".into(), c.dim)),
+            Clearing::Refused(why) => asked(ui).child(said(format!("Not dropped: {why}"), c.red)),
+        })
+    }
+}
+
+/// The line under a card that asks about deleting or dropping it, or says how that went.
+fn asked(ui: &UiFont) -> Div {
+    div()
+        .flex()
+        .flex_wrap()
+        .items_center()
+        .gap(ui.px(6.0))
+        .min_w(px(0.0))
+}
+
+/// Words on that line, wrapping where they must.
+fn said(words: String, color: Hsla) -> Div {
+    div()
+        .flex_shrink(1.0)
+        .min_w(px(0.0))
+        .whitespace_normal()
+        .text_color(color)
+        .child(words)
+}
+
+/// A button on that line: an answer to what it asks.
+fn answer(id: &'static str, words: &'static str, ui: &UiFont) -> Stateful<Div> {
+    div()
+        .id(id)
+        .flex_shrink_0()
+        .px(ui.px(8.0))
+        .h(ui.px(20.0))
+        .flex()
+        .items_center()
+        .rounded(px(5.0))
+        .border_1()
+        .cursor_pointer()
+        .child(words)
+}
+
+/// Moves the file at `path` to the system's Trash, where it can be put back from; or says why it
+/// could not be.
+fn trash(path: &Path) -> Result<(), String> {
+    let Some(path) = path.to_str() else {
+        return Err("its path isn't valid UTF-8".to_owned());
+    };
+    objc2::rc::autoreleasepool(|_| {
+        let url = NSURL::fileURLWithPath(&NSString::from_str(path));
+        NSFileManager::defaultManager()
+            .trashItemAtURL_resultingItemURL_error(&url, None)
+            .map_err(|error| error.localizedDescription().to_string())
+    })
 }
 
 /// The task dialog's width, the height of its body's box, the room it keeps from the window's

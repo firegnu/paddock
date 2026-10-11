@@ -1304,8 +1304,8 @@ pub fn asks_line(text: &str) -> Option<(std::ops::Range<usize>, &str)> {
     None
 }
 
-/// Why a task file was not changed: its `待用户：` line not cleared, its priority not set, or the
-/// task dialog's edit not saved.
+/// Why a task file was not changed: its `待用户：` line not cleared, its priority not set, the
+/// task dialog's edit not saved, a draft not deleted, or a task not dropped.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum NotChanged {
     NoTitle,
@@ -1321,9 +1321,18 @@ pub enum NotChanged {
     NotOnMain(String),
     /// The task file changed after the task dialog read it.
     Stale(String),
+    /// Main has the task file by now: it is no longer a draft.
+    Committed(String),
     NoGit,
     Write(String),
     Commit(String),
+    /// The Trash did not take the file, and why.
+    Trash(String),
+    /// A draft cannot be committed for dropping: its name has no id, or its first line is not
+    /// its title.
+    Unnamed(String),
+    /// A draft being dropped was committed, and the wrap-up commit then failed, and why.
+    Half(String),
 }
 
 impl std::fmt::Display for NotChanged {
@@ -1339,9 +1348,21 @@ impl std::fmt::Display for NotChanged {
             NotChanged::Gone(file) => write!(f, "{file} on {MAIN} no longer has the line"),
             NotChanged::NotOnMain(file) => write!(f, "{file} isn't on {MAIN}"),
             NotChanged::Stale(file) => write!(f, "{file} changed after it was opened here"),
+            NotChanged::Committed(file) => write!(f, "{file} is on {MAIN} now, no longer a draft"),
             NotChanged::NoGit => write!(f, "Git couldn't be read, so nothing was changed"),
             NotChanged::Write(why) => write!(f, "Couldn't write the file: {why}"),
             NotChanged::Commit(why) => write!(f, "Couldn't commit: {why}"),
+            NotChanged::Trash(why) => write!(f, "Couldn't move the file to the Trash: {why}"),
+            NotChanged::Unnamed(file) => write!(
+                f,
+                "{file} needs an id in its name and a first line \u{201c}# 任务：<title>\u{201d}"
+            ),
+            NotChanged::Half(why) => {
+                write!(
+                    f,
+                    "The draft is on {MAIN} now, but it wasn't dropped: {why}"
+                )
+            }
         }
     }
 }
@@ -1402,6 +1423,228 @@ pub fn set_draft_priority(repo: &Path, file: &str, priority: Priority) -> Result
         std::fs::write(&path, after).map_err(|e| NotChanged::Write(e.to_string()))?;
     }
     Ok(())
+}
+
+/// Deletes a draft: moves the main worktree `repo`'s task file `file` to the Trash with `trash`,
+/// committing nothing and touching nothing else, the index included. A file no longer there is as
+/// good as deleted. Refused, with the file left where it is, when main has it by now, when Git
+/// cannot say, or when `trash` fails.
+pub fn delete_draft(
+    program: &str,
+    repo: &Path,
+    file: &str,
+    cancel: &AtomicBool,
+    trash: impl FnOnce(&Path) -> Result<(), String>,
+) -> Result<(), NotChanged> {
+    let path = format!("{TASKS}/{file}");
+    let on_disk = repo.join(&path);
+    if matches!(on_disk.symlink_metadata(), Err(e) if e.kind() == std::io::ErrorKind::NotFound) {
+        return Ok(());
+    }
+    // A draft as `read` tells one: main does not have it.
+    let main = format!("refs/heads/{MAIN}");
+    let tree = git::git(
+        program,
+        repo,
+        &["ls-tree", "-z", "--name-only", &main, "--", &path],
+        cancel,
+    )
+    .filter(|out| out.status.success())
+    .ok_or(NotChanged::NoGit)?;
+    if !tree.stdout.is_empty() {
+        return Err(NotChanged::Committed(path));
+    }
+    trash(&on_disk).map_err(NotChanged::Trash)
+}
+
+/// Drops a queued task: in the main worktree `repo`, on main, adds the empty wrap-up commit
+/// `收尾: <id> 不做：<why>` for the task file `file` (`未写原因` when `why` is blank), which puts its
+/// card in DONE, dropped. The commit has the tree of the one before it, so whatever is staged stays
+/// staged and out of it, and the working tree is not touched. Never pushes. Refused, with nothing
+/// changed, off main, while a merge, rebase, cherry-pick or revert is in progress, when main has
+/// no such file, or when Git fails.
+pub fn drop_task(
+    program: &str,
+    repo: &Path,
+    file: &str,
+    why: &str,
+    cancel: &AtomicBool,
+) -> Result<(), NotChanged> {
+    let run = |args: &[&str]| git::git(program, repo, args, cancel).ok_or(NotChanged::NoGit);
+    let path = format!("{TASKS}/{file}");
+    settled_on_main(program, repo, cancel)?;
+    let tree = run(&["ls-tree", "-z", "--name-only", "HEAD", "--", &path])?;
+    if !tree.status.success() {
+        return Err(NotChanged::NoGit);
+    }
+    let Some(id) = task_id(file).filter(|_| !tree.stdout.is_empty()) else {
+        return Err(NotChanged::NotOnMain(path));
+    };
+    wrap_up_dropped(program, repo, &id, why, cancel)
+}
+
+/// Adds the empty wrap-up commit that drops the task `id` (`收尾: <id> 不做：<why>`, `未写原因`
+/// when `why` is blank) to the branch the main worktree `repo` has out.
+fn wrap_up_dropped(
+    program: &str,
+    repo: &Path,
+    id: &str,
+    why: &str,
+    cancel: &AtomicBool,
+) -> Result<(), NotChanged> {
+    let run = |args: &[&str]| git::git(program, repo, args, cancel).ok_or(NotChanged::NoGit);
+    let head = run(&["rev-parse", "--verify", "--quiet", "HEAD^{commit}"])?;
+    if !head.status.success() {
+        return Err(NotChanged::NoGit);
+    }
+    let head = String::from_utf8_lossy(&head.stdout).trim_end().to_owned();
+    let why = one_line(why);
+    let why = if why.is_empty() { "未写原因" } else { &why };
+    let subject = format!("收尾: {id} 不做：{why}");
+    // Git's own `commit` takes what is staged with it; this commit is made of HEAD's tree, and
+    // main moved to it only if it is still where it was.
+    let write = |args: &[&str]| match git::git_write(program, repo, args, cancel) {
+        Some(out) if out.status.success() => Ok(out),
+        failed => Err(NotChanged::Commit(why_failed(failed))),
+    };
+    let commit = write(&[
+        "commit-tree",
+        &format!("{head}^{{tree}}"),
+        "-p",
+        &head,
+        "-m",
+        &subject,
+    ])?;
+    let commit = String::from_utf8_lossy(&commit.stdout)
+        .trim_end()
+        .to_owned();
+    let reflog = format!("commit: {subject}");
+    write(&["update-ref", "-m", &reflog, "HEAD", &commit, &head])?;
+    Ok(())
+}
+
+/// Drops a draft, so that it leaves a record: in the main worktree `repo`, on main, commits the
+/// task file `file` alone (`任务: <id> <title>`), leaving whatever else is staged staged, then
+/// adds the wrap-up commit [`drop_task`] does. Never pushes. Refused, with nothing committed, off
+/// main, while a merge, rebase, cherry-pick or revert is in progress, when main has the file by
+/// now, when its name has no id or its first line is not its title, or when Git fails. When only
+/// the wrap-up fails the file stays on main, a queued task that can be dropped again.
+pub fn drop_draft(
+    program: &str,
+    repo: &Path,
+    file: &str,
+    why: &str,
+    cancel: &AtomicBool,
+) -> Result<(), NotChanged> {
+    let run = |args: &[&str]| git::git(program, repo, args, cancel).ok_or(NotChanged::NoGit);
+    let path = format!("{TASKS}/{file}");
+    settled_on_main(program, repo, cancel)?;
+    let tree = run(&["ls-tree", "-z", "--name-only", "HEAD", "--", &path])?;
+    if !tree.status.success() {
+        return Err(NotChanged::NoGit);
+    }
+    if !tree.stdout.is_empty() {
+        return Err(NotChanged::Committed(path));
+    }
+    let text =
+        std::fs::read_to_string(repo.join(&path)).map_err(|e| NotChanged::Write(e.to_string()))?;
+    let (Some(id), Some(fields)) = (task_id(file), editable(&text)) else {
+        return Err(NotChanged::Unnamed(path));
+    };
+    // Git commits a path only once it knows it: a draft not staged is, and is taken back out of
+    // the index when the commit fails.
+    let staged = run(&["ls-files", "-z", "--cached", "--", &path])?;
+    if !staged.status.success() {
+        return Err(NotChanged::NoGit);
+    }
+    let write = |args: &[&str]| match git::git_write(program, repo, args, cancel) {
+        Some(out) if out.status.success() => Ok(()),
+        failed => Err(NotChanged::Commit(why_failed(failed))),
+    };
+    let added = staged.stdout.is_empty();
+    if added {
+        write(&["add", "--", &path])?;
+    }
+    let subject = format!("任务: {id} {}", one_line(&fields.title));
+    let commit = [
+        "commit",
+        "--quiet",
+        "--only",
+        "--cleanup=verbatim",
+        "-m",
+        &subject,
+        "--",
+        &path,
+    ];
+    if let Err(why) = write(&commit) {
+        if added {
+            let _ = write(&["reset", "--quiet", "--", &path]);
+        }
+        return Err(why);
+    }
+    wrap_up_dropped(program, repo, &id, why, cancel).map_err(|why| {
+        NotChanged::Half(match why {
+            NotChanged::Commit(why) => why,
+            other => other.to_string(),
+        })
+    })
+}
+
+/// Whether the main worktree `repo` can take a commit from the board: it has main out, and no
+/// merge, rebase, cherry-pick or revert is in progress there.
+fn settled_on_main(program: &str, repo: &Path, cancel: &AtomicBool) -> Result<(), NotChanged> {
+    let run = |args: &[&str]| git::git(program, repo, args, cancel).ok_or(NotChanged::NoGit);
+    let head = run(&["symbolic-ref", "--quiet", "--short", "HEAD"])?;
+    let branch = String::from_utf8_lossy(&head.stdout).trim_end().to_owned();
+    if !head.status.success() {
+        return Err(match head.status.code() {
+            Some(1) => NotChanged::NotMain(None),
+            _ => NotChanged::NoGit,
+        });
+    }
+    if branch != MAIN {
+        return Err(NotChanged::NotMain(Some(branch)));
+    }
+    let busy = [
+        ("MERGE_HEAD", "merge"),
+        ("rebase-merge", "rebase"),
+        ("rebase-apply", "rebase"),
+        ("CHERRY_PICK_HEAD", "cherry-pick"),
+        ("REVERT_HEAD", "revert"),
+    ];
+    let mut args = vec!["rev-parse", "--path-format=absolute"];
+    for (name, _) in busy {
+        args.extend(["--git-path", name]);
+    }
+    let paths = run(&args)?;
+    if !paths.status.success() {
+        return Err(NotChanged::NoGit);
+    }
+    let paths = String::from_utf8_lossy(&paths.stdout).into_owned();
+    if let Some((_, what)) = paths
+        .lines()
+        .zip(busy)
+        .map(|(at, (_, what))| (at, what))
+        .find(|(at, _)| Path::new(at).exists())
+    {
+        return Err(NotChanged::Busy(what));
+    }
+    Ok(())
+}
+
+/// Why a Git command that writes did not: the first line it said, or that it could not be run.
+fn why_failed(failed: Option<crate::command::Output>) -> String {
+    failed.map_or_else(
+        || "Git couldn't be run".to_owned(),
+        |out| {
+            let err = String::from_utf8_lossy(&out.stderr);
+            err.lines()
+                .map(str::trim)
+                .find(|l| !l.is_empty())
+                .unwrap_or("Git failed")
+                .to_owned()
+        },
+    )
 }
 
 /// `text` with its priority line saying `priority`: the first `优先：` line at the head written
@@ -1490,41 +1733,7 @@ fn commit_task_file(
 ) -> Result<(), NotChanged> {
     let run = |args: &[&str]| git::git(program, repo, args, cancel).ok_or(NotChanged::NoGit);
     let path = format!("{TASKS}/{file}");
-    let head = run(&["symbolic-ref", "--quiet", "--short", "HEAD"])?;
-    let branch = String::from_utf8_lossy(&head.stdout).trim_end().to_owned();
-    if !head.status.success() {
-        return Err(match head.status.code() {
-            Some(1) => NotChanged::NotMain(None),
-            _ => NotChanged::NoGit,
-        });
-    }
-    if branch != MAIN {
-        return Err(NotChanged::NotMain(Some(branch)));
-    }
-    let busy = [
-        ("MERGE_HEAD", "merge"),
-        ("rebase-merge", "rebase"),
-        ("rebase-apply", "rebase"),
-        ("CHERRY_PICK_HEAD", "cherry-pick"),
-        ("REVERT_HEAD", "revert"),
-    ];
-    let mut args = vec!["rev-parse", "--path-format=absolute"];
-    for (name, _) in busy {
-        args.extend(["--git-path", name]);
-    }
-    let paths = run(&args)?;
-    if !paths.status.success() {
-        return Err(NotChanged::NoGit);
-    }
-    let paths = String::from_utf8_lossy(&paths.stdout).into_owned();
-    if let Some((_, what)) = paths
-        .lines()
-        .zip(busy)
-        .map(|(at, (_, what))| (at, what))
-        .find(|(at, _)| Path::new(at).exists())
-    {
-        return Err(NotChanged::Busy(what));
-    }
+    settled_on_main(program, repo, cancel)?;
     let tree = run(&["ls-tree", "-z", "--name-only", "HEAD", "--", &path])?;
     if !tree.status.success() {
         return Err(NotChanged::NoGit);
@@ -1563,18 +1772,7 @@ fn commit_task_file(
         failed => {
             // Put back what was there; the commit did not happen.
             let _ = std::fs::write(&on_disk, &before);
-            let why = failed.map_or_else(
-                || "Git couldn't be run".to_owned(),
-                |out| {
-                    let err = String::from_utf8_lossy(&out.stderr);
-                    err.lines()
-                        .map(str::trim)
-                        .find(|l| !l.is_empty())
-                        .unwrap_or("Git failed")
-                        .to_owned()
-                },
-            );
-            Err(NotChanged::Commit(why))
+            Err(NotChanged::Commit(why_failed(failed)))
         }
     }
 }
@@ -1733,6 +1931,11 @@ impl Card {
         self.asks.is_some() && !self.draft
     }
 
+    /// The user can delete it: a draft, its task file not on main.
+    pub fn deletable(&self) -> bool {
+        self.draft
+    }
+
     /// The priority its left edge is striped for: high or low, on a queued card (a draft's too).
     pub fn stripe(&self) -> Option<Priority> {
         self.priority.filter(|p| *p != Priority::Medium)
@@ -1795,6 +1998,17 @@ impl Board {
         } else {
             format!("{listed} of {total}")
         }
+    }
+
+    /// The user can drop `card`: it is still queued, with no worktree and no agent, and no other
+    /// task file, a draft's either, has its id: the wrap-up commit names the id alone, and would
+    /// take them all. A draft is committed first, so its first line must be its title too.
+    pub fn droppable(&self, card: &Card) -> bool {
+        let same = |other: &&Card| other.id == card.id;
+        card.column == Column::Queued
+            && !card.id.is_empty()
+            && !(card.draft && card.problems.contains(&Problem::Title))
+            && self.columns.iter().flatten().filter(same).count() == 1
     }
 
     /// How many cards need the user.

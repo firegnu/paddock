@@ -76,12 +76,14 @@ objc2-app-kit = { version = "=0.3.2", default-features = false, features = [
     "NSWorkspace",
 ] }
 # The right sidebar's Browser (`browser.rs`, DESIGN P5-28): the system's WKWebView over GPUI's
-# view, and the Foundation types it takes, at the versions the AppKit bindings above lock.
+# view, and the Foundation types it takes, at the versions the AppKit bindings above lock; and
+# the file manager, for moving a Kanban draft to the Trash (`kanban_view.rs`, DESIGN P5-86).
 objc2-foundation = { version = "=0.3.2", default-features = false, features = [
     "std",
     "NSArray",
     "NSData",
     "NSError",
+    "NSFileManager",
     "NSGeometry",
     "NSString",
     "NSURL",
