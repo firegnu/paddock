@@ -13,6 +13,7 @@ use crate::{
     kanban::{self, Column},
     theme::Theme,
     view::hsla,
+    window::{Grounds, NAME_LIFT, RING_ACTIVE, TAB_RING, capsule_grounds},
 };
 use gpui::{
     AnyElement, App, ClickEvent, Div, FontWeight, Hsla, Pixels, Render, Window, div, prelude::*, px,
@@ -30,6 +31,15 @@ pub const MAX_SHARE: f32 = 0.7;
 /// What it always leaves the terminal, when the window has room for both: about 44 columns at
 /// the default font.
 pub const TERMINAL_MIN: f32 = 360.0;
+/// A tab's capsule, the title bar's neutral one a little lower (P5-82): its height; the room at
+/// its ends, inside its ring; its icon and the room after it; its label's size; and the room between
+/// capsules.
+const TAB_HEIGHT: f32 = 26.0;
+const TAB_PAD: f32 = 9.0;
+const TAB_ICON: f32 = 12.0;
+const TAB_GAP: f32 = 7.0;
+const TAB_TEXT: f32 = 12.5;
+const TAB_SPACING: f32 = 5.0;
 
 type Pick = fn(&crate::preset::Theme) -> crate::preset::Color;
 
@@ -219,14 +229,28 @@ impl RightPanel {
         let fg = |pick: Pick| hsla(theme.fg(pick), 1.0);
         let highlight = hsla(theme.bg(|t| t.agent_selected), 1.0);
         let pick = Rc::new(pick);
+        // The title bar's neutral capsule, over the card's ground: the selected one brighter, in
+        // an accent ring, which the others have clear so every label sits alike.
         let bright = fg(|t| t.agents_text);
-        let mut tabs = div().flex().items_center().gap(ui.px(2.0)).min_w(px(0.0));
+        let Grounds { rest, lit, chosen } =
+            capsule_grounds(hsla(theme.terminal().background, 1.0), bright, None);
+        let quiet = fg(|t| t.muted).blend(bright.opacity(NAME_LIFT));
+        let mut tabs = div()
+            .flex()
+            .items_center()
+            .gap(ui.px(TAB_SPACING))
+            .min_w(px(0.0));
         for tab in Tab::ALL {
             let on = tab == self.tab;
+            let mark = if on {
+                fg(|t| t.agents_accent)
+            } else {
+                fg(|t| t.agents_dim)
+            };
             let glyph = match tab {
                 Tab::Changes => div()
                     .flex_shrink_0()
-                    .w(ui.px(12.0))
+                    .w(ui.px(TAB_ICON))
                     .flex()
                     .justify_center()
                     .child("±")
@@ -237,52 +261,39 @@ impl RightPanel {
                         Tab::Kanban => Icon::Kanban,
                         _ => Icon::Cairn,
                     },
-                    if on {
-                        fg(|t| t.agents_accent)
-                    } else {
-                        fg(|t| t.agents_dimmer)
-                    },
-                    ui.scale(12.0 / footer_icon::SIZE),
+                    mark,
+                    ui.scale(TAB_ICON / footer_icon::SIZE),
                 )
                 .into_any_element(),
             };
             let pick = pick.clone();
-            let text = if on {
-                fg(|t| t.agents_text)
-            } else {
-                fg(|t| t.muted)
-            };
             tabs = tabs.child(
                 div()
                     .id(tab.label())
                     .flex_shrink_0()
                     .flex()
                     .items_center()
-                    .gap(ui.px(7.0))
-                    .h(ui.px(28.0))
-                    .px(ui.px(11.0))
-                    .rounded(px(7.0))
+                    .gap(ui.px(TAB_GAP))
+                    .h(ui.px(TAB_HEIGHT))
+                    .px(ui.px(TAB_PAD))
+                    .rounded_full()
+                    .border(px(TAB_RING))
                     .whitespace_nowrap()
-                    .text_size(ui.px(12.5))
+                    .text_size(ui.px(TAB_TEXT))
                     .cursor_pointer()
-                    .text_color(text)
                     .when(on, |item| {
-                        item.bg(highlight).font_weight(FontWeight::SEMIBOLD)
+                        item.bg(chosen)
+                            .border_color(fg(|t| t.agents_accent).opacity(RING_ACTIVE))
+                            .text_color(bright)
+                            .font_weight(FontWeight::SEMIBOLD)
                     })
                     .when(!on, |item| {
-                        item.hover(move |style| style.text_color(bright))
+                        item.bg(rest)
+                            .border_color(gpui::transparent_black())
+                            .text_color(quiet)
+                            .hover(move |style| style.bg(lit).text_color(bright))
                     })
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .text_color(if on {
-                                fg(|t| t.agents_accent)
-                            } else {
-                                fg(|t| t.agents_dimmer)
-                            })
-                            .child(glyph),
-                    )
+                    .child(div().flex().items_center().text_color(mark).child(glyph))
                     .child(tab.label())
                     .on_click(move |_, window, cx| pick(&tab, window, cx)),
             );
@@ -319,6 +330,8 @@ impl RightPanel {
             .h(ui.px(40.0))
             .pl(ui.px(10.0))
             .pr(ui.px(8.0))
+            .border_b_1()
+            .border_color(fg(|t| t.agents_rule))
             .child(tabs)
             .child(div().flex_1().min_w(px(0.0)))
             .child(button("right-wider", icon, tip(words)).on_click(widen))
@@ -449,8 +462,8 @@ mod tests {
 
     #[test]
     fn its_least_width_keeps_the_four_tabs_and_the_buttons_on_one_line() {
-        // Each label at 12.5 points in the system font, as Core Text measures it (P5-55), and
-        // what the selected one gains at most by being heavier.
+        // Each label at `TAB_TEXT`, 12.5 points, in the system font, as Core Text measures it
+        // (P5-55), and what the selected one gains at most by being heavier.
         let labels = [
             ("Changes", 51.54),
             ("Browser", 47.62),
@@ -462,12 +475,13 @@ mod tests {
             Tab::ALL.map(Tab::label).as_slice(),
             labels.map(|(label, _)| label).as_slice()
         );
-        // A tab: its padding, its icon, the room after it, its label. Two points between tabs.
+        // A capsule: its ring and the room inside it at both ends, its icon, the room after it,
+        // its label.
         let tabs = labels
             .iter()
-            .map(|(_, label)| 11.0 + 12.0 + 7.0 + label + 11.0)
+            .map(|(_, label)| 2.0 * (TAB_RING + TAB_PAD) + TAB_ICON + TAB_GAP + label)
             .sum::<f32>()
-            + 2.0 * (labels.len() - 1) as f32
+            + TAB_SPACING * (labels.len() - 1) as f32
             + heavier;
         // The row: its left padding, the tabs, the room that stretches, the two buttons, its
         // right padding, two points between each.

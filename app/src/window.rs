@@ -498,13 +498,13 @@ const TAB_GAP: f32 = 7.0;
 const TAB_END: f32 = 12.0;
 const ACTIVE_TAB_END: f32 = 6.0;
 const TAB_CLOSE: f32 = 16.0;
-const TAB_RING: f32 = 1.0;
+pub(crate) const TAB_RING: f32 = 1.0;
 const TAB_SPACING: f32 = 6.0;
 const TAB_WIDEST: f32 = 220.0;
 const TAB_LEAST: f32 = 78.0;
 /// How strongly the active tab's ring shows, the accent round a neutral one and its status colour
 /// round a tinted one, and the amber ring of another with an agent waiting for a person.
-const RING_ACTIVE: f32 = 0.5;
+pub(crate) const RING_ACTIVE: f32 = 0.5;
 const RING_TINTED: f32 = 0.6;
 const RING_WAITING: f32 = 0.4;
 /// A capsule's grounds over the title bar, at rest, lit and active: how far a neutral one steps
@@ -514,7 +514,7 @@ const RING_WAITING: f32 = 0.4;
 const CAPSULE_NEUTRAL: [f32; 3] = [0.10, 0.15, 0.17];
 const CAPSULE_TINTED: [f32; 3] = [0.18, 0.25, 0.30];
 const CAPSULE_TEXT_TINT: f32 = 0.35;
-const NAME_LIFT: f32 = 0.5;
+pub(crate) const NAME_LIFT: f32 = 0.5;
 /// A paused agent's tab: how strongly it shows, and its pause mark's scale.
 const PAUSED_TAB: f32 = 0.55;
 const PAUSE_MARK: f32 = 0.7;
@@ -987,15 +987,15 @@ pub fn tab_marks(
 /// A title bar capsule's grounds, solid, so the × drawn over an inactive one's title can hide the
 /// text: at rest, under the mouse (or lit), and the active tab's.
 #[derive(Clone, Copy)]
-struct Grounds {
-    rest: Hsla,
-    lit: Hsla,
-    chosen: Hsla,
+pub(crate) struct Grounds {
+    pub(crate) rest: Hsla,
+    pub(crate) lit: Hsla,
+    pub(crate) chosen: Hsla,
 }
 
 /// [`Grounds`] over the title `bar`: steps towards its `text` for a neutral capsule, washes of its
 /// `tint` for one with a status colour.
-fn capsule_grounds(bar: Hsla, text: Hsla, tint: Option<Hsla>) -> Grounds {
+pub(crate) fn capsule_grounds(bar: Hsla, text: Hsla, tint: Option<Hsla>) -> Grounds {
     let (color, [rest, lit, chosen]) = match tint {
         Some(tint) => (tint, CAPSULE_TINTED),
         None => (text, CAPSULE_NEUTRAL),
@@ -6507,6 +6507,31 @@ mod tests {
                     let ratio = contrast(text, ground);
                     assert!(ratio >= 4.5, "{name} {tone:?}: text {ratio}");
                 }
+            }
+            // The right sidebar's tabs are the neutral capsule over its card, the terminal's
+            // ground (P5-82): plainly capsules there too, their labels and icons reading.
+            let card = hsla(theme.terminal().background, 1.0);
+            let grounds = capsule_grounds(card, text, None);
+            let rest = contrast(grounds.rest, card);
+            assert!(rest >= 1.2, "{name} right tabs: rest {rest}");
+            for (what, color, ground, least) in [
+                (
+                    "label",
+                    muted.blend(text.opacity(NAME_LIFT)),
+                    grounds.rest,
+                    4.5,
+                ),
+                ("selected label", text, grounds.chosen, 4.5),
+                ("icon", fg(|t| t.agents_dim), grounds.rest, 3.0),
+                (
+                    "selected icon",
+                    fg(|t| t.agents_accent),
+                    grounds.chosen,
+                    3.0,
+                ),
+            ] {
+                let ratio = contrast(color, ground);
+                assert!(ratio >= least, "{name} right tabs: {what} {ratio}");
             }
         }
     }
