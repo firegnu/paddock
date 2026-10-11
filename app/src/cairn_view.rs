@@ -1187,6 +1187,22 @@ impl CairnView {
                         .child(code.clone()),
                     Before::Words,
                 ),
+                markdown::Block::Table { head, rows } => {
+                    let colors = crate::markdown_view::Colors {
+                        bright: c.title,
+                        text: c.text,
+                        marker: c.dim,
+                        link: c.accent,
+                        code: c.text.opacity(CODE),
+                        rule: c.text.opacity(CODE),
+                    };
+                    let mono = &self.mono.family;
+                    (
+                        crate::markdown_view::table(head, rows, mono, colors, ui)
+                            .mt(ui.px(apart(8.0, 8.0))),
+                        Before::Words,
+                    )
+                }
             };
             out = out.child(element.flex_shrink_0());
             before = now;

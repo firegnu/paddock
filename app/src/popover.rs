@@ -2,7 +2,7 @@
 //! with a faint edge and a soft shadow, rows of an icon, a label and a quiet shortcut that light
 //! up under the mouse, faint rules between groups, and an inline choice of two or three; and where
 //! a panel hangs from the button that opened it. The sidebar's menu, the new tab and split panels
-//! and the Attention list use it.
+//! and the Inbox use it.
 use crate::{
     fonts::UiFont,
     footer_icon::{self, Icon},

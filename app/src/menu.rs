@@ -51,13 +51,14 @@ actions!(
         StopAgent,
         /// Start in the New Agent panel.
         CreateAgent,
-        /// Open or close the Attention list.
+        /// Open or close the Inbox, the bell's panel (the Attention list before P5-87).
         ShowAttention,
         /// Open or close the command palette: agents, tabs, Settings pages and commands by typing.
         Search,
         /// Open or close the command palette at the commands (`>`).
         CommandPalette,
-        /// Move in the Attention list or the command palette, and open the selected entry.
+        /// Move in the Inbox or the command palette, and open the selected entry (in the Inbox: send
+        /// the reply).
         SelectNext,
         SelectPrevious,
         OpenSelected,
@@ -76,6 +77,10 @@ pub const DIALOG: &str = "PaddockDialog";
 
 /// The key context of the command palette: Tab moves in its list rather than out of it.
 pub const PALETTE: &str = "PaddockPalette";
+
+/// The key context of the window while the Inbox is open, beside [`DIALOG`]: ⌃Tab and ⌃⇧Tab move
+/// in its list, whatever is typed in its reply box.
+pub const INBOX: &str = "PaddockInbox";
 
 /// The key context of the right sidebar's Browser, while its page or address field has the
 /// keyboard: ⌘L and ⌘R are its own there, and the pane's elsewhere.
@@ -127,6 +132,8 @@ pub fn bindings() -> Vec<KeyBinding> {
         KeyBinding::new("enter", OpenSelected, Some(DIALOG)),
         KeyBinding::new("tab", SelectNext, Some(PALETTE)),
         KeyBinding::new("shift-tab", SelectPrevious, Some(PALETTE)),
+        KeyBinding::new("ctrl-tab", SelectNext, Some(INBOX)),
+        KeyBinding::new("ctrl-shift-tab", SelectPrevious, Some(INBOX)),
         KeyBinding::new(
             "cmd-enter",
             CreateAgent,
@@ -231,7 +238,7 @@ pub fn menus(fold: bool, by_name: bool, collapsed: bool, right_open: bool) -> Ve
             MenuItem::separator(),
             MenuItem::action("Search…", Search),
             MenuItem::action("Command Palette…", CommandPalette),
-            MenuItem::action("Attention…", ShowAttention),
+            MenuItem::action("Inbox…", ShowAttention),
         ]),
         Menu::new("Window").items([
             MenuItem::action("Minimize", Minimize),
@@ -263,7 +270,7 @@ pub struct Command {
 }
 
 /// Every command in the menu bar, the app menu's last, but the two that open the palette. Out of
-/// their menu, `Find…`, `Attention…` and `Zoom` say what they act on, and the sidebar items say
+/// their menu, `Find…`, `Inbox…` and `Zoom` say what they act on, and the sidebar items say
 /// they go either way.
 pub fn commands() -> Vec<Command> {
     let mut menus = menus(false, false, false, false);
@@ -279,7 +286,7 @@ pub fn commands() -> Vec<Command> {
         .map(|(name, action)| {
             let title = match name.as_ref() {
                 "Find…" => "Find in Terminal",
-                "Attention…" => "Show Attention",
+                "Inbox…" => "Show Inbox",
                 "Zoom" => "Zoom Window",
                 "Collapse Sidebar" => "Toggle Sidebar",
                 "Show Right Sidebar" => "Toggle Right Sidebar",
@@ -535,7 +542,7 @@ mod tests {
             "Close Tab",
             "Zoom Pane",
             "Stop Agent…",
-            "Show Attention",
+            "Show Inbox",
             "Find in Terminal",
             "Settings…",
             "Fold Agents",
@@ -561,7 +568,7 @@ mod tests {
         assert_eq!(keys_of("Split Right…"), ["⌘", "D"]);
         assert_eq!(keys_of("Split Down…"), ["⌘", "⇧", "D"]);
         assert_eq!(keys_of("Zoom Pane"), ["⌘", "⇧", "↵"]);
-        assert_eq!(keys_of("Show Attention"), ["⌘", "⇧", "A"]);
+        assert_eq!(keys_of("Show Inbox"), ["⌘", "⇧", "A"]);
         assert_eq!(keys_of("Find in Terminal"), ["⌘", "F"]);
         assert_eq!(keys_of("Settings…"), ["⌘", ","]);
         assert_eq!(keys_of("Toggle Sidebar"), ["⌘", "B"]);
