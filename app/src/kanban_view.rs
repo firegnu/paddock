@@ -1,5 +1,7 @@
 //! The right sidebar's Kanban tab: the focused pane's repository's task files as cards, in five
-//! groups one above another, each folding; widened, five columns side by side. Git is read in the
+//! groups one above another, each folding; widened, five columns side by side. The repository's
+//! name at the top opens a menu that turns the board to another repository and keeps it there,
+//! the focus staying where it is (`kanban_repos`, P5-85). Git is read in the
 //! background every few seconds while the tab shows (`kanban::read`), the agents come from the
 //! left sidebar each frame, and the board is drawn again only when it changed. A hovered card
 //! offers its task file, its agent and the agent's changes, nothing that changes the work; the
@@ -14,6 +16,7 @@ use crate::{
     fonts::UiFont,
     footer_icon::{self, Icon},
     kanban::{self, Board, Cache, Card, Column, Doer, Priority, Read, Seen, Tone},
+    kanban_repos::{self, Looking, Row},
     kind_icon, markdown, menu, popover,
     right_panel::Tip,
     text_input::{self, Changed, TextInput},
@@ -23,14 +26,14 @@ use crate::{
 use gpui::{
     Animation, AnimationExt, AnyElement, App, BoxShadow, ClickEvent, Context, Div, Entity,
     EventEmitter, FocusHandle, Focusable, Font, FontStyle, FontWeight, HighlightStyle, Hsla,
-    IntoElement, KeyDownEvent, MouseButton, MouseDownEvent, Pixels, Point, Render, ScrollStrategy,
-    SharedString, Stateful, StyledText, Subscription, TextRun, Transformation, UnderlineStyle,
-    UniformListScrollHandle, Window, WindowTextSystem, anchored, deferred, div, percentage, point,
-    prelude::*, px, relative, svg, uniform_list,
+    IntoElement, KeyDownEvent, MouseButton, MouseDownEvent, PathPromptOptions, Pixels, Point,
+    Render, ScrollStrategy, SharedString, Stateful, StyledText, Subscription, TextRun,
+    Transformation, UnderlineStyle, UniformListScrollHandle, Window, WindowTextSystem, anchored,
+    deferred, div, percentage, point, prelude::*, px, relative, svg, uniform_list,
 };
 use std::{
     collections::{HashMap, HashSet},
-    path::PathBuf,
+    path::{Path, PathBuf},
     rc::Rc,
     sync::{
         Arc, Mutex,
@@ -113,12 +116,20 @@ const BRACKETS: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 
 const LINK: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><path d="M4 6l2-2M3.2 4.6l-1 1a1.6 1.6 0 002.2 2.2l1-1M6.8 5.4l1-1a1.6 1.6 0 00-2.2-2.2l-1 1" fill="none" stroke="#000" stroke-width="1.3" stroke-linecap="round"/></svg>"##;
 const CHEVRON_DOWN: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><path d="M2.5 3.8L5 6.3l2.5-2.5" fill="none" stroke="#000" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>"##;
 const CHEVRON_UP: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><path d="M2.5 6.2L5 3.7l2.5 2.5" fill="none" stroke="#000" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>"##;
+/// A pin, on a repository the board stays on or keeps in its menu; an arrow turning back, on the
+/// button that follows the focused pane again (P5-85).
+const PIN: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M6 2.5h4l-.6 4 2.1 2.2H4.5l2.1-2.2zM8 8.7v4.8" fill="none" stroke="#000" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>"##;
+const TURN_BACK: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M6.5 4L3 7.5 6.5 11M3.5 7.5H10a3 3 0 010 6H8.5" fill="none" stroke="#000" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>"##;
+/// The menu under the repository's name: how wide.
+const MENU_WIDTH: f32 = 276.0;
 
 /// What the window tells the tab every time it draws.
 pub struct Frame {
     /// The focused pane's directory: `None` with no pane in focus, `Some(None)` for a pane with
     /// no directory to read.
     pub cwd: Option<Option<String>>,
+    /// The open shells' directories, sorted and without repeats.
+    pub shells: Vec<String>,
     /// The right sidebar is open on this tab: read, and keep reading.
     pub active: bool,
     /// The sidebar's width, in points.
@@ -168,6 +179,14 @@ enum Clearing {
     Refused(String),
 }
 
+/// The open menu under the repository's name.
+struct RepoMenu {
+    /// What had the keys before it took them, to give them back to.
+    back: Option<FocusHandle>,
+    /// Why the folder just chosen was not taken.
+    note: Option<SharedString>,
+}
+
 /// The theme's colours the tab uses.
 #[derive(Clone, Copy)]
 struct Colors {
@@ -182,6 +201,7 @@ struct Colors {
     red: Hsla,
     yellow: Hsla,
     blue: Hsla,
+    accent: Hsla,
 }
 
 impl Colors {
@@ -200,6 +220,7 @@ impl Colors {
             red: fg(|t| t.agents_red),
             yellow: fg(|t| t.agents_yellow),
             blue: fg(|t| t.agents_blue),
+            accent: fg(|t| t.agents_accent),
         }
     }
 
@@ -219,7 +240,25 @@ pub struct KanbanView {
     theme: Rc<Theme>,
     colors: Colors,
     mono: Font,
+    /// The focused pane's directory, as the window gives it.
+    focus: Option<Option<String>>,
+    /// The directory the board reads: the focused pane's, or the repository it stays on.
     cwd: Option<Option<String>>,
+    /// Which repository that is, and the ones kept in the menu.
+    looking: Looking,
+    /// The open shells' directories.
+    shells: Vec<String>,
+    /// The main worktree of the repository each directory asked about is in, `None` for one in
+    /// none: the focused pane's, the agents' and the shells', read in the background.
+    mains: HashMap<String, Option<PathBuf>>,
+    /// Some are being read.
+    resolving: bool,
+    menu: Option<RepoMenu>,
+    /// Has the keys while the menu is open, so that Esc closes it.
+    menu_focus: FocusHandle,
+    /// Where the press that closed the menu was: on its own button it does not open it again.
+    dismissed: Option<Point<Pixels>>,
+    _blur: Subscription,
     active: bool,
     width: f32,
     agents: Vec<Seen>,
@@ -246,7 +285,13 @@ pub struct KanbanView {
 }
 
 impl KanbanView {
-    pub fn new(theme: Rc<Theme>, mono: Font, folded: Vec<Column>, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        theme: Rc<Theme>,
+        mono: Font,
+        folded: Vec<Column>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         cx.spawn(async move |this, cx| {
             loop {
                 cx.background_executor().timer(TICK).await;
@@ -256,11 +301,25 @@ impl KanbanView {
             }
         })
         .detach();
+        let menu_focus = cx.focus_handle();
+        // The keys went elsewhere, the window to the back or the tab out of sight: the menu goes.
+        let blur = cx.on_blur(&menu_focus, window, |view, window, cx| {
+            view.close_menu(window, cx)
+        });
         KanbanView {
             colors: Colors::of(&theme),
             theme,
             mono,
+            focus: None,
             cwd: None,
+            looking: Looking::load(kanban_repos::kept_path()),
+            shells: Vec::new(),
+            mains: HashMap::new(),
+            resolving: false,
+            menu: None,
+            menu_focus,
+            dismissed: None,
+            _blur: blur,
             active: false,
             width: 0.0,
             agents: Vec::new(),
@@ -281,10 +340,13 @@ impl KanbanView {
     /// The window's latest: redraws only when something here changed.
     pub fn frame(&mut self, frame: Frame, cx: &mut Context<Self>) {
         let mut changed = false;
-        if frame.cwd != self.cwd {
-            self.cancel();
-            self.last = None;
-            self.cwd = frame.cwd;
+        if frame.cwd != self.focus {
+            self.focus = frame.cwd;
+            self.look();
+            changed = true;
+        }
+        if frame.shells != self.shells {
+            self.shells = frame.shells;
             changed = true;
         }
         if frame.active != self.active {
@@ -315,7 +377,8 @@ impl KanbanView {
         }
         if frame.agents != self.agents {
             self.agents = frame.agents;
-            changed |= self.rebuild();
+            // The open menu lists their repositories.
+            changed |= self.rebuild() || self.menu.is_some();
         }
         if changed {
             cx.notify();
@@ -326,6 +389,177 @@ impl KanbanView {
         if let Some(pending) = self.pending.take() {
             pending.cancel.store(true, Ordering::Relaxed);
         }
+    }
+
+    /// Turns to the directory the board now reads, the focused pane's or the repository it stays
+    /// on, and reads it at once: whether it is another.
+    fn look(&mut self) -> bool {
+        let cwd = self.looking.dir(&self.focus);
+        if cwd == self.cwd {
+            return false;
+        }
+        self.cancel();
+        self.last = None;
+        self.cwd = cwd;
+        true
+    }
+
+    /// The menu turned the board: nothing of the repository before stays up under the new name,
+    /// where a card's buttons would still act on the old one.
+    fn turn(&mut self, cx: &mut Context<Self>) {
+        if self.look() {
+            self.read = None;
+            self.board = None;
+        }
+        cx.notify();
+    }
+
+    /// The focused pane's repository, once read.
+    fn focus_repo(&self) -> Option<&PathBuf> {
+        let cwd = self.focus.as_ref()?.as_ref()?;
+        self.mains.get(cwd)?.as_ref()
+    }
+
+    /// The repositories of the agents and the open shells, as far as they are read: one for each,
+    /// so with repeats.
+    fn open_repos(&self) -> Vec<PathBuf> {
+        self.agents
+            .iter()
+            .filter_map(|agent| agent.cwd.as_ref())
+            .chain(&self.shells)
+            .filter_map(|cwd| self.mains.get(cwd)?.clone())
+            .collect()
+    }
+
+    /// Reads, in the background, which repository each directory not asked about yet is in: the
+    /// focused pane's, the agents' and the open shells' (as the left sidebar's groups are read,
+    /// P5-80).
+    fn resolve(&mut self, cx: &mut Context<Self>) {
+        if self.resolving {
+            return;
+        }
+        let mut dirs: Vec<String> = self
+            .focus
+            .iter()
+            .flatten()
+            .chain(self.agents.iter().filter_map(|agent| agent.cwd.as_ref()))
+            .chain(&self.shells)
+            .filter(|cwd| !self.mains.contains_key(*cwd))
+            .cloned()
+            .collect();
+        if dirs.is_empty() {
+            return;
+        }
+        dirs.sort();
+        dirs.dedup();
+        self.resolving = true;
+        let task = cx.background_spawn(async move {
+            let cancel = AtomicBool::new(false);
+            dirs.into_iter()
+                .map(|cwd| {
+                    let main = activity::main_repository("git", &cwd, &cancel);
+                    (cwd, main)
+                })
+                .collect::<Vec<_>>()
+        });
+        cx.spawn(async move |this, cx| {
+            let found = task.await;
+            let _ = this.update(cx, |view, cx| {
+                view.resolving = false;
+                view.mains.extend(found);
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// Opens the menu under the repository's name, saying `note` in it. It takes the keys, for
+    /// Esc, and gives them back as it closes.
+    fn open_menu(
+        &mut self,
+        note: Option<SharedString>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        // Another window may have changed the list, and a directory may have become a repository.
+        self.looking.refresh();
+        self.mains.retain(|_, main| main.is_some());
+        self.menu = Some(RepoMenu {
+            back: window.focused(cx),
+            note,
+        });
+        window.focus(&self.menu_focus, cx);
+        cx.notify();
+    }
+
+    fn close_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(menu) = self.menu.take() else {
+            return;
+        };
+        if self.menu_focus.is_focused(window) {
+            match &menu.back {
+                Some(back) => window.focus(back, cx),
+                None => window.blur(cx),
+            }
+        }
+        cx.notify();
+    }
+
+    /// A repository picked in the menu: the board stays on it, and it is kept.
+    fn choose(&mut self, repo: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
+        self.looking.choose(repo);
+        self.close_menu(window, cx);
+        self.turn(cx);
+    }
+
+    /// `Follow focused pane`, and the button back: the board follows the focused pane again.
+    fn follow(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.looking.follow();
+        self.close_menu(window, cx);
+        self.turn(cx);
+    }
+
+    /// × on a kept repository: off the list, the menu staying open; the board follows the focused
+    /// pane again when it stayed on that one.
+    fn remove(&mut self, repo: &Path, cx: &mut Context<Self>) {
+        self.looking.remove(repo);
+        self.turn(cx);
+    }
+
+    /// `Choose folder…`: the system's folder chooser. The repository the folder is in is kept and
+    /// shown; a folder in none is not, and the menu comes back saying so.
+    fn choose_folder(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.close_menu(window, cx);
+        let paths = cx.prompt_for_paths(PathPromptOptions {
+            files: false,
+            directories: true,
+            multiple: false,
+            prompt: Some("Choose".into()),
+        });
+        cx.spawn_in(window, async move |this, cx| {
+            let Ok(Ok(Some(paths))) = paths.await else {
+                return;
+            };
+            let Some(folder) = paths.into_iter().next() else {
+                return;
+            };
+            let dir = folder.to_string_lossy().into_owned();
+            let repo = cx
+                .background_executor()
+                .spawn(
+                    async move { activity::main_repository("git", &dir, &AtomicBool::new(false)) },
+                )
+                .await;
+            let _ = this.update_in(cx, |view, window, cx| match repo {
+                Some(repo) => view.choose(repo, window, cx),
+                None => {
+                    let name = kanban_repos::name(&folder);
+                    let note = format!("{name} isn't in a Git repository");
+                    view.open_menu(Some(note.into()), window, cx);
+                }
+            });
+        })
+        .detach();
     }
 
     /// Takes a finished read, starts one when due, and brings the ages up to date.
@@ -354,6 +588,7 @@ impl KanbanView {
         if !self.active {
             return;
         }
+        self.resolve(cx);
         if self.rebuild() {
             cx.notify();
         }
@@ -720,37 +955,50 @@ impl Render for KanbanView {
             .text_color(c.text)
             .text_size(ui.px(13.0));
         let empty = |title: &str, sub: &str| root_empty(title, sub, &c, &ui);
+        // With nothing to show, the repository's button is there all the same: its menu turns
+        // the board to a kept repository with no pane in focus too.
         let Some(cwd) = &self.cwd else {
-            return root.child(empty(
+            return root.child(self.top(None, &ui, cx)).child(empty(
                 "No pane in focus",
                 "Kanban follows the focused pane's repository",
             ));
         };
         let message = match (cwd, &self.read) {
-            (None, _) | (_, Some(Read::NotRepository)) => Some((
-                "Not in a repository",
-                "Kanban shows the task files of the focused pane's repository",
-            )),
+            (None, _) | (_, Some(Read::NotRepository)) => {
+                Some(if self.looking.chosen().is_some() {
+                    (
+                        "Not a repository",
+                        "This folder is no longer a Git repository",
+                    )
+                } else {
+                    (
+                        "Not in a repository",
+                        "Kanban shows the task files of the focused pane's repository",
+                    )
+                })
+            }
             (_, Some(Read::NoMain { .. })) => {
                 Some(("No main branch", "Task files are read from main"))
             }
             (_, Some(Read::NoTasks { .. })) => {
                 let sub = "Task files go in docs/任务 on main. New task writes a draft to \
                            docs/任务 in the main worktree, making the folder if it's missing.";
-                return root.child(empty("No task files", sub).child(self.first_task(&ui, cx)));
+                return root
+                    .child(self.top(None, &ui, cx))
+                    .child(empty("No task files", sub).child(self.first_task(&ui, cx)));
             }
             (_, Some(Read::Failed)) => Some(("Git couldn't be read", "Trying again shortly")),
             _ => None,
         };
         if let Some((title, sub)) = message {
-            return root.child(empty(title, sub));
+            return root.child(self.top(None, &ui, cx)).child(empty(title, sub));
         }
         let Some(board) = self.board.clone() else {
             // Still reading for the first time.
-            return root;
+            return root.child(self.top(None, &ui, cx));
         };
         let wide = self.width >= self.wide_at;
-        root.child(self.top(&board, &ui, cx))
+        root.child(self.top(Some(&board), &ui, cx))
             .child(div().flex_shrink_0().h(px(1.0)).bg(c.text.opacity(RULE)))
             .child(if wide {
                 self.columns(&board, &fit, &ui, cx).into_any_element()
@@ -773,8 +1021,341 @@ impl KanbanView {
             || confirming(&self.priorities, self.active, &files)
     }
 
-    /// The repository, main, how many need the user, are in progress and to review, and New task.
-    fn top(&self, board: &Board, ui: &UiFont, cx: &mut Context<Self>) -> Div {
+    /// The repository's button and, over a board, main, how many need the user, are in progress
+    /// and to review, and New task. While the board stays on a picked repository, the button back
+    /// to the focused pane takes the numbers' place.
+    fn top(&self, board: Option<&Board>, ui: &UiFont, cx: &mut Context<Self>) -> Div {
+        let c = self.colors;
+        let mut top = div()
+            .flex_shrink_0()
+            .flex()
+            .items_center()
+            .gap(ui.px(8.0))
+            .min_w(px(0.0))
+            .pt(ui.px(2.0))
+            .pb(ui.px(10.0))
+            .pl(ui.px(10.0))
+            .pr(ui.px(14.0))
+            .child(self.repo_button(ui, cx));
+        if board.is_some() {
+            top = top.child(
+                pill(ui)
+                    .px(ui.px(7.0))
+                    .bg(c.text.opacity(SOFT))
+                    .font(self.mono.clone())
+                    .text_size(ui.px(11.0))
+                    .text_color(c.muted)
+                    .child(kanban::MAIN),
+            );
+        }
+        top = top.child(div().flex_1());
+        if let Some(chosen) = self.looking.chosen() {
+            top = top.child(self.back(chosen, ui, cx));
+        } else if let Some(board) = board {
+            top = top.child(self.summary(board, ui));
+        }
+        if board.is_none() {
+            return top;
+        }
+        let tip = Tip::new("New task", &self.theme, ui);
+        let new_task = div()
+            .id("kanban-new-task")
+            .flex_shrink_0()
+            .flex()
+            .items_center()
+            .justify_center()
+            .size(ui.px(26.0))
+            .rounded_full()
+            .bg(c.text.opacity(SOFT))
+            .cursor_pointer()
+            .hover(move |style| style.bg(c.text.opacity(0.12)))
+            .tooltip(move |_, cx| cx.new(|_| tip.clone()).into())
+            .child(footer_icon::icon(
+                Icon::Plus,
+                c.text,
+                ui.scale(12.0 / footer_icon::SIZE),
+            ))
+            .on_click(cx.listener(|view, _: &ClickEvent, _, cx| view.new_task(cx)));
+        top.child(new_task)
+    }
+
+    /// The name on the repository's button: the picked one's; following, that of the repository
+    /// whose board or empty state shows, or the focused pane's while it is still to be read.
+    /// `None` outside any.
+    fn shown_name(&self) -> Option<String> {
+        if let Some(chosen) = self.looking.chosen() {
+            return Some(kanban_repos::name(chosen));
+        }
+        match (&self.cwd, &self.read) {
+            (None | Some(None), _) | (_, Some(Read::NotRepository)) => None,
+            (_, Some(Read::NoMain { name } | Read::NoTasks { name, .. })) => Some(name.clone()),
+            (_, Some(Read::Board(_))) => self.board.as_ref().map(|board| board.name.clone()),
+            _ => self.focus_repo().map(|repo| kanban_repos::name(repo)),
+        }
+    }
+
+    /// The repository's name as a button, its menu hanging under it when open: a folder before
+    /// the name while the board follows the focused pane; a pin, and the accent's tint and edge,
+    /// while it stays on a picked one.
+    fn repo_button(&self, ui: &UiFont, cx: &mut Context<Self>) -> Div {
+        let c = self.colors;
+        let (pinned, open) = (self.looking.chosen().is_some(), self.menu.is_some());
+        let name = self
+            .shown_name()
+            .unwrap_or_else(|| "No repository".to_owned());
+        let lead = if pinned {
+            svg()
+                .data(PIN)
+                .flex_shrink_0()
+                .size(ui.px(14.0))
+                .text_color(c.accent)
+                .into_any_element()
+        } else {
+            footer_icon::icon(Icon::Folder, c.muted, ui.scale(13.0 / footer_icon::SIZE))
+                .into_any_element()
+        };
+        let button = div()
+            .id("kanban-repo")
+            .flex()
+            .items_center()
+            .gap(ui.px(7.0))
+            .min_w(px(0.0))
+            .h(ui.px(28.0))
+            .pl(ui.px(6.0))
+            .pr(ui.px(8.0))
+            .rounded(ui.px(7.0))
+            .border_1()
+            .cursor_pointer()
+            .map(|button| {
+                if pinned {
+                    button
+                        .bg(c.accent.opacity(0.10))
+                        .border_color(c.accent.opacity(0.45))
+                        .hover(move |style| style.bg(c.accent.opacity(0.16)))
+                } else {
+                    button
+                        .border_color(gpui::transparent_black())
+                        .when(open, |button| button.bg(c.text.opacity(0.09)))
+                        .hover(move |style| style.bg(c.text.opacity(0.09)))
+                }
+            })
+            .child(lead)
+            .child(
+                div()
+                    .flex_shrink(1.0)
+                    .min_w(px(0.0))
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .text_ellipsis()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child(name),
+            )
+            .child(
+                svg()
+                    .data(CHEVRON_DOWN)
+                    .flex_shrink_0()
+                    .size(ui.px(10.0))
+                    .text_color(c.bright),
+            )
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|view, event: &MouseDownEvent, window, cx| {
+                    if view.dismissed.take() != Some(event.position) {
+                        view.open_menu(None, window, cx);
+                    }
+                }),
+            );
+        div()
+            .flex_shrink(1.0)
+            .min_w(px(0.0))
+            .flex()
+            .flex_col()
+            .child(button)
+            .when(open, |holder| {
+                // Laid out right under the button, drawn above everything else.
+                holder.child(
+                    div().h(px(0.0)).child(deferred(
+                        anchored()
+                            .snap_to_window_with_margin(px(8.0))
+                            .child(self.repo_menu(ui, cx)),
+                    )),
+                )
+            })
+    }
+
+    /// The button back to the focused pane, where the numbers are while the board follows it.
+    fn back(&self, chosen: &Path, ui: &UiFont, cx: &mut Context<Self>) -> Stateful<Div> {
+        let c = self.colors;
+        let focus = self.focus_repo().map(PathBuf::as_path);
+        div()
+            .id("kanban-back")
+            .flex_shrink_0()
+            .flex()
+            .items_center()
+            .gap(ui.px(6.0))
+            .h(ui.px(26.0))
+            .px(ui.px(9.0))
+            .rounded_full()
+            .bg(c.text.opacity(SOFT))
+            .text_size(ui.px(11.5))
+            .text_color(c.bright)
+            .whitespace_nowrap()
+            .cursor_pointer()
+            .hover(move |style| style.bg(c.text.opacity(0.12)))
+            .child(
+                svg()
+                    .data(TURN_BACK)
+                    .flex_shrink_0()
+                    .size(ui.px(11.0))
+                    .text_color(c.bright),
+            )
+            .child(kanban_repos::back_label(focus, chosen))
+            .on_click(cx.listener(|view, _: &ClickEvent, window, cx| view.follow(window, cx)))
+    }
+
+    /// The menu under the repository's name: following the focused pane, the repositories open
+    /// in paddock now, the kept ones, and choosing a folder. A press outside it or Esc closes it.
+    fn repo_menu(&self, ui: &UiFont, cx: &mut Context<Self>) -> Stateful<Div> {
+        let (theme, c) = (&*self.theme, self.colors);
+        let rows = kanban_repos::menu(
+            self.focus_repo().map(PathBuf::as_path),
+            &self.open_repos(),
+            &self.looking,
+        );
+        let label = || {
+            div()
+                .flex_1()
+                .min_w(px(0.0))
+                .overflow_hidden()
+                .text_ellipsis()
+        };
+        let mut panel = popover::panel(theme, ui)
+            .id("kanban-repos")
+            .track_focus(&self.menu_focus)
+            .key_context(menu::DIALOG)
+            .occlude()
+            .w(ui.px(MENU_WIDTH))
+            .mt(ui.px(4.0))
+            .on_mouse_down_out(cx.listener(|view, event: &MouseDownEvent, window, cx| {
+                view.dismissed = Some(event.position);
+                view.close_menu(window, cx);
+            }))
+            .on_action(
+                cx.listener(|view, _: &menu::Cancel, window, cx| view.close_menu(window, cx)),
+            );
+        for (index, row) in rows.into_iter().enumerate() {
+            panel = match row {
+                Row::Follow { name, on } => panel.child(
+                    popover::lead_row(
+                        theme,
+                        ui,
+                        "kanban-follow",
+                        popover::tick(theme, ui, on),
+                        false,
+                    )
+                    .child(
+                        div()
+                            .flex_shrink_0()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child("Follow focused pane"),
+                    )
+                    .child(div().flex_1())
+                    .children(name.map(|name| {
+                        div()
+                            .min_w(px(0.0))
+                            .overflow_hidden()
+                            .text_ellipsis()
+                            .text_size(ui.px(11.5))
+                            .text_color(c.dim)
+                            .child(name)
+                    }))
+                    .on_click(
+                        cx.listener(|view, _: &ClickEvent, window, cx| view.follow(window, cx)),
+                    ),
+                ),
+                Row::Heading(heading) => panel
+                    .child(popover::rule(theme, ui))
+                    .child(popover::heading(theme, ui, heading)),
+                Row::Repo { path, kept, on } => {
+                    let lead = if kept {
+                        svg()
+                            .data(PIN)
+                            .size(ui.px(13.0))
+                            .text_color(c.accent)
+                            .into_any_element()
+                    } else {
+                        footer_icon::icon(Icon::Folder, c.muted, ui.scale(13.0 / footer_icon::SIZE))
+                            .into_any_element()
+                    };
+                    // The whole path: two repositories of one name are told apart by it.
+                    let tip = Note::new(path.display().to_string().into(), theme, ui);
+                    let line =
+                        popover::lead_row(theme, ui, ("kanban-repo-row", index), lead, false)
+                            .tooltip(move |_, cx| cx.new(|_| tip.clone()).into())
+                            .child(label().child(kanban_repos::name(&path)))
+                            .when(on, |line| line.child(popover::tick(theme, ui, true)))
+                            .when(kept, |line| {
+                                let tip = Tip::new("Remove from this list", theme, ui);
+                                let repo = path.clone();
+                                line.child(
+                                    div()
+                                        .id(("kanban-repo-remove", index))
+                                        .flex_shrink_0()
+                                        .flex()
+                                        .items_center()
+                                        .justify_center()
+                                        .size(ui.px(22.0))
+                                        .rounded(px(5.0))
+                                        .cursor_pointer()
+                                        .invisible()
+                                        .group_hover(popover::ROW_GROUP, |style| style.visible())
+                                        .hover(move |style| style.bg(c.text.opacity(0.12)))
+                                        .tooltip(move |_, cx| cx.new(|_| tip.clone()).into())
+                                        .child(footer_icon::icon(
+                                            Icon::Close,
+                                            c.bright,
+                                            ui.scale(10.0 / footer_icon::SIZE),
+                                        ))
+                                        .on_click(cx.listener(
+                                            move |view, _: &ClickEvent, _, cx| {
+                                                cx.stop_propagation();
+                                                view.remove(&repo, cx);
+                                            },
+                                        )),
+                                )
+                            });
+                    panel.child(line.on_click(cx.listener(
+                        move |view, _: &ClickEvent, window, cx| {
+                            view.choose(path.clone(), window, cx)
+                        },
+                    )))
+                }
+                Row::Choose => panel.child(popover::rule(theme, ui)).child(
+                    popover::lead_row(theme, ui, "kanban-choose-folder", div(), false)
+                        .child(label().child("Choose folder…"))
+                        .on_click(cx.listener(|view, _: &ClickEvent, window, cx| {
+                            view.choose_folder(window, cx)
+                        })),
+                ),
+            };
+        }
+        let note = self.menu.as_ref().and_then(|menu| menu.note.clone());
+        panel
+            .children(note.map(|note| {
+                div()
+                    .px(ui.px(9.0))
+                    .pt(ui.px(2.0))
+                    .pb(ui.px(5.0))
+                    .whitespace_normal()
+                    .text_size(ui.px(11.5))
+                    .text_color(c.yellow)
+                    .child(note)
+            }))
+            .child(crate::browser::cover())
+    }
+
+    /// How many need the user, are in progress and to review.
+    fn summary(&self, board: &Board, ui: &UiFont) -> Div {
         let c = self.colors;
         let need_you = board.need_you();
         let mut summary = Vec::new();
@@ -813,62 +1394,7 @@ impl KanbanView {
             }
             right = right.child(div().text_color(color).child(words));
         }
-        let tip = Tip::new("New task", &self.theme, ui);
-        let new_task = div()
-            .id("kanban-new-task")
-            .flex_shrink_0()
-            .flex()
-            .items_center()
-            .justify_center()
-            .size(ui.px(26.0))
-            .rounded_full()
-            .bg(c.text.opacity(SOFT))
-            .cursor_pointer()
-            .hover(move |style| style.bg(c.text.opacity(0.12)))
-            .tooltip(move |_, cx| cx.new(|_| tip.clone()).into())
-            .child(footer_icon::icon(
-                Icon::Plus,
-                c.text,
-                ui.scale(12.0 / footer_icon::SIZE),
-            ))
-            .on_click(cx.listener(|view, _: &ClickEvent, _, cx| view.new_task(cx)));
-        div()
-            .flex_shrink_0()
-            .flex()
-            .items_center()
-            .gap(ui.px(8.0))
-            .min_w(px(0.0))
-            .pt(ui.px(2.0))
-            .pb(ui.px(10.0))
-            .pl(ui.px(16.0))
-            .pr(ui.px(14.0))
-            .child(footer_icon::icon(
-                Icon::Folder,
-                c.muted,
-                ui.scale(13.0 / footer_icon::SIZE),
-            ))
-            .child(
-                div()
-                    .flex_shrink(1.0)
-                    .min_w(px(0.0))
-                    .overflow_hidden()
-                    .whitespace_nowrap()
-                    .text_ellipsis()
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .child(board.name.clone()),
-            )
-            .child(
-                pill(ui)
-                    .px(ui.px(7.0))
-                    .bg(c.text.opacity(SOFT))
-                    .font(self.mono.clone())
-                    .text_size(ui.px(11.0))
-                    .text_color(c.muted)
-                    .child(kanban::MAIN),
-            )
-            .child(div().flex_1())
-            .child(right)
-            .child(new_task)
+        right
     }
 
     /// New task under the empty state of a repository without task files.

@@ -32,6 +32,7 @@ pub mod icon;
 pub mod ime;
 pub mod input;
 pub mod kanban;
+pub mod kanban_repos;
 pub mod kanban_view;
 pub mod keys;
 pub mod kind_icon;

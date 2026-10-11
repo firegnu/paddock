@@ -1203,7 +1203,7 @@ impl PaddockWindow {
         let kanban = {
             let (theme, mono) = (theme.clone(), mono_font(&options));
             let folded = right.kanban_folded.clone();
-            cx.new(|cx| KanbanView::new(theme, mono, folded, cx))
+            cx.new(|cx| KanbanView::new(theme, mono, folded, window, cx))
         };
         cx.subscribe_in(&kanban, window, Self::on_kanban).detach();
         let cairn = {
@@ -2732,6 +2732,20 @@ impl PaddockWindow {
             dot: self.dot(pane, agents, now),
             cwd,
         })
+    }
+
+    /// The open shells' directories, sorted and without repeats: with the agents', the
+    /// repositories open now in the Kanban tab's menu (P5-85).
+    fn shell_dirs(&self, cx: &Context<Self>) -> Vec<String> {
+        let mut dirs: Vec<String> = self
+            .panes
+            .iter()
+            .filter(|(pane, _)| matches!(self.workspace.shown(**pane), Shown::Shell))
+            .filter_map(|(_, view)| view.read(cx).cwd().map(str::to_owned))
+            .collect();
+        dirs.sort();
+        dirs.dedup();
+        dirs
     }
 
     /// A pane's status dot: an agent's status colour as the sidebar shows it, a neutral one for
@@ -5998,6 +6012,7 @@ impl Render for PaddockWindow {
         let follow = self.follow(&agents, now, cx);
         let kanban = kanban_view::Frame {
             cwd: follow.as_ref().map(|f| f.cwd.clone()),
+            shells: self.shell_dirs(cx),
             active: right.is_some() && self.right.tab == RightTab::Kanban,
             width: right.unwrap_or(0.0),
             theme: self.theme.clone(),
@@ -6019,7 +6034,8 @@ impl Render for PaddockWindow {
         };
         self.changes
             .update(cx, |changes, cx| changes.frame(frame, cx));
-        // The Kanban tab follows the same pane's repository, and reads only while it shows.
+        // The Kanban tab follows the same pane's repository unless its menu turned it to another
+        // (P5-85), and reads only while it shows.
         self.kanban.update(cx, |view, cx| view.frame(kanban, cx));
         // The Cairn tab follows the same pane's directory, and reads only while it shows.
         self.cairn.update(cx, |view, cx| view.frame(cairn, cx));
