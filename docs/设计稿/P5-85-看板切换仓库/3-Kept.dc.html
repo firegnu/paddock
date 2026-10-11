@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Kanban kept on another repository</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+a{color:#7fd4bf}a:hover{color:#a5e3d3}
+button{font:inherit;color:inherit;cursor:pointer}
+</style>
+</helmet>
+<div style="width: 440px; height: 520px; position: relative; overflow: hidden; display: flex; flex-direction: column; background: #0c1616; font-family: -apple-system, 'SF Pro Text', 'Helvetica Neue', sans-serif; color: #d6e6e1; font-size: 13px">
+  <div style="flex: none; height: 40px; box-sizing: border-box; display: flex; align-items: center; gap: 5px; padding: 0 8px 0 10px; border-bottom: 1px solid #1f3633">
+    <button style="flex: none; display: flex; align-items: center; gap: 7px; height: 26px; padding: 0 10px; border: 0; border-radius: 13px; background: #202b2a; font-size: 12.5px; color: #b0c6c0; white-space: nowrap"><span style="width: 12px; text-align: center; color: #83a098">±</span>Changes</button>
+    <button style="flex: none; display: flex; align-items: center; gap: 7px; height: 26px; padding: 0 10px; border: 0; border-radius: 13px; background: #202b2a; font-size: 12.5px; color: #b0c6c0; white-space: nowrap"><span style="display: flex; color: #83a098"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18"></path></svg></span>Browser</button>
+    <button style="flex: none; display: flex; align-items: center; gap: 7px; height: 26px; padding: 0 10px; border: 0; border-radius: 13px; background: #2e3939; box-shadow: inset 0 0 0 1px rgba(127,212,191,0.5); font-size: 12.5px; font-weight: 600; color: #d6e6e1; white-space: nowrap"><span style="display: flex; color: #7fd4bf"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="4" width="5" height="16" rx="1.5"></rect><rect x="10" y="4" width="5" height="10" rx="1.5"></rect><rect x="17" y="4" width="4" height="13" rx="1.5"></rect></svg></span>Kanban</button>
+    <button style="flex: none; display: flex; align-items: center; gap: 7px; height: 26px; padding: 0 10px; border: 0; border-radius: 13px; background: #202b2a; font-size: 12.5px; color: #b0c6c0; white-space: nowrap"><span style="display: flex; color: #83a098"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><ellipse cx="12" cy="18.5" rx="8" ry="3"></ellipse><ellipse cx="12" cy="11.5" rx="5.5" ry="2.8"></ellipse><ellipse cx="12" cy="5.5" rx="3" ry="2.2"></ellipse></svg></span>Cairn</button>
+    <span style="flex: 1; min-width: 0"></span>
+    <button aria-label="Wider" style="flex: none; display: flex; align-items: center; justify-content: center; width: 26px; height: 26px; border: 0; border-radius: 6px; background: transparent; color: #8aa59e"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14 4h6v6M20 4l-7 7M10 20H4v-6M4 20l7-7"></path></svg></button>
+    <button aria-label="Close sidebar" style="flex: none; display: flex; align-items: center; justify-content: center; width: 26px; height: 26px; border: 0; border-radius: 6px; background: transparent; color: #8aa59e"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></button>
+  </div>
+  <div style="flex: none; display: flex; align-items: center; gap: 8px; padding: 10px 14px 10px 10px; border-bottom: 1px solid rgba(214,230,225,0.06)">
+    <button style="display: flex; align-items: center; gap: 7px; height: 28px; padding: 0 8px 0 7px; border: 0; border-radius: 7px; background: rgba(127,212,191,0.10); box-shadow: inset 0 0 0 1px rgba(127,212,191,0.45); color: #d6e6e1">
+      <span style="display: flex; color: #7fd4bf"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 2.5h4l-.6 4 2.1 2.2H4.5l2.1-2.2zM8 8.7v4.8"></path></svg></span>
+      <span style="font-size: 14px; font-weight: 600">pasture</span>
+      <span style="display: flex; color: #b8cdc6"><svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M2.5 3.8L5 6.3l2.5-2.5"></path></svg></span>
+    </button>
+    <span style="padding: 1px 7px; border-radius: 999px; background: rgba(214,230,225,0.06); font-family: Menlo, ui-monospace, monospace; font-size: 11px; color: #8aa59e">main</span>
+    <span style="flex: 1"></span>
+    <button style="display: flex; align-items: center; gap: 6px; height: 26px; padding: 0 9px; border: 0; border-radius: 13px; background: rgba(214,230,225,0.06); font-size: 11.5px; color: #b8cdc6; white-space: nowrap">
+      <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 4L3 7.5 6.5 11M3.5 7.5H10a3 3 0 010 6H8.5"></path></svg>Back to paddock
+    </button>
+    <button aria-label="New task" style="display: flex; align-items: center; justify-content: center; width: 26px; height: 26px; border: 0; border-radius: 13px; background: rgba(214,230,225,0.06); color: #d6e6e1"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M6 2v8M2 6h8"></path></svg></button>
+  </div>
+  <div style="display: flex; flex-direction: column; gap: 6px; padding: 8px 12px 14px">
+    <div style="display: flex; align-items: center; gap: 8px; padding: 6px 4px 4px; font-size: 12px; font-weight: 600; color: #b8cdc6">
+      <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="#668580" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="M2.5 3.8L5 6.3l2.5-2.5"></path></svg>
+      <span style="width: 6px; height: 6px; border-radius: 3px; background: #83a098"></span>Queued
+      <span style="padding: 0 7px; border-radius: 999px; background: rgba(214,230,225,0.06); font-weight: 500; font-size: 11px; color: #8aa59e">3</span>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 6px; padding: 9px 12px 9px 14px; border: 1px dashed rgba(214,230,225,0.14); border-radius: 10px; background: rgba(214,230,225,0.03)">
+      <div style="display: flex; align-items: center; gap: 6px"><span style="padding: 1px 6px; border-radius: 5px; background: rgba(214,230,225,0.06); font-family: Menlo, ui-monospace, monospace; font-size: 11px; color: #8aa59e">I3</span><span style="padding: 1px 8px; border: 1px solid rgba(214,230,225,0.14); border-radius: 999px; font-size: 11px; color: #83a098">Draft</span></div>
+      <div style="font-size: 13.5px; line-height: 1.4; color: #b8cdc6">刚记下的一条想法</div>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 6px; padding: 9px 12px 9px 14px; border: 1px solid rgba(214,230,225,0.07); border-radius: 10px; background: rgba(214,230,225,0.045); box-shadow: inset 0 1px 0 rgba(214,230,225,0.07), inset 0 -1px 0 rgba(0,0,0,0.25)">
+      <div style="display: flex; align-items: center; gap: 6px"><span style="padding: 1px 6px; border-radius: 5px; background: rgba(214,230,225,0.06); font-family: Menlo, ui-monospace, monospace; font-size: 11px; color: #8aa59e">I1</span></div>
+      <div style="font-size: 13.5px; line-height: 1.4; color: #dfece8">想法甲</div>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 6px; padding: 9px 12px 9px 14px; border: 1px solid rgba(214,230,225,0.07); border-radius: 10px; background: rgba(214,230,225,0.045); box-shadow: inset 0 1px 0 rgba(214,230,225,0.07), inset 0 -1px 0 rgba(0,0,0,0.25)">
+      <div style="display: flex; align-items: center; gap: 6px"><span style="padding: 1px 6px; border-radius: 5px; background: rgba(214,230,225,0.06); font-family: Menlo, ui-monospace, monospace; font-size: 11px; color: #8aa59e">I2</span></div>
+      <div style="font-size: 13.5px; line-height: 1.4; color: #dfece8">想法乙</div>
+    </div>
+    <div style="display: flex; align-items: center; gap: 8px; padding: 10px 4px 4px; font-size: 12px; font-weight: 600; color: #83a098">
+      <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="#668580" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="M3.8 2.5L6.3 5 3.8 7.5"></path></svg>
+      <span style="width: 6px; height: 6px; border-radius: 3px; background: #668580"></span>Done
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":440,"height":520}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>
