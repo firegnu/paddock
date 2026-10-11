@@ -1,7 +1,11 @@
 //! Attention: the agents waiting for input or in error, a failed corral read, then the agents with
 //! a reply nobody has looked at. The agent part of Saddle's Attention (`src/attention.rs` at
-//! commit `df1c727`); plugin items come later. Opening an item never changes an agent's state.
-use crate::agents::{Panel, Status};
+//! commit `df1c727`); plugin items come later. The tabs' marks go by it, and the Inbox (`inbox.rs`,
+//! DESIGN §13 P5-87) builds its list and the bell's count on it.
+use crate::{
+    agents::{Panel, Status},
+    corral::Agent,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
@@ -54,7 +58,7 @@ pub enum Urgency {
     Needs,
 }
 
-/// The bell: how many rows the Attention list has, and how urgent the most urgent one is.
+/// The bell: how many `items` there are, and how urgent the most urgent one is.
 pub fn bell(items: &[Item]) -> (usize, Urgency) {
     let urgency = if items.iter().any(Item::needs) {
         Urgency::Needs
@@ -64,6 +68,14 @@ pub fn bell(items: &[Item]) -> (usize, Urgency) {
         Urgency::Replies
     };
     (items.len(), urgency)
+}
+
+/// Why an agent is in error: corral's error for it, or that its protocol is not this one's.
+pub fn problem(a: &Agent) -> Option<String> {
+    let incompatible = a
+        .incompatible
+        .then(|| format!("incompatible protocol {}", a.proto.unwrap_or(0)));
+    a.error.clone().or(incompatible)
 }
 
 /// Needs attention first (waiting, then error, then a failed read), then new replies by name;
@@ -80,14 +92,11 @@ pub fn items(panel: &Panel, corral_error: Option<&str>, now: f64) -> Vec<Item> {
             // As the cards show it: a paused agent asks nothing until it is resumed.
             .filter(|a| panel.shown(a, now) == wanted)
         {
-            let incompatible = a
-                .incompatible
-                .then(|| format!("incompatible protocol {}", a.proto.unwrap_or(0)));
             items.push(Item {
                 kind,
                 agent: Some(a.name.clone()),
                 label: a.name.clone(),
-                note: a.error.clone().or(incompatible).unwrap_or_default(),
+                note: problem(a).unwrap_or_default(),
             });
         }
     }

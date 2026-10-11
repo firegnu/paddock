@@ -4,7 +4,6 @@
 //! terminal view per pane.
 use crate::{
     agents::{Panel, Status},
-    attention::Kind as AttentionKind,
     browser::{self, Owner, cover},
     browser_view::{BrowserView, Handoff, Visited},
     cairn_view::{self, CairnView},
@@ -143,7 +142,7 @@ enum Popup {
     /// Choose the side and what the new pane shows in one go, from the pane's split button or
     /// the title bar's split icon.
     Split(Direction),
-    /// The Attention list.
+    /// The Inbox, the bell's panel (the Attention list before P5-87).
     Attention,
     /// The command palette.
     Palette,
@@ -475,8 +474,6 @@ const BADGE_ICON: f32 = 13.0;
 const BADGE_DOT: f32 = 6.0;
 /// What a command palette row's hover brightens: this name on each row.
 const PALETTE_ROW: &str = "palette-row";
-/// What an Attention row's hover brightens: this name on each row.
-const ATTENTION_ROW: &str = "attention-row";
 /// The title bar's `+` and split icon; the search field's width, and the room between it and the
 /// split icon, besides the bar's own gap.
 const BAR_BUTTON: f32 = 28.0;
@@ -1069,8 +1066,8 @@ pub struct PaddockWindow {
     pet_setting: (bool, crate::pet::Pet),
     /// A close or quit question is showing.
     asking: bool,
-    /// The selected row of the Attention list.
-    attention_index: usize,
+    /// The Inbox: its list and reply box while it is open, and what was typed and sent in it.
+    inbox: inbox_panel::Inbox,
     /// The new tab or split panel's field and selected row.
     chooser: Chooser,
     /// The Kanban tab's task dialog while it is open.
@@ -1129,6 +1126,8 @@ pub struct PaddockWindow {
 
 #[path = "window_ctl.rs"]
 mod ctl;
+#[path = "window_inbox.rs"]
+mod inbox_panel;
 
 impl PaddockWindow {
     pub fn new(
@@ -1150,6 +1149,11 @@ impl PaddockWindow {
             cx.new(|cx| Sidebar::new(theme, width, mono, corral, refresh, cx))
         };
         cx.subscribe_in(&sidebar, window, Self::on_sidebar).detach();
+        // The Inbox follows the agents as they are read.
+        cx.observe_in(&sidebar, window, |this, _, window, cx| {
+            this.sync_inbox(window, cx)
+        })
+        .detach();
         let collapsed = saved
             .as_ref()
             .is_some_and(|layout| layout.sidebar_collapsed);
@@ -1242,7 +1246,7 @@ impl PaddockWindow {
             menu_state: None,
             pet_setting: (config.mascot_enabled, config.mascot),
             asking: false,
-            attention_index: 0,
+            inbox: inbox_panel::Inbox::default(),
             chooser: Chooser::default(),
             new_task: None,
             new_agent: None,
@@ -1763,7 +1767,7 @@ impl PaddockWindow {
                 self.show_agent(name, metadata.clone(), window, cx)
             }
             SidebarEvent::NewAgent => self.open_new_agent(Place::Current, window, cx),
-            SidebarEvent::Attention => self.toggle_attention(window, cx),
+            SidebarEvent::Attention => self.toggle_inbox(window, cx),
             SidebarEvent::Actions => {
                 self.popup = match self.popup {
                     Some(Popup::Actions) => None,
@@ -4405,247 +4409,6 @@ impl PaddockWindow {
         )
     }
 
-    fn toggle_attention(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.popup == Some(Popup::Attention) {
-            self.popup = None;
-        } else {
-            // The new tab panel's field gives the keys back.
-            if self.chooser.input.is_some() {
-                self.chooser = Chooser::default();
-                self.focus_active(window, cx);
-            }
-            self.popup = Some(Popup::Attention);
-            self.attention_index = 0;
-        }
-        cx.notify();
-    }
-
-    /// Opens an Attention item's agent, where it is or by the layout rules; a failed read has
-    /// nothing to open.
-    fn open_attention(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
-        if self.popup != Some(Popup::Attention) {
-            return;
-        }
-        let items = self.sidebar.read(cx).attention();
-        let Some(name) = items.get(index).and_then(|item| item.agent.clone()) else {
-            return;
-        };
-        self.popup = None;
-        let metadata = self.sidebar.read(cx).metadata(&name);
-        self.show_agent(&name, metadata, window, cx);
-    }
-
-    /// The Attention list, hanging from the bell: `Needs you` and how many, then each item with
-    /// its mark, name, project and age, why, and the start of its text.
-    fn attention_panel(&self, window: &Window, cx: &mut Context<Self>) -> Stateful<Div> {
-        let ui = UiFont::get(cx);
-        let theme = &*self.theme;
-        let items = self.sidebar.read(cx).attention();
-        let agents = self.sidebar.read(cx).agents();
-        let now = now();
-        let selected = self.attention_index.min(items.len().saturating_sub(1));
-        let placed = self.placed(Popup::Attention, 360.0, window, cx);
-        let lit = popover::lit(theme);
-        let dim = self.fg(|t| t.agents_dim);
-        let dimmer = self.fg(|t| t.agents_dimmer);
-        let header = div()
-            .flex_shrink_0()
-            .flex()
-            .items_baseline()
-            .gap(ui.px(8.0))
-            .px(ui.px(9.0))
-            .pt(ui.px(7.0))
-            .pb(ui.px(8.0))
-            .child(div().font_weight(FontWeight::SEMIBOLD).child("Needs you"))
-            .when(!items.is_empty(), |header| {
-                header.child(
-                    div()
-                        .text_size(ui.px(12.0))
-                        .text_color(dimmer)
-                        .child(items.len().to_string()),
-                )
-            })
-            .child(div().flex_1())
-            .child(
-                div()
-                    .text_size(ui.px(11.5))
-                    .text_color(dimmer.opacity(0.8))
-                    .child(menu::keys(&menu::ShowAttention).concat()),
-            );
-        let mut list = div()
-            .id("attention-rows")
-            .flex()
-            .flex_col()
-            .min_h(px(0.0))
-            .overflow_y_scroll();
-        if items.is_empty() {
-            list = list.child(
-                div()
-                    .px(ui.px(9.0))
-                    .pb(ui.px(8.0))
-                    .text_size(ui.px(12.0))
-                    .text_color(dim)
-                    .child("Nothing needs attention."),
-            );
-        }
-        for (index, item) in items.iter().enumerate() {
-            let mark = match item.kind {
-                AttentionKind::Waiting => self.fg(|t| t.agents_yellow),
-                AttentionKind::Error | AttentionKind::ReadFailed => self.fg(|t| t.agents_red),
-                AttentionKind::Reply => self.fg(|t| t.agents_accent),
-            };
-            let short = item
-                .label
-                .rsplit('/')
-                .next()
-                .unwrap_or(&item.label)
-                .to_owned();
-            let agent = item
-                .agent
-                .as_ref()
-                .and_then(|name| agents.iter().find(|a| &a.name == name));
-            let project = agent
-                .map(|agent| self.sidebar.read(cx).panel().group(agent))
-                .unwrap_or_default()
-                .to_owned();
-            // Since the agent came to this state, when corral says.
-            let age = agent
-                .and_then(|agent| agent.state_started)
-                .map(|since| card::short_time(Some(now - since)));
-            // Its kind and status before its name, ringed in the row's ground.
-            let (ground, hovered) = if index == selected {
-                (lit, None)
-            } else {
-                let ground = popover::ground(theme);
-                let hovered = ground.blend(lit.opacity(0.6));
-                (ground, Some((SharedString::from(ATTENTION_ROW), hovered)))
-            };
-            let badge = agent.map(|agent| {
-                let color = self.fg(dot(&Shown::Agent(agent.name.clone()), &agents, now));
-                let mark = self.agent_mark(agent.kind.as_deref(), color, ground, hovered, &ui);
-                div().flex_shrink_0().self_center().child(mark)
-            });
-            let first = div()
-                .flex()
-                .items_baseline()
-                .gap(ui.px(6.0))
-                .children(badge)
-                .child(
-                    div()
-                        .flex_shrink(1.0)
-                        .min_w(px(0.0))
-                        .overflow_hidden()
-                        .text_ellipsis()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .child(short),
-                )
-                .when(!project.is_empty(), |line| {
-                    line.child(
-                        div()
-                            .flex_shrink_0()
-                            .text_size(ui.px(12.0))
-                            .text_color(dimmer)
-                            .child(project),
-                    )
-                })
-                .child(div().flex_1())
-                .children(age.map(|age| {
-                    div()
-                        .flex_shrink_0()
-                        .text_size(ui.px(11.5))
-                        .text_color(dimmer)
-                        .child(age)
-                }));
-            let mut row = div()
-                .id(("attention-item", index))
-                .group(ATTENTION_ROW)
-                .flex_shrink_0()
-                .flex()
-                .items_start()
-                .gap(ui.px(11.0))
-                .p(ui.px(9.0))
-                .rounded(ui.px(7.0))
-                .child(
-                    div()
-                        .flex_shrink_0()
-                        .mt(ui.px(1.0))
-                        .size(ui.px(20.0))
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .rounded_full()
-                        .bg(mark.opacity(0.16))
-                        .text_color(mark)
-                        .text_size(ui.px(11.0))
-                        .font_weight(FontWeight::BOLD)
-                        .child(item.mark()),
-                )
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w(px(0.0))
-                        .flex()
-                        .flex_col()
-                        .gap(ui.px(2.0))
-                        .child(first)
-                        .child(
-                            div()
-                                .text_size(ui.px(12.0))
-                                .text_color(mark)
-                                .child(item.reason()),
-                        )
-                        .when(!item.note.is_empty(), |text| {
-                            text.child(
-                                div()
-                                    .min_w(px(0.0))
-                                    .overflow_hidden()
-                                    .text_ellipsis()
-                                    .text_size(ui.px(12.0))
-                                    .text_color(dim)
-                                    .child(item.note.clone()),
-                            )
-                        }),
-                );
-            if index == selected {
-                row = row.bg(lit);
-            }
-            if item.agent.is_some() {
-                row = row
-                    .cursor_pointer()
-                    .hover(move |style| style.bg(lit.opacity(0.6)))
-                    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                        this.open_attention(index, window, cx)
-                    }));
-            }
-            list = list.child(row);
-        }
-        let panel = popover::panel(theme, &ui)
-            .id("attention-list")
-            .absolute()
-            .left(px(placed.left))
-            .w(px(placed.width))
-            .max_h(px(placed.max_height))
-            .map(|panel| match (placed.top, placed.bottom) {
-                (Some(top), _) => panel.top(px(top)),
-                (None, bottom) => panel.bottom(px(bottom.unwrap_or_default())),
-            })
-            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-            .child(header)
-            .child(list)
-            .child(cover());
-        // A click outside closes it; nothing is dimmed, as for a menu.
-        div()
-            .id("attention-backdrop")
-            .absolute()
-            .inset_0()
-            .occlude()
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|this, _, window, cx| this.close_popup(window, cx)),
-            )
-            .child(panel)
-    }
-
     /// The sidebar's menu of actions, opening upward from its button: new agent and shell, the
     /// list's order and folding, pausing (or resuming) and stopping the active pane's agent, and
     /// Settings. Choosing closes it, as do Esc and a click outside.
@@ -5061,6 +4824,7 @@ impl PaddockWindow {
         self.palette = None;
         self.chooser = Chooser::default();
         self.new_task = None;
+        self.forget_inbox();
         if self.browser.read(cx).owner() == Owner::Page {
             self.browser
                 .update(cx, |browser, cx| browser.give_back(window, cx));
@@ -5070,8 +4834,8 @@ impl PaddockWindow {
         }
     }
 
-    /// ↑↓ in the new tab or split panel, the Attention list or the palette.
-    fn move_selection(&mut self, step: isize, cx: &mut Context<Self>) {
+    /// ↑↓ in the new tab or split panel, the Inbox (⌃Tab and ⌃⇧Tab too) or the palette.
+    fn move_selection(&mut self, step: isize, window: &mut Window, cx: &mut Context<Self>) {
         match self.popup {
             Some(popup @ (Popup::NewTab | Popup::Split(_))) => {
                 let count = self.chooser_rows(cx).len();
@@ -5080,10 +4844,7 @@ impl PaddockWindow {
                 let child = chooser_child(popup == Popup::NewTab, index);
                 self.chooser.list.scroll_to_item(child);
             }
-            Some(Popup::Attention) => {
-                let count = self.sidebar.read(cx).attention().len();
-                self.attention_index = search::step(self.attention_index, count, step);
-            }
+            Some(Popup::Attention) => return self.step_inbox(step, window, cx),
             Some(Popup::Palette) => {
                 let Some(palette) = &self.palette else {
                     return;
@@ -5101,7 +4862,8 @@ impl PaddockWindow {
         cx.notify();
     }
 
-    /// ⏎ in the new tab or split panel, the Attention list or the palette.
+    /// ⏎ in the new tab or split panel, the Inbox (the reply sent, or the pane of an agent that
+    /// cannot be answered there) or the palette.
     fn open_selected(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         match self.popup {
             Some(Popup::NewTab | Popup::Split(_)) => {
@@ -5109,10 +4871,7 @@ impl PaddockWindow {
                 let index = self.chooser.index.min(rows.len() - 1);
                 self.choose(rows[index].clone(), window, cx)
             }
-            Some(Popup::Attention) => {
-                let index = self.attention_index;
-                self.open_attention(index, window, cx)
-            }
+            Some(Popup::Attention) => self.act_inbox(window, cx),
             Some(Popup::Palette) => {
                 if let Some(index) = self.palette.as_ref().map(|palette| palette.index) {
                     self.run_palette_row(index, window, cx)
@@ -5929,6 +5688,7 @@ fn mono_font(options: &Options) -> gpui::Font {
 impl Render for PaddockWindow {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.fill(window, cx);
+        self.leave_inbox(window, cx);
         if self.fading() {
             window.request_animation_frame();
         }
@@ -6100,7 +5860,9 @@ impl Render for PaddockWindow {
             Some(Popup::Overflow) => {
                 Some(self.overflow_menu(&hidden, window, cx).into_any_element())
             }
-            Some(Popup::Attention) => Some(self.attention_panel(window, cx).into_any_element()),
+            Some(Popup::Attention) => self
+                .inbox_panel(window, cx)
+                .map(IntoElement::into_any_element),
             Some(Popup::Palette) => self
                 .palette
                 .as_ref()
@@ -6122,7 +5884,13 @@ impl Render for PaddockWindow {
             })
             // First, so it lies under the rest.
             .children(sidebar_column.map(|under| self.ground(under, column.is_some())))
-            .when(self.popup.is_some(), |root| root.key_context(menu::DIALOG))
+            .when_some(self.popup, |root, popup| match popup {
+                // ⌃Tab and ⌃⇧Tab too.
+                Popup::Attention => {
+                    root.key_context(format!("{} {}", menu::DIALOG, menu::INBOX).as_str())
+                }
+                _ => root.key_context(menu::DIALOG),
+            })
             .on_action(
                 cx.listener(|this, _: &menu::NewTab, window, cx| this.toggle_new_tab(window, cx)),
             )
@@ -6148,7 +5916,7 @@ impl Render for PaddockWindow {
                 this.stop_agent(None, window, cx)
             }))
             .on_action(cx.listener(|this, _: &menu::ShowAttention, window, cx| {
-                this.toggle_attention(window, cx)
+                this.toggle_inbox(window, cx)
             }))
             .on_action(
                 cx.listener(|this, _: &menu::Search, window, cx| {
@@ -6158,10 +5926,12 @@ impl Render for PaddockWindow {
             .on_action(cx.listener(|this, _: &menu::CommandPalette, window, cx| {
                 this.toggle_palette(">", window, cx)
             }))
-            .on_action(cx.listener(|this, _: &menu::SelectNext, _, cx| this.move_selection(1, cx)))
-            .on_action(
-                cx.listener(|this, _: &menu::SelectPrevious, _, cx| this.move_selection(-1, cx)),
-            )
+            .on_action(cx.listener(|this, _: &menu::SelectNext, window, cx| {
+                this.move_selection(1, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &menu::SelectPrevious, window, cx| {
+                this.move_selection(-1, window, cx)
+            }))
             .on_action(cx.listener(|this, _: &menu::OpenSelected, window, cx| {
                 this.open_selected(window, cx)
             }))

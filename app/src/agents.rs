@@ -2,8 +2,8 @@
 //! Saddle `src/agents.rs` at commit `df1c727`. Changed for paddock, which has no list cursor: being
 //! selected no longer counts as read; only the agent shown in the active pane does. The list-wide
 //! fold became each agent's own details, opened from its card, and it keeps the last reply read
-//! for each idle agent.
-use crate::corral::Agent;
+//! for each idle or waiting agent, the latest of them past its spell for the Inbox.
+use crate::corral::{Agent, Reply};
 use std::collections::{HashMap, HashSet};
 
 #[derive(Default)]
@@ -27,11 +27,21 @@ pub struct Panel {
     pub git: HashMap<String, Option<crate::git::Summary>>,
     /// Last replies by the spell they were asked for in, kept only while that spell lasts; `None`
     /// while being read, or when there was none or it could not be read.
-    replies: HashMap<Spell, Option<String>>,
+    replies: HashMap<Spell, Option<Reply>>,
+    /// The last reply read of each agent with the instance it was read from, kept past its spell
+    /// for the Inbox (DESIGN §13 P5-87), which shows it while the agent works on.
+    last: HashMap<String, (Option<String>, Reply)>,
 }
 
-/// A spell of idling: the agent, its instance and when the state began. Its last reply is read
-/// once for each.
+/// An agent's last reply as the Inbox shows it.
+pub struct Said<'a> {
+    pub reply: &'a Reply,
+    /// Read in the spell the agent is in now, rather than kept from one before.
+    pub current: bool,
+}
+
+/// A spell of idling or of waiting for a person: the agent, its instance and when the state began.
+/// Its last reply is read once for each.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Spell {
     pub name: String,
@@ -46,6 +56,7 @@ impl Panel {
             if let Some(old) = self.agents.iter().find(|old| old.name == a.name) {
                 if old.instance != a.instance {
                     self.unread.remove(&a.name);
+                    self.last.remove(&a.name);
                     self.first_seen.insert(a.name.clone(), now);
                 } else if a.state.as_deref() == Some("idle")
                     && (old.state.as_deref() == Some("working")
@@ -58,6 +69,7 @@ impl Panel {
         for old in &self.agents {
             if !agents.iter().any(|a| a.name == old.name) {
                 self.unread.remove(&old.name);
+                self.last.remove(&old.name);
                 self.first_seen.remove(&old.name);
                 if self.confirm.is_none() {
                     self.message = format!("{} exited", old.name);
@@ -109,9 +121,10 @@ impl Panel {
         self.expanded.clear();
     }
 
-    /// The spell an idle agent is in; `None` in any other state (waiting shows its question).
+    /// The spell an idle or waiting agent is in; `None` in any other state. A waiting agent's card
+    /// shows its question; the Inbox shows what it said before asking.
     fn spell(&self, a: &Agent, now: f64) -> Option<Spell> {
-        (self.status(a, now) == Status::Idle).then(|| Spell {
+        matches!(self.status(a, now), Status::Idle | Status::Waiting).then(|| Spell {
             name: a.name.clone(),
             instance: a.instance.clone(),
             since: a.state_started.map(f64::to_bits),
@@ -139,15 +152,39 @@ impl Panel {
     }
 
     /// A reply read for a spell; dropped when the spell has ended meanwhile.
-    pub fn absorb_reply(&mut self, spell: Spell, text: Option<String>) {
+    pub fn absorb_reply(&mut self, spell: Spell, reply: Option<impl Into<Reply>>) {
         if let Some(slot) = self.replies.get_mut(&spell) {
-            *slot = text;
+            *slot = reply.map(Into::into);
+            if let Some(reply) = slot {
+                let kept = (spell.instance, reply.clone());
+                self.last.insert(spell.name, kept);
+            }
         }
     }
 
     /// The agent's last reply, as read in the spell it is in now.
     pub fn reply(&self, a: &Agent, now: f64) -> Option<&str> {
-        self.replies.get(&self.spell(a, now)?)?.as_deref()
+        let reply = self.replies.get(&self.spell(a, now)?)?.as_ref()?;
+        Some(&reply.text)
+    }
+
+    /// The agent's last reply for the Inbox: the one read in the spell it is in now, else the
+    /// last one read of this instance before.
+    pub fn said(&self, a: &Agent, now: f64) -> Option<Said<'_>> {
+        let current = self
+            .spell(a, now)
+            .and_then(|spell| self.replies.get(&spell)?.as_ref());
+        if let Some(reply) = current {
+            return Some(Said {
+                reply,
+                current: true,
+            });
+        }
+        let (instance, reply) = self.last.get(&a.name)?;
+        (*instance == a.instance).then_some(Said {
+            reply,
+            current: false,
+        })
     }
 
     pub fn select(&mut self, name: Option<String>) {

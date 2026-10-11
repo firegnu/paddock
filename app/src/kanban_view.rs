@@ -19,7 +19,7 @@ use crate::{
     footer_icon::{self, Icon},
     kanban::{self, Board, Cache, Card, Column, Doer, Priority, Read, Seen, Tone},
     kanban_repos::{self, Looking, Row},
-    kind_icon, markdown, menu, popover,
+    kind_icon, markdown, markdown_view, menu, popover,
     right_panel::Tip,
     text_input::{self, Changed, TextInput},
     theme::Theme,
@@ -27,11 +27,11 @@ use crate::{
 };
 use gpui::{
     Animation, AnimationExt, AnyElement, App, BoxShadow, ClickEvent, Context, Div, Entity,
-    EventEmitter, FocusHandle, Focusable, Font, FontStyle, FontWeight, HighlightStyle, Hsla,
-    IntoElement, KeyDownEvent, MouseButton, MouseDownEvent, PathPromptOptions, Pixels, Point,
-    Render, ScrollStrategy, SharedString, Stateful, StyledText, Subscription, TextRun,
-    Transformation, UnderlineStyle, UniformListScrollHandle, Window, WindowTextSystem, anchored,
-    deferred, div, percentage, point, prelude::*, px, relative, svg, uniform_list,
+    EventEmitter, FocusHandle, Focusable, Font, FontWeight, HighlightStyle, Hsla, IntoElement,
+    KeyDownEvent, MouseButton, MouseDownEvent, PathPromptOptions, Pixels, Point, Render,
+    ScrollStrategy, SharedString, Stateful, StyledText, Subscription, TextRun, Transformation,
+    UniformListScrollHandle, Window, WindowTextSystem, anchored, deferred, div, percentage, point,
+    prelude::*, px, relative, svg, uniform_list,
 };
 use objc2_foundation::{NSFileManager, NSString, NSURL};
 use std::{
@@ -4300,117 +4300,16 @@ impl TaskDialog {
             .child(crate::browser::cover())
     }
 
-    /// The body read as Markdown, as [`markdown::blocks`] has it.
+    /// The body read as Markdown, as [`markdown::blocks`] has it and `markdown_view` draws it.
     fn preview(&self, ui: &UiFont, cx: &App) -> Div {
-        let theme = &*self.theme;
-        let fg =
-            |pick: fn(&crate::preset::Theme) -> crate::preset::Color| hsla(theme.fg(pick), 1.0);
-        let (bright, branch, dimmer, accent) = (
-            fg(|t| t.bright),
-            fg(|t| t.agents_branch),
-            fg(|t| t.agents_dimmer),
-            fg(|t| t.agents_accent),
-        );
-        let code = popover::lit(theme);
-        let mono = self.mono.family.clone();
-        let words = |spans: &[markdown::Span]| styled(spans, &mono, code, accent);
+        let colors = markdown_view::Colors::of(&self.theme);
         let blocks = markdown::blocks(self.body.read(cx).text());
-        let mut out = div()
-            .flex()
-            .flex_col()
-            .gap(ui.px(6.0))
-            .text_size(ui.px(13.0))
-            .line_height(relative(1.55))
-            .text_color(branch);
+        let out = markdown_view::blocks(&blocks, &self.mono, colors, ui);
         if blocks.is_empty() {
-            return out.child(div().text_color(dimmer).child("Nothing to preview"));
-        }
-        for (n, block) in blocks.iter().enumerate() {
-            out = out.child(match block {
-                markdown::Block::Heading(level, spans) => div()
-                    .when(n > 0, |heading| heading.mt(ui.px(6.0)))
-                    .text_size(ui.px(match level {
-                        1 => 16.0,
-                        2 => 14.5,
-                        _ => 13.5,
-                    }))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(bright)
-                    .child(words(spans)),
-                markdown::Block::Paragraph(spans) => div().child(words(spans)),
-                markdown::Block::Item {
-                    depth,
-                    marker,
-                    spans,
-                } => {
-                    let marker = match marker {
-                        Some(markdown::Marker::Bullet) if *depth == 0 => "•".to_owned(),
-                        Some(markdown::Marker::Bullet) => "◦".to_owned(),
-                        Some(markdown::Marker::Number(n)) => format!("{n}."),
-                        None => String::new(),
-                    };
-                    div()
-                        .flex()
-                        .gap(ui.px(8.0))
-                        .pl(ui.px(18.0 * *depth as f32))
-                        .child(
-                            div()
-                                .flex_shrink_0()
-                                .min_w(ui.px(12.0))
-                                .text_color(dimmer)
-                                .child(marker),
-                        )
-                        .child(div().flex_1().min_w(px(0.0)).child(words(spans)))
-                }
-                markdown::Block::Code(text) => div()
-                    .px(ui.px(10.0))
-                    .py(ui.px(8.0))
-                    .rounded(ui.px(6.0))
-                    .bg(code)
-                    .font(self.mono.clone())
-                    .text_size(ui.px(12.0))
-                    .child(text.clone()),
-            });
+            return out.child(div().text_color(colors.marker).child("Nothing to preview"));
         }
         out
     }
-}
-
-/// Markdown's words in their styles: bold, italic, inline code in `mono` on `code`, and links in
-/// `link`, underlined.
-fn styled(spans: &[markdown::Span], mono: &SharedString, code: Hsla, link: Hsla) -> StyledText {
-    let mut text = String::new();
-    let (mut highlights, mut fonts) = (Vec::new(), Vec::new());
-    for span in spans {
-        let start = text.len();
-        text.push_str(&span.text);
-        let range = start..text.len();
-        let mut style = HighlightStyle::default();
-        if span.bold {
-            style.font_weight = Some(FontWeight::BOLD);
-        }
-        if span.italic {
-            style.font_style = Some(FontStyle::Italic);
-        }
-        if span.link {
-            style.color = Some(link);
-            style.underline = Some(UnderlineStyle {
-                thickness: px(1.0),
-                color: Some(link),
-                wavy: false,
-            });
-        }
-        if span.code {
-            style.background_color = Some(code);
-            fonts.push((range.clone(), mono.clone()));
-        }
-        if style != HighlightStyle::default() {
-            highlights.push((range, style));
-        }
-    }
-    StyledText::new(text)
-        .with_highlights(highlights)
-        .with_font_family_overrides(fonts)
 }
 
 /// Takes back a question about `file` in `acts`, or why it was refused; not one under way.

@@ -1,8 +1,9 @@
-//! The Kanban task dialog's Preview: a task file's body read as Markdown (pulldown-cmark, its
-//! CommonMark core alone), as the blocks the dialog draws. Headings, paragraphs, list items (nested
-//! lists a step further in), code blocks, and within a line bold, italic, inline code and links (by
-//! their words; they are not followed). Anything else is shown as a paragraph of its words.
-use pulldown_cmark::{Event, Parser, Tag, TagEnd};
+//! Markdown read as the blocks paddock draws (pulldown-cmark, its CommonMark core and tables): a task
+//! file's body in the Kanban task dialog's Preview, an agent's reply in the Inbox, cairn's text.
+//! Headings, paragraphs, list items (nested lists a step further in), code blocks, tables, and
+//! within a line bold, italic, inline code and links (by their words; they are not followed).
+//! Anything else is shown as a paragraph of its words. `markdown_view.rs` draws them.
+use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
 
 /// Words in one style.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -37,6 +38,11 @@ pub enum Block {
     },
     /// A code block's lines.
     Code(String),
+    /// A table: its head's cells, then each row's, a cell its words in their styles.
+    Table {
+        head: Vec<Vec<Span>>,
+        rows: Vec<Vec<Vec<Span>>>,
+    },
 }
 
 /// `source`'s blocks.
@@ -50,10 +56,37 @@ pub fn blocks_by_line(source: &str) -> Vec<Block> {
     read(source, "\n")
 }
 
+/// The least and the most a table's column counts for, in characters' widths: a column of single
+/// letters still has room, and one of long sentences does not squeeze the others out.
+const COLUMN: (usize, usize) = (6, 40);
+
+/// How a table's width is shared among its columns, as parts of one: each by its widest cell,
+/// within bounds. A cell's words wrap in what its column gets.
+pub fn shares(head: &[Vec<Span>], rows: &[Vec<Vec<Span>>]) -> Vec<f32> {
+    let columns = rows.iter().map(Vec::len).fold(head.len(), usize::max);
+    let wide = |cell: &Vec<Span>| -> usize {
+        cell.iter()
+            .map(|span| unicode_width::UnicodeWidthStr::width(span.text.as_str()))
+            .sum()
+    };
+    let widths: Vec<usize> = (0..columns)
+        .map(|column| {
+            let cells = std::iter::once(head).chain(rows.iter().map(Vec::as_slice));
+            let widest = cells.filter_map(|row| row.get(column)).map(wide).max();
+            widest.unwrap_or(0).clamp(COLUMN.0, COLUMN.1)
+        })
+        .collect();
+    let all: usize = widths.iter().sum();
+    widths
+        .iter()
+        .map(|&width| width as f32 / all as f32)
+        .collect()
+}
+
 /// `source`'s blocks, a line break within one read as `soft`.
 fn read(source: &str, soft: &str) -> Vec<Block> {
     let mut read = Reader::default();
-    for (event, range) in Parser::new(source).into_offset_iter() {
+    for (event, range) in Parser::new_ext(source, Options::ENABLE_TABLES).into_offset_iter() {
         match event {
             Event::Start(Tag::Heading { level, .. }) => {
                 read.line();
@@ -100,6 +133,27 @@ fn read(source: &str, soft: &str) -> Vec<Block> {
                         .push(Block::Code(code.trim_end_matches('\n').to_owned()));
                 }
             }
+            Event::Start(Tag::Table(_)) => {
+                read.line();
+                read.table = Some(Table::default());
+            }
+            Event::End(TagEnd::TableCell) => read.cell(),
+            Event::End(TagEnd::TableHead) => {
+                if let Some(table) = &mut read.table {
+                    table.head = std::mem::take(&mut table.row);
+                }
+            }
+            Event::End(TagEnd::TableRow) => {
+                if let Some(table) = &mut read.table {
+                    let row = std::mem::take(&mut table.row);
+                    table.rows.push(row);
+                }
+            }
+            Event::End(TagEnd::Table) => {
+                if let Some(Table { head, rows, .. }) = read.table.take() {
+                    read.out.push(Block::Table { head, rows });
+                }
+            }
             Event::End(TagEnd::Paragraph | TagEnd::HtmlBlock) => read.line(),
             Event::Start(Tag::Emphasis) => read.italic += 1,
             Event::End(TagEnd::Emphasis) => read.italic -= 1,
@@ -128,6 +182,14 @@ fn read(source: &str, soft: &str) -> Vec<Block> {
     read.out
 }
 
+/// A table as it is read: its head, the rows done, and the cells of the row not yet done.
+#[derive(Default)]
+struct Table {
+    head: Vec<Vec<Span>>,
+    rows: Vec<Vec<Vec<Span>>>,
+    row: Vec<Vec<Span>>,
+}
+
 /// Where the reading is: the blocks so far, what is open, and the words of the line not yet out.
 #[derive(Default)]
 struct Reader {
@@ -143,6 +205,8 @@ struct Reader {
     marker: Option<Marker>,
     /// The code block being read.
     code: Option<String>,
+    /// The table being read.
+    table: Option<Table>,
     bold: u32,
     italic: u32,
     link: u32,
@@ -177,6 +241,15 @@ impl Reader {
         }
         let spans = std::mem::take(&mut self.spans);
         self.push(spans);
+    }
+
+    /// The words read so far out as a cell of the table's row, an empty one too.
+    fn cell(&mut self) {
+        let mut spans = std::mem::take(&mut self.spans);
+        spans.retain(|span| !span.text.is_empty());
+        if let Some(table) = &mut self.table {
+            table.row.push(spans);
+        }
     }
 
     /// `spans` out as the block they are in.
@@ -332,16 +405,64 @@ mod tests {
     }
 
     #[test]
+    fn a_table_is_its_head_and_rows_with_the_styles_in_its_cells() {
+        let source = "之前\n\n| 档位 | 命令 | 说明 |\n| --- | :-: | --: |\n| **常规** | `cargo test` | 改了 *两处* |\n| 加强 | | [文档](https://x.dev) 见 |\n\n之后\n";
+        let table = Block::Table {
+            head: vec![
+                vec![plain("档位")],
+                vec![plain("命令")],
+                vec![plain("说明")],
+            ],
+            rows: vec![
+                vec![
+                    vec![styled("常规", |s| s.bold = true)],
+                    vec![styled("cargo test", |s| s.code = true)],
+                    vec![plain("改了 "), styled("两处", |s| s.italic = true)],
+                ],
+                // An empty cell keeps its place.
+                vec![
+                    vec![plain("加强")],
+                    vec![],
+                    vec![styled("文档", |s| s.link = true), plain(" 见")],
+                ],
+            ],
+        };
+        let around = [
+            Block::Paragraph(vec![plain("之前")]),
+            table,
+            Block::Paragraph(vec![plain("之后")]),
+        ];
+        assert_eq!(blocks(source), around);
+        // The same by line, as the Cairn tab reads its text.
+        assert_eq!(blocks_by_line(source), around);
+        // Its columns share the width by their widest cells: 4, 10 and 9 characters wide, the
+        // narrow one counted as 6.
+        let Block::Table { head, rows } = &around[1] else {
+            unreachable!()
+        };
+        assert_eq!(shares(head, rows), [6.0 / 25.0, 10.0 / 25.0, 9.0 / 25.0]);
+        // A head alone, and a table in a list item.
+        assert_eq!(
+            blocks("- 见下\n\n  | a | b |\n  |---|---|\n"),
+            [
+                item(0, Some(Marker::Bullet), "见下"),
+                Block::Table {
+                    head: vec![vec![plain("a")], vec![plain("b")]],
+                    rows: vec![],
+                },
+            ]
+        );
+    }
+
+    #[test]
     fn anything_else_is_a_paragraph_of_its_words() {
         assert_eq!(
-            blocks(
-                "> 引用\n\n---\n\n| a | b |\n|---|---|\n\n<div>x</div>\n\n![图](a.png)\n\n\
-                 - [ ] 待办\n"
-            ),
+            blocks("> 引用\n\n---\n\n| a | b |\n\n<div>x</div>\n\n![图](a.png)\n\n- [ ] 待办\n"),
             [
                 Block::Paragraph(vec![plain("引用")]),
                 Block::Paragraph(vec![plain("---")]),
-                Block::Paragraph(vec![plain("| a | b | |---|---|")]),
+                // A row of cells with no rule under it is no table.
+                Block::Paragraph(vec![plain("| a | b |")]),
                 Block::Paragraph(vec![plain("<div>x</div>")]),
                 Block::Paragraph(vec![plain("图")]),
                 item(0, Some(Marker::Bullet), "[ ] 待办"),

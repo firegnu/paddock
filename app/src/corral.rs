@@ -80,6 +80,10 @@ impl Agent {
     }
 }
 
+/// How long one `corral send` may take: corral itself waits up to 15 seconds for the agent to take
+/// the text.
+const SEND_TIMEOUT: Duration = Duration::from_secs(30);
+
 #[derive(Clone)]
 pub struct Client {
     pub program: String,
@@ -148,18 +152,70 @@ impl Client {
 
     /// The agent's last reply as `corral reply` gives it; `None` when it has none yet or it can't
     /// be read.
-    pub fn reply(&self, name: &str, cancel: &AtomicBool) -> Option<String> {
+    pub fn reply(&self, name: &str, cancel: &AtomicBool) -> Option<Reply> {
         let value = self
             .json(&["reply", name], Duration::from_secs(15), cancel)
             .ok()?;
-        value.get("text")?.as_str().map(str::to_owned)
+        Some(Reply {
+            text: value.get("text")?.as_str()?.to_owned(),
+            at: value.get("at").and_then(Value::as_f64),
+        })
     }
+
+    /// Sends `text` to `name` as the Inbox's reply box has it (DESIGN §13 P5-87):
+    /// `corral send <name> <text>`, the text one argument and untouched, never forced and never
+    /// held back for later.
+    pub fn send(&self, name: &str, text: &str, cancel: &AtomicBool) -> Result<(), Refused> {
+        let unanswered = |message: String| Refused {
+            code: None,
+            message,
+        };
+        let args = ["send", name, text];
+        let output = crate::command::run(&self.program, &args, None, SEND_TIMEOUT, cancel)
+            // Not the command line, which has the whole reply in it: only what went wrong.
+            .map_err(|error| match error.chain().nth(1) {
+                Some(cause) => unanswered(format!("corral did not run: {cause}")),
+                None => unanswered("corral did not answer in time".into()),
+            })?;
+        let value: Value = serde_json::from_slice(&output.stdout)
+            .map_err(|_| unanswered("corral did not say how it went".into()))?;
+        if output.status.success() && value.get("ok") != Some(&Value::Bool(false)) {
+            return Ok(());
+        }
+        let said = |key: &str| value.get(key).and_then(Value::as_str).map(str::to_owned);
+        let code = said("error");
+        let message = said("message")
+            .or_else(|| code.clone())
+            .unwrap_or_else(|| "corral send failed".into());
+        Err(Refused { code, message })
+    }
+}
+
+/// An agent's last reply: its text as written, and when it was said.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Reply {
+    pub text: String,
+    pub at: Option<f64>,
+}
+
+impl From<String> for Reply {
+    fn from(text: String) -> Self {
+        Reply { text, at: None }
+    }
+}
+
+/// Why a `corral send` did not go through: corral's word for it (`not_idle`, `human_active`…;
+/// none when corral could not be run or did not answer in its JSON) and its sentence.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Refused {
+    pub code: Option<String>,
+    pub message: String,
 }
 
 /// Reads agents' last replies in the background, one at a time, each when asked; `K` says which
 /// request a result answers.
 pub struct Replies<K> {
-    pub updates: mpsc::Receiver<(K, Option<String>)>,
+    pub updates: mpsc::Receiver<(K, Option<Reply>)>,
     asks: Option<mpsc::Sender<(K, String)>>,
     cancel: Arc<AtomicBool>,
     worker: Option<thread::JoinHandle<()>>,

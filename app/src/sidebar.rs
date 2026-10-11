@@ -16,7 +16,7 @@ use crate::{
     corral::{Agent, Client, Poller, Replies, Role},
     fonts::UiFont,
     footer_icon::{self, Icon, Pose},
-    git, kind_icon,
+    git, inbox, kind_icon,
     motion::{self, Hover, HoverMotion},
     pause, reduce_motion,
     theme::Theme,
@@ -46,7 +46,7 @@ pub enum SidebarEvent {
     },
     /// Open the New Agent panel.
     NewAgent,
-    /// Open or close the Attention list.
+    /// Open or close the Inbox, the bell's panel.
     Attention,
     /// Open or close the menu of actions.
     Actions,
@@ -254,7 +254,7 @@ pub fn toggle_room(ui: &UiFont) -> f32 {
 
 /// What the header row holds, as wide as it is set: `Agents`, the number in its count's pill (none
 /// without agents), whether the button for every agent is there, and the bell's number (none when
-/// the Attention list is empty).
+/// nothing rings it).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct HeadWords {
     pub title: f32,
@@ -659,7 +659,7 @@ impl Sidebar {
     /// collapse button, `Agents` and how many, and at the right end the button for every agent and
     /// the bell, compact when the row, measured as it is set, has no room for it as a pill;
     /// collapsed to the strip, only the expand button, where the collapse button was. `spot` goes
-    /// in the bell, for the window to hang the Attention list from. A press on a button is not the
+    /// in the bell, for the window to hang the Inbox from. A press on a button is not the
     /// start of a drag.
     pub fn head(
         &mut self,
@@ -852,9 +852,9 @@ impl Sidebar {
             .any(|a| a.name == name && a.paused)
     }
 
-    /// The header's bell, always there so the Attention list has a way in: how many rows the list
-    /// has, in amber when an agent needs a person, in the accent for new replies only, quiet and
-    /// without a number when there is nothing. A click opens the Attention list.
+    /// The header's bell, always there so the Inbox has a way in: how many rows its first two
+    /// groups have, in amber when an agent needs a person, in the accent for new replies only,
+    /// quiet and without a number when there is nothing. A click opens the Inbox.
     fn badge(&self, spot: AnyElement, cx: &mut Context<Self>) -> HoverMotion {
         let (count, color) = self.bell();
         let ui = UiFont::get(cx);
@@ -889,9 +889,11 @@ impl Sidebar {
         })
     }
 
-    /// How many rows the Attention list has, and the bell's colour for them.
+    /// How many rows the Inbox has under `Needs you` and `New replies`, and the bell's colour for
+    /// them.
     fn bell(&self) -> (usize, Hsla) {
-        let (count, urgency) = attention::bell(&self.attention());
+        let ringing = inbox::ringing(&self.listing.panel, self.listing.error.as_deref(), now());
+        let (count, urgency) = attention::bell(&ringing);
         let color = hsla(
             match urgency {
                 attention::Urgency::Needs => self.theme.fg(|t| t.agents_yellow),
@@ -903,8 +905,8 @@ impl Sidebar {
         (count, color)
     }
 
-    /// The strip's bell: the icon, and when the Attention list has rows, their count beside it in
-    /// a small pill tinted in the bell's colour, never over the icon.
+    /// The strip's bell: the icon, and when the Inbox has rows that ring it, their count beside it
+    /// in a small pill tinted in the bell's colour, never over the icon.
     fn rail_bell(&self, cx: &mut Context<Self>) -> HoverMotion {
         let (count, color) = self.bell();
         let ui = UiFont::get(cx);
@@ -1171,9 +1173,21 @@ impl Sidebar {
             .collect()
     }
 
-    /// What needs looking at now, for the Attention list.
+    /// What needs looking at now, for the tabs' marks.
     pub fn attention(&self) -> Vec<attention::Item> {
         attention::items(&self.listing.panel, self.listing.error.as_deref(), now())
+    }
+
+    /// Why the latest corral read failed, for the Inbox's row about it.
+    pub fn read_error(&self) -> Option<&str> {
+        self.listing.error.as_deref()
+    }
+
+    /// The Inbox shows `row`'s reply: it is read, for the bell, its card and its tab.
+    pub fn read(&mut self, row: &inbox::Row, cx: &mut Context<Self>) {
+        if inbox::read(&mut self.listing.panel, row) {
+            cx.notify();
+        }
     }
 
     /// The agents' directories, sorted and without repeats.
@@ -3716,7 +3730,7 @@ mod tests {
     }
 
     #[test]
-    fn a_reply_is_read_once_for_each_spell_of_idling_and_never_while_waiting() {
+    fn a_reply_is_read_once_for_each_spell_of_idling_or_waiting() {
         // Each call is logged and numbered, so a repeated call shows in the next reply.
         let (dir, program) = fake_corral(
             "replies",
@@ -3733,7 +3747,8 @@ esac"#,
             state_started: Some(since),
             ..agent("p/a", "idle")
         };
-        // Listed with it all along: an agent waiting since before, whose card shows its question.
+        // Listed with it all along: an agent waiting since before, whose card shows its question
+        // and whose last reply is read once too, for the Inbox.
         let with_asking = |a: Agent| {
             let asking = Agent {
                 state_started: Some(980.0),
@@ -3772,10 +3787,10 @@ esac"#,
             listing.absorb(with_asking(idle(1009.0)), None, now);
             listing.ask_replies(&replies, now);
         }
-        assert_eq!(shown(&mut listing, 1011.0), "Reply 2. All green.");
-        // Only the idle agent was ever asked.
+        assert_eq!(shown(&mut listing, 1011.0), "Reply 3. All green.");
+        // The idle agent once for each spell, the waiting one once in all.
         let calls = std::fs::read_to_string(dir.join("calls")).unwrap();
-        assert_eq!(calls.lines().collect::<Vec<_>>(), ["p/a", "p/a"]);
+        assert_eq!(calls.lines().collect::<Vec<_>>(), ["p/a", "q/ask", "p/a"]);
         drop(replies);
         std::fs::remove_dir_all(&dir).unwrap();
     }

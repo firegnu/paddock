@@ -36,7 +36,9 @@ actions!(
         Down,
         SelectUp,
         SelectDown,
-        Newline
+        Newline,
+        /// ⇧↩ in a field that sends on Return: a new line.
+        BreakLine
     ]
 );
 
@@ -67,6 +69,7 @@ pub fn bindings() -> Vec<KeyBinding> {
         KeyBinding::new("shift-up", SelectUp, Some(AREA)),
         KeyBinding::new("shift-down", SelectDown, Some(AREA)),
         KeyBinding::new("enter", Newline, Some(AREA)),
+        KeyBinding::new("shift-enter", BreakLine, Some(AREA)),
     ]
 }
 
@@ -249,6 +252,9 @@ pub struct TextInput {
     is_selecting: bool,
     /// Wrapping over several lines, and whether Return starts a new one; `None` is one line.
     wrap: Option<bool>,
+    /// Return sends what is typed: it goes on to the window, as do ↑ and ↓ while the field is
+    /// empty, and ⇧Return starts a new line.
+    sends: bool,
     /// A wrapping field's text as last drawn: each line's start and layout, and the line height.
     last_lines: Vec<(usize, WrappedLine)>,
     last_line_height: Pixels,
@@ -310,6 +316,7 @@ impl TextInput {
             last_bounds: None,
             is_selecting: false,
             wrap: None,
+            sends: false,
             last_lines: Vec::new(),
             last_line_height: px(0.0),
         }
@@ -322,13 +329,37 @@ impl TextInput {
         self
     }
 
+    /// For a field with lines that sends on Return (the Inbox's reply box): Return goes on to the
+    /// window and ⇧Return starts a new line; while the field is empty ↑ and ↓ go on to the window
+    /// too, which has a list to move in.
+    pub fn sending(mut self) -> Self {
+        self.sends = true;
+        self
+    }
+
     pub fn text(&self) -> &str {
         &self.edit.content
+    }
+
+    /// Whether the cursor is after the last character, for what scrolls the field to keep up with
+    /// typing there.
+    pub fn at_end(&self) -> bool {
+        self.edit.selected_range.end == self.edit.content.len()
     }
 
     /// Replaces the text without telling listeners: for loading a value, not for typing.
     pub fn set_text(&mut self, text: impl Into<SharedString>, cx: &mut Context<Self>) {
         self.edit.set_text(text.into());
+        cx.notify();
+    }
+
+    /// What the empty field says, for a field that changes whom it is for.
+    pub fn set_placeholder(
+        &mut self,
+        placeholder: impl Into<SharedString>,
+        cx: &mut Context<Self>,
+    ) {
+        self.placeholder = placeholder.into();
         cx.notify();
     }
 
@@ -426,10 +457,16 @@ impl TextInput {
     }
 
     fn up(&mut self, _: &Up, _: &mut Window, cx: &mut Context<Self>) {
+        if self.sends && self.edit.content.is_empty() {
+            return cx.propagate();
+        }
         self.vertical(-1.0, false, cx);
     }
 
     fn down(&mut self, _: &Down, _: &mut Window, cx: &mut Context<Self>) {
+        if self.sends && self.edit.content.is_empty() {
+            return cx.propagate();
+        }
         self.vertical(1.0, false, cx);
     }
 
@@ -441,9 +478,19 @@ impl TextInput {
         self.vertical(1.0, true, cx);
     }
 
-    /// Return: a new line where line breaks are allowed; elsewhere it goes on to the window.
+    /// Return: a new line where line breaks are allowed; elsewhere, and in a field that sends on
+    /// it, it goes on to the window.
     fn newline(&mut self, _: &Newline, window: &mut Window, cx: &mut Context<Self>) {
-        if self.wrap == Some(true) {
+        if self.wrap == Some(true) && !self.sends {
+            self.replace_text_in_range(None, "\n", window, cx);
+        } else {
+            cx.propagate();
+        }
+    }
+
+    /// ⇧Return: a new line in a field that sends on Return; elsewhere it goes on as before.
+    fn break_line(&mut self, _: &BreakLine, window: &mut Window, cx: &mut Context<Self>) {
+        if self.wrap == Some(true) && self.sends {
             self.replace_text_in_range(None, "\n", window, cx);
         } else {
             cx.propagate();
@@ -1232,6 +1279,7 @@ impl Render for TextInput {
             .on_action(cx.listener(Self::select_up))
             .on_action(cx.listener(Self::select_down))
             .on_action(cx.listener(Self::newline))
+            .on_action(cx.listener(Self::break_line))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_mouse_up))
