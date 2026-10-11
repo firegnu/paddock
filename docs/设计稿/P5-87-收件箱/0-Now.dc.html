@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>Today: the Needs you list</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+button{font:inherit;color:inherit;cursor:pointer}
+</style>
+</helmet>
+<div style="width: 420px; height: 300px; box-sizing: border-box; padding: 30px; background: #081110; font-family: -apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif; color: #d6e6e1; font-size: 13px">
+  <div style="width: 360px; box-sizing: border-box; display: flex; flex-direction: column; border: 1px solid #2c4743; border-radius: 12px; background: #122120; box-shadow: 0 14px 36px rgba(0,0,0,0.45); overflow: hidden">
+    <div style="display: flex; align-items: baseline; gap: 8px; padding: 12px 14px 8px">
+      <span style="font-size: 14px; font-weight: 600">Needs you</span>
+      <span style="font-size: 12px; color: #83a098">3</span>
+      <span style="flex: 1"></span>
+      <span style="font-size: 11.5px; color: #83a098">⇧⌘A</span>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 2px; padding: 0 6px 8px">
+      <button style="display: flex; align-items: center; gap: 9px; height: 40px; padding: 0 9px; border: 0; border-radius: 8px; background: #1d3331; text-align: left">
+        <span style="padding: 1px 7px; border-radius: 999px; background: rgba(230,180,90,0.16); font-size: 11px; font-weight: 600; color: #e6b45a">Waiting</span>
+        <span style="font-weight: 600">main</span>
+        <span style="font-size: 12px; color: #83a098">ranch</span>
+        <span style="flex: 1"></span>
+        <span style="font-size: 11.5px; color: #83a098">2m</span>
+      </button>
+      <button style="display: flex; align-items: center; gap: 9px; height: 40px; padding: 0 9px; border: 0; border-radius: 8px; background: transparent; text-align: left">
+        <span style="padding: 1px 7px; border-radius: 999px; background: rgba(127,212,191,0.14); font-size: 11px; font-weight: 600; color: #7fd4bf">Reply</span>
+        <span style="font-weight: 600">main</span>
+        <span style="font-size: 12px; color: #83a098">paddock</span>
+        <span style="flex: 1"></span>
+        <span style="font-size: 11.5px; color: #83a098">4m</span>
+      </button>
+      <button style="display: flex; align-items: center; gap: 9px; height: 40px; padding: 0 9px; border: 0; border-radius: 8px; background: transparent; text-align: left">
+        <span style="padding: 1px 7px; border-radius: 999px; background: rgba(127,212,191,0.14); font-size: 11px; font-weight: 600; color: #7fd4bf">Reply</span>
+        <span style="font-weight: 600">main</span>
+        <span style="font-size: 12px; color: #83a098">cairn</span>
+        <span style="flex: 1"></span>
+        <span style="font-size: 11.5px; color: #83a098">11m</span>
+      </button>
+    </div>
+  </div>
+  <p style="margin: 14px 2px 0; font-size: 12px; line-height: 1.5; color: #83a098">只有名单，看不到它说了什么。点一行就跳到那个窗格，读完再跳回来。</p>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":420,"height":300}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

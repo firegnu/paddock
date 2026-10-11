@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>Inbox opened from the bell</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+a{color:#7fd4bf}a:hover{color:#a5e3d3}
+button{font:inherit;color:inherit;cursor:pointer}
+</style>
+</helmet>
+<div style="width: 1280px; height: 800px; position: relative; overflow: hidden; display: flex; flex-direction: column; background: #081110; font-family: -apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif; color: #d6e6e1; font-size: 13px">
+  <div style="flex: none; height: 44px; display: flex; align-items: center; gap: 8px; padding: 0 12px 0 84px">
+    <span style="display: flex; align-items: center; gap: 7px; height: 28px; padding: 0 12px; border-radius: 14px; background: #2e3939; box-shadow: inset 0 0 0 1px rgba(127,212,191,0.5); font-size: 12.5px; font-weight: 600"><span style="width: 7px; height: 7px; border-radius: 4px; background: #7fd4bf"></span>ranch · main</span>
+    <span style="display: flex; align-items: center; gap: 7px; height: 28px; padding: 0 12px; border-radius: 14px; background: #202b2a; font-size: 12.5px; color: #b0c6c0"><span style="width: 7px; height: 7px; border-radius: 4px; background: #9cc98e"></span>paddock · main</span>
+    <span style="display: flex; align-items: center; gap: 7px; height: 28px; padding: 0 12px; border-radius: 14px; background: #202b2a; font-size: 12.5px; color: #b0c6c0"><span style="width: 7px; height: 7px; border-radius: 4px; background: #9cc98e"></span>cairn · main</span>
+    <span style="flex: 1"></span>
+  </div>
+  <div style="flex: 1; min-height: 0; display: flex; gap: 8px; padding: 0 8px 8px">
+    <div style="flex: none; width: 264px; display: flex; flex-direction: column; border-radius: 10px; background: #0c1616">
+      <div style="flex: none; display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 10px 0 14px">
+        <span style="font-size: 13.5px; font-weight: 600">Agents</span>
+        <span style="font-size: 12px; color: #668580">4</span>
+        <span style="flex: 1"></span>
+        <button aria-label="Inbox, 3 unread" style="position: relative; display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 9px; border: 0; border-radius: 8px; background: rgba(230,180,90,0.16); box-shadow: inset 0 0 0 1px rgba(230,180,90,0.5); color: #e6b45a; font-size: 12px; font-weight: 600">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 11V7.5a4 4 0 018 0V11l1.2 1.5H2.8zM6.6 14h2.8"></path></svg>3
+        </button>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 6px; padding: 2px 10px">
+        <div style="padding: 6px 4px 2px; font-size: 11.5px; color: #83a098">cairn</div>
+        <div style="display: flex; flex-direction: column; gap: 3px; padding: 9px 11px; border-radius: 9px; background: rgba(214,230,225,0.045)"><div style="display: flex; align-items: center; gap: 7px"><span style="width: 7px; height: 7px; border-radius: 4px; background: #9cc98e"></span><span style="font-weight: 600">main</span><span style="flex: 1"></span><span style="font-size: 11.5px; color: #668580">11m</span></div><div style="font-size: 11.5px; color: #83a098">Idle · new reply</div></div>
+        <div style="padding: 6px 4px 2px; font-size: 11.5px; color: #83a098">owlet</div>
+        <div style="display: flex; flex-direction: column; gap: 3px; padding: 9px 11px; border-radius: 9px; background: rgba(214,230,225,0.045)"><div style="display: flex; align-items: center; gap: 7px"><span style="width: 7px; height: 7px; border-radius: 4px; background: #668580"></span><span style="font-weight: 600">main</span><span style="flex: 1"></span><span style="font-size: 11.5px; color: #668580">1h</span></div><div style="font-size: 11.5px; color: #83a098">Idle</div></div>
+        <div style="padding: 6px 4px 2px; font-size: 11.5px; color: #83a098">paddock</div>
+        <div style="display: flex; flex-direction: column; gap: 3px; padding: 9px 11px; border-radius: 9px; background: rgba(214,230,225,0.045)"><div style="display: flex; align-items: center; gap: 7px"><span style="width: 7px; height: 7px; border-radius: 4px; background: #9cc98e"></span><span style="font-weight: 600">main</span><span style="flex: 1"></span><span style="font-size: 11.5px; color: #668580">4m</span></div><div style="font-size: 11.5px; color: #83a098">Idle · new reply</div></div>
+        <div style="padding: 6px 4px 2px; font-size: 11.5px; color: #83a098">ranch</div>
+        <div style="display: flex; flex-direction: column; gap: 3px; padding: 9px 11px; border-radius: 9px; background: #172b2a"><div style="display: flex; align-items: center; gap: 7px"><span style="width: 7px; height: 7px; border-radius: 4px; background: #e6b45a"></span><span style="font-weight: 600">main</span><span style="flex: 1"></span><span style="font-size: 11.5px; color: #668580">2m</span></div><div style="font-size: 11.5px; color: #e6b45a">Waiting for input</div></div>
+      </div>
+    </div>
+    <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; padding: 16px 18px; border-radius: 10px; background: #0c1616; font-family: Menlo, ui-monospace, monospace; font-size: 12.5px; line-height: 1.7; color: #668580">
+      <div>⏺ 已按任务文件改完，测试通过。</div>
+      <div>&nbsp;&nbsp;下一步想请你定一下发布的顺序。</div>
+      <div>&nbsp;</div>
+      <div>❯ <span style="color: #83a098">▍</span></div>
+    </div>
+  </div>
+  <div style="position: absolute; inset: 44px 0 0 0; background: rgba(4,10,10,0.38)"></div>
+  <div style="position: absolute; left: 150px; top: 86px; width: 860px; height: 560px; display: flex; border: 1px solid #2c4743; border-radius: 12px; background: #122120; box-shadow: 0 18px 50px rgba(0,0,0,0.5); overflow: hidden">
+    <div style="flex: none; width: 292px; display: flex; flex-direction: column; border-right: 1px solid #1f3633">
+      <div style="flex: none; display: flex; align-items: baseline; gap: 8px; padding: 12px 14px 10px">
+        <span style="font-size: 14px; font-weight: 600">Inbox</span>
+        <span style="font-size: 12px; color: #83a098">3</span>
+        <span style="flex: 1"></span>
+        <span style="font-size: 11.5px; color: #83a098">⇧⌘A</span>
+      </div>
+      <div style="flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 2px; padding: 0 6px">
+        <div style="padding: 6px 8px 4px; font-size: 11px; color: #83a098">Needs you</div>
+        <div style="display: flex; flex-direction: column; gap: 3px; padding: 8px 9px; border-radius: 8px">
+          <div style="display: flex; align-items: center; gap: 7px"><span style="width: 7px; height: 7px; border-radius: 4px; background: #e6b45a"></span><span style="font-weight: 600">main</span><span style="font-size: 12px; color: #83a098">ranch</span><span style="flex: 1"></span><span style="font-size: 11.5px; color: #83a098">2m</span></div>
+          <div style="font-size: 12px; color: #e6b45a">Waiting for input</div>
+        </div>
+        <div style="padding: 8px 8px 4px; font-size: 11px; color: #83a098">New replies</div>
+        <div style="display: flex; flex-direction: column; gap: 3px; padding: 8px 9px; border-radius: 8px; background: #1d3331; box-shadow: inset 0 0 0 1px rgba(127,212,191,0.35)">
+          <div style="display: flex; align-items: center; gap: 7px"><span style="width: 7px; height: 7px; border-radius: 4px; background: #7fd4bf"></span><span style="font-weight: 600">main</span><span style="font-size: 12px; color: #83a098">paddock</span><span style="flex: 1"></span><span style="font-size: 11.5px; color: #83a098">4m</span></div>
+          <div style="font-size: 12px; color: #b8cdc6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">P5-86 做完了，已合并并装好；重开 paddock 就能用。</div>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 3px; padding: 8px 9px; border-radius: 8px">
+          <div style="display: flex; align-items: center; gap: 7px"><span style="width: 7px; height: 7px; border-radius: 4px; background: #7fd4bf"></span><span style="font-weight: 600">main</span><span style="font-size: 12px; color: #83a098">cairn</span><span style="flex: 1"></span><span style="font-size: 11.5px; color: #83a098">11m</span></div>
+          <div style="font-size: 12px; color: #8aa59e; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">任务文件写好了，有三处要你定。</div>
+        </div>
+        <div style="padding: 8px 8px 4px; font-size: 11px; color: #83a098">Read</div>
+        <div style="display: flex; flex-direction: column; gap: 3px; padding: 8px 9px; border-radius: 8px">
+          <div style="display: flex; align-items: center; gap: 7px"><span style="width: 7px; height: 7px; border-radius: 4px; background: #668580"></span><span style="font-weight: 600; color: #b8cdc6">main</span><span style="font-size: 12px; color: #83a098">owlet</span><span style="flex: 1"></span><span style="font-size: 11.5px; color: #83a098">1h</span></div>
+          <div style="font-size: 12px; color: #83a098; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">好，记下了。现在没有进行中的活。</div>
+        </div>
+      </div>
+    </div>
+    <div style="flex: 1; min-width: 0; display: flex; flex-direction: column">
+      <div style="flex: none; display: flex; align-items: center; gap: 9px; padding: 11px 14px 10px 18px; border-bottom: 1px solid #1f3633">
+        <span style="font-size: 14px; font-weight: 600">paddock/main</span>
+        <span style="padding: 1px 8px; border-radius: 999px; background: rgba(127,212,191,0.14); font-size: 11.5px; font-weight: 600; color: #7fd4bf">New reply</span>
+        <span style="font-size: 11.5px; color: #83a098">4m ago</span>
+        <span style="flex: 1"></span>
+        <button style="display: flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border: 1px solid #2c4743; border-radius: 13px; background: transparent; font-size: 11.5px; color: #b8cdc6"><svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h7v7M13 3L4 12"></path></svg>Open pane</button>
+      </div>
+      <div style="flex: 1; min-height: 0; position: relative; overflow: hidden; padding: 14px 22px 0 18px; font-size: 13.5px; line-height: 1.65">
+        <p style="margin: 0 0 10px">P5-86 做完了，已合并并装好；重开 paddock 就能用。样子和手感没人实际看过，要你来试。</p>
+        <p style="margin: 0 0 4px; font-weight: 600">我核过的</p>
+        <ul style="margin: 0 0 10px; padding-left: 20px"><li>看了全部改动，范围和任务文件一致，没加新的库。</li><li>重跑了测试，559 项通过；格式检查干净。</li></ul>
+        <p style="margin: 0 0 4px; font-weight: 600">请你重开后试这几处</p>
+        <ul style="margin: 0 0 10px; padding-left: 20px"><li>草稿卡片悬停有两个新按钮，已提交的只有 <span style="padding: 1px 5px; border-radius: 4px; background: rgba(214,230,225,0.08); font-family: Menlo, ui-monospace, monospace; font-size: 12px">Drop task</span>。</li><li>删一张草稿：确认后卡片消失，文件在废纸篓里能找到。</li><li>已提交的和草稿各标一次不做：卡片进 Done。</li></ul>
+        <p style="margin: 0 0 4px; font-weight: 600">两处你可能会碰到的行为</p>
+        <ul style="margin: 0; padding-left: 20px"><li>原因输入框整个看板只有一个。</li></ul>
+        <div style="position: absolute; left: 0; right: 0; bottom: 0; height: 36px; background: linear-gradient(rgba(18,33,32,0), #122120)"></div>
+        <div style="position: absolute; right: 5px; top: 12px; width: 4px; height: 150px; border-radius: 2px; background: rgba(214,230,225,0.16)"></div>
+      </div>
+      <div style="flex: none; display: flex; flex-direction: column; gap: 7px; padding: 10px 14px 12px 18px; border-top: 1px solid #1f3633">
+        <label style="display: flex; flex-direction: column; gap: 0">
+          <span style="position: absolute; width: 1px; height: 1px; overflow: hidden">Reply to paddock/main</span>
+          <span style="display: block; min-height: 54px; box-sizing: border-box; padding: 8px 11px; border: 1px solid rgba(127,212,191,0.55); border-radius: 9px; background: #0c1616; font-size: 13.5px; line-height: 1.5">我重开看了，挺好的<span style="display: inline-block; width: 1.5px; height: 16px; margin-left: 1px; vertical-align: -3px; background: #7fd4bf"></span></span>
+        </label>
+        <div style="display: flex; align-items: center; gap: 12px; font-size: 11.5px; color: #83a098">
+          <span>↩ Send</span><span>⇧↩ New line</span><span>⌃Tab Next</span><span>Esc Close</span>
+          <span style="flex: 1"></span>
+          <button style="height: 26px; padding: 0 14px; border: 0; border-radius: 13px; background: #7fd4bf; font-size: 12px; font-weight: 600; color: #0c1616">Send</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":800}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>
