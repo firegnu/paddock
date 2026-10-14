@@ -498,6 +498,9 @@ const TAB_GAP: f32 = 7.0;
 const TAB_END: f32 = 12.0;
 const ACTIVE_TAB_END: f32 = 6.0;
 const TAB_CLOSE: f32 = 16.0;
+/// How opaque a capsule's edge is over the system's material, drawn in the text's colour, as the
+/// sidebar's cards' there (P5-97).
+const TAB_EDGE: f32 = 0.07;
 pub(crate) const TAB_RING: f32 = 1.0;
 const TAB_SPACING: f32 = 6.0;
 const TAB_WIDEST: f32 = 220.0;
@@ -562,10 +565,11 @@ fn ui_text_width(window: &Window, ui: &UiFont, text: &str, size: f32, weight: Fo
 }
 
 /// A tab's width around its title (see [`TabSize`]), in points: for one holding `panes` panes, the
-/// active one `empty` or not, its agent `paused` or not, the `active` tab or another, the
-/// interface `s` times its base size. A split tab has its panes' stack where another has its one
+/// active one `empty` or not, its agent `paused` or not, its × `inline` (the active tab's, and every
+/// tab's over the system's material, P5-97) or over its title's end, the interface `s` times its
+/// base size. A split tab has its panes' stack where another has its one
 /// icon, or its bare dot when it is empty.
-fn tab_chrome(panes: usize, empty: bool, paused: bool, active: bool, s: f32) -> f32 {
+fn tab_chrome(panes: usize, empty: bool, paused: bool, inline: bool, s: f32) -> f32 {
     let badge = match panes {
         1 if empty => 7.0,
         1 => BADGE_ICON + 2.0,
@@ -576,7 +580,7 @@ fn tab_chrome(panes: usize, empty: bool, paused: bool, active: bool, s: f32) -> 
     } else {
         0.0
     };
-    let end = if active {
+    let end = if inline {
         TAB_GAP + TAB_CLOSE + ACTIVE_TAB_END
     } else {
         TAB_END
@@ -1045,6 +1049,21 @@ pub(crate) fn capsule_grounds(bar: Hsla, text: Hsla, tint: Option<Hsla>) -> Grou
         rest: bar.blend(color.opacity(rest)),
         lit: bar.blend(color.opacity(lit)),
         chosen: bar.blend(color.opacity(chosen)),
+    }
+}
+
+/// [`Grounds`] seen through over the system's sidebar material (P5-97): the same steps as
+/// [`capsule_grounds`], laid over what is under them rather than over the bar's colour, as the
+/// sidebar's card faces there.
+pub(crate) fn capsule_faces(text: Hsla, tint: Option<Hsla>) -> Grounds {
+    let (color, [rest, lit, chosen]) = match tint {
+        Some(tint) => (tint, CAPSULE_TINTED),
+        None => (text, CAPSULE_NEUTRAL),
+    };
+    Grounds {
+        rest: color.opacity(rest),
+        lit: color.opacity(lit),
+        chosen: color.opacity(chosen),
     }
 }
 
@@ -3166,6 +3185,7 @@ impl PaddockWindow {
         let short = tab_fit::distinct(&subjects, &open);
         let marks = self.tab_marks(cx);
         let active = self.workspace.active_tab;
+        let frosted = self.frosted();
         let sizes: Vec<TabSize> = self
             .workspace
             .tabs
@@ -3182,7 +3202,13 @@ impl PaddockWindow {
                 let empty = matches!(self.workspace.shown(tab.active), Shown::Empty);
                 let group = group.as_deref().unwrap_or_default();
                 TabSize {
-                    chrome: tab_chrome(panes, empty, marks[index].paused, index == active, s),
+                    chrome: tab_chrome(
+                        panes,
+                        empty,
+                        marks[index].paused,
+                        index == active || frosted,
+                        s,
+                    ),
                     full: width(group, TAB_TEXT, FontWeight::NORMAL)
                         + width(name, TAB_TEXT, weight),
                     short: width(&short[index], TAB_TEXT, weight),
@@ -3284,6 +3310,26 @@ impl PaddockWindow {
         )
     }
 
+    /// A title bar capsule's grounds as drawn, `whole` those of [`Self::capsule`] in the status
+    /// colour `tint`: over the system's material seen through (see [`capsule_faces`]), else whole.
+    fn faces(&self, whole: Grounds, tint: Option<Pick>) -> Grounds {
+        if self.frosted() {
+            capsule_faces(self.fg(|t| t.agents_text), tint.map(|pick| self.fg(pick)))
+        } else {
+            whole
+        }
+    }
+
+    /// The edge of a title bar capsule with no ring: over the system's material a faint one, as
+    /// the sidebar's cards' there (P5-97); else none.
+    fn capsule_edge(&self) -> Hsla {
+        if self.frosted() {
+            self.fg(|t| t.agents_text).opacity(TAB_EDGE)
+        } else {
+            gpui::transparent_black()
+        }
+    }
+
     /// The title bar: over the sidebar the traffic lights (none in full screen) and the sidebar's
     /// header row, then the tabs from the terminal's left edge, the `+` after the last, and the
     /// pet in the room left. What is not a tab or a button drags the window, and a double click
@@ -3303,6 +3349,9 @@ impl PaddockWindow {
         let dim = self.fg(|t| t.agents_dim);
         let shown_at = Instant::now();
         let fit = self.fit_tabs(full_screen, window, cx);
+        // Over the system's material the capsules are seen through, each with its × in line, which
+        // would otherwise cover what shows of its title's end (P5-97).
+        let frosted = self.frosted();
         // A press on a tab or a button is theirs, not the start of a drag.
         let keep = |_: &MouseDownEvent, _: &mut Window, cx: &mut gpui::App| cx.stop_propagation();
         let mut tabs = div()
@@ -3322,11 +3371,19 @@ impl PaddockWindow {
             let marks = fit.marks[index];
             // Its grounds and its name's colour, from the status of the agent it is named after.
             let tint = marks.tone.color();
-            let (Grounds { rest, lit, chosen }, quiet, loud) = self.capsule(tint);
+            let (whole, quiet, loud) = self.capsule(tint);
+            let Grounds { rest, lit, chosen } = self.faces(whole, tint);
             // The active tab keeps its × in line; the others have it over the end of their
-            // title, so a narrow tab gives the title all its room. The active one's always shows;
-            // the others' fade in only while the mouse is on the tab.
+            // title, so a narrow tab gives the title all its room, unless their ground is seen
+            // through. The active one's always shows; the others' fade in only while the mouse is
+            // on the tab. Seen through, its ground is the capsule's.
+            let inline = active || frosted;
             let under = if active { chosen } else { lit };
+            let (under, pressed) = if frosted {
+                (gpui::transparent_black(), hsla(muted, 0.18))
+            } else {
+                (under, under.blend(hsla(muted, 0.18)))
+            };
             let close = div()
                 .id(("close-tab", index))
                 .flex_shrink_0()
@@ -3341,8 +3398,8 @@ impl PaddockWindow {
                 } else {
                     self.close_shown(index, shown_at)
                 })
-                .hover(move |style| style.bg(under.blend(hsla(muted, 0.18))))
-                .when(!active, |close| {
+                .hover(move |style| style.bg(pressed))
+                .when(!inline, |close| {
                     // Centred in the capsule, inside its ring.
                     let inset = px(ui.scale((TAB_HEIGHT - TAB_CLOSE) / 2.0) - TAB_RING);
                     close.absolute().top(inset).right(inset)
@@ -3367,15 +3424,16 @@ impl PaddockWindow {
             } else if marks.amber_ring() {
                 self.fg(|t| t.agents_yellow).opacity(RING_WAITING)
             } else {
-                gpui::transparent_black()
+                self.capsule_edge()
             };
             // The active pane's icon and status dot; in a split tab, its panes' cards in a stack,
-            // which tells how many they are on hover.
+            // which tells how many they are on hover. The dot's ring keeps the capsule's whole
+            // colour, seen through or not, to stand off the icon.
             let (ground, hovered) = if active {
-                (chosen, None)
+                (whole.chosen, None)
             } else {
                 let group = SharedString::from(format!("tab-{index}"));
-                (rest, Some((group, lit)))
+                (whole.rest, Some((group, whole.lit)))
             };
             let panes = tab.panes();
             let mark = match panes_tip(panes.len()) {
@@ -3445,7 +3503,7 @@ impl PaddockWindow {
             } else {
                 item.flex_shrink(1.0)
                     .min_w(ui.px(56.0))
-                    .pr(ui.px(TAB_END))
+                    .pr(ui.px(if inline { ACTIVE_TAB_END } else { TAB_END }))
                     .bg(rest)
                     .text_color(quiet)
                     .hover(move |style| style.bg(lit))
@@ -3599,15 +3657,12 @@ impl PaddockWindow {
         } else {
             TabTone::Neutral
         };
-        let (
-            Grounds {
-                rest,
-                lit: lit_ground,
-                ..
-            },
-            quiet,
-            loud,
-        ) = self.capsule(tone.color());
+        let (whole, quiet, loud) = self.capsule(tone.color());
+        let Grounds {
+            rest,
+            lit: lit_ground,
+            ..
+        } = self.faces(whole, tone.color());
         let lit = self.popup == Some(Popup::Overflow);
         let color = if lit { loud } else { quiet };
         div()
@@ -3622,6 +3677,8 @@ impl PaddockWindow {
             .h(ui.px(TAB_HEIGHT))
             .rounded_full()
             .bg(if lit { lit_ground } else { rest })
+            .border(px(TAB_RING))
+            .border_color(self.capsule_edge())
             .text_size(ui.px(MORE_TEXT))
             .text_color(color)
             .cursor_pointer()
@@ -6316,6 +6373,24 @@ mod tests {
                 TabTone::Neutral,
             ]
         );
+    }
+
+    #[test]
+    fn over_the_material_capsules_are_seen_through_in_the_same_steps() {
+        let text = gpui::hsla(0.6, 0.2, 0.9, 1.0);
+        let tint = gpui::hsla(0.1, 0.7, 0.6, 1.0);
+        // Neutral: the text colour, as faint as a neutral capsule steps towards it.
+        let faces = capsule_faces(text, None);
+        assert_eq!(faces.rest, text.opacity(CAPSULE_NEUTRAL[0]));
+        assert_eq!(faces.lit, text.opacity(CAPSULE_NEUTRAL[1]));
+        assert_eq!(faces.chosen, text.opacity(CAPSULE_NEUTRAL[2]));
+        // Tinted: the status colour, as strongly as it washes a tinted one.
+        let faces = capsule_faces(text, Some(tint));
+        assert_eq!(faces.rest, tint.opacity(CAPSULE_TINTED[0]));
+        assert_eq!(faces.lit, tint.opacity(CAPSULE_TINTED[1]));
+        assert_eq!(faces.chosen, tint.opacity(CAPSULE_TINTED[2]));
+        // Each a step brighter than the last: the active one stands out of the others.
+        assert!(faces.rest.a < faces.lit.a && faces.lit.a < faces.chosen.a);
     }
 
     #[test]
