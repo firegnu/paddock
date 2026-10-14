@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>New Agent, kind chip open</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+button{font:inherit;color:inherit;cursor:pointer}
+textarea::placeholder{color:#6f8781}
+</style>
+</helmet>
+<div style="position: relative; width: 760px; height: 720px; box-sizing: border-box; padding: 40px; background: #0b1413; font-family: -apple-system, 'SF Pro Text', 'Helvetica Neue', sans-serif; color: #dfe9e5">
+  <div style="width: 680px; border-radius: 16px; background: #152523; border: 1px solid rgba(255,255,255,0.08); box-shadow: 0 30px 80px rgba(0,0,0,0.55); display: flex; flex-direction: column">
+    <div style="display: flex; align-items: center; gap: 4px; padding: 14px 14px 0 14px">
+      <button style="display: flex; align-items: center; gap: 7px; height: 30px; padding: 0 12px; border: 0; border-radius: 15px; background: transparent; font-size: 13px; color: #b9c8c3"><span style="width: 16px; height: 16px; border-radius: 4px; overflow: hidden; display: inline-flex"><img src="/_blob/cf6720a879214d1a07fbcf7851444a67" alt="" style="width: 22px; height: 22px; margin: -3px"></span>Controller</button>
+      <button style="display: flex; align-items: center; gap: 7px; height: 30px; padding: 0 12px; border: 0; border-radius: 15px; background: #1f3532; font-size: 13px; color: #7fd3bf"><span style="width: 16px; height: 16px; border-radius: 4px; overflow: hidden; display: inline-flex"><img src="/_blob/cf6720a879214d1a07fbcf7851444a67" alt="" style="width: 22px; height: 22px; margin: -3px"></span>Developer</button>
+      <button style="display: flex; align-items: center; gap: 7px; height: 30px; padding: 0 12px; border: 0; border-radius: 15px; background: transparent; font-size: 13px; color: #b9c8c3"><span style="width: 16px; height: 16px; border-radius: 4px; overflow: hidden; display: inline-flex"><img src="/_blob/3b8211fc1e6186d991173335b0dd200b" alt="" style="width: 22px; height: 22px; margin: -3px"></span>Codex builder</button>
+      <button style="height: 30px; padding: 0 8px; border: 0; background: transparent; font-size: 13px; color: #8fa39d">+1</button>
+      <button style="margin-left: auto; display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px; border: 0; border-radius: 8px; background: transparent; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; color: #8fa39d"><span>paddock/<span style="color: #dfe9e5">claude-1</span></span></button>
+    </div>
+
+    <label for="task" style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Task</label>
+    <textarea id="task" placeholder="What should it work on?" style="margin: 6px 0 0 0; height: 120px; resize: none; border: 0; outline: none; background: transparent; padding: 14px 26px 4px; font: inherit; font-size: 17px; line-height: 1.5; color: #dfe9e5"></textarea>
+
+    <div style="display: flex; align-items: center; gap: 6px; padding: 12px 12px 12px 18px">
+      <button style="display: flex; align-items: center; gap: 7px; height: 32px; padding: 0 11px; border: 1px solid rgba(255,255,255,0.08); border-radius: 16px; background: #1c2d2b; font-size: 13px; color: #dfe9e5">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8fa39d" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path></svg>
+        paddock
+      </button>
+      <button aria-expanded="true" style="display: flex; align-items: center; gap: 7px; height: 32px; padding: 0 10px 0 9px; border: 1px solid #7fd3bf; border-radius: 16px; background: #1c2d2b; font-size: 13px; color: #dfe9e5">
+        <span style="width: 16px; height: 16px; border-radius: 4px; overflow: hidden; display: inline-flex"><img src="/_blob/cf6720a879214d1a07fbcf7851444a67" alt="" style="width: 22px; height: 22px; margin: -3px"></span>
+        <span>Claude</span>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#8fa39d" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 15l6-6 6 6"></path></svg>
+      </button>
+      <button style="display: flex; align-items: center; gap: 7px; height: 32px; padding: 0 10px 0 12px; border: 1px solid rgba(255,255,255,0.08); border-radius: 16px; background: #1c2d2b; font-size: 13px; color: #dfe9e5">
+        <span style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px">opus[1m]</span>
+        <span style="color: #6f8781">·</span>
+        <span>high</span>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#8fa39d" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg>
+      </button>
+      <button style="display: flex; align-items: center; gap: 7px; height: 32px; padding: 0 11px; border: 1px solid rgba(255,255,255,0.08); border-radius: 16px; background: #1c2d2b; font-size: 13px; color: #dfe9e5">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8fa39d" stroke-width="1.8" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"></rect><path d="M12 5v14"></path></svg>
+        New tab
+      </button>
+      <button style="height: 32px; padding: 0 12px; border: 1px dashed rgba(255,255,255,0.16); border-radius: 16px; background: transparent; font-size: 13px; color: #8fa39d">Controller</button>
+      <button aria-label="Show command" style="margin-left: auto; width: 32px; height: 32px; border: 0; background: transparent; color: #8fa39d; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 13px">&lt;&gt;</button>
+      <button aria-label="Start (⌘↩)" style="width: 40px; height: 40px; border: 0; border-radius: 20px; background: #7fd3bf; color: #0d1d1a; display: inline-flex; align-items: center; justify-content: center">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"></path></svg>
+      </button>
+    </div>
+  </div>
+
+  <div role="listbox" aria-label="Agent" style="position: absolute; left: 158px; top: 300px; width: 280px; box-sizing: border-box; padding: 8px; display: flex; flex-direction: column; gap: 2px; border-radius: 14px; background: #172826; border: 1px solid rgba(255,255,255,0.09); box-shadow: 0 18px 50px rgba(0,0,0,0.5)">
+    <button role="option" aria-selected="true" style="display: flex; align-items: center; gap: 10px; height: 38px; padding: 0 10px; border: 0; border-radius: 9px; background: #213733; font-size: 13.5px; color: #dfe9e5; text-align: left">
+      <span style="width: 18px; height: 18px; border-radius: 4px; overflow: hidden; display: inline-flex"><img src="/_blob/cf6720a879214d1a07fbcf7851444a67" alt="" style="width: 24px; height: 24px; margin: -3px"></span>
+      <span style="flex: 1">Claude</span>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#7fd3bf" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg>
+    </button>
+    <button role="option" style="display: flex; align-items: center; gap: 10px; height: 38px; padding: 0 10px; border: 0; border-radius: 9px; background: transparent; font-size: 13.5px; color: #b9c8c3; text-align: left">
+      <span style="width: 18px; height: 18px; border-radius: 4px; overflow: hidden; display: inline-flex"><img src="/_blob/3b8211fc1e6186d991173335b0dd200b" alt="" style="width: 24px; height: 24px; margin: -3px"></span>
+      <span style="flex: 1">Codex</span>
+    </button>
+    <button role="option" style="display: flex; align-items: center; gap: 10px; height: 38px; padding: 0 10px; border: 0; border-radius: 9px; background: transparent; font-size: 13.5px; color: #b9c8c3; text-align: left">
+      <img src="/_blob/d1db347a440c4d3d89dd15533513a223" alt="" style="width: 18px; height: 18px">
+      <span style="flex: 1">pi</span>
+      <span style="font-size: 11.5px; color: #6f8781">own defaults</span>
+    </button>
+    <button role="option" style="display: flex; align-items: center; gap: 10px; height: 38px; padding: 0 10px; border: 0; border-radius: 9px; background: transparent; font-size: 13.5px; color: #b9c8c3; text-align: left">
+      <span style="width: 18px; height: 18px; border-radius: 4px; overflow: hidden; display: inline-flex"><img src="/_blob/17980c5469c425a7d0fa3304f920bae5" alt="" style="width: 18px; height: 18px"></span>
+      <span style="flex: 1">omp</span>
+      <span style="font-size: 11.5px; color: #6f8781">own defaults</span>
+    </button>
+    <button role="option" style="display: flex; align-items: center; gap: 10px; height: 38px; padding: 0 10px; border: 0; border-radius: 9px; background: transparent; font-size: 13.5px; color: #b9c8c3; text-align: left">
+      <span style="width: 18px; height: 18px; border-radius: 4px; overflow: hidden; display: inline-flex"><img src="/_blob/936cd49367f215fb44f0019c439ef1d7" alt="" style="width: 24px; height: 24px; margin: -3px"></span>
+      <span style="flex: 1">amp</span>
+      <span style="font-size: 11.5px; color: #6f8781">own defaults</span>
+    </button>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":760,"height":720}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>
