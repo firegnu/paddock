@@ -190,6 +190,8 @@ const COMPACT_BELL: f32 = 28.0;
 /// The button that pauses or resumes every agent, before the bell, and the room between them.
 const PAUSE_ALL: f32 = 28.0;
 const PAUSE_GAP: f32 = 2.0;
+/// The button that opens `New Workspace…`, before that one, as big and as far from it.
+const NEW_WORKSPACE: f32 = PAUSE_ALL;
 /// The footer, and its menu button at the bottom left and the icon in it; in the strip the button
 /// is centred.
 const FOOTER: f32 = 50.0;
@@ -291,7 +293,7 @@ impl HeadWords {
 }
 
 /// How wide a sidebar the header row with `words` needs, starting at `start`, with the bell
-/// compact or as a pill.
+/// compact or as a pill; the `New Workspace…` button is always there.
 fn head_width(start: f32, compact: bool, ui: &UiFont, words: &HeadWords) -> f32 {
     let bell = if compact {
         ui.scale(COMPACT_BELL)
@@ -307,7 +309,15 @@ fn head_width(start: f32, compact: bool, ui: &UiFont, words: &HeadWords) -> f32 
     } else {
         0.0
     };
-    start + ui.scale(TOGGLE + TITLE_GAP) + words.title + count + pause_all + bell + PAD
+    let new_workspace = ui.scale(NEW_WORKSPACE + PAUSE_GAP);
+    start
+        + ui.scale(TOGGLE + TITLE_GAP)
+        + words.title
+        + count
+        + new_workspace
+        + pause_all
+        + bell
+        + PAD
 }
 
 /// The narrowest the sidebar is dragged to: 220, or wider when the header row with the compact
@@ -740,11 +750,11 @@ impl Sidebar {
     }
 
     /// The header row, in the title bar after the traffic lights (none in `full_screen`): the
-    /// collapse button, `Agents` and how many, and at the right end the button for every agent and
-    /// the bell, compact when the row, measured as it is set, has no room for it as a pill;
-    /// collapsed to the strip, only the expand button, where the collapse button was. `spot` goes
-    /// in the bell, for the window to hang the Inbox from. A press on a button is not the
-    /// start of a drag.
+    /// collapse button, `Agents` and how many, and at the right end `New Workspace…`, the button for
+    /// every agent and the bell, compact when the row, measured as it is set, has no room for it
+    /// as a pill; collapsed to the strip, only the expand button, where the collapse button was.
+    /// `spot` goes in the bell, for the window to hang the Inbox from. A press on a button is not
+    /// the start of a drag.
     pub fn head(
         &mut self,
         full_screen: bool,
@@ -828,6 +838,10 @@ impl Sidebar {
             self.badge(spot, cx)
         };
         let pause_gap = ui.px(PAUSE_GAP);
+        let new_workspace = self
+            .new_workspace_button(cx)
+            .mr(pause_gap)
+            .on_mouse_down(MouseButton::Left, keep);
         let pause_all = pause_all.map(|button| {
             button.map(move |button| button.mr(pause_gap).on_mouse_down(MouseButton::Left, keep))
         });
@@ -864,6 +878,7 @@ impl Sidebar {
                 }),
         )
         .child(div().flex_1())
+        .child(new_workspace)
         .children(pause_all)
         .child(bell.map(move |bell| bell.on_mouse_down(MouseButton::Left, keep)))
     }
@@ -909,6 +924,25 @@ impl Sidebar {
                 .on_click(on_click)
             })
         })
+    }
+
+    /// The button that opens the `New Workspace…` panel, nothing ticked, as the View menu does:
+    /// always there, before the button for every agent and in the strip under it (P5-92).
+    fn new_workspace_button(&self, cx: &mut Context<Self>) -> gpui::Stateful<Div> {
+        let ui = UiFont::get(cx);
+        let selected = self.grounds().selected;
+        button(
+            (&self.theme, selected, |t| t.agents_dim),
+            &ui,
+            "new-workspace",
+            (Icon::NewWorkspace, Pose::Rest, footer_icon::SIZE),
+            "New Workspace…",
+            (NEW_WORKSPACE, NEW_WORKSPACE, 7.0),
+            false,
+        )
+        .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+            this.new_workspace(Default::default(), window, cx)
+        }))
     }
 
     /// The button for every agent was clicked (see [`pause::every`]).
@@ -1136,8 +1170,8 @@ impl Sidebar {
         })
     }
 
-    /// The collapsed strip: the bell and the button for every agent, then a tile for each agent,
-    /// the projects set apart by short rules, and the menu button at the bottom.
+    /// The collapsed strip: the bell, the button for every agent and `New Workspace…`, then a tile
+    /// for each agent, the projects set apart by short rules, and the menu button at the bottom.
     fn rail(&mut self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
         let ui = UiFont::get(cx);
         let theme = self.theme.clone();
@@ -1221,6 +1255,7 @@ impl Sidebar {
                 let top = ui.px(4.0);
                 button.map(move |button| button.mt(top))
             }))
+            .child(self.new_workspace_button(cx).mt(ui.px(4.0)))
             .child(rule(24.0, 0.0).mt(ui.px(8.0)).mb(ui.px(4.0)))
             .child(tiles)
             .child(
@@ -3734,10 +3769,10 @@ mod tests {
     #[test]
     fn the_narrowest_sidebar_still_holds_the_header_row_in_the_title_bar() {
         // At the base interface size the bell goes compact before the row runs out of room, and
-        // the compact row, with its two-digit count in a pill and the button for every agent
-        // before the bell, needs more than the usual narrowest sidebar.
+        // the compact row, with its two-digit count in a pill, `New Workspace…` and the button for
+        // every agent before the bell, needs more than the usual narrowest sidebar.
         let base = UiFont::default();
-        assert_eq!(min_width(&base).round(), 254.0);
+        assert_eq!(min_width(&base).round(), 284.0);
         assert!(compact_bell(
             min_width(&base),
             false,
@@ -3745,7 +3780,7 @@ mod tests {
             &HeadWords::reckoned(&base)
         ));
         assert!(!compact_bell(
-            300.0,
+            330.0,
             false,
             &base,
             &HeadWords::reckoned(&base)
@@ -3779,18 +3814,18 @@ mod tests {
         assert!(min_width(&small) < min_width(&base));
         let smaller = UiFont {
             family: None,
-            size: 10.0,
+            size: 8.0,
         };
         assert_eq!(min_width(&smaller), MIN_WIDTH);
         // In full screen there are no traffic lights: the row has more room.
         assert!(compact_bell(
-            235.0,
+            265.0,
             false,
             &base,
             &HeadWords::reckoned(&base)
         ));
         assert!(!compact_bell(
-            235.0,
+            265.0,
             true,
             &base,
             &HeadWords::reckoned(&base)
@@ -3805,12 +3840,12 @@ mod tests {
             size: 18.0,
         };
         // Narrower than the row needs: drawn at the narrowest, in whole points.
-        assert_eq!(fit_width(200.0, &base), 254.0);
-        assert_eq!(fit_width(253.0, &base), 254.0);
-        assert_eq!(fit_width(254.0, &large), min_width(&large));
-        assert!(fit_width(254.0, &large) > 254.0);
+        assert_eq!(fit_width(200.0, &base), 284.0);
+        assert_eq!(fit_width(283.0, &base), 284.0);
+        assert_eq!(fit_width(284.0, &large), min_width(&large));
+        assert!(fit_width(284.0, &large) > 284.0);
         // Wide enough: as written.
-        assert_eq!(fit_width(254.0, &base), 254.0);
+        assert_eq!(fit_width(284.0, &base), 284.0);
         assert_eq!(fit_width(300.5, &base), 300.5);
         // A drag from there keeps to the range, and what it saves is no narrower.
         for ui in [&base, &large] {
@@ -3818,6 +3853,26 @@ mod tests {
             let dragged = resize(fitted, 400.0, 399.0, min_width(ui));
             assert!(dragged >= min_width(ui), "{dragged}");
             assert_eq!(dragged, dragged.round());
+        }
+    }
+
+    #[test]
+    fn the_header_row_keeps_room_for_the_new_workspace_button_without_agents() {
+        for size in [13.0, 18.0] {
+            let ui = UiFont { family: None, size };
+            let words = HeadWords {
+                title: ui.scale(43.0),
+                count: None,
+                pause_all: false,
+                bell: None,
+            };
+            let bell = ui.scale(PILL_X + footer_icon::SIZE + PILL_X);
+            let rest = LIGHTS + ui.scale(TOGGLE + TITLE_GAP) + words.title + bell + PAD;
+            let need = head_width(LIGHTS, false, &ui, &words);
+            assert!(
+                (need - rest - ui.scale(NEW_WORKSPACE + PAUSE_GAP)).abs() < 1e-3,
+                "{size}"
+            );
         }
     }
 

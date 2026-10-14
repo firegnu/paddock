@@ -22,6 +22,9 @@ pub enum Icon {
     NewAgent,
     /// A terminal window with a `>_` prompt.
     NewShell,
+    /// A sheet lying on another, a plus at the bottom right: New Workspace…, as the workspaces'
+    /// own `LAYERS_PLUS` (`sidebar_workspaces.rs`).
+    NewWorkspace,
     /// A filled square.
     Stop,
     /// A filled square filling most of the box, as heavy as `Copy` beside it: a card's Stop….
@@ -207,6 +210,23 @@ fn shapes(icon: Icon, pose: Pose, bounds: Bounds<Pixels>, scale: f32) -> Vec<Pat
             prompt.move_to(at(7.25, 9.25));
             prompt.line_to(at(10.5, 9.25));
             vec![frame, prompt]
+        }
+        Icon::NewWorkspace => {
+            let mut sheets = stroke();
+            sheets.move_to(at(6.5, 1.75));
+            sheets.line_to(at(11.5, 4.25));
+            sheets.line_to(at(6.5, 6.75));
+            sheets.line_to(at(1.5, 4.25));
+            sheets.close();
+            sheets.move_to(at(1.5, 7.5));
+            sheets.line_to(at(6.5, 10.0));
+            sheets.line_to(at(8.5, 9.0));
+            let mut plus = stroke();
+            plus.move_to(at(11.0, 8.5));
+            plus.line_to(at(11.0, 12.5));
+            plus.move_to(at(9.0, 10.5));
+            plus.line_to(at(13.0, 10.5));
+            vec![sheets, plus]
         }
         Icon::Stop => {
             let mut square = PathBuilder::fill();
