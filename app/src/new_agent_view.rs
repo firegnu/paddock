@@ -22,12 +22,19 @@ use crate::{
     view::hsla,
 };
 use gpui::{
-    AnyElement, App, Bounds, BoxShadow, ClickEvent, Context, Div, ElementId, Entity, EventEmitter,
-    FocusHandle, Focusable, FontWeight, Hsla, MouseButton, MouseDownEvent, PathBuilder,
-    PathPromptOptions, Pixels, Render, SharedString, Stateful, Subscription, TextRun, Window,
-    canvas, div, point, prelude::*, px, relative,
+    Animation, AnimationExt, AnyElement, App, Bounds, BoxShadow, ClickEvent, Context, Div,
+    DragMoveEvent, ElementId, Entity, EventEmitter, FocusHandle, Focusable, FontWeight, Hsla,
+    MouseButton, MouseDownEvent, PathBuilder, PathPromptOptions, Pixels, Render, SharedString,
+    Stateful, Subscription, TextRun, Window, canvas, div, point, prelude::*, px, relative,
 };
-use std::{cell::RefCell, collections::HashMap, path::PathBuf, rc::Rc, sync::atomic::AtomicBool};
+use std::{
+    cell::{Cell, RefCell},
+    collections::HashMap,
+    path::PathBuf,
+    rc::Rc,
+    sync::atomic::AtomicBool,
+    time::Duration,
+};
 
 /// The key context of the New Agent panel: ⌘↩ starts, Esc steps back, ⌘W closes.
 pub const CONTEXT: &str = "PaddockNewAgent";
@@ -53,6 +60,76 @@ const PROMPT_MOST: f32 = 280.0;
 const CHIP: f32 = 32.0;
 const MENU: f32 = 280.0;
 const PICKER: f32 = 318.0;
+
+/// The efforts paddock knows, coolest first: one name is as hot for Claude as for Codex.
+const EFFORT_RANKS: [&str; 6] = ["low", "medium", "high", "xhigh", "max", "ultra"];
+/// Where on the way from cool to hot the colour is the theme's yellow.
+const YELLOW_AT: f32 = 0.6;
+
+/// How hot `effort` is, 0 to 1: by its name, so `max` is as hot for Claude as for Codex; a name
+/// paddock does not know goes by its place, `index` of `count`.
+fn heat(effort: &str, index: usize, count: usize) -> f32 {
+    if let Some(rank) = EFFORT_RANKS.iter().position(|name| *name == effort) {
+        return rank as f32 / (EFFORT_RANKS.len() - 1) as f32;
+    }
+    if count < 2 {
+        return 0.0;
+    }
+    index as f32 / (count - 1) as f32
+}
+
+/// The stop nearest `x` on a track starting at `left`, `width` wide, with `count` stops along it.
+fn stop_at(x: f32, left: f32, width: f32, count: usize) -> usize {
+    if count < 2 || width <= 0.0 {
+        return 0;
+    }
+    let along = ((x - left) / width).clamp(0.0, 1.0);
+    (along * (count - 1) as f32).round() as usize
+}
+
+/// The colour at `heat`: the accent when cool, yellow at [`YELLOW_AT`], red when hottest, mixed
+/// in between.
+fn warmth(accent: Hsla, yellow: Hsla, red: Hsla, heat: f32) -> Hsla {
+    let mix = |from: Hsla, to: Hsla, t: f32| {
+        let (a, b) = (gpui::Rgba::from(from), gpui::Rgba::from(to));
+        let at = |x: f32, y: f32| x + (y - x) * t;
+        Hsla::from(gpui::Rgba {
+            r: at(a.r, b.r),
+            g: at(a.g, b.g),
+            b: at(a.b, b.b),
+            a: at(a.a, b.a),
+        })
+    };
+    let heat = heat.clamp(0.0, 1.0);
+    if heat <= YELLOW_AT {
+        mix(accent, yellow, heat / YELLOW_AT)
+    } else {
+        mix(yellow, red, (heat - YELLOW_AT) / (1.0 - YELLOW_AT))
+    }
+}
+
+/// The thumb's way to a new stop, 0 to 1 over the animation: past the stop a little, then back.
+fn settle(t: f32) -> f32 {
+    // An ease-out that overshoots by about 7%.
+    const BACK: f32 = 1.4;
+    let u = t.clamp(0.0, 1.0) - 1.0;
+    1.0 + (BACK + 1.0) * u.powi(3) + BACK * u.powi(2)
+}
+
+/// How long the effort thumb takes to glide to a new stop.
+const GLIDE: Duration = Duration::from_millis(280);
+
+/// The effort thumb's latest move: from where (along the track, 0 to 1, and how hot) to where.
+/// `moves` counts them, so each starts its own glide.
+#[derive(Clone, Copy, PartialEq)]
+struct Motion {
+    from: (f32, f32),
+    to: (f32, f32),
+    moves: u64,
+}
+
+/// The effort thumb being dragged.
+struct EffortDrag;
 
 type Pick = fn(&crate::preset::Theme) -> crate::preset::Color;
 
@@ -124,6 +201,10 @@ pub struct NewAgentView {
     open: Option<Menu>,
     /// Where each part was last drawn, for what opens to hang from.
     spots: Rc<RefCell<HashMap<Menu, Bounds<Pixels>>>>,
+    /// Where the effort slider's track was last drawn, for the stop under the mouse.
+    effort_track: Rc<Cell<Bounds<Pixels>>>,
+    /// The effort thumb's latest move, which it glides along.
+    effort_motion: Cell<Option<Motion>>,
     renaming: bool,
     naming_preset: bool,
     show_command: bool,
@@ -305,6 +386,8 @@ impl NewAgentView {
             preset_name,
             open: None,
             spots: Rc::default(),
+            effort_track: Rc::default(),
+            effort_motion: Cell::new(None),
             renaming: false,
             naming_preset: false,
             show_command: false,
@@ -711,6 +794,8 @@ impl NewAgentView {
         } else {
             Some(menu)
         };
+        // The effort thumb starts where it is, not gliding in from where it was last time.
+        self.effort_motion.set(None);
         self.naming_preset = false;
         cx.notify();
     }
@@ -1133,7 +1218,13 @@ impl NewAgentView {
                 .pr(ui.px(10.0))
                 .child(self.form.model.clone().unwrap_or_else(|| "model".into()))
                 .child(div().text_color(dimmer).child("·"))
-                .child(self.form.effort.clone().unwrap_or_else(|| "effort".into()))
+                .child(
+                    div()
+                        .when_some(self.effort_spot(&self.form.efforts()), |effort, spot| {
+                            effort.text_color(self.warm(spot.2))
+                        })
+                        .child(self.form.effort.clone().unwrap_or_else(|| "effort".into())),
+                )
                 .child(chevron(Menu::Model))
         });
         let place = self
@@ -1355,131 +1446,386 @@ impl NewAgentView {
             .collect()
     }
 
-    /// The picker under the model chip: the kind's model and effort as segments. It stays open
-    /// while choosing.
+    /// The picker under the model chip: the kind's models one to a line, and its effort as a
+    /// slider whose thumb glides from stop to stop, warming and pulsing the higher it goes. It
+    /// stays open while choosing.
     fn model_rows(&self, ui: &UiFont, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let text = self.fg(|t| t.agents_text);
         let branch = self.fg(|t| t.agents_branch);
         let accent = self.fg(|t| t.agents_accent);
+        let dim = self.fg(|t| t.agents_dim);
+        let dimmer = self.fg(|t| t.agents_dimmer);
         let mut rows = Vec::new();
-        let heading = |label: &'static str| {
+        let heading = |label: &'static str, aside: Option<String>| {
             div()
                 .flex_shrink_0()
+                .flex()
+                .items_baseline()
+                .justify_between()
                 .px(ui.px(10.0))
-                .pt(ui.px(6.0))
+                .pt(ui.px(8.0))
                 .pb(ui.px(6.0))
-                .text_size(ui.px(11.5))
-                .text_color(self.fg(|t| t.agents_dim))
-                .child(label)
+                .child(
+                    div()
+                        .text_size(ui.px(11.5))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(dim)
+                        .child(label),
+                )
+                .children(aside)
         };
-        let segment = |id: ElementId, label: SharedString, on: bool, mono: bool| {
+        let from = self.form.source().map(|source| {
             div()
-                .id(id)
-                .flex_1()
-                .min_w(px(0.0))
+                .text_size(ui.px(11.0))
+                .text_color(dimmer)
+                .child(source.label())
+                .into_any_element()
+        });
+        rows.push(heading("Model", None).children(from).into_any_element());
+        let default = self.form.default_model().map(str::to_owned);
+        let mut models = div()
+            .flex_shrink_0()
+            .flex()
+            .flex_col()
+            .gap(px(1.0))
+            .px(ui.px(6.0));
+        for (index, model) in self.form.model_names().into_iter().enumerate() {
+            let on = self.form.model.as_deref() == Some(model.as_str());
+            let is_default = default.as_deref() == Some(model.as_str());
+            let row = div()
+                .id(ElementId::NamedInteger("model".into(), index as u64))
                 .h(ui.px(30.0))
                 .flex()
                 .items_center()
-                .justify_center()
+                .gap(ui.px(8.0))
+                .px(ui.px(10.0))
                 .rounded(ui.px(8.0))
-                .text_size(ui.px(12.0))
-                .whitespace_nowrap()
-                .overflow_hidden()
                 .cursor_pointer()
-                .when(mono, |segment| segment.font_family(self.mono.clone()))
-                .map(|segment| {
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w(px(0.0))
+                        .overflow_hidden()
+                        .whitespace_nowrap()
+                        .text_ellipsis()
+                        .font_family(self.mono.clone())
+                        .text_size(ui.px(12.5))
+                        .child(model.clone()),
+                )
+                .when(is_default, |row| {
+                    row.child(
+                        div()
+                            .flex_shrink_0()
+                            .text_size(ui.px(10.5))
+                            .text_color(dim)
+                            .child("default"),
+                    )
+                })
+                .when(on, |row| {
+                    row.child(stroke_icon(CHECK, false, accent, ui.scale(13.0), 2.4))
+                })
+                .map(|row| {
                     if on {
-                        segment.bg(accent.opacity(0.16)).text_color(accent)
+                        row.bg(accent.opacity(0.13)).text_color(accent)
                     } else {
-                        segment
-                            .bg(text.opacity(0.04))
-                            .text_color(branch)
-                            .hover(move |style| style.bg(text.opacity(0.08)).text_color(text))
+                        row.text_color(branch)
+                            .hover(move |style| style.bg(text.opacity(0.05)).text_color(text))
                     }
                 })
-                .child(label)
-        };
-        rows.push(heading("Model").into_any_element());
-        // Two models to a line, as many lines as there are; the efforts on as few lines as hold
-        // them at six a line, shared out evenly.
-        let per_line = |count: usize, most: usize| {
-            let lines = count.div_ceil(most).max(1);
-            count.div_ceil(lines).max(1)
-        };
-        let models = self.form.model_names();
-        let models_per_line = per_line(models.len(), 2);
-        let mut model_lines = div()
-            .flex_shrink_0()
-            .flex()
-            .flex_col()
-            .gap(ui.px(4.0))
-            .px(ui.px(6.0));
-        for (line, chunk) in models.chunks(models_per_line).enumerate() {
-            let mut row = div().flex().gap(ui.px(4.0));
-            for (column, model) in chunk.iter().enumerate() {
-                let index = line * models_per_line + column;
-                let on = self.form.model.as_deref() == Some(model.as_str());
-                let model = model.clone();
-                row = row.child(
-                    segment(
-                        ElementId::NamedInteger("model".into(), index as u64),
-                        model.clone().into(),
-                        on,
-                        true,
-                    )
-                    .on_click(cx.listener(
-                        move |this, _: &ClickEvent, _, cx| {
-                            this.form.set_model(&model);
-                            this.changed(cx);
-                        },
-                    )),
-                );
-            }
-            // A short last line keeps its segments as wide as those above.
-            for _ in chunk.len()..models_per_line {
-                row = row.child(div().flex_1());
-            }
-            model_lines = model_lines.child(row);
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    this.form.set_model(&model);
+                    this.changed(cx);
+                }));
+            models = models.child(row);
         }
-        rows.push(model_lines.into_any_element());
-        rows.push(heading("Effort").pt(ui.px(10.0)).into_any_element());
-        let efforts = self.form.efforts();
-        let efforts_per_line = per_line(efforts.len(), 6);
-        let mut effort_lines = div()
-            .flex_shrink_0()
-            .flex()
-            .flex_col()
-            .gap(ui.px(4.0))
-            .px(ui.px(6.0))
-            .pb(ui.px(6.0));
-        for (line, chunk) in efforts.chunks(efforts_per_line).enumerate() {
-            let mut row = div().flex().gap(ui.px(4.0));
-            for (column, effort) in chunk.iter().enumerate() {
-                let index = line * efforts_per_line + column;
-                let on = self.form.effort.as_deref() == Some(effort.as_str());
-                let effort = effort.clone();
-                row = row.child(
-                    segment(
-                        ElementId::NamedInteger("effort".into(), index as u64),
-                        effort.clone().into(),
-                        on,
-                        false,
-                    )
-                    .on_click(cx.listener(
-                        move |this, _: &ClickEvent, _, cx| {
-                            this.form.set_effort(&effort);
-                            this.changed(cx);
-                        },
-                    )),
-                );
-            }
-            for _ in chunk.len()..efforts_per_line {
-                row = row.child(div().flex_1());
-            }
-            effort_lines = effort_lines.child(row);
-        }
-        rows.push(effort_lines.into_any_element());
+        rows.push(models.into_any_element());
+        rows.push(
+            div()
+                .flex_shrink_0()
+                .h(px(1.0))
+                .mx(ui.px(16.0))
+                .my(ui.px(6.0))
+                .bg(text.opacity(0.07))
+                .into_any_element(),
+        );
+        rows.extend(self.effort_slider(ui, cx));
         rows
+    }
+
+    /// The colour of an effort `heat` hot, from the theme.
+    fn warm(&self, heat: f32) -> Hsla {
+        warmth(
+            self.fg(|t| t.agents_accent),
+            self.fg(|t| t.agents_yellow),
+            self.fg(|t| t.agents_red),
+            heat,
+        )
+    }
+
+    /// The chosen effort's place among `efforts`, along the track (0 to 1) and how hot it is;
+    /// none when the command asks for one the model does not list.
+    fn effort_spot(&self, efforts: &[String]) -> Option<(usize, f32, f32)> {
+        let count = efforts.len();
+        let index = efforts
+            .iter()
+            .position(|effort| self.form.effort.as_deref() == Some(effort.as_str()))?;
+        let along = if count < 2 {
+            0.0
+        } else {
+            index as f32 / (count - 1) as f32
+        };
+        Some((index, along, heat(&efforts[index], index, count)))
+    }
+
+    /// The effort heading, track and names. The thumb glides to a stop chosen by a press or a drag
+    /// on the track or a click on a name.
+    fn effort_slider(&self, ui: &UiFont, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let efforts = self.form.efforts();
+        let count = efforts.len().max(1);
+        let spot = self.effort_spot(&efforts);
+        let text = self.fg(|t| t.agents_text);
+        let dim = self.fg(|t| t.agents_dim);
+        let dimmer = self.fg(|t| t.agents_dimmer);
+        let thumb_ground = self.fg(|t| t.agents_text);
+        // A new spot starts a glide from the old one.
+        let motion = spot.map(|(_, along, heat)| {
+            let to = (along, heat);
+            match self.effort_motion.get() {
+                Some(motion) if motion.to == to => motion,
+                Some(motion) => Motion {
+                    from: motion.to,
+                    to,
+                    moves: motion.moves + 1,
+                },
+                None => Motion {
+                    from: to,
+                    to,
+                    moves: 0,
+                },
+            }
+        });
+        self.effort_motion.set(motion);
+        let mut rows = Vec::new();
+        let current = spot.map(|(index, _, heat)| {
+            div()
+                .text_size(ui.px(12.0))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(self.warm(heat))
+                .child(efforts[index].clone())
+                .into_any_element()
+        });
+        rows.push(
+            div()
+                .flex_shrink_0()
+                .flex()
+                .items_baseline()
+                .justify_between()
+                .px(ui.px(10.0))
+                .pt(ui.px(4.0))
+                .pb(ui.px(2.0))
+                .child(
+                    div()
+                        .text_size(ui.px(11.5))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(dim)
+                        .child("Effort"),
+                )
+                .children(current)
+                .into_any_element(),
+        );
+        let colors = [
+            self.fg(|t| t.agents_accent),
+            self.fg(|t| t.agents_yellow),
+            self.fg(|t| t.agents_red),
+        ];
+        let rail = text.opacity(0.08);
+        let unlit = text.opacity(0.22);
+        let middle = ui.scale(15.0);
+        let unit = ui.scale(1.0);
+        let thumb_at = move |heat: f32| unit * (14.0 + 5.0 * heat);
+        // How far past the thumb the ring spreads, as a share of the thumb.
+        let ring_reach = 1.1;
+        let moving = motion.map(|motion| {
+            div()
+                .absolute()
+                .top_0()
+                .left_0()
+                .size_full()
+                .with_animation(
+                    ElementId::NamedInteger("effort-glide".into(), motion.moves),
+                    Animation::new(GLIDE),
+                    move |layer, delta| {
+                        let at = |from: f32, to: f32, t: f32| from + (to - from) * t;
+                        let along = at(motion.from.0, motion.to.0, settle(delta)).clamp(0.0, 1.0);
+                        let heat = at(motion.from.1, motion.to.1, delta);
+                        let warm = warmth(colors[0], colors[1], colors[2], heat);
+                        let size = thumb_at(heat);
+                        let mut layer = layer.child(
+                            div()
+                                .absolute()
+                                .left_0()
+                                .top(px(middle - 2.0))
+                                .h(px(4.0))
+                                .w(relative(along))
+                                .rounded_full()
+                                .bg(warm),
+                        );
+                        for stop in 0..count {
+                            let place = if count < 2 {
+                                0.0
+                            } else {
+                                stop as f32 / (count - 1) as f32
+                            };
+                            layer = layer.child(
+                                div()
+                                    .absolute()
+                                    .left(relative(place))
+                                    .top(px(middle - 3.0))
+                                    .ml(px(-3.0))
+                                    .size(px(6.0))
+                                    .rounded_full()
+                                    .bg(if place <= along + 0.001 { warm } else { unlit }),
+                            );
+                        }
+                        // From `high` up, a ring spreads from the thumb, faster the hotter.
+                        if motion.to.1 >= 0.4 {
+                            let beat = Duration::from_secs_f32(2.6 - 1.9 * motion.to.1);
+                            layer = layer.child(
+                                div()
+                                    .absolute()
+                                    .left(relative(along))
+                                    .top(px(middle))
+                                    .with_animation(
+                                        ElementId::NamedInteger(
+                                            "effort-pulse".into(),
+                                            (motion.to.1 * 100.0) as u64,
+                                        ),
+                                        Animation::new(beat).repeat().with_max_fps(30.0),
+                                        move |ring, beat| {
+                                            let out = (beat / 0.7).min(1.0);
+                                            let ring_size = size * (1.0 + ring_reach * out);
+                                            ring.ml(px(-ring_size / 2.0))
+                                                .mt(px(-ring_size / 2.0))
+                                                .size(px(ring_size))
+                                                .rounded_full()
+                                                .bg(warm.opacity(0.5 * (1.0 - out)))
+                                        },
+                                    ),
+                            );
+                        }
+                        layer.child(
+                            div()
+                                .absolute()
+                                .left(relative(along))
+                                .top(px(middle - size / 2.0))
+                                .ml(px(-size / 2.0))
+                                .size(px(size))
+                                .rounded_full()
+                                .bg(thumb_ground)
+                                .border(px(3.0))
+                                .border_color(warm)
+                                .shadow(vec![BoxShadow {
+                                    color: warm.opacity(0.55),
+                                    offset: point(px(0.0), px(0.0)),
+                                    blur_radius: px(4.0 + 14.0 * heat),
+                                    spread_radius: px(0.0),
+                                    inset: false,
+                                }]),
+                        )
+                    },
+                )
+        });
+        let track_spot = self.effort_track.clone();
+        let names = efforts.clone();
+        let drag_names = efforts.clone();
+        let track = div()
+            .id("effort-track")
+            .flex_shrink_0()
+            .relative()
+            .h(ui.px(30.0))
+            // The track runs from the middle of the first name to the middle of the last.
+            .mx(relative(0.5 / count as f32))
+            .cursor_pointer()
+            .child(
+                canvas(move |bounds, _, _| track_spot.set(bounds), |_, _, _, _| {})
+                    .absolute()
+                    .top_0()
+                    .left_0()
+                    .size_full(),
+            )
+            .child(
+                div()
+                    .absolute()
+                    .left_0()
+                    .right_0()
+                    .top(px(middle - 2.0))
+                    .h(px(4.0))
+                    .rounded_full()
+                    .bg(rail),
+            )
+            .children(moving)
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |this, event: &MouseDownEvent, _, cx| {
+                    this.slide_effort(&names, event.position.x, cx)
+                }),
+            )
+            .on_drag(EffortDrag, |_, _, _, cx| cx.new(|_| gpui::EmptyView))
+            .on_drag_move(
+                cx.listener(move |this, event: &DragMoveEvent<EffortDrag>, _, cx| {
+                    this.slide_effort(&drag_names, event.event.position.x, cx)
+                }),
+            );
+        rows.push(div().px(ui.px(6.0)).child(track).into_any_element());
+        let mut labels = div().flex_shrink_0().flex().px(ui.px(6.0)).pb(ui.px(8.0));
+        for (index, effort) in efforts.into_iter().enumerate() {
+            let on = spot.is_some_and(|(at, _, _)| at == index);
+            let color = if on {
+                self.warm(heat(&effort, index, count))
+            } else {
+                dimmer
+            };
+            labels = labels.child(
+                div()
+                    .id(ElementId::NamedInteger("effort".into(), index as u64))
+                    .flex_1()
+                    .min_w(px(0.0))
+                    .flex()
+                    .justify_center()
+                    .text_size(ui.px(11.0))
+                    .text_color(color)
+                    .when(on, |label| label.font_weight(FontWeight::SEMIBOLD))
+                    .when(!on, |label| {
+                        label.hover(move |style| style.text_color(text))
+                    })
+                    .cursor_pointer()
+                    .child(effort.clone())
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        this.form.set_effort(&effort);
+                        this.changed(cx);
+                    })),
+            );
+        }
+        rows.push(labels.into_any_element());
+        rows
+    }
+
+    /// The mouse pressed or dragged at `x` on the effort track: the stop under it.
+    fn slide_effort(&mut self, efforts: &[String], x: Pixels, cx: &mut Context<Self>) {
+        let track = self.effort_track.get();
+        let index = stop_at(
+            x.into(),
+            track.left().into(),
+            track.size.width.into(),
+            efforts.len(),
+        );
+        let Some(effort) = efforts.get(index) else {
+            return;
+        };
+        if self.form.effort.as_deref() != Some(effort.as_str()) {
+            self.form.set_effort(effort);
+            self.changed(cx);
+        }
     }
 
     /// What is open, hung under its part (over it when there is more room there), over a layer
@@ -2097,5 +2443,64 @@ impl Render for NewAgentView {
             .child(panel)
             // It dims the whole window, the Browser's page and all.
             .child(crate::browser::cover())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_effort_is_as_hot_by_name_for_either_kind() {
+        let claude = ["low", "medium", "high", "xhigh", "max"];
+        let codex = ["low", "medium", "high", "xhigh", "max", "ultra"];
+        for (index, name) in claude.iter().enumerate() {
+            assert_eq!(heat(name, index, 5), heat(name, index, 6), "{name}");
+        }
+        assert_eq!(heat("low", 0, 6), 0.0);
+        assert_eq!(heat("high", 2, 5), 0.4);
+        assert_eq!(heat(codex[5], 5, 6), 1.0);
+        // A name paddock does not know goes by its place.
+        assert_eq!(heat("turbo", 1, 3), 0.5);
+        assert_eq!(heat("only", 0, 1), 0.0);
+    }
+
+    #[test]
+    fn the_stop_under_the_mouse_is_the_nearest() {
+        assert_eq!(stop_at(0.0, 0.0, 100.0, 5), 0);
+        assert_eq!(stop_at(12.4, 0.0, 100.0, 5), 0);
+        assert_eq!(stop_at(12.6, 0.0, 100.0, 5), 1);
+        assert_eq!(stop_at(260.0, 200.0, 100.0, 6), 3);
+        assert_eq!(stop_at(-50.0, 0.0, 100.0, 5), 0);
+        assert_eq!(stop_at(500.0, 0.0, 100.0, 5), 4);
+        assert_eq!(stop_at(50.0, 0.0, 0.0, 5), 0);
+        assert_eq!(stop_at(50.0, 0.0, 100.0, 0), 0);
+    }
+
+    #[test]
+    fn the_colour_warms_from_the_accent_through_yellow_to_red() {
+        let accent = gpui::rgb(0x7fd4bf).into();
+        let yellow = gpui::rgb(0xdbbd6e).into();
+        let red = gpui::rgb(0xe47a74).into();
+        let close = |a: Hsla, b: Hsla| {
+            let (a, b) = (gpui::Rgba::from(a), gpui::Rgba::from(b));
+            (a.r - b.r).abs() < 0.01 && (a.g - b.g).abs() < 0.01 && (a.b - b.b).abs() < 0.01
+        };
+        assert!(close(warmth(accent, yellow, red, 0.0), accent));
+        assert!(close(warmth(accent, yellow, red, YELLOW_AT), yellow));
+        assert!(close(warmth(accent, yellow, red, 1.0), red));
+        let between = gpui::Rgba::from(warmth(accent, yellow, red, YELLOW_AT / 2.0));
+        let (a, y) = (gpui::Rgba::from(accent), gpui::Rgba::from(yellow));
+        assert!((between.r - (a.r + y.r) / 2.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn the_thumb_overshoots_a_little_and_settles() {
+        assert!(settle(0.0).abs() < 1e-6);
+        assert!((settle(1.0) - 1.0).abs() < 1e-6);
+        let peak = (1..100)
+            .map(|i| settle(i as f32 / 100.0))
+            .fold(0.0, f32::max);
+        assert!(peak > 1.0 && peak < 1.12, "{peak}");
     }
 }

@@ -1,7 +1,10 @@
-//! Settings › Agents › Models (DESIGN §13 P5-100): the models New Agent offers for Claude and
-//! Codex, where they came from, and Refresh, which asks codex now.
+//! Settings › Agents › Models (DESIGN §13 P5-100, drawn anew in P5-101): the models New Agent
+//! offers for Claude and Codex as tags, where they came from, and Refresh, which asks codex now.
 use super::*;
-use crate::models::{self, Lists, Source};
+use crate::{
+    models::{self, Lists, Source},
+    new_agent::Tool,
+};
 
 /// The section's state in the Settings window.
 #[derive(Default)]
@@ -12,15 +15,13 @@ pub(super) struct Models {
     asking: bool,
 }
 
-/// The Agent and From columns; the list takes what is between.
-const AGENT_WIDTH: f32 = 110.0;
-const FROM_WIDTH: f32 = 260.0;
+/// The column with the kind's name and where its list came from.
+const NAME_WIDTH: f32 = 150.0;
+/// The column Refresh sits in, kept on the Claude row too so the tags line up.
+const ACTION_WIDTH: f32 = 96.0;
 
-const NOTE: [&str; 2] = [
-    "Codex's models are asked from codex once a month, or when you click Refresh. If that fails, \
-paddock uses the last ones it got, then [agent_models.codex] in config.toml, then its own list.",
-    "Claude's come from [agent_models.claude] in config.toml, else paddock's own list.",
-];
+const NOTE: &str = "Codex is asked once a month. To use your own lists, add \
+[agent_models.claude] or [agent_models.codex] to config.toml.";
 
 impl SettingsView {
     /// Reads the config and what paddock kept from codex again.
@@ -52,142 +53,171 @@ impl SettingsView {
 
     pub(super) fn models_section(&self, ui: &UiFont, cx: &mut Context<Self>) -> AnyElement {
         let lists = self.models.lists.clone().unwrap_or_default();
-        let columns = div()
-            .flex()
-            .items_center()
-            .gap(px(14.0))
-            .pt(px(8.0))
-            .pb(px(2.0))
-            .pl(px(28.0))
-            .pr(px(16.0))
-            .text_size(ui.px(11.5))
-            .text_color(self.fg(|t| t.agents_dimmer))
-            .child(div().flex_shrink_0().w(ui.px(AGENT_WIDTH)).child("Agent"))
-            .child(div().flex_1().child("In New Agent"))
-            .child(div().flex_shrink_0().w(ui.px(FROM_WIDTH)).child("From"));
-        let claude = self.models_row("Claude", &lists.claude, None, ui);
-        let codex = self.models_row("Codex", &lists.codex, Some(self.codex_from(ui, cx)), ui);
-        let note = self.fg(|t| t.agents_dim);
+        let asking = self.models.asking || models::asking();
+        let claude = self.models_row(Tool::Claude, &lists, false, ui, cx);
+        let codex = self.models_row(Tool::Codex, &lists, asking, ui, cx);
         let body = div()
             .flex()
             .flex_col()
-            .child(self.card(Some(columns.into_any_element()), vec![claude, codex]))
-            .children(NOTE.map(|line| self.under(line, note, ui)));
+            .child(self.card(None, vec![claude, codex]))
+            .child(
+                self.under(NOTE, self.fg(|t| t.agents_dimmer), ui)
+                    .pl(px(4.0)),
+            );
         self.section("Models", body, ui).into_any_element()
     }
 
-    /// A kind's row: its name, its models, and where they came from (`from` for Codex, which says
-    /// more).
+    /// A kind's row: its name with where its list came from under it, its models as tags (the
+    /// default one lit), and for Codex, Refresh.
     fn models_row(
         &self,
-        name: &'static str,
-        list: &models::List,
-        from: Option<Div>,
+        tool: Tool,
+        lists: &Lists,
+        asking: bool,
         ui: &UiFont,
+        cx: &mut Context<Self>,
     ) -> Div {
-        let dim = self.fg(|t| t.agents_dim);
-        let from = from.unwrap_or_else(|| {
-            div()
-                .text_size(ui.px(12.5))
-                .text_color(dim)
-                .child(list.source.label())
-        });
-        div()
+        let dimmer = self.fg(|t| t.agents_dimmer);
+        let yellow = self.fg(|t| t.agents_yellow);
+        let Some(list) = lists.of(tool) else {
+            return div();
+        };
+        let codex = tool == Tool::Codex;
+        let error = self.models.error.as_ref().filter(|_| codex && !asking);
+        // Codex says whether its list is codex's own: green when it is and the last asking went
+        // well, yellow when the last asking failed.
+        let dot = if !codex || asking {
+            None
+        } else if error.is_some() {
+            Some(yellow)
+        } else if matches!(list.source, Source::Codex { .. }) {
+            Some(self.fg(|t| t.agents_green))
+        } else {
+            None
+        };
+        let source = if asking {
+            "Asking codex…".to_owned()
+        } else {
+            list.source.label()
+        };
+        let name = div()
+            .flex_shrink_0()
+            .w(ui.px(NAME_WIDTH))
             .flex()
-            .items_center()
-            .gap(px(14.0))
-            .min_h(ui.px(54.0))
-            .py(px(6.0))
-            .pl(px(28.0))
-            .pr(px(16.0))
+            .flex_col()
+            .gap(px(4.0))
+            .child(div().text_size(ui.px(13.5)).child(tool.label()))
             .child(
                 div()
-                    .flex_shrink_0()
-                    .w(ui.px(AGENT_WIDTH))
-                    .text_size(ui.px(13.5))
-                    .child(name),
+                    .flex()
+                    .items_center()
+                    .gap(px(6.0))
+                    .text_size(ui.px(11.5))
+                    .text_color(dimmer)
+                    .children(dot.map(|color| div().size(px(6.0)).rounded_full().bg(color)))
+                    .child(source),
             )
+            .children(error.map(|error| {
+                div()
+                    .text_size(ui.px(11.5))
+                    .text_color(yellow)
+                    .child(format!("Couldn't ask: {error}"))
+            }));
+        let default = lists.default_model(tool);
+        let accent = self.fg(|t| t.agents_accent);
+        let tags = list.models.iter().map(|model| {
+            let lit = default == Some(model.name.as_str());
+            div()
+                .h(ui.px(24.0))
+                .px(px(9.0))
+                .flex()
+                .items_center()
+                .gap(px(6.0))
+                .rounded(px(7.0))
+                .font_family(MONO)
+                .text_size(ui.px(11.5))
+                .map(|tag| {
+                    if lit {
+                        tag.bg(accent.opacity(0.12)).text_color(accent)
+                    } else {
+                        tag.bg(self.faint(0.05))
+                            .text_color(self.fg(|t| t.agents_text).opacity(0.8))
+                    }
+                })
+                .child(model.name.clone())
+                .when(lit, |tag| {
+                    tag.child(
+                        div()
+                            .font_family(
+                                ui.family.clone().unwrap_or_else(|| ".SystemUIFont".into()),
+                            )
+                            .text_size(ui.px(10.5))
+                            .text_color(self.fg(|t| t.agents_dim))
+                            .child("default"),
+                    )
+                })
+        });
+        let action = div()
+            .flex_shrink_0()
+            .w(ui.px(ACTION_WIDTH))
+            .flex()
+            .justify_end()
+            .when(codex, |action| {
+                action.child(self.refresh_button(asking, ui, cx))
+            });
+        div()
+            .flex()
+            .items_start()
+            .gap(px(18.0))
+            .py(px(16.0))
+            .pl(px(18.0))
+            .pr(px(16.0))
+            .child(name)
             .child(
                 div()
                     .flex_1()
                     .min_w(px(0.0))
-                    .overflow_hidden()
-                    .whitespace_nowrap()
-                    .text_ellipsis()
-                    .font_family(MONO)
-                    .text_size(ui.px(12.0))
-                    .text_color(self.fg(|t| t.agents_text).opacity(0.8))
-                    .child(list.shown()),
+                    .flex()
+                    .flex_wrap()
+                    .gap(px(6.0))
+                    .when(asking, |tags| tags.opacity(0.55))
+                    .children(tags),
             )
-            .child(div().flex_shrink_0().w(ui.px(FROM_WIDTH)).child(from))
+            .child(action)
     }
 
-    /// Codex's From: where its list came from and why codex could not be asked, or that it is
-    /// being asked; then Refresh.
-    fn codex_from(&self, ui: &UiFont, cx: &mut Context<Self>) -> Div {
-        let dim = self.fg(|t| t.agents_dim);
-        let asking = self.models.asking || models::asking();
-        let source = self
-            .models
-            .lists
-            .as_ref()
-            .map_or(Source::Own, |lists| lists.codex.source.clone());
-        let said = if asking {
-            div()
-                .text_size(ui.px(12.5))
-                .text_color(dim)
-                .child("Asking codex…")
+    /// Refresh with its icon; grey and still while codex is being asked.
+    fn refresh_button(&self, asking: bool, ui: &UiFont, cx: &mut Context<Self>) -> Stateful<Div> {
+        let color = if asking {
+            self.fg(|t| t.agents_dimmer).opacity(0.7)
         } else {
-            div()
-                .min_w(px(0.0))
-                .flex()
-                .flex_col()
-                .gap(px(2.0))
-                .child(
-                    div()
-                        .text_size(ui.px(12.5))
-                        .text_color(dim)
-                        .child(source.label()),
-                )
-                .children(self.models.error.as_ref().map(|error| {
-                    div()
-                        .text_size(ui.px(11.5))
-                        .text_color(self.fg(|t| t.agents_yellow))
-                        .overflow_hidden()
-                        .whitespace_nowrap()
-                        .text_ellipsis()
-                        .child(format!("Couldn't ask codex: {error}"))
-                }))
+            self.fg(|t| t.agents_branch)
         };
-        let hover = self.faint(0.1);
-        let refresh = div()
+        let hover = self.faint(0.07);
+        let button = div()
             .id("models-refresh")
             .flex_shrink_0()
-            .h(ui.px(24.0))
+            .h(ui.px(26.0))
             .px(px(10.0))
             .flex()
             .items_center()
+            .gap(px(6.0))
             .rounded_full()
             .text_size(ui.px(12.0))
+            .text_color(color)
+            .child(footer_icon::icon(
+                Icon::Reload,
+                color,
+                ui.scale(12.0) / footer_icon::SIZE,
+            ))
             .child("Refresh");
-        let refresh = if asking {
-            refresh
-                .bg(self.faint(0.04))
-                .text_color(self.fg(|t| t.agents_dimmer))
+        if asking {
+            button
         } else {
-            refresh
-                .bg(self.faint(0.06))
-                .text_color(self.fg(|t| t.agents_branch))
+            button
                 .cursor_pointer()
                 .hover(move |style| style.bg(hover))
                 .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.refresh_models(cx)))
-        };
-        div()
-            .min_w(px(0.0))
-            .flex()
-            .items_center()
-            .gap(px(10.0))
-            .child(said)
-            .child(refresh)
+        }
     }
 }

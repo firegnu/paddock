@@ -94,7 +94,7 @@ pub enum Source {
 }
 
 impl Source {
-    /// As Settings says it: `codex, Oct 14`, `config.toml`, `paddock's list`.
+    /// As Settings and the model picker say it: `from codex, Oct 14`, `config.toml`, `paddock's list`.
     pub fn label(&self) -> String {
         match *self {
             Source::Codex { at } => {
@@ -104,9 +104,9 @@ impl Source {
                 let (this_year, _, _) = activity::date(activity::today());
                 let month = activity::MONTHS[month as usize - 1];
                 if year == this_year {
-                    format!("codex, {month} {day}")
+                    format!("from codex, {month} {day}")
                 } else {
-                    format!("codex, {month} {day}, {year}")
+                    format!("from codex, {month} {day}, {year}")
                 }
             }
             Source::Config => "config.toml".into(),
@@ -126,20 +126,6 @@ impl List {
     /// The model chosen with the kind.
     pub fn first(&self) -> Option<&str> {
         self.models.first().map(|model| model.name.as_str())
-    }
-
-    /// The models on one line in Settings: all of up to five, else the first three and how many
-    /// more.
-    pub fn shown(&self) -> String {
-        let names: Vec<&str> = self
-            .models
-            .iter()
-            .map(|model| model.name.as_str())
-            .collect();
-        if names.len() <= 5 {
-            return names.join(" · ");
-        }
-        format!("{} · +{}", names[..3].join(" · "), names.len() - 3)
     }
 
     /// The efforts `model` takes; a model not in the list (typed into the command) takes
@@ -569,30 +555,21 @@ mod tests {
     }
 
     #[test]
-    fn settings_says_the_list_and_where_it_came_from() {
-        let lists = Lists::default();
-        assert_eq!(
-            lists.claude.shown(),
-            "opus[1m] · fable · opus · sonnet · haiku"
-        );
-        assert_eq!(
-            lists.codex.shown(),
-            "gpt-6.1-sol · gpt-6-astra · gpt-6-sol · +4"
-        );
+    fn settings_says_where_the_list_came_from() {
         assert_eq!(Source::Own.label(), "paddock's list");
         assert_eq!(Source::Config.label(), "config.toml");
         // 2026-10-14 12:00 UTC: the day is this machine's, the year left out when it is this one.
         let at = 1_791_979_200;
         let label = Source::Codex { at }.label();
         assert!(
-            label == "codex, Oct 14" || label.starts_with("codex, Oct 1"),
+            label == "from codex, Oct 14" || label.starts_with("from codex, Oct 1"),
             "{label}"
         );
         let old = Source::Codex {
             at: 20 * 86_400 + 43_200,
         }
         .label();
-        assert_eq!(old, "codex, Jan 21, 1970");
+        assert_eq!(old, "from codex, Jan 21, 1970");
     }
 
     #[test]

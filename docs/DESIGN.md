@@ -590,3 +590,7 @@ paddock 与 Saddle 在代码上完全分开：用到的 Saddle 代码迁入 padd
   - 问 Codex：打开或重开 New Agent 时，距上次问满 30 天（问失败也算问过）就在后台跑 `codex debug models`，不挡面板，答了就换上。只取 `visibility` 为 `list` 的、按 `priority` 排，各带自己的强度（有的有 `ultra`）。失败（没装、没登录、输出看不懂）不打扰，沿用上次的，记下原因。不读 Codex 自己的缓存文件。New Agent 和 Settings 同时只有一个在问。
   - 强度随模型：只列选中模型支持的；换模型时原强度新模型也有就留，没有用 `high`，再没有用最后一个。命令里手写的、不在列表里的模型给通用的 low～max。模型选单两个一行、强度一行最多六个，列表变长也不挤。
   - Settings › Agents 在 corral 下面加 Models 一节：Claude、Codex 各一行写列表（多于五个写前三个和 `+N`）、来自哪（`codex, Oct 14`／`config.toml`／`paddock's list`），Codex 一行有 `Refresh`，问着时写 `Asking codex…`，上次失败黄字写 `Couldn't ask codex: <原因>`。配置改了下次打开 New Agent 生效，不在 Settings 里编辑。
+- **New Agent 模型选单改成一列、强度改成带动画的滑块，Settings 的 Models 一节重画（P5-101，改 P5-99／P5-100 的样子）**（用户 10-14 看了 P5-100：“这几个页面不能做的更加好看精致一些吗？”；样稿 `docs/设计稿/P5-101-模型选单精修/`，用户：“effort改成滑块，滑动的时候随着effort的大小最好有点动画。要兼容claude和codex的effort调整。codex默认astra high. claude code默认opus5.5。 settings就按照你的设计出”，选“A 一列”、Claude 默认“opus[1m]（照旧）”，看过可交互的滑块样稿：“可以，写任务文件开始做吧”）：
+  - 模型一个一行、名字靠左，选中的淡强调色底加勾，默认的写小字 `default`；选单顶上右边写列表从哪来（`from codex, Oct 14`／`config.toml`／`paddock's list`）。
+  - 强度是滑块：轨道上每档一个点，下面是档名，右上角是当前档；按、拖轨道或点档名都行，只停在档上。档位跟着模型（Claude 五档，Codex 有 `ultra` 的六档）。换档时拇指 280ms 滑过去、略冲过再回来；颜色按档名从主题的强调色经黄变到红（同名同色，两家一致），已走过的轨道、档点、档名、底边小块里的强度字都跟着；档越高拇指越大、光晕越强；从 `high` 起拇指外圈一圈圈扩散，越高越快。打开选单时拇指就在当前档，不从上次的位置滑进来。
+  - Settings › Agents › Models：去掉表头；名字下面写来源，Codex 来自 codex 时前面绿点、上次问失败时黄点加 `Couldn't ask: <原因>`，问着时写 `Asking codex…`、标签变淡、`Refresh` 变灰；模型是可换行的小标签，全显示，默认的那个强调色加 `default`；`Refresh` 带刷新图标；说明缩成一句。
