@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Model picker with effort slider</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+button{font:inherit;color:inherit;cursor:pointer}
+.effort-input{-webkit-appearance:none;appearance:none;position:absolute;left:0;right:0;top:0;bottom:0;width:100%;height:100%;margin:0;background:transparent;opacity:0;cursor:pointer}
+.effort-input::-webkit-slider-thumb{-webkit-appearance:none;width:28px;height:28px}
+@keyframes effortPulse{0%{transform:translate(-50%,-50%) scale(1);opacity:.55}70%{transform:translate(-50%,-50%) scale(2.1);opacity:0}100%{transform:translate(-50%,-50%) scale(2.1);opacity:0}}
+</style>
+</helmet>
+<div style="width: 760px; height: 640px; box-sizing: border-box; padding: 32px 40px; display: flex; flex-direction: column; gap: 10px; background: #0c1616; font-family: -apple-system, 'SF Pro Text', 'Helvetica Neue', sans-serif; color: #d6e6e1; font-size: 13px; border-radius: 12px">
+  <div style="display: flex; align-items: center; gap: 8px">
+    <span style="font-size: 11.5px; color: #668580; margin-right: 6px">Try:</span>
+    <button onClick="{{ pickClaude }}" style="{{ claudeTab }}">Claude</button>
+    <button onClick="{{ pickCodex }}" style="{{ codexTab }}">Codex</button>
+  </div>
+  <div style="display: flex; align-items: center; gap: 8px">
+    <button style="display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 14px; border: 1px solid rgba(214,230,225,0.08); border-radius: 999px; background: #132120; font-size: 14px">{{ kindLabel }}
+      <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="#83a098" stroke-width="1.4" aria-hidden="true"><path d="M2 3.5l3 3 3-3"></path></svg>
+    </button>
+    <button style="display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 14px; border: 1px solid rgba(127,212,191,0.45); border-radius: 999px; background: #132120; font-size: 14px">
+      <span style="font-family: 'SF Mono', Menlo, monospace; font-size: 13px">{{ model }}</span><span style="color: #668580">·</span><span style="{{ chipEffort }}">{{ effort }}</span>
+      <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="#83a098" stroke-width="1.4" aria-hidden="true"><path d="M2 6.5l3-3 3 3"></path></svg>
+    </button>
+  </div>
+
+  <div style="margin-left: 96px; width: 320px; box-sizing: border-box; padding: 6px; border-radius: 14px; background: #142321; border: 1px solid rgba(214,230,225,0.07); box-shadow: 0 18px 40px rgba(0,0,0,0.45); display: flex; flex-direction: column">
+    <div style="display: flex; align-items: baseline; justify-content: space-between; padding: 8px 10px 6px">
+      <span style="font-size: 11.5px; font-weight: 600; color: #83a098">Model</span>
+      <span style="font-size: 11px; color: #668580">{{ from }}</span>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 1px">
+      <sc-for list="{{ models }}" as="m" hint-placeholder-count="5">
+        <button onClick="{{ m.pick }}" style="{{ m.row }}">
+          <span style="{{ m.name }}">{{ m.label }}</span>
+          <sc-if value="{{ m.isDefault }}" hint-placeholder-val="{{ false }}"><span style="font-size: 10.5px; color: #83a098">default</span></sc-if>
+          <sc-if value="{{ m.on }}" hint-placeholder-val="{{ false }}"><svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="#7fd4bf" stroke-width="1.6" aria-hidden="true"><path d="M3 7.2l2.6 2.6L11 4.4"></path></svg></sc-if>
+        </button>
+      </sc-for>
+    </div>
+    <div style="height: 1px; margin: 6px 10px; background: rgba(214,230,225,0.07)"></div>
+    <div style="display: flex; align-items: baseline; justify-content: space-between; padding: 4px 10px 2px">
+      <span style="font-size: 11.5px; font-weight: 600; color: #83a098">Effort</span>
+      <span style="{{ effortTitle }}">{{ effort }}</span>
+    </div>
+    <div style="position: relative; height: 34px; margin: 0 16px">
+      <div style="position: absolute; left: 0; right: 0; top: 15px; height: 4px; border-radius: 2px; background: rgba(214,230,225,0.08)"></div>
+      <div style="{{ fillStyle }}"></div>
+      <sc-for list="{{ stops }}" as="s" hint-placeholder-count="5">
+        <div style="{{ s.dot }}"></div>
+      </sc-for>
+      <div style="{{ pulseStyle }}"></div>
+      <div style="{{ thumbStyle }}"></div>
+      <input class="effort-input" type="range" min="0" max="{{ maxIndex }}" step="1" value="{{ level }}" onInput="{{ slide }}" aria-label="Effort">
+    </div>
+    <div style="position: relative; height: 22px; margin: 0 16px 6px">
+      <sc-for list="{{ stops }}" as="s" hint-placeholder-count="5">
+        <button onClick="{{ s.pick }}" style="{{ s.label }}">{{ s.name }}</button>
+      </sc-for>
+    </div>
+  </div>
+  <div style="margin-left: 96px; width: 320px; font-size: 11.5px; color: #668580; line-height: 1.55">Drag or click a name. The thumb glides to each stop; the fill warms from mint toward amber as effort rises, and the ring around the thumb pulses faster at the top end. Codex models that lack ultra get five stops.</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":760,"height":640}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { kind: 'codex', model: 'gpt-6-astra', level: 2 };
+  }
+  lists() {
+    var five = ['low', 'medium', 'high', 'xhigh', 'max'];
+    var six = five.concat(['ultra']);
+    return {
+      claude: { label: 'Claude', from: "paddock's list", def: 'opus[1m]', models: [
+        ['opus[1m]', five], ['fable', five], ['opus', five], ['sonnet', five], ['haiku', five]] },
+      codex: { label: 'Codex', from: 'from codex · Oct 14', def: 'gpt-6-astra', models: [
+        ['gpt-6.1-sol', six], ['gpt-6-astra', six], ['gpt-6-sol', six], ['gpt-6-luna', five],
+        ['gpt-5.6-sol', six], ['gpt-5.6-terra', six], ['gpt-5.6-luna', five]] }
+    };
+  }
+  effortsOf(kind, model) {
+    var list = this.lists()[kind];
+    var found = list.models.filter(function (m) { return m[0] === model; })[0];
+    return found ? found[1] : list.models[0][1];
+  }
+  setKind(kind) {
+    var list = this.lists()[kind];
+    this.setState({ kind: kind, model: list.def, level: 2 });
+  }
+  setModel(model) {
+    var old = this.effortsOf(this.state.kind, this.state.model)[this.state.level];
+    var efforts = this.effortsOf(this.state.kind, model);
+    var keep = efforts.indexOf(old);
+    var level = keep >= 0 ? keep : (efforts.indexOf('high') >= 0 ? efforts.indexOf('high') : efforts.length - 1);
+    this.setState({ model: model, level: level });
+  }
+  renderVals() {
+    var self = this;
+    var kind = this.state.kind;
+    var list = this.lists()[kind];
+    var efforts = this.effortsOf(kind, this.state.model);
+    var level = Math.min(this.state.level, efforts.length - 1);
+    var maxIndex = efforts.length - 1;
+    var t = level / 5;
+    var hues = ['#7fd4bf', '#8fd4a8', '#b8d48a', '#dcc777', '#e5aa6a', '#ec8e66'];
+    var color = hues[level];
+    var pct = (level / maxIndex) * 100;
+    var ease = 'cubic-bezier(.22,.9,.3,1.15)';
+    var glow = 4 + level * 3;
+    var tab = function (on) {
+      return 'height: 26px; padding: 0 12px; border: 0; border-radius: 999px; font-size: 12px; ' +
+        (on ? 'background: rgba(127,212,191,0.16); color: #7fd4bf' : 'background: rgba(214,230,225,0.05); color: #a9c2bb');
+    };
+    return {
+      claudeTab: tab(kind === 'claude'),
+      codexTab: tab(kind === 'codex'),
+      pickClaude: function () { self.setKind('claude'); },
+      pickCodex: function () { self.setKind('codex'); },
+      kindLabel: list.label,
+      from: list.from,
+      model: this.state.model,
+      effort: efforts[level],
+      maxIndex: maxIndex,
+      level: level,
+      chipEffort: 'color: ' + color + '; transition: color 220ms ease',
+      effortTitle: 'font-size: 12px; font-weight: 600; color: ' + color + '; transition: color 220ms ease',
+      models: list.models.map(function (m) {
+        var on = m[0] === self.state.model;
+        return {
+          label: m[0], on: on, isDefault: m[0] === list.def,
+          pick: function () { self.setModel(m[0]); },
+          row: 'display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 10px; border: 0; border-radius: 8px; text-align: left; background: ' + (on ? 'rgba(127,212,191,0.13)' : 'transparent'),
+          name: "flex: 1; font-family: 'SF Mono', Menlo, monospace; font-size: 12.5px; color: " + (on ? '#7fd4bf' : '#c4d6d1')
+        };
+      }),
+      stops: efforts.map(function (name, i) {
+        var at = (i / maxIndex) * 100;
+        var passed = i <= level;
+        return {
+          name: name,
+          pick: function () { self.setState({ level: i }); },
+          dot: 'position: absolute; top: 17px; left: ' + at + '%; width: 6px; height: 6px; margin: -3px 0 0 -3px; border-radius: 3px; transition: background 220ms ease; background: ' + (passed ? color : 'rgba(214,230,225,0.22)'),
+          label: 'position: absolute; top: 0; left: ' + at + '%; transform: translateX(-50%); height: 22px; padding: 0 2px; border: 0; background: transparent; font-size: 11px; transition: color 220ms ease; color: ' + (i === level ? color : '#668580') + (i === level ? '; font-weight: 600' : '')
+        };
+      }),
+      fillStyle: 'position: absolute; left: 0; top: 15px; height: 4px; border-radius: 2px; width: ' + pct + '%; background: linear-gradient(90deg, #7fd4bf, ' + color + '); transition: width 260ms ' + ease + ', background 260ms ease',
+      thumbStyle: 'position: absolute; top: 17px; left: ' + pct + '%; width: ' + (14 + level) + 'px; height: ' + (14 + level) + 'px; transform: translate(-50%, -50%); border-radius: 50%; background: #e9f3f0; border: 3px solid ' + color + '; box-sizing: border-box; box-shadow: 0 0 ' + glow + 'px ' + color + '; transition: left 260ms ' + ease + ', width 200ms ease, height 200ms ease, border-color 220ms ease, box-shadow 220ms ease; pointer-events: none',
+      pulseStyle: 'position: absolute; top: 17px; left: ' + pct + '%; width: 16px; height: 16px; border-radius: 50%; background: ' + color + '; transition: left 260ms ' + ease + '; pointer-events: none; animation: effortPulse ' + (2.6 - t * 1.9).toFixed(2) + 's ease-out infinite; opacity: ' + (level < 2 ? 0 : 1)
+    };
+  }
+}
+</script>
+</body>
+</html>

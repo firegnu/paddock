@@ -506,6 +506,16 @@ impl Form {
         self.models = lists;
     }
 
+    /// The model the kind starts at.
+    pub fn default_model(&self) -> Option<&str> {
+        self.models.default_model(self.tool)
+    }
+
+    /// Where the kind's models came from; none for a kind without.
+    pub fn source(&self) -> Option<&crate::models::Source> {
+        self.models.of(self.tool).map(|list| &list.source)
+    }
+
     /// The models the kind offers; none for a kind without.
     pub fn model_names(&self) -> Vec<String> {
         self.models
@@ -1295,6 +1305,8 @@ mod tests {
         });
         form.pick_tool(Tool::Codex);
         assert_eq!(form.model_names(), ["fast", "deep"]);
+        assert_eq!(form.default_model(), Some("fast"));
+        assert_eq!(form.source(), Some(&Source::Codex { at: 1 }));
         // The first model, at the last effort it has when it has no `high`.
         assert_eq!(
             (form.model.as_deref(), form.effort.as_deref()),
