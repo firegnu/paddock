@@ -122,3 +122,10 @@
 - `paddock ctl open --prompt … -- amp`（给 agent 用的 ctl）没改：corral 会直接报 `amp takes no --prompt`，调用的 agent 可以照 corral 技能先 start、wait、再 send。要 paddock 替它送，另立。
 - paddock 技能（`skills.rs` 里的 SKILL.md）没提 amp 不收 `--prompt`。
 - amp 的 `--mode` 不在 New Agent 给选项（任务文件「不做」）。
+
+## 用户试用后修复（10-14）
+
+- 用户 10-14 重开试：“下面第二个下拉框一点就崩溃了”（New Agent 底部选 agent 的那个，附崩溃报告：`kind_icon::of` 下标越界）。
+- 原因：`kind_icon.rs` 里本机原图的表写死 4 格，加 amp 时只改了 `KINDS`（5 个），画 amp 图标时越界。原先 kind_icon 的测试只走了剪影那条路，没经过这张表。任何地方要画 amp 的图标（New Agent 的选单、amp agent 的卡片和标签）都会崩。
+- 修：表长改成 `KINDS.len()`，以后加一家不会再漏。新测试 `every_kind_has_an_icon`：每家都经 `of` 取一次图标；修前失败（`the len is 4 but the index is 4`），修后通过。
+- `cargo test --all-targets`（库内 505 条）、clippy、fmt、`git diff --check` 通过。没起窗口，留给用户重开再点一次。
