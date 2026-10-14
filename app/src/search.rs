@@ -96,6 +96,8 @@ pub struct Row {
     pub keys: Vec<String>,
     /// For a line of terminal text: the match in the title.
     pub hit: Option<Range<usize>>,
+    /// Searched with the title and the detail, never shown: an agent's workspace (P5-89).
+    pub also: String,
 }
 
 #[derive(Clone, Debug)]
@@ -147,6 +149,7 @@ pub fn agents(panel: &Panel, now: f64, home: Option<&str>) -> Vec<Row> {
                 detail,
                 keys: Vec::new(),
                 hit: None,
+                also: panel.workspace(agent).unwrap_or_default().to_owned(),
             }
         })
         .collect()
@@ -170,6 +173,7 @@ pub fn settings() -> Vec<Row> {
                 detail: format!("Settings · {holds}"),
                 keys: Vec::new(),
                 hit: None,
+                also: String::new(),
             }
         })
         .collect()
@@ -186,6 +190,7 @@ pub fn commands(commands: &[menu::Command]) -> Vec<Row> {
             detail: String::new(),
             keys: command.keys.clone(),
             hit: None,
+            also: String::new(),
         })
         .collect()
 }
@@ -238,12 +243,14 @@ pub fn line(pane: PaneId, index: usize, line: &str, hit: Range<usize>) -> Row {
         detail: String::new(),
         keys: Vec::new(),
         hit: Some(hit),
+        also: String::new(),
     }
 }
 
-/// Every word of `needle` in the row's title or detail, ignoring case.
+/// Every word of `needle` in the row's title or detail, or in what it is searched by besides,
+/// ignoring case.
 fn matches(row: &Row, needle: &str) -> bool {
-    let text = format!("{} {}", row.title, row.detail).to_lowercase();
+    let text = format!("{} {} {}", row.title, row.detail, row.also).to_lowercase();
     needle
         .split_whitespace()
         .all(|word| text.contains(&word.to_lowercase()))
@@ -403,6 +410,7 @@ mod tests {
                 detail: String::new(),
                 keys: Vec::new(),
                 hit: None,
+                also: String::new(),
             })
             .collect()
     }

@@ -7,8 +7,11 @@ use crate::{
     agents::{Panel, Status, group},
     corral::Agent,
     git::{Head, Summary},
+    kanban_repos,
     preset::{Color, Theme},
+    workspaces::Workspace,
 };
+use std::path::{Path, PathBuf};
 
 /// A Saddle interface colour, as `Theme::fg/bg` take it.
 pub type Pick = fn(&Theme) -> Color;
@@ -569,6 +572,10 @@ pub struct Card {
     pub paused: bool,
     /// In a turn, as corral says: pausing it from the card asks first.
     pub working: bool,
+    /// The workspace it is in (P5-89), for the details.
+    pub workspace: Option<String>,
+    /// Recorded in it by itself, not come with its repository: it can be taken out alone.
+    pub alone: bool,
 }
 
 /// Keeps the name readable on a tight first line: while `room(card)` leaves the name less than
@@ -610,6 +617,27 @@ pub struct Heading {
     pub folded: bool,
     /// The active pane's agent is one of its own.
     pub showing: bool,
+    /// The workspace it is in: the same group may have agents in another, or in none.
+    pub workspace: Option<String>,
+    /// What its button moves (P5-89). In a workspace, the whole repositories of its name there;
+    /// in none, the repositories its agents work in, to add whole. None for a group that goes by
+    /// its agents' prefix alone.
+    pub repos: Vec<PathBuf>,
+    /// Its agents recorded by themselves in its workspace, which its button moves too.
+    pub singles: Vec<String>,
+}
+
+/// A workspace's title (P5-89): its name, how many agents it has, and their statuses for the bar
+/// it shows while folded.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Tray {
+    pub name: String,
+    pub count: usize,
+    pub bar: Vec<Status>,
+    /// Folded to this line: its groups and cards are left out.
+    pub folded: bool,
+    /// The active pane's agent is one of its own.
+    pub showing: bool,
 }
 
 /// A line of the panel.
@@ -617,7 +645,16 @@ pub struct Heading {
 pub enum Line {
     /// Why the list could not be read.
     Error(String),
+    /// A workspace's title; its lines follow, each saying it is in it.
+    Workspace(Tray),
     Group(Heading),
+    /// A whole repository of a workspace with no agent now, by its name.
+    Vacant {
+        workspace: String,
+        repo: String,
+    },
+    /// A workspace with nothing to list, by its name.
+    Empty(String),
     Agent(Box<Card>),
 }
 
@@ -635,7 +672,8 @@ fn bar_rank(status: Status) -> u8 {
 
 /// The panel's lines. `selected` is the active pane's agent and `here` every agent open in this
 /// window; `home` the home directory, written `~`. Text is whole: the drawing fits it to the card.
-/// A folded group is its heading alone.
+/// The workspaces come first, by name, each with its groups; then the groups in none. A folded
+/// group is its heading alone, a folded workspace its title.
 pub fn lines(
     panel: &Panel,
     error: Option<&str>,
@@ -659,7 +697,7 @@ pub fn unfolded(
     listed(panel, error, selected, here, home, now, false)
 }
 
-/// The lines; with `folds`, without the cards of folded groups.
+/// The lines; with `folds`, without what is folded away.
 fn listed(
     panel: &Panel,
     error: Option<&str>,
@@ -679,42 +717,120 @@ fn listed(
         let short = &agent.name[group(&agent.name).len()..];
         *short_counts.entry((panel.group(agent), short)).or_insert(0) += 1;
     }
-    let mut previous = None;
-    let mut folded = false;
-    for (index, a) in ordered.iter().enumerate() {
-        let project = panel.group(a);
-        if previous != Some(project) {
-            let members = || {
-                ordered[index..]
+    let bar = |agents: &[&Agent]| {
+        let mut bar: Vec<Status> = agents.iter().map(|a| panel.shown(a, now)).collect();
+        bar.sort_by_key(|status| bar_rank(*status));
+        bar
+    };
+    let showing = |agents: &[&Agent]| agents.iter().any(|a| selected == Some(a.name.as_str()));
+    // A group of `workspace`, or of none: its heading, and its cards unless folded away.
+    let section = |lines: &mut Vec<Line>, agents: &[&Agent], workspace: Option<&Workspace>| {
+        let project = panel.group(agents[0]);
+        let place = workspace.map(|workspace| workspace.name.as_str());
+        let title = if project.is_empty() {
+            "agents"
+        } else {
+            project
+        };
+        let (repos, singles) = match workspace {
+            Some(workspace) => (
+                workspace
+                    .repos
                     .iter()
-                    .take_while(|agent| panel.group(agent) == project)
-            };
-            let mut bar: Vec<Status> = members().map(|agent| panel.shown(agent, now)).collect();
-            bar.sort_by_key(|status| bar_rank(*status));
-            let title = if project.is_empty() {
-                "agents"
-            } else {
-                project
-            };
-            folded = panel.folded.group(project);
-            lines.push(Line::Group(Heading {
-                group: project.to_owned(),
-                title: format!("{title}/"),
-                count: bar.len(),
-                bar,
-                folded,
-                showing: members().any(|agent| selected == Some(agent.name.as_str())),
-            }));
-            previous = Some(project);
+                    .filter(|repo| kanban_repos::name(repo) == project)
+                    .cloned()
+                    .collect(),
+                agents
+                    .iter()
+                    .filter(|a| workspace.agents.contains(&a.name))
+                    .map(|a| a.name.clone())
+                    .collect(),
+            ),
+            None => {
+                let mut repos: Vec<PathBuf> = agents
+                    .iter()
+                    .filter_map(|a| panel.repository(a))
+                    .map(Path::to_path_buf)
+                    .collect();
+                repos.sort();
+                repos.dedup();
+                (repos, Vec::new())
+            }
+        };
+        let folded = panel.folded.group(place, project);
+        lines.push(Line::Group(Heading {
+            group: project.to_owned(),
+            title: format!("{title}/"),
+            count: agents.len(),
+            bar: bar(agents),
+            folded,
+            showing: showing(agents),
+            workspace: place.map(str::to_owned),
+            repos,
+            singles,
+        }));
+        if folded && folds {
+            return;
         }
+        for a in agents {
+            let mut card = card(panel, a, group(&a.name), selected, here, home, now);
+            if short_counts[&(project, card.short.as_str())] > 1 {
+                card.short.clone_from(&a.name);
+            }
+            lines.push(Line::Agent(Box::new(card)));
+        }
+    };
+    let same_group = |a: &&Agent, b: &&Agent| panel.group(a) == panel.group(b);
+    // `ordered` has the workspaces' agents first, a workspace after another.
+    let mut rest = &ordered[..];
+    for workspace in panel.workspaces.list() {
+        let name = workspace.name.as_str();
+        let count = rest
+            .iter()
+            .take_while(|a| panel.workspace(a) == Some(name))
+            .count();
+        let (agents, after) = rest.split_at(count);
+        rest = after;
+        let folded = panel.folded.workspace(name);
+        lines.push(Line::Workspace(Tray {
+            name: name.to_owned(),
+            count,
+            bar: bar(agents),
+            folded,
+            showing: showing(agents),
+        }));
         if folded && folds {
             continue;
         }
-        let mut card = card(panel, a, group(&a.name), selected, here, home, now);
-        if short_counts[&(project, card.short.as_str())] > 1 {
-            card.short.clone_from(&a.name);
+        // Its whole repositories with no agent now keep a line, among its groups by name.
+        let mut vacant: Vec<String> = workspace
+            .repos
+            .iter()
+            .map(|repo| kanban_repos::name(repo))
+            .filter(|repo| !agents.iter().any(|a| panel.group(a) == repo))
+            .collect();
+        vacant.sort();
+        vacant.dedup();
+        if agents.is_empty() && vacant.is_empty() {
+            lines.push(Line::Empty(name.to_owned()));
+            continue;
         }
-        lines.push(Line::Agent(Box::new(card)));
+        let empty = |repo: String| Line::Vacant {
+            workspace: name.to_owned(),
+            repo,
+        };
+        let mut vacant = vacant.into_iter().peekable();
+        for agents in agents.chunk_by(same_group) {
+            let group = panel.group(agents[0]);
+            while let Some(repo) = vacant.next_if(|repo| repo.as_str() < group) {
+                lines.push(empty(repo));
+            }
+            section(&mut lines, agents, Some(workspace));
+        }
+        lines.extend(vacant.map(empty));
+    }
+    for agents in rest.chunk_by(same_group) {
+        section(&mut lines, agents, None);
     }
     lines
 }
@@ -776,6 +892,8 @@ fn card(
         cwd: a.cwd.clone(),
         paused: a.paused,
         working: a.state.as_deref() == Some("working"),
+        workspace: panel.workspace(a).map(str::to_owned),
+        alone: panel.workspaces.of_agent(&a.name).is_some(),
     }
 }
 

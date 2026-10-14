@@ -180,6 +180,7 @@ fn shown(panel: &Panel, selected: Option<&str>) -> Vec<String> {
                 text
             }
             Line::Agent(card) => card.name,
+            other => panic!("no workspaces here: {other:?}"),
         })
         .collect()
 }
@@ -199,7 +200,7 @@ fn a_folded_group_keeps_its_heading_count_and_bar_and_leaves_out_its_cards() {
         "ranch/main",
     ];
     assert_eq!(shown(&panel, None), open);
-    panel.folded.toggle_group("paddock");
+    panel.folded.toggle_group(None, "paddock");
     assert_eq!(
         shown(&panel, None),
         [
@@ -245,7 +246,7 @@ fn a_folded_group_keeps_its_heading_count_and_bar_and_leaves_out_its_cards() {
         .collect();
     assert_eq!(tiles, ["paddock/main", "ranch/main"]);
     // Opened again, the lines are what they were.
-    panel.folded.toggle_group("paddock");
+    panel.folded.toggle_group(None, "paddock");
     assert_eq!(
         shown(&panel, None),
         [
@@ -265,7 +266,7 @@ fn moving_between_cards_skips_folded_groups() {
         ("b/two", "/w/b", "idle"),
         ("c/one", "/w/c", "idle"),
     ]);
-    panel.folded.toggle_group("b");
+    panel.folded.toggle_group(None, "b");
     panel.select(Some("a/one".into()));
     panel.move_selection(1, 100.0);
     assert_eq!(panel.selected.as_deref(), Some("c/one"));
@@ -279,8 +280,8 @@ fn moving_between_cards_skips_folded_groups() {
     panel.move_selection(-1, 100.0);
     assert_eq!(panel.selected.as_deref(), Some("a/one"));
     // Everything folded: the selection stays.
-    panel.folded.toggle_group("a");
-    panel.folded.toggle_group("c");
+    panel.folded.toggle_group(None, "a");
+    panel.folded.toggle_group(None, "c");
     panel.move_selection(1, 100.0);
     assert_eq!(panel.selected.as_deref(), Some("a/one"));
 }

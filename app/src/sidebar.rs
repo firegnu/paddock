@@ -32,10 +32,15 @@ use gpui::{
     svg,
 };
 use std::{
+    collections::HashMap,
     rc::Rc,
     sync::Arc,
     time::{Duration, Instant},
 };
+
+#[path = "sidebar_workspaces.rs"]
+mod workspaces_view;
+use workspaces_view::Floating;
 
 /// What the sidebar asks of the window.
 pub enum SidebarEvent {
@@ -538,6 +543,18 @@ pub struct Sidebar {
     frosted: bool,
     /// The activity grid over the footer (P5-32), lying over the list's end (P5-70).
     activity: Entity<ActivityView>,
+    /// Where the workspaces are kept (P5-89); `None` keeps them only in memory.
+    workspaces_path: Option<std::path::PathBuf>,
+    /// The workspace menu, panel or field open over the list: one at a time.
+    floating: Option<Floating>,
+    /// Has the keys while one is open, for Esc and Return.
+    floating_focus: gpui::FocusHandle,
+    /// What had the keys before it opened, to give them back.
+    floating_back: Option<gpui::FocusHandle>,
+    /// The press that closed a menu, and whose it was: on its own button it does not open it
+    /// again.
+    dismissed: Option<(gpui::Point<Pixels>, String)>,
+    _floating_out: gpui::Subscription,
 }
 
 impl EventEmitter<SidebarEvent> for Sidebar {}
@@ -549,8 +566,18 @@ impl Sidebar {
         mono: Font,
         corral: String,
         refresh: Duration,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
+        let floating_focus = cx.focus_handle();
+        let floating_out = cx.on_focus_out(&floating_focus, window, |sidebar, _, window, cx| {
+            sidebar.floating_left(window, cx)
+        });
+        let workspaces_path = crate::workspaces::path();
+        let mut listing = Listing::default();
+        if let Some(path) = &workspaces_path {
+            listing.panel.workspaces = crate::workspaces::Workspaces::load(path);
+        }
         cx.spawn(async move |this, cx| {
             loop {
                 cx.background_executor()
@@ -577,7 +604,7 @@ impl Sidebar {
             theme,
             width,
             mono,
-            listing: Listing::default(),
+            listing,
             replies: Replies::start(Client {
                 program: corral.clone(),
             }),
@@ -592,6 +619,12 @@ impl Sidebar {
             asking: None,
             frosted: false,
             activity,
+            workspaces_path,
+            floating: None,
+            floating_focus,
+            floating_back: None,
+            dismissed: None,
+            _floating_out: floating_out,
         }
     }
 
@@ -656,9 +689,20 @@ impl Sidebar {
         cx.notify();
     }
 
-    /// Folds a group to its heading, or opens it again.
-    fn fold_group(&mut self, group: &str, cx: &mut Context<Self>) {
-        self.listing.panel.folded.toggle_group(group);
+    /// Folds a group to its heading, or opens it again: the one in `workspace`, or in none.
+    fn fold_group(&mut self, workspace: Option<&str>, group: &str, cx: &mut Context<Self>) {
+        self.listing.panel.folded.toggle_group(workspace, group);
+        self.folds_changed(cx);
+    }
+
+    /// Folds a workspace to its title, or opens it again.
+    fn fold_workspace(&mut self, name: &str, cx: &mut Context<Self>) {
+        self.listing.panel.folded.toggle_workspace(name);
+        self.folds_changed(cx);
+    }
+
+    /// What is folded changed: the window saves it with the layout.
+    fn folds_changed(&mut self, cx: &mut Context<Self>) {
         cx.emit(SidebarEvent::Folds(self.listing.panel.folded.clone()));
         cx.notify();
     }
@@ -1094,7 +1138,7 @@ impl Sidebar {
 
     /// The collapsed strip: the bell and the button for every agent, then a tile for each agent,
     /// the projects set apart by short rules, and the menu button at the bottom.
-    fn rail(&mut self, cx: &mut Context<Self>) -> AnyElement {
+    fn rail(&mut self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
         let ui = UiFont::get(cx);
         let theme = self.theme.clone();
         let grounds = self.grounds();
@@ -1106,6 +1150,7 @@ impl Sidebar {
                 .my(ui.px(y))
                 .bg(grounds.rule)
         };
+        let edge_rule = hsla(self.theme.fg(|t| t.agents_dimmer), 0.7);
         let lines = self.listing.unfolded(
             self.selected.as_deref(),
             &self.here,
@@ -1123,14 +1168,21 @@ impl Sidebar {
             .items_center()
             .pt(ui.px(4.0))
             .pb(ui.px(4.0));
+        // Between groups a short rule; a longer, brighter one where a workspace starts or the
+        // last one ends.
         let mut first = true;
+        let mut last: Option<Option<String>> = None;
         for line in lines {
             match line {
-                Line::Error(_) => {}
-                Line::Group(..) => {
-                    if !first {
+                Line::Error(_) | Line::Workspace(_) | Line::Vacant { .. } | Line::Empty(_) => {}
+                Line::Group(heading) => {
+                    let edge = last.as_ref().is_some_and(|last| *last != heading.workspace);
+                    if !first && edge {
+                        tiles = tiles.child(rule(28.0, 7.0).h(px(2.0)).bg(edge_rule));
+                    } else if !first {
                         tiles = tiles.child(rule(16.0, 6.0));
                     }
+                    last = Some(heading.workspace);
                 }
                 Line::Agent(card) => {
                     first = false;
@@ -1153,11 +1205,14 @@ impl Sidebar {
             .flex_shrink_0()
             .w(ui.px(RAIL))
             .h_full()
+            .relative()
             .flex()
             .flex_col()
             .items_center()
             .line_height(relative(1.3))
             .pt(ui.px(8.0))
+            // `New Workspace…` from the View menu or the palette opens over the strip too.
+            .children(self.editor(window, cx))
             .child(self.rail_bell(cx).map({
                 let top = ui.px(2.0);
                 move |bell| bell.mt(top)
@@ -1293,6 +1348,8 @@ impl Sidebar {
             }
         }
         if changed {
+            // As often as corral is read: another window may have changed the workspaces.
+            self.reload_workspaces();
             self.git.watch(self.listing.cwds());
             let cwds = self.listing.cwds();
             self.activity.update(cx, |activity, _| activity.watch(cwds));
@@ -1312,10 +1369,20 @@ impl Sidebar {
     /// A group's heading, the `index`th line of the list: its name, how many agents and, at the
     /// right, how they are doing. A click folds the group to this line, or opens it again
     /// (P5-89): the arrow after the count says which, shown while the group is folded or the
-    /// pointer is over the heading, its room always kept.
-    fn heading(&self, heading: card::Heading, index: usize, cx: &mut Context<Self>) -> AnyElement {
+    /// pointer is over the heading, its room always kept. Before the bar, while the pointer is
+    /// over it, the button that puts its repository in a workspace, or moves it to another or out.
+    /// `above` is the room wanted over its words, past the gap between lines.
+    fn heading(
+        &self,
+        heading: card::Heading,
+        index: usize,
+        above: f32,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let ui = UiFont::get(cx);
         let fg = |pick: Pick| hsla(self.theme.fg(pick), 1.0);
+        let hover: SharedString = format!("group-{index}").into();
+        let (button, menu) = self.group_button(&heading, &hover, cx).unzip();
         let card::Heading {
             group,
             title,
@@ -1323,20 +1390,26 @@ impl Sidebar {
             bar,
             folded,
             showing,
+            workspace,
+            ..
         } = heading;
-        let hover: SharedString = format!("group-{index}").into();
+        // In a workspace's tray its sides are the tray's.
+        let side = if workspace.is_some() { 4.0 } else { 8.0 };
         let lit = fg(|t| t.agents_text).opacity(0.06);
         let (dim, dimmer) = (fg(|t| t.agents_dim), fg(|t| t.agents_dimmer));
         // The agent the active pane shows is folded away in it.
         let showing = folded && showing;
-        let on_click = cx.listener(move |this, _: &ClickEvent, _, cx| this.fold_group(&group, cx));
+        let on_click = cx.listener(move |this, _: &ClickEvent, _, cx| {
+            this.fold_group(workspace.as_deref(), &group, cx)
+        });
         let row = div()
             .id(("group", index))
             .group(hover.clone())
+            .relative()
             .flex()
             .items_center()
             .gap(ui.px(6.0))
-            .px(px(8.0))
+            .px(px(side))
             .py(px(HEADING_Y))
             .rounded(px(7.0))
             .cursor_pointer()
@@ -1385,28 +1458,14 @@ impl Sidebar {
                 )
             })
             .child(div().flex_1())
+            .children(button)
             // How the group's agents are doing, a short stroke each.
-            .child(
-                div()
-                    .flex_shrink_0()
-                    .flex()
-                    .gap(px(2.0))
-                    .w(ui.px((BAR_SHARE * bar.len() as f32).min(BAR_MAX)))
-                    .children(bar.into_iter().map(|status| {
-                        div()
-                            .flex_1()
-                            .h(px(3.0))
-                            .rounded(px(2.0))
-                            .bg(fg(card::look(status).color))
-                    })),
-            );
-        // Sixteen points below the card above, the gap between lines included (closer to the top
-        // for the first: the window's title bar is over it); down to its own first card, only
-        // that gap. The row's own reach above and below its words is taken out of both.
+            .child(workspaces_view::bar_of(&self.theme, &ui, bar))
+            .children(menu.flatten());
+        // `above` under the line over it, the gap between lines apart; down to its own first
+        // card, only that gap. The row's own reach above and below its words is taken out of both.
         div()
-            .pt(px(
-                if index == 0 { 10.0 } else { 16.0 - CARD_GAP } - HEADING_Y
-            ))
+            .pt(px((above - HEADING_Y).max(0.0)))
             .mb(px(-HEADING_Y))
             .child(row)
             .into_any_element()
@@ -1528,7 +1587,7 @@ fn show(card: &Card, cx: &mut Context<Sidebar>) {
 impl Render for Sidebar {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if self.collapsed {
-            return self.rail(cx);
+            return self.rail(window, cx);
         }
         let ui = UiFont::get(cx);
         let theme = self.theme.clone();
@@ -1543,7 +1602,7 @@ impl Render for Sidebar {
         } else if self.note.as_ref().is_some_and(|note| note.fading(instant)) {
             window.request_animation_frame();
         }
-        let (lines, note) = {
+        let (lines, mut places, note) = {
             // Measured in the interface font: GPUI's own ellipsis misjudges text that shares a
             // row, so every one-line text of a card is cut here to the room it has, and never
             // wraps. Only the preview wraps, and GPUI cuts it, alone on its lines.
@@ -1576,15 +1635,23 @@ impl Render for Sidebar {
             let normal = |line: &str, size: f32| width(line, size, FontWeight::NORMAL, &plain);
             let mono = |line: &str| measure(line, KIND_SIZE, self.mono.clone());
             // The words beside the avatar.
-            let room = words_width(self.width, &ui);
+            let full = words_width(self.width, &ui);
             let mut lines = self.listing.lines(
                 self.selected.as_deref(),
                 &self.here,
                 self.home.as_deref(),
                 now,
             );
+            // What each open card's `Workspace` cell says, cut to its button.
+            let mut places = HashMap::new();
             for line in &mut lines {
                 let Line::Agent(card) = line else { continue };
+                // A workspace's tray takes its sides and its edges off its cards.
+                let room = if card.workspace.is_some() {
+                    full - 2.0 * (workspaces_view::TRAY_X + 1.0)
+                } else {
+                    full
+                };
                 // The room the first line leaves the name.
                 let name_room = |card: &Card| {
                     let mut left = room
@@ -1635,6 +1702,12 @@ impl Render for Sidebar {
                     cell.value =
                         card::elide(&cell.value, &|value| normal(value, SECOND_SIZE) <= column);
                 }
+                let button = column - ui.scale(2.0 * CHIP_X + MARK_GAP + CHEVRON);
+                let place = card.workspace.as_deref().unwrap_or("None");
+                places.insert(
+                    card.name.clone(),
+                    card::elide(place, &|name| normal(name, SECOND_SIZE) <= button),
+                );
                 if let Some(path) = &card.details.path {
                     card.details.path = Some(card::shorten(path, &|path| mono(path) <= room));
                 }
@@ -1652,15 +1725,19 @@ impl Render for Sidebar {
             }
             // The note beside the footer's button, in line with the words beside the avatars.
             let note = self.note.as_ref().zip(shown).map(|(note, opacity)| {
-                let text = card::elide(&note.text, &|cut| normal(cut, NOTE_SIZE) <= room);
+                let text = card::elide(&note.text, &|cut| normal(cut, NOTE_SIZE) <= full);
                 // Cut short (agents that could not be paused, say), it shows whole on hover.
                 let whole = (text != note.text).then(|| note.text.clone());
                 (text, whole, note.problem, opacity)
             });
-            (lines, note)
+            (lines, places, note)
         };
         // Every agent, those of folded groups too.
         let agents = self.listing.panel.agents.len();
+        // Workspaces stay when their agents have all stopped (P5-89): once corral has been read,
+        // they are listed even with no agent at all.
+        let listed =
+            agents > 0 || self.listing.loaded && !self.listing.panel.workspaces.list().is_empty();
 
         // The list runs on under the activity panel, and ends the panel's height below its last
         // card (P5-70).
@@ -1677,7 +1754,7 @@ impl Render for Sidebar {
             .px(px(PAD))
             .pt(px(2.0))
             .pb(px(end));
-        if agents == 0 && self.listing.loaded {
+        if !listed && self.listing.loaded {
             // Nothing listed: why, or how to start one, in the middle of the list.
             let quiet = match lines.first() {
                 Some(Line::Error(text)) => quiet(
@@ -1720,36 +1797,85 @@ impl Render for Sidebar {
             };
             list = list.justify_center().child(quiet);
         }
-        for (index, line) in lines.into_iter().filter(|_| agents > 0).enumerate() {
-            list = list.child(match line {
-                // The list corral last gave stays below this.
-                Line::Error(text) => div()
-                    .px(px(8.0))
-                    .pt(px(6.0))
-                    .text_size(ui.px(NOTE_SIZE))
-                    .text_color(fg(|t| t.agents_red))
-                    .child(text)
-                    .into_any_element(),
-                Line::Group(heading) => self.heading(heading, index, cx),
-                Line::Agent(card) => {
-                    let on_click = {
-                        let card = card.clone();
-                        cx.listener(move |this, _: &ClickEvent, _, cx| this.click(&card, cx))
-                    };
-                    let actions = self.card_actions(&card, cx);
-                    AgentCard {
-                        asking: self.asking.as_ref() == Some(&card.name),
-                        card: *card,
-                        theme: theme.clone(),
-                        mono: self.mono.clone(),
-                        on_click: Box::new(on_click),
-                        actions,
-                        grounds,
+        // A workspace's lines follow its own, and go in its tray; the rest lie in the list.
+        let mut lines = lines.into_iter().filter(|_| listed).enumerate().peekable();
+        while let Some((index, line)) = lines.next() {
+            let mut inside = Vec::new();
+            let (tray, mut line) = match line {
+                Line::Workspace(tray) => (Some(tray), None),
+                line => (None, Some(line)),
+            };
+            // Its own line outside a tray; in one, every line up to the next workspace's or the
+            // first that is in none.
+            loop {
+                let next = match line.take() {
+                    Some(line) => Some((index, line)),
+                    None if tray.is_some() => lines.next_if(|(_, line)| match line {
+                        Line::Group(heading) => heading.workspace.is_some(),
+                        Line::Agent(card) => card.workspace.is_some(),
+                        Line::Vacant { .. } | Line::Empty(_) => true,
+                        Line::Error(_) | Line::Workspace(_) => false,
+                    }),
+                    None => None,
+                };
+                let Some((index, line)) = next else { break };
+                let first = inside.is_empty();
+                inside.push(match line {
+                    // The list corral last gave stays below this.
+                    Line::Error(text) => div()
+                        .px(px(8.0))
+                        .pt(px(6.0))
+                        .text_size(ui.px(NOTE_SIZE))
+                        .text_color(fg(|t| t.agents_red))
+                        .child(text)
+                        .into_any_element(),
+                    // Sixteen points below the card above, the gap between lines included
+                    // (closer to the top for the first: the window's title bar is over it); under
+                    // a workspace's title, close.
+                    Line::Group(heading) => {
+                        let above = match (tray.is_some(), first, index) {
+                            (true, true, _) => 2.0,
+                            (false, _, 0) => 10.0,
+                            _ => 16.0 - CARD_GAP,
+                        };
+                        self.heading(heading, index, above, cx)
                     }
-                    .into_any_element()
+                    Line::Workspace(_) => continue,
+                    Line::Vacant { repo, .. } => self.vacant(Some(repo), cx),
+                    Line::Empty(_) => self.vacant(None, cx),
+                    Line::Agent(card) => {
+                        let on_click = {
+                            let card = card.clone();
+                            cx.listener(move |this, _: &ClickEvent, _, cx| this.click(&card, cx))
+                        };
+                        let actions = self.card_actions(&card, cx);
+                        // An open card's `Workspace` cell, and its menu while that is open.
+                        let place = places
+                            .remove(&card.name)
+                            .map(|place| self.workspace_cell(&card, place, cx));
+                        AgentCard {
+                            asking: self.asking.as_ref() == Some(&card.name),
+                            card: *card,
+                            theme: theme.clone(),
+                            mono: self.mono.clone(),
+                            on_click: Box::new(on_click),
+                            actions,
+                            workspace: place,
+                            grounds,
+                        }
+                        .into_any_element()
+                    }
+                });
+                if tray.is_none() {
+                    break;
                 }
-            });
+            }
+            match tray {
+                Some(tray) => list = list.child(self.tray(tray, inside, index == 0, cx)),
+                None => list = list.children(inside),
+            }
         }
+        let editor = self.editor(window, cx);
 
         let note = note.map(|(text, whole, problem, opacity)| {
             let tip = whole.map(|whole| Tip {
@@ -1815,6 +1941,7 @@ impl Render for Sidebar {
                     .relative()
                     .flex()
                     .flex_col()
+                    .children(editor)
                     // Frosted, the list stops at the footer, which shows the material (P5-75).
                     .child(list.mb(px(list_bottom(&ui, self.frosted))))
                     // Over the end of the list, which scrolls on its own, down to the sidebar's foot: the
@@ -2168,6 +2295,8 @@ struct AgentCard {
     mono: Font,
     on_click: OnClick,
     actions: CardActions,
+    /// The open card's `Workspace` cell (P5-89).
+    workspace: Option<workspaces_view::WorkspaceCell>,
     grounds: Grounds,
     /// It asks whether to pause its agent in a turn.
     asking: bool,
@@ -2181,6 +2310,7 @@ impl RenderOnce for AgentCard {
             mono,
             on_click,
             actions,
+            workspace,
             grounds,
             asking,
         } = self;
@@ -2436,6 +2566,7 @@ impl RenderOnce for AgentCard {
                 pause: actions.pause,
                 stop: actions.stop,
                 asking: asking.then_some((actions.confirm, actions.cancel)),
+                workspace,
             };
             details(&theme, &mono, &ui, &card, buttons)
         });
@@ -2680,6 +2811,8 @@ struct Buttons {
     stop: OnClick,
     /// Pause anyway, and Cancel.
     asking: Option<(OnClick, OnClick)>,
+    /// The `Workspace` cell: where the agent is, and the button that opens its menu.
+    workspace: Option<workspaces_view::WorkspaceCell>,
 }
 
 /// The open card under the place line: the branch and changes as chips; the rest in two columns of
@@ -2691,6 +2824,7 @@ fn details(theme: &Theme, mono: &Font, ui: &UiFont, card: &Card, buttons: Button
         pause,
         stop,
         asking,
+        workspace: place,
     } = buttons;
     let fg = |pick: Pick| hsla(theme.fg(pick), 1.0);
     let details = &card.details;
@@ -2732,17 +2866,72 @@ fn details(theme: &Theme, mono: &Font, ui: &UiFont, card: &Card, buttons: Button
                     .child(cell.value.clone()),
             )
     };
-    let cells = div()
-        .flex()
-        .flex_col()
-        .gap(px(10.0))
-        .children(details.cells.chunks(2).map(|pair| {
-            div()
-                .flex()
-                .gap(ui.px(CELL_GAP))
-                .children(pair.iter().map(cell))
-                .when(pair.len() == 1, |row| row.child(div().flex_1()))
-        }));
+    // The last cell: the workspace, as a button that opens the menu of them.
+    let place = place.map(|place| {
+        let text = fg(|t| t.agents_text);
+        let (ground, lit) = (text.opacity(0.12), text.opacity(0.18));
+        div()
+            .flex_1()
+            .min_w(px(0.0))
+            .flex()
+            .flex_col()
+            .gap(px(3.0))
+            .child(
+                div()
+                    .whitespace_nowrap()
+                    .text_size(ui.px(CELL_LABEL_SIZE))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(fg(|t| t.agents_dimmer))
+                    .child("Workspace"),
+            )
+            .child(
+                div()
+                    .relative()
+                    .flex()
+                    .child(
+                        div()
+                            .id("card-workspace")
+                            .h(ui.px(22.0))
+                            .px(ui.px(CHIP_X))
+                            .flex()
+                            .items_center()
+                            .gap(ui.px(MARK_GAP))
+                            .rounded(ui.px(6.0))
+                            .bg(if place.open { lit } else { ground })
+                            .cursor_pointer()
+                            .hover(move |style| style.bg(lit))
+                            .on_mouse_down(MouseButton::Left, place.on_press)
+                            // The press opened the menu: its click is not one on the card.
+                            .on_click(|_, _, cx| cx.stop_propagation())
+                            .child(
+                                div()
+                                    .whitespace_nowrap()
+                                    .text_size(ui.px(SECOND_SIZE))
+                                    .text_color(text)
+                                    .child(place.value),
+                            )
+                            .child(
+                                svg()
+                                    .data(CHEVRON_DOWN)
+                                    .flex_shrink_0()
+                                    .size(ui.px(CHEVRON))
+                                    .text_color(fg(|t| t.agents_dim)),
+                            ),
+                    )
+                    .children(place.menu),
+            )
+            .into_any_element()
+    });
+    let mut all = (details.cells.iter())
+        .map(|each| cell(each).into_any_element())
+        .chain(place);
+    let mut cells = div().flex().flex_col().gap(px(10.0));
+    while let Some(left) = all.next() {
+        let right = all
+            .next()
+            .unwrap_or_else(|| div().flex_1().into_any_element());
+        cells = cells.child(div().flex().gap(ui.px(CELL_GAP)).child(left).child(right));
+    }
     let path = details.path.clone().map(|path| {
         div()
             .overflow_hidden()
@@ -3059,9 +3248,8 @@ impl RailTip {
         } else {
             format!("{state} · {}", card.time)
         };
-        let group = (!card.group.is_empty()).then(|| format!("{}/", card.group));
         Self {
-            group,
+            group: workspaces_view::tip_group(card),
             name: card.short.clone(),
             effort: card.effort.clone(),
             status: (status, color),
@@ -3382,6 +3570,7 @@ mod tests {
                 Line::Error(text) => format!("! {text}"),
                 Line::Group(heading) => format!("# {} ({})", heading.title, heading.count),
                 Line::Agent(card) => format!("{} {}", card.short, card.look.label),
+                other => panic!("no workspaces here: {other:?}"),
             })
             .collect()
     }

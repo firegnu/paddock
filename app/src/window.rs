@@ -1148,7 +1148,7 @@ impl PaddockWindow {
             let theme = theme.clone();
             let (width, corral) = (config.sidebar_width, options.corral.clone());
             let refresh = std::time::Duration::from_millis(config.refresh_ms);
-            cx.new(|cx| Sidebar::new(theme, width, mono, corral, refresh, cx))
+            cx.new(|cx| Sidebar::new(theme, width, mono, corral, refresh, window, cx))
         };
         cx.subscribe_in(&sidebar, window, Self::on_sidebar).detach();
         // The Inbox follows the agents as they are read.
@@ -4729,6 +4729,7 @@ impl PaddockWindow {
                 detail: search::tab_detail(index, &names),
                 keys,
                 hit: None,
+                also: String::new(),
             }
         })
         .collect()
@@ -5961,6 +5962,12 @@ impl Render for PaddockWindow {
             .on_action(cx.listener(|this, _: &menu::ToggleSortByName, _, cx| {
                 this.sidebar.update(cx, |s, cx| s.toggle_sort(cx));
                 cx.notify();
+            }))
+            // The sidebar's own panel, nothing ticked (P5-89).
+            .on_action(cx.listener(|this, _: &menu::NewWorkspace, window, cx| {
+                this.close_popup(window, cx);
+                this.sidebar
+                    .update(cx, |s, cx| s.new_workspace(Default::default(), window, cx));
             }))
             .on_action(cx.listener(|this, _: &menu::ToggleSidebar, _, cx| this.toggle_sidebar(cx)))
             .on_action(
