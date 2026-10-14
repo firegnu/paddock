@@ -531,7 +531,7 @@ impl Form {
     pub fn pick_tool(&mut self, tool: Tool) {
         self.choose_tool(tool);
         if let Some(list) = self.models.of(tool) {
-            self.model = list.first().map(str::to_owned);
+            self.model = self.models.default_model(tool).map(str::to_owned);
             self.effort = list.effort_for(self.model.as_deref(), None);
             self.ask();
         }
@@ -1238,7 +1238,8 @@ mod tests {
         assert_eq!(labels(&args), ["model=sonnet", "effort=max"]);
 
         form.pick_tool(Tool::Codex);
-        assert_eq!(form.model.as_deref(), Some("gpt-6.1-sol"));
+        assert_eq!(form.model.as_deref(), Some("gpt-6-astra"));
+        assert_eq!(form.effort.as_deref(), Some("high"));
         form.set_model("gpt-5.6-luna");
         form.set_effort("xhigh");
         let args = form.args().unwrap();

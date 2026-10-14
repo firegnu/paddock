@@ -84,3 +84,7 @@ efforts = ["low", "medium", "high", "xhigh", "max"]
 ### 没做
 - Settings 里编辑模型列表（任务写明手改文件）。
 - Claude 取模型（没有可用的命令）。
+
+## 用户看过（10-14）
+- 重开看过：“我重开看了，gpt-5.5 去掉吧，然后默认设为astra high”。
+- 主控照做（分支 `p5-100-astra`）：写死的 Codex 列表去掉 `gpt-5.5`，剩 7 个；Codex 默认改成 `gpt-6-astra`、`high`。不管列表来自 codex、配置文件还是写死的，只要有 `gpt-6-astra` 就默认它，没有才用第一个；列表本身仍按 Codex 的顺序排。Claude 照旧取列表第一个。测试先改成新期望看红，再实现看绿；`cargo test --all-targets`、clippy、fmt、`git diff --check` 都过。
