@@ -51,6 +51,12 @@ pub enum SidebarEvent {
     },
     /// Open the New Agent panel.
     NewAgent,
+    /// Open the New Agent panel from a workspace, starting in `start_in` when it says: the agent
+    /// it starts joins the workspace (P5-93).
+    NewAgentIn {
+        workspace: String,
+        start_in: Option<String>,
+    },
     /// Open or close the Inbox, the bell's panel.
     Attention,
     /// Open or close the menu of actions.
@@ -1881,8 +1887,8 @@ impl Render for Sidebar {
                         self.heading(heading, index, above, cx)
                     }
                     Line::Workspace(_) => continue,
-                    Line::Vacant { repo, .. } => self.vacant(Some(repo), cx),
-                    Line::Empty(_) => self.vacant(None, cx),
+                    Line::Vacant { workspace, repo } => self.vacant(&workspace, Some(repo), cx),
+                    Line::Empty(workspace) => self.vacant(&workspace, None, cx),
                     Line::Agent(card) => {
                         let on_click = {
                             let card = card.clone();

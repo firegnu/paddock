@@ -212,6 +212,48 @@ fn a_repository_and_an_agent_are_each_in_one_workspace_only() {
 }
 
 #[test]
+fn an_agent_started_from_a_workspace_is_recorded_there_unless_its_repository_brings_it() {
+    let mut all = Workspaces::default();
+    workspace(&mut all, "Big", &["/w/paddock"], &[]);
+    workspace(&mut all, "Other", &["/w/cairn"], &["moved/main"]);
+    workspace(&mut all, "test", &[], &[]);
+    // Its repository is in the workspace: nothing to record.
+    assert!(!all.join("Big", "paddock/dev", Some(Path::new("/w/paddock"))));
+    assert_eq!(
+        members(&all, "Big"),
+        (vec![PathBuf::from("/w/paddock")], vec![])
+    );
+    // An empty workspace, or a directory outside Git: the agent by itself, nothing else.
+    assert!(all.join("test", "scratch/main", Some(Path::new("/w/scratch"))));
+    assert!(all.join("test", "tmp/main", None));
+    assert_eq!(
+        members(&all, "test"),
+        (
+            vec![],
+            vec!["scratch/main".to_owned(), "tmp/main".to_owned()]
+        )
+    );
+    // A repository in another workspace stays there; only the agent comes.
+    assert!(all.join("Big", "cairn/dev", Some(Path::new("/w/cairn"))));
+    assert_eq!(all.of_repo(Path::new("/w/cairn")), Some("Other"));
+    assert_eq!(all.of_agent("cairn/dev"), Some("Big"));
+    // A name recorded in another workspace moves, though its repository is in this one.
+    assert!(all.join("Big", "moved/main", Some(Path::new("/w/paddock"))));
+    assert_eq!(all.of_agent("moved/main"), Some("Big"));
+    // A workspace that is gone (another window removed it) takes nothing.
+    assert!(!all.join("Gone", "lost/main", None));
+    assert_eq!(all.of_agent("lost/main"), None);
+    // Its New Agent… starts in its first repository by name; with none, where it would anyway.
+    all.add_repo("Big", Path::new("/w/b/ranch"));
+    all.add_repo("Big", Path::new("/w/a/zed"));
+    assert_eq!(
+        all.get("Big").unwrap().first_repo(),
+        Some(Path::new("/w/paddock"))
+    );
+    assert_eq!(all.get("test").unwrap().first_repo(), None);
+}
+
+#[test]
 fn workspaces_come_first_by_name_with_their_groups_empty_repositories_and_split_ones() {
     let mut panel = panel(&[
         ("paddock/main", "/w/paddock", "idle"),

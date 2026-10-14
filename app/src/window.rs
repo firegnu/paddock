@@ -1778,6 +1778,10 @@ impl PaddockWindow {
                 self.show_agent(name, metadata.clone(), window, cx)
             }
             SidebarEvent::NewAgent => self.open_new_agent(Place::Current, window, cx),
+            SidebarEvent::NewAgentIn {
+                workspace,
+                start_in,
+            } => self.open_new_agent_in(workspace.clone(), start_in.clone(), window, cx),
             SidebarEvent::Attention => self.toggle_inbox(window, cx),
             SidebarEvent::Actions => {
                 self.popup = match self.popup {
@@ -1881,6 +1885,33 @@ impl PaddockWindow {
     /// unless that is the active pane; one open already only takes the keys back.
     pub fn open_new_agent(&mut self, place: Place, window: &mut Window, cx: &mut Context<Self>) {
         let seed = self.seed(cx);
+        self.show_new_agent(seed, place, window, cx);
+    }
+
+    /// The New Agent panel from a workspace (P5-93): starting in `start_in` when it says, and the
+    /// agent it starts joins the workspace.
+    pub fn open_new_agent_in(
+        &mut self,
+        workspace: String,
+        start_in: Option<String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let seed = Seed {
+            workspace: Some(workspace),
+            start_in,
+            ..self.seed(cx)
+        };
+        self.show_new_agent(seed, Place::Current, window, cx);
+    }
+
+    fn show_new_agent(
+        &mut self,
+        seed: Seed,
+        place: Place,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let view = match &self.new_agent {
             Some(view) => {
                 view.update(cx, |view, cx| view.reopen(seed, place, cx));
@@ -1898,10 +1929,16 @@ impl PaddockWindow {
                                 started,
                                 cwd,
                                 place,
+                                workspace,
                             } => {
                                 this.new_agent = None;
                                 if open {
                                     this.popup = None;
+                                }
+                                if let Some(workspace) = workspace {
+                                    this.sidebar.update(cx, |s, cx| {
+                                        s.join_started(workspace, &started.name, cwd, cx)
+                                    });
                                 }
                                 this.open_started(started, cwd, *place, window, cx);
                             }
@@ -1952,6 +1989,8 @@ impl PaddockWindow {
             projects,
             project,
             names: sidebar.agent_names(),
+            workspace: None,
+            start_in: None,
         }
     }
 
