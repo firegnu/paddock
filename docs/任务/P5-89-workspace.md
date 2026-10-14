@@ -186,3 +186,25 @@
 - 任务文件「不要做」里的都没做：拖动归类、手动调先后、同时在两个 workspace、workspace 套 workspace、颜色或图标、按 workspace 过滤看板或收件箱、在“没有 agent 的仓库”那一行开 agent、设置页入口、`paddock ctl` 命令；没改 P5-80 的分组规则，没改卡片的内容和画法（只加了 `Workspace` 一格），没碰 corral 和用户的 agent，没加依赖。
 - 没起窗口、没截图。留给用户实际看的：托盘和卡片的间距、悬停才出的箭头和按钮、三个菜单的位置、新建浮层里点开和勾选、中文输入法下起名字（选字时的 Return 归不归输入法）、就地改名、窄条、界面字号调大和侧栏拖窄时的样子。
 - 没合并、没推送、没收尾；`HANDOFF.md` 没动。
+
+## 主控审查
+
+2026-10-14，paddock/main。结论：可以合并。
+
+**看了什么**
+- 完成记录和回复；`workspaces.rs` 全文，`agents.rs`、`card.rs`、`layout_state.rs`、`menu.rs`、`search.rs`、`window.rs`、`docs/DESIGN.md` 的全部改动；`sidebar.rs` 里读名单、重读、空状态那几处，`sidebar_workspaces.rs` 里改成员和存盘的那几个函数（`edit_workspaces`、改名、去掉、挪、移出、单个 agent、浮层确认、`Choose folder…`）。`sidebar_workspaces.rs` 其余一千多行画界面的代码没有逐行看。
+- 只动了 `app/`、`docs/DESIGN.md` 和本文件；没加依赖（`Cargo.toml`、`Cargo.lock` 没变）；新代码里没有调 corral，`Choose folder…` 之后在后台问一次 git；「不要做」里的没发现做了哪件。
+- 归属的先后（单独记的 agent → 主仓库 → 读不到仓库时按前缀且只有一个 workspace 有同名仓库）、加就是挪、去掉 workspace 时收起状态一并清、改名时跟着改，和任务文件一致。
+
+**验证了什么**
+- 在 worktree 的 `app/` 下带 `.target/p5-89-workspace` 重跑一次：`cargo test --all-targets` 各个测试程序都是 `ok`（库内 460 个、`tests/workspaces.rs` 9 个，和完成记录说的一致），没有失败的；`cargo clippy --all-targets -- -D warnings` 退出码 0；`cargo fmt --check`、`git diff --check main...HEAD` 退出码 0。
+- 没起窗口，界面那一层没有实际看过。
+
+**对方列的取舍**
+- agent 全停、但有 workspace 时画托盘、不画中间那块 `No agents yet` 和 `New Agent` 按钮：同意（“workspace 不因为 agent 都停了就消失”的直接结果；开 agent 的别的入口还在），告诉用户。
+- 自己写的几句文案（`Move or remove`、`Click again to remove`、`Name the workspace to create it.`、`Another workspace has this name.`、`<目录名> isn't in a Git repository`）：同意，告诉用户，要改另说。
+- “上下键跳过收着的组”只做在 `Panel::move_selection` 里：现在界面上没有在卡片之间移动的上下键，任务文件这一条是主控写多了，照实记。
+- 其余各条（小圈认活动窗格的 agent、没有 agent 的仓库那行没有按钮、勾整个仓库时别处单独记着的 agent 不跟过来、每次改之前重读名单、多一个测试）：同意。
+
+**留给用户看的**
+- 托盘和卡片的间距、悬停才出的箭头和按钮、三个菜单的位置、新建浮层里点开和勾选、中文输入法下起名字（选字时的 Return 归不归输入法）、就地改名、系统选目录框回来以后浮层还在不在、窄条、界面字号调大和侧栏拖窄时的样子。
