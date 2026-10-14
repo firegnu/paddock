@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Integrations states</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+button{font:inherit;color:inherit;cursor:pointer}
+</style>
+</helmet>
+<div style="width: 960px; height: 560px; box-sizing: border-box; padding: 32px; display: flex; gap: 28px; background: #0c1616; font-family: -apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif; color: #d6e6e1; font-size: 13px">
+
+  <div style="flex: 1.25; min-width: 0; display: flex; flex-direction: column; gap: 8px">
+    <div style="padding-left: 4px; font-size: 11.5px; color: #668580">First run: skills not installed yet, two agents not on this Mac</div>
+    <div style="display: flex; align-items: center; gap: 8px; padding-left: 4px">
+      <span style="font-size: 12.5px; font-weight: 600; color: #83a098">Integrations</span>
+      <span style="flex: 1"></span>
+      <button style="height: 26px; padding: 0 10px; border: 0; border-radius: 999px; background: transparent; color: #8fb8d6; font-size: 12px">Refresh</button>
+    </div>
+    <div style="display: flex; flex-direction: column; border-radius: 12px; background: #111c1c">
+      <div style="display: grid; grid-template-columns: minmax(0, 1fr) 96px 150px; align-items: center; gap: 12px; height: 30px; padding: 4px 14px 0 24px; font-size: 11.5px; color: #668580"><span>Agent</span><span>Status</span><span>Skills</span></div>
+
+      <div style="display: grid; grid-template-columns: minmax(0, 1fr) 96px 150px; align-items: center; gap: 12px; min-height: 54px; padding: 6px 14px 6px 24px">
+        <div style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 13.5px">Claude Code</span><span style="font-size: 12px; color: #83a098">2.1.299</span></div>
+        <span style="justify-self: start; display: flex; align-items: center; gap: 6px; height: 22px; padding: 0 9px; border-radius: 999px; background: rgba(156,201,142,0.14); color: #9cc98e; font-size: 11.5px; font-weight: 600"><span style="width: 6px; height: 6px; border-radius: 3px; background: #9cc98e"></span>Built in</span>
+        <div><button style="height: 26px; padding: 0 12px; border: 0; border-radius: 999px; background: rgba(127,212,191,0.16); box-shadow: inset 0 0 0 1px rgba(127,212,191,0.45); color: #7fd4bf; font-size: 12px; font-weight: 600">Install</button></div>
+      </div>
+      <div style="height: 1px; margin-left: 24px; background: rgba(214,230,225,0.06)"></div>
+
+      <div style="display: grid; grid-template-columns: minmax(0, 1fr) 96px 150px; align-items: center; gap: 12px; min-height: 54px; padding: 6px 14px 6px 24px">
+        <div style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 13.5px">Codex</span><span style="font-size: 12px; color: #83a098">codex-cli 0.162.1</span></div>
+        <span style="justify-self: start; display: flex; align-items: center; gap: 6px; height: 22px; padding: 0 9px; border-radius: 999px; background: rgba(156,201,142,0.14); color: #9cc98e; font-size: 11.5px; font-weight: 600"><span style="width: 6px; height: 6px; border-radius: 3px; background: #9cc98e"></span>Built in</span>
+        <div><button style="height: 26px; padding: 0 12px; border: 0; border-radius: 999px; background: rgba(127,212,191,0.16); box-shadow: inset 0 0 0 1px rgba(127,212,191,0.45); color: #7fd4bf; font-size: 12px; font-weight: 600">Install</button></div>
+      </div>
+      <div style="height: 1px; margin-left: 24px; background: rgba(214,230,225,0.06)"></div>
+
+      <div style="display: grid; grid-template-columns: minmax(0, 1fr) 96px 150px; align-items: center; gap: 12px; min-height: 54px; padding: 6px 14px 6px 24px; opacity: 0.5">
+        <div style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 13.5px">pi</span><span style="font-size: 12px; color: #83a098">Not found</span></div>
+        <span style="font-size: 12px; color: #83a098">—</span>
+        <span style="font-size: 12px; color: #83a098">—</span>
+      </div>
+      <div style="height: 1px; margin-left: 24px; background: rgba(214,230,225,0.06)"></div>
+
+      <div style="display: grid; grid-template-columns: minmax(0, 1fr) 96px 150px; align-items: center; gap: 12px; min-height: 54px; padding: 6px 14px 6px 24px; opacity: 0.5">
+        <div style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 13.5px">omp</span><span style="font-size: 12px; color: #83a098">Not found</span></div>
+        <span style="font-size: 12px; color: #83a098">—</span>
+        <span style="font-size: 12px; color: #83a098">—</span>
+      </div>
+    </div>
+    <div style="padding-left: 4px; font-size: 12px; line-height: 1.5; color: #668580">Status comes with corral each time it starts an agent; there is nothing to install.<br>Skills teach an agent the corral and paddock commands.</div>
+  </div>
+
+  <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 28px">
+    <div style="display: flex; flex-direction: column; gap: 8px">
+      <div style="padding-left: 4px; font-size: 11.5px; color: #668580">While checking (about a second)</div>
+      <div style="display: flex; align-items: center; gap: 8px; padding-left: 4px">
+        <span style="font-size: 12.5px; font-weight: 600; color: #83a098">Integrations</span>
+        <span style="flex: 1"></span>
+        <span style="font-size: 12px; color: #668580">Checking…</span>
+      </div>
+      <div style="display: flex; flex-direction: column; border-radius: 12px; background: #111c1c; opacity: 0.6">
+        <div style="display: flex; align-items: center; height: 54px; padding: 0 24px; font-size: 13.5px">Claude Code</div>
+        <div style="height: 1px; margin-left: 24px; background: rgba(214,230,225,0.06)"></div>
+        <div style="display: flex; align-items: center; height: 54px; padding: 0 24px; font-size: 13.5px">Codex</div>
+      </div>
+      <div style="padding-left: 4px; font-size: 12px; color: #668580">The last result stays until the new one arrives.</div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 8px">
+      <div style="padding-left: 4px; font-size: 11.5px; color: #668580">corral missing or its answer not understood</div>
+      <div style="display: flex; align-items: center; gap: 8px; padding-left: 4px">
+        <span style="font-size: 12.5px; font-weight: 600; color: #83a098">Integrations</span>
+        <span style="flex: 1"></span>
+        <button style="height: 26px; padding: 0 10px; border: 0; border-radius: 999px; background: transparent; color: #8fb8d6; font-size: 12px">Refresh</button>
+      </div>
+      <div style="display: flex; align-items: center; gap: 10px; padding: 14px 16px; border-radius: 12px; background: #111c1c">
+        <span style="flex: none; width: 7px; height: 7px; border-radius: 4px; background: #e07a6f"></span>
+        <span style="line-height: 1.45">Couldn't ask corral which agents it supports: <span style="font-family: 'SF Mono', Menlo, monospace; font-size: 12px; color: #b0c6c0">corral</span> not found.</span>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":960,"height":560}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>
