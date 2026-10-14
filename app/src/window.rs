@@ -4488,6 +4488,21 @@ impl PaddockWindow {
                     this.new_shell(window, cx);
                 })),
             )
+            .child(
+                popover::row(
+                    theme,
+                    &ui,
+                    "menu-new-workspace",
+                    Icon::NewWorkspace,
+                    "New Workspace…",
+                    Tone::Plain,
+                )
+                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                    this.close_popup(window, cx);
+                    this.sidebar
+                        .update(cx, |s, cx| s.new_workspace(Default::default(), window, cx));
+                })),
+            )
             .child(popover::rule(theme, &ui))
             .child(
                 popover::line(theme, &ui, Icon::Sort, "Sort", false).child(

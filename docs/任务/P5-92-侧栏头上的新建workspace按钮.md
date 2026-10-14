@@ -26,3 +26,22 @@
 - 不改新建浮层本身、workspace 的规则、菜单 View 里那一项、仓库小标题上的按钮。
 - 不加快捷键。
 - 不起测试窗口；样子留给用户看。
+
+## 完成记录
+
+2026-10-14，paddock/main 自己做。
+- 做了什么：
+  - `footer_icon.rs` 加 `Icon::NewWorkspace`（层叠加号，照 `sidebar_workspaces.rs` 的 `LAYERS_PLUS` 换成线画，和别的按钮图标一样粗细、一样居中）。
+  - `sidebar.rs`：新函数 `new_workspace_button`（大小、圆角、颜色、悬停底色、提示的画法同暂停全部的按钮，点了直接调 `new_workspace(Default::default(), …)`，和 View 菜单那一项一样）；标题栏那一行放在暂停全部的按钮前面，窄条里放在暂停全部的按钮下面；`head_width` 一直算上这个按钮，最窄宽度和铃铛变紧凑跟着变。
+  - `window.rs` 的 `actions_menu`：`New Shell` 下面加 `New Workspace…`，先关菜单再开浮层。
+  - `docs/DESIGN.md`：P5-89「新建」一条注明 P5-92 加了入口，新增 P5-92 一条。
+- 验证了什么：
+  - 先加测试 `the_header_row_keeps_room_for_the_new_workspace_button_without_agents`，并把 `a_config_width_narrower_than_the_header_row_shows_at_the_narrowest` 的最窄宽度从 254 改成 284，跑过一次两条都因断言失败；实现后通过。
+  - `the_narrowest_sidebar_still_holds_the_header_row_in_the_title_bar` 跟着改了几个数：最窄 254→284；“300 宽时铃铛是胶囊”改成 330（加了按钮后胶囊要约 306）；“小字号最窄回到 220”从字号 10 改成 8（字号 10 时现在要约 238）；全屏比较用的宽度 235→265。断言的意思没变，只是数跟着按钮挪。
+  - `app/` 下带本任务的编译目录：`cargo test --all-targets` 全过（库内 461 个）、`cargo clippy --all-targets -- -D warnings` 退出码 0、`cargo fmt --check` 通过、`git diff --check` 干净。
+  - 没起窗口，样子留给用户看。
+- 拿主意的地方：
+  - 按钮没有悬停动效（暂停、铃铛、收起侧栏的按钮有）；图标是静的，悬停只变底色。
+  - 窄条里一直多一个按钮，下面格子的区域短一格；格子自己能滚，不会挤掉。
+  - 存的侧栏宽度比 284 窄的（比如原来拖到最窄的 254），打开后会按 284 画，宽 30。
+- 没做的事：快捷键；按钮的悬停动效。
