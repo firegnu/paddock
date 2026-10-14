@@ -19,6 +19,8 @@ actions!(
         Paste,
         ToggleFold,
         ToggleSortByName,
+        /// Open the sidebar's panel that names a workspace and picks what goes in it.
+        NewWorkspace,
         /// Collapse the sidebar to a narrow strip, or expand it again.
         ToggleSidebar,
         /// Open or close the right sidebar.
@@ -213,6 +215,7 @@ pub fn menus(fold: bool, by_name: bool, collapsed: bool, right_open: bool) -> Ve
         Menu::new("View").items([
             MenuItem::action("Fold Agents", ToggleFold).checked(fold),
             MenuItem::action("Sort Agents by Name", ToggleSortByName).checked(by_name),
+            MenuItem::action("New Workspace…", NewWorkspace),
             MenuItem::action(
                 if collapsed {
                     "Expand Sidebar"
@@ -446,9 +449,16 @@ mod tests {
                 .map(|item| matches!(item, MenuItem::Action { checked: true, .. }))
                 .collect()
         };
-        // Fold, Sort, the two sidebars, a separator and Zoom Pane; the last four are never ticked.
-        assert_eq!(view(true, false), [true, false, false, false, false, false]);
-        assert_eq!(view(false, true), [false, true, false, false, false, false]);
+        // Fold, Sort, New Workspace…, the two sidebars, a separator and Zoom Pane; the last five
+        // are never ticked.
+        assert_eq!(
+            view(true, false),
+            [true, false, false, false, false, false, false]
+        );
+        assert_eq!(
+            view(false, true),
+            [false, true, false, false, false, false, false]
+        );
         // The sidebar items say what they will do; the right one comes after the left.
         let item =
             |collapsed, right_open, index: usize| match &menus(false, false, collapsed, right_open)
@@ -458,10 +468,11 @@ mod tests {
                 MenuItem::Action { name, .. } => name.to_string(),
                 _ => String::new(),
             };
-        assert_eq!(item(false, false, 2), "Collapse Sidebar");
-        assert_eq!(item(true, false, 2), "Expand Sidebar");
-        assert_eq!(item(false, false, 3), "Show Right Sidebar");
-        assert_eq!(item(false, true, 3), "Hide Right Sidebar");
+        assert_eq!(item(false, false, 2), "New Workspace…");
+        assert_eq!(item(false, false, 3), "Collapse Sidebar");
+        assert_eq!(item(true, false, 3), "Expand Sidebar");
+        assert_eq!(item(false, false, 4), "Show Right Sidebar");
+        assert_eq!(item(false, true, 4), "Hide Right Sidebar");
         // Copy and Paste are the system's, so the Browser's page takes them when it has the
         // keyboard; Find is paddock's own.
         let edit: Vec<Option<OsAction>> = menus(false, false, false, false)[2]
@@ -547,6 +558,7 @@ mod tests {
             "Settings…",
             "Fold Agents",
             "Sort Agents by Name",
+            "New Workspace…",
             "Toggle Sidebar",
             "Toggle Right Sidebar",
             "Next Tab",

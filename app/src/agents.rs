@@ -3,8 +3,15 @@
 //! selected no longer counts as read; only the agent shown in the active pane does. The list-wide
 //! fold became each agent's own details, opened from its card, and it keeps the last reply read
 //! for each idle or waiting agent, the latest of them past its spell for the Inbox.
-use crate::corral::{Agent, Reply};
-use std::collections::{HashMap, HashSet};
+use crate::{
+    corral::{Agent, Reply},
+    workspaces::{Listed, Workspaces},
+};
+use serde::{Deserialize, Serialize};
+use std::{
+    collections::{HashMap, HashSet},
+    path::Path,
+};
 
 #[derive(Default)]
 pub struct Panel {
@@ -14,6 +21,10 @@ pub struct Panel {
     pub by_name: bool,
     /// The agents whose details are open, by name.
     pub expanded: HashSet<String>,
+    /// The groups and workspaces folded to one line (DESIGN §13 P5-89).
+    pub folded: Folds,
+    /// The workspaces, over the groups (DESIGN §13 P5-89).
+    pub workspaces: Workspaces,
     pub show_reply: bool,
     pub reply_top: usize,
     pub top: usize,
@@ -31,6 +42,76 @@ pub struct Panel {
     /// The last reply read of each agent with the instance it was read from, kept past its spell
     /// for the Inbox (DESIGN §13 P5-87), which shows it while the agent works on.
     last: HashMap<String, (Option<String>, Reply)>,
+}
+
+/// The groups folded to their heading and the workspaces folded to their title, their cards out
+/// of sight: saved with the layout, so one stays folded while it has no agents (DESIGN §13
+/// P5-89).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Folds {
+    /// The groups in no workspace, by name, as [`Panel::group`] gives it.
+    pub groups: Vec<String>,
+    /// By name.
+    pub workspaces: Vec<String>,
+    /// The groups inside a workspace: the workspace, then the group.
+    pub within: Vec<(String, String)>,
+}
+
+impl Folds {
+    /// Whether the group is folded: the one of that name in `workspace`, or in none.
+    pub fn group(&self, workspace: Option<&str>, group: &str) -> bool {
+        match workspace {
+            Some(workspace) => self
+                .within
+                .iter()
+                .any(|(w, g)| w == workspace && g == group),
+            None => self.groups.iter().any(|folded| folded == group),
+        }
+    }
+
+    /// Folds the group, or opens it again.
+    pub fn toggle_group(&mut self, workspace: Option<&str>, group: &str) {
+        match workspace {
+            Some(workspace) => toggle(&mut self.within, (workspace.to_owned(), group.to_owned())),
+            None => toggle(&mut self.groups, group.to_owned()),
+        }
+    }
+
+    pub fn workspace(&self, name: &str) -> bool {
+        self.workspaces.iter().any(|folded| folded == name)
+    }
+
+    /// Folds the workspace, or opens it again.
+    pub fn toggle_workspace(&mut self, name: &str) {
+        toggle(&mut self.workspaces, name.to_owned());
+    }
+
+    /// A workspace has a new name: what was folded of it stays so.
+    pub fn rename_workspace(&mut self, from: &str, to: &str) {
+        let names = self.workspaces.iter_mut();
+        for name in names.chain(self.within.iter_mut().map(|(workspace, _)| workspace)) {
+            if name == from {
+                to.clone_into(name);
+            }
+        }
+    }
+
+    /// A workspace is gone, and its folds with it.
+    pub fn forget_workspace(&mut self, name: &str) {
+        self.workspaces.retain(|folded| folded != name);
+        self.within.retain(|(workspace, _)| workspace != name);
+    }
+}
+
+/// Takes `item` out of `list`, or adds it when it was not there.
+fn toggle<T: PartialEq>(list: &mut Vec<T>, item: T) {
+    match list.iter().position(|listed| *listed == item) {
+        Some(at) => {
+            list.remove(at);
+        }
+        None => list.push(item),
+    }
 }
 
 /// An agent's last reply as the Inbox shows it.
@@ -198,17 +279,80 @@ impl Panel {
         self.follow = true;
     }
 
+    /// Moves the selection `step` cards on, among the cards in view: those of folded groups are
+    /// passed over (P5-89).
     pub fn move_selection(&mut self, step: isize, now: f64) {
         let ordered = self.ordered(now);
-        if ordered.is_empty() {
-            return;
-        }
-        let current = ordered
+        let in_view: Vec<&Agent> = ordered
             .iter()
-            .position(|a| Some(&a.name) == self.selected.as_ref())
-            .unwrap_or(0);
-        let at = current.saturating_add_signed(step).min(ordered.len() - 1);
-        self.select(Some(ordered[at].name.clone()));
+            .copied()
+            .filter(|a| self.in_view(a))
+            .collect();
+        let Some(last) = in_view.len().checked_sub(1) else {
+            return;
+        };
+        let selected = ordered
+            .iter()
+            .position(|a| Some(&a.name) == self.selected.as_ref());
+        let from = selected.map_or(0, |at| {
+            let before = ordered[..at].iter().filter(|a| self.in_view(a)).count() as isize;
+            // Folded away itself, it stands between its neighbours in view.
+            if self.in_view(ordered[at]) || step <= 0 {
+                before
+            } else {
+                before - 1
+            }
+        });
+        let at = (from + step).clamp(0, last as isize) as usize;
+        self.select(Some(in_view[at].name.clone()));
+    }
+
+    /// Whether the agent's card shows: neither its group nor its workspace is folded.
+    fn in_view(&self, agent: &Agent) -> bool {
+        let workspace = self.workspace(agent);
+        !workspace.is_some_and(|name| self.folded.workspace(name))
+            && !self.folded.group(workspace, self.group(agent))
+    }
+
+    /// The main worktree of the repository the agent works in, once Git has told. This only
+    /// consults the background Git results, never the filesystem.
+    pub fn repository(&self, agent: &Agent) -> Option<&Path> {
+        let summary = self.git.get(agent.cwd.as_ref()?)?.as_ref()?;
+        summary.main_repository.as_deref()
+    }
+
+    /// The workspace the agent is in (DESIGN §13 P5-89): the one it is recorded in by itself,
+    /// else its repository's; one whose repository cannot be read goes by its name's prefix.
+    pub fn workspace(&self, agent: &Agent) -> Option<&str> {
+        let prefix = group(&agent.name).trim_end_matches('/');
+        self.workspaces
+            .of(&agent.name, self.repository(agent), prefix)
+    }
+
+    /// The groups as the list has them now, each once whatever workspaces its agents are in,
+    /// for the panel that picks a workspace's members.
+    pub fn groups(&self) -> Vec<Listed> {
+        let mut groups: Vec<Listed> = Vec::new();
+        let mut agents: Vec<&Agent> = self.agents.iter().collect();
+        agents.sort_by(|a, b| (self.group(a), &a.name).cmp(&(self.group(b), &b.name)));
+        for agent in agents {
+            let name = self.group(agent);
+            if groups.last().is_none_or(|group| group.name != name) {
+                groups.push(Listed {
+                    name: name.to_owned(),
+                    repos: Vec::new(),
+                    agents: Vec::new(),
+                });
+            }
+            let group = groups.last_mut().expect("just pushed");
+            group.agents.push(agent.name.clone());
+            if let Some(repo) = self.repository(agent)
+                && !group.repos.iter().any(|listed| listed == repo)
+            {
+                group.repos.push(repo.to_owned());
+            }
+        }
+        groups
     }
 
     /// The main worktree's directory name, or the original prefix while unread/unavailable.
@@ -225,11 +369,21 @@ impl Panel {
             .unwrap_or_else(|| group(&agent.name).trim_end_matches('/'))
     }
 
+    /// The agents as listed: those of the workspaces first, a workspace after another by name
+    /// (P5-89), then those in none; in each by group, and in a group by status or by name.
     pub fn ordered(&self, now: f64) -> Vec<&Agent> {
-        let mut agents: Vec<_> = self.agents.iter().collect();
-        agents.sort_by(|a, b| {
-            self.group(a)
-                .cmp(self.group(b))
+        // Where an agent's workspace comes in their list; after them all for one in none.
+        let rank = |agent: &Agent| {
+            let workspaces = self.workspaces.list();
+            self.workspace(agent)
+                .and_then(|name| workspaces.iter().position(|w| w.name == name))
+                .unwrap_or(workspaces.len())
+        };
+        let mut agents: Vec<_> = self.agents.iter().map(|a| (rank(a), a)).collect();
+        agents.sort_by(|(rank_a, a), (rank_b, b)| {
+            rank_a
+                .cmp(rank_b)
+                .then_with(|| self.group(a).cmp(self.group(b)))
                 .then_with(|| {
                     if self.by_name {
                         std::cmp::Ordering::Equal
@@ -239,7 +393,7 @@ impl Panel {
                 })
                 .then_with(|| a.name.cmp(&b.name))
         });
-        agents
+        agents.into_iter().map(|(_, agent)| agent).collect()
     }
 
     pub fn suspect(&self, a: &Agent, now: f64) -> bool {

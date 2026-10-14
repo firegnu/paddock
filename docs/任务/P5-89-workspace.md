@@ -144,3 +144,67 @@
 
 ## 做完
 在本文件末尾追加「## 完成记录」（在你的分支里提交）：做了什么、验证了什么、拿主意的地方、没做的事，各几句话。回复里只写这几样，加上有没有要主控决定的事。命令都在前台跑完，全部做完后，回复最后一行写 DONE。
+
+## 完成记录
+
+2026-10-14，paddock/dev-workspace。分两步、两次提交，都在 `p5-89-workspace` 上，没合并、没推送。
+
+**做了什么**
+- 第一步（提交 `99152d8`）：点仓库小标题收起、再点展开；个数和细条照旧；悬停或收着时个数后面出箭头，位置一直留着；收着的组里有活动窗格的 agent 时多一个强调色小圈；不自动展开；`Panel::move_selection` 跳过收着的组；收起状态进布局文件的 `sidebar_folded`，旧文件打开是全展开；窄条不管收起。
+- 第二步：
+  - `app/src/workspaces.rs`（新，不依赖 GPUI）：成员名单、归属（单独记的 agent 先于仓库，前缀同名且只有一个 workspace 有才跟着进）、只能在一个里（加就是挪）、名字规则、`workspaces.json` 的存取（坏文件当作没有）、浮层里的勾选（整个仓库／其中几个／部分）。
+  - `agents.rs`、`card.rs`：`Folds` 分成不在 workspace 里的组、workspace、workspace 里的组三份；`Line` 多了 workspace 标题、没有 agent 的仓库、空 workspace 三种行；workspace 在前按名字排，同一仓库一部分在里一部分在外时出现两次；卡片多带它在哪个 workspace、是不是单独加的。
+  - `sidebar.rs` 和新的子模块 `sidebar_workspaces.rs`：托盘和标题行（收起成一行带全部细条）、没有 agent 的仓库那一行、小标题上的按钮和菜单（`Add <组名> to`／`Move to`／`Remove from <workspace>`／`New workspace…`）、卡片详情的 `Workspace` 一格和菜单、标题上的 `⋯` 菜单（`Rename` 就地改名、`Add repositories…`、`Remove workspace` 点两次）、`New workspace`／`Add to <名字>` 浮层（含 `Choose folder…` 和 `Not running`）、窄条的分隔线和悬停提示 `<workspace> › <组名>`。
+  - `menu.rs`、`window.rs`：View ▸ `New Workspace…`（命令面板跟着有），窗口把这个动作交给左侧栏。
+  - `search.rs`：⌘P 的 agent 行多搜 workspace 名，行上显示的项目名没变。
+  - `docs/DESIGN.md` §13 加了 P5-89 一条，P5-80 那条后面注明分组规则没变。
+
+**验证了什么**
+- 在 `app/` 下带 `CARGO_TARGET_DIR=…/.target/p5-89-workspace`，最终代码上：`cargo test --all-targets` 全过（库内 460 个，`tests/workspaces.rs` 9 个，其余各文件都过）；`cargo clippy --all-targets -- -D warnings` 过；`cargo fmt --check` 过；`git diff --check` 过。
+- 没做到“各一次”，照实写：第一步提交前跑过一次全量测试；第二步做完跑了一轮，clippy 报了一处类型太复杂（改成类型别名），随后对着任务文件又查出漏了一条（“workspace 不因为 agent 都停了就消失”，原先 agent 全停时列表只画中间那块空状态），改完三条命令又各跑了一遍。开发中还单独跑过 `--test workspaces`、`--test repo_groups`、`--test layout_state`、`--lib menu::` 看红和绿。
+- 先红后绿：`tests/workspaces.rs` 的 9 个里 8 个先在没有行为的空壳上因断言失败（“没有 workspace 时行和以前一样”那个本来就该过）；菜单的两个测试先因为没有 `New Workspace…` 失败；“加到不存在的 workspace 不动别处”的断言先失败再修。
+- 任务文件列的八样都有测试：行不变、归属、只能在一个里、行的顺序（含没有 agent 的仓库、出现两次）、收起（个数和细条还在、上下移动跳过）、存取（名单读写、坏文件、布局里旧文件全展开）、名字、⌘P。
+- **不够的地方**：GPUI 那一层（托盘、三个菜单、浮层、就地改名、焦点和 Esc／Return、系统选目录框回来以后浮层还在不在）没有自动测试，也没起窗口看过，只是编译通过、对着 GPUI 源码核过接口。这部分对不对只能靠用户实际点。
+
+**拿主意的地方**
+- 收着的组／workspace 上的小圈，认的是“活动窗格显示的那个 agent”（任务文件的写法），不是这个窗口里开着的所有 agent。
+- “上下键跳过”做在 `Panel::move_selection` 里并有测试；现在界面上没有在卡片之间移动的上下键，所以这条眼下只在模型里。
+- agent 全停、但有 workspace 时，列表画各个托盘，不画中间那块 `No agents yet` 和 `New Agent` 按钮（一个 workspace 都没有时照旧）。
+- workspace 里的组，按钮的悬停提示写的是 `Move or remove`（任务文件只给了外面那个的 `Add to workspace`）；`Remove workspace` 点第一下后那一行变成 `Click again to remove`。名字不合格时的两句：`Name the workspace to create it.`、`Another workspace has this name.`。选的目录不在 Git 仓库时：`<目录名> isn't in a Git repository`（和看板那句一样）。菜单里 workspace 名后面淡淡写它有几个仓库（`4 repos`，照样稿 3）。
+- workspace 里的组，按钮挪和移出的是：这个 workspace 里目录名等于组名的整个仓库，加上这个组里单独记着的 agent。没有 agent 的仓库那一行没有按钮，要去掉走 `Add repositories…`。
+- 浮层里勾“整个仓库”时，已经单独记在别的 workspace 里的 agent 不跟着过来，除非把它自己也勾上。
+- `workspaces.json` 是一个数组；每次改之前先重读，每读一次 corral 也重读（别的窗口可能改过）；写失败在页脚那条提示里说。加到一个已经不存在的 workspace 不做任何事。
+- 布局文件里收起状态是 `sidebar_folded {groups, workspaces, within}`；改名、去掉 workspace 时收起状态跟着改。
+- 浮层、菜单、改名框在点外面或键盘焦点离开时关掉；窗口退到后面时（比如系统选目录框在前面）浮层留着、勾的不丢。就地改名时点别处算取消。
+- 从 View 菜单或命令面板打开时侧栏如果收成了窄条，浮层照样出在窄条上。
+- 浮层打开时，只勾了一部分 agent 的组先展开着。
+- `search::Row` 多了一个不显示、只参与搜索的字段 `also`。
+- 托盘里的卡片比外面窄，卡片上按宽度裁字的地方按窄的算。
+- 比任务文件列的多一个测试（浮层里勾选的规则），因为那段逻辑不小。
+
+**没做的事**
+- 任务文件「不要做」里的都没做：拖动归类、手动调先后、同时在两个 workspace、workspace 套 workspace、颜色或图标、按 workspace 过滤看板或收件箱、在“没有 agent 的仓库”那一行开 agent、设置页入口、`paddock ctl` 命令；没改 P5-80 的分组规则，没改卡片的内容和画法（只加了 `Workspace` 一格），没碰 corral 和用户的 agent，没加依赖。
+- 没起窗口、没截图。留给用户实际看的：托盘和卡片的间距、悬停才出的箭头和按钮、三个菜单的位置、新建浮层里点开和勾选、中文输入法下起名字（选字时的 Return 归不归输入法）、就地改名、窄条、界面字号调大和侧栏拖窄时的样子。
+- 没合并、没推送、没收尾；`HANDOFF.md` 没动。
+
+## 主控审查
+
+2026-10-14，paddock/main。结论：可以合并。
+
+**看了什么**
+- 完成记录和回复；`workspaces.rs` 全文，`agents.rs`、`card.rs`、`layout_state.rs`、`menu.rs`、`search.rs`、`window.rs`、`docs/DESIGN.md` 的全部改动；`sidebar.rs` 里读名单、重读、空状态那几处，`sidebar_workspaces.rs` 里改成员和存盘的那几个函数（`edit_workspaces`、改名、去掉、挪、移出、单个 agent、浮层确认、`Choose folder…`）。`sidebar_workspaces.rs` 其余一千多行画界面的代码没有逐行看。
+- 只动了 `app/`、`docs/DESIGN.md` 和本文件；没加依赖（`Cargo.toml`、`Cargo.lock` 没变）；新代码里没有调 corral，`Choose folder…` 之后在后台问一次 git；「不要做」里的没发现做了哪件。
+- 归属的先后（单独记的 agent → 主仓库 → 读不到仓库时按前缀且只有一个 workspace 有同名仓库）、加就是挪、去掉 workspace 时收起状态一并清、改名时跟着改，和任务文件一致。
+
+**验证了什么**
+- 在 worktree 的 `app/` 下带 `.target/p5-89-workspace` 重跑一次：`cargo test --all-targets` 各个测试程序都是 `ok`（库内 460 个、`tests/workspaces.rs` 9 个，和完成记录说的一致），没有失败的；`cargo clippy --all-targets -- -D warnings` 退出码 0；`cargo fmt --check`、`git diff --check main...HEAD` 退出码 0。
+- 没起窗口，界面那一层没有实际看过。
+
+**对方列的取舍**
+- agent 全停、但有 workspace 时画托盘、不画中间那块 `No agents yet` 和 `New Agent` 按钮：同意（“workspace 不因为 agent 都停了就消失”的直接结果；开 agent 的别的入口还在），告诉用户。
+- 自己写的几句文案（`Move or remove`、`Click again to remove`、`Name the workspace to create it.`、`Another workspace has this name.`、`<目录名> isn't in a Git repository`）：同意，告诉用户，要改另说。
+- “上下键跳过收着的组”只做在 `Panel::move_selection` 里：现在界面上没有在卡片之间移动的上下键，任务文件这一条是主控写多了，照实记。
+- 其余各条（小圈认活动窗格的 agent、没有 agent 的仓库那行没有按钮、勾整个仓库时别处单独记着的 agent 不跟过来、每次改之前重读名单、多一个测试）：同意。
+
+**留给用户看的**
+- 托盘和卡片的间距、悬停才出的箭头和按钮、三个菜单的位置、新建浮层里点开和勾选、中文输入法下起名字（选字时的 Return 归不归输入法）、就地改名、系统选目录框回来以后浮层还在不在、窄条、界面字号调大和侧栏拖窄时的样子。

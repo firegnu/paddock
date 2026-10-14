@@ -70,3 +70,4 @@ pub mod view;
 pub mod viewer;
 pub mod window;
 pub mod windows;
+pub mod workspaces;

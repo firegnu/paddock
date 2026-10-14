@@ -101,6 +101,10 @@ pub struct Layout {
     /// was saved open it unfolded.
     #[serde(default)]
     pub activity_folded: bool,
+    /// The sidebar's groups folded to their heading; files from before they could fold open
+    /// every group.
+    #[serde(default)]
+    pub sidebar_folded: crate::agents::Folds,
     #[serde(default)]
     pub window_size: WindowSize,
 }
@@ -228,6 +232,7 @@ impl Layout {
             sidebar_collapsed: false,
             right_sidebar: right_panel::Saved::default(),
             activity_folded: false,
+            sidebar_folded: Default::default(),
             window_size: WindowSize::default(),
         }
     }
