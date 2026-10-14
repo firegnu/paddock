@@ -135,8 +135,8 @@ fn dir() -> PathBuf {
 }
 
 /// The originals, read the first time they are asked for.
-fn originals() -> &'static [Option<Picture>; 4] {
-    static ORIGINALS: OnceLock<[Option<Picture>; 4]> = OnceLock::new();
+fn originals() -> &'static [Option<Picture>; KINDS.len()] {
+    static ORIGINALS: OnceLock<[Option<Picture>; KINDS.len()]> = OnceLock::new();
     ORIGINALS.get_or_init(|| {
         let dir = dir();
         std::array::from_fn(|index| load(&dir, index))
@@ -436,6 +436,15 @@ mod tests {
         assert_eq!(silhouette_file("amp"), Some("amp"));
         assert_eq!(of("gemini"), None);
         assert_eq!(of(""), None);
+    }
+
+    /// Asking through the originals: their table has a place for every kind (P5-98 left amp out
+    /// and New Agent's picker crashed drawing it).
+    #[test]
+    fn every_kind_has_an_icon() {
+        for kind in KINDS {
+            assert!(of(kind).is_some(), "{kind}");
+        }
     }
 
     /// A 4×4 PNG, opaque only in its middle 2×2 (made with the `png` crate for this test).
