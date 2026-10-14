@@ -14,7 +14,7 @@ use crate::{
     footer_icon::{self, Icon},
     kind_icon,
     layout::Direction,
-    menu,
+    menu, models,
     new_agent::{self, Form, Place, Preset, Started, Tool},
     popover::{self, Hang},
     text_input::{self, Changed, TextInput},
@@ -112,6 +112,8 @@ pub struct NewAgentView {
     recent_path: Option<PathBuf>,
     form: Form,
     presets: Vec<Preset>,
+    /// `[agent_models]` in the config, to offer codex's models over when it answers.
+    agent_models: models::Configured,
     config_path: PathBuf,
     prompt: Entity<TextInput>,
     command: Entity<TextInput>,
@@ -227,9 +229,11 @@ fn hold_main_window(panel: Div) -> Div {
 impl NewAgentView {
     pub fn new(seed: Seed, place: Place, cx: &mut Context<Self>) -> Self {
         let config_path = crate::config::default_path();
-        let presets = new_agent::presets(&Config::load(&config_path).unwrap_or_default());
+        let config = Config::load(&config_path).unwrap_or_default();
+        let presets = new_agent::presets(&config);
         let mut form = Form::new(seed.start_in.unwrap_or(seed.project), place);
         form.set_names(seed.names);
+        form.set_lists(models::load(&config.agent_models));
         // Opens set as a regular Claude agent at its deepest model and normal effort.
         form.pick_tool(Tool::Claude);
         form.regular = true;
@@ -283,7 +287,7 @@ impl NewAgentView {
         if !projects.contains(&form.project) {
             projects.insert(0, form.project.clone());
         }
-        Self {
+        let mut view = Self {
             theme: seed.theme,
             corral: seed.corral,
             mono: seed.mono,
@@ -292,6 +296,7 @@ impl NewAgentView {
             recent_path,
             form,
             presets,
+            agent_models: config.agent_models,
             config_path,
             prompt,
             command,
@@ -310,7 +315,25 @@ impl NewAgentView {
             error: None,
             focus: cx.focus_handle(),
             _subscriptions: subscriptions,
-        }
+        };
+        view.ask_codex(cx);
+        view
+    }
+
+    /// Asks codex for its models in the background when a month has passed since it last was,
+    /// and offers them once it answers.
+    fn ask_codex(&mut self, cx: &mut Context<Self>) {
+        let task = cx.background_spawn(async { models::ask_codex(false) });
+        cx.spawn(async move |this, cx| {
+            if let Some(cache) = task.await {
+                let _ = this.update(cx, |this, cx| {
+                    let lists = models::Lists::new(&this.agent_models, Some(&cache));
+                    this.form.set_lists(lists);
+                    cx.notify();
+                });
+            }
+        })
+        .detach();
     }
 
     /// Opened again: the agents and their projects as they are now, and from `+` or the split
@@ -330,6 +353,12 @@ impl NewAgentView {
             self.form.place = place;
         }
         self.sync_name(cx);
+        // The config may have been edited by hand, and codex asked from Settings, meanwhile.
+        self.agent_models = Config::load(&self.config_path)
+            .unwrap_or_default()
+            .agent_models;
+        self.form.set_lists(models::load(&self.agent_models));
+        self.ask_codex(cx);
         // The plugin may have been installed in Settings meanwhile.
         self.plugin = None;
         self.plugin_asked = false;
@@ -359,6 +388,8 @@ impl NewAgentView {
         }
         self.mono = config.font.clone().into();
         self.presets = new_agent::presets(config);
+        self.agent_models = config.agent_models.clone();
+        self.form.set_lists(models::load(&self.agent_models));
         cx.notify();
     }
 
@@ -1327,7 +1358,6 @@ impl NewAgentView {
     /// The picker under the model chip: the kind's model and effort as segments. It stays open
     /// while choosing.
     fn model_rows(&self, ui: &UiFont, cx: &mut Context<Self>) -> Vec<AnyElement> {
-        let tool = self.form.tool;
         let text = self.fg(|t| t.agents_text);
         let branch = self.fg(|t| t.agents_branch);
         let accent = self.fg(|t| t.agents_accent);
@@ -1342,7 +1372,7 @@ impl NewAgentView {
                 .text_color(self.fg(|t| t.agents_dim))
                 .child(label)
         };
-        let segment = |id: ElementId, label: &'static str, on: bool, mono: bool| {
+        let segment = |id: ElementId, label: SharedString, on: bool, mono: bool| {
             div()
                 .id(id)
                 .flex_1()
@@ -1370,46 +1400,85 @@ impl NewAgentView {
                 .child(label)
         };
         rows.push(heading("Model").into_any_element());
-        let mut models = div().flex_shrink_0().flex().gap(ui.px(4.0)).px(ui.px(6.0));
-        for (index, &(model, _)) in tool.models().iter().enumerate() {
-            let on = self.form.model.as_deref() == Some(model);
-            models = models.child(
-                segment(
-                    ElementId::NamedInteger("model".into(), index as u64),
-                    model,
-                    on,
-                    true,
-                )
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.form.set_model(model);
-                    this.changed(cx);
-                })),
-            );
-        }
-        rows.push(models.into_any_element());
-        rows.push(heading("Effort").pt(ui.px(10.0)).into_any_element());
-        let mut efforts = div()
+        // Two models to a line, as many lines as there are; the efforts on as few lines as hold
+        // them at six a line, shared out evenly.
+        let per_line = |count: usize, most: usize| {
+            let lines = count.div_ceil(most).max(1);
+            count.div_ceil(lines).max(1)
+        };
+        let models = self.form.model_names();
+        let models_per_line = per_line(models.len(), 2);
+        let mut model_lines = div()
             .flex_shrink_0()
             .flex()
+            .flex_col()
+            .gap(ui.px(4.0))
+            .px(ui.px(6.0));
+        for (line, chunk) in models.chunks(models_per_line).enumerate() {
+            let mut row = div().flex().gap(ui.px(4.0));
+            for (column, model) in chunk.iter().enumerate() {
+                let index = line * models_per_line + column;
+                let on = self.form.model.as_deref() == Some(model.as_str());
+                let model = model.clone();
+                row = row.child(
+                    segment(
+                        ElementId::NamedInteger("model".into(), index as u64),
+                        model.clone().into(),
+                        on,
+                        true,
+                    )
+                    .on_click(cx.listener(
+                        move |this, _: &ClickEvent, _, cx| {
+                            this.form.set_model(&model);
+                            this.changed(cx);
+                        },
+                    )),
+                );
+            }
+            // A short last line keeps its segments as wide as those above.
+            for _ in chunk.len()..models_per_line {
+                row = row.child(div().flex_1());
+            }
+            model_lines = model_lines.child(row);
+        }
+        rows.push(model_lines.into_any_element());
+        rows.push(heading("Effort").pt(ui.px(10.0)).into_any_element());
+        let efforts = self.form.efforts();
+        let efforts_per_line = per_line(efforts.len(), 6);
+        let mut effort_lines = div()
+            .flex_shrink_0()
+            .flex()
+            .flex_col()
             .gap(ui.px(4.0))
             .px(ui.px(6.0))
             .pb(ui.px(6.0));
-        for (index, &(effort, _)) in tool.efforts().iter().enumerate() {
-            let on = self.form.effort.as_deref() == Some(effort);
-            efforts = efforts.child(
-                segment(
-                    ElementId::NamedInteger("effort".into(), index as u64),
-                    effort,
-                    on,
-                    false,
-                )
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.form.set_effort(effort);
-                    this.changed(cx);
-                })),
-            );
+        for (line, chunk) in efforts.chunks(efforts_per_line).enumerate() {
+            let mut row = div().flex().gap(ui.px(4.0));
+            for (column, effort) in chunk.iter().enumerate() {
+                let index = line * efforts_per_line + column;
+                let on = self.form.effort.as_deref() == Some(effort.as_str());
+                let effort = effort.clone();
+                row = row.child(
+                    segment(
+                        ElementId::NamedInteger("effort".into(), index as u64),
+                        effort.clone().into(),
+                        on,
+                        false,
+                    )
+                    .on_click(cx.listener(
+                        move |this, _: &ClickEvent, _, cx| {
+                            this.form.set_effort(&effort);
+                            this.changed(cx);
+                        },
+                    )),
+                );
+            }
+            for _ in chunk.len()..efforts_per_line {
+                row = row.child(div().flex_1());
+            }
+            effort_lines = effort_lines.child(row);
         }
-        rows.push(efforts.into_any_element());
+        rows.push(effort_lines.into_any_element());
         rows
     }
 

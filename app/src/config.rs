@@ -39,6 +39,8 @@ pub struct Config {
     pub corral: String,
     /// The New Agent panel's presets; `None` (not written) is the default four.
     pub agent_presets: Option<Vec<crate::new_agent::Preset>>,
+    /// `[agent_models]`: the models and efforts New Agent offers for Claude and Codex (P5-100).
+    pub agent_models: crate::models::Configured,
     /// How opaque, in percent, the sidebar's colour lies over its column while the system's
     /// sidebar material shows; `None` (not written) is the theme's own.
     pub sidebar_opacity: Option<u8>,
@@ -71,6 +73,7 @@ impl Default for Config {
             refresh_ms: 1000,
             corral: "corral".into(),
             agent_presets: None,
+            agent_models: Default::default(),
             sidebar_opacity: None,
             frame_opacity: None,
         }
@@ -85,6 +88,7 @@ impl Config {
             "sidebar_width must be positive"
         );
         config.validate_fonts()?;
+        config.agent_models.validate()?;
         ensure!(
             config.refresh_ms > 0,
             "refresh_ms must be a positive number of milliseconds"
@@ -436,5 +440,29 @@ whatever = "anything"
         let error = Config::load(&path).unwrap_err();
         assert!(format!("{error:#}").contains("config.toml"), "{error:#}");
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn agent_models_are_read_and_checked() {
+        let config = Config::parse(
+            r#"
+[agent_models.claude]
+models = ["opus[1m]", "sonnet"]
+efforts = ["low", "high"]
+"#,
+        )
+        .unwrap();
+        let claude = config.agent_models.claude.unwrap();
+        assert_eq!(claude.models, ["opus[1m]", "sonnet"]);
+        assert!(config.agent_models.codex.is_none());
+        assert_eq!(Config::default().agent_models, Default::default());
+        for bad in [
+            "[agent_models.codex]\nmodels = []\nefforts = [\"low\"]",
+            "[agent_models.codex]\nmodels = [3]\nefforts = [\"low\"]",
+            "[agent_models.codex]\nmodels = [\"x\"]",
+            "[agent_models.pi]\nmodels = [\"x\"]\nefforts = [\"low\"]",
+        ] {
+            assert!(Config::parse(bad).is_err(), "{bad}");
+        }
     }
 }

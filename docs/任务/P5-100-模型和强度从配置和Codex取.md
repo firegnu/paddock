@@ -59,3 +59,28 @@ efforts = ["low", "medium", "high", "xhigh", "max"]
 ## 调研结论（10-14，主控）
 - Codex 0.162.1：`codex debug models` 联网取模型目录（JSON，约 7 秒），每个模型有 `slug`、`display_name`、`description`、`visibility`、`priority`、`default_reasoning_level`、`supported_reasoning_levels`。这是 `debug` 子命令，不是 Codex 承诺不变的接口，所以要兜底。
 - Claude Code 2.1.299：没有列模型的命令；`/v1/models` 只写了 API key 认证，订阅登录能不能用没写。简写 `fable`（Fable 5.1）、`opus`（Opus 5.5）、`sonnet`、`haiku` 会随 Claude Code 版本指向新模型；Opus 4.7 以后默认 1M 上下文。`--effort` 本机帮助是 low～max（文档另说有 `ultracode`，没核实，不加）。
+
+## 完成记录（10-14，主控）
+
+### 做了什么
+- 新文件 `app/src/models.rs`：三层来源（Codex 取到的 → `[agent_models.*]` → 写死的），`codex debug models` 的解析（`visibility == "list"`、按 `priority`、各带 `supported_reasoning_levels`），缓存 `~/.local/state/paddock/codex-models.json`（写临时文件再改名），30 天一问，失败沿用上次的并记原因（`codex not found`、codex 自己 stderr 的第一行、`unexpected output`），同时只有一处在问。
+- `config.rs`：`[agent_models.claude]`、`[agent_models.codex]`，各 `models`、`efforts`，空、空白、非字符串、多余键、别的种类都报错。
+- `new_agent.rs`：去掉写死的 `CLAUDE_MODELS`、`CODEX_MODELS`、`EFFORTS`；表单带当前列表，选种类取第一个模型和 `high`（没有就最后一个），换模型时强度能留就留。写死的列表照三更新，Codex 默认变 `gpt-6.1-sol`；预设不动。
+- `new_agent_view.rs`：打开、重开 New Agent 时读配置和缓存；满 30 天在后台问 codex，答了换上列表（已选的不动）；Settings 保存时也换。模型选单两个一行，强度一行最多六个（Codex 8 个模型、带 `ultra` 的 6 档强度，原来一行放不下）。
+- Settings › Agents：照样稿在 corral 下面加 Models 一节（`settings_models.rs`），`Refresh` 立刻问一次；问着显示 `Asking codex…`、按钮变灰。
+
+### 验证
+- 先写测试看红再实现：`models.rs` 10 条（来源次序、强度随模型、配置检查、30 天、解析、缓存读写、用假 codex 脚本跑刷新成功／输出看不懂／退出码非 0／找不到程序）；`config.rs` 1 条；`new_agent.rs` 改 1 条、加 1 条。
+- `cargo test --all-targets`（库内 517 条及各集成测试）全过；`cargo clippy --all-targets -- -D warnings`、`cargo fmt --check`、`git diff --check` 都干净。
+- 本机跑了一次 `codex debug models` 核对字段：现在给人选的是 7 个（`gpt-5.5` 不在了），强度最多 6 档（low～max、ultra），解析用的字段都在。
+- 没起窗口看：Settings 的 Models 一节和 New Agent 分行后的选单留给用户实际看。
+
+### 拿主意的地方
+- 缓存里问失败也记时间，所以失败后也要等一个月（或点 Refresh）才再问，不会每次打开都卡 7 秒去试。
+- 选单分行是为了放下 8 个模型，样稿没画这一处。
+- 已经选好的模型不在新列表里时不改它（命令里照样写），选单里只是没有亮的那格。
+- 写死的 Codex 列表照任务文件写的 10-14 那 8 个，没跟着这次核对去掉 `gpt-5.5`；装好后第一次打开 New Agent 就会从 codex 取到最新的。
+
+### 没做
+- Settings 里编辑模型列表（任务写明手改文件）。
+- Claude 取模型（没有可用的命令）。
