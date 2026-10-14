@@ -23,8 +23,10 @@ const EFFORTS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
 pub const DEFAULT_EFFORT: &str = "high";
 
 const CLAUDE: [&str; 5] = ["opus[1m]", "fable", "opus", "sonnet", "haiku"];
+/// The model Codex starts at, wherever its list came from, while the list has it (user 10-14).
+const CODEX_DEFAULT: &str = "gpt-6-astra";
 /// What codex listed on 10-14, in its order.
-const CODEX: [&str; 8] = [
+const CODEX: [&str; 7] = [
     "gpt-6.1-sol",
     "gpt-6-astra",
     "gpt-6-sol",
@@ -32,7 +34,6 @@ const CODEX: [&str; 8] = [
     "gpt-5.6-sol",
     "gpt-5.6-terra",
     "gpt-5.6-luna",
-    "gpt-5.5",
 ];
 
 /// A model and the efforts it takes.
@@ -212,6 +213,16 @@ impl Lists {
             claude: list(Tool::Claude, &CLAUDE),
             codex: list(Tool::Codex, &CODEX),
         }
+    }
+
+    /// The model chosen with `tool`: for Codex [`CODEX_DEFAULT`] while its list has it, else the
+    /// list's first.
+    pub fn default_model(&self, tool: Tool) -> Option<&str> {
+        let list = self.of(tool)?;
+        if tool == Tool::Codex && list.models.iter().any(|model| model.name == CODEX_DEFAULT) {
+            return Some(CODEX_DEFAULT);
+        }
+        list.first()
     }
 
     /// `tool`'s list; none for a kind without models.
@@ -444,8 +455,26 @@ mod tests {
             .collect();
         assert_eq!(claude, ["opus[1m]", "fable", "opus", "sonnet", "haiku"]);
         assert_eq!(lists.codex.first(), Some("gpt-6.1-sol"));
-        assert_eq!(lists.codex.models.len(), 8);
+        assert_eq!(lists.codex.models.len(), 7);
+        assert!(!lists.codex.models.iter().any(|m| m.name == "gpt-5.5"));
         assert_eq!(lists.codex.efforts(Some("gpt-5.5")), EFFORTS);
+        // Codex starts at gpt-6-astra wherever the list came from, while the list has it.
+        assert_eq!(lists.default_model(Tool::Codex), Some("gpt-6-astra"));
+        assert_eq!(lists.default_model(Tool::Claude), Some("opus[1m]"));
+        assert_eq!(lists.default_model(Tool::Pi), None);
+        let got = Lists::new(
+            &Configured::default(),
+            Some(&fetched(
+                1,
+                vec![model("new", &["low"]), model("gpt-6-astra", &["high"])],
+            )),
+        );
+        assert_eq!(got.default_model(Tool::Codex), Some("gpt-6-astra"));
+        let without = Lists::new(
+            &Configured::default(),
+            Some(&fetched(1, vec![model("new", &["low"])])),
+        );
+        assert_eq!(without.default_model(Tool::Codex), Some("new"));
         assert!(lists.of(Tool::Pi).is_none() && lists.of(Tool::Amp).is_none());
         assert_eq!(lists.of(Tool::Codex), Some(&lists.codex));
     }
@@ -548,7 +577,7 @@ mod tests {
         );
         assert_eq!(
             lists.codex.shown(),
-            "gpt-6.1-sol · gpt-6-astra · gpt-6-sol · +5"
+            "gpt-6.1-sol · gpt-6-astra · gpt-6-sol · +4"
         );
         assert_eq!(Source::Own.label(), "paddock's list");
         assert_eq!(Source::Config.label(), "config.toml");
