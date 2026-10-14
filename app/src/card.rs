@@ -638,6 +638,25 @@ pub struct Tray {
     pub folded: bool,
     /// The active pane's agent is one of its own.
     pub showing: bool,
+    /// The agents whose cards its folded title stacks, by name, the front one first (P5-91): the
+    /// active pane's when it is one of them, then the others as they are listed, [`MOST`] in all.
+    pub stack: Vec<String>,
+}
+
+/// The most cards a folded workspace's title stacks, as a split tab's mark.
+pub const MOST: usize = 3;
+
+/// The agents whose cards a workspace listing `agents` stacks: see [`Tray::stack`].
+fn stacked(agents: &[&Agent], selected: Option<&str>) -> Vec<String> {
+    let names = agents.iter().map(|a| a.name.as_str());
+    let front = selected.filter(|selected| names.clone().any(|name| name == *selected));
+    let behind = names.filter(|name| Some(*name) != front);
+    front
+        .into_iter()
+        .chain(behind)
+        .take(MOST)
+        .map(str::to_owned)
+        .collect()
 }
 
 /// A line of the panel.
@@ -798,6 +817,7 @@ fn listed(
             bar: bar(agents),
             folded,
             showing: showing(agents),
+            stack: stacked(agents, selected),
         }));
         if folded && folds {
             continue;

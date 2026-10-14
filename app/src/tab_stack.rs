@@ -1,7 +1,14 @@
 //! A split tab's mark in the title bar (DESIGN §13 P5-76): a card for each of its panes, stacked,
 //! the active pane's in front and leaning a little to the left, the others upright behind it,
-//! each a step to the right of the one before.
-use crate::{footer_icon, kind_icon::KindIcon, layout::PaneId};
+//! each a step to the right of the one before. A folded workspace's title in the sidebar stacks
+//! its agents' cards the same way (P5-91).
+use crate::{
+    card, footer_icon,
+    kind_icon::{self, KindIcon},
+    layout::PaneId,
+    theme::Theme,
+    view::hsla,
+};
 use gpui::{
     AnyElement, Div, Hsla, PathBuilder, Pixels, Point, black, canvas, div, point, prelude::*, px,
 };
@@ -62,7 +69,37 @@ pub struct Inks {
     pub light: Hsla,
 }
 
+impl Inks {
+    /// The darker of the frame and the text for the cards' edge, so it is dark in a light theme
+    /// too; the lighter of the text and the terminal's ground for what is light.
+    pub fn of(theme: &Theme) -> Self {
+        let text = hsla(theme.fg(|t| t.agents_text), 1.0);
+        let frame = hsla(theme.frame(), 1.0);
+        if text.l < frame.l {
+            Inks {
+                edge: text,
+                light: hsla(theme.terminal().background, 1.0),
+            }
+        } else {
+            Inks {
+                edge: frame,
+                light: text,
+            }
+        }
+    }
+}
+
 impl Face {
+    /// An agent's card, by its `kind` (empty when corral did not say): the kind's icon, in its
+    /// colour.
+    pub fn of_kind(theme: &Theme, kind: &str) -> Self {
+        let color = hsla(theme.fg(card::brand(kind).color), 1.0);
+        match kind_icon::of(kind) {
+            Some(icon) => Face::Kind(icon, color),
+            None => Face::Blank(color),
+        }
+    }
+
     /// The card's ground in front: under a silhouette its kind's colour, under an original that
     /// is not a tile the light one; a tile covers its own, the edge's colour.
     fn front(self, inks: Inks) -> Hsla {

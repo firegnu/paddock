@@ -5,7 +5,7 @@
 //! the list's lines are `card.rs`'s.
 use super::*;
 use crate::{
-    activity, kanban_repos, menu, popover,
+    activity, kanban_repos, menu, popover, tab_stack,
     text_input::{self, Changed, TextInput},
     workspaces::{self, Picks, Workspaces},
 };
@@ -20,11 +20,25 @@ const TRAY_TOP: f32 = 2.0;
 /// The title's height in an open tray, and a folded tray's.
 const TITLE: f32 = 30.0;
 const FOLDED: f32 = 34.0;
-/// The tray's face and edge, as shares of the text colour; lit while its menu is open.
-const FACE: f32 = 0.035;
-const EDGE: f32 = 0.09;
-const FACE_LIT: f32 = 0.05;
-const EDGE_LIT: f32 = 0.13;
+/// Open, the tray is a well sunk in the column (P5-91): how much black darkens its face on a dark
+/// sidebar and on a light one, and its edge as a share of the text colour; lit while the pointer
+/// is over it or its menu is open.
+const WELL: [f32; 2] = [0.26, 0.07];
+const WELL_LIT: [f32; 2] = [0.21, 0.055];
+const WELL_EDGE: f32 = 0.17;
+const WELL_EDGE_LIT: f32 = 0.22;
+/// Folded, it is a pile (P5-91): the top card's corners; how much of its foot each card under it
+/// shows, how far in it stands at each side, and how high it is.
+const PILE_RADIUS: f32 = 12.0;
+const PILE_STEP: f32 = 5.0;
+const PILE_INSET: f32 = 8.0;
+const PILE_UNDER: f32 = 18.0;
+/// The pile's cards from the top, their faces and edges as shares of the text colour over the
+/// column's; the top one's lit.
+const PILE_FACE: [f32; 3] = [0.065, 0.035, 0.015];
+const PILE_EDGE: [f32; 3] = [0.18, 0.13, 0.10];
+const PILE_FACE_LIT: f32 = 0.085;
+const PILE_EDGE_LIT: f32 = 0.24;
 const NAME: f32 = 13.0;
 const COUNT: f32 = 11.0;
 /// The menus, and the panel.
@@ -42,6 +56,8 @@ const PANEL_REST: f32 = 340.0;
 
 /// A workspace: sheets lying on one another.
 const LAYERS: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M8 2L14 5 8 8 2 5ZM2 8L8 11 14 8M2 11L8 14 14 11" fill="none" stroke="#000" stroke-width="1.4" stroke-linejoin="round"/></svg>"##;
+/// A folded workspace with no agent: the sheets, the top one filled.
+const LAYERS_FILLED: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M8 2L14 5 8 8 2 5Z" stroke="#000" stroke-width="1.4" stroke-linejoin="round"/><path d="M2 8L8 11 14 8M2 11L8 14 14 11" fill="none" stroke="#000" stroke-width="1.4" stroke-linejoin="round"/></svg>"##;
 /// Into a workspace: the sheets and a plus.
 const LAYERS_PLUS: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M8 3L13 5.5 8 8 3 5.5ZM3 8.5L8 11 10 10M12.5 10v4M10.5 12h4" fill="none" stroke="#000" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>"##;
 const DOTS: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><circle cx="3.5" cy="8" r="1.3"/><circle cx="8" cy="8" r="1.3"/><circle cx="12.5" cy="8" r="1.3"/></svg>"##;
@@ -281,8 +297,9 @@ impl Sidebar {
 
     // The tray.
 
-    /// A workspace: its title and under it `inside`, its groups' lines, in a tray; folded, the
-    /// title alone with the bar of all its agents. A click on the title folds it or opens it.
+    /// A workspace: its title and under it `inside`, its groups' lines, in a tray sunk in the
+    /// column; folded, the title alone with the bar of all its agents, on the top card of a pile
+    /// and led by its agents' cards stacked (P5-91). A click on the title folds it or opens it.
     /// `first` when nothing is above it in the list.
     pub(super) fn tray(
         &self,
@@ -305,6 +322,7 @@ impl Sidebar {
             bar,
             folded,
             showing,
+            stack,
         } = tray;
         let hover: SharedString = format!("workspace-{name}").into();
         let menu_open = matches!(
@@ -356,6 +374,33 @@ impl Sidebar {
                 .child(name.clone())
                 .into_any_element(),
         };
+        // Folded, its agents' cards stacked as a split tab's, with no status dot (the bar says);
+        // with none, the sheets with the top one filled. Open, the sheets.
+        let mark = if !folded {
+            mask(LAYERS, ui.px(14.0), accent).into_any_element()
+        } else if stack.is_empty() {
+            mask(LAYERS_FILLED, ui.px(14.0), accent).into_any_element()
+        } else {
+            let agents = &self.listing.panel.agents;
+            let faces: Vec<_> = (stack.iter())
+                .map(|name| {
+                    let kind = (agents.iter())
+                        .find(|a| a.name == *name)
+                        .and_then(|a| a.kind.as_deref())
+                        .unwrap_or_default();
+                    tab_stack::Face::of_kind(&self.theme, kind)
+                })
+                .collect();
+            let inks = tab_stack::Inks::of(&self.theme);
+            tab_stack::stack(&faces, inks, div().into_any_element(), ui.scale(1.0))
+                .into_any_element()
+        };
+        // Open, the arrow a step brighter, as the well is a step darker.
+        let chevron = if folded {
+            dim
+        } else {
+            dim.blend(text.opacity(0.5))
+        };
         let title = div()
             .id(ElementId::Name(hover.clone()))
             .group(hover.clone())
@@ -370,9 +415,9 @@ impl Sidebar {
             .child(mask(
                 if folded { CHEVRON_RIGHT } else { CHEVRON_DOWN },
                 ui.px(10.0),
-                dim,
+                chevron,
             ))
-            .child(mask(LAYERS, ui.px(14.0), accent))
+            .child(mark)
             .child(label)
             .child(
                 div()
@@ -423,29 +468,85 @@ impl Sidebar {
             .when(menu_open, |title| {
                 title.child(Self::hung(self.workspace_menu(&name, &ui, cx), false))
             });
+        // A little off what is above it; closer to the top for the first, as a heading is.
+        let above = px(if first { 8.0 } else { 4.0 });
+        if folded {
+            return self.pile(title, stack.len(), menu_open, above);
+        }
+        let base = self.grounds().base;
         let (face, edge) = if menu_open {
-            (FACE_LIT, EDGE_LIT)
+            (well(&self.theme, base, true), WELL_EDGE_LIT)
         } else {
-            (FACE, EDGE)
+            (well(&self.theme, base, false), WELL_EDGE)
         };
+        let lit = well(&self.theme, base, true);
         div()
             .flex()
             .flex_col()
             .gap(px(CARD_GAP))
-            // A little off what is above it; closer to the top for the first, as a heading is.
-            .mt(px(if first { 8.0 } else { 4.0 }))
+            .mt(above)
             .px(px(TRAY_X))
-            .when(!folded, |tray| tray.pt(px(TRAY_TOP)).pb(px(TRAY_X)))
+            .pt(px(TRAY_TOP))
+            .pb(px(TRAY_X))
             .rounded(px(TRAY_RADIUS))
             .border_1()
             .border_color(text.opacity(edge))
-            .bg(text.opacity(face))
-            .hover(move |tray| {
-                tray.bg(text.opacity(FACE_LIT))
-                    .border_color(text.opacity(EDGE_LIT))
-            })
+            .bg(face)
+            .hover(move |tray| tray.bg(lit).border_color(text.opacity(WELL_EDGE_LIT)))
             .child(title)
             .children(inside)
+            .into_any_element()
+    }
+
+    /// A folded workspace's `title` on the top card of a pile, whole colours that hide what is
+    /// under them; under it the feet of one card more for each of its agents after the first,
+    /// two at most, each further in and nearer the column's colour. The feet are in its height.
+    fn pile(
+        &self,
+        title: gpui::Stateful<Div>,
+        agents: usize,
+        lit: bool,
+        above: Pixels,
+    ) -> AnyElement {
+        let text = hsla(self.theme.fg(|t| t.agents_text), 1.0);
+        let column = hsla(self.theme.bg(|t| t.agents_bg), 1.0);
+        let face = |share: f32| over(text.opacity(share), column);
+        let depth = agents.saturating_sub(1).min(PILE_FACE.len() - 1);
+        let (lit_face, lit_edge) = (face(PILE_FACE_LIT), text.opacity(PILE_EDGE_LIT));
+        let (top_face, top_edge) = if lit {
+            (lit_face, lit_edge)
+        } else {
+            (face(PILE_FACE[0]), text.opacity(PILE_EDGE[0]))
+        };
+        // From the bottom card up, so each lies over the one under it.
+        let under = (1..=depth).rev().map(|card| {
+            let inset = px(PILE_INSET * card as f32);
+            div()
+                .absolute()
+                .left(inset)
+                .right(inset)
+                .bottom(px(PILE_STEP * (depth - card) as f32))
+                .h(px(PILE_UNDER))
+                .rounded_b(px(PILE_RADIUS))
+                .border_1()
+                .border_color(text.opacity(PILE_EDGE[card]))
+                .bg(face(PILE_FACE[card]))
+        });
+        let top = div()
+            .relative()
+            .px(px(TRAY_X))
+            .rounded(px(PILE_RADIUS))
+            .border_1()
+            .border_color(top_edge)
+            .bg(top_face)
+            .hover(move |card| card.bg(lit_face).border_color(lit_edge))
+            .child(title);
+        div()
+            .relative()
+            .mt(above)
+            .pb(px(PILE_STEP * depth as f32))
+            .children(under)
+            .child(top)
             .into_any_element()
     }
 
@@ -1635,6 +1736,17 @@ impl Sidebar {
                     .child(confirm),
             )
     }
+}
+
+/// An open workspace's face, resting or `lit`, over the column's `base` (P5-91): a step darker,
+/// on a light sidebar too, so it reads as a well.
+pub(super) fn well(theme: &Theme, base: Hsla, lit: bool) -> Hsla {
+    let dark = hsla(theme.bg(|t| t.agents_bg), 1.0).l < 0.5;
+    let [on_dark, on_light] = if lit { WELL_LIT } else { WELL };
+    over(
+        gpui::black().opacity(if dark { on_dark } else { on_light }),
+        base,
+    )
 }
 
 /// How agents are doing, a short stroke each: a group's bar, or a folded workspace's.
