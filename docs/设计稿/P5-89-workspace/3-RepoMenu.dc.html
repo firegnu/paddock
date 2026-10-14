@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Add a repository to a workspace</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+button{font:inherit;color:inherit;cursor:pointer;background:none;border:0;padding:0}
+</style>
+</helmet>
+<div style="width: 340px; height: 600px; position: relative; overflow: hidden; box-sizing: border-box; background: linear-gradient(180deg, #353a43 0%, #2c3038 100%); font-family: -apple-system, 'SF Pro Text', 'Helvetica Neue', sans-serif; color: #ecebe6; font-size: 13px; padding: 10px 8px; display: flex; flex-direction: column; gap: 6px">
+
+  <div style="display: flex; align-items: center; gap: 7px; height: 34px; padding: 0 8px; border-radius: 14px; background: rgba(236,235,230,0.035); border: 1px solid rgba(236,235,230,0.09)">
+    <button aria-label="Expand Agent tools" aria-expanded="false" style="display: flex; align-items: center; gap: 7px; height: 26px; min-width: 0">
+      <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="#b4b3ac" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.75 2.5 L6.25 5 L3.75 7.5"></path></svg>
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#c9c47a" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true"><path d="M8 2 L14 5 L8 8 L2 5 Z"></path><path d="M2 8 L8 11 L14 8"></path><path d="M2 11 L8 14 L14 11"></path></svg>
+      <span style="font-size: 13px; font-weight: 600; color: #ecebe6; white-space: nowrap">Agent tools</span>
+      <span style="font-size: 11px; font-weight: 600; color: #a0a099">4</span>
+    </button>
+    <span style="flex: 1"></span>
+    <span style="display: flex; gap: 2px"><span style="width: 12px; height: 3px; border-radius: 2px; background: #93c79a"></span><span style="width: 12px; height: 3px; border-radius: 2px; background: #93c79a"></span><span style="width: 12px; height: 3px; border-radius: 2px; background: #7fa8f0"></span><span style="width: 12px; height: 3px; border-radius: 2px; background: #e0b565"></span></span>
+  </div>
+
+  <div style="display: flex; align-items: center; gap: 6px; padding: 10px 8px 0"><span style="font-size: 11px; font-weight: 600; color: #a0a099">global-mesh</span><span style="font-size: 11px; font-weight: 600; color: #8b8b85">1</span><span style="flex: 1"></span><span style="display: flex; gap: 2px"><span style="width: 12px; height: 3px; border-radius: 2px; background: #93c79a"></span></span></div>
+  <div style="display: flex; gap: 10px; padding: 9px 12px 9px 10px; border-radius: 10px; background: rgba(236,235,230,0.055); border: 1px solid rgba(236,235,230,0.07); box-shadow: inset 0 1px 0 rgba(255,255,255,0.07), inset 0 -1px 0 rgba(0,0,0,0.28)">
+    <span style="position: relative; width: 34px; height: 34px; border-radius: 8px; background: #e07a52; flex-shrink: 0"><span style="position: absolute; right: -2px; bottom: -2px; width: 9px; height: 9px; border-radius: 5px; background: #93c79a; border: 2px solid #31353d"></span></span>
+    <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px">
+      <div style="display: flex; align-items: center; gap: 6px"><span style="font-weight: 600">main</span><span style="font-size: 11px; color: #a0a099">high</span><span style="flex: 1"></span><span style="font-size: 11px; color: #b4b3ac">1h</span></div>
+      <div style="font-size: 12px; color: #b4b3ac; line-height: 1.42; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Mesh rebuilt; nothing pending.</div>
+      <div style="font-size: 11px; color: #a0a099">global-mesh · ⎇ main</div>
+    </div>
+  </div>
+
+  <div style="display: flex; align-items: center; gap: 6px; height: 24px; margin-top: 6px; padding: 0 4px 0 8px; border-radius: 7px; background: rgba(236,235,230,0.06)">
+    <span style="font-size: 11px; font-weight: 600; color: #c3c2bb">jb-finetune</span><span style="font-size: 11px; font-weight: 600; color: #a0a099">2</span><span style="flex: 1"></span>
+    <button aria-label="Add jb-finetune to a workspace" aria-expanded="true" style="display: flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 5px; background: rgba(201,196,122,0.18)"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="#c9c47a" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3 L13 5.5 L8 8 L3 5.5 Z"></path><path d="M3 8.5 L8 11 L10 10"></path><path d="M12.5 10v4M10.5 12h4"></path></svg></button>
+    <span style="display: flex; gap: 2px; padding-left: 2px"><span style="width: 12px; height: 3px; border-radius: 2px; background: #93c79a"></span><span style="width: 12px; height: 3px; border-radius: 2px; background: #7fa8f0"></span></span>
+  </div>
+  <div style="display: flex; gap: 10px; padding: 9px 12px 9px 10px; border-radius: 10px; background: rgba(236,235,230,0.055); border: 1px solid rgba(236,235,230,0.07); box-shadow: inset 0 1px 0 rgba(255,255,255,0.07), inset 0 -1px 0 rgba(0,0,0,0.28)">
+    <span style="position: relative; width: 34px; height: 34px; border-radius: 8px; background: #8e9cf0; flex-shrink: 0"><span style="position: absolute; right: -2px; bottom: -2px; width: 9px; height: 9px; border-radius: 5px; background: #93c79a; border: 2px solid #31353d"></span></span>
+    <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px">
+      <div style="display: flex; align-items: center; gap: 6px"><span style="font-weight: 600">codex-1</span><span style="font-size: 11px; color: #a0a099">high</span><span style="flex: 1"></span><span style="font-size: 11px; color: #b4b3ac">5m</span></div>
+      <div style="font-size: 12px; color: #b4b3ac; line-height: 1.42; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Waiting on the delegated run.</div>
+      <div style="font-size: 11px; color: #a0a099">jb-finetune · ⎇ main</div>
+    </div>
+  </div>
+  <div style="display: flex; gap: 10px; padding: 9px 12px 9px 10px; border-radius: 10px; background: rgba(236,235,230,0.055); border: 1px solid rgba(236,235,230,0.07); box-shadow: inset 0 1px 0 rgba(255,255,255,0.07), inset 0 -1px 0 rgba(0,0,0,0.28)">
+    <span style="position: relative; width: 34px; height: 34px; border-radius: 8px; background: #8e9cf0; flex-shrink: 0"><span style="position: absolute; right: -2px; bottom: -2px; width: 9px; height: 9px; border-radius: 5px; background: #7fa8f0; border: 2px solid #31353d"></span></span>
+    <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px">
+      <div style="display: flex; align-items: center; gap: 6px; min-width: 0"><span style="font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">dev-single-command-generation-1</span><span style="flex: 1"></span><span style="font-size: 11px; color: #b4b3ac">2m</span></div>
+      <div style="font-size: 12px; color: #b4b3ac; line-height: 1.42; white-space: nowrap; overflow: hidden; text-overflow: ellipsis"><span style="color: #7fa8f0; font-weight: 600">Bash</span>  cargo test</div>
+      <div style="font-size: 11px; color: #a0a099">single-command-generation · <span style="color: #93c79a">+64</span> <span style="color: #e59a9a">−9</span></div>
+    </div>
+  </div>
+
+  <div style="position: absolute; right: 12px; top: 196px; width: 232px; box-sizing: border-box; display: flex; flex-direction: column; gap: 1px; padding: 6px; border: 1px solid rgba(236,235,230,0.16); border-radius: 10px; background: #2a2e36; box-shadow: 0 12px 28px rgba(0,0,0,0.5); font-size: 12.5px">
+    <div style="padding: 3px 8px 5px; font-size: 11px; color: #a0a099">Add jb-finetune to</div>
+    <button style="display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 8px; border-radius: 6px; background: rgba(236,235,230,0.08); text-align: left; color: #ecebe6">
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#c9c47a" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true"><path d="M8 2 L14 5 L8 8 L2 5 Z"></path><path d="M2 8 L8 11 L14 8"></path><path d="M2 11 L8 14 L14 11"></path></svg>
+      <span style="flex: 1">Agent tools</span>
+      <span style="font-size: 11px; color: #a0a099">4 repos</span>
+    </button>
+    <div style="height: 1px; margin: 5px 2px; background: rgba(236,235,230,0.10)"></div>
+    <button style="display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 8px; border-radius: 6px; text-align: left; color: #ecebe6">
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#b4b3ac" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M8 3.5v9M3.5 8h9"></path></svg>
+      <span style="flex: 1">New workspace…</span>
+    </button>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":340,"height":600}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

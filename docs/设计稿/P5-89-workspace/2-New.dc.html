@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>New workspace</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+button{font:inherit;color:inherit;cursor:pointer;background:none;border:0;padding:0}
+input{font:inherit;color:inherit}
+</style>
+</helmet>
+<div style="width: 340px; height: 680px; position: relative; overflow: hidden; box-sizing: border-box; background: linear-gradient(180deg, #353a43 0%, #2c3038 100%); font-family: -apple-system, 'SF Pro Text', 'Helvetica Neue', sans-serif; color: #ecebe6; font-size: 13px">
+
+  <div style="display: flex; flex-direction: column; gap: 6px; padding: 10px 8px; opacity: 0.4">
+    <div style="display: flex; align-items: center; gap: 6px; padding: 4px 8px 0"><span style="font-size: 11px; font-weight: 600; color: #a0a099">cairn</span><span style="font-size: 11px; font-weight: 600; color: #8b8b85">1</span></div>
+    <div style="height: 70px; border-radius: 10px; background: rgba(236,235,230,0.055); border: 1px solid rgba(236,235,230,0.07)"></div>
+    <div style="display: flex; align-items: center; gap: 6px; padding: 10px 8px 0"><span style="font-size: 11px; font-weight: 600; color: #a0a099">global-mesh</span><span style="font-size: 11px; font-weight: 600; color: #8b8b85">1</span></div>
+    <div style="height: 70px; border-radius: 10px; background: rgba(236,235,230,0.055); border: 1px solid rgba(236,235,230,0.07)"></div>
+    <div style="display: flex; align-items: center; gap: 6px; padding: 10px 8px 0"><span style="font-size: 11px; font-weight: 600; color: #a0a099">jb-finetune</span><span style="font-size: 11px; font-weight: 600; color: #8b8b85">2</span></div>
+    <div style="height: 70px; border-radius: 10px; background: rgba(236,235,230,0.055); border: 1px solid rgba(236,235,230,0.07)"></div>
+    <div style="height: 70px; border-radius: 10px; background: rgba(236,235,230,0.055); border: 1px solid rgba(236,235,230,0.07)"></div>
+    <div style="display: flex; align-items: center; gap: 6px; padding: 10px 8px 0"><span style="font-size: 11px; font-weight: 600; color: #a0a099">paddock</span><span style="font-size: 11px; font-weight: 600; color: #8b8b85">2</span></div>
+    <div style="height: 70px; border-radius: 10px; background: rgba(236,235,230,0.055); border: 1px solid rgba(236,235,230,0.07)"></div>
+  </div>
+
+  <div style="position: absolute; left: 10px; top: 44px; width: 320px; box-sizing: border-box; display: flex; flex-direction: column; gap: 12px; padding: 14px; border: 1px solid rgba(236,235,230,0.16); border-radius: 12px; background: #2a2e36; box-shadow: 0 16px 36px rgba(0,0,0,0.5)">
+    <div style="display: flex; align-items: center; gap: 8px">
+      <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="#c9c47a" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true"><path d="M8 2 L14 5 L8 8 L2 5 Z"></path><path d="M2 8 L8 11 L14 8"></path><path d="M2 11 L8 14 L14 11"></path></svg>
+      <span style="font-size: 14px; font-weight: 600">New workspace</span>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 5px">
+      <label for="ws-name" style="font-size: 11px; color: #b4b3ac">Name</label>
+      <input id="ws-name" type="text" value="Agent tools" style="height: 30px; box-sizing: border-box; padding: 0 9px; border: 1px solid rgba(201,196,122,0.6); border-radius: 7px; background: #23262d; font-size: 13px; outline: none">
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 2px">
+      <div style="display: flex; align-items: baseline; gap: 6px; padding-bottom: 3px"><span style="font-size: 11px; color: #b4b3ac">Repositories and agents</span><span style="flex: 1"></span><span style="font-size: 11px; color: #a0a099">4 repositories · 1 agent</span></div>
+
+      <div style="display: flex; align-items: center; height: 32px; padding: 0 4px 0 8px; border-radius: 7px; background: rgba(201,196,122,0.08)"><label style="flex: 1; display: flex; align-items: center; gap: 9px; height: 32px"><input type="checkbox" checked style="accent-color: #c9c47a; margin: 0"><span style="font-weight: 600">cairn</span><span style="flex: 1"></span><span style="font-size: 11px; color: #a0a099">1 agent</span></label><button aria-label="Show agents in cairn" aria-expanded="false" style="display: flex; align-items: center; justify-content: center; width: 22px; height: 22px"><svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="#a0a099" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.75 2.5 L6.25 5 L3.75 7.5"></path></svg></button></div>
+      <div style="display: flex; align-items: center; height: 32px; padding: 0 4px 0 8px; border-radius: 7px"><label style="flex: 1; display: flex; align-items: center; gap: 9px; height: 32px"><input type="checkbox" style="accent-color: #c9c47a; margin: 0"><span>global-mesh</span><span style="flex: 1"></span><span style="font-size: 11px; color: #a0a099">1 agent</span></label><button aria-label="Show agents in global-mesh" aria-expanded="false" style="display: flex; align-items: center; justify-content: center; width: 22px; height: 22px"><svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="#a0a099" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.75 2.5 L6.25 5 L3.75 7.5"></path></svg></button></div>
+
+      <div style="display: flex; flex-direction: column; border-radius: 7px; background: rgba(236,235,230,0.045)">
+        <div style="display: flex; align-items: center; height: 32px; padding: 0 4px 0 8px"><button aria-pressed="mixed" aria-label="jb-finetune, some agents ticked" style="flex: 1; display: flex; align-items: center; gap: 9px; height: 32px; text-align: left"><span style="display: flex; align-items: center; justify-content: center; width: 13px; height: 13px; border-radius: 3px; background: #c9c47a"><span style="width: 7px; height: 2px; border-radius: 1px; background: #23262d"></span></span><span style="font-weight: 600">jb-finetune</span><span style="flex: 1"></span><span style="font-size: 11px; color: #a0a099">1 of 2</span></button><button aria-label="Hide agents in jb-finetune" aria-expanded="true" style="display: flex; align-items: center; justify-content: center; width: 22px; height: 22px"><svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="#b4b3ac" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 3.75 L5 6.25 L7.5 3.75"></path></svg></button></div>
+        <label style="display: flex; align-items: center; gap: 9px; height: 28px; padding: 0 8px 0 30px"><input type="checkbox" checked style="accent-color: #c9c47a; margin: 0"><span style="width: 14px; height: 14px; border-radius: 4px; background: #8e9cf0"></span><span style="font-size: 12.5px">codex-1</span></label>
+        <label style="display: flex; align-items: center; gap: 9px; height: 28px; padding: 0 8px 4px 30px; min-width: 0"><input type="checkbox" style="accent-color: #c9c47a; margin: 0"><span style="flex: none; width: 14px; height: 14px; border-radius: 4px; background: #8e9cf0"></span><span style="font-size: 12.5px; color: #b4b3ac; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">dev-single-command-generation-1</span></label>
+      </div>
+
+      <div style="display: flex; align-items: center; height: 32px; padding: 0 4px 0 8px; border-radius: 7px; background: rgba(201,196,122,0.08)"><label style="flex: 1; display: flex; align-items: center; gap: 9px; height: 32px"><input type="checkbox" checked style="accent-color: #c9c47a; margin: 0"><span style="font-weight: 600">paddock</span><span style="flex: 1"></span><span style="font-size: 11px; color: #a0a099">2 agents</span></label><button aria-label="Show agents in paddock" aria-expanded="false" style="display: flex; align-items: center; justify-content: center; width: 22px; height: 22px"><svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="#a0a099" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.75 2.5 L6.25 5 L3.75 7.5"></path></svg></button></div>
+      <div style="display: flex; align-items: center; height: 32px; padding: 0 4px 0 8px; border-radius: 7px; background: rgba(201,196,122,0.08)"><label style="flex: 1; display: flex; align-items: center; gap: 9px; height: 32px"><input type="checkbox" checked style="accent-color: #c9c47a; margin: 0"><span style="font-weight: 600">ranch</span><span style="flex: 1"></span><span style="font-size: 11px; color: #a0a099">1 agent</span></label><button aria-label="Show agents in ranch" aria-expanded="false" style="display: flex; align-items: center; justify-content: center; width: 22px; height: 22px"><svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="#a0a099" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.75 2.5 L6.25 5 L3.75 7.5"></path></svg></button></div>
+      <label style="display: flex; align-items: center; gap: 9px; height: 32px; padding: 0 8px; border-radius: 7px; background: rgba(201,196,122,0.08)"><input type="checkbox" checked style="accent-color: #c9c47a; margin: 0"><span style="font-weight: 600">saddle</span><span style="flex: 1"></span><span style="font-size: 11px; color: #a0a099">No agents</span></label>
+
+      <button style="display: flex; align-items: center; gap: 9px; height: 34px; padding: 0 8px; border-radius: 7px; text-align: left; color: #b4b3ac">
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true"><path d="M2 4.5h4l1.5 1.5H14v6.5H2z"></path></svg>
+        <span>Choose folder…</span>
+      </button>
+      <div style="padding: 4px 8px 0; font-size: 11px; line-height: 1.4; color: #a0a099">A ticked repository brings every agent in it, and any started there later. Tick single agents to add only those.</div>
+    </div>
+
+    <div style="display: flex; justify-content: flex-end; gap: 8px; padding-top: 2px">
+      <button style="height: 30px; padding: 0 14px; border-radius: 8px; background: rgba(236,235,230,0.08); font-size: 12.5px; color: #ecebe6">Cancel</button>
+      <button style="height: 30px; padding: 0 14px; border-radius: 8px; background: #c9c47a; font-size: 12.5px; font-weight: 600; color: #23262d">Create</button>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":340,"height":680}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>
