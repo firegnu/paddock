@@ -13,6 +13,25 @@ use anyhow::{Result, anyhow, bail};
 /// How much of the terminal's background the window's ground around the panes keeps.
 const FRAME: f32 = 0.55;
 
+/// How opaque the two layers under the window lie over the system's sidebar material (P5-96): the
+/// sidebar's colour over its column, the darker frame elsewhere.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Translucency {
+    pub sidebar: f32,
+    pub frame: f32,
+}
+
+impl Translucency {
+    /// As `config` writes them, else the theme's own wash and [`crate::config::FRAME_OPACITY`].
+    pub fn of(config: &Config, theme: &Theme) -> Self {
+        let share = |percent: u8| f32::from(percent) / 100.0;
+        Self {
+            sidebar: config.sidebar_opacity.map_or(theme.frost().wash, share),
+            frame: share(config.frame_opacity.unwrap_or(crate::config::FRAME_OPACITY)),
+        }
+    }
+}
+
 /// A preset's own terminal colours; its default text and background follow Saddle's `text`/`bg`.
 struct Terminal {
     ansi: [Rgb; 16],
@@ -563,6 +582,35 @@ mod tests {
         // Dune leaves its text and background to the terminal.
         assert_eq!(theme.fg(|t| t.text), terminal.foreground);
         assert_eq!(theme.bg(|t| t.bg), terminal.background);
+    }
+
+    #[test]
+    fn the_grounds_opacities_come_from_the_config_else_the_theme_and_the_frame_default() {
+        for name in Preset::ALL.map(Preset::name) {
+            let config = Config::parse(&format!("theme = \"{name}\"")).unwrap();
+            let theme = Theme::from_config(&config).unwrap();
+            assert_eq!(
+                Translucency::of(&config, &theme),
+                Translucency {
+                    sidebar: theme.frost().wash,
+                    frame: 0.65
+                },
+                "{name}"
+            );
+        }
+        let config =
+            Config::parse("theme = \"tide\"\nsidebar_opacity = 30\nframe_opacity = 100").unwrap();
+        let theme = Theme::from_config(&config).unwrap();
+        assert_eq!(
+            Translucency::of(&config, &theme),
+            Translucency {
+                sidebar: 0.3,
+                frame: 1.0
+            }
+        );
+        let config = Config::parse("frame_opacity = 0").unwrap();
+        let theme = Theme::from_config(&config).unwrap();
+        assert_eq!(Translucency::of(&config, &theme).frame, 0.0);
     }
 
     fn theme(config: &str) -> Result<Theme> {

@@ -34,3 +34,39 @@ Settings 里改了的值写进配置文件后，窗口当场生效（`SettingsEv
 - 不起测试窗口、不截图；不开真的 agent；不碰用户的 agent（`corral ls` 里现有的）。
 - 不用 Python；命令里不用 `rm`、不用 `sh -c` 包长命令；前台命令别带等标准输入的东西。
 - 不合并、不推送、不安装：做完在分支上提交，报告给主控。
+
+## 完成记录
+
+2026-10-14，开发 agent（分支 `p5-96-translucency`）。
+
+### 做了什么
+- 配置（`config.rs`）：新增 `sidebar_opacity`、`frame_opacity`，`Option<u8>`，整数百分比。大于 100 报 `<键> must be from 0 to 100`；负数、小数、字符串由 TOML 解析报错，都带键名（和别的设置项一样，配置读不进）。新常量 `FRAME_OPACITY = 65`。
+- `theme.rs`：新类型 `Translucency { sidebar, frame }`，`Translucency::of(config, theme)`：写了用写的，没写时侧栏用主题的 `frost().wash`、外框用 65%。
+- 窗口（`window.rs`）：`PaddockWindow` 存一份 `translucency`，启动时和 `apply`（Settings 写入后）按配置和新主题重算；`ground` 里侧栏列和外框的不透明度改用它，删掉常量 `FRAME_SHADE`。新增 `preview_translucency`，拖滑块时只改这份值并重画。只碰了底层用到不透明度的几行和 `Under` 两条注释，分块形状、标题栏都没动。全屏走 `Under::Sidebar/Frame`，不受影响。
+- `windows.rs`：订阅 Settings 事件时多处理 `SettingsEvent::Preview`。
+- Settings 规则（`settings.rs`）：新 `Kind::Opacity`，两项在 General（标签 `Sidebar opacity`、`Frame opacity`，报错时用）。显示值：写了的值，否则默认（侧栏是当前主题自带的 wash×100，外框 65）。范围 0–100。Default 删掉这一项（和颜色、界面字体同一做法）。换主题不碰这两项：没写的跟着新主题，写了的保留。
+- Settings 界面（`settings_view.rs`）：General 在 `Interface` 下面加 `Translucency` 一节，两行 `Sidebar`、`Frame`，各一个滑块：外框和步进框同一底色（`field_ground`）、圆角 8、高 32；轨道 4pt 高，已填部分是强调色，旋钮和开关的旋钮同色带阴影；右边 `45%`。按下即跳到鼠标处的值并发 `Preview`，拖动跟着变（整窗跟踪拖动、窗外松手也算松手，做法同主窗口的分隔条），松手调 `set` 写入（照现有“改了就写”）。卡片下面一行淡字 `Only while the window isn't full screen`。Reset 链接写 `Reset to 45%`。
+- `docs/DESIGN.md` P5-95 一条下加了 P5-96 的说明；`app/README.md` 配置示例加了两项。
+
+### 验证
+- 先写测试并看它们因目标缺陷失败（不是编译错误）再实现：
+  - `config::opacities_are_whole_percentages_left_out_by_default`（读写、默认 None、超范围/负数/小数/字符串报错带键名）——RED：101 被接受。
+  - `theme::the_grounds_opacities_come_from_the_config_else_the_theme_and_the_frame_default`（七套主题不写时 = 主题 wash 和 0.65；写了用写的）——RED：配置被忽略。
+  - `settings::opacities_show_the_theme_or_the_frame_default_until_written`、`an_opacity_is_written_as_a_whole_percentage_and_default_removes_it`、`another_theme_keeps_a_written_opacity_and_leaves_one_unwritten`、`an_opacity_stays_from_0_to_100`——RED：默认显示为空、Default 写回而非删除、没有范围。
+  - `settings_view::a_place_on_the_slider_is_a_whole_percentage`（两端、中间、四舍五入到 1%、越界取端点、轨道没排好时为 0；Reset 链接文字）——RED：恒为 0。
+  - 改了 `the_refresh_interval_sits_with_the_corral_command_on_agents` 里 General 的项数 9 → 11（多了这两项）。
+- `app/` 下 `cargo test --all-targets` 全过（lib 469 个），`cargo clippy --all-targets -- -D warnings` 无警告，`cargo fmt --check` 通过。
+- 按任务要求没起测试窗口、没截图：滑块的样子、拖动时主窗口实时变化、窗外松手这些交互留给用户实际看。
+
+### 拿主意的地方
+- 说明淡字只写一行，放在 `Translucency` 卡片下面，而不是两行各写一遍（任务写“行下面一行淡字说明”）。英文用 `Only while the window isn't full screen`。
+- 一节放在 General 的 `Interface` 后面、`Terminal` 前面。
+- 两项都是“写了就算改过”：哪怕写的值等于默认，也显示圆点和 Reset，换主题时保留这个值（因为侧栏写了就不再跟主题走，要让用户能看到并删掉）。
+- 松手（或只点一下）时值和在用的相同就不写文件，免得点一下旋钮就把“跟着主题”变成写死的 45。
+- 配置里超过 100 当成错误（整份配置读不进，Settings 显示原因、不覆盖文件），和 `sidebar_width = 0` 等现有检查一样；没有悄悄截到 100。
+- 拖动中预览值由 Settings 按当前草稿算好（`Translucency`）发给主窗口，主窗口不认键名；写入后照旧由 `Saved` → `apply` 按配置重算，两者一致。
+
+### 没做的事
+- 没加键盘调滑块（方向键）——任务没提。
+- 没改 `preset.rs` 里 `Frost::wash` 的值和注释，也没加别的透明度项。
+- 拖动中关掉 Settings 窗口时，主窗口停在预览的值，直到下次写入或重启；没有专门处理。

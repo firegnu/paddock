@@ -105,6 +105,8 @@ mascot = "cat"          # 宠物：clawd | cat | capybara；默认 clawd
 mascot_enabled = true   # 关掉宠物写 false；默认 true
 refresh_ms = 1000       # 多久问一次 corral，毫秒；默认 1000
 corral = "corral"       # corral 程序；命令行 --corral 可临时覆盖
+sidebar_opacity = 45    # 磨砂时侧栏那一列叠的侧栏色不透明度，0–100 的整数百分比；不写跟着主题（现在都是 45）
+frame_opacity = 65      # 磨砂时右边叠的深色外框色不透明度，0–100；不写等于 65。两项全屏时不起作用
 
 [colors]                # 可选：覆盖单个颜色，其余跟随主题
 focus = "yellow"

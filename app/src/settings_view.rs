@@ -13,16 +13,16 @@ use crate::{
     preset::Preset,
     settings::{self, Draft, Field, Kind, Page, Saved, ThemeSetting},
     text_input::{self, TextInput},
-    theme::Theme,
+    theme::{Theme, Translucency},
     view::hsla,
 };
 use gpui::{
-    AnyElement, ClickEvent, Context, Div, ElementId, Entity, EventEmitter, FocusHandle, Focusable,
-    FontWeight, Hsla, MouseButton, Pixels, Render, ScrollStrategy, SharedString, Stateful,
-    Subscription, TextRun, UniformListScrollHandle, Window, anchored, deferred, div, prelude::*,
-    px, relative, uniform_list,
+    AnyElement, Bounds, ClickEvent, Context, Div, DragMoveEvent, ElementId, Entity, EventEmitter,
+    FocusHandle, Focusable, FontWeight, Hsla, MouseButton, MouseDownEvent, Pixels, Render,
+    ScrollStrategy, SharedString, Stateful, Subscription, TextRun, UniformListScrollHandle, Window,
+    anchored, canvas, deferred, div, prelude::*, px, relative, uniform_list,
 };
-use std::{collections::HashMap, path::PathBuf, rc::Rc, time::Duration};
+use std::{cell::RefCell, collections::HashMap, path::PathBuf, rc::Rc, time::Duration};
 
 /// The key context of the Settings window: ⌘W closes.
 pub const CONTEXT: &str = "PaddockSettings";
@@ -42,6 +42,9 @@ pub enum SettingsEvent {
         config: Box<Config>,
         restart: Vec<String>,
     },
+    /// A slider is being dragged: how the main window's ground lies over the material meanwhile.
+    /// Written only when it is let go, as `Saved`.
+    Preview(Translucency),
 }
 
 pub struct SettingsView {
@@ -70,9 +73,16 @@ pub struct SettingsView {
     /// The font list a press just closed by landing outside it, so a press on its own button
     /// closes it rather than opening it again.
     dismissed: Option<String>,
+    /// The opacity slider being dragged, and the percentage under the mouse.
+    sliding: Option<(String, u8)>,
+    /// Where each slider's track was last drawn, for the mouse's place along it.
+    tracks: Rc<RefCell<HashMap<String, Bounds<Pixels>>>>,
     focus: FocusHandle,
     _subscriptions: Vec<Subscription>,
 }
+
+/// What a slider drags.
+struct SliderDrag;
 
 /// A font list opened under its setting: a search field over the matching families.
 struct Picker {
@@ -167,9 +177,19 @@ fn stepped(
     }
 }
 
+/// The whole percentage at `x` on a slider whose track starts at `left` and is `width` wide; past
+/// either end, that end.
+fn percent_at(x: f32, left: f32, width: f32) -> u8 {
+    if width <= 0.0 {
+        return 0;
+    }
+    ((x - left) / width * 100.0).round().clamp(0.0, 100.0) as u8
+}
+
 /// General's settings by heading, in display order.
-const GENERAL: [(&str, &[&str]); 3] = [
+const GENERAL: [(&str, &[&str]); 4] = [
     ("Interface", &["ui_font", "ui_font_size", "sidebar_width"]),
+    ("Translucency", &["sidebar_opacity", "frame_opacity"]),
     (
         "Terminal",
         &["font", "font_size", "line_height", "font_fallbacks"],
@@ -187,6 +207,8 @@ fn row_label(field: &Field) -> &str {
     match field.key.as_str() {
         "ui_font" | "font" => "Font",
         "ui_font_size" | "font_size" => "Size",
+        "sidebar_opacity" => "Sidebar",
+        "frame_opacity" => "Frame",
         _ => &field.label,
     }
 }
@@ -200,10 +222,19 @@ fn note(key: &str) -> Option<&'static str> {
     }
 }
 
+/// A faint line under a heading's card.
+fn card_note(heading: &str) -> Option<&'static str> {
+    match heading {
+        "Translucency" => Some("Only while the window isn't full screen"),
+        _ => None,
+    }
+}
+
 /// What a setting's Reset link says, given its default as the page shows it.
 fn reset_label(field: &Field, default: &str) -> String {
     let default = match field.kind {
         Kind::Color => return "Reset".into(),
+        Kind::Opacity => return format!("Reset to {default}%"),
         Kind::List => "default",
         Kind::UiFont => "System",
         Kind::Bool if default == "true" => "on",
@@ -318,6 +349,8 @@ impl SettingsView {
             fonts: cx.try_global::<Installed>().cloned().unwrap_or_default(),
             picker: None,
             dismissed: None,
+            sliding: None,
+            tracks: Rc::default(),
             focus: cx.focus_handle(),
             _subscriptions: Vec::new(),
         };
@@ -631,6 +664,57 @@ impl SettingsView {
             steps(key),
         );
         self.set(key, &value, cx);
+    }
+
+    /// An opacity as the page shows it: under the mouse while its slider is dragged, else in
+    /// effect.
+    fn percent(&self, key: &str) -> u8 {
+        match &self.sliding {
+            Some((sliding, percent)) if sliding == key => *percent,
+            _ => self
+                .draft
+                .value(key)
+                .trim()
+                .parse::<u8>()
+                .map_or(0, |percent| percent.min(100)),
+        }
+    }
+
+    /// How the main window's ground lies over the material, as the sliders show it.
+    fn translucency(&self) -> Translucency {
+        let share = |key| f32::from(self.percent(key)) / 100.0;
+        Translucency {
+            sidebar: share("sidebar_opacity"),
+            frame: share("frame_opacity"),
+        }
+    }
+
+    /// The mouse pressed or dragged at `x` on `key`'s slider: the value under it, which the main
+    /// window's ground follows at once.
+    fn slide(&mut self, key: &str, x: Pixels, cx: &mut Context<Self>) {
+        let Some(track) = self.tracks.borrow().get(key).copied() else {
+            return;
+        };
+        let percent = percent_at(x.into(), track.left().into(), track.size.width.into());
+        if self.sliding.as_ref() != Some(&(key.to_owned(), percent)) {
+            self.sliding = Some((key.to_owned(), percent));
+            cx.emit(SettingsEvent::Preview(self.translucency()));
+            cx.notify();
+        }
+    }
+
+    /// The slider let go: its value written, unless it is the one in effect already (a press on
+    /// the knob writes nothing).
+    fn finish_slide(&mut self, cx: &mut Context<Self>) {
+        let Some((key, percent)) = self.sliding.take() else {
+            return;
+        };
+        if self.percent(&key) != percent {
+            self.set(&key, &percent.to_string(), cx);
+        }
+        // What is in effect now, written or not.
+        cx.emit(SettingsEvent::Preview(self.translucency()));
+        cx.notify();
     }
 
     /// Opens a field after the fallback fonts for another one's name.
@@ -1426,6 +1510,93 @@ impl SettingsView {
             .child(more)
     }
 
+    /// An opacity: a track to drag the knob along or press anywhere on, in a box like the
+    /// stepper's, and the percentage after it.
+    fn slider(&self, key: &str, ui: &UiFont, cx: &mut Context<Self>) -> Div {
+        let percent = self.percent(key);
+        let share = f32::from(percent) / 100.0;
+        let knob = ui.px(14.0);
+        let tracks = self.tracks.clone();
+        let place = key.to_owned();
+        let press = key.to_owned();
+        let track = div()
+            .id(ElementId::Name(format!("{key}-slider").into()))
+            .relative()
+            .w(ui.px(150.0))
+            .h_full()
+            .flex()
+            .items_center()
+            .cursor_pointer()
+            .child(
+                canvas(
+                    move |bounds, _, _| {
+                        tracks.borrow_mut().insert(place, bounds);
+                    },
+                    |_, _, _, _| {},
+                )
+                .absolute()
+                .top_0()
+                .left_0()
+                .size_full(),
+            )
+            .child(
+                div()
+                    .w_full()
+                    .h(ui.px(4.0))
+                    .rounded_full()
+                    .bg(self.lifted(0.16))
+                    .child(
+                        div()
+                            .w(relative(share))
+                            .h_full()
+                            .rounded_full()
+                            .bg(self.fg(|t| t.agents_accent)),
+                    ),
+            )
+            .child(
+                div()
+                    .absolute()
+                    .top_0()
+                    .bottom_0()
+                    .left(relative(share))
+                    .flex()
+                    .items_center()
+                    .child(
+                        div()
+                            .ml(-knob / 2.0)
+                            .size(knob)
+                            .rounded_full()
+                            .bg(self.fg(|t| t.agents_text))
+                            .shadow_sm(),
+                    ),
+            )
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |this, event: &MouseDownEvent, _, cx| {
+                    this.slide(&press, event.position.x, cx)
+                }),
+            )
+            .on_drag(SliderDrag, |_, _, _, cx| cx.new(|_| gpui::EmptyView));
+        div()
+            .flex_shrink_0()
+            .h(ui.px(32.0))
+            .pl(ui.px(16.0))
+            .pr(px(10.0))
+            .flex()
+            .items_center()
+            .gap(ui.px(14.0))
+            .rounded(px(8.0))
+            .bg(self.field_ground())
+            .child(track)
+            .child(
+                div()
+                    .w(ui.px(36.0))
+                    .flex()
+                    .justify_end()
+                    .child(format!("{percent}%")),
+            )
+    }
+
     /// The fallback fonts, each a tag with ×, then + Add or the field a new one is typed into.
     fn fallbacks(&self, ui: &UiFont, cx: &mut Context<Self>) -> Div {
         let field = self.field_ground();
@@ -1725,6 +1896,7 @@ impl SettingsView {
             Kind::Bool => self.switch(&key, ui, cx).into_any_element(),
             Kind::Pet => self.segments(&key, &PETS, ui, cx).into_any_element(),
             Kind::Integer | Kind::Number => self.stepper(&key, window, ui, cx).into_any_element(),
+            Kind::Opacity => self.slider(&key, ui, cx).into_any_element(),
             Kind::List => self.fallbacks(ui, cx).into_any_element(),
             Kind::Text | Kind::Color | Kind::Theme => self
                 .text_box(&key, ui.px(260.0), ui.px(32.0), 12.5, window, ui, cx)
@@ -1776,8 +1948,15 @@ impl SettingsView {
             .map(|(heading, keys)| {
                 let rows = self.rows_for(keys, window, ui, cx);
                 let lead = (*heading == "Terminal").then(|| self.preview().into_any_element());
-                self.section(heading, self.card(lead, rows), ui)
-                    .into_any_element()
+                let body = div()
+                    .flex()
+                    .flex_col()
+                    .child(self.card(lead, rows))
+                    .children(
+                        card_note(heading)
+                            .map(|note| self.under(note, self.fg(|t| t.agents_dim), ui)),
+                    );
+                self.section(heading, body, ui).into_any_element()
             })
             .collect()
     }
@@ -2393,6 +2572,19 @@ impl Render for SettingsView {
             .id("settings")
             .key_context(CONTEXT)
             .track_focus(&self.focus)
+            // A slider dragged: followed wherever the mouse goes, and let go anywhere.
+            .on_drag_move(
+                cx.listener(|this, event: &DragMoveEvent<SliderDrag>, _, cx| {
+                    if let Some((key, _)) = this.sliding.clone() {
+                        this.slide(&key, event.event.position.x, cx)
+                    }
+                }),
+            )
+            .capture_any_mouse_up(cx.listener(|this, _, _, cx| this.finish_slide(cx)))
+            .on_mouse_up_out(
+                MouseButton::Left,
+                cx.listener(|this, _, _, cx| this.finish_slide(cx)),
+            )
             // After a font list's own button has seen the press.
             .on_mouse_down(
                 MouseButton::Left,
@@ -2492,6 +2684,28 @@ mod tests {
         // Hidden families are left out of the list, and nothing is known before it is read.
         assert!(installed(&all, ".AppleSystemUIFont"));
         assert!(installed(&[], "FiraCode Nerd Font"));
+    }
+
+    #[test]
+    fn a_place_on_the_slider_is_a_whole_percentage() {
+        // A track 200 pt wide from x = 100.
+        assert_eq!(percent_at(100.0, 100.0, 200.0), 0);
+        assert_eq!(percent_at(300.0, 100.0, 200.0), 100);
+        assert_eq!(percent_at(200.0, 100.0, 200.0), 50);
+        assert_eq!(percent_at(190.0, 100.0, 200.0), 45);
+        // Steps of 1%, to the nearest.
+        assert_eq!(percent_at(190.9, 100.0, 200.0), 45);
+        assert_eq!(percent_at(191.1, 100.0, 200.0), 46);
+        // Past either end: the end.
+        assert_eq!(percent_at(40.0, 100.0, 200.0), 0);
+        assert_eq!(percent_at(900.0, 100.0, 200.0), 100);
+        // Not laid out yet.
+        assert_eq!(percent_at(150.0, 100.0, 0.0), 0);
+        let field = fields()
+            .into_iter()
+            .find(|f| f.key == "sidebar_opacity")
+            .unwrap();
+        assert_eq!(reset_label(&field, "45"), "Reset to 45%");
     }
 
     #[test]
