@@ -1,6 +1,6 @@
 //! The small icon drawn for an agent's kind. The originals kept on this machine in
-//! `~/.config/paddock/icons/` (`claude`, `codex`, `pi` or `omp`, `.svg` or `.png`; the SVG when
-//! both are there) are drawn in their own colours; without one, or when it cannot be read, the
+//! `~/.config/paddock/icons/` (`claude`, `codex`, `pi`, `omp` or `amp`, `.svg` or `.png`; the SVG
+//! when both are there) are drawn in their own colours; without one, or when it cannot be read, the
 //! one-colour silhouette compiled in from `assets/kinds/` (where the README says where each comes
 //! from) is drawn in the theme's colour for its kind. The originals are read once, the first time
 //! an icon is asked for, and drawn at each size from memory.
@@ -16,7 +16,7 @@ use std::{
 };
 
 /// The kinds with an icon, as the kind colours match them (any case).
-const KINDS: [&str; 4] = ["claude", "codex", "pi", "omp"];
+const KINDS: [&str; 5] = ["claude", "codex", "pi", "omp", "amp"];
 
 /// The width an original is measured at to find where its picture lies, in pixels.
 const PROBE: u32 = 256;
@@ -120,7 +120,8 @@ fn silhouette(index: usize) -> KindIcon {
         0 => (include_bytes!("../assets/kinds/claude.svg"), 1.0),
         1 => (include_bytes!("../assets/kinds/codex.svg"), 1.0),
         2 => (include_bytes!("../assets/kinds/pi.svg"), 0.8),
-        _ => (include_bytes!("../assets/kinds/omp.svg"), 1.15),
+        3 => (include_bytes!("../assets/kinds/omp.svg"), 1.15),
+        _ => (include_bytes!("../assets/kinds/amp.svg"), 1.0),
     };
     KindIcon {
         look: Look::Mask(data),
@@ -432,6 +433,7 @@ mod tests {
         assert_eq!(silhouette_file("Codex"), Some("codex"));
         assert_eq!(silhouette_file("pi"), Some("pi"));
         assert_eq!(silhouette_file("OMP"), Some("omp"));
+        assert_eq!(silhouette_file("amp"), Some("amp"));
         assert_eq!(of("gemini"), None);
         assert_eq!(of(""), None);
     }

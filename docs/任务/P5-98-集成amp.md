@@ -94,3 +94,31 @@
 ### ranch R6（用户直接和 ranch 定的，见 ranch `docs/任务/R6-接入amp.md`）
 - 用户对 ranch：“amp我已经登录了，注意下是amp cli。另外还有一个app是桌面版本的amp，不要动。”；桌面版也可能加载插件：“我觉得我可以接受。但是接入的时候要在settings里面讲清楚，不过这是paddock界面的事情，暂时你不用关心。”；阶段改成 amp → 读屏兜底 → agy；等批准看终端标题（B）；“amp要支持corral的一些派遣，托管，之间对话等等功能。”
 - 10-14 19:01 部署，ranch/main 转达（见依据）。
+
+## 完成记录（10-14，主控）
+
+### 做了什么
+- `integrations.rs`：读 status 里的 `install{path,status}`；Status 列换成枚举（`Built in`、`Install`、`Installed`、`Update`、`Not managed`、照原样的词），`Update`／`Not managed` 旁有一句说明；版本号从 ` (released ` 起去掉；`plugin_plan` 只在这一行给按钮时给计划；`plugin` 先 `--dry-run` 看文件还是确认时的样子（变了报 `the file changed while you were deciding; nothing was written`、什么都不写），再 `--yes`，`written` 不是 true 时带 corral 的 warnings 报错；`plugin_status` 给 New Agent 读一家插件的状态。
+- `settings_integrations.rs`：Status 列按样稿画（绿色 `Installed` 加安静的 `Uninstall`，`Install`／`Update` 和 Skills 同一种按钮）；确认框分技能和插件两种，插件的装／更新、卸载照样稿文字；标题旁写 `Installing…`／`Removing…`；消息条报 `Installed the amp plugin`／`Updated …`／`Removed …`，失败带原因；卡片下三句说明，amp 那句只在有 `global` 的 agent 时出现。Status 列加宽到 190、Skills 210，窄于 600 时两列挪到名字下面。
+- `new_agent.rs`：`Tool::Amp`（命令 `amp`，没有模型和强度，排在 omp 后）；`takes_prompt`；amp 时 start 不带 `--prompt`，`first_message` 留着；`send_first`：`corral wait <名字> --timeout 60`，`idle` 才 `send`，一直 starting、blocked、别的状态、send 被拒都报原因。
+- `new_agent_view.rs`：选 amp 时 Prompt 下一句 `amp starts first; paddock sends this once it is idle.`；后台读一次插件状态，没装（或不是 corral 的）黄字 `The corral plugin for amp isn't installed; amp will stay Starting.`，旧了写 `…has changed; update it in Settings.`，带 `Open Settings`（打开 Settings › Agents）；面板重开时重读。`window.rs`：Started 带上第一句，开好窗格后后台送；送不出去侧栏底部红字说原因，原文放进剪贴板。
+- 图标：`~/.config/paddock/icons/amp.png`（ampcode.com 的 app-icon，本机，不进仓库，SOURCES.txt 记了）；`kind_icon.rs` 种类加 `amp`；仓库 `assets/kinds/amp.svg` 是自己画的三根电平条，README 写明。
+- 颜色：主题加 `amp`，七套各一个暖黄；Settings › Appearance 的 Agent types 一组多一项；卡片品牌色认 amp。
+- Agent shell：替身加 `amp`；`-x`／`--execute`、`--no-tui`、`-V` 和 `amp --help` 列的管理子命令直接跑真程序，`threads continue` 照样托管。
+- `docs/DESIGN.md`：§3 那行加 install／uninstall，P5-61 加 amp，§13 加 P5-98。
+
+### 验证了什么
+- 先写测试看它失败再实现：integrations 8 条（amp 的 install 字段、四种状态和说明、版本号、没找到 amp、计划、装／卸调的命令、确认后变了不写、没写成报原因、New Agent 读插件状态）；new_agent 3 条（amp 不带 `--prompt`、第一句留着、用路径写的 amp 也认；`wait` 到 idle 再 `send`；starting／blocked／别的状态和 send 被拒都不送、报原因）；kind_icon 1 条；preset 1 条（七套主题五家颜色两两不同）；agent_shell 1 条。都用合成 JSON 和假 corral 脚本，没碰真的插件。
+- `app/` 下 `cargo test --all-targets`（库内 504 条和各集成测试全过）、`cargo clippy --all-targets -- -D warnings`、`cargo fmt --check`、`git diff --check` 通过。settings 里颜色总数的断言从 41 改成 42（多了 amp）。
+- 没起测试窗口、没截图；没开真的 amp 实测（要用用户的 amp 账号，按任务文件要先问）。样子、点 Install／Uninstall、New Agent 开 amp 送第一句留给用户试。
+
+### 拿主意的地方
+- 装／卸前先空跑一次核对状态：corral 带 `--yes` 时不再核对，确认框开着时文件可能变了。
+- 插件提醒分两种文字：旧了（`overwrite`）不说“没装”。
+- 第一句送不出去时放进剪贴板，免得用户重打；送成功不另报（窗格里看得见）。
+- 等 idle 最多 60 秒（corral 技能里写的也是 60）。
+
+### 没做的
+- `paddock ctl open --prompt … -- amp`（给 agent 用的 ctl）没改：corral 会直接报 `amp takes no --prompt`，调用的 agent 可以照 corral 技能先 start、wait、再 send。要 paddock 替它送，另立。
+- paddock 技能（`skills.rs` 里的 SKILL.md）没提 amp 不收 `--prompt`。
+- amp 的 `--mode` 不在 New Agent 给选项（任务文件「不做」）。

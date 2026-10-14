@@ -11,7 +11,7 @@ use std::{
     process::{Command, Stdio},
 };
 
-pub const KINDS: &[&str] = &["claude", "codex", "pi", "omp"];
+pub const KINDS: &[&str] = &["claude", "codex", "pi", "omp", "amp"];
 
 pub struct Setup {
     pub command: Vec<String>,
@@ -389,20 +389,59 @@ pub fn passthrough(kind: &str, args: &[OsString], stdin: bool, stdout: bool) -> 
         "debug",
         "proto",
     ];
-    let commands = match kind {
-        "claude" => CLAUDE,
-        "codex" => CODEX,
-        _ => &[],
+    // amp's commands as `amp --help` lists them (P5-98); `threads continue` opens a thread
+    // interactively, so it is hosted like amp itself.
+    const AMP: &[&str] = &[
+        "version",
+        "logout",
+        "account",
+        "login",
+        "orb",
+        "portal",
+        "net",
+        "runner",
+        "clone",
+        "git-setup",
+        "files",
+        "top",
+        "last",
+        "report-bug",
+        "threads",
+        "tools",
+        "plugins",
+        "skill",
+        "permissions",
+        "mcp",
+        "config",
+        "domains",
+        "projects",
+        "apps",
+        "oauth-clients",
+        "secrets",
+        "svc",
+        "usage",
+        "update",
+        "completions",
+    ];
+    const AMP_FLAGS: &[&str] = &["-x", "--execute", "--no-tui", "-V"];
+    let (commands, flags) = match kind {
+        "claude" => (CLAUDE, &[][..]),
+        "codex" => (CODEX, &[][..]),
+        "amp" => (AMP, AMP_FLAGS),
+        _ => (&[][..], &[][..]),
     };
+    let words: Vec<Option<&str>> = args.iter().map(|arg| arg.to_str()).collect();
     !stdin
         || !stdout
-        || args
+        || words
             .iter()
-            .any(|arg| arg.to_str().is_some_and(|arg| FLAGS.contains(&arg)))
-        || args
-            .first()
-            .and_then(|arg| arg.to_str())
-            .is_some_and(|arg| commands.contains(&arg))
+            .flatten()
+            .any(|arg| FLAGS.contains(arg) || flags.contains(arg))
+        || match words.as_slice() {
+            [Some("threads"), Some("continue"), ..] if kind == "amp" => false,
+            [Some(first), ..] => commands.contains(first),
+            _ => false,
+        }
 }
 
 #[cfg(test)]
@@ -483,5 +522,31 @@ mod tests {
         }
         assert!(!passthrough("pi", &["exec".into()], true, true));
         assert!(!passthrough("omp", &["mcp".into()], true, true));
+    }
+
+    #[test]
+    fn amp_is_hosted_but_its_one_shot_and_managing_commands_run_as_they_are() {
+        assert!(KINDS.contains(&"amp"));
+        let args = |words: &[&str]| words.iter().map(OsString::from).collect::<Vec<_>>();
+        for words in [
+            &["-x", "fix the build"][..],
+            &["--execute", "hi"],
+            &["--no-tui"],
+            &["-V"],
+            &["login"],
+            &["threads", "list"],
+            &["plugins", "list"],
+            &["update"],
+            &["--mode", "high", "-x", "hi"],
+        ] {
+            assert!(passthrough("amp", &args(words), true, true), "{words:?}");
+        }
+        for words in [
+            &[][..],
+            &["--mode", "high"],
+            &["threads", "continue", "T-1"],
+        ] {
+            assert!(!passthrough("amp", &args(words), true, true), "{words:?}");
+        }
     }
 }

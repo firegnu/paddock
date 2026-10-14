@@ -1996,6 +1996,7 @@ impl PaddockWindow {
                                 cwd,
                                 place,
                                 workspace,
+                                first,
                             } => {
                                 this.new_agent = None;
                                 if open {
@@ -2007,6 +2008,9 @@ impl PaddockWindow {
                                     });
                                 }
                                 this.open_started(started, cwd, *place, window, cx);
+                                if let Some(first) = first {
+                                    this.send_first(&started.name, first.clone(), cx);
+                                }
                             }
                             NewAgentEvent::Close if open => this.close_popup(window, cx),
                             NewAgentEvent::Close => {}
@@ -2095,6 +2099,29 @@ impl PaddockWindow {
             sidebar.refresh();
         });
         self.focus_active(window, cx);
+    }
+
+    /// Sends a just-started agent its first message once it is idle, for a kind that takes none at
+    /// start (amp, P5-98). When it can't go, the note says why and the message is on the clipboard.
+    fn send_first(&mut self, name: &str, first: String, cx: &mut Context<Self>) {
+        let corral = self.template.corral.clone();
+        let name = name.to_owned();
+        let task = cx.background_spawn({
+            let (name, first) = (name.clone(), first.clone());
+            async move { crate::new_agent::send_first(&corral, &name, &first) }
+        });
+        cx.spawn(async move |this, cx| {
+            let Err(error) = task.await else { return };
+            let _ = this.update(cx, |this, cx| {
+                cx.write_to_clipboard(gpui::ClipboardItem::new_string(first));
+                let text = format!(
+                    "Couldn't send the first message to {name}: {error:#}. It is on the clipboard."
+                );
+                this.sidebar
+                    .update(cx, |sidebar, cx| sidebar.note(text, true, cx));
+            });
+        })
+        .detach();
     }
 
     /// Stops `name`, or else the active pane's agent, with `corral stop`, after asking.
