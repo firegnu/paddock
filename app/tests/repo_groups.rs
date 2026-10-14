@@ -41,7 +41,7 @@ fn groups(panel: &Panel) -> Vec<(String, usize, Vec<Status>)> {
     card::lines(panel, None, None, &[], None, 100.0)
         .into_iter()
         .filter_map(|line| match line {
-            Line::Group(name, count, bar) => Some((name, count, bar)),
+            Line::Group(heading) => Some((heading.title, heading.count, heading.bar)),
             _ => None,
         })
         .collect()
@@ -160,4 +160,127 @@ fn search_detail_omits_the_group_when_the_name_prefix_already_says_it() {
             search::Target::Agent("paddock/main".into())
         );
     }
+}
+
+/// Every line as one string: a group's heading with its count and bar (`folded` and `showing`
+/// said when so), a card by its agent's full name.
+fn shown(panel: &Panel, selected: Option<&str>) -> Vec<String> {
+    card::lines(panel, None, selected, &[], None, 100.0)
+        .into_iter()
+        .map(|line| match line {
+            Line::Error(text) => format!("! {text}"),
+            Line::Group(heading) => {
+                let mut text = format!("# {} {} {:?}", heading.title, heading.count, heading.bar);
+                if heading.folded {
+                    text += " folded";
+                }
+                if heading.showing {
+                    text += " showing";
+                }
+                text
+            }
+            Line::Agent(card) => card.name,
+        })
+        .collect()
+}
+
+#[test]
+fn a_folded_group_keeps_its_heading_count_and_bar_and_leaves_out_its_cards() {
+    let mut panel = panel(&[
+        ("paddock/main", "/w/paddock", "idle"),
+        ("paddock/dev", "/w/paddock", "working"),
+        ("ranch/main", "/w/ranch", "blocked"),
+    ]);
+    let open = [
+        "# paddock/ 2 [Working, Idle]",
+        "paddock/dev",
+        "paddock/main",
+        "# ranch/ 1 [Waiting]",
+        "ranch/main",
+    ];
+    assert_eq!(shown(&panel, None), open);
+    panel.folded.toggle_group("paddock");
+    assert_eq!(
+        shown(&panel, None),
+        [
+            "# paddock/ 2 [Working, Idle] folded",
+            "# ranch/ 1 [Waiting]",
+            "ranch/main",
+        ]
+    );
+    // Its bar follows its agents while it stays folded; the active pane's agent in it is said.
+    panel.absorb(
+        vec![
+            Agent {
+                name: "paddock/main".into(),
+                cwd: Some("/w/paddock".into()),
+                state: Some("blocked".into()),
+                ..Default::default()
+            },
+            Agent {
+                name: "ranch/main".into(),
+                cwd: Some("/w/ranch".into()),
+                state: Some("idle".into()),
+                ..Default::default()
+            },
+        ],
+        None,
+        100.0,
+    );
+    assert_eq!(
+        shown(&panel, Some("paddock/main")),
+        [
+            "# paddock/ 1 [Waiting] folded showing",
+            "# ranch/ 1 [Idle]",
+            "ranch/main",
+        ]
+    );
+    // The strip shows every agent whatever is folded.
+    let tiles: Vec<String> = card::unfolded(&panel, None, None, &[], None, 100.0)
+        .into_iter()
+        .filter_map(|line| match line {
+            Line::Agent(card) => Some(card.name),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(tiles, ["paddock/main", "ranch/main"]);
+    // Opened again, the lines are what they were.
+    panel.folded.toggle_group("paddock");
+    assert_eq!(
+        shown(&panel, None),
+        [
+            "# paddock/ 1 [Waiting]",
+            "paddock/main",
+            "# ranch/ 1 [Idle]",
+            "ranch/main",
+        ]
+    );
+}
+
+#[test]
+fn moving_between_cards_skips_folded_groups() {
+    let mut panel = panel(&[
+        ("a/one", "/w/a", "idle"),
+        ("b/one", "/w/b", "idle"),
+        ("b/two", "/w/b", "idle"),
+        ("c/one", "/w/c", "idle"),
+    ]);
+    panel.folded.toggle_group("b");
+    panel.select(Some("a/one".into()));
+    panel.move_selection(1, 100.0);
+    assert_eq!(panel.selected.as_deref(), Some("c/one"));
+    panel.move_selection(-1, 100.0);
+    assert_eq!(panel.selected.as_deref(), Some("a/one"));
+    // From a card folded away, to the nearest one in view either way.
+    panel.select(Some("b/two".into()));
+    panel.move_selection(1, 100.0);
+    assert_eq!(panel.selected.as_deref(), Some("c/one"));
+    panel.select(Some("b/one".into()));
+    panel.move_selection(-1, 100.0);
+    assert_eq!(panel.selected.as_deref(), Some("a/one"));
+    // Everything folded: the selection stays.
+    panel.folded.toggle_group("a");
+    panel.folded.toggle_group("c");
+    panel.move_selection(1, 100.0);
+    assert_eq!(panel.selected.as_deref(), Some("a/one"));
 }

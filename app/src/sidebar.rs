@@ -10,7 +10,7 @@
 //! (P5-33).
 use crate::{
     activity_view::{self, ActivityView, Folded},
-    agents::{Panel, Spell, Status},
+    agents::{Folds, Panel, Spell, Status},
     attention,
     card::{self, Card, Click, Ink, Line, Pick, Preview, Tone},
     corral::{Agent, Client, Poller, Replies, Role},
@@ -61,6 +61,8 @@ pub enum SidebarEvent {
     Alive(Vec<String>),
     /// The activity panel was folded (`true`) or opened: save it with the layout.
     ActivityFolded(bool),
+    /// A group was folded to its heading or opened: save them with the layout.
+    Folds(Folds),
 }
 
 /// How often the agents' worktrees are summarised, as in Saddle.
@@ -138,6 +140,13 @@ const TILE_SIZE: f32 = 12.5;
 /// The preview's lines, folded and open.
 const PREVIEW_LINES: usize = 2;
 const PREVIEW_OPEN_LINES: usize = 6;
+/// The arrow after a group's count: down while its cards show, right while it is folded.
+const CHEVRON_DOWN: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><path d="M2.5 3.8L5 6.3l2.5-2.5" fill="none" stroke="#000" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>"##;
+const CHEVRON_RIGHT: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><path d="M3.8 2.5L6.3 5 3.8 7.5" fill="none" stroke="#000" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>"##;
+const CHEVRON: f32 = 9.0;
+/// How far a group's heading takes clicks, and lights under the pointer, above and below its
+/// words.
+const HEADING_Y: f32 = 4.0;
 /// A working agent's spinner, drawn as a mask: the faint track and the arc that turns.
 const SPIN_TRACK: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12"><circle cx="6" cy="6" r="4.5" fill="none" stroke="#000" stroke-width="2"/></svg>"##;
 const SPIN_ARC: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12"><path d="M6 1.5a4.5 4.5 0 0 1 4.5 4.5" fill="none" stroke="#000" stroke-width="2" stroke-linecap="round"/></svg>"##;
@@ -470,6 +479,24 @@ impl Listing {
         )
     }
 
+    /// The lines with every card, whatever is folded: the strip has a tile for each agent.
+    fn unfolded(
+        &self,
+        selected: Option<&str>,
+        here: &[String],
+        home: Option<&str>,
+        now: f64,
+    ) -> Vec<Line> {
+        card::unfolded(
+            &self.panel,
+            self.error.as_deref(),
+            selected,
+            here,
+            home,
+            now,
+        )
+    }
+
     /// An agent is working, as the cards show it: a paused one is not, for the spinners and the
     /// activity glow alike.
     fn animating(&self, now: f64) -> bool {
@@ -623,6 +650,19 @@ impl Sidebar {
         cx.notify();
     }
 
+    /// The groups folded to their heading, as the layout saved them.
+    pub fn set_folds(&mut self, folds: Folds, cx: &mut Context<Self>) {
+        self.listing.panel.folded = folds;
+        cx.notify();
+    }
+
+    /// Folds a group to its heading, or opens it again.
+    fn fold_group(&mut self, group: &str, cx: &mut Context<Self>) {
+        self.listing.panel.folded.toggle_group(group);
+        cx.emit(SidebarEvent::Folds(self.listing.panel.folded.clone()));
+        cx.notify();
+    }
+
     /// Whether the menu of actions is open, for its button.
     pub fn set_menu_open(&mut self, open: bool, cx: &mut Context<Self>) {
         if self.menu_open != open {
@@ -689,17 +729,8 @@ impl Sidebar {
             return row;
         }
         let fg = |pick: Pick| hsla(self.theme.fg(pick), 1.0);
-        let agents = self
-            .listing
-            .lines(
-                self.selected.as_deref(),
-                &self.here,
-                self.home.as_deref(),
-                now(),
-            )
-            .iter()
-            .filter(|line| matches!(line, Line::Agent(_)))
-            .count();
+        // Every agent, those of folded groups too.
+        let agents = self.listing.panel.agents.len();
         let pause_all = self.pause_all_button(cx);
         let family = ui.family.clone().unwrap_or_else(|| ".SystemUIFont".into());
         let set = |words: String, size: f32, weight: FontWeight, features: FontFeatures| {
@@ -1075,7 +1106,7 @@ impl Sidebar {
                 .my(ui.px(y))
                 .bg(grounds.rule)
         };
-        let lines = self.listing.lines(
+        let lines = self.listing.unfolded(
             self.selected.as_deref(),
             &self.here,
             self.home.as_deref(),
@@ -1276,6 +1307,109 @@ impl Sidebar {
         if changed || self.listing.animating(now) {
             cx.notify();
         }
+    }
+
+    /// A group's heading, the `index`th line of the list: its name, how many agents and, at the
+    /// right, how they are doing. A click folds the group to this line, or opens it again
+    /// (P5-89): the arrow after the count says which, shown while the group is folded or the
+    /// pointer is over the heading, its room always kept.
+    fn heading(&self, heading: card::Heading, index: usize, cx: &mut Context<Self>) -> AnyElement {
+        let ui = UiFont::get(cx);
+        let fg = |pick: Pick| hsla(self.theme.fg(pick), 1.0);
+        let card::Heading {
+            group,
+            title,
+            count,
+            bar,
+            folded,
+            showing,
+        } = heading;
+        let hover: SharedString = format!("group-{index}").into();
+        let lit = fg(|t| t.agents_text).opacity(0.06);
+        let (dim, dimmer) = (fg(|t| t.agents_dim), fg(|t| t.agents_dimmer));
+        // The agent the active pane shows is folded away in it.
+        let showing = folded && showing;
+        let on_click = cx.listener(move |this, _: &ClickEvent, _, cx| this.fold_group(&group, cx));
+        let row = div()
+            .id(("group", index))
+            .group(hover.clone())
+            .flex()
+            .items_center()
+            .gap(ui.px(6.0))
+            .px(px(8.0))
+            .py(px(HEADING_Y))
+            .rounded(px(7.0))
+            .cursor_pointer()
+            .hover(move |style| style.bg(lit))
+            .on_click(on_click)
+            .child(
+                div()
+                    .flex()
+                    .items_baseline()
+                    .gap(ui.px(6.0))
+                    .text_size(ui.px(LABEL_SIZE))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child(
+                        div()
+                            .text_color(if showing { dim } else { dimmer })
+                            .group_hover(hover.clone(), move |style| style.text_color(dim))
+                            .child(title.trim_end_matches('/').to_owned()),
+                    )
+                    .child(
+                        div()
+                            .text_color(dimmer.opacity(0.6))
+                            .child(count.to_string()),
+                    ),
+            )
+            .child(
+                svg()
+                    .data(if folded { CHEVRON_RIGHT } else { CHEVRON_DOWN })
+                    .flex_shrink_0()
+                    .size(ui.px(CHEVRON))
+                    .text_color(dimmer)
+                    .when(!folded, |arrow| {
+                        arrow
+                            .opacity(0.0)
+                            .group_hover(hover, |style| style.opacity(1.0))
+                    }),
+            )
+            // Hollow, as the mark on the card of an agent open in this window.
+            .when(showing, |row| {
+                row.child(
+                    div()
+                        .flex_shrink_0()
+                        .size(ui.px(HERE))
+                        .rounded_full()
+                        .border(ui.px(HERE_RING))
+                        .border_color(fg(|t| t.agents_accent)),
+                )
+            })
+            .child(div().flex_1())
+            // How the group's agents are doing, a short stroke each.
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .flex()
+                    .gap(px(2.0))
+                    .w(ui.px((BAR_SHARE * bar.len() as f32).min(BAR_MAX)))
+                    .children(bar.into_iter().map(|status| {
+                        div()
+                            .flex_1()
+                            .h(px(3.0))
+                            .rounded(px(2.0))
+                            .bg(fg(card::look(status).color))
+                    })),
+            );
+        // Sixteen points below the card above, the gap between lines included (closer to the top
+        // for the first: the window's title bar is over it); down to its own first card, only
+        // that gap. The row's own reach above and below its words is taken out of both.
+        div()
+            .pt(px(
+                if index == 0 { 10.0 } else { 16.0 - CARD_GAP } - HEADING_Y
+            ))
+            .mb(px(-HEADING_Y))
+            .child(row)
+            .into_any_element()
     }
 
     /// A click on a card: show the agent, or, when it is already the one shown, open or close its
@@ -1525,10 +1659,8 @@ impl Render for Sidebar {
             });
             (lines, note)
         };
-        let agents = lines
-            .iter()
-            .filter(|line| matches!(line, Line::Agent(_)))
-            .count();
+        // Every agent, those of folded groups too.
+        let agents = self.listing.panel.agents.len();
 
         // The list runs on under the activity panel, and ends the panel's height below its last
         // card (P5-70).
@@ -1598,50 +1730,7 @@ impl Render for Sidebar {
                     .text_color(fg(|t| t.agents_red))
                     .child(text)
                     .into_any_element(),
-                Line::Group(title, count, bar) => div()
-                    .flex()
-                    .items_center()
-                    .gap(ui.px(6.0))
-                    .px(px(8.0))
-                    // Sixteen points below the card above, the gap between lines included (closer
-                    // to the top for the first: the window's title bar is over it); down to its
-                    // own first card, only that gap.
-                    .pt(px(if index == 0 { 10.0 } else { 16.0 - CARD_GAP }))
-                    .child(
-                        div()
-                            .flex()
-                            .items_baseline()
-                            .gap(ui.px(6.0))
-                            .text_size(ui.px(LABEL_SIZE))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child(
-                                div()
-                                    .text_color(fg(|t| t.agents_dimmer))
-                                    .child(title.trim_end_matches('/').to_owned()),
-                            )
-                            .child(
-                                div()
-                                    .text_color(fg(|t| t.agents_dimmer).opacity(0.6))
-                                    .child(count.to_string()),
-                            ),
-                    )
-                    .child(div().flex_1())
-                    // How the group's agents are doing, a short stroke each.
-                    .child(
-                        div()
-                            .flex_shrink_0()
-                            .flex()
-                            .gap(px(2.0))
-                            .w(ui.px((BAR_SHARE * bar.len() as f32).min(BAR_MAX)))
-                            .children(bar.into_iter().map(|status| {
-                                div()
-                                    .flex_1()
-                                    .h(px(3.0))
-                                    .rounded(px(2.0))
-                                    .bg(fg(card::look(status).color))
-                            })),
-                    )
-                    .into_any_element(),
+                Line::Group(heading) => self.heading(heading, index, cx),
                 Line::Agent(card) => {
                     let on_click = {
                         let card = card.clone();
@@ -3291,7 +3380,7 @@ mod tests {
             .iter()
             .map(|line| match line {
                 Line::Error(text) => format!("! {text}"),
-                Line::Group(title, count, _) => format!("# {title} ({count})"),
+                Line::Group(heading) => format!("# {} ({})", heading.title, heading.count),
                 Line::Agent(card) => format!("{} {}", card.short, card.look.label),
             })
             .collect()

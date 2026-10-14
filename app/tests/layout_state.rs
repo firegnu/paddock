@@ -24,6 +24,33 @@ fn a_saved_layout_is_restored_next_time() {
 }
 
 #[test]
+fn folded_groups_are_saved_and_a_file_from_before_them_opens_every_group() {
+    let temp = common::tempdir();
+    let path = temp.path().join("layout.json");
+    // Written as the sidebar folds a group…
+    let mut file = serde_json::to_value(layout()).unwrap();
+    file["sidebar_folded"] = serde_json::json!({ "groups": ["paddock", ""] });
+    std::fs::write(&path, serde_json::to_vec(&file).unwrap()).unwrap();
+    let (mut store, saved) = Store::open(Some(path.clone()));
+    assert!(store.problem().is_none());
+    let saved = saved.unwrap();
+    // …read back, and written again as it was.
+    store.save(&saved);
+    let again: serde_json::Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    assert_eq!(
+        again["sidebar_folded"],
+        serde_json::json!({ "groups": ["paddock", ""] })
+    );
+    // A file from before groups could fold has no such field: every group is open.
+    let mut old = serde_json::to_value(layout()).unwrap();
+    old.as_object_mut().unwrap().remove("sidebar_folded");
+    std::fs::write(&path, serde_json::to_vec(&old).unwrap()).unwrap();
+    let (store, saved) = Store::open(Some(path));
+    assert!(store.problem().is_none());
+    assert_eq!(saved, Some(layout()));
+}
+
+#[test]
 fn an_unchanged_layout_is_not_written_again() {
     let temp = common::tempdir();
     let path = temp.path().join("layout.json");

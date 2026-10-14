@@ -596,14 +596,28 @@ pub fn click(card: &Card) -> Click {
     }
 }
 
+/// A group's heading: its name, how many agents it has, and their statuses for its bar: those
+/// waiting, working, stalled, the rest, then the idle.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Heading {
+    /// The group, as [`Panel::group`] names it: empty for the agents without one.
+    pub group: String,
+    /// The name shown and a `/`.
+    pub title: String,
+    pub count: usize,
+    pub bar: Vec<Status>,
+    /// Folded to this line: its cards are left out (P5-89).
+    pub folded: bool,
+    /// The active pane's agent is one of its own.
+    pub showing: bool,
+}
+
 /// A line of the panel.
 #[derive(Clone, Debug)]
 pub enum Line {
     /// Why the list could not be read.
     Error(String),
-    /// A group's name, how many agents it has, and their statuses for its bar: those waiting,
-    /// working, stalled, the rest, then the idle.
-    Group(String, usize, Vec<Status>),
+    Group(Heading),
     Agent(Box<Card>),
 }
 
@@ -621,6 +635,7 @@ fn bar_rank(status: Status) -> u8 {
 
 /// The panel's lines. `selected` is the active pane's agent and `here` every agent open in this
 /// window; `home` the home directory, written `~`. Text is whole: the drawing fits it to the card.
+/// A folded group is its heading alone.
 pub fn lines(
     panel: &Panel,
     error: Option<&str>,
@@ -628,6 +643,31 @@ pub fn lines(
     here: &[String],
     home: Option<&str>,
     now: f64,
+) -> Vec<Line> {
+    listed(panel, error, selected, here, home, now, true)
+}
+
+/// [`lines`] with every card, whatever is folded: the collapsed strip's.
+pub fn unfolded(
+    panel: &Panel,
+    error: Option<&str>,
+    selected: Option<&str>,
+    here: &[String],
+    home: Option<&str>,
+    now: f64,
+) -> Vec<Line> {
+    listed(panel, error, selected, here, home, now, false)
+}
+
+/// The lines; with `folds`, without the cards of folded groups.
+fn listed(
+    panel: &Panel,
+    error: Option<&str>,
+    selected: Option<&str>,
+    here: &[String],
+    home: Option<&str>,
+    now: f64,
+    folds: bool,
 ) -> Vec<Line> {
     let mut lines: Vec<Line> = error
         .map(|e| Line::Error(e.to_owned()))
@@ -640,22 +680,35 @@ pub fn lines(
         *short_counts.entry((panel.group(agent), short)).or_insert(0) += 1;
     }
     let mut previous = None;
+    let mut folded = false;
     for (index, a) in ordered.iter().enumerate() {
         let project = panel.group(a);
         if previous != Some(project) {
-            let mut bar: Vec<Status> = ordered[index..]
-                .iter()
-                .take_while(|agent| panel.group(agent) == project)
-                .map(|agent| panel.shown(agent, now))
-                .collect();
+            let members = || {
+                ordered[index..]
+                    .iter()
+                    .take_while(|agent| panel.group(agent) == project)
+            };
+            let mut bar: Vec<Status> = members().map(|agent| panel.shown(agent, now)).collect();
             bar.sort_by_key(|status| bar_rank(*status));
             let title = if project.is_empty() {
                 "agents"
             } else {
                 project
             };
-            lines.push(Line::Group(format!("{title}/"), bar.len(), bar));
+            folded = panel.folded.group(project);
+            lines.push(Line::Group(Heading {
+                group: project.to_owned(),
+                title: format!("{title}/"),
+                count: bar.len(),
+                bar,
+                folded,
+                showing: members().any(|agent| selected == Some(agent.name.as_str())),
+            }));
             previous = Some(project);
+        }
+        if folded && folds {
+            continue;
         }
         let mut card = card(panel, a, group(&a.name), selected, here, home, now);
         if short_counts[&(project, card.short.as_str())] > 1 {
@@ -769,7 +822,7 @@ mod tests {
         let groups: Vec<_> = lines
             .iter()
             .filter_map(|line| match line {
-                Line::Group(name, count, _) => Some((name.as_str(), *count)),
+                Line::Group(heading) => Some((heading.title.as_str(), heading.count)),
                 _ => None,
             })
             .collect();
@@ -930,12 +983,12 @@ mod tests {
         assert_eq!(busy.details.cells[0].value, "Paused");
         assert_eq!(busy.details.cells[2].label, "Paused for");
         // The group's bar puts them after the idle.
-        let Line::Group(_, _, bar) = &lines[0] else {
+        let Line::Group(heading) = &lines[0] else {
             panic!()
         };
         assert_eq!(
-            bar,
-            &[
+            heading.bar,
+            [
                 Status::Working,
                 Status::Error,
                 Status::Exited,

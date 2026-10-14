@@ -4,6 +4,7 @@
 //! fold became each agent's own details, opened from its card, and it keeps the last reply read
 //! for each idle or waiting agent, the latest of them past its spell for the Inbox.
 use crate::corral::{Agent, Reply};
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
 #[derive(Default)]
@@ -14,6 +15,8 @@ pub struct Panel {
     pub by_name: bool,
     /// The agents whose details are open, by name.
     pub expanded: HashSet<String>,
+    /// The groups folded to their heading (DESIGN §13 P5-89).
+    pub folded: Folds,
     pub show_reply: bool,
     pub reply_top: usize,
     pub top: usize,
@@ -31,6 +34,31 @@ pub struct Panel {
     /// The last reply read of each agent with the instance it was read from, kept past its spell
     /// for the Inbox (DESIGN §13 P5-87), which shows it while the agent works on.
     last: HashMap<String, (Option<String>, Reply)>,
+}
+
+/// The groups folded to their heading, their cards out of sight: saved with the layout, so a
+/// group stays folded while it has no agents (DESIGN §13 P5-89).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Folds {
+    /// By name, as [`Panel::group`] gives it.
+    pub groups: Vec<String>,
+}
+
+impl Folds {
+    pub fn group(&self, group: &str) -> bool {
+        self.groups.iter().any(|folded| folded == group)
+    }
+
+    /// Folds the group, or opens it again.
+    pub fn toggle_group(&mut self, group: &str) {
+        match self.groups.iter().position(|folded| folded == group) {
+            Some(at) => {
+                self.groups.remove(at);
+            }
+            None => self.groups.push(group.to_owned()),
+        }
+    }
 }
 
 /// An agent's last reply as the Inbox shows it.
@@ -198,17 +226,37 @@ impl Panel {
         self.follow = true;
     }
 
+    /// Moves the selection `step` cards on, among the cards in view: those of folded groups are
+    /// passed over (P5-89).
     pub fn move_selection(&mut self, step: isize, now: f64) {
         let ordered = self.ordered(now);
-        if ordered.is_empty() {
-            return;
-        }
-        let current = ordered
+        let in_view: Vec<&Agent> = ordered
             .iter()
-            .position(|a| Some(&a.name) == self.selected.as_ref())
-            .unwrap_or(0);
-        let at = current.saturating_add_signed(step).min(ordered.len() - 1);
-        self.select(Some(ordered[at].name.clone()));
+            .copied()
+            .filter(|a| self.in_view(a))
+            .collect();
+        let Some(last) = in_view.len().checked_sub(1) else {
+            return;
+        };
+        let selected = ordered
+            .iter()
+            .position(|a| Some(&a.name) == self.selected.as_ref());
+        let from = selected.map_or(0, |at| {
+            let before = ordered[..at].iter().filter(|a| self.in_view(a)).count() as isize;
+            // Folded away itself, it stands between its neighbours in view.
+            if self.in_view(ordered[at]) || step <= 0 {
+                before
+            } else {
+                before - 1
+            }
+        });
+        let at = (from + step).clamp(0, last as isize) as usize;
+        self.select(Some(in_view[at].name.clone()));
+    }
+
+    /// Whether the agent's card shows: its group is not folded.
+    fn in_view(&self, agent: &Agent) -> bool {
+        !self.folded.group(self.group(agent))
     }
 
     /// The main worktree's directory name, or the original prefix while unread/unavailable.

@@ -3,7 +3,7 @@
 //! pane's header at its top. `layout.rs` holds the rules; this file draws them and keeps one
 //! terminal view per pane.
 use crate::{
-    agents::{Panel, Status},
+    agents::{Folds, Panel, Status},
     browser::{self, Owner, cover},
     browser_view::{BrowserView, Handoff, Visited},
     cairn_view::{self, CairnView},
@@ -1097,6 +1097,8 @@ pub struct PaddockWindow {
     collapsed: bool,
     /// The sidebar's activity panel is folded to one line; saved with the layout.
     activity_folded: bool,
+    /// The sidebar's groups folded to their heading; saved with the layout.
+    sidebar_folded: Folds,
     /// The divider is being dragged: the width and the mouse's x when it was pressed.
     resizing: Option<(f32, f32)>,
     /// A seam between split panes is being dragged.
@@ -1161,6 +1163,13 @@ impl PaddockWindow {
         let activity_folded = saved.as_ref().is_some_and(|layout| layout.activity_folded);
         sidebar.update(cx, |sidebar, cx| {
             sidebar.set_activity_folded(activity_folded, cx)
+        });
+        let sidebar_folded = saved
+            .as_ref()
+            .map(|layout| layout.sidebar_folded.clone())
+            .unwrap_or_default();
+        sidebar.update(cx, |sidebar, cx| {
+            sidebar.set_folds(sidebar_folded.clone(), cx)
         });
         let right = RightPanel::new(
             &saved
@@ -1257,6 +1266,7 @@ impl PaddockWindow {
             sidebar_width: config.sidebar_width,
             collapsed,
             activity_folded,
+            sidebar_folded,
             resizing: None,
             splitting: None,
             right,
@@ -1437,6 +1447,7 @@ impl PaddockWindow {
             window_size: self.window_size,
             sidebar_collapsed: self.collapsed,
             activity_folded: self.activity_folded,
+            sidebar_folded: self.sidebar_folded.clone(),
             right_sidebar: self.right.saved(),
             ..Layout::of(&self.workspace, |pane| self.content(pane, cx))
         };
@@ -1791,6 +1802,10 @@ impl PaddockWindow {
             }
             SidebarEvent::ActivityFolded(folded) => {
                 self.activity_folded = *folded;
+                self.save_layout(cx);
+            }
+            SidebarEvent::Folds(folds) => {
+                self.sidebar_folded = folds.clone();
                 self.save_layout(cx);
             }
         }
