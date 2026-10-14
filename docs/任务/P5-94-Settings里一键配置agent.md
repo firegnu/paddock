@@ -119,3 +119,4 @@ Settings 的 Agents 页，在 corral 一节下面加一节 `Integrations`，像 
 
 ## 用户看过
 - 10-14 重开看过：“我重开看了，不错。就是有一个疑问，pi为什么显示not found，是不是我的pi agent安装的地方不对？”主控查：pi 装在 `~/.bun/bin/pi` 没问题；bun 把 `~/.bun/bin` 加进 PATH 的那两行写在 `~/.zshrc` 里，而 paddock 从 Finder／Dock 启动时问的是登录 shell（`zsh -l -c`，不读 `.zshrc`），拿到的 PATH 里没有它，corral 按这个 PATH 找不到 pi。同样从 paddock 里开 pi 也会找不到。
+- 用户选了改自己的 shell 配置：“按你的建议，选1，你帮我改。 这个没什么风险吧？”主控在 `~/.zprofile` 末尾加了 bun 的两行（备份 `~/.zprofile.bak-20261014`）。用户重开 paddock：“我重开了，pi 显示版本了”。paddock 不用改。
