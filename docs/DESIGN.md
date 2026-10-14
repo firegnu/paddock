@@ -41,6 +41,7 @@ paddock 与 Saddle 在代码上完全分开：用到的 Saddle 代码迁入 padd
   | 约定 | 归属 | paddock 怎么用 |
   | --- | --- | --- |
   | `corral` 命令（`ls`/`status`/`attach`/`start`/`stop`/`reply`/`send` 等；`send` 只有收件箱用，送的是用户自己在回复框里打的字，§13 P5-87）及其 JSON 输出 | ranch（迁入前随 Saddle 安装） | 照公开格式调用；格式变化时 paddock 跟进 |
+  | `corral integration status`、`corral install-skills --target <位置> --yes`、`ranch dispatch install-skills [--dry-run \| --target <位置> --yes]` 及其 JSON 输出 | ranch（R4 起，约定在 ranch `docs/CONTRACT.md`） | 只有 Settings › Agents › Integrations 用（§13 P5-94）：打开那一页、点 Refresh、装完后读；装技能只在用户在确认框里点了之后跑。不认识的 `hooks` 值照原样显示，不认识的技能状态当作没事可做 |
   | 插件协议 | ranch（迁入前在 Saddle） | paddock 做自己的插件系统：进程、命令、生命周期部分沿用这份协议，界面部分 paddock 自定（下文“插件”） |
   | 遥测命令（迁入前是 `saddle telemetry …`）、Drover 的公开命令 | 遥测归 ranch；Drover 在 Saddle（第 8 步再定） | 需要时照公开命令调用 |
   | `cairn` 命令（PATH 上的 `cairn`）及其 JSON 输出 | 独立仓库 `../cairn` | 只调用 `cairn status --json`、`cairn show --json`、`cairn adopt` 三条（P5-55），和 cairn 0.3.0 起的 `cairn list --json --limit N`、`cairn show <ID> --json` 两条（P5-79）；不读它的数据库、配置和 hook 文件，不装不卸 hook。前三条的输出从 cairn 0.2.0 起是它的公开约定（cairn DESIGN §7.1，只加不改）：`status --json` 的 `agents.*.installed`、`agents.*.last_seen`（P5-78）、`project.status`、`spool.pending_json`，`show --json` 的 `text`、`record_ids` 和 `{"status":"no_data"}`，`adopt` 的退出码。后两条是 0.3.0 加进同一份约定的：`list --json` 的 `total` 和 `records` 里每条的 `id`、`created_at`、`agent`、`branch`、`kind`、`summary`（只读，不收取暂存区）；`show <ID> --json` 的 `created_at`、`agent`、`session_id`、`branch`、`body` 和 `correction`（同样的字段；它会先收取暂存区）。不认识的字段忽略；0.1.0 没有 `last_seen`，0.2.0 及更早的 `list` 不认识 `--json`（退出码 2），都照样能用 |
@@ -569,3 +570,10 @@ paddock 与 Saddle 在代码上完全分开：用到的 Saddle 代码迁入 padd
   - 磨砂时每个标签的 `×` 都在行内（和选中的一样）、给它留出位置，没选中的照旧悬停才显出来；标签因此宽一点（多 17pt），标题不会被透出来的 `×` 盖住。`×` 平时不画底，悬停时一圈淡色。
   - 图标右下角状态点的圈照旧用不透明的那个颜色，好把点和图标隔开。
   - 全屏时照旧不透明，样子和以前一样。右侧栏卡片里的胶囊不变。
+- **Settings › Agents 加一节 Integrations：每家 agent 接没接好、一键装技能（P5-94）**（用户 10-14 谈 P5-88 时：“我的理解是我想做成settings。然后里面列出一些agent，然后类似用户一键适配这种。”“就是settings里面用户能够一键配置agent”；看了 herdr 后：“其实我的最终目的是要想herdr的settings里面的一个agent适配的功能一样。”“那么我们是不是也可以这么做？（限于omp，pi，claude code以及codex这种）。”为此 ranch 先做了 R3（corral 恢复一家一个适配器）和 R4（只读 `corral integration status`）。主控出了样稿 `docs/设计稿/P5-94-Integrations/`，用户：“样稿可以，写任务文件吧”；看过任务文件和主控另拿的四条主意：“四条都同意，开始吧”）：
+  - 和 herdr 的不同：corral 每次启动 agent 时自己把钩子挂上，不往 agent 的全局配置里装东西，所以状态那一列没有要装的，显示 `Built in`；要点的只有技能（往 `~/.claude/skills`、`~/.agents/skills` 写文件，要用户同意）。以后像 agy、amp 那样只能装全局钩子的，这一列才会有按钮（P5-88）。
+  - 名单和顺序照 `corral integration status`，paddock 不写死；显示名 Claude Code、Codex，其余照种类名。每行三列：名字和版本（没版本写 `Installed`，没找到写 `Not found`、整行变淡、后两列写 `—`）；Status（`launch` 是绿色的 `Built in`，不认识的值照原样）；Skills。
+  - Skills 把 `corral`、`corral-dispatch`、`paddock` 三个技能在这家会读的位置（status 里的 `skills[].target`）合成一个状态：都最新 `Up to date`；有缺的或不同的给一个按钮，全都没装是 `Install`，否则 `Update`，旁边一句黄字说哪个技能 `missing`／`changed`；只剩不归它们管的文件（`foreign`）是 `Not managed`。位置是几家共用的（`~/.agents` Codex、pi、omp 都读，Claude 的设置目录 Claude Code、omp 都读），所以一处变了，几家一起显示 Update，装一次几家一起变成最新。找不到 `ranch` 时 `corral-dispatch` 不算进去，旁边写 `ranch not found`（出错是 `ranch didn't answer`）。
+  - 点按钮先弹确认框：要写的文件（新的、替换的）、写在哪个技能目录、还有哪几家也读这个目录，提醒开着的 agent 重开才用上。确认后在后台照顺序跑 `corral install-skills --target <位置> --yes`、`ranch dispatch install-skills --target <位置> --yes`、paddock 自己装，只装这家读的位置里缺的或不同的；结果在底部消息条报一句（`Updated 1 file for pi`，失败红字带原因），然后重读。不做卸载。
+  - 什么时候读：打开 Agents 页、点 Refresh、装完之后，在后台读（corral 要等各家 `--version`，一两秒）；读的时候标题旁写 `Checking…`、上次的结果变淡留着；不放进每秒刷新。corral 找不到或回答不认识时这一节只有一句红点错误。调的是 paddock 在用的 corral 命令（Settings 的 `corral command`，或启动时的 `--corral`），ranch 用 PATH 上的。
+  - paddock 自己的技能和 corral 一样认 `CLAUDE_CONFIG_DIR`：设了就装到 `$CLAUDE_CONFIG_DIR/skills`，命令行 `paddock install-skills` 同样。

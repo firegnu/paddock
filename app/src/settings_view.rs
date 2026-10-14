@@ -24,6 +24,9 @@ use gpui::{
 };
 use std::{cell::RefCell, collections::HashMap, path::PathBuf, rc::Rc, time::Duration};
 
+#[path = "settings_integrations.rs"]
+mod integrations_page;
+
 /// The key context of the Settings window: ⌘W closes.
 pub const CONTEXT: &str = "PaddockSettings";
 
@@ -75,6 +78,8 @@ pub struct SettingsView {
     dismissed: Option<String>,
     /// The opacity slider being dragged, and the percentage under the mouse.
     sliding: Option<(String, u8)>,
+    /// Agents › Integrations: what corral, ranch and paddock last said about each agent.
+    integrations: integrations_page::Integrations,
     /// Where each slider's track was last drawn, for the mouse's place along it.
     tracks: Rc<RefCell<HashMap<String, Bounds<Pixels>>>>,
     focus: FocusHandle,
@@ -350,6 +355,7 @@ impl SettingsView {
             picker: None,
             dismissed: None,
             sliding: None,
+            integrations: Default::default(),
             tracks: Rc::default(),
             focus: cx.focus_handle(),
             _subscriptions: Vec::new(),
@@ -1099,6 +1105,9 @@ impl SettingsView {
         self.adding = None;
         if page == Page::Diagnostics {
             self.refresh_diagnostics(cx);
+        }
+        if page == Page::Agents {
+            self.refresh_integrations(cx);
         }
         cx.notify();
     }
@@ -2313,7 +2322,11 @@ impl SettingsView {
     ) -> Vec<AnyElement> {
         match self.page {
             Page::General => self.grouped(&GENERAL, window, ui, cx),
-            Page::Agents => self.grouped(&AGENTS, window, ui, cx),
+            Page::Agents => {
+                let mut items = self.grouped(&AGENTS, window, ui, cx);
+                items.push(self.integrations_section(width, ui, cx));
+                items
+            }
             Page::Appearance => {
                 let columns = columns(width, ui.scale(130.0), 12.0);
                 vec![
@@ -2603,6 +2616,7 @@ impl Render for SettingsView {
             .child(self.nav(nav, &ui, cx))
             .child(div().w(px(1.0)).h_full().bg(self.faint(0.06)))
             .child(content)
+            .children(self.integrations_confirm(&ui, cx))
     }
 }
 
