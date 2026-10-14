@@ -208,3 +208,11 @@
 
 **留给用户看的**
 - 托盘和卡片的间距、悬停才出的箭头和按钮、三个菜单的位置、新建浮层里点开和勾选、中文输入法下起名字（选字时的 Return 归不归输入法）、就地改名、系统选目录框回来以后浮层还在不在、窄条、界面字号调大和侧栏拖窄时的样子。
+
+## 用户看过
+
+10-14 用户用过装好的版本（截图证实 `New Workspace…` 浮层、仓库小标题悬停的箭头和按钮能用，建了两个 workspace），一开始找不到入口。主控列的几条，用户 10-14 定了：
+- 侧栏头上加常驻的 workspace 入口：“我觉得要加”，另立任务。
+- agent 全停、但有 workspace 时不画 `No agents yet` 和 `New Agent` 按钮：不改（“接受你的建议”）。
+- agent 写的文案（`Move or remove`、`Click again to remove`、`Name the workspace to create it.`、`Another workspace has this name.`、`<目录> isn't in a Git repository`、菜单里 `4 repos`）：照用（“接受你的建议”）。
+- 截图里按钮提示只露出 `Move`，是不是被侧栏边缘截断：“这个move我也找不到在哪了。先不做了，碰到再说”。
