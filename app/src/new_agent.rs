@@ -52,11 +52,12 @@ pub enum Tool {
     Claude,
     Pi,
     Omp,
+    Amp,
 }
 
 impl Tool {
     /// In the order the form offers them.
-    pub const ALL: [Tool; 4] = [Tool::Claude, Tool::Codex, Tool::Pi, Tool::Omp];
+    pub const ALL: [Tool; 5] = [Tool::Claude, Tool::Codex, Tool::Pi, Tool::Omp, Tool::Amp];
 
     /// The kind as corral and the kind icons name it.
     pub fn kind(self) -> &'static str {
@@ -65,6 +66,7 @@ impl Tool {
             Tool::Codex => "codex",
             Tool::Pi => "pi",
             Tool::Omp => "omp",
+            Tool::Amp => "amp",
         }
     }
 
@@ -74,6 +76,7 @@ impl Tool {
             Tool::Codex => "Codex",
             Tool::Pi => "pi",
             Tool::Omp => "omp",
+            Tool::Amp => "amp",
         }
     }
 
@@ -84,6 +87,7 @@ impl Tool {
             Tool::Codex => CODEX_COMMAND,
             Tool::Pi => "pi",
             Tool::Omp => "omp",
+            Tool::Amp => "amp",
         }
     }
 
@@ -92,7 +96,7 @@ impl Tool {
         match self {
             Tool::Claude => CLAUDE_MODELS,
             Tool::Codex => CODEX_MODELS,
-            Tool::Pi | Tool::Omp => &[],
+            Tool::Pi | Tool::Omp | Tool::Amp => &[],
         }
     }
 
@@ -101,8 +105,14 @@ impl Tool {
         match self {
             Tool::Claude => EFFORTS,
             Tool::Codex => &EFFORTS[..4],
-            Tool::Pi | Tool::Omp => &[],
+            Tool::Pi | Tool::Omp | Tool::Amp => &[],
         }
+    }
+
+    /// Whether `corral start --prompt` takes its first message: not amp, whose plugin corral
+    /// installs in its own configuration (ranch R6).
+    pub fn takes_prompt(self) -> bool {
+        self != Tool::Amp
     }
 
     /// Whether a model and effort are chosen for it.
@@ -682,7 +692,7 @@ impl Form {
                     asks.extend(["-c".into(), format!("model_reasoning_effort=\"{effort}\"")]);
                 }
             }
-            Tool::Pi | Tool::Omp => {}
+            Tool::Pi | Tool::Omp | Tool::Amp => {}
         }
         words.splice(at..at, asks);
         self.command = shell_words::join(&words);
@@ -761,12 +771,18 @@ impl Form {
                 args.extend(["--label".into(), format!("{key}={value}")]);
             }
         }
-        if !self.prompt.is_empty() {
+        if !self.prompt.is_empty() && self.tool.takes_prompt() {
             args.extend(["--prompt".into(), self.prompt.clone()]);
         }
         args.push("--".into());
         args.extend(words);
         Ok(args)
+    }
+
+    /// The first message for a kind that cannot take it at start (amp): sent by [`send_first`]
+    /// once the agent is idle.
+    pub fn first_message(&self) -> Option<String> {
+        (!self.tool.takes_prompt() && !self.prompt.is_empty()).then(|| self.prompt.clone())
     }
 
     /// The call as it will run, quoted for reading.
@@ -804,6 +820,39 @@ pub fn start(corral: &str, args: &[String]) -> Result<Started> {
         name: name.to_owned(),
         instance: value["instance"].as_str().map(str::to_owned),
     })
+}
+
+/// How long the first message waits for the agent to be ready.
+const FIRST_WAIT: &str = "60";
+
+/// Sends `text` to `name` once it is idle, as corral says to for a kind that takes no `--prompt`:
+/// `corral wait`, then `corral send`. Blocks for up to a minute, so call it off the UI thread.
+pub fn send_first(corral: &str, name: &str, text: &str) -> Result<()> {
+    let cancel = AtomicBool::new(false);
+    let output = crate::command::run(
+        corral,
+        &["wait", name, "--timeout", FIRST_WAIT],
+        None,
+        Duration::from_secs(75),
+        &cancel,
+    )?;
+    let value: serde_json::Value =
+        serde_json::from_slice(&output.stdout).context("corral did not say whether it is ready")?;
+    let state = value["state"].as_str().unwrap_or("unknown");
+    match (value["result"].as_str(), state) {
+        (Some("idle"), _) => {}
+        (_, "starting") => {
+            bail!("amp didn't get ready; is its plugin installed? See Settings › Agents")
+        }
+        (Some("blocked"), _) => bail!("it is waiting for you"),
+        _ => bail!("it is {state}"),
+    }
+    let client = Client {
+        program: corral.to_owned(),
+    };
+    client
+        .send(name, text, &cancel)
+        .map_err(|refused| anyhow::anyhow!(refused.message))
 }
 
 /// Runs `corral stop NAME`; blocks, so call it off the UI thread.
@@ -1365,6 +1414,124 @@ mod tests {
         assert!(load_recent(&path).is_empty());
         save_recent(&path, &recent).unwrap();
         assert_eq!(load_recent(&path), recent);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn amp_starts_bare_and_keeps_its_first_message_for_later() {
+        let mut form = Form::new("/tmp/demo".into(), Place::Tab);
+        form.pick_tool(Tool::Amp);
+        form.regular = true;
+        assert_eq!(
+            (form.command.as_str(), form.name.as_str()),
+            ("amp", "amp-1")
+        );
+        assert_eq!(
+            (form.model.as_deref(), form.effort.as_deref()),
+            (None, None)
+        );
+        form.prompt = "读 HANDOFF.md".into();
+        assert_eq!(
+            form.args().unwrap(),
+            [
+                "start",
+                "demo/amp-1",
+                "--cwd",
+                "/tmp/demo",
+                "--label",
+                "role=regular",
+                "--",
+                "amp"
+            ]
+        );
+        assert_eq!(form.first_message().as_deref(), Some("读 HANDOFF.md"));
+        // A command naming amp by its path is amp too.
+        form.pick_tool(Tool::Claude);
+        assert_eq!(form.first_message(), None);
+        form.set_command("/opt/homebrew/bin/amp".into());
+        assert_eq!(form.tool, Tool::Amp);
+        assert!(!form.args().unwrap().contains(&"--prompt".to_string()));
+        form.prompt.clear();
+        assert_eq!(form.first_message(), None);
+    }
+
+    /// A corral whose `wait` answers `wait` (exiting `code`) and whose `send` answers `send`,
+    /// logging each call.
+    fn waiting_corral(wait: &str, code: u8, send: &str) -> (PathBuf, String, PathBuf) {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!(
+            "paddock-first-{}",
+            crate::control::random_id().unwrap()
+        ));
+        std::fs::create_dir(&dir).unwrap();
+        let log = dir.join("log");
+        let corral = dir.join("corral");
+        std::fs::write(
+            &corral,
+            format!(
+                "#!/bin/sh\necho \"$*\" >> '{}'\ncase \"$1\" in\nwait) echo '{wait}'; exit {code};;\nsend) echo '{send}';;\nesac\n",
+                log.display()
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&corral, std::fs::Permissions::from_mode(0o755)).unwrap();
+        (dir, corral.display().to_string(), log)
+    }
+
+    #[test]
+    fn the_first_message_goes_once_the_agent_is_idle() {
+        let (dir, corral, log) = waiting_corral(
+            r#"{"ok":true,"state":"idle","result":"idle"}"#,
+            0,
+            r#"{"ok":true,"confirmed":true}"#,
+        );
+        send_first(&corral, "demo/amp-1", "读 HANDOFF.md").unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&log)
+                .unwrap()
+                .lines()
+                .collect::<Vec<_>>(),
+            [
+                "wait demo/amp-1 --timeout 60",
+                "send demo/amp-1 读 HANDOFF.md"
+            ]
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_first_message_that_cannot_go_says_why_and_is_not_sent() {
+        let cases = [
+            (
+                r#"{"ok":false,"error":"timeout","message":"demo/amp-1 still starting","state":"starting"}"#,
+                4,
+                "amp didn't get ready; is its plugin installed? See Settings › Agents",
+            ),
+            (
+                r#"{"ok":true,"state":"blocked","result":"blocked"}"#,
+                0,
+                "it is waiting for you",
+            ),
+            (
+                r#"{"ok":true,"state":"stopped","result":"unknown"}"#,
+                0,
+                "it is stopped",
+            ),
+        ];
+        for (wait, code, why) in cases {
+            let (dir, corral, log) = waiting_corral(wait, code, "{}");
+            let error = send_first(&corral, "demo/amp-1", "hi").unwrap_err();
+            assert_eq!(format!("{error:#}"), why);
+            assert_eq!(std::fs::read_to_string(&log).unwrap().lines().count(), 1);
+            std::fs::remove_dir_all(&dir).unwrap();
+        }
+        let (dir, corral, _) = waiting_corral(
+            r#"{"ok":true,"state":"idle","result":"idle"}"#,
+            0,
+            r#"{"ok":false,"error":"human_active","message":"someone is typing"}"#,
+        );
+        let error = send_first(&corral, "demo/amp-1", "hi").unwrap_err();
+        assert_eq!(format!("{error:#}"), "someone is typing");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

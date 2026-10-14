@@ -57,6 +57,7 @@ pub fn brand(kind: &str) -> Brand {
         "codex" => |t| t.codex,
         "pi" => |t| t.pi,
         "omp" => |t| t.omp,
+        "amp" => |t| t.amp,
         _ => |t| t.agents_dim,
     };
     Brand {

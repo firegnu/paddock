@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
+  <!-- Original drawing for paddock, not Amp's mark: three rising level bars, as on an amplifier. -->
+  <g fill="none" stroke="#000" stroke-width="2.2" stroke-linecap="round">
+    <path d="M3.5 13V9.5"/>
+    <path d="M8 13V6"/>
+    <path d="M12.5 13V2.75"/>
+  </g>
+</svg>

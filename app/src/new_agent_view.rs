@@ -27,7 +27,7 @@ use gpui::{
     PathPromptOptions, Pixels, Render, SharedString, Stateful, Subscription, TextRun, Window,
     canvas, div, point, prelude::*, px, relative,
 };
-use std::{cell::RefCell, collections::HashMap, path::PathBuf, rc::Rc};
+use std::{cell::RefCell, collections::HashMap, path::PathBuf, rc::Rc, sync::atomic::AtomicBool};
 
 /// The key context of the New Agent panel: ⌘↩ starts, Esc steps back, ⌘W closes.
 pub const CONTEXT: &str = "PaddockNewAgent";
@@ -82,6 +82,8 @@ pub enum NewAgentEvent {
         place: Place,
         /// The workspace it was opened from, for the agent to join (P5-93).
         workspace: Option<String>,
+        /// The first message, to send once it is idle, for a kind that takes none at start (amp).
+        first: Option<String>,
     },
     /// Esc, ⌘W or a click on the dimmed window: the panel goes, what was typed stays.
     Close,
@@ -122,6 +124,10 @@ pub struct NewAgentView {
     naming_preset: bool,
     show_command: bool,
     busy: bool,
+    /// How amp's plugin stood when last asked, while amp is chosen (P5-98), and whether it was
+    /// asked since the panel opened.
+    plugin: Option<String>,
+    plugin_asked: bool,
     /// The workspace it was opened from (P5-93).
     workspace: Option<String>,
     error: Option<String>,
@@ -253,6 +259,7 @@ impl NewAgentView {
                 this.form.set_command(text);
                 this.sync_name(cx);
                 this.error = None;
+                this.check_plugin(cx);
                 cx.notify();
             }),
             // Typing a prefix moves an untyped name along; show it.
@@ -295,6 +302,8 @@ impl NewAgentView {
             naming_preset: false,
             show_command: false,
             busy: false,
+            plugin: None,
+            plugin_asked: false,
             workspace: seed.workspace,
             error: None,
             focus: cx.focus_handle(),
@@ -319,6 +328,10 @@ impl NewAgentView {
             self.form.place = place;
         }
         self.sync_name(cx);
+        // The plugin may have been installed in Settings meanwhile.
+        self.plugin = None;
+        self.plugin_asked = false;
+        self.check_plugin(cx);
         cx.notify();
     }
 
@@ -386,7 +399,29 @@ impl NewAgentView {
     fn changed(&mut self, cx: &mut Context<Self>) {
         self.error = None;
         self.sync_command(cx);
+        self.check_plugin(cx);
         cx.notify();
+    }
+
+    /// With amp chosen, asks once how its plugin stands, to warn before starting an amp that would
+    /// stay Starting (P5-98).
+    fn check_plugin(&mut self, cx: &mut Context<Self>) {
+        if self.form.tool != Tool::Amp || self.plugin_asked {
+            return;
+        }
+        self.plugin_asked = true;
+        let corral = self.corral.clone();
+        let task = cx.background_spawn(async move {
+            crate::integrations::plugin_status(&corral, Tool::Amp.kind(), &AtomicBool::new(false))
+        });
+        cx.spawn(async move |this, cx| {
+            let plugin = task.await;
+            let _ = this.update(cx, |this, cx| {
+                this.plugin = plugin;
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     fn set_project(&mut self, project: String, cx: &mut Context<Self>) {
@@ -514,6 +549,7 @@ impl NewAgentView {
         // As it is now: the panel may be opened again, from elsewhere, while corral starts it.
         let workspace = self.workspace.clone();
         let corral = self.corral.clone();
+        let first = self.form.first_message();
         let task = cx.background_spawn(async move { new_agent::start(&corral, &args) });
         cx.spawn_in(window, async move |this, cx| {
             let result = task.await;
@@ -529,6 +565,7 @@ impl NewAgentView {
                             cwd,
                             place,
                             workspace,
+                            first,
                         });
                     }
                     Err(error) => this.error = Some(format!("{error:#}")),
@@ -1796,6 +1833,68 @@ impl Render for NewAgentView {
             )
             .on_click(move |_, window, cx| window.focus(&prompt_focus, cx));
 
+        // amp takes no first message at start: it is sent once amp is idle (P5-98).
+        let later = (!self.form.tool.takes_prompt()).then(|| {
+            div()
+                .flex_shrink_0()
+                .px(ui.px(26.0))
+                .pb(ui.px(10.0))
+                .text_size(ui.px(12.0))
+                .text_color(dim)
+                .child(format!(
+                    "{} starts first; paddock sends this once it is idle.",
+                    self.form.tool.label()
+                ))
+        });
+        let unplugged = self
+            .plugin
+            .as_deref()
+            .filter(|_| self.form.tool == Tool::Amp)
+            .and_then(|status| match status {
+                "same" => None,
+                "overwrite" => {
+                    Some("The corral plugin for amp has changed; update it in Settings.")
+                }
+                _ => Some("The corral plugin for amp isn't installed; amp will stay Starting."),
+            })
+            .map(|warning| {
+                let yellow = self.fg(|t| t.agents_yellow);
+                div()
+                    .flex_shrink_0()
+                    .mx(ui.px(18.0))
+                    .mb(ui.px(4.0))
+                    .px(ui.px(12.0))
+                    .py(ui.px(8.0))
+                    .flex()
+                    .items_center()
+                    .gap(ui.px(10.0))
+                    .rounded(ui.px(10.0))
+                    .bg(yellow.opacity(0.10))
+                    .text_size(ui.px(12.5))
+                    .text_color(yellow)
+                    .child(div().flex_1().min_w(px(0.0)).child(warning))
+                    .child(
+                        div()
+                            .id("open-integrations")
+                            .flex_shrink_0()
+                            .h(ui.px(26.0))
+                            .px(ui.px(11.0))
+                            .flex()
+                            .items_center()
+                            .rounded_full()
+                            .bg(yellow.opacity(0.18))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_size(ui.px(12.0))
+                            .cursor_pointer()
+                            .hover(move |style| style.bg(yellow.opacity(0.26)))
+                            .child("Open Settings")
+                            .on_click(|_, _, cx| {
+                                let page = crate::settings::Page::Agents;
+                                cx.defer(move |cx| crate::windows::open_settings_at(page, cx));
+                            }),
+                    )
+            });
+
         let status: Option<AnyElement> = if let Some(error) = self.error.clone() {
             Some(
                 div()
@@ -1837,6 +1936,8 @@ impl Render for NewAgentView {
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .child(header)
             .child(prompt)
+            .children(later)
+            .children(unplugged)
             .children(status.map(|status| {
                 div()
                     .flex_shrink_0()

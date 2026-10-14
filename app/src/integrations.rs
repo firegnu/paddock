@@ -2,7 +2,9 @@
 //! each is on this Mac, how corral connects it, and whether the corral, corral-dispatch and paddock
 //! skills are in the places it reads skills from. Read from `corral integration status`, `ranch
 //! dispatch install-skills --dry-run` and paddock's own skill; installing runs the same commands
-//! with `--target <place> --yes` once the person has confirmed.
+//! with `--target <place> --yes` once the person has confirmed. An agent corral cannot connect at
+//! start (amp, P5-98) needs a plugin in its own configuration, installed or removed with `corral
+//! integration install|uninstall`.
 use serde_json::Value;
 use std::{sync::atomic::AtomicBool, time::Duration};
 
@@ -16,11 +18,50 @@ pub struct Agent {
     /// The program found on PATH, if any.
     pub path: Option<String>,
     pub version: Option<String>,
-    /// How corral connects its hooks: `launch` for when it starts the agent.
+    /// How corral connects its hooks: `launch` for when it starts the agent, `global` for a file
+    /// installed once in the agent's own configuration.
     pub hooks: String,
+    /// That file, for a `global` agent.
+    pub install: Option<Install>,
     /// The places it reads skills from, by `install-skills --target` name.
     pub targets: Vec<String>,
 }
+
+/// The file corral installs in an agent's own configuration (amp's plugin).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Install {
+    pub path: String,
+    /// `create`, `same`, `overwrite`, `foreign`, or anything newer, shown as it is.
+    pub status: String,
+}
+
+/// The Status column of a row.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Status {
+    /// corral connects it each time it starts the agent.
+    BuiltIn,
+    /// The plugin: not there yet, there and current, there but different, or not corral's.
+    Install,
+    Installed,
+    Update,
+    NotManaged,
+    /// A word paddock doesn't know, as corral gives it.
+    Other(String),
+}
+
+/// What the plugin's button would do, for the confirmation.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PluginPlan {
+    pub kind: String,
+    pub name: String,
+    pub path: String,
+    /// How the file stood when the row was read: `create`, `overwrite` or, to remove it, `same`.
+    pub status: String,
+    pub remove: bool,
+}
+
+/// Why nothing was done when the plugin no longer stands as the confirmation showed it.
+pub const CHANGED: &str = "the file changed while you were deciding; nothing was written";
 
 /// One skill file at one place, as `install-skills --dry-run` reports it.
 #[derive(Clone, Debug, PartialEq)]
@@ -68,8 +109,9 @@ pub struct Row {
     /// The version under the name, `Installed` without one, `Not found` without the program.
     pub detail: String,
     pub found: bool,
-    /// `Built in`, or how corral connects it when paddock doesn't know the word.
-    pub status: Option<String>,
+    pub status: Option<Status>,
+    /// Beside the Status: why the plugin needs updating or is left alone.
+    pub status_note: Option<String>,
     pub skills: Skills,
     /// Beside the button: which skills are missing or changed, and a ranch that didn't answer.
     pub note: Option<String>,
@@ -140,6 +182,13 @@ pub fn parse_status(value: &Value) -> Result<(Vec<Agent>, Vec<File>), String> {
             path: text(&agent["path"]),
             version: text(&agent["version"]),
             hooks: text(&agent["hooks"]).unwrap_or_default(),
+            install: match (
+                text(&agent["install"]["path"]),
+                text(&agent["install"]["status"]),
+            ) {
+                (Some(path), Some(status)) => Some(Install { path, status }),
+                _ => None,
+            },
             targets,
         });
     }
@@ -279,13 +328,31 @@ pub fn rows(report: &Report) -> Vec<Row> {
             let found = agent.path.is_some();
             let detail = match (&agent.path, &agent.version) {
                 (None, _) => "Not found".into(),
-                (Some(_), Some(version)) => version.clone(),
+                // amp adds when it was released and how long ago, which goes stale on screen.
+                (Some(_), Some(version)) => match version.find(" (released ") {
+                    Some(at) => version[..at].to_owned(),
+                    None => version.clone(),
+                },
                 (Some(_), None) => "Installed".into(),
             };
-            let status = found.then(|| match agent.hooks.as_str() {
-                "launch" => "Built in".into(),
-                other => other.into(),
-            });
+            let (status, status_note) = match (found, agent.hooks.as_str(), &agent.install) {
+                (false, ..) => (None, None),
+                (true, "launch", _) => (Some(Status::BuiltIn), None),
+                (true, "global", Some(install)) => {
+                    let file = install.path.rsplit('/').next().unwrap_or_default();
+                    match install.status.as_str() {
+                        "create" => (Some(Status::Install), None),
+                        "same" => (Some(Status::Installed), None),
+                        "overwrite" => (Some(Status::Update), Some("plugin changed".into())),
+                        "foreign" => (
+                            Some(Status::NotManaged),
+                            Some(format!("{file} isn't corral's")),
+                        ),
+                        other => (Some(Status::Other(other.into())), None),
+                    }
+                }
+                (true, other, _) => (Some(Status::Other(other.into())), None),
+            };
             let files = standing(report, &agent.targets);
             let skills = if !found || files.is_empty() {
                 Skills::None
@@ -322,6 +389,7 @@ pub fn rows(report: &Report) -> Vec<Row> {
                 detail,
                 found,
                 status,
+                status_note,
                 skills,
                 note: (!notes.is_empty()).then(|| notes.join(", ")),
             }
@@ -384,6 +452,75 @@ pub fn plan(report: &Report, kind: &str) -> Option<Plan> {
         folders,
         shared,
     })
+}
+
+/// Whether some agent needs a file installed in its own configuration, so the section says what
+/// that means.
+pub fn global(report: &Report) -> bool {
+    report.agents.iter().any(|agent| agent.hooks == "global")
+}
+
+/// What `kind`'s plugin button would do: install or update it, or with `remove`, remove it; none
+/// when the row offers no such button.
+pub fn plugin_plan(report: &Report, kind: &str, remove: bool) -> Option<PluginPlan> {
+    let agent = report.agents.iter().find(|a| a.kind == kind)?;
+    agent.path.as_ref()?;
+    let install = agent.install.as_ref().filter(|_| agent.hooks == "global")?;
+    let offered = if remove {
+        install.status == "same"
+    } else {
+        needed(&install.status)
+    };
+    offered.then(|| PluginPlan {
+        kind: kind.into(),
+        name: name(kind),
+        path: install.path.clone(),
+        status: install.status.clone(),
+        remove,
+    })
+}
+
+/// How `kind`'s plugin stands (`create`, `same`…), for New Agent to warn before starting it; none
+/// when corral doesn't answer or the kind has no plugin. Slow, like [`read`].
+pub fn plugin_status(corral: &str, kind: &str, cancel: &AtomicBool) -> Option<String> {
+    let (agents, _) = parse_status(&ask(corral, &["integration", "status"], cancel).ok()?).ok()?;
+    let agent = agents.into_iter().find(|a| a.kind == kind)?;
+    agent.install.map(|install| install.status)
+}
+
+/// Installs, updates or removes the plugin as `plan` says, first checking with a dry run that it
+/// still stands as the confirmation showed it.
+pub fn plugin(corral: &str, plan: &PluginPlan, cancel: &AtomicBool) -> Result<(), String> {
+    let (action, expected) = if plan.remove {
+        ("uninstall", "remove")
+    } else {
+        ("install", plan.status.as_str())
+    };
+    let call = |last: &str| {
+        ask(
+            corral,
+            &["integration", action, "--agent", &plan.kind, last],
+            cancel,
+        )
+    };
+    if call("--dry-run")?["status"] != expected {
+        return Err(CHANGED.into());
+    }
+    let done = call("--yes")?;
+    if done["written"] != true {
+        let warnings: Vec<&str> = done["warnings"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .collect();
+        return Err(if warnings.is_empty() {
+            "nothing was written".into()
+        } else {
+            format!("nothing was written: {}", warnings.join("; "))
+        });
+    }
+    Ok(())
 }
 
 /// The skills folder a skill's file sits in: `<folder>/<skill>/…`.
@@ -478,7 +615,8 @@ mod tests {
         );
         let claude = row(&rows, "claude");
         assert_eq!(claude.detail, "2.1.299 (Claude Code)");
-        assert_eq!(claude.status.as_deref(), Some("Built in"));
+        assert_eq!(claude.status, Some(Status::BuiltIn));
+        assert_eq!(claude.status_note, None);
         assert_eq!(claude.skills, Skills::UpToDate);
         assert_eq!(claude.note, None);
         assert_eq!(row(&rows, "pi").detail, "Installed");
@@ -493,8 +631,17 @@ mod tests {
     #[test]
     fn hooks_paddock_does_not_know_are_shown_as_they_are() {
         let mut report = report(("same", "same"), "same");
+        report.agents[0].hooks = "spliced".into();
+        assert_eq!(
+            rows(&report)[0].status,
+            Some(Status::Other("spliced".into()))
+        );
+        // Global, but without the file it would install: nothing to offer.
         report.agents[0].hooks = "global".into();
-        assert_eq!(rows(&report)[0].status.as_deref(), Some("global"));
+        assert_eq!(
+            rows(&report)[0].status,
+            Some(Status::Other("global".into()))
+        );
     }
 
     #[test]
@@ -720,5 +867,194 @@ mod tests {
         );
         assert_eq!(plan.folders, ["/h/.claude/skills", "/h/.agents/skills"]);
         assert_eq!(plan.shared, ["Claude Code", "Codex", "pi"]);
+    }
+
+    const PLUGIN: &str = "/h/.config/amp/plugins/corral.ts";
+
+    /// The status with amp, its plugin standing at `install`.
+    fn with_amp(install: &str) -> Report {
+        let mut value = status();
+        value["agents"].as_array_mut().unwrap().push(json!(
+            {"kind":"amp","path":"/bin/amp",
+             "version":"0.0.1791964847-g13f24a (released 2026-10-14T08:00:47.000Z, 3h ago)",
+             "hooks":"global","install":{"path":PLUGIN,"status":install,"version":1},
+             "skills":[{"target":"claude","path":"/h/.claude/skills/corral/SKILL.md","status":"same"},
+                       {"target":"codex","path":"/h/.agents/skills/corral/SKILL.md","status":"same"}]}
+        ));
+        let (agents, mut files) = parse_status(&value).unwrap();
+        files.extend(parse_plan("paddock", &plan_json("same", "same")).unwrap());
+        Report {
+            agents,
+            files,
+            ranch: Ranch::Answered,
+        }
+    }
+
+    #[test]
+    fn an_agent_with_a_plugin_brings_where_it_goes_and_how_it_stands() {
+        let without = report(("same", "same"), "same");
+        let report = with_amp("create");
+        let amp = &report.agents[4];
+        assert_eq!(amp.hooks, "global");
+        assert_eq!(
+            amp.install,
+            Some(Install {
+                path: PLUGIN.into(),
+                status: "create".into()
+            })
+        );
+        assert_eq!(report.agents[0].install, None);
+        assert!(global(&report));
+        assert!(!global(&without));
+    }
+
+    #[test]
+    fn the_plugin_shows_what_can_be_done_with_it() {
+        let cases = [
+            ("create", Status::Install, None),
+            ("same", Status::Installed, None),
+            ("overwrite", Status::Update, Some("plugin changed")),
+            (
+                "foreign",
+                Status::NotManaged,
+                Some("corral.ts isn't corral's"),
+            ),
+            ("newer", Status::Other("newer".into()), None),
+        ];
+        for (install, status, note) in cases {
+            let rows = rows(&with_amp(install));
+            let amp = row(&rows, "amp");
+            assert_eq!(amp.status.as_ref(), Some(&status), "{install}");
+            assert_eq!(amp.status_note.as_deref(), note, "{install}");
+            assert_eq!(amp.skills, Skills::UpToDate);
+        }
+    }
+
+    #[test]
+    fn a_release_date_that_goes_stale_is_left_off_the_version() {
+        let rows = rows(&with_amp("same"));
+        assert_eq!(row(&rows, "amp").detail, "0.0.1791964847-g13f24a");
+        assert_eq!(row(&rows, "claude").detail, "2.1.299 (Claude Code)");
+    }
+
+    #[test]
+    fn without_the_program_the_plugin_offers_nothing() {
+        let mut report = with_amp("create");
+        report.agents[4].path = None;
+        let amp = rows(&report).remove(4);
+        assert_eq!((amp.status, amp.status_note), (None, None));
+        assert_eq!(plugin_plan(&report, "amp", false), None);
+    }
+
+    #[test]
+    fn the_plugin_plan_installs_updates_or_removes_only_what_the_row_offers() {
+        let plan = plugin_plan(&with_amp("create"), "amp", false).unwrap();
+        assert_eq!(
+            plan,
+            PluginPlan {
+                kind: "amp".into(),
+                name: "amp".into(),
+                path: PLUGIN.into(),
+                status: "create".into(),
+                remove: false,
+            }
+        );
+        assert_eq!(
+            plugin_plan(&with_amp("overwrite"), "amp", false).map(|p| p.status),
+            Some("overwrite".into())
+        );
+        let remove = plugin_plan(&with_amp("same"), "amp", true).unwrap();
+        assert!(remove.remove);
+        assert_eq!(plugin_plan(&with_amp("same"), "amp", false), None);
+        assert_eq!(plugin_plan(&with_amp("create"), "amp", true), None);
+        assert_eq!(plugin_plan(&with_amp("foreign"), "amp", false), None);
+        assert_eq!(plugin_plan(&with_amp("foreign"), "amp", true), None);
+        assert_eq!(plugin_plan(&with_amp("create"), "claude", false), None);
+    }
+
+    /// A corral that answers `integration … --dry-run` with `seen`, logs every call, and reports
+    /// `written` for `--yes`.
+    fn plugin_corral(
+        dir: &std::path::Path,
+        seen: &str,
+        written: bool,
+    ) -> (String, std::path::PathBuf) {
+        let log = dir.join("log");
+        let corral = script(
+            dir,
+            "corral",
+            &format!(
+                "#!/bin/sh\necho \"$*\" >> '{log}'\ncase \"$*\" in\n*--dry-run*) echo '{{\"ok\":true,\"status\":\"{seen}\",\"written\":false,\"warnings\":[]}}';;\n*) echo '{{\"ok\":true,\"status\":\"{seen}\",\"written\":{written},\"warnings\":[\"left in place\"]}}';;\nesac\n",
+                log = log.display()
+            ),
+        );
+        (corral, log)
+    }
+
+    #[test]
+    fn installing_the_plugin_checks_it_still_stands_as_shown_then_writes() {
+        let dir = temp();
+        let (corral, log) = plugin_corral(&dir, "create", true);
+        let plan = plugin_plan(&with_amp("create"), "amp", false).unwrap();
+        plugin(&corral, &plan, &AtomicBool::new(false)).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&log)
+                .unwrap()
+                .lines()
+                .collect::<Vec<_>>(),
+            [
+                "integration install --agent amp --dry-run",
+                "integration install --agent amp --yes"
+            ]
+        );
+        let dir = temp();
+        let (corral, log) = plugin_corral(&dir, "remove", true);
+        let plan = plugin_plan(&with_amp("same"), "amp", true).unwrap();
+        plugin(&corral, &plan, &AtomicBool::new(false)).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&log).unwrap().lines().last(),
+            Some("integration uninstall --agent amp --yes")
+        );
+    }
+
+    #[test]
+    fn new_agent_can_ask_how_one_plugin_stands() {
+        let dir = temp();
+        let mut value = status();
+        value["agents"].as_array_mut().unwrap().push(
+            json!({"kind":"amp","path":"/bin/amp","hooks":"global","install":{"path":PLUGIN,"status":"create"}}),
+        );
+        let corral = script(&dir, "corral", &echo(&value));
+        let cancel = AtomicBool::new(false);
+        assert_eq!(
+            plugin_status(&corral, "amp", &cancel).as_deref(),
+            Some("create")
+        );
+        assert_eq!(plugin_status(&corral, "claude", &cancel), None);
+        let missing = dir.join("nothing").display().to_string();
+        assert_eq!(plugin_status(&missing, "amp", &cancel), None);
+    }
+
+    #[test]
+    fn a_plugin_that_changed_since_it_was_shown_is_left_alone() {
+        let dir = temp();
+        let (corral, log) = plugin_corral(&dir, "foreign", true);
+        let plan = plugin_plan(&with_amp("overwrite"), "amp", false).unwrap();
+        assert_eq!(
+            plugin(&corral, &plan, &AtomicBool::new(false)).unwrap_err(),
+            CHANGED
+        );
+        assert_eq!(std::fs::read_to_string(&log).unwrap().lines().count(), 1);
+    }
+
+    #[test]
+    fn nothing_written_is_an_error_with_corrals_reason() {
+        let dir = temp();
+        let (corral, _) = plugin_corral(&dir, "create", false);
+        let plan = plugin_plan(&with_amp("create"), "amp", false).unwrap();
+        assert_eq!(
+            plugin(&corral, &plan, &AtomicBool::new(false)).unwrap_err(),
+            "nothing was written: left in place"
+        );
     }
 }
