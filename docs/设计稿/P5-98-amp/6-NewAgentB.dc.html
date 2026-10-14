@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>New Agent, amp with a first message sent once idle</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+button{font:inherit;color:inherit;cursor:pointer}
+textarea::placeholder{color:#7d7766}
+</style>
+</helmet>
+<div style="width: 760px; height: 440px; box-sizing: border-box; padding: 40px; background: #0f0e0b; font-family: -apple-system, 'SF Pro Text', 'Helvetica Neue', sans-serif; color: #ece6d6">
+  <div style="width: 680px; border-radius: 16px; background: #23211c; border: 1px solid rgba(255,255,255,0.08); box-shadow: 0 30px 80px rgba(0,0,0,0.55); display: flex; flex-direction: column">
+    <div style="display: flex; align-items: center; gap: 4px; padding: 14px 14px 0 14px">
+      <button style="display: flex; align-items: center; gap: 7px; height: 30px; padding: 0 12px; border: 0; border-radius: 15px; background: transparent; font-size: 13px; color: #b3ac98">Controller</button>
+      <button style="display: flex; align-items: center; gap: 7px; height: 30px; padding: 0 12px; border: 0; border-radius: 15px; background: transparent; font-size: 13px; color: #b3ac98">Developer</button>
+      <button style="margin-left: auto; display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px; border: 0; border-radius: 8px; background: transparent; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; color: #8a8473"><span>paddock/<span style="color: #d9d2c0">amp-1</span></span></button>
+    </div>
+
+    <label for="task-b" style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Task</label>
+    <textarea id="task-b" placeholder="What should it work on?" style="margin: 6px 0 0 0; height: 96px; resize: none; border: 0; outline: none; background: transparent; padding: 14px 26px 4px; font: inherit; font-size: 17px; line-height: 1.5; color: #ece6d6">Read HANDOFF.md and tell me where we are.</textarea>
+    <div style="padding: 0 26px 10px; font-size: 12px; color: #8a8473">amp starts first; paddock sends this once it is idle.</div>
+
+    <div style="display: flex; align-items: center; gap: 10px; margin: 0 18px; padding: 8px 12px; border-radius: 10px; background: rgba(219,189,110,0.10); font-size: 12.5px; color: #dbbd6e">
+      <span style="flex: 1">The corral plugin for amp isn't installed; amp will stay Starting.</span>
+      <button style="height: 26px; padding: 0 11px; border: 0; border-radius: 13px; background: rgba(219,189,110,0.18); color: #e8cf8a; font-size: 12px; font-weight: 600">Open Settings</button>
+    </div>
+
+    <div style="display: flex; align-items: center; gap: 6px; padding: 12px 12px 12px 18px">
+      <button style="display: flex; align-items: center; gap: 7px; height: 32px; padding: 0 11px; border: 1px solid rgba(255,255,255,0.08); border-radius: 16px; background: #2a2823; font-size: 13px; color: #d9d2c0">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9a937f" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path></svg>
+        paddock
+      </button>
+      <button style="display: flex; align-items: center; gap: 7px; height: 32px; padding: 0 10px 0 9px; border: 1px solid rgba(255,255,255,0.08); border-radius: 16px; background: #2a2823; font-size: 13px; color: #d9d2c0">
+        <img src="/_blob/b44770c0174901effcb08f7a2c2c087d" alt="" style="width: 16px; height: 16px; border-radius: 4px">
+        <span>amp</span>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#8a8473" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg>
+      </button>
+      <button style="display: flex; align-items: center; gap: 7px; height: 32px; padding: 0 11px; border: 1px solid rgba(255,255,255,0.08); border-radius: 16px; background: #2a2823; font-size: 13px; color: #d9d2c0">Split right</button>
+      <button aria-label="Start (⌘↩)" style="margin-left: auto; width: 36px; height: 36px; border: 0; border-radius: 18px; background: #cfc27a; color: #1d1b14; display: inline-flex; align-items: center; justify-content: center">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"></path></svg>
+      </button>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":760,"height":440}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

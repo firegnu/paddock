@@ -6,7 +6,7 @@
 执行：主控
 
 ## 在哪里干活
-- worktree：`/Users/firegnu/Developer/personal_projs/paddock-worktrees/p5-98-amp`，分支 `p5-98-amp`（开工时从 main 建）。
+- worktree：`/Users/firegnu/Developer/personal_projs/paddock-worktrees/p5-98-amp`，分支 `p5-98-amp`（已从 main 建好）。
 - 编译：`CARGO_TARGET_DIR=$HOME/Developer/personal_projs/paddock-worktrees/.target/p5-98-amp`。
 - 动 `app/src/integrations.rs`、`app/src/settings_integrations.rs`（Status 列、确认框、说明）、`app/src/new_agent.rs` 和 `new_agent_view.rs`（多一种 amp）、`app/src/agent_shell.rs`（替身多一个 `amp`）、`app/src/kind_icon.rs` 和 `app/assets/kinds/`（图标）、`app/src/preset.rs`、`card.rs`、`settings.rs`（品牌色）、测试、`docs/DESIGN.md` 和本文件。
 
@@ -15,6 +15,9 @@
 - `corral integration install|uninstall --agent amp [--dry-run] [--yes]`：只写／删那一个文件；前端调必须带 `--yes`（先让用户确认），否则报 `confirmation_required`；`foreign` 不动；确认后文件变了报 `changed`、什么都不写。做完再读一次 status。
 - `corral start … -- amp` 不能带 `--prompt`（报 usage）；要第一句就 start 后 `corral wait` 到 idle 再 send。一直 `starting` 多半是插件没装、或 amp 是装插件之前开的。
 - amp 等批准报 `blocked`，state 取值没有新增；旧版 corral 开的 amp 要重开。现有四家不变。
+
+## 样稿
+`docs/设计稿/P5-98-amp/`（原稿在 claude.ai 私有画布「amp集成样稿」）：1 Agents 页 amp 一行、2 四种状态、3 Install 确认框、4 Uninstall 确认框、6 New Agent 选 amp（B，采用；5 是没采用的 A）。
 
 ## 要做的
 
@@ -40,7 +43,7 @@
 
 ### 二、New Agent 多一种 amp
 5. 种类排在 omp 后面：标签 `amp`，命令 `amp`，没有模型和 effort（和 pi、omp 一样）。预设能存 amp。
-6. **Prompt**：选 amp（或命令的程序是 `amp`）时 Prompt 框变灰不能填，下面一句 `amp can't take a first message at start. Send it once amp is idle.`；已经填了的内容留着，换回别的种类还在，但 amp 时不传 `--prompt`。
+6. **Prompt（用户选 B）**：选 amp（命令的程序是 `amp`）时 Prompt 框照常能填，下面一句 `amp starts first; paddock sends this once it is idle.`。start 时不传 `--prompt`；start 成功后照常打开 agent 窗格、关掉面板，后台 `corral wait <名字> --timeout 60` 等到 `idle` 再 `corral send <名字> <原文>`。送不出去（等到的是 blocked、一直 starting、send 被拒）时侧栏底部红字说明原因，原文放进剪贴板，不丢；送成功不另报。Prompt 为空时只 start。
 7. **插件没装的提醒**：选 amp 时在后台读一次 `corral integration status`（只在选到 amp 时读，一次一两秒）；`install.status` 不是 `same` 时种类下面一句黄字 `The corral plugin for amp isn't installed; amp will stay Starting.` 加一个 `Open Settings` 按钮（打开 Settings › Agents）。不拦着 Start。
 
 ### 三、其他写死名单的地方
@@ -52,7 +55,7 @@
 ## 怎么算做完
 - 用户没另说验收。主控建议下面几条，请用户定：
   1. Integrations 里 amp 一行：插件四种状态各显示对，Install／Update／Uninstall 点了先确认、确认后装／卸成功、重读后状态对；确认框和卡片下的说明讲清楚“装在哪、只在 corral 启动的 amp 里起作用、桌面版也可能加载但什么都不做、每个多一个闲置进程、装完重开已开着的 amp”。
-  2. New Agent 选 amp：Prompt 不能填、有说明；插件没装时有提醒；能开起来，侧栏有 amp 的图标和颜色，状态从 starting 变 idle。
+  2. New Agent 选 amp：Prompt 能填、有说明，amp 空闲后送进去；插件没装时有提醒；能开起来，侧栏有 amp 的图标和颜色，状态从 starting 变 idle。
   3. Agent shell 里敲 `amp` 经 corral 托管，`amp --version`、`amp threads list` 直接跑。
   4. 现有四家一点不变。
 - 自查：`app/` 下 `cargo test --all-targets`、`cargo clippy --all-targets -- -D warnings`、`cargo fmt --check` 通过。读 status、算 amp 那一行、该跑什么命令、New Agent 的参数、Agent shell 放行用合成 JSON 和假 corral 脚本测（先写测试看它失败再实现）；不在测试里装、卸真的插件。
@@ -61,7 +64,6 @@
 ## 不做
 - agy（P5-88）、读屏兜底（ranch 阶段二）、cairn。
 - amp 的 `--mode`（low／medium／high／ultra）不在 New Agent 里给选项，和 pi、omp 一样照 amp 自己的设置；要的话另立。
-- 不在 paddock 里替 amp 补第一句（start 后等 idle 再 send）：用户定了先不给 Prompt。
 - 不碰桌面版 Amp（`/Applications/Amp.app`），不读 `~/.local/share/amp/`、`~/.config/amp/settings.json`。
 - 不改 ranch，只调公开命令。
 
@@ -73,6 +75,8 @@
 5. 先出样稿（Integrations 的 amp 四种状态、两个确认框、New Agent 选 amp）再动手，还是照上面的文字直接做：主控建议先出样稿，主要是确认框和说明的文字、Uninstall 的样子。
 
 用户 10-14：“接受你上面的建议，但是AMP的图标，你最好用真的。因为现在claude和codex以及omp还有pi都是真的”。五条照建议定（先出样稿），图标改用真的。
+
+看过样稿（`docs/设计稿/P5-98-amp/`，画布「amp集成样稿」）。主控指出 New Agent 的中心就是 Prompt 大框，提 A（照原来不给 Prompt，框变灰）和 B（照常填，paddock 等 amp 空闲后送）两种，建议 B。用户 10-14：“选B，样稿可以，开始吧”。
 
 ## 讨论记录（10-14，由旧到新）
 

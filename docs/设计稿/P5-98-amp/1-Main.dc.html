@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Settings, Agents page with amp</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+button{font:inherit;color:inherit;cursor:pointer}
+</style>
+</helmet>
+<div style="width: 960px; height: 740px; display: flex; background: #0c1616; font-family: -apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif; color: #d6e6e1; font-size: 13px; border-radius: 12px; overflow: hidden">
+  <div style="flex: none; width: 200px; box-sizing: border-box; display: flex; flex-direction: column; gap: 2px; padding: 52px 12px 14px">
+    <div style="display: flex; align-items: center; height: 34px; padding: 0 10px; border-radius: 8px; color: rgba(214,230,225,0.7); font-size: 13.5px">General</div>
+    <div style="display: flex; align-items: center; height: 34px; padding: 0 10px; border-radius: 8px; color: rgba(214,230,225,0.7); font-size: 13.5px">Appearance</div>
+    <div style="display: flex; align-items: center; height: 34px; padding: 0 10px; border-radius: 8px; background: rgba(127,212,191,0.13); color: #d6e6e1; font-size: 13.5px">Agents</div>
+    <div style="display: flex; align-items: center; height: 34px; padding: 0 10px; border-radius: 8px; color: rgba(214,230,225,0.7); font-size: 13.5px">Diagnostics</div>
+    <div style="flex: 1"></div>
+    <div style="padding: 0 10px; font-family: 'SF Mono', Menlo, monospace; font-size: 11px; color: #668580">~/.config/paddock/<br>config.toml</div>
+  </div>
+  <div style="flex: 1; min-width: 0; box-sizing: border-box; display: flex; flex-direction: column; gap: 18px; padding: 52px 28px 24px 8px">
+    <div style="display: flex; flex-direction: column; gap: 8px">
+      <div style="padding-left: 4px; font-size: 12.5px; font-weight: 600; color: #83a098">corral</div>
+      <div style="display: flex; flex-direction: column; border-radius: 12px; background: #111c1c">
+        <div style="display: flex; align-items: center; gap: 14px; height: 48px; padding: 0 12px 0 16px">
+          <span style="flex: 1; font-size: 13.5px">Refresh interval</span>
+          <span style="display: flex; align-items: center; height: 32px; padding: 0 12px; border-radius: 8px; background: #172322">1000 ms</span>
+        </div>
+      </div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 8px">
+      <div style="display: flex; align-items: center; gap: 8px; padding-left: 4px">
+        <span style="font-size: 12.5px; font-weight: 600; color: #83a098">Integrations</span>
+        <span style="flex: 1"></span>
+        <button style="height: 26px; padding: 0 10px; border: 0; border-radius: 999px; background: transparent; color: #8fb8d6; font-size: 12px">Refresh</button>
+      </div>
+      <div style="display: flex; flex-direction: column; border-radius: 12px; background: #111c1c">
+        <div style="display: grid; grid-template-columns: minmax(0, 1fr) 190px 160px; align-items: center; gap: 14px; height: 30px; padding: 4px 16px 0 28px; font-size: 11.5px; color: #668580">
+          <span>Agent</span><span>Status</span><span>Skills</span>
+        </div>
+
+        <div style="display: grid; grid-template-columns: minmax(0, 1fr) 190px 160px; align-items: center; gap: 14px; min-height: 54px; padding: 6px 16px 6px 28px">
+          <div style="display: flex; flex-direction: column; gap: 2px; min-width: 0"><span style="font-size: 13.5px">Claude Code</span><span style="font-size: 12px; color: #83a098">2.1.299 (Claude Code)</span></div>
+          <span style="justify-self: start; display: flex; align-items: center; gap: 6px; height: 22px; padding: 0 9px; border-radius: 999px; background: rgba(156,201,142,0.14); color: #9cc98e; font-size: 11.5px; font-weight: 600"><span style="width: 6px; height: 6px; border-radius: 3px; background: #9cc98e"></span>Built in</span>
+          <span style="display: flex; align-items: center; gap: 6px; color: #83a098; font-size: 12.5px"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="#9cc98e" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8.5l3.2 3L13 4.5"></path></svg>Up to date</span>
+        </div>
+        <div style="height: 1px; margin-left: 28px; background: rgba(214,230,225,0.06)"></div>
+
+        <div style="display: grid; grid-template-columns: minmax(0, 1fr) 190px 160px; align-items: center; gap: 14px; min-height: 54px; padding: 6px 16px 6px 28px">
+          <div style="display: flex; flex-direction: column; gap: 2px; min-width: 0"><span style="font-size: 13.5px">Codex</span><span style="font-size: 12px; color: #83a098">codex-cli 0.162.1</span></div>
+          <span style="justify-self: start; display: flex; align-items: center; gap: 6px; height: 22px; padding: 0 9px; border-radius: 999px; background: rgba(156,201,142,0.14); color: #9cc98e; font-size: 11.5px; font-weight: 600"><span style="width: 6px; height: 6px; border-radius: 3px; background: #9cc98e"></span>Built in</span>
+          <span style="display: flex; align-items: center; gap: 6px; color: #83a098; font-size: 12.5px"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="#9cc98e" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8.5l3.2 3L13 4.5"></path></svg>Up to date</span>
+        </div>
+        <div style="height: 1px; margin-left: 28px; background: rgba(214,230,225,0.06)"></div>
+
+        <div style="display: grid; grid-template-columns: minmax(0, 1fr) 190px 160px; align-items: center; gap: 14px; min-height: 54px; padding: 6px 16px 6px 28px">
+          <div style="display: flex; flex-direction: column; gap: 2px; min-width: 0"><span style="font-size: 13.5px">pi</span><span style="font-size: 12px; color: #83a098">1.2.0</span></div>
+          <span style="justify-self: start; display: flex; align-items: center; gap: 6px; height: 22px; padding: 0 9px; border-radius: 999px; background: rgba(156,201,142,0.14); color: #9cc98e; font-size: 11.5px; font-weight: 600"><span style="width: 6px; height: 6px; border-radius: 3px; background: #9cc98e"></span>Built in</span>
+          <span style="display: flex; align-items: center; gap: 6px; color: #83a098; font-size: 12.5px"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="#9cc98e" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8.5l3.2 3L13 4.5"></path></svg>Up to date</span>
+        </div>
+        <div style="height: 1px; margin-left: 28px; background: rgba(214,230,225,0.06)"></div>
+
+        <div style="display: grid; grid-template-columns: minmax(0, 1fr) 190px 160px; align-items: center; gap: 14px; min-height: 54px; padding: 6px 16px 6px 28px">
+          <div style="display: flex; flex-direction: column; gap: 2px; min-width: 0"><span style="font-size: 13.5px">omp</span><span style="font-size: 12px; color: #83a098">omp/18.10.4</span></div>
+          <span style="justify-self: start; display: flex; align-items: center; gap: 6px; height: 22px; padding: 0 9px; border-radius: 999px; background: rgba(156,201,142,0.14); color: #9cc98e; font-size: 11.5px; font-weight: 600"><span style="width: 6px; height: 6px; border-radius: 3px; background: #9cc98e"></span>Built in</span>
+          <span style="display: flex; align-items: center; gap: 6px; color: #83a098; font-size: 12.5px"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="#9cc98e" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8.5l3.2 3L13 4.5"></path></svg>Up to date</span>
+        </div>
+        <div style="height: 1px; margin-left: 28px; background: rgba(214,230,225,0.06)"></div>
+
+        <div style="display: grid; grid-template-columns: minmax(0, 1fr) 190px 160px; align-items: center; gap: 14px; min-height: 54px; padding: 6px 16px 6px 28px">
+          <div style="display: flex; flex-direction: column; gap: 2px; min-width: 0"><span style="font-size: 13.5px">amp</span><span style="font-size: 12px; color: #83a098">0.0.1791964847-g13f24a</span></div>
+          <div style="display: flex; align-items: center; gap: 8px">
+            <span style="display: flex; align-items: center; gap: 6px; height: 22px; padding: 0 9px; border-radius: 999px; background: rgba(156,201,142,0.14); color: #9cc98e; font-size: 11.5px; font-weight: 600"><span style="width: 6px; height: 6px; border-radius: 3px; background: #9cc98e"></span>Installed</span>
+            <button style="height: 24px; padding: 0 9px; border: 0; border-radius: 999px; background: rgba(214,230,225,0.06); color: #83a098; font-size: 12px">Uninstall</button>
+          </div>
+          <span style="display: flex; align-items: center; gap: 6px; color: #83a098; font-size: 12.5px"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="#9cc98e" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8.5l3.2 3L13 4.5"></path></svg>Up to date</span>
+        </div>
+      </div>
+      <div style="padding-left: 4px; font-size: 12px; line-height: 1.5; color: #668580">Built in: status comes with corral each time it starts an agent.<br>amp needs a plugin, installed once in <span style="font-family: 'SF Mono', Menlo, monospace; font-size: 11.5px">~/.config/amp/plugins</span>. It does nothing outside corral, but each amp that loads it, the desktop app too, runs one idle plugin process.<br>Skills teach an agent the corral and paddock commands.</div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":960,"height":740}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

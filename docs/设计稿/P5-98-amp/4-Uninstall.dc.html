@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Confirm amp plugin removal</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+button{font:inherit;color:inherit;cursor:pointer}
+</style>
+</helmet>
+<div style="width: 560px; height: 420px; box-sizing: border-box; padding: 40px; display: flex; align-items: center; justify-content: center; background: rgba(4,9,9,0.75); font-family: -apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif; color: #d6e6e1; font-size: 13px">
+  <div style="width: 460px; box-sizing: border-box; display: flex; flex-direction: column; gap: 14px; padding: 20px 20px 16px; border: 1px solid #2c4743; border-radius: 12px; background: #122120; box-shadow: 0 14px 36px rgba(0,0,0,0.45)">
+    <div style="font-size: 15px; font-weight: 600">Remove the corral plugin for amp?</div>
+    <div style="line-height: 1.5; color: #b0c6c0">Deletes <span style="font-family: 'SF Mono', Menlo, monospace; font-size: 12px">~/.config/amp/plugins/corral.ts</span>.</div>
+    <div style="font-size: 12.5px; line-height: 1.5; color: #b0c6c0">amp started by corral will stay Starting until it is installed again; amp already open keeps it until restarted.</div>
+    <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px">
+      <button style="height: 30px; padding: 0 14px; border: 0; border-radius: 999px; background: rgba(214,230,225,0.07)">Cancel</button>
+      <button style="height: 30px; padding: 0 14px; border: 0; border-radius: 999px; background: #e47a74; color: #0c1616; font-weight: 600">Remove</button>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":560,"height":420}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>
