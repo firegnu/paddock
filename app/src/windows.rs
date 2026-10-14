@@ -125,10 +125,15 @@ pub fn open_settings(cx: &mut App) {
     ) else {
         return;
     };
-    // The main window takes up what Settings saves.
+    // The main window takes up what Settings saves, and how a slider shows the ground meanwhile.
     let _ = main.update(cx, |_, _, cx| {
         cx.subscribe(&settings, |main, _, event: &SettingsEvent, cx| {
-            let SettingsEvent::Saved { config, .. } = event;
+            let config = match event {
+                SettingsEvent::Saved { config, .. } => config,
+                SettingsEvent::Preview(translucency) => {
+                    return main.preview_translucency(*translucency, cx);
+                }
+            };
             let mut config = config.clone();
             config.sidebar_width =
                 crate::sidebar::fit_width(config.sidebar_width, &UiFont::from_config(&config));

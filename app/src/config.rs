@@ -7,6 +7,10 @@ use std::{
     path::{Path, PathBuf},
 };
 
+/// How opaque, in percent, the darker frame lies over the system's sidebar material when the
+/// config leaves it out (P5-95c).
+pub const FRAME_OPACITY: u8 = 65;
+
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Config {
@@ -35,6 +39,12 @@ pub struct Config {
     pub corral: String,
     /// The New Agent panel's presets; `None` (not written) is the default four.
     pub agent_presets: Option<Vec<crate::new_agent::Preset>>,
+    /// How opaque, in percent, the sidebar's colour lies over its column while the system's
+    /// sidebar material shows; `None` (not written) is the theme's own.
+    pub sidebar_opacity: Option<u8>,
+    /// How opaque, in percent, the darker frame lies over the material beside the sidebar; `None`
+    /// (not written) is [`FRAME_OPACITY`].
+    pub frame_opacity: Option<u8>,
 }
 
 impl Default for Config {
@@ -61,6 +71,8 @@ impl Default for Config {
             refresh_ms: 1000,
             corral: "corral".into(),
             agent_presets: None,
+            sidebar_opacity: None,
+            frame_opacity: None,
         }
     }
 }
@@ -81,6 +93,15 @@ impl Config {
             !config.corral.trim().is_empty(),
             "corral must name a program"
         );
+        for (key, value) in [
+            ("sidebar_opacity", config.sidebar_opacity),
+            ("frame_opacity", config.frame_opacity),
+        ] {
+            ensure!(
+                value.is_none_or(|percent| percent <= 100),
+                "{key} must be from 0 to 100"
+            );
+        }
         Ok(config)
     }
 
@@ -251,6 +272,30 @@ font_size = 15
         let error = Config::parse("mascot = \"dog\"").unwrap_err();
         assert!(format!("{error:#}").contains("unknown mascot"), "{error:#}");
         assert!(Config::parse("mascot_enabled = \"yes\"").is_err());
+    }
+
+    #[test]
+    fn opacities_are_whole_percentages_left_out_by_default() {
+        let config = Config::default();
+        assert_eq!((config.sidebar_opacity, config.frame_opacity), (None, None));
+        let config = Config::parse("sidebar_opacity = 30\nframe_opacity = 100").unwrap();
+        assert_eq!(
+            (config.sidebar_opacity, config.frame_opacity),
+            (Some(30), Some(100))
+        );
+        assert_eq!(
+            Config::parse("frame_opacity = 0").unwrap().frame_opacity,
+            Some(0)
+        );
+        for key in ["sidebar_opacity", "frame_opacity"] {
+            for value in ["101", "300", "-1", "45.5", "\"45\""] {
+                let error = Config::parse(&format!("{key} = {value}")).unwrap_err();
+                assert!(
+                    format!("{error:#}").contains(key),
+                    "{key} = {value}: {error:#}"
+                );
+            }
+        }
     }
 
     #[test]

@@ -11,7 +11,7 @@ use crate::{
     footer_icon::Icon,
     pet::Pet,
     preset::Preset,
-    theme::{self, Theme},
+    theme::{self, Theme, Translucency},
 };
 use anyhow::{Context as _, Result, bail};
 use std::collections::BTreeMap;
@@ -76,6 +76,8 @@ pub enum Kind {
     List,
     /// A `[colors]` value.
     Color,
+    /// A whole percentage from 0 to 100, set with a slider; Default removes the key.
+    Opacity,
 }
 
 #[derive(Clone, Debug)]
@@ -193,6 +195,20 @@ pub fn fields() -> Vec<Field> {
             Kind::List,
             false,
         ),
+        field(
+            "sidebar_opacity",
+            "Sidebar opacity",
+            Page::General,
+            Kind::Opacity,
+            false,
+        ),
+        field(
+            "frame_opacity",
+            "Frame opacity",
+            Page::General,
+            Kind::Opacity,
+            false,
+        ),
         field("theme", "Theme", Page::Appearance, Kind::Theme, false),
     ];
     let mut colors: Vec<Field> = theme::color_keys()
@@ -233,6 +249,14 @@ fn shown(config: &Config, key: &str) -> String {
         "line_height" => number(f64::from(config.line_height)),
         "theme" => config.theme.clone().unwrap_or_else(|| "dune".into()),
         "corral" => config.corral.clone(),
+        "sidebar_opacity" => config
+            .sidebar_opacity
+            .map(|p| p.to_string())
+            .unwrap_or_default(),
+        "frame_opacity" => config
+            .frame_opacity
+            .map(|p| p.to_string())
+            .unwrap_or_default(),
         _ => String::new(),
     }
 }
@@ -333,15 +357,19 @@ impl Draft {
         Theme::from_config(&config).ok()
     }
 
-    /// A colour's override as drafted: `None` when it follows the theme.
+    /// A colour's or an opacity's value as drafted: `None` when it is left to its default (for a
+    /// colour, the theme's own).
     fn override_of(&self, key: &str) -> Option<String> {
         match self.changes.get(key) {
             Some(Change::Set(value)) => Some(value.clone()),
             Some(Change::Default) => None,
-            None => {
-                let name = key.strip_prefix("colors.")?;
-                self.config.colors.get(name).cloned()
-            }
+            None => match key.strip_prefix("colors.") {
+                Some(name) => self.config.colors.get(name).cloned(),
+                None if self.field(key)?.kind == Kind::Opacity => {
+                    Some(shown(&self.config, key)).filter(|text| !text.is_empty())
+                }
+                None => None,
+            },
         }
     }
 
@@ -357,6 +385,11 @@ impl Draft {
                     .and_then(|theme| theme.written(field.color().unwrap()))
                     .unwrap_or_default()
             });
+        }
+        if field.kind == Kind::Opacity {
+            return self
+                .override_of(key)
+                .unwrap_or_else(|| self.default_shown(key));
         }
         match self.changes.get(key) {
             Some(Change::Set(value)) => value.clone(),
@@ -375,13 +408,34 @@ impl Draft {
     pub fn modified(&self, key: &str) -> bool {
         match self.field(key) {
             Some(field) if field.kind == Kind::Color => self.custom(key),
+            // Written, even as its default: it no longer follows the theme.
+            Some(field) if field.kind == Kind::Opacity => self.override_of(key).is_some(),
             Some(field) => !same(field, &self.value(key), &self.default_shown(key)),
             None => false,
         }
     }
 
-    /// The default as the page shows it; empty for the system's interface font.
+    /// The default as the page shows it; empty for the system's interface font; for an opacity,
+    /// the drafted theme's own or the frame's.
     pub fn default_shown(&self, key: &str) -> String {
+        if self
+            .field(key)
+            .is_some_and(|field| field.kind == Kind::Opacity)
+        {
+            let theme = self
+                .preset_theme()
+                .or_else(|| Theme::from_config(&Config::default()).ok());
+            let Some(theme) = theme else {
+                return String::new();
+            };
+            let shares = Translucency::of(&Config::default(), &theme);
+            let share = if key == "sidebar_opacity" {
+                shares.sidebar
+            } else {
+                shares.frame
+            };
+            return format!("{}", (share * 100.0).round());
+        }
         shown(&Config::default(), key)
     }
 
@@ -572,7 +626,11 @@ impl Draft {
             let text = match change {
                 Change::Set(text) if field.kind == Kind::UiFont && text.trim().is_empty() => None,
                 Change::Set(text) => Some(text.clone()),
-                Change::Default if matches!(field.kind, Kind::Color | Kind::UiFont) => None,
+                Change::Default
+                    if matches!(field.kind, Kind::Color | Kind::UiFont | Kind::Opacity) =>
+                {
+                    None
+                }
                 Change::Default => Some(shown(&defaults, key)),
             };
             let value = match text {
@@ -609,6 +667,7 @@ pub fn range(key: &str) -> Option<(f64, Option<f64>)> {
         // As wide as a drag can make it.
         "sidebar_width" => (10.0, Some(f64::from(crate::sidebar::MAX_WIDTH))),
         "refresh_ms" => (250.0, None),
+        "sidebar_opacity" | "frame_opacity" => (0.0, Some(100.0)),
         _ => return None,
     })
 }
@@ -653,7 +712,7 @@ fn value(field: &Field, text: &str) -> Result<Value> {
     let text = text.trim();
     let label = &field.label;
     Ok(match field.kind {
-        Kind::Integer => {
+        Kind::Integer | Kind::Opacity => {
             let number = text
                 .parse::<i64>()
                 .with_context(|| format!("{label} must be a whole number"))?;
@@ -941,7 +1000,7 @@ mod tests {
                 .collect()
         };
         assert_eq!(on(Page::Agents), ["refresh_ms", "corral"]);
-        assert_eq!(on(Page::General).len(), 9);
+        assert_eq!(on(Page::General).len(), 11);
         assert!(!on(Page::General).contains(&"refresh_ms"));
         assert_eq!(
             Page::ALL.map(Page::label),
@@ -1070,6 +1129,127 @@ mod tests {
         draft.set("mascot", "cat");
         let text = committed(&mut draft, None).unwrap();
         assert_eq!(Config::parse(&text).unwrap().mascot, Pet::Cat);
+    }
+
+    #[test]
+    fn opacities_show_the_theme_or_the_frame_default_until_written() {
+        let fields = fields();
+        let field = |key: &str| fields.iter().find(|f| f.key == key).unwrap();
+        for (key, label) in [
+            ("sidebar_opacity", "Sidebar opacity"),
+            ("frame_opacity", "Frame opacity"),
+        ] {
+            assert_eq!(
+                (field(key).kind, field(key).page, field(key).label.as_str()),
+                (Kind::Opacity, Page::General, label)
+            );
+            assert!(!field(key).restart);
+        }
+        let draft = Draft::new(Some(FILE.into())).unwrap();
+        let wash = draft.preset_theme().unwrap().frost().wash;
+        assert_eq!(
+            draft.value("sidebar_opacity"),
+            format!("{}", (wash * 100.0).round())
+        );
+        assert_eq!(draft.value("sidebar_opacity"), "45");
+        assert_eq!(draft.value("frame_opacity"), "65");
+        assert_eq!(draft.default_shown("sidebar_opacity"), "45");
+        assert_eq!(draft.default_shown("frame_opacity"), "65");
+        assert!(!draft.modified("sidebar_opacity") && !draft.modified("frame_opacity"));
+
+        let file = format!("sidebar_opacity = 30   # mine\nframe_opacity = 80\n{FILE}");
+        let draft = Draft::new(Some(file)).unwrap();
+        assert_eq!(draft.value("sidebar_opacity"), "30");
+        assert_eq!(draft.value("frame_opacity"), "80");
+        assert!(draft.modified("sidebar_opacity") && draft.modified("frame_opacity"));
+    }
+
+    #[test]
+    fn an_opacity_is_written_as_a_whole_percentage_and_default_removes_it() {
+        let mut draft = Draft::new(Some(FILE.into())).unwrap();
+        draft.set("sidebar_opacity", "30");
+        draft.set("frame_opacity", "100");
+        let text = committed(&mut draft, Some(FILE)).unwrap();
+        assert!(text.contains("sidebar_opacity = 30\n"), "{text}");
+        assert!(text.contains("frame_opacity = 100\n"), "{text}");
+        let config = Config::parse(&text).unwrap();
+        assert_eq!(
+            (config.sidebar_opacity, config.frame_opacity),
+            (Some(30), Some(100))
+        );
+        // Written equal to the default, it is still written: the user's value, kept over a theme.
+        draft.set("sidebar_opacity", "45");
+        let text = committed(&mut draft, Some(&text)).unwrap();
+        assert!(text.contains("sidebar_opacity = 45\n"), "{text}");
+        assert!(draft.modified("sidebar_opacity"));
+        // Default takes the key out: the theme's own again, and the frame's default.
+        draft.reset("sidebar_opacity");
+        draft.reset("frame_opacity");
+        assert_eq!(draft.value("sidebar_opacity"), "45");
+        assert_eq!(draft.value("frame_opacity"), "65");
+        let text = committed(&mut draft, Some(&text)).unwrap();
+        assert!(!text.contains("opacity"), "{text}");
+        assert!(
+            text.starts_with("# my paddock\ntheme = \"tide\"   # cool\n"),
+            "{text}"
+        );
+        assert!(!draft.modified("sidebar_opacity") && !draft.modified("frame_opacity"));
+    }
+
+    #[test]
+    fn another_theme_keeps_a_written_opacity_and_leaves_one_unwritten() {
+        let file = format!("sidebar_opacity = 30\n{FILE}");
+        let mut draft = Draft::new(Some(file.clone())).unwrap();
+        draft.set("theme", "lagoon");
+        let text = committed(&mut draft, Some(&file)).unwrap();
+        assert_eq!(Config::parse(&text).unwrap().sidebar_opacity, Some(30));
+        assert_eq!(draft.value("sidebar_opacity"), "30");
+        let mut draft = Draft::new(Some(FILE.into())).unwrap();
+        draft.set("theme", "lagoon");
+        let text = committed(&mut draft, Some(FILE)).unwrap();
+        assert_eq!(Config::parse(&text).unwrap().sidebar_opacity, None);
+        let lagoon = draft.preset_theme().unwrap().frost().wash;
+        assert_eq!(
+            draft.value("sidebar_opacity"),
+            format!("{}", (lagoon * 100.0).round())
+        );
+    }
+
+    #[test]
+    fn an_opacity_stays_from_0_to_100() {
+        let mut draft = Draft::new(Some(FILE.into())).unwrap();
+        for (key, value, says) in [
+            (
+                "sidebar_opacity",
+                "101",
+                "Sidebar opacity must be from 0 to 100",
+            ),
+            (
+                "sidebar_opacity",
+                "-1",
+                "Sidebar opacity must be from 0 to 100",
+            ),
+            (
+                "frame_opacity",
+                "250",
+                "Frame opacity must be from 0 to 100",
+            ),
+            (
+                "frame_opacity",
+                "4.5",
+                "Frame opacity must be a whole number",
+            ),
+        ] {
+            draft.set(key, value);
+            let problem = draft.problem(key).unwrap_or_default();
+            assert!(problem.contains(says), "{key} {value}: {problem}");
+        }
+        for (key, value) in [("sidebar_opacity", "0"), ("frame_opacity", "100")] {
+            draft.set(key, value);
+            assert_eq!(draft.problem(key), None, "{key} {value}");
+        }
+        assert_eq!(range("sidebar_opacity"), Some((0.0, Some(100.0))));
+        assert_eq!(range("frame_opacity"), Some((0.0, Some(100.0))));
     }
 
     #[test]

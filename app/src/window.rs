@@ -34,7 +34,7 @@ use crate::{
     tab_fit::{self, Bar, TabSize, Title},
     tab_stack::{self, Face, Inks},
     text_input::{self, Changed, TextInput},
-    theme::Theme,
+    theme::{Theme, Translucency},
     to_tag,
     view::{AttachEnded, Launch, Options, TerminalView, hsla},
     viewer::AgentMetadata,
@@ -437,9 +437,6 @@ const RIM: f32 = 0.05;
 const PANEL_RADIUS: f32 = 12.0;
 const PANEL_RIM: f32 = 0.09;
 const PANEL_RIM_ACTIVE: f32 = 0.20;
-/// How opaque the darker frame lies over the system's sidebar material beside the sidebar, which
-/// still shows faintly through it (P5-95c).
-const FRAME_SHADE: f32 = 0.65;
 /// The line a grip lights up under the mouse and while dragged, and the room on each side of it
 /// the mouse can take it by.
 const DIVIDER: f32 = 1.0;
@@ -666,12 +663,13 @@ fn sidebar_column(
 enum Under {
     /// The sidebar's colour.
     Sidebar,
-    /// The sidebar's colour, faintly, over the system's sidebar material.
+    /// The sidebar's colour over the system's sidebar material, as opaque as
+    /// [`Translucency::sidebar`]: faintly, by default.
     Wash,
     /// The darker frame around the panes' panels (P5-59).
     Frame,
-    /// The frame, mostly, over the system's sidebar material: a step darker than the sidebar
-    /// beside it (P5-95c).
+    /// The frame over the system's sidebar material, as opaque as [`Translucency::frame`]: by
+    /// default mostly, a step darker than the sidebar beside it (P5-95c).
     Shade,
 }
 
@@ -1185,6 +1183,9 @@ pub struct PaddockWindow {
     /// The system's sidebar material under the left column; none when it could not be put there,
     /// and the window stays opaque.
     frost: Option<Frost>,
+    /// How opaque the ground lies over the material: as the config sets it, or as a Settings slider
+    /// shows it while dragged (P5-96).
+    translucency: Translucency,
     /// What `paddock ctl` asked for and is still under way.
     ctl: ctl::Ctl,
 }
@@ -1206,6 +1207,7 @@ impl PaddockWindow {
         cx: &mut Context<Self>,
     ) -> Self {
         let theme = Rc::new(theme);
+        let translucency = Translucency::of(config, &theme);
         let mono = mono_font(&options);
         let sidebar = {
             let theme = theme.clone();
@@ -1350,6 +1352,7 @@ impl PaddockWindow {
             full_screen: false,
             config_from_file: crate::config::default_path().exists(),
             frost: Frost::install(window),
+            translucency,
             ctl: ctl::Ctl::default(),
         };
         // The column shows the material through the window, which is see-through for it.
@@ -2309,6 +2312,7 @@ impl PaddockWindow {
         if let Ok(theme) = Theme::from_config(config) {
             let theme = Rc::new(theme);
             self.theme = theme.clone();
+            self.translucency = Translucency::of(config, &theme);
             let width = config.sidebar_width;
             self.sidebar_width = width;
             let sidebar_theme = theme.clone();
@@ -3101,7 +3105,10 @@ impl PaddockWindow {
     fn ground(&self, column: Bounds<Pixels>, frosted: bool, window: Size<Pixels>) -> Div {
         let sidebar = hsla(self.theme.bg(|t| t.agents_bg), 1.0);
         let frame = hsla(self.theme.frame(), 1.0);
-        let wash = sidebar.opacity(self.theme.frost().wash);
+        let (wash, shade) = (
+            sidebar.opacity(self.translucency.sidebar),
+            frame.opacity(self.translucency.frame),
+        );
         div()
             .absolute()
             .inset_0()
@@ -3119,10 +3126,20 @@ impl PaddockWindow {
                                 Under::Sidebar => sidebar,
                                 Under::Wash => wash,
                                 Under::Frame => frame,
-                                Under::Shade => frame.opacity(FRAME_SHADE),
+                                Under::Shade => shade,
                             })
                     }),
             )
+    }
+
+    /// How a Settings slider shows the ground while dragged; written, it comes back by [`apply`].
+    ///
+    /// [`apply`]: Self::apply
+    pub fn preview_translucency(&mut self, translucency: Translucency, cx: &mut Context<Self>) {
+        if self.translucency != translucency {
+            self.translucency = translucency;
+            cx.notify();
+        }
     }
 
     /// Shows the material under the window GPUI is drawing now, or takes it away; taking it away
