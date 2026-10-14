@@ -372,6 +372,84 @@ fn folded_groups_and_workspaces_keep_their_count_and_bar_and_are_passed_over() {
 }
 
 #[test]
+fn a_folded_workspace_stacks_three_of_its_agents_cards_the_active_pane_s_in_front() {
+    let mut panel = panel(&[
+        ("paddock/main", "/w/paddock", "idle"),
+        ("paddock/dev", "/w/paddock", "working"),
+        ("ranch/main", "/w/ranch", "blocked"),
+        ("ranch/dev", "/w/ranch", "idle"),
+        ("jb/main", "/w/jb", "idle"),
+        ("mesh/main", "/w/mesh", "idle"),
+    ]);
+    for repo in ["paddock", "ranch", "jb", "mesh"] {
+        let path = format!("/w/{repo}");
+        repository(&mut panel, &path, &path);
+    }
+    workspace(
+        &mut panel.workspaces,
+        "Tools",
+        &["/w/paddock", "/w/ranch"],
+        &[],
+    );
+    workspace(&mut panel.workspaces, "Tuning", &["/w/jb"], &[]);
+    workspace(&mut panel.workspaces, "Vacant", &[], &[]);
+    // As the open trays list them.
+    assert_eq!(
+        shown(&panel, None)[..9],
+        [
+            "= Tools 4 [Waiting, Working, Idle, Idle]",
+            "  # paddock/ 2 [Working, Idle]",
+            "  paddock/dev",
+            "  paddock/main",
+            "  # ranch/ 2 [Waiting, Idle]",
+            "  ranch/main",
+            "  ranch/dev",
+            "= Tuning 1 [Idle]",
+            "  # jb/ 1 [Idle]",
+        ]
+    );
+    for name in ["Tools", "Tuning", "Vacant"] {
+        panel.folded.toggle_workspace(name);
+    }
+    let stacks = |selected: Option<&str>| -> Vec<(String, Vec<String>)> {
+        card::lines(&panel, None, selected, &[], None, 100.0)
+            .into_iter()
+            .filter_map(|line| match line {
+                Line::Workspace(tray) => Some((tray.name, tray.stack)),
+                _ => None,
+            })
+            .collect()
+    };
+    let stack = |names: &[&str]| names.iter().map(|n| (*n).to_owned()).collect::<Vec<_>>();
+    // Nothing shown of it: the first three as listed.
+    assert_eq!(
+        stacks(None),
+        [
+            (
+                "Tools".to_owned(),
+                stack(&["paddock/dev", "paddock/main", "ranch/main"])
+            ),
+            ("Tuning".to_owned(), stack(&["jb/main"])),
+            ("Vacant".to_owned(), stack(&[])),
+        ]
+    );
+    assert_eq!(
+        stacks(Some("mesh/main"))[0].1,
+        ["paddock/dev", "paddock/main", "ranch/main"]
+    );
+    // The active pane's agent in front, then the others as listed, three in all.
+    assert_eq!(
+        stacks(Some("paddock/main"))[0].1,
+        ["paddock/main", "paddock/dev", "ranch/main"]
+    );
+    assert_eq!(
+        stacks(Some("ranch/dev"))[0].1,
+        ["ranch/dev", "paddock/dev", "paddock/main"]
+    );
+    assert_eq!(stacks(Some("jb/main"))[1].1, ["jb/main"]);
+}
+
+#[test]
 fn the_list_is_read_back_as_written_and_a_bad_file_is_no_workspaces() {
     let temp = common::tempdir();
     let path = temp.path().join("state/paddock/workspaces.json");

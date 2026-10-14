@@ -1797,6 +1797,11 @@ impl Render for Sidebar {
             };
             list = list.justify_center().child(quiet);
         }
+        // The cards in an open workspace's well.
+        let in_well = grounds.in_well(
+            workspaces_view::well(&theme, grounds.base, false),
+            hsla(theme.bg(|t| t.agents_bg), 1.0),
+        );
         // A workspace's lines follow its own, and go in its tray; the rest lie in the list.
         let mut lines = lines.into_iter().filter(|_| listed).enumerate().peekable();
         while let Some((index, line)) = lines.next() {
@@ -1853,6 +1858,11 @@ impl Render for Sidebar {
                         let place = places
                             .remove(&card.name)
                             .map(|place| self.workspace_cell(&card, place, cx));
+                        let card_grounds = if card.workspace.is_some() {
+                            in_well
+                        } else {
+                            grounds
+                        };
                         AgentCard {
                             asking: self.asking.as_ref() == Some(&card.name),
                             card: *card,
@@ -1861,7 +1871,7 @@ impl Render for Sidebar {
                             on_click: Box::new(on_click),
                             actions,
                             workspace: place,
-                            grounds,
+                            grounds: card_grounds,
                         }
                         .into_any_element()
                     }
@@ -2065,6 +2075,53 @@ impl Grounds {
             }
         }
     }
+
+    /// These grounds for the cards in an open workspace's `well` (P5-91), `column` the sidebar's
+    /// colour: a whole face hides the well; a see-through one gives back what the well darkens,
+    /// so the cards there look as those outside it.
+    fn in_well(self, well: Hsla, column: Hsla) -> Self {
+        if !self.frosted {
+            return self;
+        }
+        let through = |face| through(face, well, column);
+        Self {
+            card: through(self.card),
+            card_hovered: through(self.card_hovered),
+            card_paused: through(self.card_paused),
+            card_selected: through(self.card_selected),
+            ..self
+        }
+    }
+}
+
+/// `face`, a see-through tint over the whole colour `column`, as it must be laid over `well` there
+/// to look the same: as see-through as it was where that will do, less where the well takes
+/// away more than its colour can give back.
+fn through(face: Hsla, well: Hsla, column: Hsla) -> Hsla {
+    let (seen, under) = (
+        Rgba::from(over(face, column)),
+        Rgba::from(over(well, column)),
+    );
+    let channels = [(seen.r, under.r), (seen.g, under.g), (seen.b, under.b)];
+    let alpha = channels
+        .iter()
+        .fold(face.a, |alpha, &(seen, under)| {
+            let room = if seen > under { 1.0 - under } else { under };
+            if room > 0.0 {
+                alpha.max((seen - under).abs() / room)
+            } else {
+                alpha
+            }
+        })
+        .min(1.0);
+    let color = |(seen, under): (f32, f32)| (under + (seen - under) / alpha).clamp(0.0, 1.0);
+    Rgba {
+        r: color(channels[0]),
+        g: color(channels[1]),
+        b: color(channels[2]),
+        a: alpha,
+    }
+    .into()
 }
 
 /// How high a card lies (P5-51): the light along its top edge, in the text colour, then a tight

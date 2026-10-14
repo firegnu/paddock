@@ -2852,34 +2852,15 @@ impl PaddockWindow {
                         .find(|a| &a.name == name)
                         .and_then(|a| a.kind.as_deref())
                         .unwrap_or_default();
-                    let color = self.fg(card::brand(kind).color);
-                    match kind_icon::of(kind) {
-                        Some(icon) => Face::Kind(icon, color),
-                        None => Face::Blank(color),
-                    }
+                    Face::of_kind(&self.theme, kind)
                 }
                 Shown::Shell => Face::Shell,
                 Shown::Empty => Face::Blank(self.fg(|t| t.agents_faint)),
             })
             .collect();
-        // The darker of the frame and the text for the cards' edge, so it is dark in a light
-        // theme too; the lighter of the text and the terminal's ground for what is light.
-        let text = self.fg(|t| t.agents_text);
-        let frame = hsla(self.theme.frame(), 1.0);
-        let inks = if text.l < frame.l {
-            Inks {
-                edge: text,
-                light: hsla(self.theme.terminal().background, 1.0),
-            }
-        } else {
-            Inks {
-                edge: frame,
-                light: text,
-            }
-        };
         let dot = (self.dot(panes[0], agents, now), false);
         let dot = self.corner_dot(dot, (2.0, 2.0), ground, hovered, ui);
-        tab_stack::stack(&faces, inks, dot, ui.scale(1.0))
+        tab_stack::stack(&faces, Inks::of(&self.theme), dot, ui.scale(1.0))
     }
 
     /// `icon` with the status dot `(colour, breathing)` on its lower right corner, ringed in
