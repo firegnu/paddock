@@ -699,6 +699,9 @@ fn under(
 struct Across {
     /// Where the panes' card starts: a seam after the sidebar or the strip, on the frame.
     panes: f32,
+    /// The middle of the seam after the sidebar or the strip, where the line between them lies
+    /// over the material (P5-95b).
+    rule: f32,
     /// The middle of the seam after the sidebar, which its grip takes; none beside the strip.
     left_grip: Option<f32>,
     /// The middle of the seam before the right sidebar's card, when it is open.
@@ -711,6 +714,7 @@ fn across(window: f32, sidebar: f32, collapsed: bool, right: Option<f32>) -> Acr
     let half = CARD_GAP / 2.0;
     Across {
         panes: sidebar + CARD_GAP,
+        rule: sidebar + half,
         left_grip: (!collapsed).then_some(sidebar + half),
         right_grip: right.map(|width| window - CARD_GAP - width - half),
     }
@@ -1572,6 +1576,19 @@ impl PaddockWindow {
         } else {
             self.sidebar_width
         }
+    }
+
+    /// The line between the sidebar or the strip and the panes, centred on `x`, as faint as the
+    /// panes' rims: over the material nothing else parts them (P5-95b). It runs as the cards do,
+    /// from the title bar's bottom edge to a seam above the window's.
+    fn seam_rule(&self, x: f32) -> Div {
+        div()
+            .absolute()
+            .top_0()
+            .bottom(px(CARD_GAP))
+            .left(px(x - DIVIDER / 2.0))
+            .w(px(DIVIDER))
+            .bg(self.fg(|t| t.agents_text).opacity(PANEL_RIM))
     }
 
     /// Where the sidebar is taken by to resize it: a few points either side of a line in the seam
@@ -5913,6 +5930,8 @@ impl Render for PaddockWindow {
             .flex_row()
             .child(self.sidebar.clone())
             .child(cards)
+            // Over the material, before the grip, which lights over it.
+            .when(frosted, |body| body.child(self.seam_rule(seams.rule)))
             .children(seams.left_grip.map(|x| self.grip(x, cx)))
             .children(seams.right_grip.map(|x| self.right_grip(x, cx)));
         // The `+N` menu goes once every tab has room again.
@@ -6806,6 +6825,7 @@ mod tests {
             across(1200.0, 300.0, false, Some(400.0)),
             Across {
                 panes: 308.0,
+                rule: 304.0,
                 left_grip: Some(304.0),
                 right_grip: Some(788.0),
             }
@@ -6814,15 +6834,17 @@ mod tests {
             across(1200.0, 300.0, false, None),
             Across {
                 panes: 308.0,
+                rule: 304.0,
                 left_grip: Some(304.0),
                 right_grip: None,
             }
         );
-        // Beside the strip: a seam before the card too, and no grip there.
+        // Beside the strip: a seam before the card too, its line in the middle, and no grip there.
         assert_eq!(
             across(1200.0, 52.0, true, Some(400.0)),
             Across {
                 panes: 60.0,
+                rule: 56.0,
                 left_grip: None,
                 right_grip: Some(788.0),
             }
