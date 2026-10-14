@@ -26,6 +26,8 @@ use std::{cell::RefCell, collections::HashMap, path::PathBuf, rc::Rc, time::Dura
 
 #[path = "settings_integrations.rs"]
 mod integrations_page;
+#[path = "settings_models.rs"]
+mod models_page;
 
 /// The key context of the Settings window: ⌘W closes.
 pub const CONTEXT: &str = "PaddockSettings";
@@ -80,6 +82,8 @@ pub struct SettingsView {
     sliding: Option<(String, u8)>,
     /// Agents › Integrations: what corral, ranch and paddock last said about each agent.
     integrations: integrations_page::Integrations,
+    /// Agents › Models: what New Agent offers for Claude and Codex, and from where.
+    models: models_page::Models,
     /// Where each slider's track was last drawn, for the mouse's place along it.
     tracks: Rc<RefCell<HashMap<String, Bounds<Pixels>>>>,
     focus: FocusHandle,
@@ -356,11 +360,13 @@ impl SettingsView {
             dismissed: None,
             sliding: None,
             integrations: Default::default(),
+            models: Default::default(),
             tracks: Rc::default(),
             focus: cx.focus_handle(),
             _subscriptions: Vec::new(),
         };
         view.make_inputs(window, cx);
+        view.load_models();
         view.load_fonts(cx);
         // Back in front: the file may have changed meanwhile (a sidebar drag, an editor).
         let activation = cx.observe_window_activation(window, |this, window, cx| {
@@ -1107,6 +1113,7 @@ impl SettingsView {
             self.refresh_diagnostics(cx);
         }
         if page == Page::Agents {
+            self.load_models();
             self.refresh_integrations(cx);
         }
         cx.notify();
@@ -2324,6 +2331,7 @@ impl SettingsView {
             Page::General => self.grouped(&GENERAL, window, ui, cx),
             Page::Agents => {
                 let mut items = self.grouped(&AGENTS, window, ui, cx);
+                items.push(self.models_section(ui, cx));
                 items.push(self.integrations_section(width, ui, cx));
                 items
             }

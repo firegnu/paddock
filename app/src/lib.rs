@@ -44,6 +44,7 @@ pub mod layout_state;
 pub mod markdown;
 pub mod markdown_view;
 pub mod menu;
+pub mod models;
 pub mod motion;
 pub mod new_agent;
 pub mod new_agent_view;

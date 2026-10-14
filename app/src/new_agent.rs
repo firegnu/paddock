@@ -5,7 +5,7 @@
 //! Codex a model and an effort can be chosen; they are written into the command the way P5-21
 //! reads them back, and a command edited by hand is read back into the choices. Presets fill in
 //! the kind, model, effort and role at once, and are kept in the config file.
-use crate::{config::Config, corral::Client, layout::Direction};
+use crate::{config::Config, corral::Client, layout::Direction, models::Lists};
 use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 use std::{
@@ -22,28 +22,6 @@ const FALLBACK_PREFIX: &str = "agents";
 const CORRAL_TIMEOUT: Duration = Duration::from_secs(120);
 /// How many recently used projects are remembered.
 const RECENT: usize = 8;
-
-/// A value to choose and the line that says what it is for.
-pub type Choice = (&'static str, &'static str);
-
-const CLAUDE_MODELS: &[Choice] = &[
-    ("opus[1m]", "1M context · deepest"),
-    ("opus", "Strong, 200K context"),
-    ("sonnet", "Fast, everyday work"),
-];
-const CODEX_MODELS: &[Choice] = &[
-    ("gpt-6-astra", "Default for building"),
-    ("gpt-5.6-luna", "Light, quick checks"),
-];
-const EFFORTS: &[Choice] = &[
-    ("low", "Quick answers"),
-    ("medium", "Light tasks"),
-    ("high", "Normal work"),
-    ("xhigh", "Hard problems"),
-    ("max", "The hardest, costly"),
-];
-/// The effort a kind starts at when it is chosen.
-const DEFAULT_EFFORT: &str = "high";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -91,33 +69,16 @@ impl Tool {
         }
     }
 
-    /// The models to choose from; none for a kind that keeps to its own settings.
-    pub fn models(self) -> &'static [Choice] {
-        match self {
-            Tool::Claude => CLAUDE_MODELS,
-            Tool::Codex => CODEX_MODELS,
-            Tool::Pi | Tool::Omp | Tool::Amp => &[],
-        }
-    }
-
-    /// The efforts to choose from; Codex has no `max`.
-    pub fn efforts(self) -> &'static [Choice] {
-        match self {
-            Tool::Claude => EFFORTS,
-            Tool::Codex => &EFFORTS[..4],
-            Tool::Pi | Tool::Omp | Tool::Amp => &[],
-        }
-    }
-
     /// Whether `corral start --prompt` takes its first message: not amp, whose plugin corral
     /// installs in its own configuration (ranch R6).
     pub fn takes_prompt(self) -> bool {
         self != Tool::Amp
     }
 
-    /// Whether a model and effort are chosen for it.
+    /// Whether a model and effort are chosen for it; the others keep to their own settings. The
+    /// lists to choose from are in [`crate::models`].
     pub fn has_models(self) -> bool {
-        !self.models().is_empty()
+        matches!(self, Tool::Claude | Tool::Codex)
     }
 
     fn from_program(program: &str) -> Option<Tool> {
@@ -429,6 +390,8 @@ pub struct Form {
     prefix_typed: bool,
     /// The name was typed, so it no longer follows the kind.
     name_typed: bool,
+    /// The models and efforts offered for Claude and Codex.
+    models: Lists,
 }
 
 /// A prefix from the project directory's name: its last part, with anything but letters, digits,
@@ -484,6 +447,7 @@ impl Form {
             picked: None,
             prefix_typed: false,
             name_typed: false,
+            models: Lists::default(),
         };
         form.follow_name();
         form
@@ -537,18 +501,48 @@ impl Form {
         self.follow_name();
     }
 
+    /// The models and efforts to offer from now on; what is chosen stays.
+    pub fn set_lists(&mut self, lists: Lists) {
+        self.models = lists;
+    }
+
+    /// The models the kind offers; none for a kind without.
+    pub fn model_names(&self) -> Vec<String> {
+        self.models
+            .of(self.tool)
+            .map(|list| list.models.iter().map(|model| model.name.clone()).collect())
+            .unwrap_or_default()
+    }
+
+    /// The efforts the chosen model takes.
+    pub fn efforts(&self) -> Vec<String> {
+        self.models
+            .of(self.tool)
+            .map(|list| {
+                list.efforts(self.model.as_deref())
+                    .into_iter()
+                    .map(str::to_owned)
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
     /// Another kind, at its first model and normal effort when it has them.
     pub fn pick_tool(&mut self, tool: Tool) {
         self.choose_tool(tool);
-        if tool.has_models() {
-            self.model = tool.models().first().map(|(model, _)| (*model).into());
-            self.effort = Some(DEFAULT_EFFORT.into());
+        if let Some(list) = self.models.of(tool) {
+            self.model = list.first().map(str::to_owned);
+            self.effort = list.effort_for(self.model.as_deref(), None);
             self.ask();
         }
     }
 
+    /// Another model; the effort stays when the model takes it.
     pub fn set_model(&mut self, model: &str) {
         self.model = Some(model.into());
+        if let Some(list) = self.models.of(self.tool) {
+            self.effort = list.effort_for(Some(model), self.effort.as_deref());
+        }
         self.ask();
     }
 
@@ -1244,7 +1238,7 @@ mod tests {
         assert_eq!(labels(&args), ["model=sonnet", "effort=max"]);
 
         form.pick_tool(Tool::Codex);
-        assert_eq!(form.model.as_deref(), Some("gpt-6-astra"));
+        assert_eq!(form.model.as_deref(), Some("gpt-6.1-sol"));
         form.set_model("gpt-5.6-luna");
         form.set_effort("xhigh");
         let args = form.args().unwrap();
@@ -1276,9 +1270,55 @@ mod tests {
             assert_eq!(command(&args), [tool.kind()]);
             assert!(labels(&args).is_empty(), "{args:?}");
         }
-        assert!(Tool::Pi.models().is_empty() && Tool::Omp.efforts().is_empty());
-        assert_eq!(Tool::Codex.efforts().last().unwrap().0, "xhigh");
-        assert_eq!(Tool::Claude.efforts().last().unwrap().0, "max");
+        assert!(form.efforts().is_empty() && form.model_names().is_empty());
+        assert!(!Tool::Pi.has_models() && Tool::Codex.has_models());
+    }
+
+    #[test]
+    fn the_lists_come_from_the_form_and_the_effort_follows_the_model() {
+        use crate::models::{List, Lists, Model, Source};
+        let mut form = Form::new("/tmp/demo".into(), Place::Current);
+        let model = |name: &str, efforts: &[&str]| Model {
+            name: name.into(),
+            efforts: efforts.iter().map(|e| (*e).into()).collect(),
+        };
+        form.set_lists(Lists {
+            codex: List {
+                models: vec![
+                    model("fast", &["low", "medium"]),
+                    model("deep", &["low", "high", "ultra"]),
+                ],
+                source: Source::Codex { at: 1 },
+            },
+            ..Lists::default()
+        });
+        form.pick_tool(Tool::Codex);
+        assert_eq!(form.model_names(), ["fast", "deep"]);
+        // The first model, at the last effort it has when it has no `high`.
+        assert_eq!(
+            (form.model.as_deref(), form.effort.as_deref()),
+            (Some("fast"), Some("medium"))
+        );
+        assert_eq!(form.efforts(), ["low", "medium"]);
+        form.set_model("deep");
+        assert_eq!(form.effort.as_deref(), Some("high"));
+        assert_eq!(form.efforts(), ["low", "high", "ultra"]);
+        form.set_effort("ultra");
+        form.set_model("fast");
+        assert_eq!(form.effort.as_deref(), Some("medium"));
+        form.set_effort("low");
+        form.set_model("deep");
+        assert_eq!(form.effort.as_deref(), Some("low"));
+        assert!(form.command.contains("-m deep"), "{}", form.command);
+        assert!(
+            form.command.contains(r#"model_reasoning_effort="low""#),
+            "{}",
+            form.command
+        );
+        // Claude keeps paddock's own, opus[1m] first.
+        form.pick_tool(Tool::Claude);
+        assert_eq!(form.model.as_deref(), Some("opus[1m]"));
+        assert_eq!(form.efforts().last().map(String::as_str), Some("max"));
     }
 
     #[test]

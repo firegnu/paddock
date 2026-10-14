@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Models rows, other states</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+button{font:inherit;color:inherit;cursor:pointer}
+</style>
+</helmet>
+<div style="width: 760px; height: 620px; box-sizing: border-box; padding: 32px; display: flex; flex-direction: column; gap: 14px; background: #0c1616; font-family: -apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif; color: #d6e6e1; font-size: 13px; border-radius: 12px">
+
+  <div style="font-size: 11.5px; color: #668580">Asking codex (Refresh clicked, or a month has passed)</div>
+  <div style="display: grid; grid-template-columns: 110px minmax(0, 1fr) 260px; align-items: center; gap: 14px; min-height: 54px; padding: 6px 16px 6px 28px; border-radius: 12px; background: #111c1c">
+    <span style="font-size: 13.5px">Codex</span>
+    <span style="min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: 'SF Mono', Menlo, monospace; font-size: 12px; color: #a9c2bb">gpt-6.1-sol · gpt-6-astra · gpt-6-sol · +5</span>
+    <div style="display: flex; align-items: center; gap: 10px">
+      <span style="color: #83a098; font-size: 12.5px">Asking codex…</span>
+      <button disabled style="height: 24px; padding: 0 10px; border: 0; border-radius: 999px; background: rgba(214,230,225,0.04); color: #4f6b66; font-size: 12px; cursor: default">Refresh</button>
+    </div>
+  </div>
+
+  <div style="font-size: 11.5px; color: #668580; padding-top: 6px">Refresh failed: keeps the list it got last time</div>
+  <div style="display: grid; grid-template-columns: 110px minmax(0, 1fr) 260px; align-items: center; gap: 14px; min-height: 54px; padding: 6px 16px 6px 28px; border-radius: 12px; background: #111c1c">
+    <span style="font-size: 13.5px">Codex</span>
+    <span style="min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: 'SF Mono', Menlo, monospace; font-size: 12px; color: #a9c2bb">gpt-6.1-sol · gpt-6-astra · gpt-6-sol · +5</span>
+    <div style="display: flex; align-items: center; gap: 10px; min-width: 0">
+      <div style="display: flex; flex-direction: column; gap: 2px; min-width: 0">
+        <span style="color: #83a098; font-size: 12.5px">codex, Sep 12</span>
+        <span style="color: #dbbd6e; font-size: 11.5px">Couldn't ask codex: not logged in</span>
+      </div>
+      <button style="height: 24px; padding: 0 10px; border: 0; border-radius: 999px; background: rgba(214,230,225,0.06); color: #8fb8d6; font-size: 12px">Refresh</button>
+    </div>
+  </div>
+
+  <div style="font-size: 11.5px; color: #668580; padding-top: 6px">Never got one from codex, config.toml has a list</div>
+  <div style="display: grid; grid-template-columns: 110px minmax(0, 1fr) 260px; align-items: center; gap: 14px; min-height: 54px; padding: 6px 16px 6px 28px; border-radius: 12px; background: #111c1c">
+    <span style="font-size: 13.5px">Codex</span>
+    <span style="min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: 'SF Mono', Menlo, monospace; font-size: 12px; color: #a9c2bb">gpt-6-astra · gpt-5.6-luna</span>
+    <div style="display: flex; align-items: center; gap: 10px; min-width: 0">
+      <div style="display: flex; flex-direction: column; gap: 2px; min-width: 0">
+        <span style="color: #83a098; font-size: 12.5px">config.toml</span>
+        <span style="color: #dbbd6e; font-size: 11.5px">Couldn't ask codex: codex not found</span>
+      </div>
+      <button style="height: 24px; padding: 0 10px; border: 0; border-radius: 999px; background: rgba(214,230,225,0.06); color: #8fb8d6; font-size: 12px">Refresh</button>
+    </div>
+  </div>
+
+  <div style="font-size: 11.5px; color: #668580; padding-top: 6px">Never got one, nothing in config.toml</div>
+  <div style="display: grid; grid-template-columns: 110px minmax(0, 1fr) 260px; align-items: center; gap: 14px; min-height: 54px; padding: 6px 16px 6px 28px; border-radius: 12px; background: #111c1c">
+    <span style="font-size: 13.5px">Codex</span>
+    <span style="min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: 'SF Mono', Menlo, monospace; font-size: 12px; color: #a9c2bb">gpt-6.1-sol · gpt-6-astra · gpt-6-sol · +5</span>
+    <div style="display: flex; align-items: center; gap: 10px; min-width: 0">
+      <div style="display: flex; flex-direction: column; gap: 2px; min-width: 0">
+        <span style="color: #83a098; font-size: 12.5px">paddock's list</span>
+        <span style="color: #dbbd6e; font-size: 11.5px">Couldn't ask codex: unexpected output</span>
+      </div>
+      <button style="height: 24px; padding: 0 10px; border: 0; border-radius: 999px; background: rgba(214,230,225,0.06); color: #8fb8d6; font-size: 12px">Refresh</button>
+    </div>
+  </div>
+
+  <div style="font-size: 11.5px; color: #668580; padding-top: 6px">Claude, with a list in config.toml</div>
+  <div style="display: grid; grid-template-columns: 110px minmax(0, 1fr) 260px; align-items: center; gap: 14px; min-height: 54px; padding: 6px 16px 6px 28px; border-radius: 12px; background: #111c1c">
+    <span style="font-size: 13.5px">Claude</span>
+    <span style="min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: 'SF Mono', Menlo, monospace; font-size: 12px; color: #a9c2bb">opus[1m] · sonnet</span>
+    <span style="color: #83a098; font-size: 12.5px">config.toml</span>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":760,"height":620}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>
