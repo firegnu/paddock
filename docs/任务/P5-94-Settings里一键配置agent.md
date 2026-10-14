@@ -116,3 +116,6 @@ Settings 的 Agents 页，在 corral 一节下面加一节 `Integrations`，像 
   - corral 的 `version` 原样显示（Claude Code 是 `2.1.299 (Claude Code)`），不去掉括号。
   - paddock 技能在 HOME 外的 `CLAUDE_CONFIG_DIR`：那个目录要已经存在，不然装的时候报错（不替用户建它）。
 - 没做的事：卸载；agy、amp（P5-88）；`paddock install-skills` 命令行没加 `--target`（Settings 直接调函数）。
+
+## 用户看过
+- 10-14 重开看过：“我重开看了，不错。就是有一个疑问，pi为什么显示not found，是不是我的pi agent安装的地方不对？”主控查：pi 装在 `~/.bun/bin/pi` 没问题；bun 把 `~/.bun/bin` 加进 PATH 的那两行写在 `~/.zshrc` 里，而 paddock 从 Finder／Dock 启动时问的是登录 shell（`zsh -l -c`，不读 `.zshrc`），拿到的 PATH 里没有它，corral 按这个 PATH 找不到 pi。同样从 paddock 里开 pi 也会找不到。
