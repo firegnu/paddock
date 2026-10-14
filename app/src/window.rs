@@ -437,6 +437,9 @@ const RIM: f32 = 0.05;
 const PANEL_RADIUS: f32 = 12.0;
 const PANEL_RIM: f32 = 0.09;
 const PANEL_RIM_ACTIVE: f32 = 0.20;
+/// How opaque the darker frame lies over the system's sidebar material beside the sidebar, which
+/// still shows faintly through it (P5-95c).
+const FRAME_SHADE: f32 = 0.65;
 /// The line a grip lights up under the mouse and while dragged, and the room on each side of it
 /// the mouse can take it by.
 const DIVIDER: f32 = 1.0;
@@ -663,29 +666,34 @@ enum Under {
     Wash,
     /// The darker frame around the panes' panels (P5-59).
     Frame,
+    /// The frame, mostly, over the system's sidebar material: a step darker than the sidebar
+    /// beside it (P5-95c).
+    Shade,
 }
 
-/// The layers under everything in a window `window` big, by the sidebar's `column`: while the
-/// system's sidebar material shows (`frosted`), the whole window one piece with the sidebar, the
-/// frame around the panes' panels too (P5-95); else the sidebar's colour over its column and the
-/// frame elsewhere, over the strip the title bar's whole row.
+/// The layers under everything in a window `window` big, by the sidebar's `column`: the sidebar's
+/// colour over its column and the frame elsewhere, over the strip the title bar's whole row. While
+/// the system's sidebar material shows (`frosted`), the column is washed and the frame shaded over
+/// it, a step darker than the sidebar (P5-95c).
 fn under(
     column: Bounds<Pixels>,
     frosted: bool,
     window: Size<Pixels>,
 ) -> Vec<(Under, Bounds<Pixels>)> {
-    if frosted {
-        return vec![(Under::Wash, Bounds::new(point(px(0.0), px(0.0)), window))];
-    }
-    let mut layers = vec![(Under::Sidebar, column)];
+    let (sidebar, frame) = if frosted {
+        (Under::Wash, Under::Shade)
+    } else {
+        (Under::Sidebar, Under::Frame)
+    };
+    let mut layers = vec![(sidebar, column)];
     if column.top() > px(0.0) {
         layers.push((
-            Under::Frame,
+            frame,
             Bounds::new(point(px(0.0), px(0.0)), size(window.width, column.top())),
         ));
     }
     layers.push((
-        Under::Frame,
+        frame,
         Bounds::new(
             point(column.right(), column.top()),
             size(window.width - column.right(), window.height - column.top()),
@@ -699,9 +707,6 @@ fn under(
 struct Across {
     /// Where the panes' card starts: a seam after the sidebar or the strip, on the frame.
     panes: f32,
-    /// The middle of the seam after the sidebar or the strip, where the line between them lies
-    /// over the material (P5-95b).
-    rule: f32,
     /// The middle of the seam after the sidebar, which its grip takes; none beside the strip.
     left_grip: Option<f32>,
     /// The middle of the seam before the right sidebar's card, when it is open.
@@ -714,7 +719,6 @@ fn across(window: f32, sidebar: f32, collapsed: bool, right: Option<f32>) -> Acr
     let half = CARD_GAP / 2.0;
     Across {
         panes: sidebar + CARD_GAP,
-        rule: sidebar + half,
         left_grip: (!collapsed).then_some(sidebar + half),
         right_grip: right.map(|width| window - CARD_GAP - width - half),
     }
@@ -1576,19 +1580,6 @@ impl PaddockWindow {
         } else {
             self.sidebar_width
         }
-    }
-
-    /// The line between the sidebar or the strip and the panes, centred on `x`, as faint as the
-    /// panes' rims: over the material nothing else parts them (P5-95b). It runs as the cards do,
-    /// from the title bar's bottom edge to a seam above the window's.
-    fn seam_rule(&self, x: f32) -> Div {
-        div()
-            .absolute()
-            .top_0()
-            .bottom(px(CARD_GAP))
-            .left(px(x - DIVIDER / 2.0))
-            .w(px(DIVIDER))
-            .bg(self.fg(|t| t.agents_text).opacity(PANEL_RIM))
     }
 
     /// Where the sidebar is taken by to resize it: a few points either side of a line in the seam
@@ -3109,6 +3100,7 @@ impl PaddockWindow {
                                 Under::Sidebar => sidebar,
                                 Under::Wash => wash,
                                 Under::Frame => frame,
+                                Under::Shade => frame.opacity(FRAME_SHADE),
                             })
                     }),
             )
@@ -5930,8 +5922,6 @@ impl Render for PaddockWindow {
             .flex_row()
             .child(self.sidebar.clone())
             .child(cards)
-            // Over the material, before the grip, which lights over it.
-            .when(frosted, |body| body.child(self.seam_rule(seams.rule)))
             .children(seams.left_grip.map(|x| self.grip(x, cx)))
             .children(seams.right_grip.map(|x| self.right_grip(x, cx)));
         // The `+N` menu goes once every tab has room again.
@@ -6774,27 +6764,20 @@ mod tests {
     }
 
     #[test]
-    fn over_the_material_the_whole_window_is_one_piece_with_the_sidebar() {
+    fn over_the_material_the_frame_is_shaded_beside_the_sidebar() {
         let base = UiFont::default();
         let window = size(px(1200.0), px(800.0));
-        let whole = Bounds::new(point(px(0.0), px(0.0)), window);
-        // Frosted, expanded or collapsed: one wash over the whole window, the frame around the
-        // panes' panels and the title bar's row too (P5-95).
-        for collapsed in [false, true] {
-            let column = sidebar_column(collapsed, 300.0, TITLE_BAR, window, &base);
-            assert_eq!(under(column, true, window), vec![(Under::Wash, whole)]);
-        }
+        let right = Bounds::new(point(px(300.0), px(0.0)), size(px(900.0), px(800.0)));
+        let row = Bounds::new(point(px(0.0), px(0.0)), size(px(1200.0), px(TITLE_BAR)));
+        let beside = Bounds::new(
+            point(px(52.0), px(TITLE_BAR)),
+            size(px(1148.0), px(800.0 - TITLE_BAR)),
+        );
         // Opaque (full screen): the sidebar's colour over its column, the frame beside it.
         let column = sidebar_column(false, 300.0, TITLE_BAR, window, &base);
         assert_eq!(
             under(column, false, window),
-            vec![
-                (Under::Sidebar, column),
-                (
-                    Under::Frame,
-                    Bounds::new(point(px(300.0), px(0.0)), size(px(900.0), px(800.0)))
-                ),
-            ]
+            vec![(Under::Sidebar, column), (Under::Frame, right)]
         );
         // Collapsed: the title bar's whole row is the frame, over the strip too.
         let strip = sidebar_column(true, 300.0, TITLE_BAR, window, &base);
@@ -6802,17 +6785,22 @@ mod tests {
             under(strip, false, window),
             vec![
                 (Under::Sidebar, strip),
-                (
-                    Under::Frame,
-                    Bounds::new(point(px(0.0), px(0.0)), size(px(1200.0), px(TITLE_BAR)))
-                ),
-                (
-                    Under::Frame,
-                    Bounds::new(
-                        point(px(52.0), px(TITLE_BAR)),
-                        size(px(1148.0), px(800.0 - TITLE_BAR))
-                    )
-                ),
+                (Under::Frame, row),
+                (Under::Frame, beside)
+            ]
+        );
+        // Frosted: the same pieces, the column washed and the frame shaded over the material, a
+        // step darker than the sidebar (P5-95c).
+        assert_eq!(
+            under(column, true, window),
+            vec![(Under::Wash, column), (Under::Shade, right)]
+        );
+        assert_eq!(
+            under(strip, true, window),
+            vec![
+                (Under::Wash, strip),
+                (Under::Shade, row),
+                (Under::Shade, beside)
             ]
         );
     }
@@ -6825,7 +6813,6 @@ mod tests {
             across(1200.0, 300.0, false, Some(400.0)),
             Across {
                 panes: 308.0,
-                rule: 304.0,
                 left_grip: Some(304.0),
                 right_grip: Some(788.0),
             }
@@ -6834,17 +6821,15 @@ mod tests {
             across(1200.0, 300.0, false, None),
             Across {
                 panes: 308.0,
-                rule: 304.0,
                 left_grip: Some(304.0),
                 right_grip: None,
             }
         );
-        // Beside the strip: a seam before the card too, its line in the middle, and no grip there.
+        // Beside the strip: a seam before the card too, and no grip there.
         assert_eq!(
             across(1200.0, 52.0, true, Some(400.0)),
             Across {
                 panes: 60.0,
-                rule: 56.0,
                 left_grip: None,
                 right_grip: Some(788.0),
             }
