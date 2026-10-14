@@ -93,8 +93,10 @@ pub enum NewAgentEvent {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 enum Menu {
     Project,
-    /// The kind, its model and its effort.
+    /// The kind.
     Agent,
+    /// The kind's model and effort, for a kind that has them (P5-99).
+    Model,
     Place,
     /// The presets with no room in the row, from its `+N`.
     Presets,
@@ -1060,8 +1062,8 @@ impl NewAgentView {
         }
     }
 
-    /// The foot: project, agent, where it opens and the Controller switch; then `</>` and the
-    /// start button.
+    /// The foot: project, kind, its model and effort, where it opens and the Controller switch;
+    /// then `</>` and the start button.
     fn foot(&self, ui: &UiFont, cx: &mut Context<Self>) -> Div {
         let tool = self.form.tool;
         let text = self.fg(|t| t.agents_text);
@@ -1073,29 +1075,36 @@ impl NewAgentView {
             .menu_chip("chip-project", Menu::Project, ui, cx)
             .child(footer_icon::icon(Icon::Folder, dim, s))
             .child(project_name(&self.form.project));
-        let mut agent = self
+        let chevron = |menu: Menu| {
+            stroke_icon(
+                if self.open == Some(menu) {
+                    CHEVRON_UP
+                } else {
+                    CHEVRON_DOWN
+                },
+                false,
+                dim,
+                ui.scale(12.0),
+                2.0,
+            )
+        };
+        // The kind, and beside it its model and effort when it has them to choose (P5-99).
+        let agent = self
             .menu_chip("chip-agent", Menu::Agent, ui, cx)
             .pl(ui.px(9.0))
             .pr(ui.px(10.0))
-            .child(self.kind_icon(tool, 16.0, ui));
-        agent = match (&self.form.model, &self.form.effort) {
-            (model, effort) if tool.has_models() => agent
-                .child(model.clone().unwrap_or_else(|| "model".into()))
+            .child(self.kind_icon(tool, 16.0, ui))
+            .child(tool.label())
+            .child(chevron(Menu::Agent));
+        let model = tool.has_models().then(|| {
+            self.menu_chip("chip-model", Menu::Model, ui, cx)
+                .pl(ui.px(12.0))
+                .pr(ui.px(10.0))
+                .child(self.form.model.clone().unwrap_or_else(|| "model".into()))
                 .child(div().text_color(dimmer).child("·"))
-                .child(effort.clone().unwrap_or_else(|| "effort".into())),
-            _ => agent.child(tool.label()),
-        };
-        let agent = agent.child(stroke_icon(
-            if self.open == Some(Menu::Agent) {
-                CHEVRON_UP
-            } else {
-                CHEVRON_DOWN
-            },
-            false,
-            dim,
-            ui.scale(12.0),
-            2.0,
-        ));
+                .child(self.form.effort.clone().unwrap_or_else(|| "effort".into()))
+                .child(chevron(Menu::Model))
+        });
         let place = self
             .menu_chip("chip-place", Menu::Place, ui, cx)
             .child(footer_icon::icon(Icon::Panes, dim, s))
@@ -1189,6 +1198,7 @@ impl NewAgentView {
                     .gap(ui.px(6.0))
                     .child(project)
                     .child(agent)
+                    .children(model)
                     .child(place)
                     .child(role),
             )
@@ -1253,16 +1263,15 @@ impl NewAgentView {
             )
     }
 
-    /// The picker under the agent chip: the kinds, then the model and effort as segments for a
-    /// kind that has them. It stays open while choosing.
-    fn picker_rows(&self, ui: &UiFont, cx: &mut Context<Self>) -> Vec<AnyElement> {
+    /// The picker under the kind chip: the kinds. A pick closes it.
+    fn kind_rows(&self, ui: &UiFont, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let tool = self.form.tool;
         let text = self.fg(|t| t.agents_text);
         let branch = self.fg(|t| t.agents_branch);
         let dimmer = self.fg(|t| t.agents_dimmer);
         let accent = self.fg(|t| t.agents_accent);
         let lit = popover::lit(&self.theme);
-        let mut rows: Vec<AnyElement> = Tool::ALL
+        Tool::ALL
             .into_iter()
             .enumerate()
             .map(|(index, kind)| {
@@ -1307,14 +1316,22 @@ impl NewAgentView {
                         if this.form.tool != kind {
                             this.form.pick_tool(kind);
                         }
+                        this.open = None;
                         this.changed(cx);
                     }))
                     .into_any_element()
             })
-            .collect();
-        if !tool.has_models() {
-            return rows;
-        }
+            .collect()
+    }
+
+    /// The picker under the model chip: the kind's model and effort as segments. It stays open
+    /// while choosing.
+    fn model_rows(&self, ui: &UiFont, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let tool = self.form.tool;
+        let text = self.fg(|t| t.agents_text);
+        let branch = self.fg(|t| t.agents_branch);
+        let accent = self.fg(|t| t.agents_accent);
+        let mut rows = Vec::new();
         let heading = |label: &'static str| {
             div()
                 .flex_shrink_0()
@@ -1352,7 +1369,6 @@ impl NewAgentView {
                 })
                 .child(label)
         };
-        rows.push(popover::rule(&self.theme, ui).into_any_element());
         rows.push(heading("Model").into_any_element());
         let mut models = div().flex_shrink_0().flex().gap(ui.px(4.0)).px(ui.px(6.0));
         for (index, &(model, _)) in tool.models().iter().enumerate() {
@@ -1402,9 +1418,9 @@ impl NewAgentView {
     fn menu(&self, menu: Menu, ui: &UiFont, window: &Window, cx: &mut Context<Self>) -> Div {
         let anchor = self.spots.borrow().get(&menu).copied().unwrap_or_default();
         let (width, hang) = match menu {
-            Menu::Agent => (PICKER, Hang::BelowLeft),
+            Menu::Model => (PICKER, Hang::BelowLeft),
             Menu::Presets => (MENU, Hang::BelowRight),
-            Menu::Project | Menu::Place => (MENU, Hang::BelowLeft),
+            Menu::Project | Menu::Agent | Menu::Place => (MENU, Hang::BelowLeft),
         };
         let placed = popover::hang(
             anchor,
@@ -1456,7 +1472,8 @@ impl NewAgentView {
                 );
                 (Some("Project"), rows)
             }
-            Menu::Agent => (None, self.picker_rows(ui, cx)),
+            Menu::Agent => (None, self.kind_rows(ui, cx)),
+            Menu::Model => (None, self.model_rows(ui, cx)),
             Menu::Place => {
                 let split = match self.form.place {
                     Place::Split(direction) => Some(direction),
@@ -1577,7 +1594,7 @@ impl NewAgentView {
             .overflow_y_scroll()
             .occlude()
             .whitespace_normal()
-            .when(menu == Menu::Agent, |panel| {
+            .when(matches!(menu, Menu::Agent | Menu::Model), |panel| {
                 panel.p(ui.px(8.0)).gap(ui.px(2.0)).rounded(ui.px(14.0))
             })
             .children(title.map(|title| popover::heading(&self.theme, ui, title)))
