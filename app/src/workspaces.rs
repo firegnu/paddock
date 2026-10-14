@@ -30,6 +30,15 @@ pub struct Workspace {
     pub agents: Vec<String>,
 }
 
+impl Workspace {
+    /// Where its `New Agent…` starts (P5-93): its first whole repository by name.
+    pub fn first_repo(&self) -> Option<&Path> {
+        (self.repos.iter())
+            .min_by_key(|repo| kanban_repos::name(repo))
+            .map(PathBuf::as_path)
+    }
+}
+
 /// Why a name will not do.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NameError {
@@ -236,6 +245,17 @@ impl Workspaces {
         });
         let only = named.next()?;
         named.next().is_none().then_some(only.name.as_str())
+    }
+
+    /// An agent started from `workspace`'s own `New Agent…` (P5-93), in `repo`, the main
+    /// worktree of the repository it works in (none outside Git): recorded there by itself
+    /// unless it is there already, its repository left where it is. Whether it was recorded.
+    pub fn join(&mut self, workspace: &str, agent: &str, repo: Option<&Path>) -> bool {
+        if self.get(workspace).is_none() || self.of(agent, repo, "") == Some(workspace) {
+            return false;
+        }
+        self.add_agent(workspace, agent);
+        true
     }
 }
 

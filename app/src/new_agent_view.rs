@@ -68,6 +68,10 @@ pub struct Seed {
     pub project: String,
     /// The agents there are, by full name, so the name made up is a free one.
     pub names: Vec<String>,
+    /// Opened from a workspace (P5-93): its name, for the agent to join it, and the directory to
+    /// start in whatever was typed before.
+    pub workspace: Option<String>,
+    pub start_in: Option<String>,
 }
 
 pub enum NewAgentEvent {
@@ -76,6 +80,8 @@ pub enum NewAgentEvent {
         started: Started,
         cwd: String,
         place: Place,
+        /// The workspace it was opened from, for the agent to join (P5-93).
+        workspace: Option<String>,
     },
     /// Esc, ⌘W or a click on the dimmed window: the panel goes, what was typed stays.
     Close,
@@ -116,6 +122,8 @@ pub struct NewAgentView {
     naming_preset: bool,
     show_command: bool,
     busy: bool,
+    /// The workspace it was opened from (P5-93).
+    workspace: Option<String>,
     error: Option<String>,
     focus: FocusHandle,
     _subscriptions: Vec<Subscription>,
@@ -212,7 +220,7 @@ impl NewAgentView {
     pub fn new(seed: Seed, place: Place, cx: &mut Context<Self>) -> Self {
         let config_path = crate::config::default_path();
         let presets = new_agent::presets(&Config::load(&config_path).unwrap_or_default());
-        let mut form = Form::new(seed.project, place);
+        let mut form = Form::new(seed.start_in.unwrap_or(seed.project), place);
         form.set_names(seed.names);
         // Opens set as a regular Claude agent at its deepest model and normal effort.
         form.pick_tool(Tool::Claude);
@@ -287,6 +295,7 @@ impl NewAgentView {
             naming_preset: false,
             show_command: false,
             busy: false,
+            workspace: seed.workspace,
             error: None,
             focus: cx.focus_handle(),
             _subscriptions: subscriptions,
@@ -294,9 +303,14 @@ impl NewAgentView {
     }
 
     /// Opened again: the agents and their projects as they are now, and from `+` or the split
-    /// button, open there. What was typed and chosen stays.
+    /// button, open there. What was typed and chosen stays, but for the directory when a
+    /// workspace says where to start.
     pub fn reopen(&mut self, seed: Seed, place: Place, cx: &mut Context<Self>) {
         self.form.set_names(seed.names);
+        if let Some(project) = seed.start_in {
+            self.set_project(project, cx);
+        }
+        self.workspace = seed.workspace;
         self.projects = seed.projects;
         if !self.projects.contains(&self.form.project) {
             self.projects.insert(0, self.form.project.clone());
@@ -497,6 +511,8 @@ impl NewAgentView {
         self.busy = true;
         self.error = None;
         cx.notify();
+        // As it is now: the panel may be opened again, from elsewhere, while corral starts it.
+        let workspace = self.workspace.clone();
         let corral = self.corral.clone();
         let task = cx.background_spawn(async move { new_agent::start(&corral, &args) });
         cx.spawn_in(window, async move |this, cx| {
@@ -512,6 +528,7 @@ impl NewAgentView {
                             started,
                             cwd,
                             place,
+                            workspace,
                         });
                     }
                     Err(error) => this.error = Some(format!("{error:#}")),

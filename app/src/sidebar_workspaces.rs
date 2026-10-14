@@ -10,7 +10,11 @@ use crate::{
     workspaces::{self, Picks, Workspaces},
 };
 use gpui::{Anchor, Focusable, PathPromptOptions, Subscription, anchored, deferred};
-use std::{collections::HashMap, path::PathBuf, sync::atomic::AtomicBool};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+    sync::atomic::AtomicBool,
+};
 
 // Sizes, in points at the base interface size.
 /// The tray: its corners, the room it keeps at its sides and foot, and above its title.
@@ -195,6 +199,54 @@ impl Sidebar {
             self.note(format!("Workspaces not saved: {error}"), true, cx);
         }
         cx.notify();
+    }
+
+    /// `workspace`'s `New Agent…` (P5-93): the panel, starting in `repo`, else in its first
+    /// repository, else where it would anyway; the agent it starts joins the workspace.
+    fn new_agent_in(
+        &mut self,
+        workspace: &str,
+        repo: Option<PathBuf>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.close_floating(window, cx);
+        self.reload_workspaces();
+        let start_in = repo.or_else(|| {
+            let workspace = self.listing.panel.workspaces.get(workspace)?;
+            workspace.first_repo().map(Path::to_path_buf)
+        });
+        cx.emit(SidebarEvent::NewAgentIn {
+            workspace: workspace.to_owned(),
+            start_in: start_in.map(|repo| repo.display().to_string()),
+        });
+    }
+
+    /// `agent` was started in `cwd` from `workspace`'s `New Agent…` (P5-93): once Git, off the UI
+    /// thread, has said which repository that is, the agent joins the workspace by itself unless
+    /// its repository brings it.
+    pub fn join_started(
+        &mut self,
+        workspace: &str,
+        agent: &str,
+        cwd: &str,
+        cx: &mut Context<Self>,
+    ) {
+        let (workspace, agent, dir) = (workspace.to_owned(), agent.to_owned(), cwd.to_owned());
+        cx.spawn(async move |this, cx| {
+            let repo = cx
+                .background_executor()
+                .spawn(
+                    async move { activity::main_repository("git", &dir, &AtomicBool::new(false)) },
+                )
+                .await;
+            let _ = this.update(cx, |sidebar, cx| {
+                sidebar.edit_workspaces(cx, |workspaces| {
+                    workspaces.join(&workspace, &agent, repo.as_deref());
+                });
+            });
+        })
+        .detach();
     }
 
     // What floats.
@@ -550,14 +602,81 @@ impl Sidebar {
             .into_any_element()
     }
 
-    /// A whole repository of a workspace with no agent now, or (`None`) a workspace with nothing
-    /// to list: a faint line.
-    pub(super) fn vacant(&self, repo: Option<String>, cx: &mut Context<Self>) -> AnyElement {
+    /// A whole repository of `workspace` with no agent now, or (`None`) a workspace with nothing
+    /// to list: a faint line, and a way to start an agent there (P5-93): for the repository a `+`
+    /// while the pointer is on the line, for the empty workspace a `New Agent` button.
+    pub(super) fn vacant(
+        &self,
+        workspace: &str,
+        repo: Option<String>,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let ui = UiFont::get(cx);
-        let dimmer = hsla(self.theme.fg(|t| t.agents_dimmer), 1.0);
-        div()
+        let fg = |pick: Pick| hsla(self.theme.fg(pick), 1.0);
+        let dimmer = fg(|t| t.agents_dimmer);
+        let accent = fg(|t| t.agents_accent);
+        let lit = accent.opacity(0.18);
+        let hover: SharedString =
+            format!("vacant-{workspace}-{}", repo.as_deref().unwrap_or_default()).into();
+        let path = repo.as_ref().and_then(|repo| {
+            let members = &self.listing.panel.workspaces.get(workspace)?.repos;
+            members
+                .iter()
+                .find(|path| kanban_repos::name(path) == *repo)
+                .cloned()
+        });
+        let on_click = {
+            let workspace = workspace.to_owned();
+            cx.listener(move |this, _: &ClickEvent, window, cx| {
+                this.new_agent_in(&workspace, path.clone(), window, cx)
+            })
+        };
+        let button = div()
+            .id(SharedString::from(format!("{hover}-new-agent")))
+            .flex_shrink_0()
             .flex()
-            .items_baseline()
+            .items_center()
+            .justify_center()
+            .h(ui.px(20.0))
+            .rounded(ui.px(5.0))
+            .cursor_pointer()
+            .hover(move |style| style.bg(lit))
+            .on_click(on_click);
+        let button = match &repo {
+            Some(repo) => {
+                let tip = Tip {
+                    text: format!("New Agent in {repo}").into(),
+                    size: ui.px(NOTE_SIZE),
+                    color: fg(|t| t.agents_text),
+                    background: hsla(self.theme.bg(|t| t.agents_bg), 1.0),
+                    border: fg(|t| t.agents_rule),
+                };
+                button
+                    .w(ui.px(20.0))
+                    .tooltip(move |_, cx| cx.new(|_| tip.clone()).into())
+                    .opacity(0.0)
+                    .group_hover(hover.clone(), |style| style.opacity(1.0))
+                    .child(footer_icon::icon(
+                        Icon::Plus,
+                        accent,
+                        ui.scale(12.0 / footer_icon::SIZE),
+                    ))
+            }
+            None => button
+                .gap(ui.px(4.0))
+                .px(ui.px(6.0))
+                .text_color(accent)
+                .child(footer_icon::icon(
+                    Icon::NewAgent,
+                    accent,
+                    ui.scale(12.0 / footer_icon::SIZE),
+                ))
+                .child("New Agent"),
+        };
+        div()
+            .group(hover)
+            .flex()
+            .items_center()
             .gap(ui.px(6.0))
             .px(px(4.0))
             .py(px(2.0))
@@ -569,6 +688,9 @@ impl Sidebar {
                     .child(repo)
             }))
             .child(div().text_color(dimmer.opacity(0.6)).child("No agents"))
+            .child(div().flex_1())
+            // No taller than the line's words: the button lies over it, not in it.
+            .child(div().h(px(0.0)).flex().items_center().child(button))
             .into_any_element()
     }
 
@@ -886,6 +1008,12 @@ impl Sidebar {
             &self.floating,
             Some(Floating::Workspace { removing: true, .. })
         );
+        let new_agent = {
+            let name = name.to_owned();
+            cx.listener(move |this, _: &ClickEvent, window, cx| {
+                this.new_agent_in(&name, None, window, cx)
+            })
+        };
         let rename = {
             let name = name.to_owned();
             cx.listener(move |this, _: &ClickEvent, window, cx| {
@@ -925,6 +1053,17 @@ impl Sidebar {
         self.floated(popover::panel(theme, ui), "workspace-menu", cx)
             .w(ui.px(WORKSPACE_MENU))
             .mt(ui.px(4.0))
+            .child(
+                popover::row(
+                    theme,
+                    ui,
+                    "workspace-new-agent",
+                    Icon::NewAgent,
+                    "New Agent…",
+                    popover::Tone::Plain,
+                )
+                .on_click(new_agent),
+            )
             .child(
                 popover::lead_row(theme, ui, "workspace-rename", pencil, false)
                     .child(div().flex_1().child("Rename"))
