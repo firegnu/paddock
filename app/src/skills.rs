@@ -21,8 +21,30 @@ struct Options {
     remove: bool,
     dry: bool,
     yes: bool,
+    /// Where Claude Code keeps its settings, when not `~/.claude`: `CLAUDE_CONFIG_DIR`, as corral reads it.
+    claude_dir: Option<PathBuf>,
+    /// The places to look at, by `install-skills --target` name; all when empty.
+    targets: Vec<String>,
 }
 
+/// paddock's skill at `targets` (every place when empty), reported as `install-skills` reports
+/// it: only looked at, or with `write` also written, as the person confirmed in Settings.
+pub fn install(targets: &[String], write: bool) -> Result<Value> {
+    let home = PathBuf::from(std::env::var_os("HOME").context("HOME is not set")?);
+    let options = Options {
+        dry: !write,
+        claude_dir: claude_dir(),
+        targets: targets.to_vec(),
+        ..Default::default()
+    };
+    run_at(&home, &options, |_| Ok(true))
+}
+/// `CLAUDE_CONFIG_DIR` when set, as corral and Claude Code read it.
+fn claude_dir() -> Option<PathBuf> {
+    std::env::var_os("CLAUDE_CONFIG_DIR")
+        .filter(|dir| !dir.is_empty())
+        .map(PathBuf::from)
+}
 pub fn run(args: Vec<String>) -> i32 {
     let result =
         execute(args).unwrap_or_else(|e| crate::control::error("install_skills", format!("{e:#}")));
@@ -32,10 +54,13 @@ pub fn run(args: Vec<String>) -> i32 {
 fn execute(args: Vec<String>) -> Result<Value> {
     if args == ["--help"] || args == ["-h"] {
         return Ok(
-            json!({"ok":true,"help":"paddock install-skills [--yes] [--dry-run] [--remove]\nWrites only owned paddock skills in ~/.claude/skills and ~/.agents/skills."}),
+            json!({"ok":true,"help":"paddock install-skills [--yes] [--dry-run] [--remove]\nWrites only owned paddock skills in ~/.claude/skills ($CLAUDE_CONFIG_DIR/skills when set) and ~/.agents/skills."}),
         );
     }
-    let mut options = Options::default();
+    let mut options = Options {
+        claude_dir: claude_dir(),
+        ..Default::default()
+    };
     for arg in args {
         let flag = match arg.as_str() {
             "--yes" => &mut options.yes,
@@ -115,6 +140,26 @@ fn status(path: &Path, home: &Path, remove: bool) -> Result<&'static str> {
         })
     }
 }
+/// Where the skill goes, by `install-skills --target` name: Claude Code's settings folder and
+/// `~/.agents`, the Agent Skills folder Codex, pi and omp read. Each comes with the folder its
+/// checks stop at: home, or a Claude settings folder outside it.
+fn places(home: &Path, options: &Options) -> Vec<(&'static str, PathBuf, PathBuf)> {
+    let claude = (options.claude_dir.clone()).unwrap_or_else(|| home.join(".claude"));
+    [("claude", claude), ("codex", home.join(".agents"))]
+        .into_iter()
+        .filter(|(target, _)| {
+            options.targets.is_empty() || options.targets.iter().any(|t| t == target)
+        })
+        .map(|(target, base)| {
+            let root = if base.starts_with(home) {
+                home.to_owned()
+            } else {
+                base.clone()
+            };
+            (target, root, base.join("skills/paddock/SKILL.md"))
+        })
+        .collect()
+}
 fn run_at(
     home: &Path,
     options: &Options,
@@ -135,10 +180,9 @@ fn run_at_with(
     let mut items = Vec::new();
     let mut warnings = Vec::new();
     let mut snapshots = Vec::new();
-    for (agent, base) in [("claude", ".claude"), ("codex", ".agents")] {
-        let path = home.join(base).join("skills/paddock/SKILL.md");
-        snapshots.push(files::Snapshot::capture(home, &path)?);
-        let state = status(&path, home, options.remove)?;
+    for (agent, root, path) in places(home, options) {
+        snapshots.push((files::Snapshot::capture(&root, &path)?, root.clone()));
+        let state = status(&path, &root, options.remove)?;
         if state == "foreign" {
             warnings.push(format!(
                 "{} is not an owned regular skill file; left in place",
@@ -167,13 +211,13 @@ fn run_at_with(
         result["error"] = json!({"code":"confirmation_required","message":"nothing written; confirm interactively or pass --yes"});
         return Ok(result);
     }
-    for (item, snapshot) in todo {
+    for (item, (snapshot, root)) in todo {
         let path = PathBuf::from(item["path"].as_str().unwrap());
         anyhow::ensure!(
-            status(&path, home, options.remove)? == item["status"].as_str().unwrap(),
+            status(&path, root, options.remove)? == item["status"].as_str().unwrap(),
             "skill changed after planning; rerun install-skills"
         );
-        files::apply(home, &path, snapshot, options.remove, &mut before_publish)
+        files::apply(root, &path, snapshot, options.remove, &mut before_publish)
             .with_context(|| format!("refused skill change: {}", path.display()))?;
     }
     result["written"] = json!(true);
@@ -190,6 +234,45 @@ mod tests {
         ));
         fs::create_dir(&path).unwrap();
         path
+    }
+    #[test]
+    fn claude_config_dir_moves_the_claude_skill() {
+        let home = home();
+        let options = Options {
+            claude_dir: Some(home.join("config")),
+            ..Default::default()
+        };
+        let result = run_at(&home, &options, |_| Ok(true)).unwrap();
+        let path = home.join("config/skills/paddock/SKILL.md");
+        assert_eq!(result["items"][0]["path"], json!(path));
+        assert_eq!(fs::read_to_string(&path).unwrap(), BODY);
+        assert!(!home.join(".claude").exists());
+    }
+    #[test]
+    fn a_claude_config_dir_outside_home_is_written_too() {
+        let (home, outside) = (home(), self::home());
+        let options = Options {
+            claude_dir: Some(outside.clone()),
+            ..Default::default()
+        };
+        run_at(&home, &options, |_| Ok(true)).unwrap();
+        assert_eq!(
+            fs::read_to_string(outside.join("skills/paddock/SKILL.md")).unwrap(),
+            BODY
+        );
+    }
+    #[test]
+    fn targets_name_the_only_places_it_looks_at() {
+        let home = home();
+        let options = Options {
+            targets: vec!["codex".into()],
+            ..Default::default()
+        };
+        let result = run_at(&home, &options, |_| Ok(true)).unwrap();
+        assert_eq!(result["items"].as_array().unwrap().len(), 1);
+        assert_eq!(result["items"][0]["agent"], "codex");
+        assert!(home.join(".agents/skills/paddock/SKILL.md").exists());
+        assert!(!home.join(".claude").exists());
     }
     #[test]
     fn foreign_files_are_never_overwritten() {

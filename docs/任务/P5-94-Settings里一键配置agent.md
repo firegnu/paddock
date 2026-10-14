@@ -39,11 +39,13 @@ Settings 的 Agents 页，在 corral 一节下面加一节 `Integrations`，像 
 - 不碰 agy、amp（P5-88 和以后“全局安装”那一档）；不碰 cairn；不做读屏兜底；不做卸载。
 - 不改 ranch，只调它的公开命令；不读 corral、ranch 的内部状态。
 
-## 主控另拿的主意（待用户定）
+## 主控另拿的主意（用户已同意）
 1. 调哪个 corral：用 Settings 里 `corral command` 那一项（和 paddock 别处一样）；ranch 用 PATH 上的 `ranch`。
 2. 找不到 `ranch`：`corral-dispatch` 不算进按钮，Skills 旁边小字写 `ranch not found`，其他照常。
 3. 装完在 Settings 底部的消息条报一句（如 `Updated 1 file for pi`），失败红字带原因，沿用现有消息条。
 4. 窗口窄到三列放不下时，Status、Skills 挪到名字下面一行。
+
+用户 10-14：“四条都同意，开始吧”。
 
 ## 讨论记录（10-14，由旧到新）
 
@@ -92,3 +94,25 @@ Settings 的 Agents 页，在 corral 一节下面加一节 `Integrations`，像 
 - 10-14 ranch/main 回报（用户转来）：R3「corral 恢复适配器结构」已合并、推送、收尾（ranch main `7b761e7`）：`crates/corral/src/agents/`，`mod.rs` 是 `Adapter` 接口和登记表 `ADAPTERS`，claude、codex、pi、omp 各一个文件；行为逐字节不变（快照测试），公开约定都没变，paddock 不用动。ranch DESIGN §7 记了结构和用户“全局配置可以放宽”的条件（R3 没写这部分代码）。用户已部署：`~/.local/bin/corral`、`ranch` 指向 `versions/7b761e7`，`corral upgrade --all` 把 6 个在跑的 agent 的 pen 原地换了；退回办法是把链接切回 `versions/d55defb`。下一步：可以给 ranch 写只读 `corral integration status --json` 的需求了（还没写）。
 - 用户 10-14 问四家能不能也像 herdr 那样做，指出“pi和omp不支持技能？我记得这四家现在都一样的。”主控核实：pi 读 `~/.agents/skills`，omp 读 `.agents/skills`、`.claude/skills`、`~/.codex/skills`；corral 的 `--target codex` 实际装到共用的 `~/.agents/skills`，四家都能用技能。主控提议本件收窄为四家：每行找到没有（路径、版本）、状态集成 `Built in`（启动时挂上，无按钮）、技能 Install／Update（调现有 `install-skills`）；名单和每家的技能目录由 corral 给出。用户问了这条命令的用途后：“按你的建议，先给ranch提这条命令”。主控 10-14 用 `corral send` 交给 `ranch/main`（request_id ad74b40e-a20e-42bb-aad2-e242fc2bbd3b，送达，回执 `merged_with_draft: true`，对方开始起草 R4）：只读 `corral integration status --json`，每家报种类、找到没有、版本（可选）、接法、技能目录和装没装；`--target codex` 命名由 ranch 定；不做 install/uninstall、全局钩子、agy、amp、读屏兜底。本件等它合并、写进公开约定后再定范围开工。
 - 10-14 ranch/main 回报（用户转来）：R4 已合并（`b0e3b6f`，收尾 `653c5b2`）、部署（`~/.local/bin/corral`、`ranch` 指向 `versions/653c5b2`，退回切 `7b761e7`）。约定在 ranch `docs/CONTRACT.md`「corral integration status（R4）」：命令没有 `--json`（corral 都只出一行 JSON，带了报 usage）；输出 `{"ok":true,"agents":[{kind, path, version, hooks, skills:[{target, path, status}]}]}`，按登记顺序；`path` 按调用者 PATH 找；`version` 是 `--version` 第一行、每家最多 3 秒、拿不到为 null；`hooks` 现在都是 `launch`，以后有别的值要能显示；`skills.status` 同 `install-skills --dry-run`（create／same／overwrite／foreign）；位置 claude＝`$CLAUDE_CONFIG_DIR` 或 `~/.claude`（Claude Code、omp 读），codex＝`~/.agents`（Codex、pi、omp 读）；只读。`--target codex` 没改名。主控本机跑过，四家路径、版本、技能都对。
+
+## 完成记录
+
+2026-10-14，paddock/main 自己做。
+- 做了什么：
+  - 新模块 `app/src/integrations.rs`（不依赖 GPUI）：读 `corral integration status`（agent、位置、corral 技能）、`ranch dispatch install-skills --dry-run`（corral-dispatch）、paddock 自己的技能空跑；算每行显示什么（`rows`）、按钮会写什么（`plan`：哪些技能装到哪个位置、哪些文件新建或替换、写进哪个技能目录、还有哪几家也读）；照计划跑 `corral install-skills --target <位置> --yes`、`ranch dispatch install-skills --target <位置> --yes`、paddock 自己装（`install`），一步失败就停、报“技能: 原因”。
+  - `app/src/skills.rs`：位置改成按 `--target` 名字（claude、codex）挑；claude 的位置认 `CLAUDE_CONFIG_DIR`（在 HOME 外面时检查到它自己为止）；加 `skills::install(targets, write)` 给 Settings 用；命令行的帮助写上 `$CLAUDE_CONFIG_DIR`。
+  - `app/src/settings_integrations.rs`（`settings_view.rs` 的子模块）：Agents 页 corral 一节下面的 Integrations：标题旁 Refresh／`Checking…`／`Installing…`，列名（窄于 520pt 时不画、Status 和 Skills 挪到名字下面），每行名字和版本、`Built in` 绿签、Skills 的 `Up to date`（绿勾）／`Install`／`Update` 按钮和黄字说明／`Not managed`／`—`，没找到的整行变淡；卡片下两行淡字；读失败一句红点错误。确认框盖在 Settings 窗口上（点暗处或 Cancel 关），写明文件、目录、共用的几家。装完用底部消息条报结果再重读。
+  - `settings_view.rs`：切到 Agents 页时读；Agents 页加这一节；窗口上加确认框。
+  - `docs/DESIGN.md`：§3 公开约定表加一行（`corral integration status`、两条 install-skills）；§13 加 P5-94 一条。
+- 验证了什么：
+  - 先写测试看它失败再实现：`skills.rs` 三个（`CLAUDE_CONFIG_DIR` 在 HOME 里、在 HOME 外，`targets` 只看指定位置），先看到断言失败（路径还是 `~/.claude`、条数 2）；`integrations.rs` 十六个（解析、出错、名单顺序、不认识的 hooks、共用位置一起 Update、全没装是 Install 不带说明、缺和变合在一句、foreign 不算、没有 ranch、计划只写需要的、两个位置都写，以及用假 corral／ranch 脚本读、ranch 找不到或出错、corral 找不到或旧版不认识命令、装的时候每步的命令行、一步失败就停），存根时失败、实现后通过；`settings_integrations.rs` 一个（英文列举、单复数）。
+  - 用一个临时小程序（跑完删了）对本机真的 corral、ranch 只读读了一次：四家路径、版本对，`Built in`，技能都 `Up to date`，没有按钮，和 `corral integration status`、`ranch dispatch install-skills --dry-run` 的输出一致。没有在本机真装过技能。
+  - `app/` 下 `cargo test --all-targets` 全过（库内 490 个，加各集成测试）、`cargo clippy --all-targets -- -D warnings`、`cargo fmt --check`、`git diff --check` 通过。
+  - 没起窗口、没截图；页面样子、窄窗口、确认框和真点一次 Update，留给用户实际看。
+- 拿主意的地方：
+  - 说明里每个技能各说一次（`corral-dispatch changed, paddock missing`），不合并同类。
+  - 按钮在读或装的时候变淡、点不了；装的时候标题旁写 `Installing…`。
+  - 确认框只能点 Cancel 或点暗处关，没接 Esc。
+  - corral 的 `version` 原样显示（Claude Code 是 `2.1.299 (Claude Code)`），不去掉括号。
+  - paddock 技能在 HOME 外的 `CLAUDE_CONFIG_DIR`：那个目录要已经存在，不然装的时候报错（不替用户建它）。
+- 没做的事：卸载；agy、amp（P5-88）；`paddock install-skills` 命令行没加 `--target`（Settings 直接调函数）。
