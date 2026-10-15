@@ -122,3 +122,9 @@
 - 重跑一次 `cargo test --all-targets`：全过，库内 533 条，合计 633 条（回复里说 653，对不上 20 条，完成记录里没写总数；不影响结论）。
 - 取舍：文件名照 CONTRACT 写死（同意，CONTRACT 改了要跟着改）；`overwrite` 说“has changed”（同意）；只有空白算空（同意）。
 - 建议改（不挡合并，交用户定）：New Agent 底部 `empty task starts it idle` 对 agy 不对；paddock 技能没装到 gemini 位置，agy 读不到 paddock 技能。
+
+## 实测（10-15，用户在场，验收第 5 条）
+- 用户重开 paddock，从 Settings › Integrations 装了 agy 插件；`corral integration status`：agy 1.3.5，install `same`、`enabled: true`，gemini 技能 `same`。
+- 主控开 `paddock/test-agy`（`--label role=test`、`--prompt` 一句、`-- agy`，临时目录）：→ idle，回复「你好，我是 agy。」。
+- 要它跑 `echo hi > hello.txt`：working → blocked（批准框没点，文件没建）。第一次送时用户正开着它的窗格，`corral send` 回 `human_active`，用户退出后再送成功。
+- 用户在侧栏看过：“看过了，停掉吧，插件留着”。主控已 `corral stop paddock/test-agy`；插件留在 `~/.gemini/config/plugins/corral`。
