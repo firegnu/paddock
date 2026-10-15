@@ -19,7 +19,7 @@ use crate::{
     footer_icon::{self, Icon},
     kanban::{self, Board, Cache, Card, Column, Doer, Priority, Read, Seen, Tone},
     kanban_repos::{self, Looking, Row},
-    kind_icon, markdown, markdown_view, menu, popover,
+    kind_icon, markdown, markdown_view, menu, popover, raised,
     right_panel::Tip,
     text_input::{self, Changed, TextInput},
     theme::Theme,
@@ -79,10 +79,8 @@ const END_GAP: f32 = 6.0;
 /// out to 8pt from the panel's edge as the Cairn tab's does, the words stay where they were
 /// (P5-116).
 const HEAD_X: f32 = 8.0;
-/// A group's box in the narrow list: its face and edge in the text colour, its corner and the room
-/// inside its edge; a row's face while the mouse is on it.
-const BOX_FACE: f32 = 0.035;
-const BOX_EDGE: f32 = 0.12;
+/// A group's box in the narrow list, raised as the Cairn tab's (P5-117, `raised`): its corner and
+/// the room inside its edge; a row's face while the mouse is on it.
 const BOX_RADIUS: f32 = 10.0;
 const BOX_PAD: f32 = 2.0;
 /// A widened board's column: its face, in the faint colour.
@@ -1657,7 +1655,6 @@ impl KanbanView {
 
     /// Narrow: the five groups one above another, each folding.
     fn list(&self, board: &Board, fit: &Fit, ui: &UiFont, cx: &mut Context<Self>) -> Stateful<Div> {
-        let c = self.colors;
         let ids = self.id_width(board, fit, ui);
         let mut list = div()
             .id("kanban-list")
@@ -1684,11 +1681,13 @@ impl KanbanView {
                 let rows = if column == Column::Done {
                     rows.px(ui.px(BOX_PAD) + px(1.0))
                 } else {
+                    let raised = raised::raised(&self.theme, ui);
                     rows.p(ui.px(BOX_PAD))
                         .rounded(ui.px(BOX_RADIUS))
-                        .bg(c.text.opacity(BOX_FACE))
+                        .bg(raised.face)
                         .border_1()
-                        .border_color(c.text.opacity(BOX_EDGE))
+                        .border_color(raised.edge)
+                        .shadow(raised.shadows)
                 };
                 let mut cards = div()
                     .flex_shrink_0()
@@ -2164,7 +2163,7 @@ impl KanbanView {
     fn ring(&self, place: Place, hovered: bool) -> Hsla {
         let c = self.colors;
         let ground = match place {
-            Place::List => c.ground.blend(c.text.opacity(BOX_FACE)),
+            Place::List => raised::face(&self.theme),
             Place::Tile => c.ground.blend(c.faint.opacity(COLUMN_FACE)),
         };
         if hovered {
