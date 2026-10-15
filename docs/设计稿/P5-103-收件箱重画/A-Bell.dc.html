@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Inbox, hanging from the bell</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+button{font:inherit;color:inherit;cursor:pointer}
+textarea::placeholder{color:#6f8781}
+</style>
+</helmet>
+<div style="position: relative; width: 1200px; height: 720px; overflow: hidden; background: #0c1514; font-family: -apple-system, 'SF Pro Text', 'Helvetica Neue', sans-serif; color: #dfe9e5">
+  <div style="position: absolute; left: 0; top: 0; width: 260px; height: 720px; background: #13211f">
+    <div style="display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 12px">
+      <span style="width: 11px; height: 11px; border-radius: 6px; background: #ff5f57"></span>
+      <span style="width: 11px; height: 11px; border-radius: 6px; background: #febc2e"></span>
+      <span style="width: 11px; height: 11px; border-radius: 6px; background: #28c840"></span>
+      <span style="margin-left: 10px; font-size: 13px; font-weight: 600">Agents</span>
+      <span style="font-size: 11px; color: #8fa39d">2</span>
+      <button aria-label="Inbox" style="margin-left: auto; position: relative; width: 26px; height: 26px; border: 0; border-radius: 7px; background: rgba(255,255,255,0.10); display: flex; align-items: center; justify-content: center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#dfe9e5" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"></path><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"></path></svg><span style="position: absolute; top: 3px; right: 4px; width: 6px; height: 6px; border-radius: 3px; background: #7fd3bf"></span></button>
+    </div>
+    <div style="margin: 14px 10px 0; height: 64px; border-radius: 10px; background: rgba(255,255,255,0.05)"></div>
+    <div style="margin: 8px 10px 0; height: 64px; border-radius: 10px; background: rgba(255,255,255,0.04)"></div>
+  </div>
+  <div style="position: absolute; left: 268px; top: 8px; right: 8px; bottom: 8px; border-radius: 12px; background: #0f1a19; border: 1px solid rgba(255,255,255,0.06); padding: 56px 28px 0; box-sizing: border-box; display: flex; flex-direction: column; gap: 14px">
+    <div style="width: 70%; height: 8px; border-radius: 4px; background: rgba(255,255,255,0.06)"></div>
+    <div style="width: 52%; height: 8px; border-radius: 4px; background: rgba(255,255,255,0.06)"></div>
+    <div style="width: 64%; height: 8px; border-radius: 4px; background: rgba(255,255,255,0.06)"></div>
+    <div style="width: 40%; height: 8px; border-radius: 4px; background: rgba(255,255,255,0.06)"></div>
+    <div style="width: 58%; height: 8px; border-radius: 4px; background: rgba(255,255,255,0.06)"></div>
+    <div style="width: 74%; height: 8px; border-radius: 4px; background: rgba(255,255,255,0.06)"></div>
+    <div style="width: 46%; height: 8px; border-radius: 4px; background: rgba(255,255,255,0.06)"></div>
+  </div>
+
+  <div style="position: absolute; left: 238px; top: 46px; width: 800px; height: 392px; display: flex; border-radius: 14px; overflow: hidden; background: #1a2c29; border: 1px solid rgba(255,255,255,0.10); box-shadow: 0 1px 0 rgba(255,255,255,0.04) inset, 0 24px 64px rgba(0,0,0,0.6), 0 2px 8px rgba(0,0,0,0.3)">
+    <div style="width: 276px; flex-shrink: 0; display: flex; flex-direction: column; background: rgba(0,0,0,0.16)">
+      <div style="display: flex; align-items: center; gap: 8px; padding: 14px 14px 10px 16px">
+        <span style="font-size: 15px; font-weight: 600">Inbox</span>
+        <span style="min-width: 18px; height: 18px; padding: 0 5px; box-sizing: border-box; border-radius: 9px; background: rgba(127,211,191,0.18); color: #7fd3bf; font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center">1</span>
+        <span style="margin-left: auto; display: flex; gap: 3px">
+          <span style="height: 18px; min-width: 18px; padding: 0 4px; box-sizing: border-box; border-radius: 5px; background: rgba(255,255,255,0.06); font-size: 11px; color: #8fa39d; display: inline-flex; align-items: center; justify-content: center">⇧</span>
+          <span style="height: 18px; min-width: 18px; padding: 0 4px; box-sizing: border-box; border-radius: 5px; background: rgba(255,255,255,0.06); font-size: 11px; color: #8fa39d; display: inline-flex; align-items: center; justify-content: center">⌘</span>
+          <span style="height: 18px; min-width: 18px; padding: 0 4px; box-sizing: border-box; border-radius: 5px; background: rgba(255,255,255,0.06); font-size: 11px; color: #8fa39d; display: inline-flex; align-items: center; justify-content: center">A</span>
+        </span>
+      </div>
+      <div style="flex-grow: 1; display: flex; flex-direction: column; gap: 2px; padding: 0 8px">
+        <div style="padding: 8px 8px 4px; font-size: 11.5px; font-weight: 500; color: #7fd3bf">New replies</div>
+        <button style="display: flex; gap: 10px; align-items: flex-start; padding: 10px; border: 0; border-radius: 10px; background: rgba(127,211,191,0.11); text-align: left">
+          <span style="position: relative; flex-shrink: 0; width: 26px; height: 26px; border-radius: 7px; background: #d97757"><span style="position: absolute; right: -3px; bottom: -3px; width: 9px; height: 9px; border-radius: 5px; background: #8fa39d; border: 2px solid #1d332f"></span></span>
+          <span style="flex-grow: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px">
+            <span style="display: flex; align-items: baseline; gap: 6px"><span style="font-size: 13px; font-weight: 600; color: #ffffff">main</span><span style="font-size: 12px; color: #8fa39d">ranch</span><span style="margin-left: auto; font-size: 11.5px; color: #8fa39d">10s</span><span style="width: 7px; height: 7px; border-radius: 4px; background: #7fd3bf; align-self: center"></span></span>
+            <span style="font-size: 12.5px; color: #b9c8c3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Done, standing by. One commit is still unpushed…</span>
+          </span>
+        </button>
+        <div style="padding: 12px 8px 4px; font-size: 11.5px; font-weight: 500; color: #6f8781">Read</div>
+        <button style="display: flex; gap: 10px; align-items: flex-start; padding: 10px; border: 0; border-radius: 10px; background: transparent; text-align: left">
+          <span style="position: relative; flex-shrink: 0; width: 26px; height: 26px; border-radius: 7px; background: #d97757; opacity: 0.8"><span style="position: absolute; right: -3px; bottom: -3px; width: 9px; height: 9px; border-radius: 5px; background: #6aa9ff; border: 2px solid #182825"></span></span>
+          <span style="flex-grow: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px">
+            <span style="display: flex; align-items: baseline; gap: 6px"><span style="font-size: 13px; font-weight: 600; color: #b9c8c3">main</span><span style="font-size: 12px; color: #6f8781">paddock</span><span style="margin-left: auto; font-size: 11.5px; color: #6f8781">51s</span></span>
+            <span style="font-size: 12.5px; color: #6aa9ff">Working</span>
+          </span>
+        </button>
+      </div>
+      <div style="display: flex; gap: 14px; padding: 10px 16px 12px; font-size: 11px; color: #6f8781"><span>⌃Tab next</span><span>Esc close</span></div>
+    </div>
+
+    <div style="flex-grow: 1; min-width: 0; display: flex; flex-direction: column">
+      <div style="display: flex; align-items: center; gap: 11px; padding: 14px 14px 12px 20px">
+        <span style="flex-shrink: 0; width: 32px; height: 32px; border-radius: 9px; background: #d97757"></span>
+        <span style="display: flex; flex-direction: column; gap: 2px">
+          <span style="font-size: 14.5px; font-weight: 600">ranch/main</span>
+          <span style="font-size: 12px; color: #8fa39d"><span style="color: #7fd3bf">New reply</span> · Idle · 10s ago</span>
+        </span>
+        <button style="margin-left: auto; display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border: 0; border-radius: 8px; background: rgba(255,255,255,0.06); font-size: 12px; color: #b9c8c3">Open pane<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#8fa39d" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17L17 7M9 7h8v8"></path></svg></button>
+      </div>
+      <div style="flex-grow: 1; padding: 6px 28px 0 63px; font-size: 14px; line-height: 1.65; color: #dfe9e5">Done, standing by. One commit on main is still unpushed (<span style="font-family: ui-monospace, monospace; font-size: 12.5px; padding: 1px 5px; border-radius: 4px; background: rgba(255,255,255,0.07)">8ff4d38</span>); I'll run gitleaks and trufflehog before the next push.</div>
+      <div style="margin: 0 14px 14px; padding: 10px 10px 10px 14px; border-radius: 14px; background: rgba(0,0,0,0.18); border: 1px solid rgba(255,255,255,0.08); display: flex; align-items: flex-end; gap: 10px">
+        <label for="reply" style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Reply</label>
+        <textarea id="reply" placeholder="Reply to ranch/main…" style="flex-grow: 1; height: 44px; resize: none; border: 0; outline: none; background: transparent; padding: 4px 0; font: inherit; font-size: 13.5px; line-height: 1.5; color: #dfe9e5"></textarea>
+        <span style="flex-shrink: 0; padding-bottom: 7px; font-size: 11px; color: #6f8781">⇧↩ new line</span>
+        <button aria-label="Send" style="flex-shrink: 0; width: 30px; height: 30px; border: 0; border-radius: 15px; background: rgba(255,255,255,0.08); display: flex; align-items: center; justify-content: center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6f8781" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"></path></svg></button>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1200,"height":720}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>
