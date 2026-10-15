@@ -19,9 +19,17 @@ const LIST: f32 = 290.0;
 const REPLY_MIN: f32 = 320.0;
 /// Of the panel's height, the most the list takes when it is above the reply.
 const LIST_ABOVE: f32 = 0.4;
+/// The panel's corners, and the least it is as tall (P5-103).
+const RADIUS: f32 = 14.0;
+const LEAST: f32 = 300.0;
+/// The agent's tile over its reply, the room before it and after it; the reply starts in line with
+/// the name after it.
+const AVATAR: f32 = 32.0;
+const SIDE: f32 = 20.0;
+const GAP: f32 = 11.0;
 /// The reply box: its least height, its text's size and line height, and how many lines it grows
 /// to before it scrolls.
-const BOX_MIN: f32 = 54.0;
+const BOX_MIN: f32 = 44.0;
 const BOX_TEXT: f32 = 13.0;
 const BOX_LINE: f32 = 1.5;
 const BOX_LINES: f32 = 6.0;
@@ -114,6 +122,7 @@ enum Showing {
 /// The selected agent as its reply, its banner and its reply box go by it.
 struct Reading {
     name: String,
+    kind: Option<String>,
     status: Status,
     /// Since it came to this state.
     age: Option<String>,
@@ -376,9 +385,18 @@ impl PaddockWindow {
         }
     }
 
+    /// The panel's ground, a shade lighter than the panels it shares a look with so that it
+    /// stands off the window (P5-103), and the list's, a shade darker than that.
+    fn inbox_grounds(&self) -> (Hsla, Hsla) {
+        let text = self.fg(|t| t.agents_text);
+        let panel = popover::ground(&self.theme).blend(text.opacity(0.03));
+        let shade = hsla(self.theme.bg(|t| t.agents_bg), 1.0);
+        (panel, panel.blend(shade.opacity(0.5)))
+    }
+
     /// The Inbox, hanging from the bell: the list, and beside it the selected row's reply and the
-    /// reply box. In a window too narrow for both the list goes above. Esc or a click outside
-    /// closes it.
+    /// reply box; as tall as they are, up to its height. In a window too narrow for both the list
+    /// goes above. Esc or a click outside closes it.
     pub(super) fn inbox_panel(
         &self,
         window: &Window,
@@ -390,33 +408,58 @@ impl PaddockWindow {
         let placed = self.placed(Popup::Attention, WIDTH, window, cx);
         let above = placed.width < ui.scale(LIST + REPLY_MIN);
         let height = ui.scale(HEIGHT).min(placed.max_height);
-        let rule = popover::edge_rule(theme);
+        let text = self.fg(|t| t.agents_text);
+        let (ground, list_ground) = self.inbox_grounds();
+        // Inside the edge, so the list's ground keeps to the corners.
+        let inner = ui.px(RADIUS - 1.0);
         let list = self
             .inbox_list(open, &ui, cx)
             .flex_shrink_0()
-            .border_color(rule)
+            .bg(list_ground)
             .map(|list| {
                 if above {
-                    list.max_h(px(height * LIST_ABOVE)).border_b_1()
+                    list.max_h(px(height * LIST_ABOVE)).rounded_t(inner)
                 } else {
-                    list.w(ui.px(LIST)).border_r_1()
+                    list.w(ui.px(LIST)).rounded_l(inner)
                 }
             });
         let reply = self.inbox_reply(open, window, &ui, cx);
         let body = div()
-            .flex_1()
+            .flex_grow(1.0)
+            .flex_shrink(1.0)
             .min_h(px(0.0))
             .flex()
             .map(|body| if above { body.flex_col() } else { body })
             .child(list)
             .child(reply);
         let panel = popover::panel(theme, &ui)
+            .p(px(0.0))
+            .rounded(ui.px(RADIUS))
+            .border_color(text.opacity(0.10))
+            .bg(ground)
+            .shadow(vec![
+                BoxShadow {
+                    color: gpui::black().opacity(0.6),
+                    offset: point(px(0.0), ui.px(24.0)),
+                    blur_radius: ui.px(64.0),
+                    spread_radius: px(0.0),
+                    inset: false,
+                },
+                BoxShadow {
+                    color: gpui::black().opacity(0.3),
+                    offset: point(px(0.0), ui.px(2.0)),
+                    blur_radius: ui.px(8.0),
+                    spread_radius: px(0.0),
+                    inset: false,
+                },
+            ])
             .id("inbox")
             .track_focus(&open.focus)
             .absolute()
             .left(px(placed.left))
             .w(px(placed.width))
-            .h(px(height))
+            .min_h(px(ui.scale(LEAST).min(height)))
+            .max_h(px(height))
             .map(|panel| match (placed.top, placed.bottom) {
                 (Some(top), _) => panel.top(px(top)),
                 (None, bottom) => panel.bottom(px(bottom.unwrap_or_default())),
@@ -443,15 +486,19 @@ impl PaddockWindow {
         )
     }
 
-    /// The list: `Inbox` and how many rows ring the bell, then the rows under their groups'
-    /// names, each with its icon and status, name, project and age, and its line under them.
+    /// The list: `Inbox`, how many rows ring the bell and its keys, then the rows under their
+    /// groups' names, each with its icon and status, name, project and age, and its line under
+    /// them; along its foot the keys that move and close.
     fn inbox_list(&self, open: &Open, ui: &UiFont, cx: &mut Context<Self>) -> Div {
-        let theme = &*self.theme;
         let now = now();
-        let (lit, ground) = (popover::lit(theme), popover::ground(theme));
         let text = self.fg(|t| t.agents_text);
         let dim = self.fg(|t| t.agents_dim);
         let dimmer = self.fg(|t| t.agents_dimmer);
+        let accent = self.fg(|t| t.agents_accent);
+        let amber = self.fg(|t| t.agents_yellow);
+        let (_, ground) = self.inbox_grounds();
+        let lit = ground.blend(accent.opacity(0.11));
+        let hover = ground.blend(text.opacity(0.04));
         let (count, facts): (usize, Vec<RowFacts>) = {
             let sidebar = self.sidebar.read(cx);
             let (panel, error) = (sidebar.panel(), sidebar.read_error());
@@ -482,45 +529,79 @@ impl PaddockWindow {
             });
             (ringing.len(), facts.collect())
         };
+        let cap = |key: String| {
+            div()
+                .flex_shrink_0()
+                .h(ui.px(18.0))
+                .min_w(ui.px(18.0))
+                .px(ui.px(4.0))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(ui.px(5.0))
+                .bg(text.opacity(0.06))
+                .text_size(ui.px(11.0))
+                .text_color(dim)
+                .child(key)
+        };
         let header = div()
             .flex_shrink_0()
             .flex()
-            .items_baseline()
+            .items_center()
             .gap(ui.px(8.0))
-            .px(ui.px(9.0))
-            .pt(ui.px(7.0))
-            .pb(ui.px(6.0))
-            .child(div().font_weight(FontWeight::SEMIBOLD).child("Inbox"))
+            .pl(ui.px(16.0))
+            .pr(ui.px(14.0))
+            .pt(ui.px(14.0))
+            .pb(ui.px(8.0))
+            .child(
+                div()
+                    .text_size(ui.px(15.0))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(text)
+                    .child("Inbox"),
+            )
             .when(count > 0, |header| {
                 header.child(
                     div()
-                        .text_size(ui.px(12.0))
-                        .text_color(dimmer)
+                        .flex_shrink_0()
+                        .h(ui.px(18.0))
+                        .min_w(ui.px(18.0))
+                        .px(ui.px(5.0))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .rounded_full()
+                        .bg(accent.opacity(0.18))
+                        .text_size(ui.px(11.0))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(accent)
                         .child(count.to_string()),
                 )
             })
             .child(div().flex_1())
             .child(
                 div()
-                    .text_size(ui.px(11.5))
-                    .text_color(dimmer.opacity(0.8))
-                    .child(menu::keys(&menu::ShowAttention).concat()),
+                    .flex()
+                    .gap(ui.px(3.0))
+                    .children(menu::keys(&menu::ShowAttention).into_iter().map(cap)),
             );
         let mut list = div()
             .id("inbox-rows")
             .track_scroll(&open.rows)
             .flex()
             .flex_col()
-            .flex_1()
+            .flex_grow(1.0)
+            .flex_shrink(1.0)
             .min_h(px(0.0))
-            .pr(ui.px(5.0))
+            .gap(ui.px(2.0))
+            .px(ui.px(8.0))
             .overflow_y_scroll();
         if facts.is_empty() {
             list = list.child(
                 div()
-                    .px(ui.px(9.0))
-                    .pb(ui.px(8.0))
-                    .text_size(ui.px(12.0))
+                    .px(ui.px(8.0))
+                    .py(ui.px(6.0))
+                    .text_size(ui.px(12.5))
                     .text_color(dim)
                     .child("No controllers, and nothing needs you."),
             );
@@ -529,21 +610,36 @@ impl PaddockWindow {
         let mut group = None;
         for (index, (row, facts)) in open.list.rows().iter().zip(facts).enumerate() {
             if group != Some(row.group) {
+                let ink = match row.group {
+                    Group::Needs => amber,
+                    Group::New => accent,
+                    Group::Read => dimmer,
+                };
+                list = list.child(
+                    div()
+                        .flex_shrink_0()
+                        .px(ui.px(8.0))
+                        .pt(ui.px(if group.is_none() { 4.0 } else { 12.0 }))
+                        .pb(ui.px(4.0))
+                        .text_size(ui.px(11.5))
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(ink)
+                        .child(row.group.title()),
+                );
                 group = Some(row.group);
-                list = list.child(popover::heading(theme, ui, row.group.title()));
             }
             // Its kind and status before its name, ringed in the row's ground.
             let (under, hovered) = if index == selected {
                 (lit, None)
             } else {
-                let hovered = ground.blend(lit.opacity(0.6));
-                (ground, Some((SharedString::from(ROW), hovered)))
+                (ground, Some((SharedString::from(ROW), hover)))
             };
             let dot = if facts.quiet {
                 facts.dot.opacity(0.45)
             } else {
                 facts.dot
             };
+            let unread = row.group == Group::New && !facts.quiet;
             let badge = self.agent_mark(facts.kind.as_deref(), dot, under, hovered, ui);
             let first = div()
                 .flex()
@@ -575,13 +671,23 @@ impl PaddockWindow {
                         .text_size(ui.px(11.5))
                         .text_color(dimmer)
                         .child(age)
-                }));
+                }))
+                .when(unread, |line| {
+                    line.child(
+                        div()
+                            .flex_shrink_0()
+                            .self_center()
+                            .size(ui.px(7.0))
+                            .rounded_full()
+                            .bg(accent),
+                    )
+                });
             let ink = self.inbox_ink(facts.line.tone);
             let said = facts.line.sent.is_some();
             let second = div()
                 .flex()
                 .gap(ui.px(5.0))
-                .text_size(ui.px(12.0))
+                .text_size(ui.px(12.5))
                 .when(facts.quiet, |line| line.opacity(0.7))
                 .child(
                     div()
@@ -613,16 +719,15 @@ impl PaddockWindow {
                 .flex_shrink_0()
                 .flex()
                 .items_start()
-                .gap(ui.px(9.0))
-                .px(ui.px(9.0))
-                .py(ui.px(8.0))
-                .rounded(ui.px(7.0))
+                .gap(ui.px(10.0))
+                .p(ui.px(10.0))
+                .rounded(ui.px(10.0))
                 .cursor_pointer()
                 .map(|item| {
                     if index == selected {
                         item.bg(lit)
                     } else {
-                        item.hover(move |style| style.bg(lit.opacity(0.6)))
+                        item.hover(move |style| style.bg(hover))
                     }
                 })
                 .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
@@ -635,18 +740,31 @@ impl PaddockWindow {
                         .min_w(px(0.0))
                         .flex()
                         .flex_col()
-                        .gap(ui.px(2.0))
+                        .gap(ui.px(3.0))
                         .child(first)
                         .child(second),
                 );
             list = list.child(item);
         }
+        let keys = div()
+            .flex_shrink_0()
+            .flex()
+            .gap(ui.px(14.0))
+            .pl(ui.px(16.0))
+            .pt(ui.px(10.0))
+            .pb(ui.px(12.0))
+            .whitespace_nowrap()
+            .text_size(ui.px(11.0))
+            .text_color(dimmer)
+            .child("⌃Tab next")
+            .child("Esc close");
         div()
             .flex()
             .flex_col()
             .min_h(px(0.0))
             .child(header)
             .child(list)
+            .child(keys)
     }
 
     /// What the right side shows, gathered from the sidebar's listing.
@@ -667,6 +785,7 @@ impl PaddockWindow {
         let sent = self.inbox.sent.get(name);
         Showing::Agent(Box::new(Reading {
             name: name.clone(),
+            kind: agent.kind.clone(),
             status: inbox::status(panel, agent, sent, now),
             age: agent
                 .state_started
@@ -681,9 +800,10 @@ impl PaddockWindow {
         }))
     }
 
-    /// The right side: the agent's name, how it is and since when, and `Open pane`; its last
-    /// reply as Markdown, under a banner when it shows a prompt or is in error, and over what was
-    /// just sent to it; then the reply box, or why there is none, and the keys.
+    /// The right side: the agent's icon and name, how it is and since when under the name, and
+    /// `Open pane`; its last reply as Markdown, in line with the name, under a banner when it
+    /// shows a prompt or is in error, and over what was just sent to it; then the reply box, or
+    /// why there is none, in one rounded well with the send button.
     fn inbox_reply(
         &self,
         open: &Open,
@@ -693,13 +813,15 @@ impl PaddockWindow {
     ) -> Div {
         let theme = &*self.theme;
         let now = now();
-        let (lit, ground) = (popover::lit(theme), popover::ground(theme));
-        let rule = popover::edge_rule(theme);
+        let (ground, _) = self.inbox_grounds();
+        let text = self.fg(|t| t.agents_text);
+        let branch = self.fg(|t| t.agents_branch);
         let dim = self.fg(|t| t.agents_dim);
         let dimmer = self.fg(|t| t.agents_dimmer);
         let accent = self.fg(|t| t.agents_accent);
         let amber = self.fg(|t| t.agents_yellow);
         let red = self.fg(|t| t.agents_red);
+        let shade = hsla(theme.bg(|t| t.agents_bg), 1.0);
         let showing = self.inbox_showing(open, cx);
         let column = div()
             .flex_1()
@@ -708,167 +830,194 @@ impl PaddockWindow {
             .flex()
             .flex_col()
             .whitespace_normal();
-        let pill = |label: &'static str, ink: Hsla| {
+        // The agent's icon on a faint tile; a dot of `dot` for one without an icon.
+        let avatar = |kind: Option<&str>, dot: Hsla| {
+            let icon = kind.and_then(kind_icon::of).map(|icon| {
+                icon.render(
+                    ui.px(20.0),
+                    self.fg(card::brand(kind.unwrap_or_default()).color),
+                )
+            });
             div()
                 .flex_shrink_0()
-                .px(ui.px(7.0))
-                .py(ui.px(1.0))
-                .rounded_full()
-                .bg(ink.opacity(0.14))
-                .text_color(ink)
-                .text_size(ui.px(11.0))
-                .font_weight(FontWeight::MEDIUM)
-                .child(label)
+                .size(ui.px(AVATAR))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(ui.px(9.0))
+                .bg(text.opacity(0.06))
+                .child(icon.unwrap_or_else(|| plain_dot(dot, ui)))
         };
-        let head = |name: String| {
+        // Under the name: the parts given, each in its colour, with dots between.
+        let about = |parts: Vec<(String, Hsla)>| {
+            div()
+                .flex()
+                .gap(ui.px(5.0))
+                .text_size(ui.px(12.0))
+                .children(
+                    parts
+                        .into_iter()
+                        .enumerate()
+                        .flat_map(|(at, (words, ink))| {
+                            let dot = (at > 0).then(|| div().text_color(dimmer).child("·"));
+                            dot.into_iter()
+                                .chain(Some(div().text_color(ink).child(words)))
+                        }),
+                )
+        };
+        let head = |name: String, avatar: Div, about: Option<Div>| {
             div()
                 .flex_shrink_0()
                 .flex()
                 .items_center()
-                .gap(ui.px(8.0))
-                .h(ui.px(38.0))
-                .px(ui.px(14.0))
-                .border_b_1()
-                .border_color(rule)
+                .gap(ui.px(GAP))
+                .pl(ui.px(SIDE))
+                .pr(ui.px(14.0))
+                .pt(ui.px(14.0))
+                .pb(ui.px(10.0))
                 .whitespace_nowrap()
+                .child(avatar)
                 .child(
                     div()
                         .flex_shrink(1.0)
                         .min_w(px(0.0))
-                        .overflow_hidden()
-                        .text_ellipsis()
-                        .text_size(ui.px(14.0))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .child(name),
+                        .flex()
+                        .flex_col()
+                        .gap(ui.px(2.0))
+                        .child(
+                            div()
+                                .overflow_hidden()
+                                .text_ellipsis()
+                                .text_size(ui.px(14.5))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .child(name),
+                        )
+                        .children(about),
                 )
         };
-        let hints = |hints: &[(&'static str, &'static str)]| {
+        let says = |words: String, ink: Hsla| {
+            div()
+                .flex_1()
+                .min_h(px(0.0))
+                .pl(ui.px(SIDE + AVATAR + GAP))
+                .pr(ui.px(28.0))
+                .py(ui.px(6.0))
+                .text_color(ink)
+                .child(words)
+        };
+        // The rounded well the reply box sits in, and under it why the last reply was refused.
+        let well = |lit: bool| {
             div()
                 .flex()
-                .gap(ui.px(14.0))
-                .whitespace_nowrap()
-                .text_size(ui.px(11.5))
-                .text_color(dimmer.opacity(0.8))
-                .children(hints.iter().map(|(keys, what)| {
-                    div()
-                        .flex()
-                        .gap(ui.px(4.0))
-                        .child(keys.to_string())
-                        .child(what.to_string())
-                }))
+                .items_end()
+                .gap(ui.px(10.0))
+                .pl(ui.px(14.0))
+                .pr(ui.px(8.0))
+                .py(ui.px(8.0))
+                .rounded(ui.px(14.0))
+                .border_1()
+                .border_color(if lit {
+                    accent.opacity(0.5)
+                } else {
+                    text.opacity(0.08)
+                })
+                .bg(shade.opacity(0.6))
         };
         let foot = || {
             div()
                 .flex_shrink_0()
                 .flex()
                 .flex_col()
-                .gap(ui.px(7.0))
+                .gap(ui.px(6.0))
                 .px(ui.px(14.0))
-                .pt(ui.px(10.0))
-                .pb(ui.px(7.0))
-                .border_t_1()
-                .border_color(rule)
+                .pb(ui.px(14.0))
         };
-        let moving: &[(&'static str, &'static str)] = &[("⌃Tab", "Next"), ("Esc", "Close")];
-        let says = |words: String, ink: Hsla| {
-            div()
-                .flex_1()
-                .min_h(px(0.0))
-                .px(ui.px(14.0))
-                .py(ui.px(12.0))
-                .text_color(ink)
-                .child(words)
-        };
-        // Where a reply is typed when it can be: why not, in a dashed frame.
+        // Where a reply is typed when it can be: why not, in the well.
         let closed = |why: &'static str| {
-            div()
-                .min_h(ui.px(BOX_MIN))
-                .flex()
-                .items_center()
-                .justify_center()
-                .px(ui.px(10.0))
-                .rounded(ui.px(8.0))
-                .border_1()
-                .border_dashed()
-                .border_color(rule)
-                .text_size(ui.px(12.5))
-                .text_color(dim)
-                .child(why)
-        };
-        let send = |label: &'static str| {
-            div()
-                .id("inbox-send")
-                .flex_shrink_0()
-                .h(ui.px(26.0))
-                .px(ui.px(12.0))
-                .flex()
-                .items_center()
-                .rounded(ui.px(6.0))
-                .text_size(ui.px(12.0))
-                .font_weight(FontWeight::SEMIBOLD)
-                .bg(lit)
-                .text_color(dimmer)
-                .child(label)
+            well(false).child(
+                div()
+                    .flex_1()
+                    .min_h(ui.px(BOX_MIN))
+                    .flex()
+                    .items_center()
+                    .text_size(ui.px(12.5))
+                    .text_color(dim)
+                    .child(why),
+            )
         };
         let reading = match showing {
             Showing::Nothing => {
-                return column.child(says("Nothing to read.".into(), dim));
+                return column.child(
+                    div()
+                        .px(ui.px(SIDE))
+                        .py(ui.px(16.0))
+                        .text_color(dim)
+                        .child("Nothing to read."),
+                );
             }
             Showing::ReadFailed(error) => {
                 return column
-                    .child(head("corral".into()).child(pill("Error", red)))
-                    .child(says(error, red))
-                    .child(foot().child(hints(moving)));
+                    .child(head(
+                        "corral".into(),
+                        avatar(None, red),
+                        Some(about(vec![("Error".into(), red)])),
+                    ))
+                    .child(says(error, red));
             }
             Showing::Gone(name) => {
-                return column.child(head(name)).child(div().flex_1()).child(
-                    foot()
-                        .child(closed(inbox::composer(None).err().unwrap_or_default()))
-                        .child(hints(moving)),
-                );
+                return column
+                    .child(head(name, avatar(None, dimmer), None))
+                    .child(div().flex_grow(1.0))
+                    .child(foot().child(closed(inbox::composer(None).err().unwrap_or_default())));
             }
             Showing::Agent(reading) => *reading,
         };
 
+        let mut facts = Vec::new();
+        if let Some((label, tone)) = inbox::pill(reading.status, reading.new) {
+            let ink = match tone {
+                inbox::Tone::New => accent,
+                tone => self.inbox_ink(tone),
+            };
+            facts.push((label.to_owned(), ink));
+        }
+        if let Some(age) = &reading.age {
+            facts.push((format!("{age} ago"), dimmer));
+        }
         let open_pane =
             cx.listener(|this, _: &ClickEvent, window, cx| this.open_inbox_pane(window, cx));
-        let header = head(reading.name.clone())
-            .children(
-                inbox::pill(reading.status, reading.new).map(|(label, tone)| {
-                    pill(
-                        label,
-                        match tone {
-                            inbox::Tone::New => accent,
-                            tone => self.inbox_ink(tone),
-                        },
-                    )
-                }),
-            )
-            .children(reading.age.map(|age| {
-                div()
-                    .flex_shrink_0()
-                    .text_size(ui.px(11.5))
-                    .text_color(dimmer)
-                    .child(format!("{age} ago"))
-            }))
-            .child(div().flex_1())
-            .child(
-                div()
-                    .id("inbox-open")
-                    .flex_shrink_0()
-                    .h(ui.px(24.0))
-                    .px(ui.px(9.0))
-                    .flex()
-                    .items_center()
-                    .rounded(ui.px(6.0))
-                    .border_1()
-                    .border_color(rule)
-                    .text_size(ui.px(12.0))
-                    .cursor_pointer()
-                    .hover(move |style| style.bg(lit))
-                    .on_click(open_pane)
-                    .child("Open pane"),
-            );
+        let header = head(
+            reading.name.clone(),
+            avatar(
+                reading.kind.as_deref(),
+                self.fg(card::look(reading.status).color),
+            ),
+            (!facts.is_empty()).then(|| about(facts)),
+        )
+        .child(div().flex_1())
+        .child(
+            div()
+                .id("inbox-open")
+                .flex_shrink_0()
+                .h(ui.px(28.0))
+                .px(ui.px(10.0))
+                .flex()
+                .items_center()
+                .gap(ui.px(6.0))
+                .rounded(ui.px(8.0))
+                .bg(text.opacity(0.06))
+                .text_size(ui.px(12.0))
+                .text_color(branch)
+                .cursor_pointer()
+                .hover(move |style| style.bg(text.opacity(0.10)).text_color(text))
+                .on_click(open_pane)
+                .child("Open pane")
+                .child(footer_icon::icon(
+                    Icon::External,
+                    dim,
+                    ui.scale(11.0 / footer_icon::SIZE),
+                )),
+        );
 
         // Over the reply of an agent that cannot be answered here: why, and the way to its pane.
         let banner = match reading.status {
@@ -895,10 +1044,8 @@ impl PaddockWindow {
                 .gap(ui.px(10.0))
                 .px(ui.px(12.0))
                 .py(ui.px(10.0))
-                .rounded(ui.px(8.0))
-                .border_1()
-                .border_color(ink.opacity(0.35))
-                .bg(ink.opacity(0.08))
+                .rounded(ui.px(10.0))
+                .bg(ink.opacity(0.10))
                 .child(
                     div()
                         .flex_shrink_0()
@@ -929,7 +1076,7 @@ impl PaddockWindow {
                         .px(ui.px(10.0))
                         .flex()
                         .items_center()
-                        .rounded(ui.px(6.0))
+                        .rounded(ui.px(7.0))
                         .bg(ink)
                         .text_color(ground)
                         .text_size(ui.px(12.0))
@@ -999,9 +1146,7 @@ impl PaddockWindow {
                         .gap(ui.px(4.0))
                         .px(ui.px(12.0))
                         .py(ui.px(9.0))
-                        .rounded(ui.px(8.0))
-                        .border_1()
-                        .border_color(accent.opacity(0.25))
+                        .rounded(ui.px(10.0))
                         .bg(accent.opacity(0.1))
                         .child(
                             div()
@@ -1022,14 +1167,17 @@ impl PaddockWindow {
         let body = div()
             .id("inbox-reply")
             .track_scroll(&open.reply)
-            .flex_1()
+            .flex_grow(1.0)
+            .flex_shrink(1.0)
             .min_h(px(0.0))
             .overflow_y_scroll()
             .flex()
             .flex_col()
             .gap(ui.px(12.0))
-            .px(ui.px(14.0))
-            .py(ui.px(12.0))
+            .pl(ui.px(SIDE + AVATAR + GAP))
+            .pr(ui.px(28.0))
+            .pt(ui.px(2.0))
+            .pb(ui.px(16.0))
             .children(banner)
             .children(said)
             .children(sent);
@@ -1041,76 +1189,89 @@ impl PaddockWindow {
             div()
                 .id("inbox-box")
                 .track_scroll(&open.typed)
+                .flex_1()
+                .min_w(px(0.0))
                 .min_h(ui.px(BOX_MIN))
                 .max_h(ui.px(BOX_TEXT * BOX_LINE * BOX_LINES + 2.0 * BOX_PAD))
                 .overflow_y_scroll()
-                .px(ui.px(10.0))
                 .py(ui.px(BOX_PAD))
-                .rounded(ui.px(8.0))
-                .border_1()
-                .bg(hsla(theme.bg(|t| t.agents_bg), 1.0))
                 .text_size(ui.px(BOX_TEXT))
                 .line_height(relative(BOX_LINE))
         };
+        let ready = typing && !reading.draft.trim().is_empty();
+        let button = div()
+            .id("inbox-send")
+            .flex_shrink_0()
+            .size(ui.px(30.0))
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded_full()
+            .map(|button| {
+                if ready {
+                    button
+                        .bg(accent)
+                        .cursor_pointer()
+                        .hover(|style| style.opacity(0.9))
+                        .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                            this.send_inbox(window, cx)
+                        }))
+                } else {
+                    button
+                        .bg(text.opacity(0.08))
+                        .when(reading.sending, |button| button.opacity(0.5))
+                }
+            })
+            .child(send_arrow(
+                if ready { ground } else { dimmer },
+                ui.scale(14.0),
+            ));
         let reply_box = match composer {
-            Err(why) => closed(why).into_any_element(),
+            Err(why) => closed(why),
             // On its way: as typed, and not to be changed.
-            Ok(()) if reading.sending => frame()
-                .border_color(rule)
-                .text_color(dim)
-                .child(reading.draft.clone())
-                .into_any_element(),
-            Ok(()) => {
-                let focused = field.is_focused(window);
-                frame()
-                    .border_color(if focused { accent } else { rule })
-                    .cursor_text()
-                    .child(open.input.clone())
-                    .into_any_element()
-            }
-        };
-        let button = if reading.sending {
-            send("Sending…")
-        } else if typing && !reading.draft.trim().is_empty() {
-            send("Send")
-                .bg(accent)
-                .text_color(ground)
-                .cursor_pointer()
-                .hover(|style| style.opacity(0.9))
-                .on_click(
-                    cx.listener(|this, _: &ClickEvent, window, cx| this.send_inbox(window, cx)),
+            Ok(()) if reading.sending => well(false)
+                .child(frame().text_color(dim).child(reading.draft.clone()))
+                .child(button),
+            Ok(()) => well(field.is_focused(window))
+                .child(frame().cursor_text().child(open.input.clone()))
+                .child(
+                    div()
+                        .flex_shrink_0()
+                        .pb(ui.px(7.0))
+                        .whitespace_nowrap()
+                        .text_size(ui.px(11.0))
+                        .text_color(dimmer)
+                        .child("⇧↩ new line"),
                 )
-        } else {
-            send("Send")
+                .child(button),
         };
-        let keys: &[(&'static str, &'static str)] = if typing {
-            &[
-                ("↩", "Send"),
-                ("⇧↩", "New line"),
-                ("⌃Tab", "Next"),
-                ("Esc", "Close"),
-            ]
-        } else if flagged {
-            &[("↩", "Open pane"), ("⌃Tab", "Next"), ("Esc", "Close")]
-        } else {
-            moving
-        };
-        let foot = foot()
-            .child(reply_box)
-            .children(
-                reading
-                    .refused
-                    .map(|why| div().text_size(ui.px(12.0)).text_color(amber).child(why)),
-            )
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(ui.px(10.0))
-                    .child(hints(keys))
-                    .child(div().flex_1())
-                    .child(button),
-            );
+        let foot = foot().child(reply_box).children(
+            reading
+                .refused
+                .map(|why| div().text_size(ui.px(12.0)).text_color(amber).child(why)),
+        );
         column.child(header).child(body).child(foot)
     }
+}
+
+/// The send button's arrow, `size` points square, in `color`.
+fn send_arrow(color: Hsla, size: f32) -> impl IntoElement {
+    gpui::canvas(
+        |_, _, _| {},
+        move |bounds, _, window, _| {
+            let unit = size / 24.0;
+            let at = |x: f32, y: f32| bounds.origin + point(px(x * unit), px(y * unit));
+            let mut path = gpui::PathBuilder::stroke(px(2.4 * unit));
+            path.move_to(at(12.0, 19.0));
+            path.line_to(at(12.0, 5.0));
+            path.move_to(at(5.0, 12.0));
+            path.line_to(at(12.0, 5.0));
+            path.line_to(at(19.0, 12.0));
+            if let Ok(path) = path.build() {
+                window.paint_path(path, color);
+            }
+        },
+    )
+    .flex_shrink_0()
+    .size(px(size))
 }
