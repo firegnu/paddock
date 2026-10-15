@@ -14,7 +14,7 @@ use crate::{
     card,
     fonts::UiFont,
     footer_icon::{self, Icon},
-    kind_icon, markdown,
+    kind_icon, markdown, raised,
     theme::Theme,
     view::hsla,
 };
@@ -44,11 +44,9 @@ const CODE: f32 = 0.07;
 /// The confirmation card's face in the text colour, and its edge in the accent.
 const CARD_FACE: f32 = 0.045;
 const CARD_EDGE: f32 = 0.34;
-/// The face and the edge, both in the accent, of the note the next session starts from; the
-/// ground of an open note's facts, in the ground colour on that one and in the text colour on the
-/// others; and the rule between two notes.
-const NEXT_FACE: f32 = 0.07;
-const NEXT_EDGE: f32 = 0.26;
+/// The ground of an open note's facts, in the ground colour on the note the next session starts
+/// from (raised as the Kanban tab's groups, P5-117) and in the text colour on the others; and the
+/// rule between two notes.
 const FACTS_ON_NEXT: f32 = 0.55;
 const FACTS: f32 = 0.04;
 const BETWEEN: f32 = 0.05;
@@ -689,13 +687,15 @@ impl CairnView {
             .pb(ui.px(10.0));
         let mut nth = 0;
         if !notes.next.is_empty() {
+            let raised = raised::raised(&self.theme, ui);
             let mut group = div()
                 .flex()
                 .flex_col()
                 .rounded(ui.px(10.0))
                 .border_1()
-                .border_color(c.accent.opacity(NEXT_EDGE))
-                .bg(c.accent.opacity(NEXT_FACE))
+                .border_color(raised.edge)
+                .bg(raised.face)
+                .shadow(raised.shadows)
                 .overflow_hidden();
             for (at, session) in notes.next.iter().enumerate() {
                 let row = self.session(session, nth, true, branch, ui, cx);
