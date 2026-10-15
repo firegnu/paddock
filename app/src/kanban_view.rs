@@ -64,7 +64,7 @@ const BAR_RIGHT: f32 = 8.0;
 /// board's side padding, the room between its columns and inside each; a row's padding, a DONE
 /// row's up and down, and its corner while the mouse is on it; the room between the id and the
 /// title, and between the things at a row's right end.
-const LIST_X: f32 = 12.0;
+const LIST_X: f32 = 8.0;
 const COLUMNS_X: f32 = 12.0;
 const COLUMN_GAP: f32 = 10.0;
 const COLUMN_X: f32 = 6.0;
@@ -75,10 +75,14 @@ const DONE_Y: f32 = 6.0;
 const ROW_RADIUS: f32 = 8.0;
 const ID_GAP: f32 = 8.0;
 const END_GAP: f32 = 6.0;
+/// A group's header and Show all, set in from the narrow list's side padding: the boxes reach
+/// out to 8pt from the panel's edge as the Cairn tab's does, the words stay where they were
+/// (P5-116).
+const HEAD_X: f32 = 8.0;
 /// A group's box in the narrow list: its face and edge in the text colour, its corner and the room
 /// inside its edge; a row's face while the mouse is on it.
 const BOX_FACE: f32 = 0.035;
-const BOX_EDGE: f32 = 0.07;
+const BOX_EDGE: f32 = 0.12;
 const BOX_RADIUS: f32 = 10.0;
 const BOX_PAD: f32 = 2.0;
 /// A widened board's column: its face, in the faint colour.
@@ -1694,11 +1698,10 @@ impl KanbanView {
                     .pb(ui.px(2.0))
                     .child(rows);
                 if open && column == Column::Done {
-                    cards =
-                        cards
-                            .children(self.show_all(board, ui, cx).map(|more| {
-                                div().flex().pt(ui.px(6.0)).pl(ui.px(4.0)).child(more)
-                            }));
+                    cards = cards.children(
+                        self.show_all(board, ui, cx)
+                            .map(|more| div().flex().pt(ui.px(6.0)).pl(ui.px(HEAD_X)).child(more)),
+                    );
                 }
                 list = list.child(cards);
             }
@@ -1747,7 +1750,7 @@ impl KanbanView {
             .gap(ui.px(8.0))
             .h(ui.px(26.0))
             .mt(ui.px(if first { 2.0 } else { 8.0 }))
-            .px(ui.px(4.0))
+            .px(ui.px(HEAD_X))
             .rounded(ui.px(6.0))
             .text_size(ui.px(GROUP_SIZE));
         head = if empty {
