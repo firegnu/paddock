@@ -50,6 +50,11 @@ const MARGIN: f32 = 16.0;
 const TOP: f32 = 0.18;
 /// The keys' line under the panel.
 const HINTS: f32 = 30.0;
+
+fn empty_task_hint(tool: Tool) -> Option<&'static str> {
+    (!tool.needs_prompt()).then_some("empty task starts it idle")
+}
+
 const PAD: f32 = 14.0;
 const PRESET: f32 = 30.0;
 const PRESET_GAP: f32 = 4.0;
@@ -2540,7 +2545,7 @@ impl Render for NewAgentView {
             .text_color(dimmer)
             .child(key("⌘↩", "start"))
             .child(key("esc", "close"))
-            .child("empty task starts it idle");
+            .children(empty_task_hint(self.form.tool));
 
         let menu = self.open.map(|menu| self.menu(menu, &ui, window, cx));
         let panel = hold_main_window(
@@ -2584,6 +2589,14 @@ impl Render for NewAgentView {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn agy_has_no_empty_task_hint_but_other_kinds_keep_it() {
+        assert_eq!(empty_task_hint(Tool::Agy), None);
+        for tool in [Tool::Claude, Tool::Codex, Tool::Pi, Tool::Omp, Tool::Amp] {
+            assert_eq!(empty_task_hint(tool), Some("empty task starts it idle"));
+        }
+    }
 
     #[test]
     fn an_effort_is_as_hot_by_name_for_either_kind() {
