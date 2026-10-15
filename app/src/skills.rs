@@ -54,7 +54,7 @@ pub fn run(args: Vec<String>) -> i32 {
 fn execute(args: Vec<String>) -> Result<Value> {
     if args == ["--help"] || args == ["-h"] {
         return Ok(
-            json!({"ok":true,"help":"paddock install-skills [--yes] [--dry-run] [--remove]\nWrites only owned paddock skills in ~/.claude/skills ($CLAUDE_CONFIG_DIR/skills when set) and ~/.agents/skills."}),
+            json!({"ok":true,"help":"paddock install-skills [--yes] [--dry-run] [--remove]\nWrites only owned paddock skills in ~/.claude/skills ($CLAUDE_CONFIG_DIR/skills when set), ~/.agents/skills and ~/.gemini/config/skills."}),
         );
     }
     let mut options = Options {
@@ -141,24 +141,26 @@ fn status(path: &Path, home: &Path, remove: bool) -> Result<&'static str> {
     }
 }
 /// Where the skill goes, by `install-skills --target` name: Claude Code's settings folder and
-/// `~/.agents`, the Agent Skills folder Codex, pi and omp read. Each comes with the folder its
-/// checks stop at: home, or a Claude settings folder outside it.
+/// `~/.agents`, the Agent Skills folder Codex, pi and omp read, and `~/.gemini/config` for agy.
+/// Each comes with the folder its checks stop at: home, or a Claude settings folder outside it.
 fn places(home: &Path, options: &Options) -> Vec<(&'static str, PathBuf, PathBuf)> {
     let claude = (options.claude_dir.clone()).unwrap_or_else(|| home.join(".claude"));
-    [("claude", claude), ("codex", home.join(".agents"))]
-        .into_iter()
-        .filter(|(target, _)| {
-            options.targets.is_empty() || options.targets.iter().any(|t| t == target)
-        })
-        .map(|(target, base)| {
-            let root = if base.starts_with(home) {
-                home.to_owned()
-            } else {
-                base.clone()
-            };
-            (target, root, base.join("skills/paddock/SKILL.md"))
-        })
-        .collect()
+    [
+        ("claude", claude),
+        ("codex", home.join(".agents")),
+        ("gemini", home.join(".gemini/config")),
+    ]
+    .into_iter()
+    .filter(|(target, _)| options.targets.is_empty() || options.targets.iter().any(|t| t == target))
+    .map(|(target, base)| {
+        let root = if base.starts_with(home) {
+            home.to_owned()
+        } else {
+            base.clone()
+        };
+        (target, root, base.join("skills/paddock/SKILL.md"))
+    })
+    .collect()
 }
 fn run_at(
     home: &Path,
@@ -304,7 +306,7 @@ mod tests {
         assert_eq!(decline["ok"], false);
         assert!(!path.exists());
         let install = run_at(&home, &Options::default(), |plan| {
-            assert_eq!(plan["items"].as_array().unwrap().len(), 2);
+            assert_eq!(plan["items"].as_array().unwrap().len(), 3);
             assert!(!path.exists());
             Ok(true)
         })
@@ -338,6 +340,7 @@ mod tests {
         let elsewhere = home.join("elsewhere");
         fs::create_dir(&elsewhere).unwrap();
         std::os::unix::fs::symlink(&elsewhere, home.join(".claude")).unwrap();
+        std::os::unix::fs::symlink(&elsewhere, home.join(".gemini")).unwrap();
         let other = home.join(".agents/skills/paddock/SKILL.md");
         fs::create_dir_all(other.parent().unwrap()).unwrap();
         fs::write(&other, [0xff, 0xfe]).unwrap();
