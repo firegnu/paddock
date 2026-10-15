@@ -21,3 +21,9 @@
 ## 不做
 - 不动其他三个预设，不动已写进配置文件的预设（用户自己存过的照旧）。
 - 不动已经开着的 agent。
+
+## 完成记录（2026-10-15，paddock/main）
+- 做了什么：`default_presets()` 里 Controller 的强度 `xhigh` 改成 `high`；DESIGN §13 P5-37 那条的默认 Controller 跟着改，注明 P5-107 和用户原话。
+- 验证：先把 `a_preset_fills_the_kind_model_effort_and_role_only` 的断言改成 `high`，跑过确认失败（预设填的还是 `xhigh`），改代码后通过；`cargo test --all-targets` 全过（库内 534 项及各测试程序），`cargo clippy --all-targets -- -D warnings`、`cargo fmt --check` 干净。
+- 拿主意的地方：没有。
+- 没做的：其他三个预设、已写进配置文件的预设、开着的 agent 都没动。用户的配置没写 `agent_presets`，装上后 New Agent 点 Controller 就是 `high`。
