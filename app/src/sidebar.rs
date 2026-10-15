@@ -51,8 +51,8 @@ pub enum SidebarEvent {
     },
     /// Open the New Agent panel.
     NewAgent,
-    /// Open the New Agent panel from a workspace, starting in `start_in` when it says: the agent
-    /// it starts joins the workspace (P5-93).
+    /// Open the New Agent panel from a workspace, starting in `start_in` when it says: the
+    /// repository of the agent it starts joins the workspace when in none (P5-93, P5-105).
     NewAgentIn {
         workspace: String,
         start_in: Option<String>,
@@ -1400,6 +1400,9 @@ impl Sidebar {
             changed = true;
             self.listing.absorb_git(batch);
         }
+        if changed {
+            self.adopt_named(cx);
+        }
         changed |= self.listing.absorb_replies(&self.replies);
         // Working agents' ages tick; their dots breathe by themselves.
         if changed || self.listing.animating(now) {
@@ -1743,7 +1746,11 @@ impl Render for Sidebar {
                     cell.value =
                         card::elide(&cell.value, &|value| normal(value, SECOND_SIZE) <= column);
                 }
-                let button = column - ui.scale(2.0 * CHIP_X + MARK_GAP + CHEVRON);
+                // A button for one whose repository it moves; words alone for the rest (P5-105).
+                let button = match card.repo {
+                    Some(_) => column - ui.scale(2.0 * CHIP_X + MARK_GAP + CHEVRON),
+                    None => column,
+                };
                 let place = card.workspace.as_deref().unwrap_or("None");
                 places.insert(
                     card.name.clone(),
@@ -2964,8 +2971,16 @@ fn details(theme: &Theme, mono: &Font, ui: &UiFont, card: &Card, buttons: Button
                     .child(cell.value.clone()),
             )
     };
-    // The last cell: the workspace, as a button that opens the menu of them.
+    // The last cell: the workspace, as a button that opens the menu of them; words alone for an
+    // agent that goes by its name's prefix, which has no repository to move (P5-105).
     let place = place.map(|place| {
+        let Some(on_press) = place.on_press else {
+            let words = card::Cell {
+                label: "Workspace",
+                value: place.value,
+            };
+            return cell(&words).into_any_element();
+        };
         let text = fg(|t| t.agents_text);
         let (ground, lit) = (text.opacity(0.12), text.opacity(0.18));
         div()
@@ -2998,7 +3013,7 @@ fn details(theme: &Theme, mono: &Font, ui: &UiFont, card: &Card, buttons: Button
                             .bg(if place.open { lit } else { ground })
                             .cursor_pointer()
                             .hover(move |style| style.bg(lit))
-                            .on_mouse_down(MouseButton::Left, place.on_press)
+                            .on_mouse_down(MouseButton::Left, on_press)
                             // The press opened the menu: its click is not one on the card.
                             .on_click(|_, _, cx| cx.stop_propagation())
                             .child(

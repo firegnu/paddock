@@ -2003,9 +2003,8 @@ impl PaddockWindow {
                                     this.popup = None;
                                 }
                                 if let Some(workspace) = workspace {
-                                    this.sidebar.update(cx, |s, cx| {
-                                        s.join_started(workspace, &started.name, cwd, cx)
-                                    });
+                                    this.sidebar
+                                        .update(cx, |s, cx| s.join_started(workspace, cwd, cx));
                                 }
                                 this.open_started(started, cwd, *place, window, cx);
                                 if let Some(first) = first {

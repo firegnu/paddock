@@ -5,12 +5,14 @@
 //! for each idle or waiting agent, the latest of them past its spell for the Inbox.
 use crate::{
     corral::{Agent, Reply},
+    kanban_repos,
     workspaces::{Listed, Workspaces},
 };
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
-    path::Path,
+    io,
+    path::{Path, PathBuf},
 };
 
 #[derive(Default)]
@@ -321,38 +323,79 @@ impl Panel {
         summary.main_repository.as_deref()
     }
 
-    /// The workspace the agent is in (DESIGN §13 P5-89): the one it is recorded in by itself,
-    /// else its repository's; one whose repository cannot be read goes by its name's prefix.
+    /// The workspace the agent is in (DESIGN §13 P5-89): its repository's, whatever its name
+    /// (P5-105); one whose repository cannot be read goes by its name's prefix.
     pub fn workspace(&self, agent: &Agent) -> Option<&str> {
         let prefix = group(&agent.name).trim_end_matches('/');
-        self.workspaces
-            .of(&agent.name, self.repository(agent), prefix)
+        self.workspaces.of(self.repository(agent), prefix)
     }
 
-    /// The groups as the list has them now, each once whatever workspaces its agents are in,
-    /// for the panel that picks a workspace's members.
-    pub fn groups(&self) -> Vec<Listed> {
-        let mut groups: Vec<Listed> = Vec::new();
-        let mut agents: Vec<&Agent> = self.agents.iter().collect();
-        agents.sort_by(|a, b| (self.group(a), &a.name).cmp(&(self.group(b), &b.name)));
-        for agent in agents {
-            let name = self.group(agent);
-            if groups.last().is_none_or(|group| group.name != name) {
-                groups.push(Listed {
-                    name: name.to_owned(),
-                    repos: Vec::new(),
-                    agents: Vec::new(),
-                });
-            }
-            let group = groups.last_mut().expect("just pushed");
-            group.agents.push(agent.name.clone());
-            if let Some(repo) = self.repository(agent)
-                && !group.repos.iter().any(|listed| listed == repo)
-            {
-                group.repos.push(repo.to_owned());
+    /// Whether Git has told, of every agent running under a name an older paddock recorded in a
+    /// workspace, which repository it works in, if any (P5-105): till then those names wait, so
+    /// that none goes when the list is kept before its repository could be read.
+    pub fn named_read(&self) -> bool {
+        let mut names = self.workspaces.list().iter().flat_map(|w| &w.agents);
+        names.all(|name| {
+            let running = self.agents.iter().find(|a| a.name == *name);
+            let cwd = running.and_then(|a| a.cwd.as_ref());
+            cwd.is_none_or(|cwd| self.git.contains_key(cwd))
+        })
+    }
+
+    /// The names an older paddock recorded in a workspace give way to the repositories their
+    /// running agents work in, as Git has told them (see [`Workspaces::adopt`]). Whether any did.
+    pub fn adopt_named(&mut self) -> bool {
+        let repos: HashMap<&str, PathBuf> = (self.agents.iter())
+            .filter_map(|a| Some((a.name.as_str(), self.repository(a)?.to_path_buf())))
+            .collect();
+        self.workspaces.adopt(|name| repos.get(name).cloned())
+    }
+
+    /// The repositories agents work in now, each once by its main worktree, by name and then
+    /// path, for the panel that picks a workspace's repositories: two of the same name are two
+    /// rows there, though the list has them in one group (P5-105). An agent that goes by its
+    /// prefix has none, and is in none of them.
+    pub fn repositories(&self) -> Vec<Listed> {
+        let mut listed: Vec<Listed> = Vec::new();
+        let repos = (self.agents.iter()).filter_map(|agent| self.repository(agent));
+        for repo in repos {
+            match listed.iter_mut().find(|listed| listed.repo == repo) {
+                Some(listed) => listed.agents += 1,
+                None => listed.push(Listed {
+                    repo: repo.to_owned(),
+                    agents: 1,
+                }),
             }
         }
-        groups
+        listed.sort_by_cached_key(|listed| (kanban_repos::name(&listed.repo), listed.repo.clone()));
+        listed
+    }
+
+    /// Changes the workspaces kept at `path` (in memory alone with none) by `change`, read again
+    /// first, as another window may have changed them (P5-89). The names an older paddock recorded
+    /// give way to their repositories first, as far as Git has told (P5-105). The list is kept
+    /// when `change` changed it, or when names gave way and none is still waiting for Git: kept,
+    /// the list leaves the names out, and one still waiting would be lost. Else it stays as read.
+    pub fn edit_workspaces(
+        &mut self,
+        path: Option<&Path>,
+        change: impl FnOnce(&mut Workspaces),
+    ) -> io::Result<()> {
+        if let Some(path) = path {
+            self.workspaces = Workspaces::load(path);
+        }
+        let read = self.workspaces.clone();
+        let adopted = self.adopt_named();
+        let before = self.workspaces.clone();
+        change(&mut self.workspaces);
+        if self.workspaces == before && !(adopted && self.named_read()) {
+            self.workspaces = read;
+            return Ok(());
+        }
+        match path {
+            Some(path) => self.workspaces.save(path),
+            None => Ok(()),
+        }
     }
 
     /// The main worktree's directory name, or the original prefix while unread/unavailable.
