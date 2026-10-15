@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Kanban rings and ids</title>
+<style>
+:root{
+  --bg:#0f1817; --line:rgba(223,233,229,.07); --line2:rgba(223,233,229,.11);
+  --text:#dfe9e5; --bright:#eef5f2; --muted:#8a9e99; --dim:#6b7f7a;
+  --chip:rgba(223,233,229,.06);
+  --green:#7fd99a; --red:#ef7a7a; --yellow:#e8c46a; --blue:#7fa8f0;
+}
+*{box-sizing:border-box}
+body{margin:0;background:#0a1110;font-family:-apple-system,'SF Pro Text','PingFang SC','Helvetica Neue',sans-serif;color:var(--text);font-size:13px}
+.wrap{display:flex;gap:28px;padding:28px;align-items:flex-start;flex-wrap:wrap}
+.col{display:flex;flex-direction:column;gap:10px}
+.cap{font-size:13px;color:var(--muted);width:380px;line-height:1.5;min-height:96px}
+.cap b{color:var(--bright)}
+.pane{width:380px;background:var(--bg);border:1px solid var(--line2);border-radius:12px;overflow:hidden;padding:4px 0 12px}
+.mono{font-family:'JetBrains Mono','SF Mono',Menlo,monospace}
+svg{flex:none;display:block}
+.sec{display:flex;align-items:center;gap:8px;padding:12px 16px 6px}
+.sec .lab{font-size:13px;font-weight:600;color:var(--bright)}
+.sec .n{font-size:11.5px;padding:0 7px;border-radius:999px;background:var(--chip);color:var(--muted);line-height:18px}
+.sec.empty .lab{font-weight:400;color:var(--muted)}
+.sec.empty .n{background:none;padding:0;color:var(--dim)}
+.sec .arrow{width:9px;color:var(--dim);font-size:10px}
+.old .sec .lab{font-size:12px}
+.old .sec .dot{width:6px;height:6px;border-radius:50%;background:var(--muted)}
+.box{margin:2px 12px 4px;border-radius:10px;background:rgba(223,233,229,.035);border:1px solid var(--line);padding:2px}
+.bare{margin:2px 12px 4px;padding:0 3px}
+.item{position:relative;display:flex;flex-direction:column;gap:4px;padding:8px 10px 8px 12px}
+.item+.item:before{content:'';position:absolute;left:12px;right:10px;top:0;border-top:1px solid var(--line)}
+.top{display:flex;align-items:flex-start;gap:8px}
+.idc{flex:none;display:flex;align-items:center;gap:6px;height:18px}
+.t{flex:1;min-width:0;line-height:18px;font-weight:500;color:var(--text)}
+.t.draft{color:var(--muted)}
+.done .t{font-weight:400;color:var(--muted);font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.done .t.drop{color:var(--dim)}
+.age{flex:none;font-size:11px;color:var(--dim);line-height:18px}
+.under{display:flex;align-items:center;gap:6px;font-size:12px;white-space:nowrap;overflow:hidden}
+.under b{color:var(--yellow);font-weight:600}
+.under span{overflow:hidden;text-overflow:ellipsis}
+.stripe{position:absolute;left:2px;top:9px;bottom:9px;width:3px;border-radius:2px}
+.mark{flex:none;font-size:10.5px;padding:0 6px;border-radius:999px;line-height:15px;color:var(--dim);border:1px solid rgba(223,233,229,.14)}
+/* ids */
+.id-old{font-size:11px;color:var(--dim)}
+.id-new{font-size:12px;color:var(--muted);font-weight:500;letter-spacing:.2px}
+.done .id-new{color:#7a8e89}
+.fade{opacity:.62}
+.av{flex:none;width:16px;height:16px;border-radius:4px;background:rgba(217,137,91,.22);color:#d9895b;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.meta{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--muted)}
+.meta .nm{color:var(--bright)} .meta .sp{flex:1} .add{color:var(--green)} .del{color:var(--red)}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute">
+  <defs>
+    <symbol id="ring" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5.2" fill="none" stroke="currentColor" stroke-width="1.6"/></symbol>
+    <symbol id="dashed" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5.2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="2.4 1.9"/></symbol>
+    <symbol id="half" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5.2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M7 3.6a3.4 3.4 0 0 1 0 6.8z" fill="currentColor"/></symbol>
+    <symbol id="review" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5.2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M7 3.6a3.4 3.4 0 1 1-3.4 3.4H7z" fill="currentColor"/></symbol>
+    <symbol id="check" viewBox="0 0 14 14"><circle cx="7" cy="7" r="6" fill="currentColor"/><path d="M4.3 7.2l1.8 1.8 3.6-3.8" fill="none" stroke="#0f1817" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="struck" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5.2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M3.4 10.6l7.2-7.2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+  </defs>
+</svg>
+<div class="wrap">
+
+<!-- ============ 现在 ============ -->
+<div class="col">
+<div class="cap"><b>现在</b>：编号 11 号最淡色，DONE 里再变淡；分组只靠前面一个小灰点和文字分；优先级是左边的竖条，只有草稿前面有圈。</div>
+<div class="pane old">
+  <div class="sec"><span class="arrow">⌄</span><span class="dot"></span><span class="lab">Queued</span><span class="n">4</span></div>
+  <div class="box">
+    <div class="item"><span class="stripe" style="background:var(--red)"></span><div class="top"><div class="idc" style="width:58px"><span class="id-old mono">P5-90</span></div><div class="t">在 paddock 里加载远程机器上 corral 托管的 agent</div></div><div class="under" style="padding-left:66px"><b>Needs you</b><span>远端要先有能用的 corral，归 ranch 的 R10…</span></div></div>
+    <div class="item"><div class="top"><div class="idc" style="width:58px"><svg width="9" height="9" style="color:var(--dim)"><use href="#dashed"/></svg><span class="id-old mono">P5-106</span></div><div class="t draft">看板加 loop：打开后 Queued 里的任务按次序排队开发</div></div></div>
+    <div class="item"><div class="top"><div class="idc" style="width:58px"><span class="id-old mono">R9</span></div><div class="t">corral 的常驻进程不带走调用方的描述符</div></div></div>
+    <div class="item"><span class="stripe" style="background:var(--dim)"></span><div class="top"><div class="idc" style="width:58px"><svg width="9" height="9" style="color:var(--dim)"><use href="#dashed"/></svg><span class="id-old mono">P5-54</span></div><div class="t draft">Browser 选中元素、Changes 选中 diff 后送给 agent</div></div></div>
+  </div>
+  <div class="sec"><span class="arrow">⌄</span><span class="dot" style="background:var(--blue)"></span><span class="lab">In progress</span><span class="n">1</span></div>
+  <div class="box"><div class="item"><div class="top"><div class="idc" style="width:58px"><span class="id-old mono">P5-114</span></div><div class="t">看板的圈和编号</div><span class="age">4m</span></div><div class="meta" style="padding-left:66px"><span class="av">C</span><span class="nm">p5-114</span><span style="color:var(--green)">Working</span><span class="sp"></span><span class="add">+42</span><span class="del">−18</span></div></div></div>
+  <div class="sec empty"><span class="arrow"></span><span class="dot" style="background:var(--dim)"></span><span class="lab">To review</span><span class="n">0</span></div>
+  <div class="sec empty"><span class="arrow"></span><span class="dot" style="background:var(--dim)"></span><span class="lab">Merged</span><span class="n">0</span></div>
+  <div class="sec"><span class="arrow">⌄</span><span class="dot"></span><span class="lab">Done</span><span class="n">4 of 180</span></div>
+  <div class="bare done fade">
+    <div class="item"><div class="top"><div class="idc" style="width:58px"><span class="id-old mono">P5-113</span></div><div class="t">看板卡片收紧：一栏一个框，条间细线</div><span class="age">8m</span></div></div>
+    <div class="item"><div class="top"><div class="idc" style="width:58px"><span class="id-old mono">P5-81</span></div><div class="t drop">HANDOFF 和 cairn 并行一段时间…</div><span class="mark">Dropped</span><span class="age">45m</span></div></div>
+    <div class="item"><div class="top"><div class="idc" style="width:58px"><span class="id-old mono">R8</span></div><div class="t">审查：R8 接入 agy</div><span class="age">24h</span></div></div>
+    <div class="item"><div class="top"><div class="idc" style="width:58px"><span class="id-old mono">R7</span></div><div class="t">读屏兜底（给 agy 这类钩子报不全的 agent 用）</div><span class="age">25h</span></div></div>
+  </div>
+</div>
+</div>
+
+<!-- ============ 甲 ============ -->
+<div class="col">
+<div class="cap"><b>甲 圈只管优先级</b>：去掉左边竖条；每件活前面一个圈，草稿虚线、提交了的实线；Queued 里圈的颜色是优先级（High 红、中 浅灰、Low 暗灰），别的栏一律浅灰。编号 12 号、亮一档。分组标题字大一号、前面的点换成栏的颜色。</div>
+<div class="pane">
+  <div class="sec"><span class="arrow">⌄</span><svg width="12" height="12" style="color:var(--muted)"><use href="#ring"/></svg><span class="lab">Queued</span><span class="n">4</span></div>
+  <div class="box">
+    <div class="item"><div class="top"><div class="idc" style="width:66px"><svg width="13" height="13" style="color:var(--red)"><use href="#ring"/></svg><span class="id-new mono">P5-90</span></div><div class="t">在 paddock 里加载远程机器上 corral 托管的 agent</div></div><div class="under" style="padding-left:74px"><b>Needs you</b><span>远端要先有能用的 corral，归 ranch 的 R10…</span></div></div>
+    <div class="item"><div class="top"><div class="idc" style="width:66px"><svg width="13" height="13" style="color:var(--muted)"><use href="#dashed"/></svg><span class="id-new mono">P5-106</span></div><div class="t draft">看板加 loop：打开后 Queued 里的任务按次序排队开发</div></div></div>
+    <div class="item"><div class="top"><div class="idc" style="width:66px"><svg width="13" height="13" style="color:var(--muted)"><use href="#ring"/></svg><span class="id-new mono">R9</span></div><div class="t">corral 的常驻进程不带走调用方的描述符</div></div></div>
+    <div class="item"><div class="top"><div class="idc" style="width:66px"><svg width="13" height="13" style="color:#4f605c"><use href="#dashed"/></svg><span class="id-new mono">P5-54</span></div><div class="t draft">Browser 选中元素、Changes 选中 diff 后送给 agent</div></div></div>
+  </div>
+  <div class="sec"><span class="arrow">⌄</span><svg width="12" height="12" style="color:var(--blue)"><use href="#ring"/></svg><span class="lab">In progress</span><span class="n">1</span></div>
+  <div class="box"><div class="item"><div class="top"><div class="idc" style="width:66px"><svg width="13" height="13" style="color:var(--muted)"><use href="#ring"/></svg><span class="id-new mono">P5-114</span></div><div class="t">看板的圈和编号</div><span class="age">4m</span></div><div class="meta" style="padding-left:74px"><span class="av">C</span><span class="nm">p5-114</span><span style="color:var(--green)">Working</span><span class="sp"></span><span class="add">+42</span><span class="del">−18</span></div></div></div>
+  <div class="sec empty"><span class="arrow"></span><svg width="12" height="12" style="color:var(--yellow);opacity:.5"><use href="#ring"/></svg><span class="lab">To review</span><span class="n">0</span></div>
+  <div class="sec empty"><span class="arrow"></span><svg width="12" height="12" style="color:var(--green);opacity:.5"><use href="#ring"/></svg><span class="lab">Merged</span><span class="n">0</span></div>
+  <div class="sec"><span class="arrow">⌄</span><svg width="12" height="12" style="color:var(--dim)"><use href="#ring"/></svg><span class="lab">Done</span><span class="n">4 of 180</span></div>
+  <div class="bare done fade">
+    <div class="item"><div class="top"><div class="idc" style="width:66px"><svg width="13" height="13" style="color:var(--dim)"><use href="#ring"/></svg><span class="id-new mono">P5-113</span></div><div class="t">看板卡片收紧：一栏一个框，条间细线</div><span class="age">8m</span></div></div>
+    <div class="item"><div class="top"><div class="idc" style="width:66px"><svg width="13" height="13" style="color:var(--dim)"><use href="#ring"/></svg><span class="id-new mono">P5-81</span></div><div class="t drop">HANDOFF 和 cairn 并行一段时间…</div><span class="mark">Dropped</span><span class="age">45m</span></div></div>
+    <div class="item"><div class="top"><div class="idc" style="width:66px"><svg width="13" height="13" style="color:var(--dim)"><use href="#ring"/></svg><span class="id-new mono">R8</span></div><div class="t">审查：R8 接入 agy</div><span class="age">24h</span></div></div>
+    <div class="item"><div class="top"><div class="idc" style="width:66px"><svg width="13" height="13" style="color:var(--dim)"><use href="#ring"/></svg><span class="id-new mono">R7</span></div><div class="t">读屏兜底（给 agy 这类钩子报不全的 agent 用）</div><span class="age">25h</span></div></div>
+  </div>
+</div>
+</div>
+
+<!-- ============ 乙 ============ -->
+<div class="col">
+<div class="cap"><b>乙 圈管状态、Queued 里管优先级</b>（主控推荐）：圈的样子跟着栏变：Queued 空圈（草稿虚线），颜色是优先级；In progress 蓝色半圈；To review 黄色大半圈；Merged 绿色打勾；Done 灰色打勾，Dropped 灰圈带斜线、不再写 Dropped 胶囊（悬停照旧写原因）。分组标题前面用同一个图标、字大一号。编号同甲。</div>
+<div class="pane">
+  <div class="sec"><span class="arrow">⌄</span><svg width="13" height="13" style="color:var(--muted)"><use href="#ring"/></svg><span class="lab">Queued</span><span class="n">4</span></div>
+  <div class="box">
+    <div class="item"><div class="top"><div class="idc" style="width:66px"><svg width="13" height="13" style="color:var(--red)"><use href="#ring"/></svg><span class="id-new mono">P5-90</span></div><div class="t">在 paddock 里加载远程机器上 corral 托管的 agent</div></div><div class="under" style="padding-left:74px"><b>Needs you</b><span>远端要先有能用的 corral，归 ranch 的 R10…</span></div></div>
+    <div class="item"><div class="top"><div class="idc" style="width:66px"><svg width="13" height="13" style="color:var(--muted)"><use href="#dashed"/></svg><span class="id-new mono">P5-106</span></div><div class="t draft">看板加 loop：打开后 Queued 里的任务按次序排队开发</div></div></div>
+    <div class="item"><div class="top"><div class="idc" style="width:66px"><svg width="13" height="13" style="color:var(--muted)"><use href="#ring"/></svg><span class="id-new mono">R9</span></div><div class="t">corral 的常驻进程不带走调用方的描述符</div></div></div>
+    <div class="item"><div class="top"><div class="idc" style="width:66px"><svg width="13" height="13" style="color:#4f605c"><use href="#dashed"/></svg><span class="id-new mono">P5-54</span></div><div class="t draft">Browser 选中元素、Changes 选中 diff 后送给 agent</div></div></div>
+  </div>
+  <div class="sec"><span class="arrow">⌄</span><svg width="13" height="13" style="color:var(--blue)"><use href="#half"/></svg><span class="lab">In progress</span><span class="n">1</span></div>
+  <div class="box"><div class="item"><div class="top"><div class="idc" style="width:66px"><svg width="13" height="13" style="color:var(--blue)"><use href="#half"/></svg><span class="id-new mono">P5-114</span></div><div class="t">看板的圈和编号</div><span class="age">4m</span></div><div class="meta" style="padding-left:74px"><span class="av">C</span><span class="nm">p5-114</span><span style="color:var(--green)">Working</span><span class="sp"></span><span class="add">+42</span><span class="del">−18</span></div></div></div>
+  <div class="sec empty"><span class="arrow"></span><svg width="13" height="13" style="color:var(--yellow);opacity:.45"><use href="#review"/></svg><span class="lab">To review</span><span class="n">0</span></div>
+  <div class="sec empty"><span class="arrow"></span><svg width="13" height="13" style="color:var(--green);opacity:.45"><use href="#check"/></svg><span class="lab">Merged</span><span class="n">0</span></div>
+  <div class="sec"><span class="arrow">⌄</span><svg width="13" height="13" style="color:var(--dim)"><use href="#check"/></svg><span class="lab">Done</span><span class="n">4 of 180</span></div>
+  <div class="bare done fade">
+    <div class="item"><div class="top"><div class="idc" style="width:66px"><svg width="13" height="13" style="color:var(--dim)"><use href="#check"/></svg><span class="id-new mono">P5-113</span></div><div class="t">看板卡片收紧：一栏一个框，条间细线</div><span class="age">8m</span></div></div>
+    <div class="item"><div class="top"><div class="idc" style="width:66px"><svg width="13" height="13" style="color:var(--dim)"><use href="#struck"/></svg><span class="id-new mono">P5-81</span></div><div class="t drop">HANDOFF 和 cairn 并行一段时间，定 cairn 能替掉多少…</div><span class="age">45m</span></div></div>
+    <div class="item"><div class="top"><div class="idc" style="width:66px"><svg width="13" height="13" style="color:var(--dim)"><use href="#check"/></svg><span class="id-new mono">R8</span></div><div class="t">审查：R8 接入 agy</div><span class="age">24h</span></div></div>
+    <div class="item"><div class="top"><div class="idc" style="width:66px"><svg width="13" height="13" style="color:var(--dim)"><use href="#check"/></svg><span class="id-new mono">R7</span></div><div class="t">读屏兜底（给 agy 这类钩子报不全的 agent 用）</div><span class="age">25h</span></div></div>
+  </div>
+</div>
+</div>
+
+</div>
+</body>
+</html>
