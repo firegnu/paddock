@@ -29,3 +29,9 @@
 ## 不做
 - 不动标题 `Handover notes`、`→ Next session starts from this` 标记和面板的读取、画法。
 - DESIGN §13 P5-55／P5-79 没写这几句的原文，不用改。
+
+## 完成记录（2026-10-15，paddock/main）
+- 做了什么：`app/src/cairn_view.rs` 三处说明文字照上面和 cairn/main 对过的英文改了，别的没动。
+- 验证：纯文字改动，没有测试断言这几句；`cargo test --all-targets` 全过（合计 660 项），`cargo clippy --all-targets -- -D warnings`、`cargo fmt --check` 干净；改后的字符串行都在 100 列以内。主控没起窗口看过，换行效果留给用户看（第 1 句比原来长一行）。
+- 拿主意的地方：第 2、3 处不在转达里，是主控查到、和 cairn/main 对过后一起改的（用户：“达成统一之后，你直接改”）。
+- 没做的：标题、`→ Next session starts from this` 标记、面板读取和画法都没动。
