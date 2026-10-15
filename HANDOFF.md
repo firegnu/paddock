@@ -4,9 +4,9 @@
 
 ## 现在在哪
 
-- **没有进行中的活**：没有任务 worktree，主控没开测试 agent（corral 里的其他 agent 都是用户的）。工作区里未提交的草稿是 P5-54、P5-81、P5-106（看板 DRAFT，有意留，不要 `git add -A`）。
+- **没有进行中的活**：没有任务 worktree，主控没开测试 agent（corral 里的其他 agent 都是用户的）。工作区里未提交的草稿是 P5-54、P5-106（看板 DRAFT，有意留，不要 `git add -A`）。
 - `~/Applications/paddock.app` 是合并 P5-110 之后的版本（10-15 20:27 装，本机 Apple Development 证书签名）。
-- 已合并：第一至第三阶段、迁移 M0–M3、P4-1～P4-3、P5-1～P5-80、P5-82、P5-85～P5-89、P5-90a、P5-91～P5-105、P5-107～P5-110（P5-95b 已被 P5-95c 撤）。P5-83 已收尾（讨论记录）；P5-84 不做；P5-52 只查明原因、改法用户暂不定；P5-90 已提交、等远端准备好（见「下一步」）。
+- 已合并：第一至第三阶段、迁移 M0–M3、P4-1～P4-3、P5-1～P5-80、P5-82、P5-85～P5-89、P5-90a、P5-91～P5-105、P5-107～P5-110（P5-95b 已被 P5-95c 撤）。P5-83 已收尾（讨论记录）；P5-84、P5-81 不做；P5-52 只查明原因、改法用户暂不定；P5-90 已提交、等远端准备好（见「下一步」）。
 - 重新打包安装：在 `app/` 下 `cargo build --release`，再 `cargo run --release --example bundle -- --install`（编译目录 `.target/main`）。打包默认选本机 Apple Development 身份，可用 `PADDOCK_SIGN_IDENTITY` 指定；退回 ad-hoc 时会提示授权会失效。
 - **paddock ctl 已部署**：`~/.local/bin/paddock` 链到 app 里的程序，重新打包后不用重建；技能正文改了要重跑 `paddock install-skills`（装在 `~/.claude/skills/paddock`、`~/.agents/skills/paddock`、`~/.gemini/config/skills/paddock`），已开着的 agent 要重开才看到。
 - 全局 `~/.local/bin/corral`、`ranch` 是 ranch `f86d1c2`（R8 接入 agy 之后）。amp 插件（ranch R6）、agy 插件（`~/.gemini/config/plugins/corral`）在本机装着，用户定留着；两家的真图标放在本机 `~/.config/paddock/icons/`，不进仓库。
@@ -25,8 +25,7 @@
 1. **P5-90 在 paddock 里接远程机器上 corral 托管的 agent**（优先：高）。调研 P5-90a 已合并，推荐先做甲；本机和远程按机器隔开的做法用户已定（任务文件「本机和远程隔开」）。实测清单 1–3 已在用户的 5090 上跑过：免密能登，远端没装 corral，必须复用连接（每条约 0.9 秒）。**挡在前面的是 ranch 的 R10（在 Linux 远端装 ranch）**：草稿在 `ranch/docs/任务/R10-在Linux远端装ranch.md`，还没提交，等用户定验收、远端目录、改动怎么同步过去。R10 之后再跑清单 4–5（attach 改窗口大小、断网），并确认任务文件 `待用户：` 里那两件，然后写甲的任务文件。
 2. **P5-54** Browser 选中元素、Changes 选中 diff 写上要怎么改后送给 agent（优先：高，草稿）。主控提议（用户还没表态）：样稿主控自己做；实现拆成 P5-54a Changes、P5-54b Browser（WKWebView 注入 JS 加 WKScriptMessageHandler，代码库里还没有），a 合并后再派 b；测试只用假 corral。下次从列出待定问题开始。
 3. **P5-106 看板加 loop**（草稿）：五个待定问题列在草稿里，等用户想好再定范围和验收。
-4. **P5-81 HANDOFF 和 cairn 的分工**（草稿，原定 10-24 前后回看）：10-15 按 cairn 0.4.0 已先把 HANDOFF 改成只记项目级的账、AGENTS.md 两处跟着改。草稿里的试点要不要照旧记到 10-24，由用户定。
-5. 以后：Changes 第二步（行上评论发给 agent、暂存、撤销，可能和 P5-54a 合并考虑）；Kanban 能拖来纠正（排在后面）。
+4. 以后：Changes 第二步（行上评论发给 agent、暂存、撤销，可能和 P5-54a 合并考虑）；Kanban 能拖来纠正（排在后面）。
 
 ## 用户用到时顺带看（不用决定、不挡任何事）
 
