@@ -73,3 +73,9 @@
 - 没起窗口实测，菜单、浮层、卡片格子的样子和点击留给用户实际看。
 - 没读写用户真实的 `workspaces.json`；装上后，用户现有的按名字记的主控会在 paddock 读到它们的仓库后自动换成整个仓库。
 - DESIGN 里 P5-89、P5-93 原文的旧说法没改（已有“P5-105 改…”的标注），只补了 P5-105 一条。
+
+## 主控审查（10-15，paddock/main）
+- 看了 `workspaces.rs`、`agents.rs`、`card.rs`、`sidebar.rs`、`window.rs` 的 diff 和 `sidebar_workspaces.rs` 的归属、换算部分：归属只看主仓库（`of(repo, prefix)`），单记 agent 的增删查、按 agent 勾选、`Not running` 都删干净；`join` 只在仓库不在任何 workspace 时带进来；旧名单换算等到所有运行中、按名字记着的 agent 的仓库都读到才做，名单没变不写盘。「不要做」没碰；`window.rs` 一行是 `join_started` 签名跟着改，同意。
+- 重跑一次 `cargo test --all-targets`：全过，合计 655 条。
+- 对方的五条主意都同意（等读全再换、`corral ls` 里就算运行、同仓库名字在两处按 workspace 名先后、`None` 只在仓库已在某个 workspace 时出现、无变化不写）。
+- 界面那一层（浮层、卡片格子、菜单）没有自动测试，留给用户看。路由碰要害，派 Codex 重档交叉审查，结论见 `docs/任务/P5-105-交叉审查.md`。
