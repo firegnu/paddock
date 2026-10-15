@@ -1,11 +1,11 @@
 //! The right sidebar's Cairn tab, what it knows: whether cairn is at work in the focused pane's
 //! directory, the handover notes agents have saved there, and what the next session would be given
-//! (DESIGN §13 P5-55, P5-79). All of it comes from cairn's own commands, `cairn status --json` and,
-//! in a repository that has adopted it, `cairn show --json` and `cairn list --json`, then
-//! `cairn show <ID> --json` for a note that is opened, and from Git for the repository's name and
-//! branch; cairn's database, settings and hook files are never read (DESIGN §3). One thing writes:
-//! `adopt`, which runs `cairn adopt`, and the tab runs it only once the user has confirmed
-//! (`Adopting`).
+//! (DESIGN §13 P5-55, P5-79, P5-110). All of it comes from cairn's own commands,
+//! `cairn status --json` and, in a repository that has adopted it, `cairn show --json` and
+//! `cairn list --json`, then `cairn show <ID> --json` for a note that is opened, and from Git for
+//! the repository's name and branch; cairn's database, settings and hook files are never read
+//! (DESIGN §3). One thing writes: `adopt`, which runs `cairn adopt`, and the tab runs it only once
+//! the user has confirmed (`Adopting`).
 use crate::{
     activity::{self, MONTHS},
     card::short_time,
@@ -24,8 +24,9 @@ use std::{
 pub const PROGRAM: &str = "cairn";
 const TIMEOUT: Duration = Duration::from_secs(5);
 const DAY: i64 = 86_400;
-/// How many records are asked for at first, and how many more with each Show older.
-pub const PAGE: usize = 50;
+/// How many records are asked for at first, and how many more with each Show older: one session
+/// can have saved dozens.
+pub const PAGE: usize = 200;
 
 /// What a read of a directory found.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -94,26 +95,40 @@ pub struct Records {
     /// What the next session would be given, from its first section on (`shown`).
     pub text: String,
     /// The handover notes; `None` from a cairn before 0.3.0, which does not list them.
-    pub notes: Option<Notes>,
+    pub notes: Option<Box<Notes>>,
 }
 
-/// The handover notes of a repository: its checkpoints, as `cairn list --json` gives them.
+/// The handover notes of a repository: its checkpoints, as `cairn list --json` gives them, one line
+/// for each session that saved any (DESIGN §13 P5-110).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Notes {
-    /// The days notes were saved on, the latest first.
+    /// The sessions the next session is given, the latest first.
+    pub next: Vec<Session>,
+    /// The other sessions, under the day of the note each is shown by, the latest first.
     pub days: Vec<Day>,
     /// cairn has more records than were asked for.
     pub older: bool,
 }
 
-/// The notes saved on one day of this machine's calendar, the newest first.
+/// The sessions shown by a note saved on one day of this machine's calendar, the latest first.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Day {
     /// `Today` or `Yesterday`, for those two.
     pub name: Option<&'static str>,
     /// `Sat, Oct 10`, and the year after it when that is not this one.
     pub date: String,
-    pub notes: Vec<Note>,
+    pub sessions: Vec<Session>,
+}
+
+/// The notes one session saved: the one it is shown by, and the rest of those read.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Session {
+    /// The one the next session is given, or else its latest.
+    pub note: Note,
+    /// Its other notes, the newest first.
+    pub earlier: Vec<Note>,
+    /// It may have saved more than were read: it has the oldest note read, and cairn has older.
+    pub more: bool,
 }
 
 /// One handover note in the list.
@@ -122,8 +137,13 @@ pub struct Note {
     pub id: String,
     /// When it was saved, on this machine's clock: `17:44`.
     pub time: String,
+    /// For one not saved today, which day: `Oct 9`, and the year after it when that is not this
+    /// one.
+    pub day: Option<String>,
     /// For one saved today, how long before the read: `2m ago`.
     pub ago: Option<String>,
+    /// What cairn calls the agent that saved it: `claude`, `codex`, `local`, or one to come.
+    pub agent: String,
     /// Who saved it: `Claude`, `Codex`, `Manual` for none of the agents, or what cairn calls it.
     pub by: String,
     pub branch: Option<String>,
@@ -231,6 +251,8 @@ struct Record {
     created_at: String,
     agent: String,
     session_id: Option<String>,
+    /// From `list`: the session that saved it, `<agent>:<session_id>`, or `local:<id>`.
+    source_id: Option<String>,
     branch: Option<String>,
     kind: String,
     #[serde(default)]
@@ -370,7 +392,10 @@ fn records(
         return Ok(Body::NoRecords);
     };
     let notes = notes(program, cwd, limit, &next, now, offset, cancel)?;
-    let none = next.is_empty() && notes.as_ref().is_none_or(|notes| notes.days.is_empty());
+    let none = next.is_empty()
+        && notes
+            .as_ref()
+            .is_none_or(|notes| notes.next.is_empty() && notes.days.is_empty());
     Ok(if none {
         Body::NoRecords
     } else {
@@ -403,8 +428,9 @@ fn show(
     }
 }
 
-/// The project's handover notes, the newest `limit` records' worth, those in `next` marked as what
-/// the next session is given; `None` from a cairn that does not list them.
+/// The project's handover notes, the newest `limit` records' worth, by the session that saved them,
+/// those in `next` marked as what the next session is given; `None` from a cairn that does not
+/// list them.
 fn notes(
     program: &str,
     cwd: &str,
@@ -413,7 +439,7 @@ fn notes(
     now: SystemTime,
     offset: &dyn Fn(i64) -> i64,
     cancel: &AtomicBool,
-) -> Result<Option<Notes>, Trouble> {
+) -> Result<Option<Box<Notes>>, Trouble> {
     let limit = limit.to_string();
     let out = match run(program, &["list", "--json", "--limit", &limit], cwd, cancel) {
         Ok(out) => out,
@@ -427,29 +453,82 @@ fn notes(
         .duration_since(UNIX_EPOCH)
         .map_or(0, |since| since.as_secs() as i64);
     let today = activity::day_of(now, offset(now));
+    let year = |day| activity::date(day).0;
     let older = (list.records.len() as u64) < list.total;
-    // The days so far, each beside which day it is.
-    let mut days: Vec<(activity::Day, Day)> = Vec::new();
+    // Each session's notes, the newest first, beside when and on which day each was saved; the
+    // sessions in the order of their newest.
+    let mut sessions: Vec<Vec<(i64, activity::Day, Note)>> = Vec::new();
+    let mut of_source: HashMap<String, usize> = HashMap::new();
+    let mut oldest = None;
     // Corrections, retractions, restores and kinds yet to come are records too, but not notes.
     for record in list.records.into_iter().filter(|r| r.kind == "checkpoint") {
         let at = unix(&record.created_at).ok_or_else(unexpected)? as i64;
         let local = at + offset(at);
         let on = local.div_euclid(DAY);
         let of_day = local.rem_euclid(DAY);
+        // A cairn that does not say which source falls back on the agent's session; a record of
+        // none is a session of its own.
+        let source = match (
+            record.source_id.filter(|s| !s.is_empty()),
+            &record.session_id,
+        ) {
+            (Some(source), _) => source,
+            (None, Some(session)) => format!("{}:{session}", record.agent),
+            (None, None) => format!("record:{}", record.id),
+        };
+        let day = (on != today).then(|| {
+            let (_, month, of) = activity::date(on);
+            let day = format!("{} {of}", MONTHS[month as usize - 1]);
+            if year(on) == year(today) {
+                day
+            } else {
+                format!("{day}, {}", year(on))
+            }
+        });
         let note = Note {
             next: next.contains(&record.id),
             id: record.id,
             time: format!("{:02}:{:02}", of_day / 3600, of_day % 3600 / 60),
+            day,
             ago: (on == today)
                 .then(|| format!("{} ago", short_time(Some((now - at).max(0) as f64)))),
             by: by(&record.agent),
+            agent: record.agent,
             branch: record.branch.filter(|branch| !branch.is_empty()),
             summary: record.summary,
         };
+        let index = *of_source.entry(source).or_insert_with(|| {
+            sessions.push(Vec::new());
+            sessions.len() - 1
+        });
+        sessions[index].push((at, on, note));
+        oldest = Some(index);
+    }
+    // Each session shown by the note the next session is given, or else its newest.
+    let mut shown: Vec<(i64, activity::Day, Session)> = sessions
+        .into_iter()
+        .enumerate()
+        .map(|(index, mut notes)| {
+            let by = notes.iter().position(|(_, _, note)| note.next).unwrap_or(0);
+            let (at, on, note) = notes.remove(by);
+            let session = Session {
+                note,
+                earlier: notes.into_iter().map(|(_, _, note)| note).collect(),
+                more: older && oldest == Some(index),
+            };
+            (at, on, session)
+        })
+        .collect();
+    shown.sort_by_key(|(at, _, _)| std::cmp::Reverse(*at));
+    let (mut next, mut days) = (Vec::new(), Vec::<(activity::Day, Day)>::new());
+    for (_, on, session) in shown {
+        if session.note.next {
+            next.push(session);
+            continue;
+        }
         match days.last_mut() {
-            Some((last, day)) if *last == on => day.notes.push(note),
+            Some((last, day)) if *last == on => day.sessions.push(session),
             _ => {
-                let year = |day| activity::date(day).0;
                 let mut date = activity::label(on);
                 if year(on) != year(today) {
                     date = format!("{date}, {}", year(on));
@@ -464,16 +543,17 @@ fn notes(
                     Day {
                         name,
                         date,
-                        notes: vec![note],
+                        sessions: vec![session],
                     },
                 ));
             }
         }
     }
-    Ok(Some(Notes {
+    Ok(Some(Box::new(Notes {
+        next,
         days: days.into_iter().map(|(_, day)| day).collect(),
         older,
-    }))
+    })))
 }
 
 /// One note in full: `cairn show <ID> --json` run in `cwd`, which takes saved records into

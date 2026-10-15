@@ -1,8 +1,9 @@
 //! The Cairn tab's reads and its Adopt, through a fake `cairn` and made-up JSON (DESIGN §13
-//! P5-55, P5-79); never the real one.
+//! P5-55, P5-79, P5-110); never the real one.
 mod common;
 use paddock::cairn::{
-    Adopting, Body, Day, Fired, Found, Full, Note, PAGE, Read, Records, adopt, note, read, shown,
+    Adopting, Body, Day, Fired, Found, Full, Note, PAGE, Read, Records, Session, adopt, note, read,
+    shown,
 };
 use std::{
     fs,
@@ -266,7 +267,7 @@ fn the_two_commands_tell_the_seven_states() {
     assert!(
         all.iter().all(|call| call.ends_with("|status --json")
             || call.ends_with("|show --json")
-            || call.ends_with("|list --json --limit 50")),
+            || call.ends_with("|list --json --limit 200")),
         "{all:?}"
     );
 }
@@ -286,7 +287,7 @@ fn record(
         "created_at": at,
         "agent": agent,
         "session_id": session,
-        "source_id": format!("{agent}:5f0c"),
+        "source_id": format!("{agent}:{id}"),
         "line_path": "/r/ranch",
         "branch": branch,
         "kind": kind,
@@ -396,114 +397,276 @@ fn the_notes_are_listed_by_the_day_they_were_saved_on_the_newest_first() {
     ];
     fs::write(bin.join("list.out"), list(40, &records)).unwrap();
 
-    let a_note = |id: &str, time: &str, ago: Option<&str>, by: &str, branch: Option<&str>| Note {
-        id: id.into(),
-        time: time.into(),
-        ago: ago.map(str::to_owned),
-        by: by.into(),
-        branch: branch.map(str::to_owned),
-        summary: String::new(),
-        next: false,
+    let a_note = |id: &str, time: &str, ago: Option<&str>, agent: &str, branch: Option<&str>| {
+        let by = match agent {
+            "claude" => "Claude",
+            "codex" => "Codex",
+            "local" => "Manual",
+            other => other,
+        };
+        Note {
+            id: id.into(),
+            time: time.into(),
+            day: None,
+            ago: ago.map(str::to_owned),
+            agent: agent.into(),
+            by: by.into(),
+            branch: branch.map(str::to_owned),
+            summary: String::new(),
+            next: false,
+        }
+    };
+    let on = |day: &str, note: Note| Note {
+        day: Some(day.into()),
+        ..note
+    };
+    let alone = |note: Note| Session {
+        note,
+        earlier: Vec::new(),
+        more: false,
     };
     let day = |name: Option<&'static str>, date: &str, notes: Vec<Note>| Day {
         name,
         date: date.into(),
-        notes,
+        sessions: notes.into_iter().map(alone).collect(),
     };
     let listed = notes(PAGE);
+    // The two the next session is given come first, marked; one not saved today says which day.
     assert_eq!(
-        listed.days,
+        listed.next,
         [
-            // Today's say how long ago, as the Hooks line writes it; the two the next session is
-            // given are marked.
-            day(
-                Some("Today"),
-                "Sat, Oct 10",
-                vec![
-                    Note {
-                        summary: "P5-78 看过，没问题。".into(),
-                        next: true,
-                        ..a_note("01A", "17:44", Some("45s ago"), "Claude", Some("main"))
-                    },
-                    a_note("01B", "15:39", Some("2.1h ago"), "Codex", None),
-                    Note {
-                        summary: "样稿已出，等用户选。".into(),
-                        ..a_note(
-                            "01C",
-                            "00:30",
-                            Some("17h ago"),
-                            "Claude",
-                            Some("p5-74-arrow")
-                        )
-                    },
-                ]
-            ),
-            day(
-                Some("Yesterday"),
-                "Fri, Oct 9",
-                vec![Note {
-                    summary: "手动存的一条。".into(),
-                    next: true,
-                    ..a_note("01D", "23:59", None, "Manual", Some("main"))
-                }]
-            ),
-            // Earlier days go by their date alone, with the year when it is not this one.
-            day(
-                None,
-                "Wed, Oct 7",
-                vec![Note {
-                    summary: "别家写的。".into(),
-                    ..a_note("01E", "09:02", None, "gemini", None)
-                }]
-            ),
-            day(
-                None,
-                "Thu, Jan 1",
-                vec![Note {
-                    summary: "今年第一条。".into(),
-                    ..a_note("01F", "00:00", None, "Claude", Some("main"))
-                }]
-            ),
-            day(
-                None,
-                "Wed, Dec 31, 2025",
-                vec![Note {
-                    summary: "去年最后一条。".into(),
-                    ..a_note("01G", "23:59", None, "Claude", Some("main"))
-                }]
-            ),
+            alone(Note {
+                summary: "P5-78 看过，没问题。".into(),
+                next: true,
+                ..a_note("01A", "17:44", Some("45s ago"), "claude", Some("main"))
+            }),
+            alone(Note {
+                summary: "手动存的一条。".into(),
+                next: true,
+                ..on("Oct 9", a_note("01D", "23:59", None, "local", Some("main")))
+            }),
         ]
     );
-    // cairn counts 40 and gave 11: there are older ones.
+    let mut days = vec![
+        // Today's say how long ago, as the Hooks line writes it.
+        day(
+            Some("Today"),
+            "Sat, Oct 10",
+            vec![
+                a_note("01B", "15:39", Some("2.1h ago"), "codex", None),
+                Note {
+                    summary: "样稿已出，等用户选。".into(),
+                    ..a_note(
+                        "01C",
+                        "00:30",
+                        Some("17h ago"),
+                        "claude",
+                        Some("p5-74-arrow"),
+                    )
+                },
+            ],
+        ),
+        // Earlier days go by their date alone, with the year when it is not this one.
+        day(
+            None,
+            "Wed, Oct 7",
+            vec![Note {
+                summary: "别家写的。".into(),
+                ..on("Oct 7", a_note("01E", "09:02", None, "gemini", None))
+            }],
+        ),
+        day(
+            None,
+            "Thu, Jan 1",
+            vec![Note {
+                summary: "今年第一条。".into(),
+                ..on(
+                    "Jan 1",
+                    a_note("01F", "00:00", None, "claude", Some("main")),
+                )
+            }],
+        ),
+        day(
+            None,
+            "Wed, Dec 31, 2025",
+            vec![Note {
+                summary: "去年最后一条。".into(),
+                ..on(
+                    "Dec 31, 2025",
+                    a_note("01G", "23:59", None, "claude", Some("main")),
+                )
+            }],
+        ),
+    ];
+    // cairn counts 40 and gave 11: there are older ones, and the session of the oldest note read
+    // may have saved some of them.
     assert!(listed.older);
+    days[3].sessions[0].more = true;
+    assert_eq!(listed.days, days);
     // Status, show, which takes in what was just saved, then the list, in the pane's directory.
     assert_eq!(
         calls(&bin),
-        ["status --json", "show --json", "list --json --limit 50"]
+        ["status --json", "show --json", "list --json --limit 200"]
             .map(|args| format!("{}|{args}", repo.display()))
     );
 
-    // Show older asks for fifty more; with all of them given, there are none older.
+    // Show older asks for a page more; with all of them given, there are none older.
     fs::write(bin.join("list.out"), list(11, &records)).unwrap();
-    let all = notes(PAGE + 50);
-    assert_eq!(all.days, listed.days);
+    let all = notes(PAGE * 2);
+    days[3].sessions[0].more = false;
+    assert_eq!(all.days, days);
     assert!(!all.older);
     assert_eq!(
         calls(&bin).last().unwrap(),
-        &format!("{}|list --json --limit 100", repo.display())
+        &format!("{}|list --json --limit 400", repo.display())
     );
 
     // With nothing for the next session, the notes are listed all the same, none marked.
     let show = serde_json::json!({ "text": TEXT, "record_ids": [] }).to_string();
     fs::write(bin.join("show.out"), show).unwrap();
     let unmarked = notes(PAGE);
+    assert!(unmarked.next.is_empty());
     assert_eq!(unmarked.days.len(), 5);
     assert!(
         unmarked
             .days
             .iter()
-            .flat_map(|day| &day.notes)
-            .all(|note| !note.next)
+            .flat_map(|day| &day.sessions)
+            .all(|session| !session.note.next)
+    );
+}
+
+#[test]
+fn the_notes_are_shown_one_line_for_each_session_that_saved_them() {
+    let temp = common::tempdir();
+    let (bin, repo, program) = adopted(temp.path(), &["01M"]);
+    let none = AtomicBool::new(false);
+    let notes = || match read(&program, "git", dir(&repo), PAGE, now(), &east, &none) {
+        Read::Found(Found {
+            body: Body::Records(Records {
+                notes: Some(notes), ..
+            }),
+            ..
+        }) => notes,
+        other => panic!("{other:?}"),
+    };
+    let saved = |id: &str, at: &str, agent: &str, source: Option<&str>, session: Option<&str>| {
+        let mut record = record(id, at, agent, Some("main"), "checkpoint", "");
+        match source {
+            Some(source) => record["source_id"] = source.into(),
+            // A cairn that does not say which source.
+            None => {
+                record.as_object_mut().unwrap().remove("source_id");
+            }
+        }
+        record["session_id"] = session.into();
+        record
+    };
+    let records = [
+        saved(
+            "01K",
+            "2026-10-10T09:40:00.000Z",
+            "claude",
+            Some("claude:s1"),
+            Some("s1"),
+        ),
+        saved(
+            "01N",
+            "2026-10-10T09:30:00.000Z",
+            "codex",
+            Some("codex:s2"),
+            Some("s2"),
+        ),
+        saved(
+            "01L",
+            "2026-10-10T09:20:00.000Z",
+            "claude",
+            Some("claude:s1"),
+            Some("s1"),
+        ),
+        // Given to the next session, though its own session saved two since.
+        saved(
+            "01M",
+            "2026-10-10T09:10:00.000Z",
+            "claude",
+            Some("claude:s1"),
+            Some("s1"),
+        ),
+        record(
+            "01X",
+            "2026-10-10T09:05:00.000Z",
+            "local",
+            None,
+            "correction",
+            "",
+        ),
+        saved(
+            "01O",
+            "2026-10-10T09:00:00.000Z",
+            "codex",
+            Some("codex:s2"),
+            Some("s2"),
+        ),
+        // Without a source: by the agent's session, and with none either, each on its own.
+        saved(
+            "01P",
+            "2026-10-10T08:50:00.000Z",
+            "claude",
+            None,
+            Some("s3"),
+        ),
+        saved(
+            "01Q",
+            "2026-10-10T08:40:00.000Z",
+            "claude",
+            None,
+            Some("s3"),
+        ),
+        saved("01R", "2026-10-10T08:30:00.000Z", "local", None, None),
+        saved("01S", "2026-10-10T08:20:00.000Z", "local", None, None),
+    ];
+    let ids = |sessions: &[Session]| {
+        sessions
+            .iter()
+            .map(|session| {
+                let earlier = session.earlier.iter().map(|note| note.id.as_str());
+                (
+                    session.note.id.clone(),
+                    earlier.collect::<Vec<_>>().join(" "),
+                    session.more,
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    let one = |id: &str, earlier: &str, more: bool| (id.to_owned(), earlier.to_owned(), more);
+
+    fs::write(bin.join("list.out"), list(30, &records)).unwrap();
+    let read = notes();
+    // The session the next session is given is shown by that note, its others under it.
+    assert_eq!(ids(&read.next), [one("01M", "01K 01L", false)]);
+    assert!(read.next[0].note.next);
+    assert!(read.next[0].earlier.iter().all(|note| !note.next));
+    // The rest by their newest, under its day; cairn has older records, which the session of the
+    // oldest note read may have saved.
+    assert_eq!(read.days.len(), 1);
+    assert_eq!(
+        ids(&read.days[0].sessions),
+        [
+            one("01N", "01O", false),
+            one("01P", "01Q", false),
+            one("01R", "", false),
+            one("01S", "", true),
+        ]
+    );
+
+    // With all of them read, nothing more.
+    fs::write(bin.join("list.out"), list(10, &records)).unwrap();
+    assert!(
+        notes()
+            .days
+            .iter()
+            .flat_map(|day| &day.sessions)
+            .all(|session| !session.more)
     );
 }
 
@@ -660,7 +823,7 @@ fn a_cairn_that_cannot_list_shows_the_text_alone_and_one_that_fails_is_trouble()
     match body() {
         Body::Records(Records {
             notes: Some(notes), ..
-        }) => assert_eq!(notes.days.len(), 1),
+        }) => assert_eq!((notes.next.len(), notes.days.len()), (1, 0)),
         other => panic!("{other:?}"),
     }
 

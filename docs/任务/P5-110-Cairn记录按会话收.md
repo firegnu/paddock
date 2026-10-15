@@ -45,3 +45,18 @@
 - 不区分开局给全文和给一行的会话（cairn/main 转达时用户说这次不要求）。
 - 不动 Hooks 行、Adopt、没采用和出错这些状态。
 - 主控不起窗口看，样子留给用户看。
+
+## 完成记录（2026-10-15，paddock/main）
+- 做了什么：
+  - DESIGN §13 加 P5-110 一条，P5-79 里被改的三处注明“P5-110 改”。
+  - `app/src/cairn.rs`：`list --json` 多读 `source_id`；checkpoint 按会话分组成 `Session`（代表那条、`earlier`、`more`），`Notes` 分成 `next`（会接续的）和 `days`（其余按代表的日期）；`Note` 加 `day`（不是今天的 `Oct 14`）和 `agent`；`PAGE` 50 → 200；`Records.notes` 改成 `Box`（`Notes` 变大后 clippy 嫌 `Read` 各分支大小差太多）。
+  - `app/src/cairn_view.rs`：照样稿甲画会接续的框（标题一次、条间细线、两行摘要、不是今天的时间前加日期）和 `Earlier`（按天、一行）；条数小签 `N earlier`／`N+ earlier`、agent 图标（`kind_icon`，左侧栏的颜色；认不出的写字）、分支和顶上一样不画；点开后 `Earlier in this session · N`，前 3 条加 `Show all N`，点一条在下面看全文（`inner`、`all` 两个状态，换会话、换仓库复位）。
+- 验证：
+  - `app/tests/cairn.rs` 改了按天分组那个测试（会接续的进 `next`、其余按天、读不全时最旧那个会话 `more`、每页 200／400），新加 `the_notes_are_shown_one_line_for_each_session_that_saved_them`（同会话多条一行、`record_ids` 那条做代表且在上面那块、没有 `source_id` 退回 `agent`＋`session_id`、两者都没有的各自一行、读不全时 `+`、读全了没有 `+`）。数据形状改了，旧代码编不过新测试，没法先看红；改用变异核对：把分组改成每条各自一组，新测试失败，改回后通过。
+  - `cargo test --all-targets` 全过（合计 661 项），`cargo clippy --all-targets -- -D warnings`、`cargo fmt --check` 干净。
+  - 对本机真实数据只读跑 `cairn list --json --limit 200` 加 `jq` 按 `source_id` 数：200 条里 8 个会话，`record_ids` 的 3 个都是今天的；所以 Today 那组只剩上面框里 3 条，`Earlier` 是 10-14 两个、10-12、10-11、10-10 各一个，一屏看得完。
+- 拿主意的地方：
+  - 验收里写的 `26 earlier` 是主控当时只看了前 60 条数的；14:49 那个会话其实有 43 条，装上后显示 `42 earlier`，点开 `Show all 42` 能全看到。
+  - 一页 200 条读不到全部（本仓库 217 条），最旧那个会话（10-10）会写 `+`。
+  - 会接续框里的条间线用强调色 16%（`NEXT_RULE`），agent 图标高 13（`MARK`）。
+- 没做的：主控没起窗口看过，样子、间距、图标大小留给用户看；界面那一层没有自动测试。
