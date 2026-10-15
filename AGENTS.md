@@ -8,7 +8,7 @@ paddock 是用 GPUI 重做 Saddle 界面的独立桌面应用：原生窗口里�
 
 - `docs/DESIGN.md`：权威设计。§2 已定决定，§3 与 Saddle 的关系，§4 依赖隔离，§7 待定问题。
 - `docs/背景与决策记录.md`：用户原话、为什么独立成仓库、哪些还没批准（不要把建议当成已批准）。
-- `HANDOFF.md`：现在在哪、下一步做什么、悬着什么。
+- `HANDOFF.md`：项目级的账：现状、下一步、悬着什么。上次会话停在哪、说过什么，由 cairn 开局注入。
 - `docs/原型实测记录.md`：原型的运行方式、复用结果、缺口和实测记录。
 - `docs/调研/T76-GPUI桌面化详细方案.md`：从 Saddle 复制来的完整调研（GPUI 现状、迁移路线比较、风险）。只作依据，以本仓库 DESIGN 为准。
 
@@ -57,5 +57,5 @@ paddock 是用 GPUI 重做 Saddle 界面的独立桌面应用：原生窗口里�
 - 合并前按影响面自查：至少跑 `cargo test --all-targets`、`cargo clippy --all-targets -- -D warnings` 和 `cargo fmt --check`，在任务文件末尾写「完成记录」：做了什么、验证了什么、拿主意的地方、没做的事。
 - 合并：本地合并进 main，合并后推送到 `origin`（`github.com/firegnu/paddock`，public，用户 10-05 建）。仓库是公开的：推送前确认没有密钥、截图和私人数据进入提交。
 - 收尾记号：一件活合并完、worktree、分支和它的编译子目录清干净之后，在 main 上补一条空提交（`git commit --allow-empty`），首行写「收尾: 」加一句话说明这件活。只记真正落地的活（决定不做的活按上面看板约定写「不做」）。
-- 收尾之后更新 `HANDOFF.md`：现在在哪、下一步、悬着什么。设计和理由进 `docs/DESIGN.md`，别写进交接文件。
+- 收尾之后，或者项目级的事有变化时，更新 `HANDOFF.md`：现状（装的版本、环境、进行中的活、worktree 和测试 agent）、下一步、悬着什么（新增的加上，了结的删掉）。不写会话经过（做了什么、用户怎么说的），那部分交给 cairn 的接续摘要（2026-10-15 起）；每件活的经过照旧写在任务文件和合并、收尾提交里。设计和理由进 `docs/DESIGN.md`，别写进交接文件。
 - 需要真实 agent 实测时，照“不要干扰用户正在用的 agent”一条，自己开 `paddock/test-<名字>`（`--label role=test`），用完 `corral stop`。
