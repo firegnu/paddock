@@ -3,7 +3,7 @@
 //! skills are in the places it reads skills from. Read from `corral integration status`, `ranch
 //! dispatch install-skills --dry-run` and paddock's own skill; installing runs the same commands
 //! with `--target <place> --yes` once the person has confirmed. An agent corral cannot connect at
-//! start (amp, P5-98) needs a plugin in its own configuration, installed or removed with `corral
+//! start (amp, P5-98; agy, P5-88) needs a plugin in its own configuration, installed or removed with `corral
 //! integration install|uninstall`.
 use serde_json::Value;
 use std::{sync::atomic::AtomicBool, time::Duration};
@@ -27,12 +27,15 @@ pub struct Agent {
     pub targets: Vec<String>,
 }
 
-/// The file corral installs in an agent's own configuration (amp's plugin).
+/// The file or folder corral installs in an agent's own configuration (amp's plugin, agy's).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Install {
     pub path: String,
     /// `create`, `same`, `overwrite`, `foreign`, or anything newer, shown as it is.
     pub status: String,
+    /// Whether the agent itself has the plugin turned on: only agy says (P5-88); none when it
+    /// doesn't say or corral couldn't tell.
+    pub enabled: Option<bool>,
 }
 
 /// The Status column of a row.
@@ -43,6 +46,8 @@ pub enum Status {
     /// The plugin: not there yet, there and current, there but different, or not corral's.
     Install,
     Installed,
+    /// There and current, but turned off in the agent itself (agy).
+    Disabled,
     Update,
     NotManaged,
     /// A word paddock doesn't know, as corral gives it.
@@ -186,7 +191,11 @@ pub fn parse_status(value: &Value) -> Result<(Vec<Agent>, Vec<File>), String> {
                 text(&agent["install"]["path"]),
                 text(&agent["install"]["status"]),
             ) {
-                (Some(path), Some(status)) => Some(Install { path, status }),
+                (Some(path), Some(status)) => Some(Install {
+                    path,
+                    status,
+                    enabled: agent["install"]["enabled"].as_bool(),
+                }),
                 _ => None,
             },
             targets,
@@ -342,6 +351,10 @@ pub fn rows(report: &Report) -> Vec<Row> {
                     let file = install.path.rsplit('/').next().unwrap_or_default();
                     match install.status.as_str() {
                         "create" => (Some(Status::Install), None),
+                        "same" if install.enabled == Some(false) => (
+                            Some(Status::Disabled),
+                            Some(format!("Run {} plugin enable corral", agent.kind)),
+                        ),
                         "same" => (Some(Status::Installed), None),
                         "overwrite" => (Some(Status::Update), Some("plugin changed".into())),
                         "foreign" => (
@@ -454,12 +467,6 @@ pub fn plan(report: &Report, kind: &str) -> Option<Plan> {
     })
 }
 
-/// Whether some agent needs a file installed in its own configuration, so the section says what
-/// that means.
-pub fn global(report: &Report) -> bool {
-    report.agents.iter().any(|agent| agent.hooks == "global")
-}
-
 /// What `kind`'s plugin button would do: install or update it, or with `remove`, remove it; none
 /// when the row offers no such button.
 pub fn plugin_plan(report: &Report, kind: &str, remove: bool) -> Option<PluginPlan> {
@@ -480,17 +487,19 @@ pub fn plugin_plan(report: &Report, kind: &str, remove: bool) -> Option<PluginPl
     })
 }
 
-/// How `kind`'s plugin stands (`create`, `same`…), for New Agent to warn before starting it; none
-/// when corral doesn't answer or the kind has no plugin. Slow, like [`read`].
-pub fn plugin_status(corral: &str, kind: &str, cancel: &AtomicBool) -> Option<String> {
+/// How `kind`'s plugin stands (`create`, `same`…, and turned off in agy), for New Agent to warn
+/// before starting it; none when corral doesn't answer or the kind has no plugin. Slow, like
+/// [`read`].
+pub fn plugin_status(corral: &str, kind: &str, cancel: &AtomicBool) -> Option<Install> {
     let (agents, _) = parse_status(&ask(corral, &["integration", "status"], cancel).ok()?).ok()?;
     let agent = agents.into_iter().find(|a| a.kind == kind)?;
-    agent.install.map(|install| install.status)
+    agent.install
 }
 
 /// Installs, updates or removes the plugin as `plan` says, first checking with a dry run that it
-/// still stands as the confirmation showed it.
-pub fn plugin(corral: &str, plan: &PluginPlan, cancel: &AtomicBool) -> Result<(), String> {
+/// still stands as the confirmation showed it. Done, it gives corral's warnings, such as agy's
+/// plugin folder left in place.
+pub fn plugin(corral: &str, plan: &PluginPlan, cancel: &AtomicBool) -> Result<Vec<String>, String> {
     let (action, expected) = if plan.remove {
         ("uninstall", "remove")
     } else {
@@ -507,20 +516,21 @@ pub fn plugin(corral: &str, plan: &PluginPlan, cancel: &AtomicBool) -> Result<()
         return Err(CHANGED.into());
     }
     let done = call("--yes")?;
+    let warnings: Vec<String> = done["warnings"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(str::to_owned)
+        .collect();
     if done["written"] != true {
-        let warnings: Vec<&str> = done["warnings"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(Value::as_str)
-            .collect();
         return Err(if warnings.is_empty() {
             "nothing was written".into()
         } else {
             format!("nothing was written: {}", warnings.join("; "))
         });
     }
-    Ok(())
+    Ok(warnings)
 }
 
 /// The skills folder a skill's file sits in: `<folder>/<skill>/…`.
@@ -892,7 +902,6 @@ mod tests {
 
     #[test]
     fn an_agent_with_a_plugin_brings_where_it_goes_and_how_it_stands() {
-        let without = report(("same", "same"), "same");
         let report = with_amp("create");
         let amp = &report.agents[4];
         assert_eq!(amp.hooks, "global");
@@ -900,12 +909,11 @@ mod tests {
             amp.install,
             Some(Install {
                 path: PLUGIN.into(),
-                status: "create".into()
+                status: "create".into(),
+                enabled: None,
             })
         );
         assert_eq!(report.agents[0].install, None);
-        assert!(global(&report));
-        assert!(!global(&without));
     }
 
     #[test]
@@ -1027,7 +1035,9 @@ mod tests {
         let corral = script(&dir, "corral", &echo(&value));
         let cancel = AtomicBool::new(false);
         assert_eq!(
-            plugin_status(&corral, "amp", &cancel).as_deref(),
+            plugin_status(&corral, "amp", &cancel)
+                .map(|install| install.status)
+                .as_deref(),
             Some("create")
         );
         assert_eq!(plugin_status(&corral, "claude", &cancel), None);
@@ -1045,6 +1055,111 @@ mod tests {
             CHANGED
         );
         assert_eq!(std::fs::read_to_string(&log).unwrap().lines().count(), 1);
+    }
+
+    const AGY_PLUGIN: &str = "/h/.gemini/config/plugins/corral";
+
+    /// The status with amp and agy, agy's plugin standing at `install` with `enabled`.
+    fn with_agy(install: &str, enabled: Value) -> Report {
+        let mut report = with_amp("same");
+        let (agents, files) = parse_status(&json!({"ok":true,"agents":[
+            {"kind":"agy","path":"/bin/agy","version":"1.3.5","hooks":"global",
+             "install":{"path":AGY_PLUGIN,"status":install,"version":1,"enabled":enabled},
+             "skills":[{"target":"gemini","path":"/h/.gemini/config/skills/corral/SKILL.md","status":"create"}]}
+        ]}))
+        .unwrap();
+        report.agents.extend(agents);
+        report.files.extend(files);
+        report
+    }
+
+    #[test]
+    fn agys_plugin_brings_whether_agy_has_it_turned_on() {
+        let report = with_agy("same", json!(false));
+        let agy = &report.agents[5];
+        assert_eq!(
+            agy.install,
+            Some(Install {
+                path: AGY_PLUGIN.into(),
+                status: "same".into(),
+                enabled: Some(false),
+            })
+        );
+        assert_eq!(agy.targets, ["gemini"]);
+        // Only agy says; amp's has no word, which is not "off".
+        assert_eq!(report.agents[4].install.as_ref().unwrap().enabled, None);
+        let unknown = with_agy("same", Value::Null);
+        assert_eq!(unknown.agents[5].install.as_ref().unwrap().enabled, None);
+    }
+
+    #[test]
+    fn agys_plugin_turned_off_in_agy_is_disabled_and_can_still_be_removed() {
+        let shown = rows(&with_agy("same", json!(false)));
+        let agy = row(&shown, "agy");
+        assert_eq!(agy.status, Some(Status::Disabled));
+        assert_eq!(
+            agy.status_note.as_deref(),
+            Some("Run agy plugin enable corral")
+        );
+        assert!(plugin_plan(&with_agy("same", json!(false)), "agy", true).is_some());
+        for enabled in [json!(true), Value::Null] {
+            let rows = rows(&with_agy("same", enabled));
+            assert_eq!(row(&rows, "agy").status, Some(Status::Installed));
+        }
+        let cases = [
+            ("create", Status::Install, None),
+            ("overwrite", Status::Update, Some("plugin changed")),
+            ("foreign", Status::NotManaged, Some("corral isn't corral's")),
+        ];
+        for (install, status, note) in cases {
+            let rows = rows(&with_agy(install, json!(true)));
+            let agy = row(&rows, "agy");
+            assert_eq!(agy.status.as_ref(), Some(&status), "{install}");
+            assert_eq!(agy.status_note.as_deref(), note, "{install}");
+        }
+        // The gemini place is drawn from the status like the others.
+        assert_eq!(row(&shown, "agy").skills, Skills::Act { install: true });
+        assert_eq!(row(&shown, "amp").status, Some(Status::Installed));
+    }
+
+    #[test]
+    fn removing_agys_plugin_passes_on_what_corral_left_behind() {
+        let dir = temp();
+        let (corral, log) = plugin_corral(&dir, "remove", true);
+        let plan = plugin_plan(&with_agy("same", json!(true)), "agy", true).unwrap();
+        assert_eq!(
+            plugin(&corral, &plan, &AtomicBool::new(false)).unwrap(),
+            ["left in place"]
+        );
+        assert_eq!(
+            std::fs::read_to_string(&log)
+                .unwrap()
+                .lines()
+                .collect::<Vec<_>>(),
+            [
+                "integration uninstall --agent agy --dry-run",
+                "integration uninstall --agent agy --yes"
+            ]
+        );
+    }
+
+    #[test]
+    fn new_agent_hears_whether_agys_plugin_is_turned_on() {
+        let dir = temp();
+        let mut value = status();
+        value["agents"].as_array_mut().unwrap().push(json!(
+            {"kind":"agy","path":"/bin/agy","hooks":"global",
+             "install":{"path":AGY_PLUGIN,"status":"same","enabled":false}}
+        ));
+        let corral = script(&dir, "corral", &echo(&value));
+        assert_eq!(
+            plugin_status(&corral, "agy", &AtomicBool::new(false)),
+            Some(Install {
+                path: AGY_PLUGIN.into(),
+                status: "same".into(),
+                enabled: Some(false),
+            })
+        );
     }
 
     #[test]

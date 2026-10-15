@@ -1,9 +1,9 @@
 //! The small icon drawn for an agent's kind. The originals kept on this machine in
-//! `~/.config/paddock/icons/` (`claude`, `codex`, `pi`, `omp` or `amp`, `.svg` or `.png`; the SVG
-//! when both are there) are drawn in their own colours; without one, or when it cannot be read, the
-//! one-colour silhouette compiled in from `assets/kinds/` (where the README says where each comes
-//! from) is drawn in the theme's colour for its kind. The originals are read once, the first time
-//! an icon is asked for, and drawn at each size from memory.
+//! `~/.config/paddock/icons/` (`claude`, `codex`, `pi`, `omp`, `amp` or `agy`, `.svg` or `.png`;
+//! the SVG when both are there) are drawn in their own colours; without one, or when it cannot be
+//! read, the one-colour silhouette compiled in from `assets/kinds/` (where the README says where
+//! each comes from) is drawn in the theme's colour for its kind. The originals are read once, the
+//! first time an icon is asked for, and drawn at each size from memory.
 use gpui::{
     AnyElement, App, Bounds, Corners, DevicePixels, Hsla, IntoElement, Pixels, RenderImage, Rgba,
     Styled, SvgRenderer, SvgSize, Transformation, canvas, px, radians, size, svg,
@@ -16,7 +16,7 @@ use std::{
 };
 
 /// The kinds with an icon, as the kind colours match them (any case).
-const KINDS: [&str; 5] = ["claude", "codex", "pi", "omp", "amp"];
+const KINDS: [&str; 6] = ["claude", "codex", "pi", "omp", "amp", "agy"];
 
 /// The width an original is measured at to find where its picture lies, in pixels.
 const PROBE: u32 = 256;
@@ -121,7 +121,8 @@ fn silhouette(index: usize) -> KindIcon {
         1 => (include_bytes!("../assets/kinds/codex.svg"), 1.0),
         2 => (include_bytes!("../assets/kinds/pi.svg"), 0.8),
         3 => (include_bytes!("../assets/kinds/omp.svg"), 1.15),
-        _ => (include_bytes!("../assets/kinds/amp.svg"), 1.0),
+        4 => (include_bytes!("../assets/kinds/amp.svg"), 1.0),
+        _ => (include_bytes!("../assets/kinds/agy.svg"), 1.0),
     };
     KindIcon {
         look: Look::Mask(data),
@@ -434,6 +435,7 @@ mod tests {
         assert_eq!(silhouette_file("pi"), Some("pi"));
         assert_eq!(silhouette_file("OMP"), Some("omp"));
         assert_eq!(silhouette_file("amp"), Some("amp"));
+        assert_eq!(silhouette_file("agy"), Some("agy"));
         assert_eq!(of("gemini"), None);
         assert_eq!(of(""), None);
     }

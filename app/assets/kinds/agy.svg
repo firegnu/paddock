@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
+  <!-- Original drawing for paddock, not Antigravity's mark: a chevron lifting off the ground. -->
+  <g fill="none" stroke="#000" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M3.5 9L8 4.5L12.5 9"/>
+    <path d="M4 13.25H12"/>
+  </g>
+</svg>

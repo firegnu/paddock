@@ -211,10 +211,10 @@ pub struct NewAgentView {
     naming_preset: bool,
     show_command: bool,
     busy: bool,
-    /// How amp's plugin stood when last asked, while amp is chosen (P5-98), and whether it was
-    /// asked since the panel opened.
-    plugin: Option<String>,
-    plugin_asked: bool,
+    /// How the plugin of the kind chosen stood when last asked (amp P5-98, agy P5-88), and which
+    /// kind was last asked about since the panel opened.
+    plugin: Option<crate::integrations::Install>,
+    plugin_asked: Option<Tool>,
     /// The workspace it was opened from (P5-93).
     workspace: Option<String>,
     error: Option<String>,
@@ -407,7 +407,7 @@ impl NewAgentView {
             show_command: false,
             busy: false,
             plugin: None,
-            plugin_asked: false,
+            plugin_asked: None,
             workspace: seed.workspace,
             error: None,
             focus: cx.focus_handle(),
@@ -458,7 +458,7 @@ impl NewAgentView {
         self.ask_codex(cx);
         // The plugin may have been installed in Settings meanwhile.
         self.plugin = None;
-        self.plugin_asked = false;
+        self.plugin_asked = None;
         self.check_plugin(cx);
         cx.notify();
     }
@@ -533,22 +533,27 @@ impl NewAgentView {
         cx.notify();
     }
 
-    /// With amp chosen, asks once how its plugin stands, to warn before starting an amp that would
-    /// stay Starting (P5-98).
+    /// With amp or agy chosen, asks once how its plugin stands, to warn before starting one that
+    /// would stay Starting (P5-98, P5-88).
     fn check_plugin(&mut self, cx: &mut Context<Self>) {
-        if self.form.tool != Tool::Amp || self.plugin_asked {
+        let tool = self.form.tool;
+        if !tool.has_plugin() || self.plugin_asked == Some(tool) {
             return;
         }
-        self.plugin_asked = true;
+        self.plugin_asked = Some(tool);
+        self.plugin = None;
         let corral = self.corral.clone();
         let task = cx.background_spawn(async move {
-            crate::integrations::plugin_status(&corral, Tool::Amp.kind(), &AtomicBool::new(false))
+            crate::integrations::plugin_status(&corral, tool.kind(), &AtomicBool::new(false))
         });
         cx.spawn(async move |this, cx| {
             let plugin = task.await;
             let _ = this.update(cx, |this, cx| {
-                this.plugin = plugin;
-                cx.notify();
+                // Another kind may have been asked about meanwhile.
+                if this.plugin_asked == Some(tool) {
+                    this.plugin = plugin;
+                    cx.notify();
+                }
             });
         })
         .detach();
@@ -656,7 +661,8 @@ impl NewAgentView {
     }
 
     fn create(&mut self, _: &menu::CreateAgent, window: &mut Window, cx: &mut Context<Self>) {
-        if self.busy {
+        // agy without its first message: ⌘↩ does nothing, as Start is greyed (P5-88).
+        if self.busy || !self.form.can_start() {
             return;
         }
         self.open = None;
@@ -1323,7 +1329,7 @@ impl NewAgentView {
                 ui.scale(16.0),
                 2.4,
             ));
-        let start = if self.busy {
+        let start = if self.busy || !self.form.can_start() {
             start.opacity(0.5)
         } else {
             start
@@ -2391,30 +2397,33 @@ impl Render for NewAgentView {
             )
             .on_click(move |_, window, cx| window.focus(&prompt_focus, cx));
 
-        // amp takes no first message at start: it is sent once amp is idle (P5-98).
-        let later = (!self.form.tool.takes_prompt()).then(|| {
+        // amp takes no first message at start: it is sent once amp is idle (P5-98). agy can't
+        // start without one (P5-88).
+        let tool = self.form.tool;
+        let later = if !tool.takes_prompt() {
+            Some(format!(
+                "{} starts first; paddock sends this once it is idle.",
+                tool.label()
+            ))
+        } else if tool.needs_prompt() {
+            Some(format!("{} needs a first message to start.", tool.label()))
+        } else {
+            None
+        };
+        let later = later.map(|line| {
             div()
                 .flex_shrink_0()
                 .px(ui.px(26.0))
                 .pb(ui.px(10.0))
                 .text_size(ui.px(12.0))
                 .text_color(dim)
-                .child(format!(
-                    "{} starts first; paddock sends this once it is idle.",
-                    self.form.tool.label()
-                ))
+                .child(line)
         });
         let unplugged = self
             .plugin
-            .as_deref()
-            .filter(|_| self.form.tool == Tool::Amp)
-            .and_then(|status| match status {
-                "same" => None,
-                "overwrite" => {
-                    Some("The corral plugin for amp has changed; update it in Settings.")
-                }
-                _ => Some("The corral plugin for amp isn't installed; amp will stay Starting."),
-            })
+            .as_ref()
+            .filter(|_| self.plugin_asked == Some(tool))
+            .and_then(|install| new_agent::plugin_warning(tool, install))
             .map(|warning| {
                 let yellow = self.fg(|t| t.agents_yellow);
                 div()

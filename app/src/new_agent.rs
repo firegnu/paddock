@@ -31,11 +31,19 @@ pub enum Tool {
     Pi,
     Omp,
     Amp,
+    Agy,
 }
 
 impl Tool {
     /// In the order the form offers them.
-    pub const ALL: [Tool; 5] = [Tool::Claude, Tool::Codex, Tool::Pi, Tool::Omp, Tool::Amp];
+    pub const ALL: [Tool; 6] = [
+        Tool::Claude,
+        Tool::Codex,
+        Tool::Pi,
+        Tool::Omp,
+        Tool::Amp,
+        Tool::Agy,
+    ];
 
     /// The kind as corral and the kind icons name it.
     pub fn kind(self) -> &'static str {
@@ -45,6 +53,7 @@ impl Tool {
             Tool::Pi => "pi",
             Tool::Omp => "omp",
             Tool::Amp => "amp",
+            Tool::Agy => "agy",
         }
     }
 
@@ -55,6 +64,7 @@ impl Tool {
             Tool::Pi => "pi",
             Tool::Omp => "omp",
             Tool::Amp => "amp",
+            Tool::Agy => "agy",
         }
     }
 
@@ -66,6 +76,7 @@ impl Tool {
             Tool::Pi => "pi",
             Tool::Omp => "omp",
             Tool::Amp => "amp",
+            Tool::Agy => "agy",
         }
     }
 
@@ -73,6 +84,17 @@ impl Tool {
     /// installs in its own configuration (ranch R6).
     pub fn takes_prompt(self) -> bool {
         self != Tool::Amp
+    }
+
+    /// Whether it cannot start without a first message: agy fires no hook until it has one, so
+    /// it would stay Starting (ranch R8).
+    pub fn needs_prompt(self) -> bool {
+        self == Tool::Agy
+    }
+
+    /// Whether corral works with it through a plugin in its own configuration (P5-98, P5-88).
+    pub fn has_plugin(self) -> bool {
+        matches!(self, Tool::Amp | Tool::Agy)
     }
 
     /// Whether a model and effort are chosen for it; the others keep to their own settings. The
@@ -696,7 +718,7 @@ impl Form {
                     asks.extend(["-c".into(), format!("model_reasoning_effort=\"{effort}\"")]);
                 }
             }
-            Tool::Pi | Tool::Omp | Tool::Amp => {}
+            Tool::Pi | Tool::Omp | Tool::Amp | Tool::Agy => {}
         }
         words.splice(at..at, asks);
         self.command = shell_words::join(&words);
@@ -783,6 +805,11 @@ impl Form {
         Ok(args)
     }
 
+    /// Whether Start can go: not for a kind that needs a first message without one (agy).
+    pub fn can_start(&self) -> bool {
+        !self.tool.needs_prompt() || !self.prompt.trim().is_empty()
+    }
+
     /// The first message for a kind that cannot take it at start (amp): sent by [`send_first`]
     /// once the agent is idle.
     pub fn first_message(&self) -> Option<String> {
@@ -824,6 +851,24 @@ pub fn start(corral: &str, args: &[String]) -> Result<Started> {
         name: name.to_owned(),
         instance: value["instance"].as_str().map(str::to_owned),
     })
+}
+
+/// What New Agent warns of when `tool`'s plugin stands so that the agent would stay Starting: not
+/// installed, out of date, or turned off in agy. Starting is not held back.
+pub fn plugin_warning(tool: Tool, install: &crate::integrations::Install) -> Option<String> {
+    let kind = tool.kind();
+    match install.status.as_str() {
+        "same" if install.enabled == Some(false) => Some(format!(
+            "The corral plugin is disabled in {kind}; run {kind} plugin enable corral."
+        )),
+        "same" => None,
+        "overwrite" => Some(format!(
+            "The corral plugin for {kind} has changed; update it in Settings."
+        )),
+        _ => Some(format!(
+            "The corral plugin for {kind} isn't installed; {kind} will stay Starting."
+        )),
+    }
 }
 
 /// How long the first message waits for the agent to be ready.
@@ -1506,6 +1551,109 @@ mod tests {
         assert!(!form.args().unwrap().contains(&"--prompt".to_string()));
         form.prompt.clear();
         assert_eq!(form.first_message(), None);
+    }
+
+    #[test]
+    fn agy_needs_its_first_message_and_starts_with_it() {
+        let mut form = Form::new("/tmp/demo".into(), Place::Tab);
+        form.pick_tool(Tool::Agy);
+        form.regular = true;
+        assert_eq!(Tool::ALL[Tool::ALL.len() - 2..], [Tool::Amp, Tool::Agy]);
+        assert_eq!(
+            (form.command.as_str(), form.name.as_str(), form.tool.label()),
+            ("agy", "agy-1", "agy")
+        );
+        assert_eq!(
+            (form.model.as_deref(), form.effort.as_deref()),
+            (None, None)
+        );
+        assert!(form.tool.needs_prompt() && !Tool::Amp.needs_prompt());
+        assert!(!form.can_start());
+        form.prompt = "  ".into();
+        assert!(!form.can_start());
+        form.prompt = "读 HANDOFF.md".into();
+        assert!(form.can_start());
+        assert_eq!(
+            form.args().unwrap(),
+            [
+                "start",
+                "demo/agy-1",
+                "--cwd",
+                "/tmp/demo",
+                "--label",
+                "role=regular",
+                "--prompt",
+                "读 HANDOFF.md",
+                "--",
+                "agy"
+            ]
+        );
+        assert_eq!(form.first_message(), None);
+        // Every other kind starts without one, as before.
+        form.prompt.clear();
+        for tool in [Tool::Claude, Tool::Codex, Tool::Pi, Tool::Omp, Tool::Amp] {
+            form.pick_tool(tool);
+            assert!(form.can_start(), "{tool:?}");
+        }
+        form.set_command("/Users/u/.local/bin/agy".into());
+        assert_eq!(form.tool, Tool::Agy);
+    }
+
+    #[test]
+    fn a_preset_can_be_agy() {
+        let dir = std::env::temp_dir().join(format!(
+            "paddock-agy-preset-{}",
+            crate::control::random_id().unwrap()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        let list = vec![Preset {
+            name: "agy".into(),
+            kind: Tool::Agy,
+            model: None,
+            effort: None,
+            role: Role::Regular,
+        }];
+        save_presets(&path, &list).unwrap();
+        assert!(
+            std::fs::read_to_string(&path)
+                .unwrap()
+                .contains("kind = \"agy\"")
+        );
+        assert_eq!(presets(&Config::load(&path).unwrap()), list);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_plugin_that_would_leave_the_agent_starting_is_warned_of() {
+        use crate::integrations::Install;
+        let install = |status: &str, enabled| Install {
+            path: "/h/p".into(),
+            status: status.into(),
+            enabled,
+        };
+        let warning = |tool, status, enabled| plugin_warning(tool, &install(status, enabled));
+        assert_eq!(warning(Tool::Agy, "same", Some(true)), None);
+        assert_eq!(warning(Tool::Agy, "same", None), None);
+        assert_eq!(
+            warning(Tool::Agy, "same", Some(false)).as_deref(),
+            Some("The corral plugin is disabled in agy; run agy plugin enable corral.")
+        );
+        assert_eq!(
+            warning(Tool::Agy, "create", Some(true)).as_deref(),
+            Some("The corral plugin for agy isn't installed; agy will stay Starting.")
+        );
+        assert_eq!(
+            warning(Tool::Agy, "overwrite", Some(true)).as_deref(),
+            Some("The corral plugin for agy has changed; update it in Settings.")
+        );
+        // amp's as before.
+        assert_eq!(warning(Tool::Amp, "same", None), None);
+        assert_eq!(
+            warning(Tool::Amp, "foreign", None).as_deref(),
+            Some("The corral plugin for amp isn't installed; amp will stay Starting.")
+        );
+        assert!(Tool::Amp.has_plugin() && Tool::Agy.has_plugin() && !Tool::Claude.has_plugin());
     }
 
     /// A corral whose `wait` answers `wait` (exiting `code`) and whose `send` answers `send`,

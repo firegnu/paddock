@@ -87,3 +87,31 @@
 - 10-14 用户收窄：“Settings 里一键配置 agent”另立 P5-94（已做）；cairn 不在范围内。
 - 10-14 主控把 agy 的钩子、全局安装、读屏兜底交给 ranch 调研（R5，ranch `7a4b49b`）：agy 只能全局装在 `~/.gemini/config/plugins/corral/`，等批准没有钩子、要读屏。用户同意 R5 的五条：两个全局位置、先 amp 再 agy、读屏最后单独一件、读屏用 vt100、amp 先不支持 `--prompt`。
 - ranch R6（amp）、R7（读屏）、R8（agy）先后做完部署；paddock 这边 amp 是 P5-98。
+
+## 完成记录（10-15，paddock/dev-agy-1）
+
+### 做了什么
+- `integrations.rs`：`Install` 多一个 `enabled`（只读 `install.enabled` 的 true／false，`null`、没有这个字段都是没说）；Status 多一种 `Disabled`：`same` 且 `enabled` 为 `false` 时，旁边一句 `Run agy plugin enable corral`，Uninstall 照样给；`plugin` 做成后把 corral 的 `warnings` 带回来（agy 卸载时目录没删掉）；`plugin_status` 给 New Agent 整个 `Install`（状态和 `enabled`）。去掉只给旧说明用的 `global`。
+- `settings_integrations.rs`：每家插件的话放在一处（amp 的原样搬过去，agy 照任务文字）：卡片下按家各一句，名单里有该家才显示；确认框 agy 写 `Writes 2 files in ~/.gemini/config/plugins/corral:` 列 `hooks.json`、`plugin.json`（Update 时标 replace），卸载写 `Deletes ~/.gemini/config/plugins/corral.` 和 Starting 那句；消息条成功后接上 corral 的 warnings 原文。`Disabled` 是黄色圆角标加安静的 Uninstall，那句小字放在下一行（Status 列 190 宽，放旁边挤不下）。Skills 列没改：gemini 位置照 status 的列表画、照原来的流程装。
+- `new_agent.rs`：`Tool::Agy`（标签、命令 `agy`，没有模型和强度，排在 amp 后，预设能存）；`needs_prompt`、`has_plugin`、`Form::can_start`（agy 的 Prompt 去掉空白后为空时不能 Start）；`plugin_warning`：没装、旧了、被停用三种黄字。agy 带 Prompt 照常 `--prompt <首句> -- agy`。
+- `new_agent_view.rs`：选 agy 时 Prompt 下一句 `agy needs a first message to start.`；不能 Start 时按钮变淡、不响应，⌘↩ 也直接返回；插件状态按种类读（记着问的是哪一家，amp、agy 来回切会重读，晚到的旧回答不用）。
+- 图标：`kind_icon.rs` 种类加 `agy`，认本机 `~/.config/paddock/icons/agy.png`；仓库 `assets/kinds/agy.svg` 是自己画的剪影（离地的折角），README 写明不是官方标志。
+- 颜色：主题加 `agy`，七套各一个蓝（和橙、青、白、紫、黄分开）；Settings 颜色页 Agent types 一组多一项；卡片品牌色认 agy。
+- Agent shell：替身加 `agy`；`--prompt` 和 `agy --help` 列的十二个子命令直接跑真程序，`-i`／`--prompt-interactive` 照样托管。
+- `docs/DESIGN.md`：P5-61 加 agy，P5-94 补 gemini 位置和 agy，P5-98 那句说明改成按家，§13 加 P5-88 一条。
+
+### 验证了什么
+- 每块一条针对它的测试，合成 JSON 和假 corral 脚本：integrations 4 条（`enabled` 读法、`Disabled` 和其余状态及 gemini 技能、卸载带回 warnings、New Agent 读到停用）；settings_integrations 3 条（说明按家、确认框的文件、消息条接 warnings）；new_agent 3 条（agy 必填和 start 参数、预设存 agy、三种提醒和 amp 不变）；kind_icon、preset（六家颜色两两不同）、card（agy 品牌色）、agent_shell 各 1 条。kind_icon、preset、card、agent_shell 的先跑看到断言失败再实现；integrations、settings_integrations、new_agent 的新测试先跑是编译不过（新字段和函数还没有），不算严格的 RED。
+- `app/` 下 `cargo test --all-targets`（库内 533 条和各集成测试全过）、`cargo clippy --all-targets -- -D warnings`、`cargo fmt --check`、`git diff --check` 通过。settings 颜色总数的断言 42 改 43（多了 agy）。
+- 只在隔离 HOME（scratchpad）跑过 `corral integration install|uninstall --agent agy --dry-run` 和 `integration status`，核对输出格式；没装、没卸真的插件，没开 agy，没起窗口、没截图。
+
+### 拿主意的地方
+- `--dry-run` 只报目录 `path`，不列文件（任务写“照 `--dry-run` 报的列”）。文件名照 ranch CONTRACT（“里面只有 corral 的 `hooks.json`、`plugin.json`”）写在 paddock 里；CONTRACT 改了这里要跟着改。
+- New Agent 里插件 `overwrite` 时和 amp 一样说 `…has changed; update it in Settings.`，不说“没装”；停用只在 `same` 时判断，和 Settings 一致。
+- Prompt 只有空白也算空。
+- amp 装／更新成功时如果 corral 带了 warnings，现在也会接在消息条后面（以前丢掉）；amp 成功时 corral 实际不带 warnings，界面看起来不变。
+
+### 没做的
+- paddock 自己的技能（`skills.rs`）只装 claude、codex 两个位置，没有 gemini：agy 那一行 Skills 只算 corral 和 corral-dispatch，agy 读不到 paddock 技能。任务说照原流程、不另写死，`skills.rs` 也不在要动的文件里，没改。
+- New Agent 底下的提示 `empty task starts it idle` 对 agy 不对（agy 空着开不了），没改。
+- 真实 agy 实测（「怎么算做完」5），留给主控和用户。
