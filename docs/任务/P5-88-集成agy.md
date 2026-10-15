@@ -119,7 +119,7 @@
 ## 主控审查（10-15，paddock/main）
 - 看了全部 diff（13 个文件）：只动了任务列的文件；「不要做」一件没碰（插件装卸只在隔离 HOME 跑 `--dry-run`，没开真 agy，没起窗口）。现有五家：amp 的文字原样搬进 `PluginWords`，状态、确认框、提醒行为不变；只多了“成功时把 corral 的 warnings 接在消息条后面”，amp 成功时不带 warnings，看起来不变，同意。
 - 「怎么算做完」1–4 在代码和测试里都对得上；第 5 条（真实实测）由主控合并安装后和用户一起做。
-- 重跑一次 `cargo test --all-targets`：全过，库内 533 条，合计 633 条（回复里说 653，对不上 20 条，完成记录里没写总数；不影响结论）。
+- 重跑一次 `cargo test --all-targets`：全过，库内 533 条（10-15 更正：原写“合计 633、和回复的 653 对不上”，是主控只看了输出前 20 行、漏数；653 是对的）。
 - 取舍：文件名照 CONTRACT 写死（同意，CONTRACT 改了要跟着改）；`overwrite` 说“has changed”（同意）；只有空白算空（同意）。
 - 建议改（不挡合并，交用户定）：New Agent 底部 `empty task starts it idle` 对 agy 不对；paddock 技能没装到 gemini 位置，agy 读不到 paddock 技能。
 
