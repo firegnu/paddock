@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Raised boxes</title>
+<style>
+:root{
+  --bg:#0f1817; --line2:rgba(223,233,229,.11);
+  --text:#dfe9e5; --bright:#eef5f2; --muted:#8a9e99; --dim:#6b7f7a;
+  --accent:#5fd3b0; --red:#ef7a7a; --yellow:#e8c46a;
+}
+*{box-sizing:border-box}
+body{margin:0;background:#0a1110;font-family:-apple-system,'SF Pro Text','PingFang SC','Helvetica Neue',sans-serif;color:var(--text);font-size:13px}
+.wrap{display:flex;gap:28px;padding:28px;align-items:flex-start;flex-wrap:wrap}
+.col{display:flex;flex-direction:column;gap:10px}
+.cap{font-size:13px;color:var(--muted);width:380px;line-height:1.5;min-height:60px}
+.cap b{color:var(--bright)}
+.pane{width:380px;background:var(--bg);border:1px solid var(--line2);border-radius:12px;overflow:hidden;padding:4px 0 16px}
+.mono{font-family:'JetBrains Mono','SF Mono',Menlo,monospace}
+.sec{display:flex;align-items:center;gap:8px;padding:12px 16px 7px;font-size:13px;font-weight:600;color:var(--bright)}
+.sec.acc{color:var(--accent);font-size:12.5px}
+.sec .n{font-weight:400;font-size:11.5px;padding:0 7px;border-radius:999px;background:rgba(223,233,229,.06);color:var(--muted);line-height:18px}
+svg{flex:none;display:block}
+.box{margin:2px 8px 6px;border-radius:10px;padding:2px}
+.item{position:relative;display:flex;flex-direction:column;gap:4px;padding:8px 10px 8px 12px}
+.item+.item:before{content:'';position:absolute;left:12px;right:10px;top:0;border-top:1px solid rgba(223,233,229,.06)}
+.cairn .item+.item:before{left:0;right:0;border-top-color:rgba(95,211,176,.16)}
+.top{display:flex;align-items:flex-start;gap:8px}
+.idc{flex:none;display:flex;align-items:center;gap:6px;height:18px;width:66px}
+.id{font-size:12px;color:var(--muted);font-weight:500}
+.t{flex:1;min-width:0;line-height:18px;font-weight:500}
+.t.draft{color:var(--muted)}
+.under{display:flex;gap:6px;font-size:12px;white-space:nowrap;overflow:hidden;padding-left:74px}
+.under b{color:var(--yellow)} .under span{overflow:hidden;text-overflow:ellipsis}
+.meta{display:flex;align-items:center;gap:8px}
+.time{font-size:12.5px;font-weight:500;color:var(--bright)} .ago{font-size:11.5px;color:var(--muted)}
+.sum{padding-left:18px;font-size:12.5px;line-height:1.5;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
+
+/* now */
+.flat.k{background:rgba(223,233,229,.035);border:1px solid rgba(223,233,229,.12)}
+.flat.c{background:rgba(95,211,176,.07);border:1px solid rgba(95,211,176,.26);padding:0}
+/* light raise: opaque face a bit above the panel, top light, bottom dark, soft shadow */
+.l1.k{background:#152120;border:1px solid rgba(223,233,229,.10);
+  box-shadow:inset 0 1px 0 rgba(223,233,229,.08), inset 0 -1px 0 rgba(0,0,0,.30), 0 1px 2px rgba(0,0,0,.35), 0 4px 10px rgba(0,0,0,.22)}
+.l1.c{background:#152120;border:1px solid rgba(223,233,229,.10);padding:0;
+  box-shadow:inset 0 1px 0 rgba(223,233,229,.08), inset 0 -1px 0 rgba(0,0,0,.30), 0 1px 2px rgba(0,0,0,.35), 0 4px 10px rgba(0,0,0,.22)}
+/* strong raise */
+.l2.k{background:#182524;border:1px solid rgba(223,233,229,.12);
+  box-shadow:inset 0 1px 0 rgba(223,233,229,.12), inset 0 -1px 0 rgba(0,0,0,.40), 0 2px 3px rgba(0,0,0,.45), 0 8px 20px rgba(0,0,0,.35)}
+.l2.c{background:#182524;border:1px solid rgba(223,233,229,.12);padding:0;
+  box-shadow:inset 0 1px 0 rgba(223,233,229,.12), inset 0 -1px 0 rgba(0,0,0,.40), 0 2px 3px rgba(0,0,0,.45), 0 8px 20px rgba(0,0,0,.35)}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute"><defs>
+<symbol id="ring" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5.2" fill="none" stroke="currentColor" stroke-width="1.6"/></symbol>
+<symbol id="dashed" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5.2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="2.4 1.9"/></symbol>
+</defs></svg>
+<div class="wrap" id="w"></div>
+<template id="t">
+<div class="col">
+<div class="cap"></div>
+<div class="pane">
+  <div class="sec"><svg width="13" height="13" style="color:var(--muted)"><use href="#ring"/></svg>Queued <span class="n">3</span></div>
+  <div class="box k">
+    <div class="item"><div class="top"><div class="idc"><svg width="13" height="13" style="color:var(--red)"><use href="#ring"/></svg><span class="id mono">P5-90</span></div><div class="t">在 paddock 里加载远程机器上 corral 托管的 agent</div></div><div class="under"><b>Needs you</b><span>远端要先有能用的 corral，归 ranch 的 R10…</span></div></div>
+    <div class="item"><div class="top"><div class="idc"><svg width="13" height="13" style="color:var(--muted)"><use href="#dashed"/></svg><span class="id mono">P5-106</span></div><div class="t draft">看板加 loop：打开后 Queued 里的任务按次序排队开发</div></div></div>
+    <div class="item"><div class="top"><div class="idc"><svg width="13" height="13" style="color:var(--muted)"><use href="#dashed"/></svg><span class="id mono">P5-54</span></div><div class="t draft">Browser 选中元素、Changes 选中 diff 后送给 agent</div></div></div>
+  </div>
+  <div class="sec acc">→ Next session starts from these</div>
+  <div class="box c cairn">
+    <div class="item"><div class="meta"><span style="color:var(--dim)">›</span><span class="time mono">21:23</span><span class="ago">10m ago</span></div><div class="sum">P5-114 已完成：看板任务编号、状态圈和分组图标已调整，去掉左侧竖条与 Dropped 胶囊…</div></div>
+    <div class="item"><div class="meta"><span style="color:var(--dim)">›</span><span class="time mono">16:03</span><span class="ago">5.5h ago</span></div><div class="sum">会话停在等待用户选择下一项工作：R10、P5-102 或 P5-106。</div></div>
+  </div>
+</div>
+</div>
+</template>
+<script>
+const shots=[
+ ['flat','<b>现在</b>：平的，一圈细边加一层半透明的淡底；Cairn 的框是青绿色。'],
+ ['l1','<b>轻</b>：两个框完全一样：底色不透明、比面板亮一点；顶边内侧一道亮线，底边内侧一道暗线；框外一圈小而淡的投影。Cairn 框里的青绿细线照旧。'],
+ ['l2','<b>重</b>：两个框完全一样，同样的做法，底色再亮一点，亮线暗线更明显，投影更深、更散，像浮得更高。'],
+];
+const w=document.getElementById('w'), t=document.getElementById('t');
+for(const [cls,cap] of shots){
+  const n=t.content.cloneNode(true);
+  n.querySelector('.cap').innerHTML=cap;
+  n.querySelectorAll('.box').forEach(b=>b.classList.add(cls));
+  w.appendChild(n);
+}
+</script>
+</body>
+</html>
