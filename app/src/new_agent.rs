@@ -196,7 +196,7 @@ pub fn default_presets() -> Vec<Preset> {
             "Controller",
             Tool::Claude,
             "opus[1m]",
-            "xhigh",
+            "high",
             Role::Controller,
         ),
         preset("Developer", Tool::Claude, "opus[1m]", "high", Role::Regular),
@@ -1172,10 +1172,10 @@ mod tests {
         form.apply(&presets[0]);
         assert_eq!(
             (form.tool, form.model.as_deref(), form.effort.as_deref()),
-            (Tool::Claude, Some("opus[1m]"), Some("xhigh"))
+            (Tool::Claude, Some("opus[1m]"), Some("high"))
         );
         assert!(!form.regular);
-        assert_eq!(form.command, "claude --model 'opus[1m]' --effort xhigh");
+        assert_eq!(form.command, "claude --model 'opus[1m]' --effort high");
         assert!(form.matches(&presets[0]));
         assert!(!form.matches(&presets[1]));
         form.apply(&presets[2]);
