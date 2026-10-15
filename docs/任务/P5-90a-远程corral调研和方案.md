@@ -309,3 +309,6 @@ paddock 能借的，只借思路、不搬代码（真要搬，保留 Apache-2.0 
 - 只改了本文件；没改代码、没连远程机器、没读 `~/.ssh`；结论里只有 `<host>` 占位，gitleaks 扫过无发现。读了 ranch 的 corral 源码（只读、为弄清 attach 和重放的行为），不改 ranch，可以。herdr 只借思路、标了文件位置，没有照搬代码。
 - 五项都有结论，事实、推测分开标了（【实】／【推】），附代码位置和 man 页原文；推荐五条、要用户定的四件写清楚了。
 - 同意推荐的顺序：先请用户跑实测清单，再定甲的范围写任务文件；甲实现时按碰要害做交叉审查。
+
+## 更正（10-15，paddock/main）
+- §4.3 取舍里说 herdr “远程 agent 混进本机的组，卡片上标机器名”，不对。herdr 文档 `connecting-machines.mdx` 写的是一个窗口里在左侧栏选机器，选中的那台提供窗格画面、接收输入；workspace、窗格、agent 名字按机器各自独立（“Workspace, tab, pane IDs, and agent names are scoped to one server”）；只有 agent 行在有多台机器时多一个 `machine` 标记。用户 10-15 据此定了本机和远程隔开，见 P5-90「本机和远程隔开」一节。
