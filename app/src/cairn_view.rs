@@ -3,23 +3,25 @@
 //! cairn is read in the background while the tab shows: at once when it comes up or the pane's
 //! directory changes, then every few seconds. Under the repository's name and whether it has
 //! adopted cairn, a line of which agents have their hooks and how many saves wait to be taken in,
-//! then the notes by the day they were saved on, the one the next session starts from set apart;
-//! a note opens in place to its full text, read when it is first opened, and at the foot the exact
-//! text the next session receives unfolds, drawn as Markdown. A repository that has not adopted
-//! cairn offers Adopt, which asks first; nothing else here changes anything (DESIGN §13 P5-55,
-//! P5-79).
+//! then the notes one line for each session that saved them, those the next session starts from in
+//! a box of their own and the others by day; a session opens in place to its note in full, read
+//! when it is first opened, and to its earlier notes, and at the foot the exact text the next
+//! session receives unfolds, drawn as Markdown. A repository that has not adopted cairn offers
+//! Adopt, which asks first; nothing else here changes anything (DESIGN §13 P5-55, P5-79, P5-110).
 use crate::{
     activity::local_offset,
-    cairn::{self, Adopting, Body, Fired, Found, Full, Note, Notes, Read, Records},
+    cairn::{self, Adopting, Body, Fired, Found, Full, Note, Notes, Read, Records, Session},
+    card,
     fonts::UiFont,
     footer_icon::{self, Icon},
-    markdown,
+    kind_icon, markdown,
     theme::Theme,
     view::hsla,
 };
 use gpui::{
-    ClickEvent, Context, Div, Font, FontStyle, FontWeight, HighlightStyle, Hsla, IntoElement,
-    Render, Stateful, StyledText, Task, UnderlineStyle, Window, div, prelude::*, px, relative,
+    AnyElement, ClickEvent, Context, Div, Font, FontStyle, FontWeight, HighlightStyle, Hsla,
+    IntoElement, Render, Stateful, StyledText, Task, UnderlineStyle, Window, div, prelude::*, px,
+    relative,
 };
 use std::{
     collections::HashMap,
@@ -50,6 +52,12 @@ const NEXT_EDGE: f32 = 0.26;
 const FACTS_ON_NEXT: f32 = 0.55;
 const FACTS: f32 = 0.04;
 const BETWEEN: f32 = 0.05;
+/// The rule between two sessions in the box of what the next session is given, in the accent.
+const NEXT_RULE: f32 = 0.16;
+/// How tall the icon of the agent that saved a note is drawn.
+const MARK: f32 = 13.0;
+/// How many of an open session's earlier notes are listed before Show all.
+const SHOWN_EARLIER: usize = 3;
 /// How far in a note's words start: its arrow and the room after it.
 const INDENT: f32 = 18.0;
 /// The arrows that fold a note and the exact text.
@@ -117,8 +125,12 @@ pub struct CairnView {
     repo: Option<PathBuf>,
     /// How many records cairn is asked for: a page, and one more with each Show older.
     limit: usize,
-    /// The note that is open, by its id.
+    /// The session that is open, by the id of the note it is shown by.
     open: Option<String>,
+    /// One of the open session's earlier notes that is open too, by its id.
+    inner: Option<String>,
+    /// The open session lists all its earlier notes, not just the first few.
+    all: bool,
     /// The notes read in full since the tab came up, or why one could not be; `None` while one is
     /// being read.
     full: HashMap<String, Option<Result<Full, String>>>,
@@ -141,6 +153,8 @@ impl CairnView {
             repo: None,
             limit: cairn::PAGE,
             open: None,
+            inner: None,
+            all: false,
             full: HashMap::new(),
             exact: false,
         }
@@ -227,6 +241,8 @@ impl CairnView {
             self.repo = found.repo.clone();
             self.limit = cairn::PAGE;
             self.open = None;
+            self.inner = None;
+            self.all = false;
             self.full.clear();
             self.exact = false;
         }
@@ -274,9 +290,11 @@ impl CairnView {
         cx.notify();
     }
 
-    /// A note was clicked: it opens, any other folding, and is read in full if it has not been;
-    /// the open one folds.
+    /// A session was clicked, by the note it is shown by: it opens, any other folding with what
+    /// was open in it, and the note is read in full if it has not been; the open one folds.
     fn toggle(&mut self, id: &str, cx: &mut Context<Self>) {
+        self.inner = None;
+        self.all = false;
         if self.open.as_deref() == Some(id) {
             self.open = None;
         } else {
@@ -286,17 +304,37 @@ impl CairnView {
         cx.notify();
     }
 
-    /// Reads the open note in full, in the background, in the directory shown, unless it has been
-    /// read or is being read; one that failed is tried again.
+    /// One of the open session's earlier notes was clicked: it opens, any other of them folding,
+    /// and is read in full if it has not been; the open one folds.
+    fn toggle_inner(&mut self, id: &str, cx: &mut Context<Self>) {
+        if self.inner.as_deref() == Some(id) {
+            self.inner = None;
+        } else {
+            self.inner = Some(id.to_owned());
+            self.load(cx);
+        }
+        cx.notify();
+    }
+
+    /// Reads the open notes in full, in the background, in the directory shown, unless they have
+    /// been read or are being read; one that failed is tried again.
     fn load(&mut self, cx: &mut Context<Self>) {
-        let (true, Some(id), Some(Read::Found(found))) = (self.active, &self.open, &self.read)
-        else {
+        for id in [self.open.clone(), self.inner.clone()]
+            .into_iter()
+            .flatten()
+        {
+            self.load_one(id, cx);
+        }
+    }
+
+    fn load_one(&mut self, id: String, cx: &mut Context<Self>) {
+        let (true, Some(Read::Found(found))) = (self.active, &self.read) else {
             return;
         };
-        if matches!(self.full.get(id), Some(None | Some(Ok(_)))) {
+        if matches!(self.full.get(&id), Some(None | Some(Ok(_)))) {
             return;
         }
-        let (id, cwd) = (id.clone(), found.cwd.clone());
+        let cwd = found.cwd.clone();
         self.full.insert(id.clone(), None);
         let reading = id.clone();
         let task = cx.background_spawn(async move {
@@ -583,7 +621,7 @@ impl CairnView {
                     .flex()
                     .flex_col()
                     .child(match &records.notes {
-                        Some(notes) => self.notes(records, notes, ui, cx),
+                        Some(notes) => self.notes(records, notes, found.branch.as_deref(), ui, cx),
                         // A cairn that does not list them: the text alone.
                         None => self.text(&records.text, ui),
                     })
@@ -591,12 +629,15 @@ impl CairnView {
         }
     }
 
-    /// The handover notes, scrolling: what they are, then each day's under its name, Show older
-    /// when cairn has more, and at the foot the exact text the next session receives, folded.
+    /// The handover notes, scrolling: what they are, then the sessions the next session is given in
+    /// one box, the others under the day of their note, Show older when cairn has more, and at the
+    /// foot the exact text the next session receives, folded (DESIGN §13 P5-110). A branch tag is
+    /// drawn only where it is not `branch`, the one the header shows.
     fn notes(
         &self,
         records: &Records,
         notes: &Notes,
+        branch: Option<&str>,
         ui: &UiFont,
         cx: &mut Context<Self>,
     ) -> Stateful<Div> {
@@ -628,6 +669,18 @@ impl CairnView {
                          summaries.",
                     ),
             );
+        let label = |words: &'static str| {
+            div()
+                .flex()
+                .items_center()
+                .gap(ui.px(6.0))
+                .pt(ui.px(16.0))
+                .px(ui.px(8.0))
+                .pb(ui.px(7.0))
+                .text_size(ui.px(11.5))
+                .font_weight(FontWeight::SEMIBOLD)
+                .child(words)
+        };
         let mut list = div()
             .flex_shrink_0()
             .flex()
@@ -635,6 +688,35 @@ impl CairnView {
             .px(ui.px(8.0))
             .pb(ui.px(10.0));
         let mut nth = 0;
+        if !notes.next.is_empty() {
+            let mut group = div()
+                .flex()
+                .flex_col()
+                .rounded(ui.px(10.0))
+                .border_1()
+                .border_color(c.accent.opacity(NEXT_EDGE))
+                .bg(c.accent.opacity(NEXT_FACE))
+                .overflow_hidden();
+            for (at, session) in notes.next.iter().enumerate() {
+                let row = self.session(session, nth, true, branch, ui, cx);
+                group = group.child(if at == 0 {
+                    row
+                } else {
+                    row.border_t_1().border_color(c.accent.opacity(NEXT_RULE))
+                });
+                nth += 1;
+            }
+            list = list
+                .child(
+                    label("\u{2192} Next session starts from these")
+                        .pt(ui.px(14.0))
+                        .text_color(c.accent),
+                )
+                .child(group);
+        }
+        if !notes.days.is_empty() {
+            list = list.child(label("Earlier").text_color(c.muted));
+        }
         for day in &notes.days {
             let date = div()
                 .font_weight(FontWeight::NORMAL)
@@ -645,10 +727,10 @@ impl CairnView {
                     .flex()
                     .items_center()
                     .gap(ui.px(8.0))
-                    .pt(ui.px(if nth == 0 { 14.0 } else { 16.0 }))
+                    .pt(ui.px(8.0))
                     .px(ui.px(8.0))
-                    .pb(ui.px(6.0))
-                    .text_size(ui.px(11.5))
+                    .pb(ui.px(4.0))
+                    .text_size(ui.px(11.0))
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(c.muted)
                     .map(|head| match day.name {
@@ -656,9 +738,13 @@ impl CairnView {
                         None => head.child(day.date.clone()),
                     }),
             );
-            for (at, note) in day.notes.iter().enumerate() {
-                let last = at + 1 == day.notes.len();
-                list = list.child(self.note(note, nth, last, ui, cx));
+            for (at, session) in day.sessions.iter().enumerate() {
+                let row = self.session(session, nth, false, branch, ui, cx);
+                list = list.child(if at + 1 == day.sessions.len() {
+                    row
+                } else {
+                    row.border_b_1().border_color(c.text.opacity(BETWEEN))
+                });
                 nth += 1;
             }
         }
@@ -720,21 +806,59 @@ impl CairnView {
             }))
     }
 
-    /// One note: when it was saved, how long ago for one of today's, who by and on which branch,
-    /// and under them its line; open, what `details` has in place of the line. The one the next
-    /// session starts from is a card that says so; the others have a rule after them, but for the
-    /// `last` of a day.
-    fn note(
+    /// One session, by its note: when that was saved, how long ago for one of today's, how many
+    /// earlier ones it has, who saved it and on which branch, and its line; open, what `details`
+    /// has in place of the line. One the next session is given (`next`) has its line under the
+    /// time, two lines of it, and its day before the time when that is not today; the others have
+    /// one line of it beside the time.
+    fn session(
         &self,
-        note: &Note,
+        session: &Session,
         nth: usize,
-        last: bool,
+        next: bool,
+        branch: Option<&str>,
         ui: &UiFont,
         cx: &mut Context<Self>,
     ) -> Div {
         let c = self.colors;
+        let note = &session.note;
         let open = self.open.as_deref() == Some(note.id.as_str());
         let id = note.id.clone();
+        let summary = || {
+            (!open && !note.summary.is_empty()).then(|| {
+                div()
+                    .text_size(ui.px(12.5))
+                    .line_height(relative(1.5))
+                    .text_color(if next { c.text } else { c.muted })
+                    .text_ellipsis()
+                    .child(note.summary.clone())
+            })
+        };
+        let time = div()
+            .flex_shrink_0()
+            .font(self.mono.clone())
+            .text_size(ui.px(if next { 12.5 } else { 12.0 }))
+            .when(next, |time| {
+                time.font_weight(FontWeight::MEDIUM).text_color(c.title)
+            })
+            .when(!next, |time| time.text_color(c.muted))
+            .child(match (&note.day, next) {
+                (Some(day), true) => format!("{day} {}", note.time),
+                _ => note.time.clone(),
+            });
+        let earlier = (!session.earlier.is_empty()).then(|| {
+            let more = if session.more { "+" } else { "" };
+            div()
+                .flex_shrink_0()
+                .whitespace_nowrap()
+                .px(ui.px(7.0))
+                .py(ui.px(1.0))
+                .rounded_full()
+                .bg(c.text.opacity(SOFT))
+                .text_size(ui.px(11.0))
+                .text_color(c.muted)
+                .child(format!("{}{more} earlier", session.earlier.len()))
+        });
         let line = div()
             .flex()
             .items_center()
@@ -742,114 +866,218 @@ impl CairnView {
             .min_w(px(0.0))
             .child(self.arrow(
                 open,
-                match (open, note.next) {
+                match (open, next) {
                     (true, _) => c.text,
                     (false, true) => c.muted,
                     (false, false) => c.dim,
                 },
                 ui,
             ))
-            .child(
-                div()
-                    .flex_shrink_0()
-                    .font(self.mono.clone())
-                    .text_size(ui.px(12.5))
-                    .when(note.next, |time| {
-                        time.font_weight(FontWeight::MEDIUM).text_color(c.title)
-                    })
-                    .child(note.time.clone()),
-            )
-            .children(note.ago.clone().map(|ago| {
-                div()
-                    .flex_shrink_0()
-                    .whitespace_nowrap()
-                    .text_size(ui.px(11.5))
-                    .text_color(c.dim)
-                    .child(ago)
-            }))
-            .child(div().flex_1())
-            .child(
-                div()
-                    .flex_shrink_0()
-                    .text_size(ui.px(11.5))
-                    .text_color(c.muted)
-                    .child(note.by.clone()),
-            )
-            .children(note.branch.clone().map(|branch| {
-                div()
-                    .flex_shrink(1.0)
-                    .min_w(px(0.0))
-                    .overflow_hidden()
-                    .whitespace_nowrap()
-                    .text_ellipsis()
-                    .px(ui.px(7.0))
-                    .py(ui.px(1.0))
-                    .rounded_full()
-                    .bg(c.text.opacity(SOFT))
-                    .font(self.mono.clone())
-                    .text_size(ui.px(10.5))
-                    .text_color(c.muted)
-                    .child(branch)
-            }));
-        let summary = (!open && !note.summary.is_empty()).then(|| {
-            div()
-                .pl(ui.px(INDENT))
-                .text_size(ui.px(12.5))
-                .line_height(relative(1.5))
-                .text_color(if note.next { c.text } else { c.muted })
-                .line_clamp(if note.next { 3 } else { 2 })
-                .text_ellipsis()
-                .child(note.summary.clone())
-        });
+            .child(time)
+            .when(next, |line| {
+                line.children(note.ago.clone().map(|ago| {
+                    div()
+                        .flex_shrink_0()
+                        .whitespace_nowrap()
+                        .text_size(ui.px(11.5))
+                        .text_color(c.dim)
+                        .child(ago)
+                }))
+                .child(div().flex_1())
+            })
+            .when(!next, |line| {
+                line.child(
+                    div()
+                        .flex_1()
+                        .min_w(px(0.0))
+                        .overflow_hidden()
+                        .whitespace_nowrap()
+                        .children(summary()),
+                )
+            })
+            .children(earlier)
+            .child(self.mark(note, ui))
+            .children(self.branch_tag(note.branch.as_deref(), branch, ui));
         let head = div()
-            .id(("cairn-note", nth))
+            .id(("cairn-session", nth))
             .flex()
             .flex_col()
-            .gap(ui.px(if note.next { 6.0 } else { 5.0 }))
-            .p(ui.px(if note.next { 10.0 } else { 11.0 }))
+            .gap(ui.px(5.0))
+            .px(ui.px(if next { 10.0 } else { 8.0 }))
+            .py(ui.px(if next { 10.0 } else { 8.0 }))
             .cursor_pointer()
-            .children(note.next.then(|| {
-                div()
-                    .pl(ui.px(INDENT))
-                    .text_size(ui.px(11.0))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(c.accent)
-                    .child("\u{2192} Next session starts from this")
-            }))
             .child(line)
-            .children(summary)
+            .when(next, |head| {
+                head.children(summary().map(|summary| summary.pl(ui.px(INDENT)).line_clamp(2)))
+            })
             .on_click(cx.listener(move |view, _: &ClickEvent, _, cx| view.toggle(&id, cx)));
-        let whole = div()
+        div()
             .flex_shrink_0()
             .flex()
             .flex_col()
             .child(head)
-            .children(open.then(|| self.details(note, ui)));
-        if note.next {
-            whole
-                .rounded(ui.px(9.0))
-                .border_1()
-                .border_color(c.accent.opacity(NEXT_EDGE))
-                .bg(c.accent.opacity(NEXT_FACE))
-        } else if last {
-            whole
-        } else {
-            whole.border_b_1().border_color(c.text.opacity(BETWEEN))
+            .children(open.then(|| self.details(session, next, ui, cx)))
+    }
+
+    /// Which agent saved `note`: its icon, or with none its name.
+    fn mark(&self, note: &Note, ui: &UiFont) -> AnyElement {
+        let size = ui.px(MARK);
+        match kind_icon::of(&note.agent) {
+            Some(icon) if icon.tile() => icon.render_tile(size, ui.px(3.0)),
+            Some(icon) => {
+                let color = hsla(self.theme.fg(card::brand(&note.agent).color), 1.0);
+                icon.render(size, color)
+            }
+            None => div()
+                .flex_shrink_0()
+                .text_size(ui.px(11.5))
+                .text_color(self.colors.muted)
+                .child(note.by.clone())
+                .into_any_element(),
         }
     }
 
-    /// An open note, under its line: when it was saved, who by, on which branch and as which
-    /// record, then its text, and after a rule the correction written for it; before that is
-    /// read, that it is being, and when it could not be, why.
-    fn details(&self, note: &Note, ui: &UiFont) -> Div {
+    /// The tag of the branch a note was saved on, unless it is `shown`, the header's.
+    fn branch_tag(&self, branch: Option<&str>, shown: Option<&str>, ui: &UiFont) -> Option<Div> {
+        let branch = branch.filter(|branch| Some(*branch) != shown)?;
+        let c = self.colors;
+        Some(
+            div()
+                .flex_shrink(1.0)
+                .min_w(px(0.0))
+                .overflow_hidden()
+                .whitespace_nowrap()
+                .text_ellipsis()
+                .px(ui.px(7.0))
+                .py(ui.px(1.0))
+                .rounded_full()
+                .bg(c.text.opacity(SOFT))
+                .font(self.mono.clone())
+                .text_size(ui.px(10.5))
+                .text_color(c.muted)
+                .child(branch.to_owned()),
+        )
+    }
+
+    /// An open session, under its line: its note in full, then the session's earlier notes, the
+    /// first few or all of them, each opening in place to its own.
+    fn details(&self, session: &Session, next: bool, ui: &UiFont, cx: &mut Context<Self>) -> Div {
         let c = self.colors;
         let under = div()
             .flex()
             .flex_col()
-            .pl(ui.px(if note.next { 10.0 } else { 11.0 } + INDENT))
+            .pl(ui.px(if next { 10.0 } else { 8.0 } + INDENT))
             .pr(ui.px(12.0))
-            .pb(ui.px(14.0));
-        let full = match self.full.get(&note.id) {
+            .pb(ui.px(14.0))
+            .child(self.full_note(&session.note.id, next, ui));
+        if session.earlier.is_empty() {
+            return under;
+        }
+        let count = format!(
+            "{}{}",
+            session.earlier.len(),
+            if session.more { "+" } else { "" }
+        );
+        let shown = if self.all {
+            session.earlier.len()
+        } else {
+            SHOWN_EARLIER
+        };
+        let mut earlier = div()
+            .flex()
+            .flex_col()
+            .mt(ui.px(14.0))
+            .pt(ui.px(9.0))
+            .border_t_1()
+            .border_color(if next {
+                c.accent.opacity(NEXT_RULE)
+            } else {
+                c.text.opacity(RULE)
+            })
+            .child(
+                div()
+                    .pb(ui.px(4.0))
+                    .text_size(ui.px(11.0))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(c.muted)
+                    .child(format!("Earlier in this session \u{b7} {count}")),
+            );
+        for (at, note) in session.earlier.iter().take(shown).enumerate() {
+            let open = self.inner.as_deref() == Some(note.id.as_str());
+            let id = note.id.clone();
+            let time = match &note.day {
+                Some(day) => format!("{day} {}", note.time),
+                None => note.time.clone(),
+            };
+            earlier = earlier
+                .child(
+                    div()
+                        .id(("cairn-earlier", at))
+                        .flex()
+                        .items_center()
+                        .gap(ui.px(8.0))
+                        .min_w(px(0.0))
+                        .py(ui.px(4.0))
+                        .cursor_pointer()
+                        .child(self.arrow(open, if open { c.text } else { c.dim }, ui))
+                        .child(
+                            div()
+                                .flex_shrink_0()
+                                .font(self.mono.clone())
+                                .text_size(ui.px(11.5))
+                                .text_color(c.dim)
+                                .child(time),
+                        )
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w(px(0.0))
+                                .overflow_hidden()
+                                .whitespace_nowrap()
+                                .text_ellipsis()
+                                .text_size(ui.px(12.0))
+                                .text_color(c.muted)
+                                .child(note.summary.clone()),
+                        )
+                        .on_click(cx.listener(move |view, _: &ClickEvent, _, cx| {
+                            view.toggle_inner(&id, cx)
+                        })),
+                )
+                .children(open.then(|| {
+                    div()
+                        .pl(ui.px(INDENT))
+                        .pt(ui.px(4.0))
+                        .pb(ui.px(10.0))
+                        .child(self.full_note(&note.id, next, ui))
+                }));
+        }
+        if shown < session.earlier.len() {
+            earlier = earlier.child(
+                div()
+                    .id("cairn-all-earlier")
+                    .pl(ui.px(INDENT))
+                    .py(ui.px(4.0))
+                    .text_size(ui.px(12.0))
+                    .text_color(c.muted)
+                    .cursor_pointer()
+                    .child(format!("Show all {count}"))
+                    .on_click(cx.listener(|view, _: &ClickEvent, _, cx| {
+                        view.all = true;
+                        cx.notify();
+                    })),
+            );
+        }
+        under.child(earlier)
+    }
+
+    /// A note in full: when it was saved, who by, on which branch and as which record, then its
+    /// text, and after a rule the correction written for it; before that is read, that it is
+    /// being, and when it could not be, why. `next` when it sits in the box of what the next
+    /// session is given.
+    fn full_note(&self, id: &str, next: bool, ui: &UiFont) -> Div {
+        let c = self.colors;
+        let under = div().flex().flex_col();
+        let full = match self.full.get(id) {
             Some(Some(Ok(full))) => full,
             Some(Some(Err(why))) => return under.child(self.refusal(why, ui)),
             _ => {
@@ -891,7 +1119,7 @@ impl CairnView {
             .px(ui.px(11.0))
             .py(ui.px(9.0))
             .rounded(ui.px(7.0))
-            .bg(if note.next {
+            .bg(if next {
                 c.ground.opacity(FACTS_ON_NEXT)
             } else {
                 c.text.opacity(FACTS)
@@ -907,7 +1135,7 @@ impl CairnView {
             )
             .child(fact(
                 "Record",
-                code().text_color(c.muted).child(note.id.clone()),
+                code().text_color(c.muted).child(id.to_owned()),
             ));
         let text = |text: &str| {
             let words = div()
