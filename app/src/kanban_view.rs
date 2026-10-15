@@ -27,11 +27,11 @@ use crate::{
 };
 use gpui::{
     Animation, AnimationExt, AnyElement, App, BoxShadow, ClickEvent, Context, Div, Entity,
-    EventEmitter, FocusHandle, Focusable, Font, FontWeight, HighlightStyle, Hsla, IntoElement,
-    KeyDownEvent, MouseButton, MouseDownEvent, PathPromptOptions, Pixels, Point, Render,
-    ScrollStrategy, SharedString, Stateful, StyledText, Subscription, TextRun, Transformation,
-    UniformListScrollHandle, Window, WindowTextSystem, anchored, deferred, div, percentage, point,
-    prelude::*, px, relative, svg, uniform_list,
+    EventEmitter, FocusHandle, Focusable, Font, FontWeight, Hsla, IntoElement, KeyDownEvent,
+    MouseButton, MouseDownEvent, PathPromptOptions, Pixels, Point, Render, ScrollStrategy,
+    SharedString, Stateful, Subscription, TextRun, Transformation, UniformListScrollHandle, Window,
+    WindowTextSystem, anchored, deferred, div, percentage, point, prelude::*, px, relative, svg,
+    uniform_list,
 };
 use objc2_foundation::{NSFileManager, NSString, NSURL};
 use std::{
@@ -60,43 +60,38 @@ const BAR_PAD: f32 = 2.0;
 const BAR_TOP: f32 = 5.0;
 const DONE_BAR_TOP: f32 = 3.0;
 const BAR_RIGHT: f32 = 8.0;
-/// The cards (P5-71): the narrow list's side padding; a widened board's side padding, the room
-/// between its columns and inside each; a card's padding (more on the left, for the priority
-/// stripe), the room between two cards, and its corner.
+/// The tasks (P5-113, rows in a box since P5-71's cards): the narrow list's side padding; a widened
+/// board's side padding, the room between its columns and inside each; a row's padding (more on
+/// the left, for the priority stripe), a DONE row's up and down, and its corner while the mouse is
+/// on it; the room between the id and the title, and between the things at a row's right end.
 const LIST_X: f32 = 12.0;
 const COLUMNS_X: f32 = 12.0;
 const COLUMN_GAP: f32 = 10.0;
 const COLUMN_X: f32 = 6.0;
-const CARD_LEFT: f32 = 14.0;
-const CARD_RIGHT: f32 = 12.0;
-const CARD_Y: f32 = 10.0;
-const CARD_GAP: f32 = 6.0;
-const CARD_RADIUS: f32 = 10.0;
+const CARD_LEFT: f32 = 12.0;
+const CARD_RIGHT: f32 = 10.0;
+const CARD_Y: f32 = 8.0;
+const DONE_Y: f32 = 6.0;
+const ROW_RADIUS: f32 = 8.0;
+const ID_GAP: f32 = 8.0;
+const END_GAP: f32 = 6.0;
+/// A group's box in the narrow list: its face and edge in the text colour, its corner and the room
+/// inside its edge; a row's face while the mouse is on it.
+const BOX_FACE: f32 = 0.035;
+const BOX_EDGE: f32 = 0.07;
+const BOX_RADIUS: f32 = 10.0;
+const BOX_PAD: f32 = 2.0;
+/// A widened board's column: its face, in the faint colour.
+const COLUMN_FACE: f32 = 0.12;
+const ROW_HOVERED: f32 = 0.04;
 /// Room kept from the right sidebar's own edge when reckoning the width a text is cut to.
 const SPARE: f32 = 2.0;
-/// A card's face, edge and the light inside its top edge, in the text colour, resting and with the
-/// mouse on it, and the dark inside its bottom edge, as the left sidebar's cards over the material
-/// (P5-51b); a draft's face and dashed edge; one that needs the user, in amber.
-const FACE: f32 = 0.055;
-const FACE_HOVERED: f32 = 0.085;
-const EDGE: f32 = 0.07;
-const EDGE_HOVERED: f32 = 0.11;
-const LIGHT: f32 = 0.07;
-const LIGHT_HOVERED: f32 = 0.09;
-const BOTTOM: f32 = 0.25;
-const DRAFT_FACE: f32 = 0.03;
-const DRAFT_FACE_HOVERED: f32 = 0.05;
-const DRAFT_EDGE: f32 = 0.12;
-const DRAFT_EDGE_HOVERED: f32 = 0.18;
-const WAITING_FACE: f32 = 0.05;
-const WAITING_FACE_HOVERED: f32 = 0.08;
-const WAITING_EDGE: f32 = 0.34;
-/// The ground of the small tags and pills, and the rule over a card's agent line, in the text
-/// colour.
+/// The ground of the small tags and pills, and the rule between two rows, in the text colour.
 const SOFT: f32 = 0.06;
 const RULE: f32 = 0.06;
 /// Text sizes: the id, an age, a DONE line's title, the agent line in the list and in a column,
-/// the branch, and the controller's `reviewer`; a group's folding arrow.
+/// the branch, and the controller's `reviewer`; the line under a title (Needs you, Waits for), a
+/// mark at a row's end; a group's folding arrow; a draft's dashed ring before its id.
 const ID_SIZE: f32 = 11.0;
 const AGE_SIZE: f32 = 11.0;
 const DONE_SIZE: f32 = 12.5;
@@ -104,7 +99,12 @@ const FOOT_SIZE: f32 = 12.0;
 const TILE_FOOT_SIZE: f32 = 11.5;
 const BRANCH_SIZE: f32 = 11.0;
 const REVIEWER_SIZE: f32 = 10.5;
+const UNDER_SIZE: f32 = 12.0;
+const MARK_SIZE: f32 = 10.5;
 const ARROW: f32 = 9.0;
+const RING: f32 = 9.0;
+/// A title's line height, and so the height of the id and the end beside its first line.
+const TITLE_LINE: f32 = 18.0;
 /// The share of the room a branch keeps, cut, before the name beside it gives way.
 const BRANCH_SHARE: f32 = 0.4;
 
@@ -120,6 +120,8 @@ const BIN: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 
 const STRUCK: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12"><circle cx="6" cy="6" r="4" fill="none" stroke="#000" stroke-width="1.3"/><path d="M3.2 8.8l5.6-5.6" fill="none" stroke="#000" stroke-width="1.3" stroke-linecap="round"/></svg>"##;
 /// A link, on the mark of what a queued card waits for; chevrons on Show all and Show fewer.
 const LINK: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><path d="M4 6l2-2M3.2 4.6l-1 1a1.6 1.6 0 002.2 2.2l1-1M6.8 5.4l1-1a1.6 1.6 0 00-2.2-2.2l-1 1" fill="none" stroke="#000" stroke-width="1.3" stroke-linecap="round"/></svg>"##;
+/// A dashed ring, before a draft's id (P5-113).
+const DRAFT_RING: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><circle cx="5" cy="5" r="3.8" fill="none" stroke="#000" stroke-width="1.2" stroke-dasharray="1.9 1.5"/></svg>"##;
 const CHEVRON_DOWN: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><path d="M2.5 3.8L5 6.3l2.5-2.5" fill="none" stroke="#000" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>"##;
 const CHEVRON_UP: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><path d="M2.5 6.2L5 3.7l2.5 2.5" fill="none" stroke="#000" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>"##;
 /// A pin, on a repository the board stays on or keeps in its menu; an arrow turning back, on the
@@ -1114,6 +1116,15 @@ impl Fit {
     fn mono(&self, line: &str, size: f32) -> f32 {
         self.width(line, size, self.mono.clone())
     }
+
+    /// In the interface font made semibold.
+    fn bold(&self, line: &str, size: f32) -> f32 {
+        let font = Font {
+            weight: FontWeight::SEMIBOLD,
+            ..gpui::font(self.family.clone())
+        };
+        self.width(line, size, font)
+    }
 }
 
 /// A pill of words: a small tag with round ends, its edge there but unseen unless coloured.
@@ -1641,6 +1652,8 @@ impl KanbanView {
 
     /// Narrow: the five groups one above another, each folding.
     fn list(&self, board: &Board, fit: &Fit, ui: &UiFont, cx: &mut Context<Self>) -> Stateful<Div> {
+        let c = self.colors;
+        let ids = self.id_width(board, fit, ui);
         let mut list = div()
             .id("kanban-list")
             .flex_1()
@@ -1654,34 +1667,62 @@ impl KanbanView {
         for (n, column) in Column::ALL.into_iter().enumerate() {
             let open = !self.folded.contains(&column);
             list = list.child(self.group(board, column, open, n == 0, ui, cx));
-            // A folded group still shows the cards that need the user.
+            // A folded group still shows the tasks that need the user.
             let shown: Vec<&Card> = board
                 .listed(column, self.all_done)
                 .into_iter()
                 .filter(|card| open || card.needs_you)
                 .collect();
             if !shown.is_empty() {
+                // A group's rows in a box; DONE's bare, set in as far so their ids line up.
+                let rows = self.rows(&shown, Place::List, ids, fit, ui, cx);
+                let rows = if column == Column::Done {
+                    rows.px(ui.px(BOX_PAD) + px(1.0))
+                } else {
+                    rows.p(ui.px(BOX_PAD))
+                        .rounded(ui.px(BOX_RADIUS))
+                        .bg(c.text.opacity(BOX_FACE))
+                        .border_1()
+                        .border_color(c.text.opacity(BOX_EDGE))
+                };
                 let mut cards = div()
                     .flex_shrink_0()
                     .flex()
                     .flex_col()
-                    .gap(ui.px(CARD_GAP))
                     .pt(ui.px(4.0))
-                    .pb(ui.px(2.0));
-                for card in shown {
-                    cards = cards.child(self.card(card, Place::List, fit, ui, cx));
-                }
+                    .pb(ui.px(2.0))
+                    .child(rows);
                 if open && column == Column::Done {
                     cards =
                         cards
                             .children(self.show_all(board, ui, cx).map(|more| {
-                                div().flex().pt(ui.px(2.0)).pl(ui.px(4.0)).child(more)
+                                div().flex().pt(ui.px(6.0)).pl(ui.px(4.0)).child(more)
                             }));
                 }
                 list = list.child(cards);
             }
         }
         list
+    }
+
+    /// Tasks' rows one under another, a rule between each two but next to the one the mouse is on.
+    fn rows(
+        &self,
+        cards: &[&Card],
+        place: Place,
+        ids: f32,
+        fit: &Fit,
+        ui: &UiFont,
+        cx: &mut Context<Self>,
+    ) -> Div {
+        let mut rows = div().flex_shrink_0().flex().flex_col();
+        let mut above = true;
+        for card in cards {
+            let hovered = self.hovered(card);
+            rows = rows.child(self.card(card, place, ids, !above && !hovered, fit, ui, cx));
+            above = hovered;
+        }
+        rows
     }
 
     /// A group's header in the narrow list: the arrow that folds it, its colour, its name and how
@@ -1757,13 +1798,10 @@ impl KanbanView {
                 .overflow_y_scroll()
                 .flex()
                 .flex_col()
-                .gap(ui.px(CARD_GAP))
                 .px(ui.px(COLUMN_X))
                 .pb(ui.px(8.0));
             let cards = board.listed(column, self.all_done);
-            for card in &cards {
-                body = body.child(self.card(card, Place::Tile, fit, ui, cx));
-            }
+            body = body.child(self.rows(&cards, Place::Tile, 0.0, fit, ui, cx));
             if column == Column::Done {
                 body = body.children(
                     self.show_all(board, ui, cx)
@@ -1790,8 +1828,8 @@ impl KanbanView {
                     .min_h(px(0.0))
                     .flex()
                     .flex_col()
-                    .rounded(ui.px(CARD_RADIUS))
-                    .bg(c.faint.opacity(0.12))
+                    .rounded(ui.px(BOX_RADIUS))
+                    .bg(c.faint.opacity(COLUMN_FACE))
                     .border_1()
                     .border_color(c.rule.opacity(0.6))
                     .child(
@@ -1905,7 +1943,7 @@ impl KanbanView {
     /// sharing a line are cut to.
     fn room(&self, place: Place, ui: &UiFont) -> f32 {
         let card = match place {
-            Place::List => self.width - 2.0 * ui.scale(LIST_X),
+            Place::List => self.width - 2.0 * ui.scale(LIST_X) - 2.0 * (ui.scale(BOX_PAD) + 1.0),
             Place::Tile => {
                 let row = self.width - 2.0 * ui.scale(COLUMNS_X) - 4.0 * ui.scale(COLUMN_GAP);
                 row / 5.0 - 2.0 - 2.0 * ui.scale(COLUMN_X)
@@ -1930,229 +1968,229 @@ impl KanbanView {
             }))
     }
 
-    /// A card (P5-71), in the narrow list or a widened column, lifted off the panel as the left
-    /// sidebar's cards are (P5-51b): its id, any warning and its age; its title on up to two lines;
-    /// its marks; what the user is waited on for; a question asked on it; then, under a rule, its
-    /// agent, and the controller on one to review. A DONE card that needs nothing and was not
-    /// dropped is one short line.
+    /// A task's row (P5-113), in a group's box in the narrow list or in a widened column, rows
+    /// parted by a rule (`rule`) that is left out next to the one the mouse is on. In the list its
+    /// id stands in a column `ids` wide left of the title, a draft's after a dashed ring; in a
+    /// column, too narrow for that, on a line above the title. At the end of the title's first line
+    /// any warning, Dropped and its age; the title on up to two lines, a DONE row's on one. Under
+    /// the title, from its left edge: what it waits for, Needs you, its agent and the controller on
+    /// one to review, and a question asked on it.
+    #[allow(clippy::too_many_arguments)]
     fn card(
         &self,
         card: &Card,
         place: Place,
+        ids: f32,
+        rule: bool,
         fit: &Fit,
         ui: &UiFont,
         cx: &mut Context<Self>,
     ) -> Stateful<Div> {
-        if card.column == Column::Done && !card.needs_you && card.dropped.is_none() {
-            return self.done_row(card, place, fit, ui, cx);
-        }
         let c = self.colors;
         let hovered = self.hovered(card);
+        let done = card.column == Column::Done;
+        let inline = place == Place::List;
         let room = self.room(place, ui);
-        let (face, edge, lines) = self.face(card, hovered);
-        // While the mouse is on the card its buttons sit where its age is, and the age moves down
-        // to its agent's line when it has one.
-        let footer = self.footer(
-            card,
-            place,
-            hovered,
-            room,
-            c.ground.blend(face),
-            fit,
-            ui,
-            cx,
-        );
-        let first = div()
+        let under = if inline {
+            (room - ids - ui.scale(ID_GAP)).max(0.0)
+        } else {
+            room
+        };
+        // A DONE row keeps its age with the mouse on it; another moves it to its agent's line, or
+        // gives it up to the buttons.
+        let age = (!card.age.is_empty() && (done || !hovered)).then(|| {
+            div()
+                .flex_shrink_0()
+                .text_size(ui.px(AGE_SIZE))
+                .text_color(c.dim)
+                .child(card.age.clone())
+        });
+        let dropped = self.dropped(card, ui);
+        let end = div()
+            .flex_shrink_0()
+            .h(ui.px(TITLE_LINE))
             .flex()
             .items_center()
-            .gap(ui.px(6.0))
-            .min_w(px(0.0))
-            .min_h(ui.px(18.0))
-            .children(self.id(card, ui))
+            .gap(ui.px(END_GAP))
             .children(self.warning(card, ui))
-            .child(div().flex_1())
-            .children((!hovered && !card.age.is_empty()).then(|| {
-                div()
-                    .flex_shrink_0()
-                    .text_size(ui.px(AGE_SIZE))
-                    .text_color(c.dim)
-                    .child(card.age.clone())
-            }));
-        let title = div()
-            .line_clamp(2)
-            .text_ellipsis()
-            .line_height(relative(1.4))
-            .font_weight(if card.column == Column::Done {
-                FontWeight::NORMAL
-            } else {
-                FontWeight::MEDIUM
-            })
-            .text_color(if card.draft { c.bright } else { c.text })
-            .child(card.title.clone());
-        let marks = self.marks(card, ui);
-        let marks =
-            (!marks.is_empty()).then(|| div().flex().flex_wrap().gap(ui.px(6.0)).children(marks));
+            .children(dropped)
+            .children(age);
+        let title = if done {
+            // Cut here, to what its line leaves it: in the list the end shares it, in a column the
+            // end is on the id's line above.
+            let mut left = room;
+            if inline {
+                let mut ends = Vec::new();
+                if !card.problems.is_empty() {
+                    ends.push(ui.scale(12.0));
+                }
+                if card.dropped.is_some() {
+                    ends.push(fit.normal("Dropped", MARK_SIZE) + ui.scale(12.0) + 2.0);
+                }
+                if !card.age.is_empty() {
+                    ends.push(fit.normal(&card.age, AGE_SIZE));
+                }
+                left = under;
+                if !ends.is_empty() {
+                    left -= ends.iter().sum::<f32>()
+                        + ui.scale(ID_GAP)
+                        + (ends.len() - 1) as f32 * ui.scale(END_GAP);
+                }
+            }
+            let words = card::elide(&card.title, &|cut| fit.normal(cut, DONE_SIZE) <= left);
+            div()
+                .flex_1()
+                .min_w(px(0.0))
+                .whitespace_nowrap()
+                .text_size(ui.px(DONE_SIZE))
+                .text_color(if card.dropped.is_some() {
+                    c.dim
+                } else {
+                    c.muted
+                })
+                .child(words)
+        } else {
+            div()
+                .flex_1()
+                .min_w(px(0.0))
+                .line_clamp(2)
+                .text_ellipsis()
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(if card.draft { c.muted } else { c.text })
+                .child(card.title.clone())
+        }
+        .line_height(ui.px(TITLE_LINE));
+        let id = self.id(card, ui);
+        let head = if inline {
+            div()
+                .flex()
+                .items_start()
+                .gap(ui.px(ID_GAP))
+                .min_w(px(0.0))
+                .child(div().flex_shrink_0().w(px(ids)).children(id))
+                .child(title)
+                .child(end)
+                .into_any_element()
+        } else {
+            div()
+                .flex()
+                .flex_col()
+                .gap(ui.px(2.0))
+                .min_w(px(0.0))
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(ui.px(END_GAP))
+                        .children(id)
+                        .child(div().flex_1())
+                        .child(end),
+                )
+                .child(title)
+                .into_any_element()
+        };
+        let ring = self.ring(place, hovered);
         let size = match place {
             Place::List => BAR_BUTTON,
             Place::Tile => TILE_BUTTON,
         };
         let bar = self.actions(card, size, ui, cx).map(|bar| {
             self.tray(bar, ui)
-                .top(ui.px(BAR_TOP))
+                .top(ui.px(if done { DONE_BAR_TOP } else { BAR_TOP }))
                 .when(place == Place::Tile, |bar| {
                     bar.flex_wrap().justify_end().max_w(px(room))
                 })
         });
-        let foot = footer.is_some();
+        let small = |row: Div| row.text_size(ui.px(UNDER_SIZE));
+        let below: Vec<AnyElement> = [
+            self.waits(card, under, fit, ui)
+                .map(IntoElement::into_any_element),
+            self.asks(card, under, fit, ui)
+                .map(IntoElement::into_any_element),
+            self.footer(card, place, hovered, under, ring, fit, ui, cx)
+                .map(IntoElement::into_any_element),
+            self.clearing(card, ui, cx)
+                .map(|r| small(r).into_any_element()),
+            self.prioritizing(card, ui, cx)
+                .map(|r| small(r).into_any_element()),
+            self.deleting(card, ui, cx)
+                .map(|r| small(r).into_any_element()),
+            self.dropping(card, ui, cx)
+                .map(|r| small(r).into_any_element()),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
+        let below = (!below.is_empty()).then(|| {
+            div()
+                .flex()
+                .flex_col()
+                .gap(ui.px(5.0))
+                .min_w(px(0.0))
+                .when(inline, |below| below.pl(px(ids) + ui.px(ID_GAP)))
+                .children(below)
+        });
+        let y = if done { DONE_Y } else { CARD_Y };
         self.hoverable(card, cx)
             .flex()
             .flex_col()
-            .gap(ui.px(6.0))
-            .pt(ui.px(CARD_Y))
-            .pb(if foot { px(0.0) } else { ui.px(CARD_Y) })
+            .gap(ui.px(4.0))
+            .py(ui.px(y))
             .pl(ui.px(CARD_LEFT))
             .pr(ui.px(CARD_RIGHT))
-            .rounded(ui.px(CARD_RADIUS))
-            .bg(face)
-            .border_1()
-            .border_color(edge)
-            .when(card.draft, |ground| ground.border_dashed())
-            .shadow(lines)
+            .rounded(ui.px(ROW_RADIUS))
+            .when(hovered, |row| row.bg(c.text.opacity(ROW_HOVERED)))
             .opacity(fade(card))
             .text_size(ui.px(13.0))
+            .when(rule, |row| {
+                row.child(
+                    div()
+                        .absolute()
+                        .top(px(0.0))
+                        .left(ui.px(CARD_LEFT))
+                        .right(ui.px(CARD_RIGHT))
+                        .h(px(1.0))
+                        .bg(c.text.opacity(RULE)),
+                )
+            })
             .children(self.stripe(card, ui))
-            .child(first)
-            .child(title)
-            .children(marks)
-            .children(self.asks(card, ui))
-            .children(
-                self.clearing(card, ui, cx)
-                    .map(|row| row.text_size(ui.px(12.0))),
-            )
-            .children(
-                self.prioritizing(card, ui, cx)
-                    .map(|row| row.text_size(ui.px(12.0))),
-            )
-            .children(
-                self.deleting(card, ui, cx)
-                    .map(|row| row.text_size(ui.px(12.0))),
-            )
-            .children(
-                self.dropping(card, ui, cx)
-                    .map(|row| row.text_size(ui.px(12.0))),
-            )
-            .children(footer)
+            .child(head)
+            .children(below)
             .children(bar)
     }
 
-    /// A DONE card that needs nothing and was not dropped: one short line, its id, title and age,
-    /// the title cut with `…` to the room they leave it.
-    fn done_row(
-        &self,
-        card: &Card,
-        place: Place,
-        fit: &Fit,
-        ui: &UiFont,
-        cx: &mut Context<Self>,
-    ) -> Stateful<Div> {
+    /// The ground under a row's avatars, round their status dots: a group's box over the panel in
+    /// the list, the column's face in a widened board, and the row's own face over either while
+    /// the mouse is on it.
+    fn ring(&self, place: Place, hovered: bool) -> Hsla {
         let c = self.colors;
-        let hovered = self.hovered(card);
-        let mut room = self.room(place, ui);
-        let mut gaps = 0;
-        if !card.id.is_empty() {
-            room -= fit.mono(&card.id, ID_SIZE);
-            gaps += 1;
-        }
-        if !card.age.is_empty() {
-            room -= fit.normal(&card.age, AGE_SIZE);
-            gaps += 1;
-        }
-        room -= gaps as f32 * ui.scale(8.0);
-        let title = card::elide(&card.title, &|cut| fit.normal(cut, DONE_SIZE) <= room);
-        let bar = self
-            .actions(card, BAR_BUTTON, ui, cx)
-            .map(|bar| self.tray(bar, ui).top(ui.px(DONE_BAR_TOP)));
-        self.hoverable(card, cx)
-            .flex()
-            .items_center()
-            .gap(ui.px(8.0))
-            .py(ui.px(8.0))
-            .pl(ui.px(CARD_LEFT))
-            .pr(ui.px(CARD_RIGHT))
-            .rounded(ui.px(CARD_RADIUS))
-            // An edge no one sees, so its words line up with the cards'.
-            .border_1()
-            .border_color(gpui::transparent_black())
-            .when(hovered, |row| row.bg(c.text.opacity(0.04)))
-            .whitespace_nowrap()
-            .text_color(c.muted)
-            .children((!card.id.is_empty()).then(|| {
-                div()
-                    .flex_shrink_0()
-                    .font(self.mono.clone())
-                    .text_size(ui.px(ID_SIZE))
-                    .text_color(c.dim)
-                    .child(card.id.clone())
-            }))
-            .child(
-                div()
-                    .flex_1()
-                    .min_w(px(0.0))
-                    .text_size(ui.px(DONE_SIZE))
-                    .child(title),
-            )
-            .children((!card.age.is_empty()).then(|| {
-                div()
-                    .flex_shrink_0()
-                    .text_size(ui.px(AGE_SIZE))
-                    .text_color(c.dim)
-                    .child(card.age.clone())
-            }))
-            .children(bar)
-    }
-
-    /// A card's face, edge, and the lines inside its top and bottom edges, resting or with the
-    /// mouse on it, as the left sidebar's cards over the material (P5-51b): a draft's fainter and
-    /// dashed, without the lines; one that needs the user rimmed in amber.
-    fn face(&self, card: &Card, hovered: bool) -> (Hsla, Hsla, Vec<BoxShadow>) {
-        let c = self.colors;
-        if card.draft {
-            return if hovered {
-                (
-                    c.text.opacity(DRAFT_FACE_HOVERED),
-                    c.text.opacity(DRAFT_EDGE_HOVERED),
-                    Vec::new(),
-                )
-            } else {
-                (
-                    c.text.opacity(DRAFT_FACE),
-                    c.text.opacity(DRAFT_EDGE),
-                    Vec::new(),
-                )
-            };
-        }
-        let (face, edge, light) = if hovered {
-            (FACE_HOVERED, EDGE_HOVERED, LIGHT_HOVERED)
-        } else {
-            (FACE, EDGE, LIGHT)
+        let ground = match place {
+            Place::List => c.ground.blend(c.text.opacity(BOX_FACE)),
+            Place::Tile => c.ground.blend(c.faint.opacity(COLUMN_FACE)),
         };
-        let lines = vec![
-            BoxShadow::new(px(0.0), px(1.0), c.text.opacity(light)).inset(),
-            BoxShadow::new(px(0.0), px(-1.0), gpui::black().opacity(BOTTOM)).inset(),
-        ];
-        if card.needs_you {
-            let face = if hovered {
-                WAITING_FACE_HOVERED
-            } else {
-                WAITING_FACE
-            };
-            return (
-                c.yellow.opacity(face),
-                c.yellow.opacity(WAITING_EDGE),
-                lines,
-            );
+        if hovered {
+            ground.blend(c.text.opacity(ROW_HOVERED))
+        } else {
+            ground
         }
-        (c.text.opacity(face), c.text.opacity(edge), lines)
+    }
+
+    /// How wide the column of ids is: the widest id the board lists, a draft's with its ring.
+    fn id_width(&self, board: &Board, fit: &Fit, ui: &UiFont) -> f32 {
+        Column::ALL
+            .into_iter()
+            .flat_map(|column| board.listed(column, self.all_done))
+            .filter(|card| !card.id.is_empty())
+            .map(|card| {
+                let ring = if card.draft {
+                    ui.scale(RING + 4.0)
+                } else {
+                    0.0
+                };
+                fit.mono(&card.id, ID_SIZE) + ring
+            })
+            .fold(0.0, f32::max)
+            .ceil()
     }
 
     /// The small tray the buttons over a card sit in, at its top right.
@@ -2166,9 +2204,9 @@ impl KanbanView {
             .border_color(self.colors.text.opacity(0.08))
     }
 
-    /// Under a rule at the foot of a card under way, to review or merged: its agent's line and,
-    /// on one to review, the controller's. `ring` is the card's face over the panel, round the
-    /// avatars' status dots. `None` with nothing to say.
+    /// Under the title of a task under way, to review or merged: its agent's line and, on one to
+    /// review, the controller's. `ring` is the ground under the row, round the avatars' status
+    /// dots. `None` with nothing to say.
     #[allow(clippy::too_many_arguments)]
     fn footer(
         &self,
@@ -2197,16 +2235,8 @@ impl KanbanView {
             div()
                 .flex()
                 .flex_col()
-                .gap(ui.px(6.0))
-                .mt(ui.px(4.0))
-                .ml(ui.px(-CARD_LEFT))
-                .mr(ui.px(-CARD_RIGHT))
-                .pt(ui.px(8.0))
-                .pb(ui.px(9.0))
-                .pl(ui.px(CARD_LEFT))
-                .pr(ui.px(CARD_RIGHT))
-                .border_t_1()
-                .border_color(self.colors.text.opacity(RULE))
+                .gap(ui.px(5.0))
+                .pt(ui.px(1.0))
                 .text_size(ui.px(size))
                 .whitespace_nowrap()
                 .children(meta)
@@ -2278,8 +2308,8 @@ impl KanbanView {
         )
     }
 
-    /// A bar down a queued card's left edge, for high (red, as its High mark) or low (dim, as its
-    /// Low mark); none for medium or in the other columns.
+    /// A bar down a queued row's left edge, for high (red) or low (dim); none for medium or in the
+    /// other columns. The only mark of a priority since P5-113.
     fn stripe(&self, card: &Card, ui: &UiFont) -> Option<Div> {
         let color = match card.stripe()? {
             Priority::High => self.colors.red,
@@ -2288,7 +2318,7 @@ impl KanbanView {
         Some(
             div()
                 .absolute()
-                .left(px(0.0))
+                .left(ui.px(2.0))
                 .top(ui.px(9.0))
                 .bottom(ui.px(9.0))
                 .w(px(3.0))
@@ -2297,23 +2327,34 @@ impl KanbanView {
         )
     }
 
-    /// The id, for a card that has one, on a small tag.
-    fn id(&self, card: &Card, ui: &UiFont) -> Option<Div> {
-        (!card.id.is_empty()).then(|| {
-            div()
-                .flex_shrink_0()
-                .px(ui.px(6.0))
-                .rounded(ui.px(5.0))
-                .bg(self.colors.text.opacity(SOFT))
-                .font(self.mono.clone())
-                .text_size(ui.px(ID_SIZE))
-                .text_color(self.colors.muted)
-                .child(card.id.clone())
-        })
+    /// The id, for a task that has one, in small fixed-width type; a draft's after a dashed ring,
+    /// which says Draft when the mouse is on it.
+    fn id(&self, card: &Card, ui: &UiFont) -> Option<Stateful<Div>> {
+        if card.id.is_empty() {
+            return None;
+        }
+        let c = self.colors;
+        let mut id = div()
+            .id(SharedString::from(format!("kanban-id-{}", card.file)))
+            .flex_shrink_0()
+            .h(ui.px(TITLE_LINE))
+            .flex()
+            .items_center()
+            .gap(ui.px(4.0))
+            .font(self.mono.clone())
+            .text_size(ui.px(ID_SIZE))
+            .text_color(c.dim);
+        if card.draft {
+            let tip = Tip::new("Draft", &self.theme, ui);
+            id = id
+                .child(svg().data(DRAFT_RING).size(ui.px(RING)).text_color(c.dim))
+                .tooltip(move |_, cx| cx.new(|_| tip.clone()).into());
+        }
+        Some(id.child(card.id.clone()))
     }
 
-    /// A warning sign beside the id that tells, when the mouse is on it, what in the card's task
-    /// file could be read wrong (P5-60a).
+    /// A warning sign at the end of the title's line that tells, when the mouse is on it, what in
+    /// the task file could be read wrong (P5-60a).
     fn warning(&self, card: &Card, ui: &UiFont) -> Option<Stateful<Div>> {
         if card.problems.is_empty() {
             return None;
@@ -2335,108 +2376,93 @@ impl KanbanView {
         )
     }
 
-    /// The marks under a card's title, each a pill: Draft, High or Low (medium is not marked),
-    /// what a queued card waits for, and Dropped, which tells why when the mouse is on it.
-    fn marks(&self, card: &Card, ui: &UiFont) -> Vec<AnyElement> {
+    /// Dropped, on a small pill at the end of a task wrapped up without being done, which tells
+    /// why when the mouse is on it.
+    fn dropped(&self, card: &Card, ui: &UiFont) -> Option<Stateful<Div>> {
         let c = self.colors;
-        let quiet = || pill(ui).text_size(ui.px(11.0)).text_color(c.dim);
-        let mut marks = Vec::new();
-        if card.draft {
-            marks.push(
-                quiet()
-                    .border_color(c.text.opacity(0.14))
-                    .child("Draft")
-                    .into_any_element(),
-            );
-        }
-        match card.priority {
-            Some(Priority::High) => marks.push(
-                quiet()
-                    .bg(c.red.opacity(0.14))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(c.red)
-                    .child(Priority::High.label())
-                    .into_any_element(),
-            ),
-            Some(Priority::Low) => marks.push(
-                quiet()
-                    .bg(c.text.opacity(SOFT))
-                    .child(Priority::Low.label())
-                    .into_any_element(),
-            ),
-            _ => {}
-        }
-        if card.column == Column::Queued
-            && let Some((words, _)) = &card.state
-        {
-            marks.push(
-                quiet()
-                    .gap(ui.px(4.0))
-                    .bg(c.text.opacity(SOFT))
-                    .text_color(c.muted)
-                    .child(svg().data(LINK).size(ui.px(10.0)).text_color(c.muted))
-                    .child(words.clone())
-                    .into_any_element(),
-            );
-        }
-        if let Some(why) = &card.dropped {
-            let note = Note::new(
-                if why.is_empty() {
-                    "Dropped".into()
-                } else {
-                    format!("Dropped: {why}").into()
-                },
-                &self.theme,
-                ui,
-            );
-            marks.push(
-                quiet()
-                    .id(SharedString::from(format!("kanban-dropped-{}", card.file)))
-                    .border_color(c.text.opacity(0.14))
-                    .child("Dropped")
-                    .tooltip(move |_, cx| cx.new(|_| note.clone()).into())
-                    .into_any_element(),
-            );
-        }
-        marks
+        let why = card.dropped.as_ref()?;
+        let note = Note::new(
+            if why.is_empty() {
+                "Dropped".into()
+            } else {
+                format!("Dropped: {why}").into()
+            },
+            &self.theme,
+            ui,
+        );
+        Some(
+            pill(ui)
+                .id(SharedString::from(format!("kanban-dropped-{}", card.file)))
+                .px(ui.px(6.0))
+                .border_color(c.text.opacity(0.14))
+                .text_size(ui.px(MARK_SIZE))
+                .text_color(c.dim)
+                .child("Dropped")
+                .tooltip(move |_, cx| cx.new(|_| note.clone()).into()),
+        )
     }
 
-    /// On a card that needs the user, a pale amber block: Needs you, then what its task file says
-    /// they are waited on for, on up to two lines and cut with `…`. One text, so GPUI wraps and
-    /// cuts it alone on its lines.
-    fn asks(&self, card: &Card, ui: &UiFont) -> Option<Div> {
+    /// Under a queued task's title, what it waits for, after a link, cut with `…` to `room`.
+    fn waits(&self, card: &Card, room: f32, fit: &Fit, ui: &UiFont) -> Option<Div> {
+        if card.column != Column::Queued {
+            return None;
+        }
+        let c = self.colors;
+        let (words, _) = card.state.as_ref()?;
+        let left = room - ui.scale(10.0 + 5.0) - SPARE;
+        let words = card::elide(words, &|cut| fit.normal(cut, UNDER_SIZE) <= left);
+        Some(
+            div()
+                .flex()
+                .items_center()
+                .gap(ui.px(5.0))
+                .whitespace_nowrap()
+                .text_size(ui.px(UNDER_SIZE))
+                .text_color(c.muted)
+                .child(svg().data(LINK).size(ui.px(10.0)).text_color(c.dim))
+                .child(words),
+        )
+    }
+
+    /// Under the title of a task that needs the user, one line: Needs you in amber, then what its
+    /// task file says they are waited on for, cut here with `…` to `room` (GPUI's own cut left
+    /// the text running out of its block, P5-113), the whole of it shown when the mouse is on the
+    /// line. Only Needs you when just its agent waits.
+    fn asks(&self, card: &Card, room: f32, fit: &Fit, ui: &UiFont) -> Option<Stateful<Div>> {
         if !card.needs_you {
             return None;
         }
         let c = self.colors;
         let lead = "Needs you";
-        let text = match card
+        let gap = ui.scale(6.0);
+        let asks = card
             .asks
             .as_deref()
             .map(str::trim)
-            .filter(|a| !a.is_empty())
-        {
-            Some(asks) => format!("{lead}  {asks}"),
-            None => lead.to_owned(),
-        };
-        let bold = HighlightStyle {
-            color: Some(c.yellow),
-            font_weight: Some(FontWeight::SEMIBOLD),
-            ..HighlightStyle::default()
-        };
-        Some(
-            div()
-                .px(ui.px(9.0))
-                .py(ui.px(7.0))
-                .rounded(ui.px(7.0))
-                .bg(c.yellow.opacity(0.08))
-                .text_size(ui.px(12.0))
-                .line_height(relative(1.45))
-                .text_color(c.text)
-                .line_clamp(2)
-                .text_ellipsis()
-                .child(StyledText::new(text).with_highlights([(0..lead.len(), bold)])),
-        )
+            .filter(|a| !a.is_empty());
+        let left = room - fit.bold(lead, UNDER_SIZE) - gap - SPARE;
+        let words = asks.map(|asks| asks_words(asks, left, &|cut| fit.normal(cut, UNDER_SIZE)));
+        let mut line = div()
+            .id(SharedString::from(format!("kanban-asks-{}", card.file)))
+            .flex()
+            .items_center()
+            .gap(px(gap))
+            .min_w(px(0.0))
+            .whitespace_nowrap()
+            .text_size(ui.px(UNDER_SIZE))
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(c.yellow)
+                    .child(lead),
+            )
+            .children(words.map(|words| div().text_color(c.text).child(words)));
+        if let Some(asks) = asks {
+            let note = Note::new(format!("{lead}: {asks}").into(), &self.theme, ui);
+            line = line.tooltip(move |_, cx| cx.new(|_| note.clone()).into());
+        }
+        Some(line)
     }
 
     /// A card's agent line: the agent's kind and status, its name (in the list), the state, the
@@ -4451,9 +4477,30 @@ fn share(
     (card::elide(name, &|cut| name_width(cut) <= left), branch)
 }
 
+/// What a task waits on the user for, on one line after Needs you: whole if it fits in `room`, by
+/// `width`, otherwise cut to it and ended with `…`.
+fn asks_words(asks: &str, room: f32, width: &dyn Fn(&str) -> f32) -> String {
+    card::elide(asks, &|cut| width(cut) <= room)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn what_the_user_is_waited_on_for_is_cut_to_one_line_with_an_ellipsis() {
+        let width = |text: &str| text.chars().count() as f32;
+        let asks = "远端要先有能用的 corral，归 ranch 的 R10";
+        // It fits: whole.
+        assert_eq!(asks_words(asks, 40.0, &width), asks);
+        // It does not: cut to the room and ended with the ellipsis, never `..`.
+        let cut = asks_words(asks, 12.0, &width);
+        assert!(cut.ends_with('…') && !cut.contains(".."), "{cut:?}");
+        assert!(width(&cut) <= 12.0, "{cut:?}");
+        assert!(asks.starts_with(cut.trim_end_matches('…')));
+        // No room at all: just the ellipsis.
+        assert_eq!(asks_words(asks, 0.5, &width), "…");
+    }
 
     #[test]
     fn one_needs_you_and_more_need_you() {
