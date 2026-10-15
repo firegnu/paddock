@@ -61,9 +61,9 @@ const BAR_TOP: f32 = 5.0;
 const DONE_BAR_TOP: f32 = 3.0;
 const BAR_RIGHT: f32 = 8.0;
 /// The tasks (P5-113, rows in a box since P5-71's cards): the narrow list's side padding; a widened
-/// board's side padding, the room between its columns and inside each; a row's padding (more on
-/// the left, for the priority stripe), a DONE row's up and down, and its corner while the mouse is
-/// on it; the room between the id and the title, and between the things at a row's right end.
+/// board's side padding, the room between its columns and inside each; a row's padding, a DONE
+/// row's up and down, and its corner while the mouse is on it; the room between the id and the
+/// title, and between the things at a row's right end.
 const LIST_X: f32 = 12.0;
 const COLUMNS_X: f32 = 12.0;
 const COLUMN_GAP: f32 = 10.0;
@@ -90,9 +90,10 @@ const SPARE: f32 = 2.0;
 const SOFT: f32 = 0.06;
 const RULE: f32 = 0.06;
 /// Text sizes: the id, an age, a DONE line's title, the agent line in the list and in a column,
-/// the branch, and the controller's `reviewer`; the line under a title (Needs you, Waits for), a
-/// mark at a row's end; a group's folding arrow; a draft's dashed ring before its id.
-const ID_SIZE: f32 = 11.0;
+/// the branch, and the controller's `reviewer`; the line under a title (Needs you, Waits for); a
+/// group's folding arrow; the ring before a task's id and in a group's header, and the room after
+/// it (P5-114).
+const ID_SIZE: f32 = 12.0;
 const AGE_SIZE: f32 = 11.0;
 const DONE_SIZE: f32 = 12.5;
 const FOOT_SIZE: f32 = 12.0;
@@ -100,9 +101,12 @@ const TILE_FOOT_SIZE: f32 = 11.5;
 const BRANCH_SIZE: f32 = 11.0;
 const REVIEWER_SIZE: f32 = 10.5;
 const UNDER_SIZE: f32 = 12.0;
-const MARK_SIZE: f32 = 10.5;
 const ARROW: f32 = 9.0;
-const RING: f32 = 9.0;
+const RING: f32 = 13.0;
+const RING_GAP: f32 = 6.0;
+/// A group's name, and how much an empty group's ring is faded.
+const GROUP_SIZE: f32 = 13.0;
+const EMPTY_RING: f32 = 0.45;
 /// A title's line height, and so the height of the id and the end beside its first line.
 const TITLE_LINE: f32 = 18.0;
 /// The share of the room a branch keeps, cut, before the name beside it gives way.
@@ -120,8 +124,14 @@ const BIN: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 
 const STRUCK: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12"><circle cx="6" cy="6" r="4" fill="none" stroke="#000" stroke-width="1.3"/><path d="M3.2 8.8l5.6-5.6" fill="none" stroke="#000" stroke-width="1.3" stroke-linecap="round"/></svg>"##;
 /// A link, on the mark of what a queued card waits for; chevrons on Show all and Show fewer.
 const LINK: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><path d="M4 6l2-2M3.2 4.6l-1 1a1.6 1.6 0 002.2 2.2l1-1M6.8 5.4l1-1a1.6 1.6 0 00-2.2-2.2l-1 1" fill="none" stroke="#000" stroke-width="1.3" stroke-linecap="round"/></svg>"##;
-/// A dashed ring, before a draft's id (P5-113).
-const DRAFT_RING: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><circle cx="5" cy="5" r="3.8" fill="none" stroke="#000" stroke-width="1.2" stroke-dasharray="1.9 1.5"/></svg>"##;
+/// The rings before a task's id and in a group's header (P5-114): open, dashed (a draft), half and
+/// three quarters filled, filled with a tick cut out, struck through.
+const RING_OPEN: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5.2" fill="none" stroke="#000" stroke-width="1.6"/></svg>"##;
+const RING_DASHED: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5.2" fill="none" stroke="#000" stroke-width="1.5" stroke-dasharray="2.4 1.9"/></svg>"##;
+const RING_HALF: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5.2" fill="none" stroke="#000" stroke-width="1.6"/><path d="M7 3.6a3.4 3.4 0 0 1 0 6.8z" fill="#000"/></svg>"##;
+const RING_MOST: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5.2" fill="none" stroke="#000" stroke-width="1.6"/><path d="M7 3.6a3.4 3.4 0 1 1-3.4 3.4H7z" fill="#000"/></svg>"##;
+const RING_TICK: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 14 14"><mask id="m"><rect width="14" height="14" fill="#fff"/><path d="M4.3 7.2l1.8 1.8 3.6-3.8" fill="none" stroke="#000" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></mask><circle cx="7" cy="7" r="6" fill="#000" mask="url(#m)"/></svg>"##;
+const RING_STRUCK: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5.2" fill="none" stroke="#000" stroke-width="1.5"/><path d="M3.4 10.6l7.2-7.2" fill="none" stroke="#000" stroke-width="1.5" stroke-linecap="round"/></svg>"##;
 const CHEVRON_DOWN: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><path d="M2.5 3.8L5 6.3l2.5-2.5" fill="none" stroke="#000" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>"##;
 const CHEVRON_UP: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><path d="M2.5 6.2L5 3.7l2.5 2.5" fill="none" stroke="#000" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>"##;
 /// A pin, on a repository the board stays on or keeps in its menu; an arrow turning back, on the
@@ -238,17 +248,6 @@ impl Colors {
             yellow: fg(|t| t.agents_yellow),
             blue: fg(|t| t.agents_blue),
             accent: fg(|t| t.agents_accent),
-        }
-    }
-
-    /// A column's square in its header.
-    fn column(&self, column: Column) -> Hsla {
-        match column {
-            Column::Queued => self.dim,
-            Column::InProgress => self.blue,
-            Column::ToReview => self.yellow,
-            Column::Merged => self.green,
-            Column::Done => self.faint,
         }
     }
 }
@@ -1748,7 +1747,7 @@ impl KanbanView {
             .mt(ui.px(if first { 2.0 } else { 8.0 }))
             .px(ui.px(4.0))
             .rounded(ui.px(6.0))
-            .text_size(ui.px(12.0));
+            .text_size(ui.px(GROUP_SIZE));
         head = if empty {
             head.text_color(c.dim)
                 .child(div().flex_shrink_0().w(ui.px(ARROW)))
@@ -1841,7 +1840,7 @@ impl KanbanView {
                             .h(ui.px(34.0))
                             .px(ui.px(10.0))
                             .min_w(px(0.0))
-                            .text_size(ui.px(12.0))
+                            .text_size(ui.px(GROUP_SIZE))
                             .child(self.dot(column, empty, ui))
                             .child(if empty {
                                 label.text_color(c.dim)
@@ -1905,17 +1904,15 @@ impl KanbanView {
         )
     }
 
-    /// A group's colour, faint for an empty one.
+    /// A group's ring (P5-114), as a committed medium task in it is marked; faded for an empty
+    /// group.
     fn dot(&self, column: Column, empty: bool, ui: &UiFont) -> Div {
         div()
             .flex_shrink_0()
-            .size(ui.px(6.0))
-            .rounded_full()
-            .bg(if empty {
-                self.colors.faint
-            } else {
-                self.colors.column(column)
-            })
+            .flex()
+            .items_center()
+            .when(empty, |dot| dot.opacity(EMPTY_RING))
+            .child(self.ring_icon(ring(column, false, None, false), RING, ui))
     }
 
     fn label(&self, column: Column) -> Div {
@@ -2005,7 +2002,6 @@ impl KanbanView {
                 .text_color(c.dim)
                 .child(card.age.clone())
         });
-        let dropped = self.dropped(card, ui);
         let end = div()
             .flex_shrink_0()
             .h(ui.px(TITLE_LINE))
@@ -2013,7 +2009,6 @@ impl KanbanView {
             .items_center()
             .gap(ui.px(END_GAP))
             .children(self.warning(card, ui))
-            .children(dropped)
             .children(age);
         let title = if done {
             // Cut here, to what its line leaves it: in the list the end shares it, in a column the
@@ -2023,9 +2018,6 @@ impl KanbanView {
                 let mut ends = Vec::new();
                 if !card.problems.is_empty() {
                     ends.push(ui.scale(12.0));
-                }
-                if card.dropped.is_some() {
-                    ends.push(fit.normal("Dropped", MARK_SIZE) + ui.scale(12.0) + 2.0);
                 }
                 if !card.age.is_empty() {
                     ends.push(fit.normal(&card.age, AGE_SIZE));
@@ -2067,7 +2059,7 @@ impl KanbanView {
                 .items_start()
                 .gap(ui.px(ID_GAP))
                 .min_w(px(0.0))
-                .child(div().flex_shrink_0().w(px(ids)).children(id))
+                .child(div().flex_shrink_0().w(px(ids)).child(id))
                 .child(title)
                 .child(end)
                 .into_any_element()
@@ -2082,7 +2074,7 @@ impl KanbanView {
                         .flex()
                         .items_center()
                         .gap(ui.px(END_GAP))
-                        .children(id)
+                        .child(id)
                         .child(div().flex_1())
                         .child(end),
                 )
@@ -2153,7 +2145,6 @@ impl KanbanView {
                         .bg(c.text.opacity(RULE)),
                 )
             })
-            .children(self.stripe(card, ui))
             .child(head)
             .children(below)
             .children(bar)
@@ -2175,22 +2166,42 @@ impl KanbanView {
         }
     }
 
-    /// How wide the column of ids is: the widest id the board lists, a draft's with its ring.
+    /// How wide the column of ids is: the ring and the widest id the board lists.
     fn id_width(&self, board: &Board, fit: &Fit, ui: &UiFont) -> f32 {
-        Column::ALL
+        let id = Column::ALL
             .into_iter()
             .flat_map(|column| board.listed(column, self.all_done))
             .filter(|card| !card.id.is_empty())
-            .map(|card| {
-                let ring = if card.draft {
-                    ui.scale(RING + 4.0)
-                } else {
-                    0.0
-                };
-                fit.mono(&card.id, ID_SIZE) + ring
-            })
-            .fold(0.0, f32::max)
-            .ceil()
+            .map(|card| fit.mono(&card.id, ID_SIZE) + ui.scale(RING_GAP))
+            .fold(0.0, f32::max);
+        (ui.scale(RING) + id).ceil()
+    }
+
+    /// A ring (P5-114) `size` points wide, in its role's colour from the theme; its tick and stroke
+    /// are cut out, so whatever is under it shows through in any theme.
+    fn ring_icon(&self, (shape, role): (Shape, Role), size: f32, ui: &UiFont) -> gpui::Svg {
+        let c = self.colors;
+        let data = match shape {
+            Shape::Open => RING_OPEN,
+            Shape::Dashed => RING_DASHED,
+            Shape::Half => RING_HALF,
+            Shape::Most => RING_MOST,
+            Shape::Tick => RING_TICK,
+            Shape::Struck => RING_STRUCK,
+        };
+        let color = match role {
+            Role::Red => c.red,
+            Role::Muted => c.muted,
+            Role::Dim => c.dim,
+            Role::Blue => c.blue,
+            Role::Yellow => c.yellow,
+            Role::Green => c.green,
+        };
+        svg()
+            .flex_shrink_0()
+            .data(data)
+            .size(ui.px(size))
+            .text_color(color)
     }
 
     /// The small tray the buttons over a card sit in, at its top right.
@@ -2308,49 +2319,53 @@ impl KanbanView {
         )
     }
 
-    /// A bar down a queued row's left edge, for high (red) or low (dim); none for medium or in the
-    /// other columns. The only mark of a priority since P5-113.
-    fn stripe(&self, card: &Card, ui: &UiFont) -> Option<Div> {
-        let color = match card.stripe()? {
-            Priority::High => self.colors.red,
-            _ => self.colors.dim,
-        };
-        Some(
-            div()
-                .absolute()
-                .left(ui.px(2.0))
-                .top(ui.px(9.0))
-                .bottom(ui.px(9.0))
-                .w(px(3.0))
-                .rounded_full()
-                .bg(color),
-        )
-    }
-
-    /// The id, for a task that has one, in small fixed-width type; a draft's after a dashed ring,
-    /// which says Draft when the mouse is on it.
-    fn id(&self, card: &Card, ui: &UiFont) -> Option<Stateful<Div>> {
-        if card.id.is_empty() {
-            return None;
-        }
+    /// A task's ring (P5-114), then its id, if it has one, in small fixed-width type. The ring
+    /// tells when the mouse is on it: Draft on a draft, why on one dropped, otherwise its state.
+    fn id(&self, card: &Card, ui: &UiFont) -> Div {
         let c = self.colors;
-        let mut id = div()
-            .id(SharedString::from(format!("kanban-id-{}", card.file)))
+        let mark = ring(
+            card.column,
+            card.draft,
+            card.stripe(),
+            card.dropped.is_some(),
+        );
+        let words = if card.draft {
+            "Draft".to_owned()
+        } else if let Some(why) = &card.dropped {
+            if why.is_empty() {
+                "Dropped".to_owned()
+            } else {
+                format!("Dropped: {why}")
+            }
+        } else if let Some(priority) = card.stripe() {
+            format!("{} \u{b7} {}", card.column.label(), priority.label())
+        } else {
+            card.column.label().to_owned()
+        };
+        let note = Note::new(words.into(), &self.theme, ui);
+        div()
             .flex_shrink_0()
             .h(ui.px(TITLE_LINE))
             .flex()
             .items_center()
-            .gap(ui.px(4.0))
-            .font(self.mono.clone())
-            .text_size(ui.px(ID_SIZE))
-            .text_color(c.dim);
-        if card.draft {
-            let tip = Tip::new("Draft", &self.theme, ui);
-            id = id
-                .child(svg().data(DRAFT_RING).size(ui.px(RING)).text_color(c.dim))
-                .tooltip(move |_, cx| cx.new(|_| tip.clone()).into());
-        }
-        Some(id.child(card.id.clone()))
+            .gap(ui.px(RING_GAP))
+            .child(
+                div()
+                    .id(SharedString::from(format!("kanban-ring-{}", card.file)))
+                    .flex_shrink_0()
+                    .flex()
+                    .items_center()
+                    .child(self.ring_icon(mark, RING, ui))
+                    .tooltip(move |_, cx| cx.new(|_| note.clone()).into()),
+            )
+            .children((!card.id.is_empty()).then(|| {
+                div()
+                    .font(self.mono.clone())
+                    .text_size(ui.px(ID_SIZE))
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(c.muted)
+                    .child(card.id.clone())
+            }))
     }
 
     /// A warning sign at the end of the title's line that tells, when the mouse is on it, what in
@@ -2372,32 +2387,6 @@ impl KanbanView {
                     self.colors.yellow,
                     ui.scale(12.0 / footer_icon::SIZE),
                 ))
-                .tooltip(move |_, cx| cx.new(|_| note.clone()).into()),
-        )
-    }
-
-    /// Dropped, on a small pill at the end of a task wrapped up without being done, which tells
-    /// why when the mouse is on it.
-    fn dropped(&self, card: &Card, ui: &UiFont) -> Option<Stateful<Div>> {
-        let c = self.colors;
-        let why = card.dropped.as_ref()?;
-        let note = Note::new(
-            if why.is_empty() {
-                "Dropped".into()
-            } else {
-                format!("Dropped: {why}").into()
-            },
-            &self.theme,
-            ui,
-        );
-        Some(
-            pill(ui)
-                .id(SharedString::from(format!("kanban-dropped-{}", card.file)))
-                .px(ui.px(6.0))
-                .border_color(c.text.opacity(0.14))
-                .text_size(ui.px(MARK_SIZE))
-                .text_color(c.dim)
-                .child("Dropped")
                 .tooltip(move |_, cx| cx.new(|_| note.clone()).into()),
         )
     }
@@ -4483,9 +4472,78 @@ fn asks_words(asks: &str, room: f32, width: &dyn Fn(&str) -> f32) -> String {
     card::elide(asks, &|cut| width(cut) <= room)
 }
 
+/// The ring before a task's id and in its group's header (P5-114): its shape follows the column.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Shape {
+    /// Queued and committed.
+    Open,
+    /// Queued, a draft.
+    Dashed,
+    /// In progress: its right half filled.
+    Half,
+    /// To review: three quarters filled.
+    Most,
+    /// Merged or done: filled, a tick cut out of it.
+    Tick,
+    /// Dropped: struck through.
+    Struck,
+}
+
+/// Which of the theme's colours a ring is drawn in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Role {
+    Red,
+    Muted,
+    Dim,
+    Blue,
+    Yellow,
+    Green,
+}
+
+/// A task's ring, by its column, whether it is a draft, the priority it is marked for (high or low,
+/// on a queued task, as [`Card::stripe`]) and whether it was dropped. A group's header is drawn as
+/// a committed medium task in it.
+fn ring(column: Column, draft: bool, priority: Option<Priority>, dropped: bool) -> (Shape, Role) {
+    match column {
+        Column::Queued => (
+            if draft { Shape::Dashed } else { Shape::Open },
+            match priority {
+                Some(Priority::High) => Role::Red,
+                Some(Priority::Low) => Role::Dim,
+                _ => Role::Muted,
+            },
+        ),
+        Column::InProgress => (Shape::Half, Role::Blue),
+        Column::ToReview => (Shape::Most, Role::Yellow),
+        Column::Merged => (Shape::Tick, Role::Green),
+        Column::Done if dropped => (Shape::Struck, Role::Dim),
+        Column::Done => (Shape::Tick, Role::Dim),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_ring_shows_the_column_and_on_a_queued_task_its_priority() {
+        use {Role::*, Shape::*};
+        let q = Column::Queued;
+        // Queued: open, dashed for a draft, in the priority's colour, medium muted.
+        assert_eq!(ring(q, false, None, false), (Open, Muted));
+        assert_eq!(ring(q, false, Some(Priority::High), false), (Open, Red));
+        assert_eq!(ring(q, false, Some(Priority::Low), false), (Open, Dim));
+        assert_eq!(ring(q, true, None, false), (Dashed, Muted));
+        assert_eq!(ring(q, true, Some(Priority::High), false), (Dashed, Red));
+        assert_eq!(ring(q, true, Some(Priority::Low), false), (Dashed, Dim));
+        // The other columns, each its own.
+        assert_eq!(ring(Column::InProgress, false, None, false), (Half, Blue));
+        assert_eq!(ring(Column::ToReview, false, None, false), (Most, Yellow));
+        assert_eq!(ring(Column::Merged, false, None, false), (Tick, Green));
+        assert_eq!(ring(Column::Done, false, None, false), (Tick, Dim));
+        // Dropped: struck through, grey.
+        assert_eq!(ring(Column::Done, false, None, true), (Struck, Dim));
+    }
 
     #[test]
     fn what_the_user_is_waited_on_for_is_cut_to_one_line_with_an_ellipsis() {
