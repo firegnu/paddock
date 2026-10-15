@@ -1,12 +1,12 @@
 //! The New Agent panel (P5-43, in place of P5-37's window): over the dimmed main window, a panel
 //! with the presets along its top and the name corral is asked for at their right; under them a
 //! large field for what the agent should work on first, which may stay empty; along its foot the
-//! project, the kind with its model and effort (one picker for the three), where it opens and the
-//! Controller switch, then `</>` for the command and the round start button (⌘↩). Under `</>` the
-//! command can still be edited by hand. Starting runs `corral start` in the background: success
-//! closes the panel and the main window opens the agent; a failure keeps everything typed, with
-//! the reason over the foot. A preset picked stays lit after a change, marked edited, and can be
-//! updated to the change.
+//! kind with its model and effort, the project, where it opens and the Controller switch (P5-102:
+//! borderless, the last two as icons), then `</>` for the command and the round start button
+//! (⌘↩). Under `</>` the command can still be edited by hand. Starting runs `corral start` in the
+//! background: success closes the panel and the main window opens the agent; a failure keeps
+//! everything typed, with the reason over the foot. A preset picked stays lit after a change,
+//! marked edited, and can be updated to the change.
 use crate::{
     card,
     config::Config,
@@ -17,13 +17,14 @@ use crate::{
     menu, models,
     new_agent::{self, Form, Place, Preset, Started, Tool},
     popover::{self, Hang},
+    right_panel::Tip,
     text_input::{self, Changed, TextInput},
     theme::Theme,
     view::hsla,
 };
 use gpui::{
-    Animation, AnimationExt, AnyElement, App, Bounds, BoxShadow, ClickEvent, Context, Div,
-    DragMoveEvent, ElementId, Entity, EventEmitter, FocusHandle, Focusable, FontWeight, Hsla,
+    Animation, AnimationExt, AnyElement, App, BorderStyle, Bounds, BoxShadow, ClickEvent, Context,
+    Div, DragMoveEvent, ElementId, Entity, EventEmitter, FocusHandle, Focusable, FontWeight, Hsla,
     MouseButton, MouseDownEvent, PathBuilder, PathPromptOptions, Pixels, Render, SharedString,
     Stateful, Subscription, TextRun, Window, canvas, div, point, prelude::*, px, relative,
 };
@@ -57,7 +58,8 @@ const NAMING: f32 = 170.0;
 const RENAMING: f32 = 300.0;
 const PROMPT: f32 = 96.0;
 const PROMPT_MOST: f32 = 280.0;
-const CHIP: f32 = 32.0;
+/// The height of the foot's parts.
+const FOOT: f32 = 34.0;
 const MENU: f32 = 280.0;
 const PICKER: f32 = 318.0;
 
@@ -256,6 +258,18 @@ fn place_label(place: Place) -> &'static str {
         Place::Split(Direction::Left) => "Split left",
         Place::Split(Direction::Up) => "Split up",
         Place::Split(Direction::Down) => "Split down",
+    }
+}
+
+/// What the foot's icon for `place` says when the mouse is over it (P5-102).
+fn place_tip(place: Place) -> &'static str {
+    match place {
+        Place::Current => "Opens in this pane",
+        Place::Tab => "Opens in a new tab",
+        Place::Split(Direction::Right) => "Opens split right",
+        Place::Split(Direction::Left) => "Opens split left",
+        Place::Split(Direction::Up) => "Opens split up",
+        Place::Split(Direction::Down) => "Opens split down",
     }
 }
 
@@ -1132,66 +1146,39 @@ impl NewAgentView {
             .into_any_element()
     }
 
-    /// A rounded part along the foot: what leads it and its label; lit while what it opens is
-    /// open, and noting where it is drawn for that to hang from.
-    fn chip(&self, id: &'static str, ui: &UiFont) -> Stateful<Div> {
+    /// A borderless part along the foot (P5-102): no ground until the mouse is over it, lit while
+    /// `menu` is open, and noting where it is drawn for that to hang from.
+    fn ghost(&self, id: &'static str, menu: Option<Menu>, ui: &UiFont) -> Stateful<Div> {
         let text = self.fg(|t| t.agents_text);
         div()
             .id(id)
             .relative()
             .flex_shrink_0()
-            .h(ui.px(CHIP))
-            .px(ui.px(11.0))
+            .h(ui.px(FOOT))
             .flex()
             .items_center()
-            .gap(ui.px(7.0))
-            .rounded(ui.px(CHIP / 2.0))
-            .border_1()
+            .rounded(ui.px(10.0))
             .whitespace_nowrap()
             .cursor_pointer()
             .text_size(ui.px(13.0))
-            .hover(move |style| style.text_color(text))
+            .when(menu.is_some_and(|menu| self.open == Some(menu)), |part| {
+                part.bg(text.opacity(0.08))
+            })
+            .hover(move |style| style.bg(text.opacity(0.06)).text_color(text))
+            .children(menu.map(|menu| self.spot(menu)))
     }
 
-    /// A chip that opens `menu`.
-    fn menu_chip(
-        &self,
-        id: &'static str,
-        menu: Menu,
-        ui: &UiFont,
-        cx: &mut Context<Self>,
-    ) -> Stateful<Div> {
-        let open = self.open == Some(menu);
-        let ground = self.fg(|t| t.agents_text).opacity(0.05);
-        let chip = self
-            .chip(id, ui)
-            .child(self.spot(menu))
-            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.toggle(menu, cx)));
-        if open {
-            chip.bg(ground.opacity(0.1))
-                .border_color(self.fg(|t| t.agents_accent).opacity(0.45))
-                .text_color(self.fg(|t| t.agents_text))
-        } else {
-            chip.bg(ground)
-                .border_color(self.fg(|t| t.agents_rule).opacity(0.7))
-                .text_color(self.fg(|t| t.agents_branch))
-        }
-    }
-
-    /// The foot: project, kind, its model and effort, where it opens and the Controller switch;
-    /// then `</>` and the start button.
+    /// The foot (P5-102): the kind and its model and effort in one block, the project beside it;
+    /// at the right where it opens and the Controller switch as icons, then `</>` and the start
+    /// button.
     fn foot(&self, ui: &UiFont, cx: &mut Context<Self>) -> Div {
         let tool = self.form.tool;
         let text = self.fg(|t| t.agents_text);
+        let branch = self.fg(|t| t.agents_branch);
         let dim = self.fg(|t| t.agents_dim);
         let dimmer = self.fg(|t| t.agents_dimmer);
         let accent = self.fg(|t| t.agents_accent);
-        let s = ui.scale(1.0);
-        let project = self
-            .menu_chip("chip-project", Menu::Project, ui, cx)
-            .child(footer_icon::icon(Icon::Folder, dim, s))
-            .child(project_name(&self.form.project));
-        let chevron = |menu: Menu| {
+        let chevron = |menu: Menu, color: Hsla| {
             stroke_icon(
                 if self.open == Some(menu) {
                     CHEVRON_UP
@@ -1199,25 +1186,39 @@ impl NewAgentView {
                     CHEVRON_DOWN
                 },
                 false,
-                dim,
-                ui.scale(12.0),
-                2.0,
+                color,
+                ui.scale(11.0),
+                2.2,
             )
         };
-        // The kind, and beside it its model and effort when it has them to choose (P5-99).
+        let seam = |height: f32, alpha: f32| {
+            div()
+                .flex_shrink_0()
+                .w(px(1.0))
+                .h(ui.px(height))
+                .bg(text.opacity(alpha))
+        };
+        // The kind, and in the same block its model and effort when it has them (P5-99).
+        let models = tool.has_models();
         let agent = self
-            .menu_chip("chip-agent", Menu::Agent, ui, cx)
-            .pl(ui.px(9.0))
-            .pr(ui.px(10.0))
-            .child(self.kind_icon(tool, 16.0, ui))
+            .ghost("chip-agent", Some(Menu::Agent), ui)
+            .pl(ui.px(10.0))
+            .pr(ui.px(9.0))
+            .gap(ui.px(8.0))
+            .when(models, |part| part.rounded_r(px(0.0)))
+            .font_weight(FontWeight::MEDIUM)
+            .text_color(text)
+            .child(self.kind_icon(tool, 18.0, ui))
             .child(tool.label())
-            .child(chevron(Menu::Agent));
-        let model = tool.has_models().then(|| {
-            self.menu_chip("chip-model", Menu::Model, ui, cx)
-                .pl(ui.px(12.0))
-                .pr(ui.px(10.0))
+            .child(chevron(Menu::Agent, dimmer))
+            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.toggle(Menu::Agent, cx)));
+        let model = models.then(|| {
+            self.ghost("chip-model", Some(Menu::Model), ui)
+                .rounded_l(px(0.0))
+                .px(ui.px(10.0))
+                .gap(ui.px(6.0))
+                .text_color(branch)
                 .child(self.form.model.clone().unwrap_or_else(|| "model".into()))
-                .child(div().text_color(dimmer).child("·"))
                 .child(
                     div()
                         .when_some(self.effort_spot(&self.form.efforts()), |effort, spot| {
@@ -1225,49 +1226,79 @@ impl NewAgentView {
                         })
                         .child(self.form.effort.clone().unwrap_or_else(|| "effort".into())),
                 )
-                .child(chevron(Menu::Model))
+                .child(chevron(Menu::Model, dimmer))
+                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.toggle(Menu::Model, cx)))
         });
-        let place = self
-            .menu_chip("chip-place", Menu::Place, ui, cx)
-            .child(footer_icon::icon(Icon::Panes, dim, s))
-            .child(place_label(self.form.place));
-        let controller = !self.form.regular;
-        let role = self
-            .chip("chip-role", ui)
-            .map(|chip| {
-                if controller {
-                    chip.bg(text.opacity(0.05))
-                        .border_color(self.fg(|t| t.agents_rule).opacity(0.7))
-                        .text_color(self.fg(|t| t.agents_branch))
-                } else {
-                    chip.border_dashed()
-                        .border_color(self.fg(|t| t.agents_rule))
-                        .text_color(dim)
-                }
-            })
-            .when(controller, |chip| {
-                chip.child(stroke_icon(CHECK, false, accent, ui.scale(12.0), 2.4))
-            })
-            .child("Controller")
-            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                this.form.regular = !this.form.regular;
-                this.chose(cx);
-            }));
-        let command = div()
-            .id("show-command")
+        let kind = div()
             .flex_shrink_0()
-            .size(ui.px(34.0))
             .flex()
             .items_center()
+            .rounded(ui.px(10.0))
+            .bg(text.opacity(0.06))
+            .child(agent)
+            .when_some(model, |block, model| {
+                block.child(seam(16.0, 0.10)).child(model)
+            });
+        let project = self
+            .ghost("chip-project", Some(Menu::Project), ui)
+            .flex_shrink(1.0)
+            .min_w(px(0.0))
+            .px(ui.px(10.0))
+            .gap(ui.px(6.0))
+            .text_color(dim)
+            .child(footer_icon::icon(Icon::Folder, dimmer, ui.scale(1.0)))
+            .child(
+                div()
+                    .min_w(px(0.0))
+                    .overflow_hidden()
+                    .text_ellipsis()
+                    .child(project_name(&self.form.project)),
+            )
+            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.toggle(Menu::Project, cx)));
+        let icon_button = |id: &'static str, menu: Option<Menu>, tip: &'static str| {
+            let tip = Tip::new(tip, &self.theme, ui);
+            self.ghost(id, menu, ui)
+                .size(ui.px(32.0))
+                .justify_center()
+                .rounded(ui.px(9.0))
+                .tooltip(move |_, cx| cx.new(|_| tip.clone()).into())
+        };
+        let place = icon_button("chip-place", Some(Menu::Place), place_tip(self.form.place))
+            .child(place_icon(self.form.place, dim, ui.scale(16.0)))
+            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.toggle(Menu::Place, cx)));
+        let controller = !self.form.regular;
+        let role = icon_button(
+            "chip-role",
+            None,
+            if controller {
+                "Controller: on"
+            } else {
+                "Controller: off"
+            },
+        )
+        .when(controller, |part| {
+            part.bg(accent.opacity(0.14))
+                .hover(move |style| style.bg(accent.opacity(0.2)))
+        })
+        .child(crown(
+            if controller { accent } else { dimmer },
+            controller.then(|| accent.opacity(0.25)),
+            ui.scale(16.0),
+        ))
+        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+            this.form.regular = !this.form.regular;
+            this.chose(cx);
+        }));
+        let command = self
+            .ghost("show-command", None, ui)
+            .size(ui.px(32.0))
             .justify_center()
-            .rounded_full()
-            .cursor_pointer()
+            .rounded(ui.px(9.0))
             .when(self.show_command, |button| button.bg(text.opacity(0.08)))
-            .hover(move |style| style.bg(text.opacity(0.08)))
             .child(stroke_icon(
                 CODE,
                 false,
-                if self.show_command { text } else { dim },
+                if self.show_command { text } else { dimmer },
                 ui.scale(16.0),
                 2.0,
             ))
@@ -1278,7 +1309,8 @@ impl NewAgentView {
         let start = div()
             .id("start")
             .flex_shrink_0()
-            .size(ui.px(36.0))
+            .ml(ui.px(4.0))
+            .size(ui.px(34.0))
             .flex()
             .items_center()
             .justify_center()
@@ -1305,27 +1337,26 @@ impl NewAgentView {
             .flex_shrink_0()
             .flex()
             .items_center()
-            .gap(ui.px(6.0))
-            .pl(ui.px(18.0))
+            .gap(ui.px(4.0))
+            .pl(ui.px(14.0))
             .pr(ui.px(12.0))
-            .pt(ui.px(10.0))
+            .pt(ui.px(8.0))
             .pb(ui.px(12.0))
+            .child(kind)
+            .child(project)
+            .child(div().flex_1())
             .child(
                 div()
+                    .flex_shrink_0()
                     .flex()
-                    .flex_1()
-                    .min_w(px(0.0))
-                    .flex_wrap()
                     .items_center()
-                    .gap(ui.px(6.0))
-                    .child(project)
-                    .child(agent)
-                    .children(model)
+                    .gap(ui.px(2.0))
                     .child(place)
-                    .child(role),
+                    .child(role)
+                    .child(seam(16.0, 0.08).mx(ui.px(6.0)))
+                    .child(command)
+                    .child(start),
             )
-            .child(command)
-            .child(start)
     }
 
     /// A row of a list: a tick when it is the one in force, what leads it, the value (in the
@@ -1835,7 +1866,8 @@ impl NewAgentView {
         let (width, hang) = match menu {
             Menu::Model => (PICKER, Hang::BelowLeft),
             Menu::Presets => (MENU, Hang::BelowRight),
-            Menu::Project | Menu::Agent | Menu::Place => (MENU, Hang::BelowLeft),
+            Menu::Place => (MENU, Hang::BelowRight),
+            Menu::Project | Menu::Agent => (MENU, Hang::BelowLeft),
         };
         let placed = popover::hang(
             anchor,
@@ -2204,6 +2236,100 @@ fn stroke_icon(
                 if let Ok(path) = path.build() {
                     window.paint_path(path, color);
                 }
+            }
+        },
+    )
+    .flex_shrink_0()
+    .size(px(size))
+}
+
+/// A pane's frame, `size` points square, with the part `place` takes filled: all of it for this
+/// pane, a tab along the top for a new tab, the half it splits to beside a seam (P5-102).
+fn place_icon(place: Place, color: Hsla, size: f32) -> impl IntoElement {
+    canvas(
+        |_, _, _| {},
+        move |bounds, _, window, _| {
+            let unit = size / 24.0;
+            let rect = |(left, top): (f32, f32), (right, bottom): (f32, f32)| {
+                Bounds::from_corners(
+                    bounds.origin + point(px(left * unit), px(top * unit)),
+                    bounds.origin + point(px(right * unit), px(bottom * unit)),
+                )
+            };
+            let fill = color.opacity(0.45);
+            let (seam, part) = match place {
+                Place::Current => (None, rect((5.0, 6.0), (19.0, 18.0))),
+                Place::Tab => (
+                    Some(rect((5.0, 9.0), (19.0, 10.5))),
+                    rect((5.0, 6.0), (11.0, 9.0)),
+                ),
+                Place::Split(Direction::Right) => (
+                    Some(rect((11.0, 6.0), (13.0, 18.0))),
+                    rect((13.0, 6.0), (19.0, 18.0)),
+                ),
+                Place::Split(Direction::Left) => (
+                    Some(rect((11.0, 6.0), (13.0, 18.0))),
+                    rect((5.0, 6.0), (11.0, 18.0)),
+                ),
+                Place::Split(Direction::Up) => (
+                    Some(rect((5.0, 11.0), (19.0, 13.0))),
+                    rect((5.0, 6.0), (19.0, 11.0)),
+                ),
+                Place::Split(Direction::Down) => (
+                    Some(rect((5.0, 11.0), (19.0, 13.0))),
+                    rect((5.0, 13.0), (19.0, 18.0)),
+                ),
+            };
+            window.paint_quad(gpui::fill(part, fill));
+            if let Some(seam) = seam {
+                window.paint_quad(gpui::fill(seam, color));
+            }
+            window.paint_quad(gpui::quad(
+                rect((3.0, 4.0), (21.0, 20.0)),
+                px(2.5 * unit),
+                gpui::transparent_black(),
+                px(2.0 * unit),
+                color,
+                BorderStyle::Solid,
+            ));
+        },
+    )
+    .flex_shrink_0()
+    .size(px(size))
+}
+
+/// The Controller switch's crown, `size` points square, stroked in `color` and filled with `fill`
+/// when there is one (P5-102).
+fn crown(color: Hsla, fill: Option<Hsla>, size: f32) -> impl IntoElement {
+    const CORNERS: [(f32, f32); 7] = [
+        (3.0, 8.0),
+        (7.5, 12.0),
+        (12.0, 5.0),
+        (16.5, 12.0),
+        (21.0, 8.0),
+        (19.0, 19.0),
+        (5.0, 19.0),
+    ];
+    canvas(
+        |_, _, _| {},
+        move |bounds, _, window, _| {
+            let unit = size / 24.0;
+            let at = |(x, y): (f32, f32)| bounds.origin + point(px(x * unit), px(y * unit));
+            let outline = |mut path: PathBuilder| {
+                path.move_to(at(CORNERS[0]));
+                for &corner in &CORNERS[1..] {
+                    path.line_to(at(corner));
+                }
+                path.close();
+                path.build()
+            };
+            if let Some(fill) = fill
+                && let Ok(path) = outline(PathBuilder::fill())
+            {
+                window.paint_path(path, fill);
+            }
+            if let Ok(path) = outline(PathBuilder::stroke(px(2.0 * unit))) {
+                window.paint_path(path, color);
             }
         },
     )
