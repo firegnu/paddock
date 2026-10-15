@@ -4,6 +4,7 @@
 依据：用户 10-14：“再记一个draft task，我要能在paddock中加载远程的corral托管的agent”。
 依赖：P5-90a
 待用户：跑 P5-90a「请用户跑的实测清单」1–5，并确认两件：停/暂停/恢复并进甲；远端已有窗口接着时远程改成只读接入、本机照旧拒绝（都是主控建议）
+优先：高
 
 ## 现状（主控 10-14 查的，只读）
 - paddock 只和本机的 corral 打交道：调的是配置里的那一个 `corral` 程序（`app/src/config.rs` 的 `corral`，默认就是 `corral`，启动时也能用 `--corral` 换），读列表、状态、回复、开和停都走它（`app/src/corral.rs` 的 `Client`）；窗格里显示 agent 是在本机起一个 `corral attach <名字>`（`app/src/viewer.rs`）。一个窗口只有一个 corral 来源。
