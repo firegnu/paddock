@@ -5,8 +5,8 @@
 ## 现在在哪
 
 - **没有进行中的活**：没有任务 worktree，主控没开测试 agent（corral 里的其他 agent 都是用户的）。工作区里未提交的草稿是 P5-54、P5-81、P5-106（看板 DRAFT，有意留，不要 `git add -A`）。
-- `~/Applications/paddock.app` 是合并 P5-105 之后的版本（10-15 11:02 装，本机 Apple Development 证书签名）。
-- 已合并：第一至第三阶段、迁移 M0–M3、P4-1～P4-3、P5-1～P5-80、P5-82、P5-85～P5-89、P5-90a、P5-91～P5-105（P5-95b 已被 P5-95c 撤）。P5-83 已收尾（讨论记录）；P5-84 不做；P5-52 只查明原因、改法用户暂不定；P5-90 已提交、等远端准备好（见「下一步」）。
+- `~/Applications/paddock.app` 是合并 P5-107 之后的版本（10-15 18:02 装，本机 Apple Development 证书签名）。
+- 已合并：第一至第三阶段、迁移 M0–M3、P4-1～P4-3、P5-1～P5-80、P5-82、P5-85～P5-89、P5-90a、P5-91～P5-105、P5-107（P5-95b 已被 P5-95c 撤）。P5-83 已收尾（讨论记录）；P5-84 不做；P5-52 只查明原因、改法用户暂不定；P5-90 已提交、等远端准备好（见「下一步」）。
 - 重新打包安装：在 `app/` 下 `cargo build --release`，再 `cargo run --release --example bundle -- --install`（编译目录 `.target/main`）。打包默认选本机 Apple Development 身份，可用 `PADDOCK_SIGN_IDENTITY` 指定；退回 ad-hoc 时会提示授权会失效。
 - **paddock ctl 已部署**：`~/.local/bin/paddock` 链到 app 里的程序，重新打包后不用重建；技能正文改了要重跑 `paddock install-skills`（装在 `~/.claude/skills/paddock`、`~/.agents/skills/paddock`、`~/.gemini/config/skills/paddock`），已开着的 agent 要重开才看到。
 - 全局 `~/.local/bin/corral`、`ranch` 是 ranch `f86d1c2`（R8 接入 agy 之后）。amp 插件（ranch R6）、agy 插件（`~/.gemini/config/plugins/corral`）在本机装着，用户定留着；两家的真图标放在本机 `~/.config/paddock/icons/`，不进仓库。
