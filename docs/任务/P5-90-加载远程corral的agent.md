@@ -3,7 +3,7 @@
 草稿（2026-10-14，paddock/main 记）。只记了用户的话和主控查到的现状，范围和验收还没定，开工前和用户过一遍。
 依据：用户 10-14：“再记一个draft task，我要能在paddock中加载远程的corral托管的agent”。
 依赖：P5-90a
-待用户：跑 P5-90a「请用户跑的实测清单」1–6，并定三件：停/暂停/恢复并不并进甲；远端已有窗口接着时只读接入还是拒绝；远端平时开不开 paddock
+待用户：跑 P5-90a「请用户跑的实测清单」1–5，并确认两件：停/暂停/恢复并进甲；远端已有窗口接着时远程改成只读接入、本机照旧拒绝（都是主控建议）
 
 ## 现状（主控 10-14 查的，只读）
 - paddock 只和本机的 corral 打交道：调的是配置里的那一个 `corral` 程序（`app/src/config.rs` 的 `corral`，默认就是 `corral`，启动时也能用 `--corral` 换），读列表、状态、回复、开和停都走它（`app/src/corral.rs` 的 `Client`）；窗格里显示 agent 是在本机起一个 `corral attach <名字>`（`app/src/viewer.rs`）。一个窗口只有一个 corral 来源。
@@ -39,6 +39,10 @@
   2. 切走以后，那台机器的窗格保持连着，切回来马上能用。
   3. 收件箱和铃铛合在一起：所有机器的都列出来，标上机器名，点一下切过去。
   4. New Agent 在哪台机器的视图里开就开到哪台；这是乙层，甲先只做本机。
+- 远端是什么（用户 10-15）：“远端一般不会常开，远端一般就是要么linux，要么是vps之类的”。即远端多半是 Linux 或 VPS，平时不开 paddock，所以“远端已有窗口接着”基本只在断网后留下旧连接时碰到。
+  - 主控 10-15 只读查了 ranch：corral 有 Linux 的代码分支（`crates/corral/src/freeze.rs` 非 macOS 走 `/proc`，`state.rs` 的套接字长度上限按平台取），但 ranch 没有 CI，主控没见过它在 Linux 上编过、跑过。远端没装 corral、或在 Linux 上跑不起来，是 ranch 那边的事（在 ranch 仓库立任务），不在 paddock 里做。
+  - Linux 上 ssh 跑命令时，bash 常常不读 `~/.profile`，`~/.local/bin` 不在 PATH 里，所以 P5-90a 说的“找不到再试 `$HOME/.local/bin/corral`”要做。
+  - VPS 的 sshd 一般是用户自己管的，P5-90a §5 建议的 `ClientAliveInterval` 更值得设，到时提醒用户。
 - 这样定了以后，P5-90a 推荐里的 `<机器>:<名字>` 改名和到处“按机器排除”大多用不着了：每台机器各一份 agent 列表和窗格，本机那份照现在不变。甲的规模、做法写甲的任务文件时再估。
 
 ## 不做（现在就能定的）
