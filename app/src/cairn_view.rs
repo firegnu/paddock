@@ -622,8 +622,9 @@ impl CairnView {
                     .line_height(relative(1.5))
                     .text_color(c.muted)
                     .child(
-                        "Agents write one when a turn ends. A new session in this repository \
-                         starts from the newest.",
+                        "cairn summarizes each session in the background once it has been quiet \
+                         for 3 minutes or has ended. A new session in this repository starts \
+                         from the most recent ones.",
                     ),
             );
         let mut list = div()
@@ -958,8 +959,8 @@ impl CairnView {
             ))
             .child(self.title("This repository has not adopted cairn", ui))
             .child(self.sub(
-                "Once adopted, the agents you talk to here save a short handover note as each \
-                 turn ends, and the next session starts from it.",
+                "Once adopted, cairn summarizes the sessions you have here in the background, and \
+                 each new session starts from the most recent ones.",
                 ui,
             ))
             .child(self.place(repo, ui))
@@ -1041,9 +1042,9 @@ impl CairnView {
             )
             .child(div().flex().child(self.place(repo, ui)))
             .child(words(
-                "This takes effect right away. Claude and Codex sessions you talk to in this \
-                 repository, the open ones included, are asked to save a handover note before \
-                 each turn ends, starting with their next turn.",
+                "This takes effect right away. cairn summarizes the Claude and Codex sessions you \
+                 talk to in this repository in the background, the open ones included from their \
+                 next turn, and new sessions start from those summaries.",
                 c.bright,
             ))
             .child(words(
