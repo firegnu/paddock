@@ -622,9 +622,10 @@ impl CairnView {
                     .line_height(relative(1.5))
                     .text_color(c.muted)
                     .child(
-                        "cairn summarizes each session in the background once it has been quiet \
-                         for 3 minutes or has ended. A new session in this repository starts \
-                         from the most recent ones.",
+                        "cairn summarizes sessions in the background once they have been quiet \
+                         for 3 minutes or have ended, skipping ones with nothing to carry over. \
+                         A new session in this repository starts from the most recent \
+                         summaries.",
                     ),
             );
         let mut list = div()

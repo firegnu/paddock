@@ -17,3 +17,9 @@
 
 ## 不做
 - 不动其他文字、标题、`→ Next session starts from this` 标记和面板的读取、画法。
+
+## 完成记录（2026-10-15，paddock/main）
+- 做了什么：`app/src/cairn_view.rs` 记录列表顶上的说明照上面改了，别的没动。
+- 验证：纯文字改动，没有测试断言这句；`cargo test --all-targets` 全过（合计 660 项），`cargo clippy --all-targets -- -D warnings`、`cargo fmt --check` 干净；字符串行都在 100 列以内。主控没起窗口看过，这句比 P5-108 又长一些，换行效果留给用户看。
+- 拿主意的地方：结尾 `most recent ones` 改成 `most recent summaries`（用户看过任务文件同意）。
+- 没做的：没采用页、Adopt 确认卡片两句照转达不动。
