@@ -43,3 +43,33 @@
 
 ## 做完
 在本文件末尾追加「## 完成记录」（在你的分支里提交）：做了什么、验证了什么、拿主意的地方、没做的事，各几句话。回复里只写这几样，加上有没有要主控决定的事。命令都在前台跑完，全部做完后，回复最后一行写 DONE。
+
+## 完成记录
+
+**做了什么**
+- `workspaces.rs`：归属只看主仓库路径，读不到仓库的照 P5-89 前缀规则；去掉按名字记 agent 的一套（`add_agent`、`remove_agent`、`of_agent`、`taken`，`Picks` 的单个 agent 勾选）。`join` 改成带仓库：仓库不在任何 workspace 就整个加进来，已在别处不挪，读不到仓库不记。新增 `named`、`adopt`（旧名单换算）；`agents` 字段照读、写出恒为空（`serialize_with`）。
+- `agents.rs`：`workspace()` 不再看名字；`groups()` 只给有仓库的组（前缀组不列），`Listed.agents` 改成个数；新增 `named_read`（名单里的名字对应的、在 `corral ls` 里的 agent 的仓库 Git 是否都读到了）和 `adopt_named`。
+- `card.rs`：`Heading` 去掉 `singles`；`Card.alone` 换成 `Card.repo`（卡片 `Workspace` 一格挪的仓库，前缀组为空）。
+- `sidebar_workspaces.rs`：浮层每个组一个勾（整个仓库），去掉展开箭头、单个 agent 行、`Not running` 一段和部分勾选的样子；列表标题改 `Repositories`，说明去掉 “Tick single agents…” 一句。卡片菜单选 workspace 挪整个仓库、`None`（仓库在某个 workspace 里时才有）移出整个仓库、`New workspace…` 带上仓库；前缀组的 agent 这一格没有按钮。仓库小标题按钮只挪/移出仓库。`join_started` 不再要 agent 名。`edit_workspaces` 改名单前先按已读到的换算旧名单，前后一样就不写文件；新增 `adopt_named` 自动换算。
+- `sidebar.rs`：每次读到 corral 或 Git 结果后调 `adopt_named`；卡片 `Workspace` 一格没有按钮时画成普通格子（字），宽度按普通格子算。
+- `window.rs`：`join_started` 的调用去掉 agent 名（一行；P5-104 不动这个文件）。
+- `docs/DESIGN.md` P5-105 补了实际做法和界面细节两条。
+
+**验证了什么**
+- 先在旧代码上确认 RED：旧名单里按名字记着 `paddock/main`、同仓库 worktree 里另有一个 agent 时，左侧栏出现两个 paddock 小标题（断言 1 个，得到 2 个）；改完后同一检查在新测试里通过。
+- `app/tests/workspaces.rs`（13 条全过）：归属只看仓库（主仓库和两个 worktree 的 agent、前缀跟进、名字不起作用、两个 workspace 同名仓库时前缀不跟）；一个仓库只在一个 workspace；P5-93 归属（仓库不在任何 workspace 带进来、已在本 workspace 不记、在别的 workspace 不挪、读不到仓库不记、workspace 已删不记）；旧名单换算（等 Git 读完才算、仓库已在别的 workspace 只去名字、同一仓库名字记在两个 workspace 归先换到的、worktree 和前缀 agent 跟着仓库走、不在运行和读不到仓库的名字留着不起作用、存盘写空、坏文件当没有）；`card.rs` 行排列（同仓库的 agent 只在一个小标题下，名字记在别处、两个 worktree、前缀 agent 都一样；卡片带的仓库）；浮层整仓库勾选和前缀组不列。其余旧测试照新规则改了写法（去掉单个 agent 的部分）。
+- `cargo test --all-targets` 全过（lib 533 条及全部集成测试）、`cargo clippy --all-targets -- -D warnings` 无警告、`cargo fmt --check`、`git diff --check` 通过。没起窗口、没截图。
+
+**拿主意的地方**
+- 旧名单什么时候换：存盘时 `agents` 写空，若一部分仓库读到就换算存盘，还没读到的名字会丢，所以自动换算等名字对应的运行中 agent 的仓库都读到（读到“不在仓库里”也算）再做；用户改名单前也先按已读到的换一遍，没读到的照规则在这次存盘时去掉。
+- “正在运行”照 P5-89 `Not running` 的读法：在 `corral ls` 里。
+- 同一仓库的名字记在两个 workspace 里：按 workspace 名字顺序，先换到的拿仓库，后面的只去名字。
+- 卡片菜单的 `None` 只在它的仓库在某个 workspace 里时给（不在时 `None` 就是现状）。
+- 前缀组 agent 的 `Workspace` 一格画成和别的格子一样的字，不画按钮和箭头。
+- 改名单前后一样就不写文件（例如从 workspace 里开的 agent 的仓库已在别处），免得无事存盘把还没读到的旧名字去掉。
+- 浮层列表标题、说明文字随规则改（见上）。
+
+**没做的事**
+- 没起窗口实测，菜单、浮层、卡片格子的样子和点击留给用户实际看。
+- 没读写用户真实的 `workspaces.json`；装上后，用户现有的按名字记的主控会在 paddock 读到它们的仓库后自动换成整个仓库。
+- DESIGN 里 P5-89、P5-93 原文的旧说法没改（已有“P5-105 改…”的标注），只补了 P5-105 一条。

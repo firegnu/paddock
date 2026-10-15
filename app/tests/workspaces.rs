@@ -1,5 +1,6 @@
-//! Workspaces (P5-89): who is in which, one place each, the sidebar's lines with them, folding,
-//! their file, their names, what the panel ticks, and finding agents by them.
+//! Workspaces (P5-89, by repository only since P5-105): who is in which, one place each, the
+//! sidebar's lines with them, folding, their file and what an older paddock left in it, their
+//! names, what the panel ticks, and finding agents by them.
 mod common;
 use paddock::{
     agents::Panel,
@@ -43,15 +44,19 @@ fn repository(panel: &mut Panel, cwd: &str, main: &str) {
     )]);
 }
 
-/// A workspace named `name` with these whole repositories and single agents.
-fn workspace(workspaces: &mut Workspaces, name: &str, repos: &[&str], agents: &[&str]) {
+/// A workspace named `name` with these whole repositories.
+fn workspace(workspaces: &mut Workspaces, name: &str, repos: &[&str]) {
     let name = workspaces.create(name).unwrap();
     for repo in repos {
         workspaces.add_repo(&name, Path::new(repo));
     }
-    for agent in agents {
-        workspaces.add_agent(&name, agent);
-    }
+}
+
+/// The list as an older paddock kept it, `json`, agents recorded by name in it, read from `dir`.
+fn older(dir: &Path, json: &str) -> Workspaces {
+    let path = dir.join("workspaces.json");
+    std::fs::write(&path, json).unwrap();
+    Workspaces::load(&path)
 }
 
 fn of<'a>(panel: &'a Panel, name: &str) -> Option<&'a str> {
@@ -126,38 +131,47 @@ fn without_workspaces_or_folds_the_lines_are_what_they_were() {
     for line in lines {
         match line {
             Line::Group(heading) => assert_eq!(heading.workspace, None),
-            Line::Agent(card) => assert_eq!((card.workspace.clone(), card.alone), (None, false)),
+            Line::Agent(card) => assert_eq!(card.workspace, None),
             _ => panic!("no other lines"),
         }
     }
 }
 
 #[test]
-fn an_agent_is_in_its_own_workspace_before_its_repositorys_and_a_prefix_follows_its_name() {
+fn an_agent_is_where_its_repository_is_whatever_its_name_and_a_prefix_follows_the_name() {
+    let temp = common::tempdir();
     let mut panel = panel(&[
         ("paddock/main", "/w/paddock", "idle"),
         ("paddock/dev", "/trees/p5", "idle"),
+        ("paddock/review", "/trees/review", "idle"),
         ("paddock/test", "/plain", "idle"),
         ("ranch/main", "/w/ranch", "idle"),
         ("solo", "/plain", "idle"),
     ]);
     repository(&mut panel, "/w/paddock", "/w/paddock");
     repository(&mut panel, "/trees/p5", "/w/paddock");
+    repository(&mut panel, "/trees/review", "/w/paddock");
     repository(&mut panel, "/w/ranch", "/w/ranch");
     panel.absorb_git(vec![("/plain".into(), None)]);
-    workspace(&mut panel.workspaces, "Tools", &["/w/paddock"], &[]);
-    // The whole repository: its main worktree's agent and the one in a worktree; and the one
+    // An older paddock recorded paddock/dev by itself in Zeta: that does nothing now.
+    panel.workspaces = older(
+        temp.path(),
+        r#"[{"name": "Tools", "repos": ["/w/paddock"]},
+            {"name": "Zeta", "repos": [], "agents": ["paddock/dev", "ranch/main"]}]"#,
+    );
+    // The whole repository: its main worktree's agent and those in two worktrees; and the one
     // whose repository cannot be read, by its prefix, the repository's name.
-    assert_eq!(of(&panel, "paddock/main"), Some("Tools"));
-    assert_eq!(of(&panel, "paddock/dev"), Some("Tools"));
-    assert_eq!(of(&panel, "paddock/test"), Some("Tools"));
-    // In neither way: as before.
+    for name in [
+        "paddock/main",
+        "paddock/dev",
+        "paddock/review",
+        "paddock/test",
+    ] {
+        assert_eq!(of(&panel, name), Some("Tools"), "{name}");
+    }
+    // Neither in a workspace's repository nor by a prefix: in none, recorded by name or not.
     assert_eq!(of(&panel, "ranch/main"), None);
     assert_eq!(of(&panel, "solo"), None);
-    // Recorded by itself in another, it is there; the rest of its repository stays.
-    workspace(&mut panel.workspaces, "Zeta", &[], &["paddock/dev"]);
-    assert_eq!(of(&panel, "paddock/dev"), Some("Zeta"));
-    assert_eq!(of(&panel, "paddock/main"), Some("Tools"));
     // Two workspaces with a repository of that name: the prefix follows neither.
     panel
         .workspaces
@@ -166,83 +180,50 @@ fn an_agent_is_in_its_own_workspace_before_its_repositorys_and_a_prefix_follows_
     assert_eq!(of(&panel, "paddock/main"), Some("Tools"));
 }
 
-/// A workspace's whole repositories and single agents.
-fn members(all: &Workspaces, name: &str) -> (Vec<PathBuf>, Vec<String>) {
-    let workspace = all.get(name).unwrap();
-    (workspace.repos.clone(), workspace.agents.clone())
-}
-
 #[test]
-fn a_repository_and_an_agent_are_each_in_one_workspace_only() {
+fn a_repository_is_in_one_workspace_only() {
     let mut all = Workspaces::default();
-    workspace(
-        &mut all,
-        "One",
-        &["/w/paddock", "/w/ranch"],
-        &["solo", "x/y"],
-    );
-    workspace(&mut all, "Two", &[], &[]);
+    workspace(&mut all, "One", &["/w/paddock", "/w/ranch"]);
+    workspace(&mut all, "Two", &[]);
     all.add_repo("Two", Path::new("/w/paddock"));
-    all.add_agent("Two", "solo");
-    assert_eq!(
-        members(&all, "One"),
-        (vec![PathBuf::from("/w/ranch")], vec!["x/y".to_owned()])
-    );
-    assert_eq!(
-        members(&all, "Two"),
-        (vec![PathBuf::from("/w/paddock")], vec!["solo".to_owned()])
-    );
+    assert_eq!(all.get("One").unwrap().repos, [PathBuf::from("/w/ranch")]);
+    assert_eq!(all.get("Two").unwrap().repos, [PathBuf::from("/w/paddock")]);
     assert_eq!(all.of_repo(Path::new("/w/paddock")), Some("Two"));
-    assert_eq!(all.of_agent("solo"), Some("Two"));
     // A workspace that is not there (another window removed it) takes nothing from the others.
     all.add_repo("Gone", Path::new("/w/ranch"));
-    all.add_agent("Gone", "x/y");
-    all.set_members("Gone", &[PathBuf::from("/w/paddock")], &["solo".to_owned()]);
+    all.set_members("Gone", &[PathBuf::from("/w/paddock")]);
     assert_eq!(all.of_repo(Path::new("/w/ranch")), Some("One"));
-    assert_eq!(all.of_agent("x/y"), Some("One"));
     assert_eq!(all.of_repo(Path::new("/w/paddock")), Some("Two"));
-    assert_eq!(all.of_agent("solo"), Some("Two"));
-    // Taken out, they are in none; the workspace gone, its members are in none.
+    // Taken out, it is in none; the workspace gone, its repositories are in none.
     all.remove_repo(Path::new("/w/paddock"));
-    all.remove_agent("solo");
-    assert_eq!(members(&all, "Two"), (vec![], vec![]));
+    assert!(all.get("Two").unwrap().repos.is_empty());
     all.remove("One");
     assert_eq!(all.of_repo(Path::new("/w/ranch")), None);
-    assert_eq!(all.of_agent("x/y"), None);
 }
 
 #[test]
-fn an_agent_started_from_a_workspace_is_recorded_there_unless_its_repository_brings_it() {
+fn an_agent_started_from_a_workspace_brings_its_repository_when_that_is_in_none() {
     let mut all = Workspaces::default();
-    workspace(&mut all, "Big", &["/w/paddock"], &[]);
-    workspace(&mut all, "Other", &["/w/cairn"], &["moved/main"]);
-    workspace(&mut all, "test", &[], &[]);
-    // Its repository is in the workspace: nothing to record.
-    assert!(!all.join("Big", "paddock/dev", Some(Path::new("/w/paddock"))));
-    assert_eq!(
-        members(&all, "Big"),
-        (vec![PathBuf::from("/w/paddock")], vec![])
-    );
-    // An empty workspace, or a directory outside Git: the agent by itself, nothing else.
-    assert!(all.join("test", "scratch/main", Some(Path::new("/w/scratch"))));
-    assert!(all.join("test", "tmp/main", None));
-    assert_eq!(
-        members(&all, "test"),
-        (
-            vec![],
-            vec!["scratch/main".to_owned(), "tmp/main".to_owned()]
-        )
-    );
-    // A repository in another workspace stays there; only the agent comes.
-    assert!(all.join("Big", "cairn/dev", Some(Path::new("/w/cairn"))));
+    workspace(&mut all, "Big", &["/w/paddock"]);
+    workspace(&mut all, "Other", &["/w/cairn"]);
+    workspace(&mut all, "test", &[]);
+    let repos = |all: &Workspaces, name: &str| all.get(name).unwrap().repos.clone();
+    // Its repository is in the workspace already: nothing to record.
+    assert!(!all.join("Big", Some(Path::new("/w/paddock"))));
+    assert_eq!(repos(&all, "Big"), [PathBuf::from("/w/paddock")]);
+    // In none: the whole repository comes, its other agents and those started later with it.
+    assert!(all.join("test", Some(Path::new("/w/scratch"))));
+    assert_eq!(repos(&all, "test"), [PathBuf::from("/w/scratch")]);
+    // In another workspace: it stays there, and the agent with it.
+    assert!(!all.join("Big", Some(Path::new("/w/cairn"))));
     assert_eq!(all.of_repo(Path::new("/w/cairn")), Some("Other"));
-    assert_eq!(all.of_agent("cairn/dev"), Some("Big"));
-    // A name recorded in another workspace moves, though its repository is in this one.
-    assert!(all.join("Big", "moved/main", Some(Path::new("/w/paddock"))));
-    assert_eq!(all.of_agent("moved/main"), Some("Big"));
+    assert_eq!(repos(&all, "Big"), [PathBuf::from("/w/paddock")]);
+    // Outside Git: nothing is recorded.
+    assert!(!all.join("test", None));
+    assert_eq!(repos(&all, "test"), [PathBuf::from("/w/scratch")]);
     // A workspace that is gone (another window removed it) takes nothing.
-    assert!(!all.join("Gone", "lost/main", None));
-    assert_eq!(all.of_agent("lost/main"), None);
+    assert!(!all.join("Gone", Some(Path::new("/w/lost"))));
+    assert_eq!(all.of_repo(Path::new("/w/lost")), None);
     // Its New Agent… starts in its first repository by name; with none, where it would anyway.
     all.add_repo("Big", Path::new("/w/b/ranch"));
     all.add_repo("Big", Path::new("/w/a/zed"));
@@ -250,11 +231,171 @@ fn an_agent_started_from_a_workspace_is_recorded_there_unless_its_repository_bri
         all.get("Big").unwrap().first_repo(),
         Some(Path::new("/w/paddock"))
     );
-    assert_eq!(all.get("test").unwrap().first_repo(), None);
+    workspace(&mut all, "Vacant", &[]);
+    assert_eq!(all.get("Vacant").unwrap().first_repo(), None);
 }
 
 #[test]
-fn workspaces_come_first_by_name_with_their_groups_empty_repositories_and_split_ones() {
+fn names_an_older_paddock_recorded_give_way_to_their_running_agents_repositories() {
+    let temp = common::tempdir();
+    let path = temp.path().join("workspaces.json");
+    let mut panel = panel(&[
+        ("paddock/main", "/w/paddock", "idle"),
+        ("paddock/dev", "/trees/p5", "working"),
+        ("paddock/review", "/trees/review", "idle"),
+        ("paddock/scratch", "/plain", "idle"),
+        ("cairn/main", "/w/cairn", "idle"),
+        ("plain/main", "/plain", "idle"),
+    ]);
+    // The controller of paddock and two more by name in My-Harness, as P5-89 let it keep them;
+    // paddock's agent in a worktree by name in Third; cairn whole in Other.
+    panel.workspaces = older(
+        temp.path(),
+        r#"[{"name": "My-Harness", "repos": [],
+             "agents": ["paddock/main", "cairn/main", "gone/main", "plain/main"]},
+            {"name": "Other", "repos": ["/w/cairn"], "agents": []},
+            {"name": "Third", "repos": [], "agents": ["paddock/dev"]}]"#,
+    );
+    assert!(panel.workspaces.named());
+    // Till Git tells where the named ones that run work, they wait.
+    repository(&mut panel, "/w/paddock", "/w/paddock");
+    repository(&mut panel, "/trees/review", "/w/paddock");
+    assert!(!panel.named_read());
+    repository(&mut panel, "/trees/p5", "/w/paddock");
+    repository(&mut panel, "/w/cairn", "/w/cairn");
+    assert!(!panel.named_read());
+    panel.absorb_git(vec![("/plain".into(), None)]);
+    assert!(panel.named_read());
+    // The names do nothing meanwhile: paddock is in no workspace.
+    assert_eq!(of(&panel, "paddock/main"), None);
+    assert_eq!(of(&panel, "paddock/dev"), None);
+    assert_eq!(of(&panel, "cairn/main"), Some("Other"));
+    // Given way: paddock whole in My-Harness, the first name of it, by the workspaces' order;
+    // cairn left in Other; paddock/dev's name in Third only goes, its repository taken already.
+    assert!(panel.adopt_named());
+    let repos = |panel: &Panel, name: &str| panel.workspaces.get(name).unwrap().repos.clone();
+    assert_eq!(repos(&panel, "My-Harness"), [PathBuf::from("/w/paddock")]);
+    assert_eq!(repos(&panel, "Other"), [PathBuf::from("/w/cairn")]);
+    assert!(repos(&panel, "Third").is_empty());
+    // Every agent of paddock with it: in the main worktree, in either worktree, and by prefix.
+    for name in [
+        "paddock/main",
+        "paddock/dev",
+        "paddock/review",
+        "paddock/scratch",
+    ] {
+        assert_eq!(of(&panel, name), Some("My-Harness"), "{name}");
+    }
+    assert_eq!(of(&panel, "cairn/main"), Some("Other"));
+    // Not running, or its repository not read: the name stays, doing nothing, and nothing more
+    // gives way.
+    assert_eq!(
+        panel.workspaces.get("My-Harness").unwrap().agents,
+        ["gone/main", "plain/main"]
+    );
+    assert_eq!(of(&panel, "plain/main"), None);
+    assert!(!panel.adopt_named());
+    // Kept, the list leaves the names out.
+    panel.workspaces.save(&path).unwrap();
+    let kept = Workspaces::load(&path);
+    assert!(!kept.named());
+    assert_eq!(
+        kept.list(),
+        [
+            Workspace {
+                name: "My-Harness".into(),
+                repos: vec!["/w/paddock".into()],
+                agents: vec![],
+            },
+            Workspace {
+                name: "Other".into(),
+                repos: vec!["/w/cairn".into()],
+                agents: vec![],
+            },
+            Workspace {
+                name: "Third".into(),
+                repos: vec![],
+                agents: vec![],
+            },
+        ]
+    );
+    // A list that cannot be read is no workspaces, and no names to give way.
+    let mut broken = older(
+        temp.path(),
+        r#"[{"name": "My-Harness", "agents": ["paddock/main"#,
+    );
+    assert_eq!(broken, Workspaces::default());
+    assert!(!broken.adopt(|_| Some(PathBuf::from("/w/paddock"))));
+}
+
+#[test]
+fn the_agents_of_a_repository_are_under_one_heading_whatever_their_names_or_worktrees() {
+    let temp = common::tempdir();
+    let mut panel = panel(&[
+        ("paddock/main", "/w/paddock", "idle"),
+        ("paddock/dev-agy-1", "/trees/p5-104", "working"),
+        ("paddock/dev-repo-1", "/trees/p5-105", "working"),
+        ("paddock/test", "/plain", "idle"),
+        ("ranch/main", "/w/ranch", "idle"),
+    ]);
+    repository(&mut panel, "/w/paddock", "/w/paddock");
+    repository(&mut panel, "/trees/p5-104", "/w/paddock");
+    repository(&mut panel, "/trees/p5-105", "/w/paddock");
+    repository(&mut panel, "/w/ranch", "/w/ranch");
+    panel.absorb_git(vec![("/plain".into(), None)]);
+    // The controller recorded by name in My-Harness, as P5-89 kept it, its repository in none:
+    // all of paddock below, once; My-Harness has none of it.
+    panel.workspaces = older(
+        temp.path(),
+        r#"[{"name": "My-Harness", "repos": ["/w/ranch"], "agents": ["paddock/main"]}]"#,
+    );
+    assert_eq!(
+        shown(&panel, None),
+        [
+            "= My-Harness 1 [Idle]",
+            "  # ranch/ 1 [Idle]",
+            "  ranch/main",
+            "# paddock/ 4 [Working, Working, Idle, Idle]",
+            "paddock/dev-agy-1",
+            "paddock/dev-repo-1",
+            "paddock/main",
+            "paddock/test",
+        ]
+    );
+    // The repository in it: all of paddock there, once, the one going by its prefix too.
+    panel
+        .workspaces
+        .add_repo("My-Harness", Path::new("/w/paddock"));
+    assert_eq!(
+        shown(&panel, None),
+        [
+            "= My-Harness 5 [Working, Working, Idle, Idle, Idle]",
+            "  # paddock/ 4 [Working, Working, Idle, Idle]",
+            "  paddock/dev-agy-1",
+            "  paddock/dev-repo-1",
+            "  paddock/main",
+            "  paddock/test",
+            "  # ranch/ 1 [Idle]",
+            "  ranch/main",
+        ]
+    );
+    // A card's cell moves the repository it knows; the one going by its prefix knows none.
+    let lines = card::lines(&panel, None, None, &[], None, 100.0);
+    let repo = |name: &str| {
+        lines
+            .iter()
+            .find_map(|line| match line {
+                Line::Agent(card) if card.name == name => Some(card.repo.clone()),
+                _ => None,
+            })
+            .unwrap()
+    };
+    assert_eq!(repo("paddock/dev-agy-1"), Some(PathBuf::from("/w/paddock")));
+    assert_eq!(repo("paddock/test"), None);
+}
+
+#[test]
+fn workspaces_come_first_by_name_with_their_groups_and_empty_repositories() {
     let mut panel = panel(&[
         ("paddock/main", "/w/paddock", "idle"),
         ("paddock/dev", "/w/paddock", "working"),
@@ -268,13 +409,12 @@ fn workspaces_come_first_by_name_with_their_groups_empty_repositories_and_split_
         let path = format!("/w/{repo}");
         repository(&mut panel, &path, &path);
     }
-    workspace(&mut panel.workspaces, "Zoo", &[], &[]);
-    workspace(&mut panel.workspaces, "fine-tuning", &[], &["jb/codex-1"]);
+    workspace(&mut panel.workspaces, "Zoo", &[]);
+    workspace(&mut panel.workspaces, "fine-tuning", &["/w/jb"]);
     workspace(
         &mut panel.workspaces,
         "Agent tools",
         &["/w/ranch", "/w/saddle", "/w/paddock", "/w/cairn"],
-        &[],
     );
     assert_eq!(
         shown(&panel, Some("paddock/dev")),
@@ -290,20 +430,18 @@ fn workspaces_come_first_by_name_with_their_groups_empty_repositories_and_split_
             "  # ranch/ 1 [Waiting]",
             "  ranch/main",
             "  - saddle No agents",
-            // One agent of jb taken by itself: jb is here and below, each with its own count.
-            "= fine-tuning 1 [Idle]",
-            "  # jb/ 1 [Idle]",
+            "= fine-tuning 2 [Working, Idle]",
+            "  # jb/ 2 [Working, Idle]",
+            "  jb/dev-1",
             "  jb/codex-1",
             "= Zoo 0 []",
             "  - No agents",
-            "# jb/ 1 [Working]",
-            "jb/dev-1",
             "# mesh/ 1 [Idle]",
             "mesh/main",
         ]
     );
-    // What a heading's button moves: the whole repository, or the agents taken singly; a group
-    // outside any, the repositories of its agents.
+    // What a heading's button moves: the whole repository of its name in its workspace; a
+    // group outside any, the repositories of its agents.
     let lines = card::lines(&panel, None, None, &[], None, 100.0);
     let heading = |workspace: Option<&str>, group: &str| {
         lines
@@ -312,7 +450,7 @@ fn workspaces_come_first_by_name_with_their_groups_empty_repositories_and_split_
                 Line::Group(heading)
                     if heading.workspace.as_deref() == workspace && heading.group == group =>
                 {
-                    Some((heading.repos.clone(), heading.singles.clone()))
+                    Some(heading.repos.clone())
                 }
                 _ => None,
             })
@@ -320,28 +458,23 @@ fn workspaces_come_first_by_name_with_their_groups_empty_repositories_and_split_
     };
     assert_eq!(
         heading(Some("Agent tools"), "paddock"),
-        (vec![PathBuf::from("/w/paddock")], vec![])
+        [PathBuf::from("/w/paddock")]
     );
-    assert_eq!(
-        heading(Some("fine-tuning"), "jb"),
-        (vec![], vec!["jb/codex-1".to_owned()])
-    );
-    assert_eq!(heading(None, "jb"), (vec![PathBuf::from("/w/jb")], vec![]));
-    // The card says where its agent is, and whether by itself.
+    assert_eq!(heading(Some("fine-tuning"), "jb"), [PathBuf::from("/w/jb")]);
+    assert_eq!(heading(None, "mesh"), [PathBuf::from("/w/mesh")]);
+    // The card says where its agent is.
     let card = |name: &str| {
         lines
             .iter()
             .find_map(|line| match line {
-                Line::Agent(card) if card.name == name => {
-                    Some((card.workspace.clone(), card.alone))
-                }
+                Line::Agent(card) if card.name == name => Some(card.workspace.clone()),
                 _ => None,
             })
             .unwrap()
     };
-    assert_eq!(card("jb/codex-1"), (Some("fine-tuning".to_owned()), true));
-    assert_eq!(card("ranch/main"), (Some("Agent tools".to_owned()), false));
-    assert_eq!(card("mesh/main"), (None, false));
+    assert_eq!(card("jb/codex-1"), Some("fine-tuning".to_owned()));
+    assert_eq!(card("ranch/main"), Some("Agent tools".to_owned()));
+    assert_eq!(card("mesh/main"), None);
 }
 
 #[test]
@@ -357,13 +490,8 @@ fn folded_groups_and_workspaces_keep_their_count_and_bar_and_are_passed_over() {
         let path = format!("/w/{repo}");
         repository(&mut panel, &path, &path);
     }
-    workspace(
-        &mut panel.workspaces,
-        "Tools",
-        &["/w/paddock", "/w/ranch"],
-        &[],
-    );
-    workspace(&mut panel.workspaces, "Tuning", &["/w/jb"], &[]);
+    workspace(&mut panel.workspaces, "Tools", &["/w/paddock", "/w/ranch"]);
+    workspace(&mut panel.workspaces, "Tuning", &["/w/jb"]);
     // A group folded inside its workspace: the same name outside any would stay open.
     panel.folded.toggle_group(Some("Tools"), "paddock");
     assert_eq!(
@@ -427,14 +555,9 @@ fn a_folded_workspace_stacks_three_of_its_agents_cards_the_active_pane_s_in_fron
         let path = format!("/w/{repo}");
         repository(&mut panel, &path, &path);
     }
-    workspace(
-        &mut panel.workspaces,
-        "Tools",
-        &["/w/paddock", "/w/ranch"],
-        &[],
-    );
-    workspace(&mut panel.workspaces, "Tuning", &["/w/jb"], &[]);
-    workspace(&mut panel.workspaces, "Vacant", &[], &[]);
+    workspace(&mut panel.workspaces, "Tools", &["/w/paddock", "/w/ranch"]);
+    workspace(&mut panel.workspaces, "Tuning", &["/w/jb"]);
+    workspace(&mut panel.workspaces, "Vacant", &[]);
     // As the open trays list them.
     assert_eq!(
         shown(&panel, None)[..9],
@@ -498,13 +621,8 @@ fn the_list_is_read_back_as_written_and_a_bad_file_is_no_workspaces() {
     // No file yet: none.
     assert_eq!(Workspaces::load(&path), Workspaces::default());
     let mut all = Workspaces::default();
-    workspace(
-        &mut all,
-        "Tools",
-        &["/w/paddock", "/w/ranch"],
-        &["jb/codex-1"],
-    );
-    workspace(&mut all, "Empty", &[], &[]);
+    workspace(&mut all, "Tools", &["/w/paddock", "/w/ranch"]);
+    workspace(&mut all, "Empty", &[]);
     all.save(&path).unwrap();
     assert_eq!(Workspaces::load(&path), all);
     assert_eq!(
@@ -518,7 +636,7 @@ fn the_list_is_read_back_as_written_and_a_bad_file_is_no_workspaces() {
             Workspace {
                 name: "Tools".into(),
                 repos: vec!["/w/paddock".into(), "/w/ranch".into()],
-                agents: vec!["jb/codex-1".into()],
+                agents: vec![],
             },
         ]
     );
@@ -552,69 +670,57 @@ fn a_name_is_needed_and_taken_once_whatever_its_case() {
 }
 
 #[test]
-fn the_panel_ticks_a_whole_repository_or_some_of_its_agents() {
-    let jb = Listed {
-        name: "jb".into(),
-        repos: vec!["/w/jb".into()],
-        agents: vec!["jb/codex-1".into(), "jb/dev-1".into(), "jb/dev-2".into()],
-    };
-    let ticked = |picks: &Picks, taken: &[String]| {
-        jb.agents
-            .iter()
-            .filter(|agent| picks.agent(&jb, agent, taken))
-            .count()
-    };
-    let mut picks = Picks::default();
-    // The whole repository brings every agent in it.
-    picks.toggle_whole(&jb, &[]);
-    assert!(picks.whole(&jb));
-    assert_eq!(ticked(&picks, &[]), 3);
-    // One taken off: the repository is no longer whole, the others stay ticked one by one.
-    picks.toggle_agent(&jb, "jb/dev-1", &[]);
-    assert!(!picks.whole(&jb));
+fn the_panel_ticks_whole_repositories_and_lists_no_group_that_goes_by_a_prefix() {
+    let mut panel = panel(&[
+        ("jb/codex-1", "/w/jb", "idle"),
+        ("jb/dev-1", "/trees/jb-dev", "working"),
+        ("jb/test", "/plain", "idle"),
+        ("scratch/main", "/plain", "idle"),
+    ]);
+    repository(&mut panel, "/w/jb", "/w/jb");
+    repository(&mut panel, "/trees/jb-dev", "/w/jb");
+    panel.absorb_git(vec![("/plain".into(), None)]);
+    // jb once, the agent of it that goes by its prefix counted too; scratch, by its prefix
+    // alone, has no repository to tick.
+    let groups = panel.groups();
     assert_eq!(
-        picks,
-        Picks {
-            repos: vec![],
-            agents: vec!["jb/codex-1".into(), "jb/dev-2".into()],
-        }
-    );
-    // Whole again, the single ticks are not needed; off, nothing of it is left.
-    picks.toggle_whole(&jb, &[]);
-    assert_eq!(
-        picks,
-        Picks {
+        groups,
+        [Listed {
+            name: "jb".into(),
             repos: vec!["/w/jb".into()],
-            agents: vec![],
-        }
+            agents: 3,
+        }]
     );
-    picks.toggle_whole(&jb, &[]);
+    let jb = &groups[0];
+    let mut picks = Picks::default();
+    // The whole repository: every agent in it comes, and any started there later.
+    picks.toggle_whole(jb);
+    assert!(picks.whole(jb));
+    assert_eq!(picks.summary(), "1 repository");
+    // Off, nothing of it is left.
+    picks.toggle_whole(jb);
     assert_eq!(picks, Picks::default());
-    // An agent recorded by itself in another workspace does not come with its repository: it
-    // comes when ticked itself.
-    let taken = ["jb/dev-2".to_owned()];
-    picks.toggle_whole(&jb, &taken);
-    assert_eq!(ticked(&picks, &taken), 2);
-    picks.toggle_agent(&jb, "jb/dev-2", &taken);
-    assert_eq!(ticked(&picks, &taken), 3);
-    assert!(picks.whole(&jb));
-    // Set as ticked: members come from wherever they were, and what is not ticked goes.
+    assert_eq!(picks.summary(), "");
+    // Set as ticked: repositories come from wherever they were, and what is not ticked goes.
+    picks.toggle_whole(jb);
+    picks.toggle_repo(Path::new("/w/new"));
+    assert_eq!(picks.summary(), "2 repositories");
     let mut all = Workspaces::default();
-    workspace(&mut all, "Other", &["/w/jb"], &["jb/dev-2", "solo"]);
-    workspace(&mut all, "Tuning", &["/w/old"], &["gone"]);
-    all.set_members("Tuning", &picks.repos, &picks.agents);
+    workspace(&mut all, "Other", &["/w/jb", "/w/solo"]);
+    workspace(&mut all, "Tuning", &["/w/old"]);
+    all.set_members("Tuning", &picks.repos);
     assert_eq!(
         all.list(),
         [
             Workspace {
                 name: "Other".into(),
-                repos: vec![],
-                agents: vec!["solo".into()],
+                repos: vec!["/w/solo".into()],
+                agents: vec![],
             },
             Workspace {
                 name: "Tuning".into(),
-                repos: vec!["/w/jb".into()],
-                agents: vec!["jb/dev-2".into()],
+                repos: vec!["/w/jb".into(), "/w/new".into()],
+                agents: vec![],
             },
         ]
     );
@@ -635,7 +741,6 @@ fn search_finds_agents_by_their_workspaces_name_and_shows_the_group_as_before() 
         &mut panel.workspaces,
         "Agent tools",
         &["/Users/me/code/paddock"],
-        &[],
     );
     let rows = search::agents(&panel, 100.0, Some("/Users/me"));
     let found = search::everything(&rows, &[], &[], &[], "agent tools");

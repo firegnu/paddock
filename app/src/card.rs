@@ -576,8 +576,10 @@ pub struct Card {
     pub working: bool,
     /// The workspace it is in (P5-89), for the details.
     pub workspace: Option<String>,
-    /// Recorded in it by itself, not come with its repository: it can be taken out alone.
-    pub alone: bool,
+    /// The main worktree of the repository it works in, once Git has told: what its details'
+    /// `Workspace` cell moves, all of it (P5-105). None for one that goes by its name's prefix,
+    /// whose cell only says where it is.
+    pub repo: Option<PathBuf>,
 }
 
 /// Keeps the name readable on a tight first line: while `room(card)` leaves the name less than
@@ -619,14 +621,13 @@ pub struct Heading {
     pub folded: bool,
     /// The active pane's agent is one of its own.
     pub showing: bool,
-    /// The workspace it is in: the same group may have agents in another, or in none.
+    /// The workspace it is in: a group of the same name may be in another, or in none, when two
+    /// repositories have that name.
     pub workspace: Option<String>,
     /// What its button moves (P5-89). In a workspace, the whole repositories of its name there;
     /// in none, the repositories its agents work in, to add whole. None for a group that goes by
     /// its agents' prefix alone.
     pub repos: Vec<PathBuf>,
-    /// Its agents recorded by themselves in its workspace, which its button moves too.
-    pub singles: Vec<String>,
 }
 
 /// A workspace's title (P5-89): its name, how many agents it has, and their statuses for the bar
@@ -753,20 +754,13 @@ fn listed(
         } else {
             project
         };
-        let (repos, singles) = match workspace {
-            Some(workspace) => (
-                workspace
-                    .repos
-                    .iter()
-                    .filter(|repo| kanban_repos::name(repo) == project)
-                    .cloned()
-                    .collect(),
-                agents
-                    .iter()
-                    .filter(|a| workspace.agents.contains(&a.name))
-                    .map(|a| a.name.clone())
-                    .collect(),
-            ),
+        let repos = match workspace {
+            Some(workspace) => workspace
+                .repos
+                .iter()
+                .filter(|repo| kanban_repos::name(repo) == project)
+                .cloned()
+                .collect(),
             None => {
                 let mut repos: Vec<PathBuf> = agents
                     .iter()
@@ -775,7 +769,7 @@ fn listed(
                     .collect();
                 repos.sort();
                 repos.dedup();
-                (repos, Vec::new())
+                repos
             }
         };
         let folded = panel.folded.group(place, project);
@@ -788,7 +782,6 @@ fn listed(
             showing: showing(agents),
             workspace: place.map(str::to_owned),
             repos,
-            singles,
         }));
         if folded && folds {
             return;
@@ -915,7 +908,7 @@ fn card(
         paused: a.paused,
         working: a.state.as_deref() == Some("working"),
         workspace: panel.workspace(a).map(str::to_owned),
-        alone: panel.workspaces.of_agent(&a.name).is_some(),
+        repo: panel.repository(a).map(Path::to_path_buf),
     }
 }
 

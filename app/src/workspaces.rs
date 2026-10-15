@@ -1,13 +1,13 @@
 //! Workspaces (DESIGN §13 P5-89): a layer over the sidebar's groups. A workspace is a name the
-//! user gave to a set of members: whole repositories, by their main worktree's path, whose agents
-//! all come, those started there later too; and single agents, by full name. A repository is in
-//! one workspace at most, and so is an agent's name: adding either to another moves it. The list
-//! is kept on this machine only, in paddock's state directory beside the layout, as the Kanban
-//! tab's repositories are (`kanban_repos.rs`); nothing is written into a repository, and no
-//! agent's name or labels change. `agents.rs` asks it where an agent is, `card.rs` lays the
+//! user gave to a set of whole repositories, by their main worktree's path, whose agents all come,
+//! those started there later too: the agents of a repository are all where it is (P5-105, which
+//! took out single agents). A repository is in one workspace at most: adding it to another moves
+//! it. The list is kept on this machine only, in paddock's state directory beside the layout, as
+//! the Kanban tab's repositories are (`kanban_repos.rs`); nothing is written into a repository,
+//! and no agent's name or labels change. `agents.rs` asks it where an agent is, `card.rs` lays the
 //! sidebar's lines out by it, and `sidebar.rs` draws them and the panel that edits it.
 use crate::{kanban_repos, layout_state};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, Serializer};
 use std::{
     fs, io,
     path::{Path, PathBuf},
@@ -24,10 +24,16 @@ pub struct Workspace {
     /// Whole repositories, by their main worktree, in the order they were added.
     #[serde(default)]
     pub repos: Vec<PathBuf>,
-    /// Agents recorded by themselves, by full name: kept while they are not running, so one
-    /// started again under its name is here again.
-    #[serde(default)]
+    /// Agents an older paddock recorded by themselves, by full name (P5-89): read, to give way to
+    /// their repositories ([`Workspaces::adopt`]), and written empty (P5-105). They put no agent
+    /// in the workspace.
+    #[serde(default, serialize_with = "written_empty")]
     pub agents: Vec<String>,
+}
+
+/// The agents' names as a workspace is kept now: none.
+fn written_empty<S: Serializer>(_: &[String], serializer: S) -> Result<S::Ok, S::Error> {
+    serializer.collect_seq(std::iter::empty::<&str>())
 }
 
 impl Workspace {
@@ -81,7 +87,8 @@ impl Workspaces {
         all
     }
 
-    /// Writes the list to `path`: names, repositories' paths and agents' names, nothing else.
+    /// Writes the list to `path`: names and repositories' paths, nothing else; an older paddock's
+    /// agents' names are left out, as they no longer do anything.
     pub fn save(&self, path: &Path) -> io::Result<()> {
         if let Some(dir) = path.parent() {
             fs::create_dir_all(dir)?;
@@ -168,42 +175,19 @@ impl Workspaces {
         }
     }
 
-    /// The agent is recorded by itself in `workspace`, and in no other; left where it is when
-    /// there is no such workspace.
-    pub fn add_agent(&mut self, workspace: &str, agent: &str) {
-        if self.get(workspace).is_none() {
-            return;
-        }
-        self.remove_agent(agent);
-        if let Some(workspace) = self.get_mut(workspace) {
-            workspace.agents.push(agent.to_owned());
-        }
-    }
-
     pub fn remove_repo(&mut self, repo: &Path) {
         for workspace in &mut self.list {
             workspace.repos.retain(|member| member != repo);
         }
     }
 
-    /// The agent is recorded by itself in none: it is where its repository is.
-    pub fn remove_agent(&mut self, agent: &str) {
-        for workspace in &mut self.list {
-            workspace.agents.retain(|member| member != agent);
-        }
-    }
-
-    /// `workspace` has exactly these members, taken from wherever they were.
-    pub fn set_members(&mut self, workspace: &str, repos: &[PathBuf], agents: &[String]) {
+    /// `workspace` has exactly these repositories, taken from wherever they were.
+    pub fn set_members(&mut self, workspace: &str, repos: &[PathBuf]) {
         if let Some(workspace) = self.get_mut(workspace) {
             workspace.repos.clear();
-            workspace.agents.clear();
         }
         for repo in repos {
             self.add_repo(workspace, repo);
-        }
-        for agent in agents {
-            self.add_agent(workspace, agent);
         }
     }
 
@@ -213,29 +197,11 @@ impl Workspaces {
         self.list.iter().find(has).map(|w| w.name.as_str())
     }
 
-    /// The workspace the agent is recorded in by itself.
-    pub fn of_agent(&self, agent: &str) -> Option<&str> {
-        let has = |workspace: &&Workspace| workspace.agents.iter().any(|member| member == agent);
-        self.list.iter().find(has).map(|w| w.name.as_str())
-    }
-
-    /// The agents recorded by themselves in a workspace other than `workspace`.
-    pub fn taken(&self, workspace: Option<&str>) -> Vec<String> {
-        self.list
-            .iter()
-            .filter(|other| Some(other.name.as_str()) != workspace)
-            .flat_map(|other| other.agents.iter().cloned())
-            .collect()
-    }
-
-    /// The workspace of an agent: the one it is recorded in by itself; else the one `repo`, the
-    /// main worktree of the repository it works in, is in. With no repository read, it goes by
-    /// `prefix`, its name's: into the workspace with a repository of that name, when only one
-    /// workspace has such a one, as groups of the same name are one group (P5-80).
-    pub fn of(&self, agent: &str, repo: Option<&Path>, prefix: &str) -> Option<&str> {
-        if let Some(own) = self.of_agent(agent) {
-            return Some(own);
-        }
+    /// The workspace of an agent: the one `repo`, the main worktree of the repository it works
+    /// in, is in, whatever its name (P5-105). With no repository read, it goes by `prefix`, its
+    /// name's: into the workspace with a repository of that name, when only one workspace has such
+    /// a one, as groups of the same name are one group (P5-80).
+    pub fn of(&self, repo: Option<&Path>, prefix: &str) -> Option<&str> {
         if let Some(repo) = repo {
             return self.of_repo(repo);
         }
@@ -248,42 +214,74 @@ impl Workspaces {
     }
 
     /// An agent started from `workspace`'s own `New Agent…` (P5-93), in `repo`, the main
-    /// worktree of the repository it works in (none outside Git): recorded there by itself
-    /// unless it is there already, its repository left where it is. Whether it was recorded.
-    pub fn join(&mut self, workspace: &str, agent: &str, repo: Option<&Path>) -> bool {
-        if self.get(workspace).is_none() || self.of(agent, repo, "") == Some(workspace) {
+    /// worktree of the repository it works in: the whole repository joins the workspace when it
+    /// is in none (P5-105). One in another workspace stays there, the agent with it; outside Git
+    /// nothing is recorded. Whether it joined.
+    pub fn join(&mut self, workspace: &str, repo: Option<&Path>) -> bool {
+        let Some(repo) = repo else {
+            return false;
+        };
+        if self.get(workspace).is_none() || self.of_repo(repo).is_some() {
             return false;
         }
-        self.add_agent(workspace, agent);
+        self.add_repo(workspace, repo);
         true
+    }
+
+    /// Whether an older paddock left agents recorded by name in the list (P5-105).
+    pub fn named(&self) -> bool {
+        self.list
+            .iter()
+            .any(|workspace| !workspace.agents.is_empty())
+    }
+
+    /// Each agent an older paddock recorded by name whose repository `repo` gives, it running and
+    /// Git having told, gives way to that repository (P5-105): the repository joins the workspace
+    /// the name was in, unless one has it already, and the name goes. The other names do nothing,
+    /// and go when the list is next kept. Whether any gave way.
+    pub fn adopt(&mut self, repo: impl Fn(&str) -> Option<PathBuf>) -> bool {
+        let mut adopted = false;
+        for at in 0..self.list.len() {
+            let mut kept = Vec::new();
+            for agent in std::mem::take(&mut self.list[at].agents) {
+                let Some(repo) = repo(&agent) else {
+                    kept.push(agent);
+                    continue;
+                };
+                if self.of_repo(&repo).is_none() {
+                    self.list[at].repos.push(repo);
+                }
+                adopted = true;
+            }
+            self.list[at].agents = kept;
+        }
+        adopted
     }
 }
 
-/// A group as the sidebar lists it now, for the panel that picks members.
+/// A group with a repository as the sidebar lists it now, for the panel that picks a workspace's
+/// repositories.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Listed {
     /// As `Panel::group` names it.
     pub name: String,
-    /// The repositories its agents work in: none for a group that goes by its agents' prefix,
-    /// which cannot be ticked whole.
+    /// The repositories its agents work in.
     pub repos: Vec<PathBuf>,
-    /// By full name.
-    pub agents: Vec<String>,
+    /// How many agents it has.
+    pub agents: usize,
 }
 
-/// What is ticked in the panel: whole repositories, and single agents.
+/// The repositories ticked in the panel.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Picks {
     pub repos: Vec<PathBuf>,
-    pub agents: Vec<String>,
 }
 
 impl Picks {
-    /// A workspace's members, as the panel opens for it.
+    /// A workspace's repositories, as the panel opens for it.
     pub fn of(workspace: &Workspace) -> Self {
         Picks {
             repos: workspace.repos.clone(),
-            agents: workspace.agents.clone(),
         }
     }
 
@@ -305,66 +303,22 @@ impl Picks {
         !group.repos.is_empty() && group.repos.iter().all(|repo| self.repo(repo))
     }
 
-    /// Whether `agent` of `group` is ticked: by itself, or with its whole repository. One of
-    /// `taken`, those recorded by themselves in another workspace, does not come with its
-    /// repository: it comes when ticked itself.
-    pub fn agent(&self, group: &Listed, agent: &str, taken: &[String]) -> bool {
-        let alone = self.agents.iter().any(|picked| picked == agent);
-        alone || (self.whole(group) && !taken.iter().any(|other| other == agent))
-    }
-
-    /// How many of the group's agents are ticked.
-    pub fn ticked(&self, group: &Listed, taken: &[String]) -> usize {
-        let ticked = |agent: &&String| self.agent(group, agent, taken);
-        group.agents.iter().filter(ticked).count()
-    }
-
-    /// The tick before the group's name: its whole repository on, or everything of it off.
-    pub fn toggle_whole(&mut self, group: &Listed, taken: &[String]) {
+    /// The tick before the group's name: its whole repository on, or off.
+    pub fn toggle_whole(&mut self, group: &Listed) {
         let whole = self.whole(group);
         self.repos.retain(|repo| !group.repos.contains(repo));
-        if whole {
-            self.agents.retain(|agent| !group.agents.contains(agent));
-        } else {
+        if !whole {
             self.repos.extend(group.repos.iter().cloned());
-            // The repository brings them: only those it does not bring stay ticked singly.
-            self.agents
-                .retain(|agent| !group.agents.contains(agent) || taken.contains(agent));
         }
     }
 
-    /// The tick before an agent's name. Taking one off a whole repository leaves the others
-    /// ticked one by one.
-    pub fn toggle_agent(&mut self, group: &Listed, agent: &str, taken: &[String]) {
-        if let Some(at) = self.agents.iter().position(|picked| picked == agent) {
-            self.agents.remove(at);
-        } else if self.whole(group) && !taken.iter().any(|other| other == agent) {
-            let others: Vec<String> = group
-                .agents
-                .iter()
-                .filter(|other| *other != agent && self.agent(group, other, taken))
-                .filter(|other| !self.agents.contains(other))
-                .cloned()
-                .collect();
-            self.repos.retain(|repo| !group.repos.contains(repo));
-            self.agents.extend(others);
-        } else {
-            self.agents.push(agent.to_owned());
-        }
-    }
-
-    /// What the panel says it has ticked: `4 repositories · 1 agent`; nothing with nothing.
+    /// What the panel says it has ticked: `4 repositories`; nothing with nothing.
     pub fn summary(&self) -> String {
-        let count = |count: usize, one: &str, many: &str| match count {
-            0 => None,
-            1 => Some(format!("1 {one}")),
-            _ => Some(format!("{count} {many}")),
-        };
-        let parts = [
-            count(self.repos.len(), "repository", "repositories"),
-            count(self.agents.len(), "agent", "agents"),
-        ];
-        parts.into_iter().flatten().collect::<Vec<_>>().join(" · ")
+        match self.repos.len() {
+            0 => String::new(),
+            1 => "1 repository".to_owned(),
+            count => format!("{count} repositories"),
+        }
     }
 }
 

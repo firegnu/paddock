@@ -10,7 +10,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
-    path::Path,
+    path::{Path, PathBuf},
 };
 
 #[derive(Default)]
@@ -321,16 +321,37 @@ impl Panel {
         summary.main_repository.as_deref()
     }
 
-    /// The workspace the agent is in (DESIGN §13 P5-89): the one it is recorded in by itself,
-    /// else its repository's; one whose repository cannot be read goes by its name's prefix.
+    /// The workspace the agent is in (DESIGN §13 P5-89): its repository's, whatever its name
+    /// (P5-105); one whose repository cannot be read goes by its name's prefix.
     pub fn workspace(&self, agent: &Agent) -> Option<&str> {
         let prefix = group(&agent.name).trim_end_matches('/');
-        self.workspaces
-            .of(&agent.name, self.repository(agent), prefix)
+        self.workspaces.of(self.repository(agent), prefix)
     }
 
-    /// The groups as the list has them now, each once whatever workspaces its agents are in,
-    /// for the panel that picks a workspace's members.
+    /// Whether Git has told, of every agent running under a name an older paddock recorded in a
+    /// workspace, which repository it works in, if any (P5-105): till then those names wait, so
+    /// that none goes when the list is kept before its repository could be read.
+    pub fn named_read(&self) -> bool {
+        let mut names = self.workspaces.list().iter().flat_map(|w| &w.agents);
+        names.all(|name| {
+            let running = self.agents.iter().find(|a| a.name == *name);
+            let cwd = running.and_then(|a| a.cwd.as_ref());
+            cwd.is_none_or(|cwd| self.git.contains_key(cwd))
+        })
+    }
+
+    /// The names an older paddock recorded in a workspace give way to the repositories their
+    /// running agents work in, as Git has told them (see [`Workspaces::adopt`]). Whether any did.
+    pub fn adopt_named(&mut self) -> bool {
+        let repos: HashMap<&str, PathBuf> = (self.agents.iter())
+            .filter_map(|a| Some((a.name.as_str(), self.repository(a)?.to_path_buf())))
+            .collect();
+        self.workspaces.adopt(|name| repos.get(name).cloned())
+    }
+
+    /// The groups with a repository as the list has them now, each once whatever workspaces its
+    /// agents are in, for the panel that picks a workspace's repositories. A group that goes by
+    /// its agents' prefix alone has none to pick, and is left out.
     pub fn groups(&self) -> Vec<Listed> {
         let mut groups: Vec<Listed> = Vec::new();
         let mut agents: Vec<&Agent> = self.agents.iter().collect();
@@ -341,17 +362,18 @@ impl Panel {
                 groups.push(Listed {
                     name: name.to_owned(),
                     repos: Vec::new(),
-                    agents: Vec::new(),
+                    agents: 0,
                 });
             }
             let group = groups.last_mut().expect("just pushed");
-            group.agents.push(agent.name.clone());
+            group.agents += 1;
             if let Some(repo) = self.repository(agent)
                 && !group.repos.iter().any(|listed| listed == repo)
             {
                 group.repos.push(repo.to_owned());
             }
         }
+        groups.retain(|group| !group.repos.is_empty());
         groups
     }
 

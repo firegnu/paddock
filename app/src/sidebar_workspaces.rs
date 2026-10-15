@@ -1,8 +1,8 @@
 //! Workspaces in the sidebar (DESIGN §13 P5-89): the tray a workspace's groups lie in, with its
 //! title; the three menus (a group's button, a card's `Workspace` cell, a workspace's `⋯`); the
-//! panel that names a new workspace and picks its members, or picks those of one there is; and
-//! the title as a field while it is renamed. Who is in which workspace is `workspaces.rs`'s, and
-//! the list's lines are `card.rs`'s.
+//! panel that names a new workspace and picks its repositories, or picks those of one there is;
+//! and the title as a field while it is renamed. Each moves whole repositories (P5-105). Who is in
+//! which workspace is `workspaces.rs`'s, and the list's lines are `card.rs`'s.
 use super::*;
 use crate::{
     activity, kanban_repos, menu, popover, tab_stack,
@@ -11,7 +11,6 @@ use crate::{
 };
 use gpui::{Anchor, Focusable, PathPromptOptions, Subscription, anchored, deferred};
 use std::{
-    collections::HashMap,
     path::{Path, PathBuf},
     sync::atomic::AtomicBool,
 };
@@ -51,9 +50,8 @@ const AGENT_MENU: f32 = 216.0;
 const WORKSPACE_MENU: f32 = 236.0;
 const PANEL: f32 = 320.0;
 const PANEL_PAD: f32 = 14.0;
-/// A row of the panel's list, and an agent's row under its group.
+/// A row of the panel's list.
 const ROW: f32 = 32.0;
-const AGENT_ROW: f32 = 28.0;
 const BOX: f32 = 13.0;
 /// The window's height the panel leaves to everything but its list.
 const PANEL_REST: f32 = 340.0;
@@ -71,7 +69,7 @@ const PENCIL: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 
 pub(super) enum Floating {
     /// A group's button: the workspaces to add it or move it to.
     Group(GroupMenu),
-    /// A card's `Workspace` cell: the workspaces for its agent, by name.
+    /// A card's `Workspace` cell: the workspaces for its agent's repository, by the agent's name.
     Agent(String),
     /// A workspace's `⋯`; `removing` once `Remove workspace` was clicked, for the click that
     /// confirms it.
@@ -118,22 +116,17 @@ pub(super) struct GroupMenu {
     /// The name as the heading shows it.
     title: String,
     repos: Vec<PathBuf>,
-    singles: Vec<String>,
 }
 
-/// The panel that picks a workspace's members.
+/// The panel that picks a workspace's repositories.
 pub(super) struct Editor {
-    /// The workspace whose members are picked; `None` for a new one.
+    /// The workspace whose repositories are picked; `None` for a new one.
     workspace: Option<String>,
     /// The new one's name.
     name: Option<Entity<TextInput>>,
     picks: Picks,
-    /// The groups whose agents are listed.
-    open: Vec<String>,
     /// Repositories no group stands for: folders chosen, and members with no agent now.
     extra: Vec<PathBuf>,
-    /// The workspace's single agents that were not running as it opened.
-    absent: Vec<String>,
     /// Why the folder chosen was not added.
     note: Option<SharedString>,
     _changed: Option<Subscription>,
@@ -143,11 +136,11 @@ pub(super) struct Editor {
 type OnPress = Box<dyn Fn(&MouseDownEvent, &mut Window, &mut App)>;
 
 /// A card's `Workspace` cell: where its agent is, the press that opens its menu, and the menu
-/// while it is open.
+/// while it is open. No press for an agent that goes by its name's prefix: the cell only says.
 pub(super) struct WorkspaceCell {
     pub value: String,
     pub open: bool,
-    pub on_press: OnPress,
+    pub on_press: Option<OnPress>,
     pub menu: Option<AnyElement>,
 }
 
@@ -171,11 +164,10 @@ fn mask(data: &'static [u8], size: Pixels, color: Hsla) -> gpui::Svg {
 
 /// What a workspace holds, faint after its name in a menu.
 fn holds(workspace: &workspaces::Workspace) -> String {
-    match (workspace.repos.len(), workspace.agents.len()) {
-        (0, 0) => "Empty".to_owned(),
-        (0, agents) => workspaces::agents(agents),
-        (1, _) => "1 repo".to_owned(),
-        (repos, _) => format!("{repos} repos"),
+    match workspace.repos.len() {
+        0 => "Empty".to_owned(),
+        1 => "1 repo".to_owned(),
+        repos => format!("{repos} repos"),
     }
 }
 
@@ -189,11 +181,16 @@ impl Sidebar {
         }
     }
 
-    /// Changes the workspaces, as they are kept now, and keeps them.
+    /// Changes the workspaces, as they are kept now, and keeps them when that changed anything.
+    /// The names an older paddock recorded give way to their repositories first, as far as Git
+    /// has told: kept, the list leaves the others out (P5-105).
     fn edit_workspaces(&mut self, cx: &mut Context<Self>, change: impl FnOnce(&mut Workspaces)) {
         self.reload_workspaces();
+        let before = self.listing.panel.workspaces.clone();
+        self.listing.panel.adopt_named();
         change(&mut self.listing.panel.workspaces);
-        if let Some(path) = &self.workspaces_path
+        if self.listing.panel.workspaces != before
+            && let Some(path) = &self.workspaces_path
             && let Err(error) = self.listing.panel.workspaces.save(path)
         {
             self.note(format!("Workspaces not saved: {error}"), true, cx);
@@ -201,8 +198,18 @@ impl Sidebar {
         cx.notify();
     }
 
+    /// The names an older paddock recorded give way to the repositories their running agents
+    /// work in (P5-105), once corral has answered and Git has told of every one of them.
+    pub(super) fn adopt_named(&mut self, cx: &mut Context<Self>) {
+        let panel = &self.listing.panel;
+        if self.listing.loaded && panel.workspaces.named() && panel.named_read() {
+            self.edit_workspaces(cx, |_| {});
+        }
+    }
+
     /// `workspace`'s `New Agent…` (P5-93): the panel, starting in `repo`, else in its first
-    /// repository, else where it would anyway; the agent it starts joins the workspace.
+    /// repository, else where it would anyway; the repository of the agent it starts joins the
+    /// workspace when in none (P5-105).
     fn new_agent_in(
         &mut self,
         workspace: &str,
@@ -222,17 +229,11 @@ impl Sidebar {
         });
     }
 
-    /// `agent` was started in `cwd` from `workspace`'s `New Agent…` (P5-93): once Git, off the UI
-    /// thread, has said which repository that is, the agent joins the workspace by itself unless
-    /// its repository brings it.
-    pub fn join_started(
-        &mut self,
-        workspace: &str,
-        agent: &str,
-        cwd: &str,
-        cx: &mut Context<Self>,
-    ) {
-        let (workspace, agent, dir) = (workspace.to_owned(), agent.to_owned(), cwd.to_owned());
+    /// An agent was started in `cwd` from `workspace`'s `New Agent…` (P5-93): once Git, off the UI
+    /// thread, has said which repository that is, the whole repository joins the workspace when
+    /// it is in none (P5-105).
+    pub fn join_started(&mut self, workspace: &str, cwd: &str, cx: &mut Context<Self>) {
+        let (workspace, dir) = (workspace.to_owned(), cwd.to_owned());
         cx.spawn(async move |this, cx| {
             let repo = cx
                 .background_executor()
@@ -242,7 +243,7 @@ impl Sidebar {
                 .await;
             let _ = this.update(cx, |sidebar, cx| {
                 sidebar.edit_workspaces(cx, |workspaces| {
-                    workspaces.join(&workspace, &agent, repo.as_deref());
+                    workspaces.join(&workspace, repo.as_deref());
                 });
             });
         })
@@ -782,7 +783,7 @@ impl Sidebar {
         self.close_floating(window, cx);
     }
 
-    /// A group into `to`: its whole repositories, and its agents recorded singly.
+    /// A group into `to`: its whole repositories.
     fn move_group(
         &mut self,
         menu: &GroupMenu,
@@ -794,37 +795,31 @@ impl Sidebar {
             for repo in &menu.repos {
                 all.add_repo(to, repo);
             }
-            for agent in &menu.singles {
-                all.add_agent(to, agent);
-            }
         });
         self.close_floating(window, cx);
     }
 
-    /// A group out of its workspace: what came whole goes whole, what came singly goes singly.
+    /// A group out of its workspace: its whole repositories.
     fn remove_group(&mut self, menu: &GroupMenu, window: &mut Window, cx: &mut Context<Self>) {
         self.edit_workspaces(cx, |all| {
             for repo in &menu.repos {
                 all.remove_repo(repo);
             }
-            for agent in &menu.singles {
-                all.remove_agent(agent);
-            }
         });
         self.close_floating(window, cx);
     }
 
-    /// An agent recorded by itself in `to`, or (`None`) in none.
-    fn place_agent(
+    /// A card's agent's whole repository into `to`, or (`None`) into none (P5-105).
+    fn place_repo(
         &mut self,
-        agent: &str,
+        repo: &Path,
         to: Option<&str>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         self.edit_workspaces(cx, |all| match to {
-            Some(to) => all.add_agent(to, agent),
-            None => all.remove_agent(agent),
+            Some(to) => all.add_repo(to, repo),
+            None => all.remove_repo(repo),
         });
         self.close_floating(window, cx);
     }
@@ -923,7 +918,6 @@ impl Sidebar {
             None => {
                 let picks = Picks {
                     repos: menu.repos.clone(),
-                    agents: Vec::new(),
                 };
                 panel.child(self.new_row(picks, ui, cx))
             }
@@ -946,9 +940,15 @@ impl Sidebar {
     }
 
     /// The menu of a card's `Workspace` cell: the workspaces, the agent's ticked, picking one
-    /// records the agent in it by itself; `None` for one recorded so, which takes it out; and a
-    /// new one.
-    fn agent_menu(&self, card: &Card, ui: &UiFont, cx: &mut Context<Self>) -> gpui::Stateful<Div> {
+    /// moves its whole repository there; `None` while it is in one, which takes the repository
+    /// out; and a new one, with the repository (P5-105).
+    fn agent_menu(
+        &self,
+        card: &Card,
+        repo: &Path,
+        ui: &UiFont,
+        cx: &mut Context<Self>,
+    ) -> gpui::Stateful<Div> {
         let theme = &*self.theme;
         let mut panel = self
             .floated(popover::panel(theme, ui), "agent-workspaces", cx)
@@ -958,12 +958,12 @@ impl Sidebar {
         for (index, workspace) in workspaces.iter().enumerate() {
             let on = card.workspace.as_ref() == Some(&workspace.name);
             let on_click = {
-                let (agent, to) = (card.name.clone(), workspace.name.clone());
+                let (repo, to) = (repo.to_owned(), workspace.name.clone());
                 cx.listener(move |this, _: &ClickEvent, window, cx| {
                     if on {
                         this.close_floating(window, cx);
                     } else {
-                        this.place_agent(&agent, Some(&to), window, cx);
+                        this.place_repo(&repo, Some(&to), window, cx);
                     }
                 })
             };
@@ -973,14 +973,14 @@ impl Sidebar {
                     .on_click(on_click),
             );
         }
-        if card.alone {
-            let agent = card.name.clone();
+        if card.workspace.is_some() {
+            let repo = repo.to_owned();
             let lead = div().size(ui.px(footer_icon::SIZE));
             panel = panel.child(
                 popover::lead_row(theme, ui, "agent-no-workspace", lead, false)
                     .child(div().flex_1().child("None"))
                     .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                        this.place_agent(&agent, None, window, cx)
+                        this.place_repo(&repo, None, window, cx)
                     })),
             );
         }
@@ -988,8 +988,7 @@ impl Sidebar {
             panel = panel.child(popover::rule(theme, ui));
         }
         let picks = Picks {
-            repos: Vec::new(),
-            agents: vec![card.name.clone()],
+            repos: vec![repo.to_owned()],
         };
         panel.child(self.new_row(picks, ui, cx))
     }
@@ -1137,14 +1136,14 @@ impl Sidebar {
 
     /// The button on a group's heading, before its bar, with its menu while open: shown while
     /// the pointer is over the heading `hover` names, its room always kept. `None` for a group
-    /// with nothing to move: one that goes by its agents' prefix alone.
+    /// with no repository to move: one that goes by its agents' prefix alone.
     pub(super) fn group_button(
         &self,
         heading: &card::Heading,
         hover: &SharedString,
         cx: &mut Context<Self>,
     ) -> Option<(AnyElement, Option<AnyElement>)> {
-        if heading.repos.is_empty() && heading.singles.is_empty() {
+        if heading.repos.is_empty() {
             return None;
         }
         let ui = UiFont::get(cx);
@@ -1154,7 +1153,6 @@ impl Sidebar {
             group: heading.group.clone(),
             title: heading.title.trim_end_matches('/').to_owned(),
             repos: heading.repos.clone(),
-            singles: heading.singles.clone(),
         };
         let key = group_key(menu.workspace.as_deref(), &menu.group);
         let open =
@@ -1213,26 +1211,36 @@ impl Sidebar {
     }
 
     /// The `Workspace` cell of an open card: `value`, where its agent is, cut to the cell; and
-    /// the menu while it is open.
+    /// the menu while it is open. One whose repository is not known only says (P5-105).
     pub(super) fn workspace_cell(
         &self,
         card: &Card,
         value: String,
         cx: &mut Context<Self>,
     ) -> WorkspaceCell {
+        let Some(repo) = &card.repo else {
+            return WorkspaceCell {
+                value,
+                open: false,
+                on_press: None,
+                menu: None,
+            };
+        };
         let ui = UiFont::get(cx);
         let open = matches!(&self.floating, Some(Floating::Agent(name)) if *name == card.name);
         let name = card.name.clone();
+        let on_press: OnPress = Box::new(cx.listener(
+            move |this, event: &MouseDownEvent, window, cx| {
+                cx.stop_propagation();
+                this.press_menu(Floating::Agent(name.clone()), event, window, cx);
+            },
+        ));
         WorkspaceCell {
             value,
             open,
-            on_press: Box::new(
-                cx.listener(move |this, event: &MouseDownEvent, window, cx| {
-                    cx.stop_propagation();
-                    this.press_menu(Floating::Agent(name.clone()), event, window, cx);
-                }),
-            ),
-            menu: open.then(|| Self::hung(self.agent_menu(card, &ui, cx), true).into_any_element()),
+            on_press: Some(on_press),
+            menu: open
+                .then(|| Self::hung(self.agent_menu(card, repo, &ui, cx), true).into_any_element()),
         }
     }
 
@@ -1248,47 +1256,27 @@ impl Sidebar {
             workspace: None,
             name: Some(name),
             picks,
-            open: Vec::new(),
             extra: Vec::new(),
-            absent: Vec::new(),
             note: None,
             _changed: Some(changed),
         };
-        self.open_editor(editor, window, cx);
+        self.float(Floating::Editor(editor), window, cx);
     }
 
-    /// `Add repositories…`: the same panel for a workspace there is, its members ticked.
+    /// `Add repositories…`: the same panel for a workspace there is, its repositories ticked.
     fn edit_members(&mut self, name: &str, window: &mut Window, cx: &mut Context<Self>) {
         self.reload_workspaces();
-        let panel = &self.listing.panel;
-        let Some(workspace) = panel.workspaces.get(name) else {
+        let Some(workspace) = self.listing.panel.workspaces.get(name) else {
             return self.close_floating(window, cx);
         };
-        let running = |agent: &&String| panel.agents.iter().any(|a| a.name == **agent);
         let editor = Editor {
             workspace: Some(name.to_owned()),
             name: None,
             picks: Picks::of(workspace),
-            open: Vec::new(),
             extra: workspace.repos.clone(),
-            absent: (workspace.agents.iter())
-                .filter(|agent| !running(agent))
-                .cloned()
-                .collect(),
             note: None,
             _changed: None,
         };
-        self.open_editor(editor, window, cx);
-    }
-
-    /// The panel opens with the agents listed under each group only some of whose are ticked.
-    fn open_editor(&mut self, mut editor: Editor, window: &mut Window, cx: &mut Context<Self>) {
-        let panel = &self.listing.panel;
-        let taken = panel.workspaces.taken(editor.workspace.as_deref());
-        editor.open = (panel.groups().into_iter())
-            .filter(|group| !editor.picks.whole(group) && editor.picks.ticked(group, &taken) > 0)
-            .map(|group| group.name)
-            .collect();
         self.float(Floating::Editor(editor), window, cx);
     }
 
@@ -1300,7 +1288,7 @@ impl Sidebar {
     }
 
     /// `Create`, `Done` or Return: the new workspace with what is ticked, when its name will do;
-    /// or the workspace's members as ticked.
+    /// or the workspace's repositories as ticked.
     fn confirm_editor(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(Floating::Editor(editor)) = &self.floating else {
             return;
@@ -1322,7 +1310,7 @@ impl Sidebar {
                 (None, typed) => all.create(&typed.unwrap_or_default()).ok(),
             };
             if let Some(name) = name {
-                all.set_members(&name, &picks.repos, &picks.agents);
+                all.set_members(&name, &picks.repos);
                 done = true;
             }
         });
@@ -1415,7 +1403,6 @@ impl Sidebar {
         );
         let ground = hsla(theme.bg(|t| t.agents_bg), 1.0);
         let all = &self.listing.panel.workspaces;
-        let taken = all.taken(editor.workspace.as_deref());
         let groups = self.listing.panel.groups();
         // The name: what it would be kept as, or why it will not do.
         let name = editor.name.as_ref().map(|input| {
@@ -1424,23 +1411,7 @@ impl Sidebar {
         });
         let ready = name.as_ref().is_none_or(|(_, name)| name.is_ok());
 
-        let tick = |on: Option<bool>| {
-            // Ticked, only some of it ticked (`None`), or not.
-            let mark = match on {
-                Some(true) => Some(
-                    footer_icon::icon(Icon::Check, ground, ui.scale(BOX / footer_icon::SIZE))
-                        .into_any_element(),
-                ),
-                None => Some(
-                    div()
-                        .w(ui.px(7.0))
-                        .h(ui.px(2.0))
-                        .rounded(px(1.0))
-                        .bg(ground)
-                        .into_any_element(),
-                ),
-                Some(false) => None,
-            };
+        let tick = |on: bool| {
             div()
                 .flex_shrink_0()
                 .size(ui.px(BOX))
@@ -1448,9 +1419,16 @@ impl Sidebar {
                 .items_center()
                 .justify_center()
                 .rounded(ui.px(3.0))
-                .map(|tick| match mark {
-                    Some(mark) => tick.bg(accent).child(mark),
-                    None => tick.border_1().border_color(dimmer),
+                .map(|tick| {
+                    if on {
+                        tick.bg(accent).child(footer_icon::icon(
+                            Icon::Check,
+                            ground,
+                            ui.scale(BOX / footer_icon::SIZE),
+                        ))
+                    } else {
+                        tick.border_1().border_color(dimmer)
+                    }
                 })
         };
         let faint = |words: String| {
@@ -1477,21 +1455,11 @@ impl Sidebar {
                 .items_center()
                 .gap(ui.px(9.0))
                 .h(ui.px(ROW))
-                .pl(ui.px(8.0))
-                .pr(ui.px(4.0))
+                .px(ui.px(8.0))
                 .rounded(ui.px(7.0))
                 .cursor_pointer()
                 .when(lit, |row| row.bg(accent.opacity(0.08)))
         };
-        // The kind's colour beside each agent, as its avatar has it.
-        let kinds: HashMap<String, Hsla> = (self.listing)
-            .unfolded(None, &[], None, now())
-            .into_iter()
-            .filter_map(|line| match line {
-                Line::Agent(card) => Some((card.name.clone(), kind_color(theme, &card))),
-                _ => None,
-            })
-            .collect();
 
         let mut list = div()
             .id("workspace-members")
@@ -1500,144 +1468,38 @@ impl Sidebar {
             .gap(px(2.0))
             .max_h((window.viewport_size().height - ui.px(PANEL_REST)).max(ui.px(3.0 * ROW)))
             .overflow_y_scroll();
+        // A group's one tick is its whole repository (P5-105).
         for (index, group) in groups.iter().enumerate() {
             let whole = editor.picks.whole(group);
-            let ticked = editor.picks.ticked(group, &taken);
-            let open = editor.open.contains(&group.name);
             let elsewhere = (group.repos.iter())
                 .find_map(|repo| all.of_repo(repo))
                 .filter(|name| Some(*name) != editor.workspace.as_deref());
-            let count = match (elsewhere, whole, ticked) {
-                (Some(other), false, 0) => format!("in {other}"),
-                (_, false, ticked) if ticked > 0 => format!("{ticked} of {}", group.agents.len()),
-                _ => workspaces::agents(group.agents.len()),
+            let count = match elsewhere {
+                Some(other) if !whole => format!("in {other}"),
+                _ => workspaces::agents(group.agents),
             };
             let title = if group.name.is_empty() {
                 "agents".to_owned()
             } else {
                 group.name.clone()
             };
-            let toggle_open = || {
-                let name = group.name.clone();
+            let on_click = {
+                let group = group.clone();
                 cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    cx.stop_propagation();
                     if let Some(editor) = this.editor_mut() {
-                        match editor.open.iter().position(|open| *open == name) {
-                            Some(at) => {
-                                editor.open.remove(at);
-                            }
-                            None => editor.open.push(name.clone()),
-                        }
+                        editor.picks.toggle_whole(&group);
                         cx.notify();
                     }
                 })
             };
-            // A group that goes by its agents' prefix has no repository to tick: its row only
-            // opens it.
-            let head = if group.repos.is_empty() {
-                row(("workspace-group", index).into(), false)
-                    .child(div().flex_shrink_0().size(ui.px(BOX)))
-                    .on_click(toggle_open())
-            } else {
-                let on_click = {
-                    let (group, taken) = (group.clone(), taken.clone());
-                    cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        if let Some(editor) = this.editor_mut() {
-                            editor.picks.toggle_whole(&group, &taken);
-                            cx.notify();
-                        }
-                    })
-                };
-                row(("workspace-group", index).into(), whole && !open)
-                    .child(tick(if whole {
-                        Some(true)
-                    } else if ticked > 0 {
-                        None
-                    } else {
-                        Some(false)
-                    }))
+            list = list.child(
+                row(("workspace-group", index).into(), whole)
                     .on_click(on_click)
-            };
-            let head = head
-                .child(label(title, whole || ticked > 0))
-                .child(div().flex_1())
-                .child(faint(count))
-                .child(
-                    div()
-                        .id("workspace-group-open")
-                        .flex_shrink_0()
-                        .size(ui.px(22.0))
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .rounded(ui.px(5.0))
-                        .hover(move |style| style.bg(text.opacity(0.08)))
-                        .on_click(toggle_open())
-                        .child(mask(
-                            if open { CHEVRON_DOWN } else { CHEVRON_RIGHT },
-                            ui.px(10.0),
-                            dim,
-                        )),
-                );
-            if !open {
-                list = list.child(head);
-                continue;
-            }
-            let mut section = div()
-                .flex_shrink_0()
-                .flex()
-                .flex_col()
-                .rounded(ui.px(7.0))
-                .bg(text.opacity(0.045))
-                .pb(ui.px(4.0))
-                .child(head);
-            for (at, agent) in group.agents.iter().enumerate() {
-                let on = editor.picks.agent(group, agent, &taken);
-                let on_click = {
-                    let (group, agent, taken) = (group.clone(), agent.clone(), taken.clone());
-                    cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        if let Some(editor) = this.editor_mut() {
-                            editor.picks.toggle_agent(&group, &agent, &taken);
-                            cx.notify();
-                        }
-                    })
-                };
-                let short = agent
-                    .strip_prefix(crate::agents::group(agent))
-                    .unwrap_or(agent)
-                    .to_owned();
-                let other = all
-                    .of_agent(agent)
-                    .filter(|name| Some(*name) != editor.workspace.as_deref());
-                section = section.child(
-                    div()
-                        .id(("workspace-agent", index * 1000 + at))
-                        .flex()
-                        .items_center()
-                        .gap(ui.px(9.0))
-                        .h(ui.px(AGENT_ROW))
-                        .pl(ui.px(30.0))
-                        .pr(ui.px(8.0))
-                        .cursor_pointer()
-                        .on_click(on_click)
-                        .child(tick(Some(on)))
-                        .child(
-                            div()
-                                .flex_shrink_0()
-                                .size(ui.px(14.0))
-                                .rounded(ui.px(4.0))
-                                .bg(kinds.get(agent).copied().unwrap_or(dim)),
-                        )
-                        .child(
-                            label(short, false)
-                                .text_size(ui.px(12.5))
-                                .when(!on, |label| label.text_color(dim)),
-                        )
-                        .child(div().flex_1())
-                        .children(other.map(|other| faint(format!("in {other}")))),
-                );
-            }
-            list = list.child(section);
+                    .child(tick(whole))
+                    .child(label(title, whole))
+                    .child(div().flex_1())
+                    .child(faint(count)),
+            );
         }
         // Repositories no group stands for: folders chosen, and members with no agent now.
         let extra = (editor.extra.iter())
@@ -1655,55 +1517,11 @@ impl Sidebar {
             };
             list = list.child(
                 row(("workspace-repo", index).into(), on)
-                    .pr(ui.px(8.0))
                     .on_click(on_click)
-                    .child(tick(Some(on)))
+                    .child(tick(on))
                     .child(label(kanban_repos::name(repo), on))
                     .child(div().flex_1())
                     .child(faint(workspaces::agents(0))),
-            );
-        }
-        // Its single agents that are not running: unticked, they are forgotten.
-        if !editor.absent.is_empty() {
-            list = list.child(
-                div()
-                    .flex_shrink_0()
-                    .px(ui.px(8.0))
-                    .pt(ui.px(8.0))
-                    .pb(ui.px(2.0))
-                    .text_size(ui.px(COUNT))
-                    .text_color(dim)
-                    .child("Not running"),
-            );
-        }
-        for (index, agent) in editor.absent.iter().enumerate() {
-            let on = editor.picks.agents.contains(agent);
-            let on_click = {
-                let agent = agent.clone();
-                cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    if let Some(editor) = this.editor_mut() {
-                        match editor
-                            .picks
-                            .agents
-                            .iter()
-                            .position(|picked| *picked == agent)
-                        {
-                            Some(at) => {
-                                editor.picks.agents.remove(at);
-                            }
-                            None => editor.picks.agents.push(agent.clone()),
-                        }
-                        cx.notify();
-                    }
-                })
-            };
-            list = list.child(
-                row(("workspace-absent", index).into(), false)
-                    .h(ui.px(AGENT_ROW))
-                    .pr(ui.px(8.0))
-                    .on_click(on_click)
-                    .child(tick(Some(on)))
-                    .child(label(agent.clone(), false).text_size(ui.px(12.5))),
             );
         }
 
@@ -1840,7 +1658,7 @@ impl Sidebar {
                             .gap(ui.px(6.0))
                             .pb(ui.px(3.0))
                             .text_size(ui.px(COUNT))
-                            .child(div().text_color(dim).child("Repositories and agents"))
+                            .child(div().text_color(dim).child("Repositories"))
                             .child(div().flex_1())
                             .child(div().text_color(dimmer).child(summary)),
                     )
@@ -1854,7 +1672,7 @@ impl Sidebar {
                     )
                     .child(small().pt(ui.px(4.0)).text_color(dimmer).child(
                         "A ticked repository brings every agent in it, and any started there \
-                         later. Tick single agents to add only those.",
+                         later.",
                     )),
             )
             .child(
