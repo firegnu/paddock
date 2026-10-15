@@ -1740,3 +1740,71 @@ fn deleting_a_draft_moves_that_file_alone_to_the_trash() {
     assert!(tasks.join("P1-3-别的草稿.md").exists());
     assert_eq!(asked.borrow().len(), 1);
 }
+
+#[test]
+fn the_task_files_are_read_with_one_git_command_the_first_time_and_none_after() {
+    let temp = common::tempdir();
+    let root = temp.path();
+    let repo = root.join("repo");
+    fs::create_dir_all(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    for n in 1..=30 {
+        let text = format!("# 任务：第 {n} 件\n\n依据：x\n");
+        fs::create_dir_all(repo.join("docs/任务")).unwrap();
+        fs::write(repo.join(format!("docs/任务/P5-{n}-x.md")), text).unwrap();
+    }
+    git(&repo, &["add", "docs"]);
+    git(&repo, &["commit", "-q", "-m", "tasks"]);
+    // Git as the board runs it, each call logged; with `nobatch` beside it, `cat-file --batch`
+    // fails as an old or broken Git might.
+    let bin = root.join("bin");
+    fs::create_dir_all(&bin).unwrap();
+    let program = common::script(
+        &bin,
+        "git",
+        r#"#!/bin/sh
+root=$(dirname "$0")
+printf '%s\n' "$*" >> "$root/calls"
+case " $* " in *" cat-file --batch "*) [ -f "$root/nobatch" ] && exit 1 ;; esac
+exec git "$@"
+"#,
+    );
+    let reads = || {
+        let path = bin.join("calls");
+        let calls = fs::read_to_string(&path).unwrap_or_default();
+        let _ = fs::remove_file(&path);
+        calls
+            .lines()
+            .filter(|call| call.contains("cat-file"))
+            .map(str::to_owned)
+            .collect::<Vec<_>>()
+    };
+    let titles = |read: &Read| match read {
+        Read::Board(facts) => {
+            let mut titles: Vec<String> = facts.tasks.iter().map(|t| t.title.clone()).collect();
+            titles.sort_by(|a, b| paddock::kanban::natural(a, b));
+            titles
+        }
+        other => panic!("{other:?}"),
+    };
+    let want: Vec<String> = (1..=30).map(|n| format!("第 {n} 件")).collect();
+    let cancel = AtomicBool::new(false);
+    let dir = repo.to_str().unwrap();
+
+    // The first read takes in all thirty with one command.
+    let kept = cache();
+    let first = read(&program, dir, &kept, &cancel);
+    assert_eq!(titles(&first), want);
+    let calls = reads();
+    assert_eq!(calls.len(), 1, "{calls:?}");
+    assert!(calls[0].ends_with("cat-file --batch"), "{calls:?}");
+    // The next finds them all in the cache and agrees.
+    assert_eq!(read(&program, dir, &kept, &cancel), first);
+    assert_eq!(reads(), Vec::<String>::new());
+
+    // A Git whose batch fails: each file is read on its own, to the same board.
+    fs::write(bin.join("nobatch"), "").unwrap();
+    let alone = read(&program, dir, &cache(), &cancel);
+    assert_eq!(alone, first);
+    assert_eq!(reads().len(), 31);
+}
