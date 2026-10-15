@@ -55,6 +55,8 @@ const ROW: f32 = 32.0;
 const BOX: f32 = 13.0;
 /// The window's height the panel leaves to everything but its list.
 const PANEL_REST: f32 = 340.0;
+/// How long the folder a repository is in may run, beside its name when another has that name.
+const TWIN_PATH: usize = 24;
 
 /// A workspace: sheets lying on one another.
 const LAYERS: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M8 2L14 5 8 8 2 5ZM2 8L8 11 14 8M2 11L8 14 14 11" fill="none" stroke="#000" stroke-width="1.4" stroke-linejoin="round"/></svg>"##;
@@ -125,7 +127,8 @@ pub(super) struct Editor {
     /// The new one's name.
     name: Option<Entity<TextInput>>,
     picks: Picks,
-    /// Repositories no group stands for: folders chosen, and members with no agent now.
+    /// Folders chosen, by their repositories: listed, ticked or not, with those agents work in and
+    /// the workspace's own.
     extra: Vec<PathBuf>,
     /// Why the folder chosen was not added.
     note: Option<SharedString>,
@@ -178,32 +181,39 @@ impl Sidebar {
     pub(super) fn reload_workspaces(&mut self) {
         if let Some(path) = &self.workspaces_path {
             self.listing.panel.workspaces = Workspaces::load(path);
+            self.follow_editor();
         }
     }
 
-    /// Changes the workspaces, as they are kept now, and keeps them when that changed anything.
-    /// The names an older paddock recorded give way to their repositories first, as far as Git
-    /// has told: kept, the list leaves the others out (P5-105).
+    /// Changes the workspaces, as they are kept now, and keeps them as [`Panel::edit_workspaces`]
+    /// says: when that changed anything, or when an older paddock's names gave way with none
+    /// still waiting for Git (P5-105).
     fn edit_workspaces(&mut self, cx: &mut Context<Self>, change: impl FnOnce(&mut Workspaces)) {
-        self.reload_workspaces();
-        let before = self.listing.panel.workspaces.clone();
-        self.listing.panel.adopt_named();
-        change(&mut self.listing.panel.workspaces);
-        if self.listing.panel.workspaces != before
-            && let Some(path) = &self.workspaces_path
-            && let Err(error) = self.listing.panel.workspaces.save(path)
-        {
+        let path = self.workspaces_path.clone();
+        if let Err(error) = self.listing.panel.edit_workspaces(path.as_deref(), change) {
             self.note(format!("Workspaces not saved: {error}"), true, cx);
         }
+        self.follow_editor();
         cx.notify();
     }
 
     /// The names an older paddock recorded give way to the repositories their running agents
-    /// work in (P5-105), once corral has answered and Git has told of every one of them.
+    /// work in (P5-105), kept once Git has told of every one of them.
     pub(super) fn adopt_named(&mut self, cx: &mut Context<Self>) {
-        let panel = &self.listing.panel;
-        if self.listing.loaded && panel.workspaces.named() && panel.named_read() {
+        if self.listing.panel.workspaces.named() {
             self.edit_workspaces(cx, |_| {});
+        }
+    }
+
+    /// The open panel of a workspace's repositories follows it: those it gained meanwhile come
+    /// ticked, so `Done` does not take them out (P5-105).
+    fn follow_editor(&mut self) {
+        let Some(Floating::Editor(editor)) = &mut self.floating else {
+            return;
+        };
+        let workspaces = &self.listing.panel.workspaces;
+        if let Some(workspace) = editor.workspace.as_deref().and_then(|w| workspaces.get(w)) {
+            editor.picks.follow(workspace);
         }
     }
 
@@ -918,6 +928,7 @@ impl Sidebar {
             None => {
                 let picks = Picks {
                     repos: menu.repos.clone(),
+                    ..Picks::default()
                 };
                 panel.child(self.new_row(picks, ui, cx))
             }
@@ -989,6 +1000,7 @@ impl Sidebar {
         }
         let picks = Picks {
             repos: vec![repo.to_owned()],
+            ..Picks::default()
         };
         panel.child(self.new_row(picks, ui, cx))
     }
@@ -1273,7 +1285,7 @@ impl Sidebar {
             workspace: Some(name.to_owned()),
             name: None,
             picks: Picks::of(workspace),
-            extra: workspace.repos.clone(),
+            extra: Vec::new(),
             note: None,
             _changed: None,
         };
@@ -1288,7 +1300,8 @@ impl Sidebar {
     }
 
     /// `Create`, `Done` or Return: the new workspace with what is ticked, when its name will do;
-    /// or the workspace's repositories as ticked.
+    /// or the workspace's repositories as ticked since the panel opened, those it gained meanwhile
+    /// staying.
     fn confirm_editor(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(Floating::Editor(editor)) = &self.floating else {
             return;
@@ -1310,7 +1323,7 @@ impl Sidebar {
                 (None, typed) => all.create(&typed.unwrap_or_default()).ok(),
             };
             if let Some(name) = name {
-                all.set_members(&name, &picks.repos);
+                all.set_picked(&name, &picks);
                 done = true;
             }
         });
@@ -1403,7 +1416,6 @@ impl Sidebar {
         );
         let ground = hsla(theme.bg(|t| t.agents_bg), 1.0);
         let all = &self.listing.panel.workspaces;
-        let groups = self.listing.panel.groups();
         // The name: what it would be kept as, or why it will not do.
         let name = editor.name.as_ref().map(|input| {
             let typed = input.read(cx).text().to_owned();
@@ -1468,44 +1480,39 @@ impl Sidebar {
             .gap(px(2.0))
             .max_h((window.viewport_size().height - ui.px(PANEL_REST)).max(ui.px(3.0 * ROW)))
             .overflow_y_scroll();
-        // A group's one tick is its whole repository (P5-105).
-        for (index, group) in groups.iter().enumerate() {
-            let whole = editor.picks.whole(group);
-            let elsewhere = (group.repos.iter())
-                .find_map(|repo| all.of_repo(repo))
+        // A row for each repository, by its main worktree (P5-105): those agents work in, then the
+        // workspace's own and the folders chosen. Two of the same name are told apart by where
+        // they lie, though the list's groups have them as one (P5-80).
+        let mut rows: Vec<(PathBuf, usize)> = (self.listing.panel.repositories().into_iter())
+            .map(|listed| (listed.repo, listed.agents))
+            .collect();
+        for repo in editor.picks.base.iter().chain(&editor.extra) {
+            if !rows.iter().any(|(listed, _)| listed == repo) {
+                rows.push((repo.clone(), 0));
+            }
+        }
+        let names: Vec<String> = rows
+            .iter()
+            .map(|(repo, _)| kanban_repos::name(repo))
+            .collect();
+        for (index, ((repo, agents), called)) in rows.iter().zip(&names).enumerate() {
+            let on = editor.picks.repo(repo);
+            let elsewhere = all
+                .of_repo(repo)
                 .filter(|name| Some(*name) != editor.workspace.as_deref());
             let count = match elsewhere {
-                Some(other) if !whole => format!("in {other}"),
-                _ => workspaces::agents(group.agents),
+                Some(other) if !on => format!("in {other}"),
+                _ => workspaces::agents(*agents),
             };
-            let title = if group.name.is_empty() {
-                "agents".to_owned()
-            } else {
-                group.name.clone()
-            };
-            let on_click = {
-                let group = group.clone();
-                cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    if let Some(editor) = this.editor_mut() {
-                        editor.picks.toggle_whole(&group);
-                        cx.notify();
-                    }
-                })
-            };
-            list = list.child(
-                row(("workspace-group", index).into(), whole)
-                    .on_click(on_click)
-                    .child(tick(whole))
-                    .child(label(title, whole))
-                    .child(div().flex_1())
-                    .child(faint(count)),
-            );
-        }
-        // Repositories no group stands for: folders chosen, and members with no agent now.
-        let extra = (editor.extra.iter())
-            .filter(|repo| !groups.iter().any(|group| group.repos.contains(repo)));
-        for (index, repo) in extra.enumerate() {
-            let on = editor.picks.repo(repo);
+            let twin = names.iter().filter(|other| *other == called).count() > 1;
+            let place = twin.then(|| {
+                let parent = repo.parent().unwrap_or(repo).display().to_string();
+                let parent = card::tilde(&parent, self.home.as_deref());
+                let parent = card::shorten(&parent, &|path| path.chars().count() <= TWIN_PATH);
+                label(parent, false)
+                    .text_size(ui.px(COUNT))
+                    .text_color(dimmer)
+            });
             let on_click = {
                 let repo = repo.clone();
                 cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -1519,9 +1526,10 @@ impl Sidebar {
                 row(("workspace-repo", index).into(), on)
                     .on_click(on_click)
                     .child(tick(on))
-                    .child(label(kanban_repos::name(repo), on))
+                    .child(label(called.clone(), on))
+                    .children(place)
                     .child(div().flex_1())
-                    .child(faint(workspaces::agents(0))),
+                    .child(faint(count)),
             );
         }
 

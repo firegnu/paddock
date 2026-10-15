@@ -181,13 +181,20 @@ impl Workspaces {
         }
     }
 
-    /// `workspace` has exactly these repositories, taken from wherever they were.
-    pub fn set_members(&mut self, workspace: &str, repos: &[PathBuf]) {
-        if let Some(workspace) = self.get_mut(workspace) {
-            workspace.repos.clear();
+    /// `workspace`'s repositories as the panel's `picks` leaves them: those ticked since it opened
+    /// come, from wherever they are; those unticked since go, if still there. Any other stays as it
+    /// is now, so one the workspace gained meanwhile, as an older paddock's names gave way (P5-105)
+    /// or another window added it, is not taken out.
+    pub fn set_picked(&mut self, workspace: &str, picks: &Picks) {
+        for repo in &picks.repos {
+            if !picks.base.contains(repo) && self.of_repo(repo) != Some(workspace) {
+                self.add_repo(workspace, repo);
+            }
         }
-        for repo in repos {
-            self.add_repo(workspace, repo);
+        for repo in &picks.base {
+            if !picks.repo(repo) && self.of_repo(repo) == Some(workspace) {
+                self.remove_repo(repo);
+            }
         }
     }
 
@@ -259,15 +266,12 @@ impl Workspaces {
     }
 }
 
-/// A group with a repository as the sidebar lists it now, for the panel that picks a workspace's
-/// repositories.
+/// A repository agents work in now, by its main worktree, for the panel that picks a workspace's
+/// repositories: one row each, two of the same name apart (P5-105).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Listed {
-    /// As `Panel::group` names it.
-    pub name: String,
-    /// The repositories its agents work in.
-    pub repos: Vec<PathBuf>,
-    /// How many agents it has.
+    pub repo: PathBuf,
+    /// How many agents work in it.
     pub agents: usize,
 }
 
@@ -275,6 +279,9 @@ pub struct Listed {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Picks {
     pub repos: Vec<PathBuf>,
+    /// The workspace's own as the panel has them from it: what is ticked counts against them
+    /// ([`Workspaces::set_picked`]). None for a new workspace.
+    pub base: Vec<PathBuf>,
 }
 
 impl Picks {
@@ -282,6 +289,20 @@ impl Picks {
     pub fn of(workspace: &Workspace) -> Self {
         Picks {
             repos: workspace.repos.clone(),
+            base: workspace.repos.clone(),
+        }
+    }
+
+    /// Repositories `workspace` gained since the panel opened for it, as an older paddock's names
+    /// gave way (P5-105) or another window added them, come ticked, as though there as it opened.
+    pub fn follow(&mut self, workspace: &Workspace) {
+        for repo in &workspace.repos {
+            if !self.base.contains(repo) {
+                self.base.push(repo.clone());
+                if !self.repo(repo) {
+                    self.repos.push(repo.clone());
+                }
+            }
         }
     }
 
@@ -295,20 +316,6 @@ impl Picks {
                 self.repos.remove(at);
             }
             None => self.repos.push(repo.to_owned()),
-        }
-    }
-
-    /// The group's whole repository is ticked: every agent in it comes, and any started later.
-    pub fn whole(&self, group: &Listed) -> bool {
-        !group.repos.is_empty() && group.repos.iter().all(|repo| self.repo(repo))
-    }
-
-    /// The tick before the group's name: its whole repository on, or off.
-    pub fn toggle_whole(&mut self, group: &Listed) {
-        let whole = self.whole(group);
-        self.repos.retain(|repo| !group.repos.contains(repo));
-        if !whole {
-            self.repos.extend(group.repos.iter().cloned());
         }
     }
 

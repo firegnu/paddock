@@ -79,3 +79,30 @@
 - 重跑一次 `cargo test --all-targets`：全过，合计 655 条。
 - 对方的五条主意都同意（等读全再换、`corral ls` 里就算运行、同仓库名字在两处按 workspace 名先后、`None` 只在仓库已在某个 workspace 时出现、无变化不写）。
 - 界面那一层（浮层、卡片格子、菜单）没有自动测试，留给用户看。路由碰要害，派 Codex 重档交叉审查，结论见 `docs/任务/P5-105-交叉审查.md`。
+
+## 返工记录（10-15，交叉审查 R1、R2、R3）
+
+**做了什么**
+- R1（没变化的回调不借部分换算绕过等待存盘）：改名单的逻辑挪进 `Panel::edit_workspaces`（`agents.rs`，左侧栏的 `edit_workspaces` 只调它、报错、刷新）。先重读文件、按已读到的换算，再做这次改动；“这次改动本身改变了名单”就存盘（名单里剩下的名字随之去掉，照已接受的规则不变），“没改变”时只有换算过、而且重读后的名单里剩下的名字都读到了（`named_read`）才存盘，否则内存退回读到的样子、不写文件。P5-93 的 `join_started` 仓库已在别处、读不到仓库、workspace 已删，以及左侧栏刷新时的空改动，都不再把只换了一部分的名单存下去。左侧栏自动换算的入口只看名单里还有没有名字，等不等 Git 由 `edit_workspaces` 判断。
+- R2（浮层开着时完成的换算不被 `Done` 撤掉）：`Picks` 多记 `base`（浮层打开时这个 workspace 的仓库）；`set_members` 换成 `Workspaces::set_picked`，`Done` 只按打开以来勾上、勾掉的仓库改，其余照文件现在的样子。浮层开着时名单重读或改过（换算、别的窗口加的），`Picks::follow` 把这个 workspace 新得的仓库补进 `base` 并勾上，浮层里能看到；不勾掉它，`Done` 就留着。
+- R3（成员浮层按主仓库路径列项）：`Panel::groups()` 换成 `Panel::repositories()`，按主仓库路径一项（`Listed { repo, agents }`），按目录名再按路径排；浮层每个路径一行、分别勾（`toggle_repo`，去掉 `whole`、`toggle_whole`）；`in <名字>` 按这一个路径算。两行目录名相同时，名字后面加一段淡色的上级目录（`~` 开头，超过 24 个字符时用 `card::shorten` 中间省略）。workspace 自己的仓库、`Choose folder…` 选的仓库没有 agent 时也各占一行。左侧栏的分组（P5-80 同名组合并）没动。
+- `docs/DESIGN.md` P5-105 的“实际做法”“界面细节”两条按上面改了。
+
+**验证了什么**
+- 补的三条回归测试（`app/tests/workspaces.rs`）：
+  - R1 `a_change_that_changes_nothing_keeps_no_name_from_waiting_for_git`：两个旧名字一个读到、一个还在等 Git，依次走“仓库在别的 workspace”“读不到仓库”“workspace 已删”三个 P5-93 回调和一次空改动，文件一个字节不变、两个名字都在；等的那个读到后一次存盘，两个仓库都进来、名字清空。
+  - R2 `done_keeps_what_names_gave_way_to_while_the_panel_was_open`：按旧名单打开成员浮层，Git 结果到了、自动换算存盘，不改勾选按 `Done`（用打开时的勾选和跟随后的勾选各按一次），原归属都还在；跟随后勾掉再 `Done` 才去掉。
+  - R3 `two_repositories_of_one_name_are_ticked_apart_and_the_list_keeps_one_group_of_them`：`/one/demo` 在 One、`/two/demo` 在 Two；不在 workspace 时左侧栏仍是一个 `demo/` 组，浮层是两行；在 One 的浮层按 `Done`、勾掉、再勾上，Two 的那个始终不动，agent 各跟各的仓库。
+- RED：R1、R2 把旧逻辑临时放回去跑（存盘条件改回“和读到的不一样就存”，`set_picked` 改回旧 `set_members` 的“清空再按勾选加”），两条都失败：R1 第一个无变化回调就把只换了一部分的名单写进文件、等 Git 的 `ranch/dev` 丢了；R2 `Done` 后只剩 `/w/cairn`，`/w/paddock` 被撤掉。之后恢复原样，用 `cmp` 确认文件一致。R3 用的 `groups()`、`toggle_whole` 已删掉，测试在旧接口上编不过，没跑 RED；旧代码同名合并成一项、一勾挪走两个仓库这一点，审查已经查实。
+- 原来的两条跟着改了：`a_repository_is_in_one_workspace_only` 改用 `set_picked`；浮层勾选那条改名 `the_panel_ticks_whole_repositories_and_lists_none_for_agents_that_go_by_a_prefix`，按 `repositories()`、`toggle_repo`、`set_picked` 写。
+- `cargo test --test workspaces` 16 条全过（其他测试文件不用这些接口）；`cargo clippy --all-targets -- -D warnings` 没有警告；`cargo fmt --check`、`git diff --check` 都通过。照要求没重跑全套。没起窗口、没截图。
+
+**拿主意的地方**
+- R1 没存盘时，内存里也退回读到的样子，不留只换了一部分的结果，和“名字存盘之前不起作用”保持一致。
+- R2 两手都做了：`Done` 按差异改，浮层也跟着勾上。只做跟随的话，名单在别处变了而浮层没刷新时还会撤掉；只做差异的话，浮层看不到新进来的仓库。另一个窗口在浮层开着时去掉的仓库，`Done` 也不会加回来。
+- R3 每行的个数只数 Git 读到在这个路径里的 agent。按前缀分组的不算：两个同名仓库时，没法知道它属于哪个路径。
+- 同名行的上级目录限 24 个字符，超出时中间省略，和卡片路径用的是同一个缩短函数。
+
+**没做的事**
+- 浮层同名两行的样子、跟随勾选的效果都没起窗口看，留给用户实际看。
+- 没动审查文件 `P5-105-交叉审查.md`。

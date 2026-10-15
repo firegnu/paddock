@@ -191,7 +191,11 @@ fn a_repository_is_in_one_workspace_only() {
     assert_eq!(all.of_repo(Path::new("/w/paddock")), Some("Two"));
     // A workspace that is not there (another window removed it) takes nothing from the others.
     all.add_repo("Gone", Path::new("/w/ranch"));
-    all.set_members("Gone", &[PathBuf::from("/w/paddock")]);
+    let picks = Picks {
+        repos: vec![PathBuf::from("/w/paddock")],
+        ..Picks::default()
+    };
+    all.set_picked("Gone", &picks);
     assert_eq!(all.of_repo(Path::new("/w/ranch")), Some("One"));
     assert_eq!(all.of_repo(Path::new("/w/paddock")), Some("Two"));
     // Taken out, it is in none; the workspace gone, its repositories are in none.
@@ -326,6 +330,102 @@ fn names_an_older_paddock_recorded_give_way_to_their_running_agents_repositories
     );
     assert_eq!(broken, Workspaces::default());
     assert!(!broken.adopt(|_| Some(PathBuf::from("/w/paddock"))));
+}
+
+#[test]
+fn a_change_that_changes_nothing_keeps_no_name_from_waiting_for_git() {
+    let temp = common::tempdir();
+    let path = temp.path().join("workspaces.json");
+    let mut panel = panel(&[
+        ("paddock/main", "/w/paddock", "idle"),
+        ("ranch/dev", "/trees/ranch-dev", "working"),
+        ("cairn/main", "/w/cairn", "idle"),
+    ]);
+    // Two names in My-Harness, as P5-89 let it keep them; cairn whole in Other.
+    let json = r#"[{"name": "My-Harness", "repos": [], "agents": ["paddock/main", "ranch/dev"]},
+                   {"name": "Other", "repos": ["/w/cairn"], "agents": []}]"#;
+    panel.workspaces = older(temp.path(), json);
+    // Git has told where paddock/main works, not yet ranch/dev.
+    repository(&mut panel, "/w/paddock", "/w/paddock");
+    repository(&mut panel, "/w/cairn", "/w/cairn");
+    assert!(!panel.named_read());
+    // Agents started from My-Harness's New Agent… in a repository of another workspace, outside
+    // Git, and from a workspace another window removed, and the list's own turn: none changes
+    // the list, so none keeps paddock/main's giving way, which would lose ranch/dev's name.
+    let changes: [fn(&mut Workspaces); 4] = [
+        |all| assert!(!all.join("My-Harness", Some(Path::new("/w/cairn")))),
+        |all| assert!(!all.join("My-Harness", None)),
+        |all| assert!(!all.join("Gone", Some(Path::new("/w/lost")))),
+        |_| {},
+    ];
+    for change in changes {
+        panel.edit_workspaces(Some(&path), change).unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), json);
+        assert_eq!(
+            Workspaces::load(&path).get("My-Harness").unwrap().agents,
+            ["paddock/main", "ranch/dev"]
+        );
+        // Not kept, the names do nothing yet.
+        assert_eq!(of(&panel, "paddock/main"), None);
+    }
+    // Git tells of ranch/dev: both give way, kept, and no name is left.
+    repository(&mut panel, "/trees/ranch-dev", "/w/ranch");
+    panel.edit_workspaces(Some(&path), |_| {}).unwrap();
+    let kept = Workspaces::load(&path);
+    assert!(!kept.named());
+    assert_eq!(
+        kept.get("My-Harness").unwrap().repos,
+        [PathBuf::from("/w/paddock"), PathBuf::from("/w/ranch")]
+    );
+    assert_eq!(of(&panel, "ranch/dev"), Some("My-Harness"));
+}
+
+#[test]
+fn done_keeps_what_names_gave_way_to_while_the_panel_was_open() {
+    let temp = common::tempdir();
+    let path = temp.path().join("workspaces.json");
+    let mut panel = panel(&[
+        ("paddock/main", "/w/paddock", "idle"),
+        ("cairn/main", "/w/cairn", "idle"),
+    ]);
+    panel.workspaces = older(
+        temp.path(),
+        r#"[{"name": "My-Harness", "repos": ["/w/cairn"], "agents": ["paddock/main"]}]"#,
+    );
+    let repos = || {
+        Workspaces::load(&path)
+            .get("My-Harness")
+            .unwrap()
+            .repos
+            .clone()
+    };
+    // The panel opens on the list as read, before Git has told where paddock/main works.
+    let opened = Picks::of(panel.workspaces.get("My-Harness").unwrap());
+    assert!(!opened.repo(Path::new("/w/paddock")));
+    // Git tells; the name gives way to paddock, kept.
+    repository(&mut panel, "/w/paddock", "/w/paddock");
+    repository(&mut panel, "/w/cairn", "/w/cairn");
+    panel.edit_workspaces(Some(&path), |_| {}).unwrap();
+    let both = [PathBuf::from("/w/cairn"), PathBuf::from("/w/paddock")];
+    assert_eq!(repos(), both);
+    // The open panel follows: paddock comes ticked.
+    let mut followed = opened.clone();
+    followed.follow(panel.workspaces.get("My-Harness").unwrap());
+    assert!(followed.repo(Path::new("/w/paddock")));
+    assert_eq!(followed.summary(), "2 repositories");
+    // Done with nothing ticked or unticked, as the panel opened or as it follows: paddock stays.
+    for picks in [&opened, &followed] {
+        panel
+            .edit_workspaces(Some(&path), |all| all.set_picked("My-Harness", picks))
+            .unwrap();
+        assert_eq!(repos(), both);
+    }
+    // Unticked, it goes.
+    followed.toggle_repo(Path::new("/w/paddock"));
+    panel
+        .edit_workspaces(Some(&path), |all| all.set_picked("My-Harness", &followed))
+        .unwrap();
+    assert_eq!(repos(), [PathBuf::from("/w/cairn")]);
 }
 
 #[test]
@@ -670,7 +770,7 @@ fn a_name_is_needed_and_taken_once_whatever_its_case() {
 }
 
 #[test]
-fn the_panel_ticks_whole_repositories_and_lists_no_group_that_goes_by_a_prefix() {
+fn the_panel_ticks_whole_repositories_and_lists_none_for_agents_that_go_by_a_prefix() {
     let mut panel = panel(&[
         ("jb/codex-1", "/w/jb", "idle"),
         ("jb/dev-1", "/trees/jb-dev", "working"),
@@ -680,35 +780,36 @@ fn the_panel_ticks_whole_repositories_and_lists_no_group_that_goes_by_a_prefix()
     repository(&mut panel, "/w/jb", "/w/jb");
     repository(&mut panel, "/trees/jb-dev", "/w/jb");
     panel.absorb_git(vec![("/plain".into(), None)]);
-    // jb once, the agent of it that goes by its prefix counted too; scratch, by its prefix
-    // alone, has no repository to tick.
-    let groups = panel.groups();
+    // jb once, with the agents that work in it; jb/test and scratch, going by their prefix,
+    // work in no repository to tick.
     assert_eq!(
-        groups,
+        panel.repositories(),
         [Listed {
-            name: "jb".into(),
-            repos: vec!["/w/jb".into()],
-            agents: 3,
+            repo: "/w/jb".into(),
+            agents: 2,
         }]
     );
-    let jb = &groups[0];
+    let jb = Path::new("/w/jb");
     let mut picks = Picks::default();
     // The whole repository: every agent in it comes, and any started there later.
-    picks.toggle_whole(jb);
-    assert!(picks.whole(jb));
+    picks.toggle_repo(jb);
+    assert!(picks.repo(jb));
     assert_eq!(picks.summary(), "1 repository");
     // Off, nothing of it is left.
-    picks.toggle_whole(jb);
+    picks.toggle_repo(jb);
     assert_eq!(picks, Picks::default());
     assert_eq!(picks.summary(), "");
-    // Set as ticked: repositories come from wherever they were, and what is not ticked goes.
-    picks.toggle_whole(jb);
-    picks.toggle_repo(Path::new("/w/new"));
-    assert_eq!(picks.summary(), "2 repositories");
+    // As ticked since the panel opened: repositories come from wherever they were, and those
+    // unticked go.
     let mut all = Workspaces::default();
     workspace(&mut all, "Other", &["/w/jb", "/w/solo"]);
     workspace(&mut all, "Tuning", &["/w/old"]);
-    all.set_members("Tuning", &picks.repos);
+    let mut picks = Picks::of(all.get("Tuning").unwrap());
+    picks.toggle_repo(jb);
+    picks.toggle_repo(Path::new("/w/new"));
+    picks.toggle_repo(Path::new("/w/old"));
+    assert_eq!(picks.summary(), "2 repositories");
+    all.set_picked("Tuning", &picks);
     assert_eq!(
         all.list(),
         [
@@ -724,6 +825,73 @@ fn the_panel_ticks_whole_repositories_and_lists_no_group_that_goes_by_a_prefix()
             },
         ]
     );
+}
+
+#[test]
+fn two_repositories_of_one_name_are_ticked_apart_and_the_list_keeps_one_group_of_them() {
+    let mut panel = panel(&[
+        ("demo/main", "/one/demo", "idle"),
+        ("demo/dev", "/trees/demo-dev", "working"),
+        ("demo/two", "/two/demo", "idle"),
+    ]);
+    repository(&mut panel, "/one/demo", "/one/demo");
+    repository(&mut panel, "/trees/demo-dev", "/one/demo");
+    repository(&mut panel, "/two/demo", "/two/demo");
+    // Outside workspaces the list has them in one demo group, as P5-80 does; the panel has a
+    // row for each.
+    assert_eq!(
+        shown(&panel, None),
+        [
+            "# demo/ 3 [Working, Idle, Idle]",
+            "demo/dev",
+            "demo/main",
+            "demo/two",
+        ]
+    );
+    assert_eq!(
+        panel.repositories(),
+        [
+            Listed {
+                repo: "/one/demo".into(),
+                agents: 2,
+            },
+            Listed {
+                repo: "/two/demo".into(),
+                agents: 1,
+            },
+        ]
+    );
+    // One in One, the other in Two.
+    workspace(&mut panel.workspaces, "One", &["/one/demo"]);
+    workspace(&mut panel.workspaces, "Two", &["/two/demo"]);
+    let one = Path::new("/one/demo");
+    let two = Path::new("/two/demo");
+    // One's panel has its own ticked, not Two's; Done as it opened moves nothing.
+    let mut picks = Picks::of(panel.workspaces.get("One").unwrap());
+    assert!(picks.repo(one) && !picks.repo(two));
+    panel
+        .edit_workspaces(None, |all| all.set_picked("One", &picks))
+        .unwrap();
+    assert_eq!(panel.workspaces.of_repo(one), Some("One"));
+    assert_eq!(panel.workspaces.of_repo(two), Some("Two"));
+    // Unticked, One's goes alone; Two keeps the other.
+    picks.toggle_repo(one);
+    panel
+        .edit_workspaces(None, |all| all.set_picked("One", &picks))
+        .unwrap();
+    assert_eq!(panel.workspaces.of_repo(one), None);
+    assert_eq!(panel.workspaces.of_repo(two), Some("Two"));
+    // Ticked again, it comes back alone; each agent is where its repository is.
+    let mut picks = Picks::of(panel.workspaces.get("One").unwrap());
+    picks.toggle_repo(one);
+    panel
+        .edit_workspaces(None, |all| all.set_picked("One", &picks))
+        .unwrap();
+    assert_eq!(panel.workspaces.get("One").unwrap().repos, [one]);
+    assert_eq!(panel.workspaces.get("Two").unwrap().repos, [two]);
+    assert_eq!(of(&panel, "demo/dev"), Some("One"));
+    assert_eq!(of(&panel, "demo/main"), Some("One"));
+    assert_eq!(of(&panel, "demo/two"), Some("Two"));
 }
 
 #[test]
