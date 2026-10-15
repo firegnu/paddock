@@ -20,3 +20,9 @@
 
 ## 不做
 - 不改别的栏、框、条和圈的样子。
+
+## 完成记录（主控 10-15）
+- 做了什么（`app/src/kanban_view.rs`）：去掉 `fade()`（DONE 整条 62% 透明度）；DONE 标题按颜色变淡：普通 `dim`，Dropped `dim` 再乘 0.7（`DROPPED_TITLE`），等你的照旧 `muted`；编号、圈、时间不再叠透明度。`docs/DESIGN.md` 的 P5-114 一条下补一行。
+- 验证了什么：纯画法，没另造失败的测试。`cargo test --all-targets` 666 个通过，`cargo clippy --all-targets -- -D warnings`、`cargo fmt --check` 通过。截图（同 P5-114 的办法，本仓库本地克隆、假 corral、临时 HOME，只截自己的窗口）：7 个内置主题窄面板各一张，DONE 的编号和 Queued 的一样亮，标题仍比别的栏淡，Dropped 那条更淡；截图没入库，已删。
+- 拿主意的地方：等你的那条 DONE（如 P5-28c）原来就不变淡，标题照旧 `muted`，比别的 DONE 标题亮一点。
+- 没做的事：无。

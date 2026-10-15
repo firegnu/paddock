@@ -84,6 +84,8 @@ const BOX_PAD: f32 = 2.0;
 /// A widened board's column: its face, in the faint colour.
 const COLUMN_FACE: f32 = 0.12;
 const ROW_HOVERED: f32 = 0.04;
+/// A dropped DONE row's title, on its dim colour.
+const DROPPED_TITLE: f32 = 0.7;
 /// Room kept from the right sidebar's own edge when reckoning the width a text is cut to.
 const SPARE: f32 = 2.0;
 /// The ground of the small tags and pills, and the rule between two rows, in the text colour.
@@ -2035,10 +2037,14 @@ impl KanbanView {
                 .min_w(px(0.0))
                 .whitespace_nowrap()
                 .text_size(ui.px(DONE_SIZE))
-                .text_color(if card.dropped.is_some() {
-                    c.dim
-                } else {
+                // Fainter than the other columns by its colour alone, its id left as bright
+                // (P5-114a): one dropped fainter still, one that needs the user as the others.
+                .text_color(if card.needs_you {
                     c.muted
+                } else if card.dropped.is_some() {
+                    c.dim.opacity(DROPPED_TITLE)
+                } else {
+                    c.dim
                 })
                 .child(words)
         } else {
@@ -2132,7 +2138,6 @@ impl KanbanView {
             .pr(ui.px(CARD_RIGHT))
             .rounded(ui.px(ROW_RADIUS))
             .when(hovered, |row| row.bg(c.text.opacity(ROW_HOVERED)))
-            .opacity(fade(card))
             .text_size(ui.px(13.0))
             .when(rule, |row| {
                 row.child(
@@ -4338,18 +4343,6 @@ fn take_back(acts: &mut HashMap<String, Clearing>, file: &str) -> bool {
         acts.remove(file);
     }
     shown
-}
-
-/// How faded a card is: DONE some, one that needs the user not at all. A draft is told by its
-/// fainter, dashed card instead.
-fn fade(card: &Card) -> f32 {
-    if card.needs_you {
-        1.0
-    } else if card.column == Column::Done {
-        0.62
-    } else {
-        1.0
-    }
 }
 
 /// A hover text whose words are not fixed, drawn as the right sidebar's [`Tip`].
