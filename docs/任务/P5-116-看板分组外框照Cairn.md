@@ -24,3 +24,9 @@
 
 ## 不做
 - 不改 Cairn；不给 Kanban 的框用强调色。
+
+## 完成记录（主控 10-15）
+- 做了什么（`app/src/kanban_view.rs`）：`LIST_X` 12 → 8，外框离面板边 8pt，和 Cairn 一样；分组标题和 Show all 加 `HEAD_X`（8）把字留在原处；`BOX_EDGE` 0.07 → 0.12。`docs/DESIGN.md` 的 P5-114 一条下补一行。
+- 验证了什么：纯画法，没另造失败的测试。`cargo test --all-targets` 666 个通过，`cargo clippy --all-targets -- -D warnings`、`cargo fmt --check` 通过。截图（同 P5-114，本仓库本地克隆、假 corral、临时 HOME，只截自己的窗口）：7 个内置主题各一张 Kanban，外框离边 8pt、边比原来清楚，分组标题位置没变；截图没入库，已删。
+- 拿主意的地方：边取 12%：比原来清楚，又不比框里的细线（6%）和 Cairn 的强调色边抢眼。
+- 没做的事：Cairn 那张对照没截到：测试用的临时 HOME 里没有 cairn 的数据，Cairn 标签里不出框；两边离边的距离按代码对过（都是 8pt），实际并排的样子留给用户看。
