@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Kanban cards, tighter</title>
+<style>
+:root{
+  --bg:#0f1817; --line:rgba(223,233,229,.07); --line2:rgba(223,233,229,.11);
+  --text:#dfe9e5; --bright:#eef5f2; --muted:#8a9e99; --dim:#6b7f7a;
+  --accent:#5fd3b0; --chip:rgba(223,233,229,.06);
+  --green:#7fd99a; --red:#ef7a7a; --yellow:#e8c46a; --claude:#d9895b;
+}
+*{box-sizing:border-box}
+body{margin:0;background:#0a1110;font-family:-apple-system,'SF Pro Text','PingFang SC','Helvetica Neue',sans-serif;color:var(--text);font-size:13px}
+.wrap{display:flex;gap:28px;padding:28px;align-items:flex-start;flex-wrap:wrap}
+.col{display:flex;flex-direction:column;gap:10px}
+.cap{font-size:13px;color:var(--muted);width:360px;line-height:1.5;min-height:58px}
+.cap b{color:var(--bright)}
+.pane{width:360px;background:var(--bg);border:1px solid var(--line2);border-radius:12px;overflow:hidden;padding-bottom:12px}
+.mono{font-family:'JetBrains Mono','SF Mono',Menlo,monospace}
+.head{display:flex;align-items:center;gap:8px;padding:12px 14px 10px;border-bottom:1px solid var(--line)}
+.repo{font-weight:600;font-size:14.5px}
+.chip{padding:1px 8px;border-radius:999px;background:var(--chip);color:var(--muted);font-size:11px}
+.need{margin-left:auto;padding:3px 10px;border-radius:999px;background:rgba(232,196,106,.13);color:var(--yellow);font-size:12px;font-weight:600}
+.sec{display:flex;align-items:center;gap:7px;padding:12px 14px 6px;font-size:12.5px;font-weight:600;color:var(--bright)}
+.sec .dot{width:6px;height:6px;border-radius:50%;background:var(--muted)}
+.sec .n{font-weight:400;color:var(--muted);font-size:11.5px;padding:0 7px;border-radius:999px;background:var(--chip)}
+.sec.empty{font-weight:400;color:var(--muted);padding-top:5px;padding-bottom:5px}
+.sec.empty .dot{background:var(--dim)}
+.sec.empty .n{background:none;padding:0}
+.list{display:flex;flex-direction:column;padding:0 8px}
+.id{flex:none;font-size:11px;color:var(--dim)}
+.age{flex:none;font-size:11px;color:var(--dim)}
+.t{color:var(--text);line-height:1.4;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
+.t.b{font-weight:500}
+.mark{flex:none;font-size:10.5px;padding:0 6px;border-radius:999px;line-height:17px;color:var(--dim)}
+.mark.high{background:rgba(239,122,122,.14);color:var(--red);font-weight:600}
+.mark.low{background:var(--chip)}
+.mark.draft{border:1px solid rgba(223,233,229,.14);line-height:15px}
+.mark.drop{border:1px solid rgba(223,233,229,.14);line-height:15px}
+.ask{font-size:12px;line-height:1.45;color:var(--text);display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:1;overflow:hidden}
+.ask b{color:var(--yellow);font-weight:600;margin-right:6px}
+.av{flex:none;width:16px;height:16px;border-radius:4px;background:rgba(217,137,91,.22);color:var(--claude);font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;position:relative}
+.av:after{content:'';position:absolute;right:-2px;bottom:-2px;width:6px;height:6px;border-radius:50%;background:var(--green);border:1.5px solid var(--bg)}
+.meta{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--muted);min-width:0}
+.meta .nm{color:var(--bright)} .meta .st{color:var(--green)} .meta .sp{flex:1}
+.meta .br{font-size:11px;color:var(--dim)}
+.add{color:var(--green)} .del{color:var(--red)}
+
+/* now */
+.now .card{position:relative;display:flex;flex-direction:column;gap:6px;padding:10px 12px 10px 14px;border-radius:10px;margin-bottom:6px;border:1px solid rgba(223,233,229,.07);background:rgba(223,233,229,.055)}
+.now .card.draft{border:1px dashed rgba(223,233,229,.12);background:rgba(223,233,229,.03)}
+.now .card.wait{border-color:rgba(232,196,106,.34);background:rgba(232,196,106,.05)}
+.now .card .idtag{align-self:flex-start;font-size:11px;padding:0 6px;border-radius:5px;background:var(--chip);color:var(--muted)}
+.now .card .marks{display:flex;gap:6px}
+.now .card .mk{font-size:11px;padding:1px 9px;border-radius:999px;color:var(--dim);border:1px solid rgba(223,233,229,.14)}
+.now .card .mk.high{border:none;background:rgba(239,122,122,.14);color:var(--red);font-weight:600}
+.now .card .mk.low{border:none;background:var(--chip)}
+.now .card .asks{padding:7px 9px;border-radius:7px;background:rgba(232,196,106,.08);font-size:12px;line-height:1.45;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
+.now .card .asks b{color:var(--yellow);margin-right:6px}
+.stripe{position:absolute;left:0;top:9px;bottom:9px;width:3px;border-radius:2px;background:var(--red)}
+.stripe.low{background:var(--dim)}
+.now .row{display:flex;align-items:center;gap:8px;padding:8px 12px 8px 14px;font-size:12.5px;color:var(--muted);white-space:nowrap}
+.now .row span.tt{flex:1;overflow:hidden;text-overflow:ellipsis}
+
+/* 甲 */
+.a .card{position:relative;display:flex;flex-direction:column;gap:5px;padding:8px 10px 8px 12px;border-radius:9px;margin-bottom:4px;border:1px solid rgba(223,233,229,.07);background:rgba(223,233,229,.055)}
+.a .card.draft{border:1px dashed rgba(223,233,229,.12);background:rgba(223,233,229,.03)}
+.a .card.wait{border-color:rgba(232,196,106,.34);background:rgba(232,196,106,.05)}
+.a .card .top{display:flex;align-items:flex-start;gap:8px}
+.a .card .top .id{line-height:18px;width:44px}
+.a .card .top .t{flex:1;min-width:0}
+.a .card .top .r{flex:none;display:flex;flex-direction:column;align-items:flex-end;gap:3px;padding-top:1px}
+.a .card .under{padding-left:52px}
+.a .ask{padding:5px 8px;border-radius:6px;background:rgba(232,196,106,.08)}
+.a .row{display:flex;align-items:center;gap:8px;padding:6px 10px 6px 12px;border:1px solid transparent;font-size:12.5px;color:var(--muted);white-space:nowrap}
+.a .row .id{width:44px}
+.a .row span.tt{flex:1;overflow:hidden;text-overflow:ellipsis}
+.a .row.struck span.tt{color:var(--dim)}
+.a .done-wait{margin:2px 0 4px}
+
+/* 乙 */
+.b .list{padding:0 6px}
+.b .item{position:relative;display:flex;flex-direction:column;gap:4px;padding:8px 10px 8px 12px;border-radius:8px}
+.b .item+.item:before{content:'';position:absolute;left:12px;right:10px;top:0;border-top:1px solid var(--line)}
+.b .item.hov{background:rgba(223,233,229,.04)}
+.b .item.hov:before,.b .item.hov+.item:before{display:none}
+.b .item .top{display:flex;align-items:flex-start;gap:8px}
+.b .item .top .id{line-height:18px;width:44px}
+.b .item .top .t{flex:1;min-width:0}
+.b .item .top .r{flex:none;display:flex;align-items:center;gap:6px;padding-top:1px}
+.b .item .under{padding-left:52px}
+.b .item.draft .t{color:var(--muted)}
+.b .item .stripe{left:3px;top:10px;bottom:10px}
+.b .ask{padding:0}
+.b .group{margin:0 2px 4px;border-radius:10px;background:rgba(223,233,229,.035);border:1px solid var(--line)}
+.b .done .item{padding-top:6px;padding-bottom:6px}
+.b .done .item .t{color:var(--muted);font-weight:400;-webkit-line-clamp:1;font-size:12.5px}
+.b .done .item.struck .t{color:var(--dim)}
+.dd{display:inline-block;width:7px;height:7px;border-radius:50%;border:1px dashed var(--dim);margin-right:2px}
+.show{margin:8px 12px 0;display:inline-flex;padding:4px 12px;border-radius:999px;background:var(--chip);color:var(--muted);font-size:12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<!-- ============ 现在 ============ -->
+<div class="col">
+<div class="cap"><b>现在</b>：编号、标题、记号各占一行，一个只有 Draft 的卡片也是三行高；DONE 里有的是一行、有的是大卡片。P5-90 的 Needs you 第二行右边被截断，没有 `…`。</div>
+<div class="pane now">
+  <div class="head"><span class="repo">paddock</span><span class="chip mono">main</span><span class="need">2 need you</span></div>
+  <div class="sec"><span class="dot"></span>Queued <span class="n">4</span></div>
+  <div class="list">
+    <div class="card wait"><span class="stripe"></span><span class="idtag mono">P5-90</span><div class="t b">在 paddock 里加载远程机器上 corral 托管的 agent</div><div class="marks"><span class="mk high">High</span></div><div class="asks"><b>Needs you</b>远端要先有能用的 corral，归 ranch 的 R10（在 Linux 远端装 ranch，草稿在 ranch 仓库，跨仓库不写进「依赖：」），请定 R10…</div></div>
+    <div class="card draft"><span class="idtag mono">P5-106</span><div class="t b">看板加 loop：打开后 Queued 里的任务按次序排队开发</div><div class="marks"><span class="mk">Draft</span></div></div>
+    <div class="card draft"><span class="idtag mono">P5-111</span><div class="t b">调研 Ghostty 作者提出的 OSC 7501（agent 状态的标准）</div><div class="marks"><span class="mk">Draft</span></div></div>
+    <div class="card draft"><span class="stripe low"></span><span class="idtag mono">P5-54</span><div class="t b">Browser 选中元素、Changes 选中 diff 后送给 agent</div><div class="marks"><span class="mk">Draft</span><span class="mk low">Low</span></div></div>
+  </div>
+  <div class="sec"><span class="dot"></span>In progress <span class="n">1</span></div>
+  <div class="list">
+    <div class="card"><div style="display:flex"><span class="idtag mono">P5-113</span></div><div class="t b">看板卡片收紧</div><div class="meta"><span class="av">C</span><span class="nm">p5-113</span><span class="st">Working</span><span class="sp"></span><span class="br mono">p5-113-cards</span><span class="add">+84</span><span class="del">−31</span></div></div>
+  </div>
+  <div class="sec"><span class="dot"></span>Done <span class="n">6 of 178</span></div>
+  <div class="list">
+    <div class="row"><span class="id mono">P5-112</span><span class="tt">看板第一次打开某个仓库时慢：任务文件一次读完</span><span class="age">1m</span></div>
+    <div class="card"><div style="display:flex;justify-content:space-between"><span class="idtag mono">P5-81</span><span class="age">16m</span></div><div class="t">HANDOFF 和 cairn 并行一段时间，定 cairn 能替掉多少 HANDOFF</div><div class="marks"><span class="mk">Dropped</span></div></div>
+    <div class="row"><span class="id mono">P5-110</span><span class="tt">Cairn 标签的记录按会话收，会接续的合进一个框</span><span class="age">17m</span></div>
+    <div class="row"><span class="id mono">P5-109</span><span class="tt">Cairn 面板记录列表的说明改成 cairn 0.4.1 的说法</span><span class="age">38m</span></div>
+    <div class="card wait"><div style="display:flex;justify-content:space-between"><span class="idtag mono">P5-28c</span><span class="age">8d</span></div><div class="t">Browser 收尾：本地开发页面一定能打开，补新窗口、对话框和上传、下载、证书失败、Safari 调试、网页内查找</div><div class="asks"><b>Needs you</b>按本文件完成记录末尾 8 条清单实测（第 1 条本地开发地址最要紧）。</div></div>
+  </div>
+</div>
+</div>
+
+<!-- ============ 甲 ============ -->
+<div class="col">
+<div class="cap"><b>甲 卡片收紧</b>：仍是一张张卡片。编号移到标题左边一栏，记号（High、Low、Draft）和时间放右边，一件活通常一行或两行；Needs you 收成一行（被截时加 `…`，全文在任务弹框）；DONE 一律一行，Dropped 和 Needs you 也是，Needs you 那件下面加一行琥珀色。</div>
+<div class="pane a">
+  <div class="head"><span class="repo">paddock</span><span class="chip mono">main</span><span class="need">2 need you</span></div>
+  <div class="sec"><span class="dot"></span>Queued <span class="n">4</span></div>
+  <div class="list">
+    <div class="card wait"><span class="stripe"></span><div class="top"><span class="id mono">P5-90</span><div class="t b">在 paddock 里加载远程机器上 corral 托管的 agent</div><div class="r"><span class="mark high">High</span></div></div><div class="under"><div class="ask"><b>Needs you</b>远端要先有能用的 corral，归 ranch 的 R10（在 Linux 远端装 ranch…</div></div></div>
+    <div class="card draft"><div class="top"><span class="id mono">P5-106</span><div class="t b">看板加 loop：打开后 Queued 里的任务按次序排队开发</div><div class="r"><span class="mark draft">Draft</span></div></div></div>
+    <div class="card draft"><div class="top"><span class="id mono">P5-111</span><div class="t b">调研 Ghostty 作者提出的 OSC 7501（agent 状态的标准）</div><div class="r"><span class="mark draft">Draft</span></div></div></div>
+    <div class="card draft"><span class="stripe low"></span><div class="top"><span class="id mono">P5-54</span><div class="t b">Browser 选中元素、Changes 选中 diff 后送给 agent</div><div class="r"><span class="mark draft">Draft</span><span class="mark low">Low</span></div></div></div>
+  </div>
+  <div class="sec"><span class="dot"></span>In progress <span class="n">1</span></div>
+  <div class="list">
+    <div class="card"><div class="top"><span class="id mono">P5-113</span><div class="t b">看板卡片收紧</div><div class="r"><span class="age">4m</span></div></div><div class="under meta"><span class="av">C</span><span class="nm">p5-113</span><span class="st">Working</span><span class="sp"></span><span class="add">+84</span><span class="del">−31</span></div></div>
+  </div>
+  <div class="sec empty"><span class="dot"></span>To review <span class="n">0</span></div>
+  <div class="sec empty"><span class="dot"></span>Merged <span class="n">0</span></div>
+  <div class="sec"><span class="dot"></span>Done <span class="n">6 of 178</span></div>
+  <div class="list">
+    <div class="row"><span class="id mono">P5-112</span><span class="tt">看板第一次打开某个仓库时慢：任务文件一次读完</span><span class="age">1m</span></div>
+    <div class="row struck"><span class="id mono">P5-81</span><span class="tt">HANDOFF 和 cairn 并行一段时间，定 cairn 能替掉多少 HANDOFF</span><span class="mark drop">Dropped</span><span class="age">16m</span></div>
+    <div class="row"><span class="id mono">P5-110</span><span class="tt">Cairn 标签的记录按会话收，会接续的合进一个框</span><span class="age">17m</span></div>
+    <div class="row"><span class="id mono">P5-109</span><span class="tt">Cairn 面板记录列表的说明改成 cairn 0.4.1 的说法</span><span class="age">38m</span></div>
+    <div class="row"><span class="id mono">P5-108</span><span class="tt">Cairn 面板的说明文字改成 cairn 0.4.0 的说法</span><span class="age">2.4h</span></div>
+    <div class="row"><span class="id mono">P5-28c</span><span class="tt">Browser 收尾：本地开发页面一定能打开，补新窗口、对话框…</span><span class="age">8d</span></div>
+    <div class="done-wait" style="padding-left:64px;padding-right:10px"><div class="ask" style="padding:5px 8px;border-radius:6px;background:rgba(232,196,106,.08)"><b>Needs you</b>按本文件完成记录末尾 8 条清单实测（第 1 条本地…</div></div>
+  </div>
+  <span class="show">Show all 178 ⌄</span>
+</div>
+</div>
+
+<!-- ============ 乙 ============ -->
+<div class="col">
+<div class="cap"><b>乙 一栏一个框</b>：每栏的活放在一个框里，条与条之间细线隔开，不再一件一张卡片；排法同甲（编号一栏、右边记号）。草稿只在编号前画虚线小圈、标题淡一些；High/Low 用左边那道线。DONE 不加框，一律一行。</div>
+<div class="pane b">
+  <div class="head"><span class="repo">paddock</span><span class="chip mono">main</span><span class="need">2 need you</span></div>
+  <div class="sec"><span class="dot"></span>Queued <span class="n">4</span></div>
+  <div class="list"><div class="group">
+    <div class="item"><span class="stripe"></span><div class="top"><span class="id mono">P5-90</span><div class="t b">在 paddock 里加载远程机器上 corral 托管的 agent</div></div><div class="under"><div class="ask"><b>Needs you</b>远端要先有能用的 corral，归 ranch 的 R10（在 Linux…</div></div></div>
+    <div class="item draft"><div class="top"><span class="id mono"><span class="dd"></span>P5-106</span><div class="t b">看板加 loop：打开后 Queued 里的任务按次序排队开发</div></div></div>
+    <div class="item draft hov"><div class="top"><span class="id mono"><span class="dd"></span>P5-111</span><div class="t b">调研 Ghostty 作者提出的 OSC 7501（agent 状态的标准）</div></div></div>
+    <div class="item draft"><span class="stripe low"></span><div class="top"><span class="id mono"><span class="dd"></span>P5-54</span><div class="t b">Browser 选中元素、Changes 选中 diff 后送给 agent</div></div></div>
+  </div></div>
+  <div class="sec"><span class="dot"></span>In progress <span class="n">1</span></div>
+  <div class="list"><div class="group">
+    <div class="item"><div class="top"><span class="id mono">P5-113</span><div class="t b">看板卡片收紧</div><div class="r"><span class="age">4m</span></div></div><div class="under meta"><span class="av">C</span><span class="nm">p5-113</span><span class="st">Working</span><span class="sp"></span><span class="add">+84</span><span class="del">−31</span></div></div>
+  </div></div>
+  <div class="sec empty"><span class="dot"></span>To review <span class="n">0</span></div>
+  <div class="sec empty"><span class="dot"></span>Merged <span class="n">0</span></div>
+  <div class="sec"><span class="dot"></span>Done <span class="n">6 of 178</span></div>
+  <div class="list done">
+    <div class="item"><div class="top"><span class="id mono">P5-112</span><div class="t">看板第一次打开某个仓库时慢：任务文件一次读完</div><div class="r"><span class="age">1m</span></div></div></div>
+    <div class="item struck"><div class="top"><span class="id mono">P5-81</span><div class="t">HANDOFF 和 cairn 并行一段时间，定 cairn 能替掉多少 HANDOFF</div><div class="r"><span class="mark drop">Dropped</span><span class="age">16m</span></div></div></div>
+    <div class="item"><div class="top"><span class="id mono">P5-110</span><div class="t">Cairn 标签的记录按会话收，会接续的合进一个框</div><div class="r"><span class="age">17m</span></div></div></div>
+    <div class="item"><div class="top"><span class="id mono">P5-109</span><div class="t">Cairn 面板记录列表的说明改成 cairn 0.4.1 的说法</div><div class="r"><span class="age">38m</span></div></div></div>
+    <div class="item"><div class="top"><span class="id mono">P5-108</span><div class="t">Cairn 面板的说明文字改成 cairn 0.4.0 的说法</div><div class="r"><span class="age">2.4h</span></div></div></div>
+    <div class="item"><div class="top"><span class="id mono">P5-28c</span><div class="t">Browser 收尾：本地开发页面一定能打开，补新窗口、对话框…</div><div class="r"><span class="age">8d</span></div></div><div class="under"><div class="ask"><b>Needs you</b>按本文件完成记录末尾 8 条清单实测（第 1 条…</div></div></div>
+  </div>
+  <span class="show">Show all 178 ⌄</span>
+</div>
+</div>
+
+</div>
+</body>
+</html>
