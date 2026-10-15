@@ -1,6 +1,7 @@
 //! Read-only Git summaries of the agents' working trees for the Agents panel. From Saddle
-//! `src/git.rs` at commit `df1c727`; since P5-13b with helpers for the Changes tab added.
-use crate::command::{Output, run_bounded, run_without_env};
+//! `src/git.rs` at commit `df1c727`; since P5-13b with helpers for the Changes tab added, and
+//! since P5-112 `git_input`.
+use crate::command::{Output, run_bounded, run_with_input, run_without_env};
 use std::{
     collections::{BTreeSet, HashMap},
     ffi::OsString,
@@ -204,6 +205,38 @@ pub(crate) fn git(program: &str, dir: &Path, args: &[&str], cancel: &AtomicBool)
         .filter(|name| name.as_encoded_bytes().starts_with(b"GIT_"))
         .collect();
     run_without_env(program, &full, Some(dir), &inherited, TIMEOUT, cancel).ok()
+}
+
+/// Like [`git`], with the same options, with `input` on its standard input: for a command that
+/// takes its work there, such as `cat-file --batch`.
+pub(crate) fn git_input(
+    program: &str,
+    dir: &Path,
+    args: &[&str],
+    input: Vec<u8>,
+    cancel: &AtomicBool,
+) -> Option<Output> {
+    let mut full = vec![
+        "--no-lazy-fetch",
+        "--no-optional-locks",
+        "-c",
+        "core.fsmonitor=false",
+    ];
+    full.extend(args);
+    let inherited: Vec<OsString> = std::env::vars_os()
+        .map(|(name, _)| name)
+        .filter(|name| name.as_encoded_bytes().starts_with(b"GIT_"))
+        .collect();
+    run_with_input(
+        program,
+        &full,
+        Some(dir),
+        &inherited,
+        input,
+        TIMEOUT,
+        cancel,
+    )
+    .ok()
 }
 
 /// Like [`git`], with the same options, but keeping at most `limit` bytes of each stream and

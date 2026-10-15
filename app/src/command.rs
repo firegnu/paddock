@@ -1,9 +1,9 @@
 //! Running a short-lived subprocess with a timeout, cancellation and bounded output. From Saddle
-//! `src/command.rs` at commit `df1c727`, unchanged.
+//! `src/command.rs` at commit `df1c727`; `run_with_input` added here (P5-112).
 use anyhow::{Context, Result, bail};
 use std::{
     ffi::OsString,
-    io::Read,
+    io::{Read, Write},
     path::Path,
     process::{Command, ExitStatus, Stdio},
     sync::{
@@ -39,12 +39,48 @@ pub fn run_without_env(
 ) -> Result<Output> {
     run_bounded(program, args, cwd, remove, timeout, cancel, usize::MAX)
 }
+/// Like `run_without_env`, with `input` written to the child's standard input, which is then
+/// closed; written from a thread of its own, so a child that answers as it reads cannot stall.
+pub fn run_with_input(
+    program: &str,
+    args: &[&str],
+    cwd: Option<&Path>,
+    remove: &[OsString],
+    input: Vec<u8>,
+    timeout: Duration,
+    cancel: &AtomicBool,
+) -> Result<Output> {
+    let input = Some(input);
+    spawn(
+        program,
+        args,
+        cwd,
+        remove,
+        input,
+        timeout,
+        cancel,
+        usize::MAX,
+    )
+}
 /// Captures at most `limit` bytes per stream; refuses to present truncated output as complete.
 pub fn run_bounded(
     program: &str,
     args: &[&str],
     cwd: Option<&Path>,
     remove: &[OsString],
+    timeout: Duration,
+    cancel: &AtomicBool,
+    limit: usize,
+) -> Result<Output> {
+    spawn(program, args, cwd, remove, None, timeout, cancel, limit)
+}
+#[allow(clippy::too_many_arguments)]
+fn spawn(
+    program: &str,
+    args: &[&str],
+    cwd: Option<&Path>,
+    remove: &[OsString],
+    input: Option<Vec<u8>>,
     timeout: Duration,
     cancel: &AtomicBool,
     limit: usize,
@@ -58,11 +94,21 @@ pub fn run_bounded(
     }
     let mut child = command
         .args(args)
-        .stdin(Stdio::null())
+        .stdin(if input.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .with_context(|| format!("starting {} {}", program, args.join(" ")))?;
+    if let (Some(input), Some(mut stdin)) = (input, child.stdin.take()) {
+        // A child that stops reading early only loses what it did not want.
+        thread::spawn(move || {
+            let _ = stdin.write_all(&input);
+        });
+    }
     let stdout = child.stdout.take().unwrap();
     let stderr = child.stderr.take().unwrap();
     let (tx, rx) = mpsc::channel();
@@ -132,4 +178,28 @@ pub fn run_bounded(
         stdout: output,
         stderr: errors,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn input_reaches_the_child_and_a_slow_one_is_cut_off() {
+        let none = AtomicBool::new(false);
+        let long = Duration::from_secs(5);
+        // More than a pipe holds, echoed back as it is read: written alongside, nothing stalls.
+        let input: Vec<u8> = (0..300_000u32).flat_map(|n| n.to_le_bytes()).collect();
+        let out = run_with_input("cat", &[], None, &[], input.clone(), long, &none).unwrap();
+        assert!(out.status.success());
+        assert_eq!(out.stdout, input);
+        // A child that never reads it ends all the same.
+        let out = run_with_input("true", &[], None, &[], input, long, &none).unwrap();
+        assert!(out.status.success());
+        // Timed out, and cancelled.
+        let short = Duration::from_millis(100);
+        assert!(run_with_input("sleep", &["5"], None, &[], b"x".to_vec(), short, &none).is_err());
+        let cancel = AtomicBool::new(true);
+        assert!(run_with_input("sleep", &["5"], None, &[], b"x".to_vec(), long, &cancel).is_err());
+    }
 }

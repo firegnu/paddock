@@ -621,6 +621,31 @@ pub fn read(program: &str, cwd: &str, cache: &Cache, cancel: &AtomicBool) -> Rea
                 .then(|| (file.to_owned(), oid.to_owned()))
         })
         .collect();
+    // Those not read before, all with one command: one each would take seconds in a repository
+    // with a couple of hundred (P5-112). Any it does not give are read on their own below.
+    let unread: Vec<&str> = match cache.lock() {
+        Ok(kept) => files
+            .iter()
+            .map(|(_, oid)| oid.as_str())
+            .filter(|oid| !kept.contains_key(*oid))
+            .collect(),
+        Err(_) => Vec::new(),
+    };
+    if !unread.is_empty() {
+        let input: Vec<u8> = unread
+            .iter()
+            .flat_map(|oid| [oid.as_bytes(), b"\n"])
+            .flatten()
+            .copied()
+            .collect();
+        let out = git::git_input(program, &repo, &["cat-file", "--batch"], input, cancel)
+            .filter(|out| out.status.success());
+        if let (Some(out), Ok(mut kept)) = (out, cache.lock()) {
+            for (oid, bytes) in batch(&out.stdout) {
+                kept.insert(oid, read_text(&String::from_utf8_lossy(bytes)));
+            }
+        }
+    }
     let blob = |oid: &str| -> Option<Text> {
         if let Some(text) = cache.lock().ok()?.get(oid) {
             return Some(text.clone());
@@ -809,6 +834,34 @@ pub fn read(program: &str, cwd: &str, cache: &Cache, cancel: &AtomicBool) -> Rea
         return Read::Failed;
     }
     Read::Board(Box::new(facts))
+}
+
+/// `git cat-file --batch`'s output: each blob it gave, by its id. One it could not give
+/// (`<oid> missing`) is left out; anything it cannot make sense of ends the reading there.
+fn batch(out: &[u8]) -> Vec<(String, &[u8])> {
+    let mut blobs = Vec::new();
+    let mut rest = out;
+    while let Some(end) = rest.iter().position(|b| *b == b'\n') {
+        let head = String::from_utf8_lossy(&rest[..end]).into_owned();
+        rest = &rest[end + 1..];
+        let mut fields = head.split(' ');
+        let (Some(oid), Some(kind)) = (fields.next(), fields.next()) else {
+            break;
+        };
+        let Some(size) = fields.next().and_then(|size| size.parse::<usize>().ok()) else {
+            // `missing`, `ambiguous`: no contents follow.
+            continue;
+        };
+        // The contents, then a newline.
+        if rest.len() <= size || rest[size] != b'\n' {
+            break;
+        }
+        if kind == "blob" {
+            blobs.push((oid.to_owned(), &rest[..size]));
+        }
+        rest = &rest[size + 1..];
+    }
+    blobs
 }
 
 /// `git worktree list --porcelain`: each worktree's path and the branch it has out.
@@ -2166,6 +2219,24 @@ pub fn board(facts: &Facts, agents: &[Seen], now: f64) -> Board {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_batch_of_blobs_is_cut_by_its_heads() {
+        let out =
+            b"aaa blob 5\nhello\nbbb missing\nccc blob 0\n\nddd tree 3\nxyz\neee blob 2\nhi\n";
+        let blobs = batch(out);
+        assert_eq!(
+            blobs,
+            [
+                ("aaa".to_owned(), &b"hello"[..]),
+                ("ccc".to_owned(), &b""[..]),
+                ("eee".to_owned(), &b"hi"[..]),
+            ]
+        );
+        // Cut short: what came whole is kept.
+        assert_eq!(batch(b"aaa blob 5\nhello\nbbb blob 9\nshort\n").len(), 1);
+        assert!(batch(b"").is_empty());
+    }
 
     #[test]
     fn ids_come_from_the_start_of_the_name() {
