@@ -1,6 +1,6 @@
 //! Settings › Agents › Integrations (DESIGN §13 P5-94): a row per agent corral supports, read in
 //! the background from `crate::integrations`, and the confirmation before skills are written or a
-//! plugin (amp's, P5-98) is installed or removed.
+//! plugin (amp's, P5-98; agy's, P5-88) is installed or removed.
 use super::*;
 use crate::integrations::{self, Plan, PluginPlan, Row, Skills, Status};
 use std::sync::atomic::AtomicBool;
@@ -31,16 +31,105 @@ const STATUS_WIDTH: f32 = 190.0;
 const SKILLS_WIDTH: f32 = 210.0;
 
 const BUILT_IN: &str = "Built in: status comes with corral each time it starts an agent.";
-const GLOBAL: &str = "amp needs a plugin, installed once in ~/.config/amp/plugins. It does nothing \
-outside corral, but each amp that loads it, the desktop app too, runs one idle plugin process.";
 const SKILLS_NOTE: &str = "Skills teach an agent the corral and paddock commands.";
 
-/// What the plugin confirmation says under the file: where it works and what it costs.
-const PLUGIN_SAYS: [&str; 2] = [
-    "It only works in amp started by corral. Your own amp sessions and the Amp desktop app may \
-load it too, but it does nothing there.",
-    "Each amp that loads it runs one more idle plugin process.",
-];
+/// What paddock says about one agent's plugin.
+struct PluginWords {
+    /// Under the card, when the agent is listed.
+    note: Option<&'static str>,
+    /// For a plugin that is a folder, the files corral writes in it (ranch CONTRACT); none when
+    /// the plugin is one file.
+    files: &'static [&'static str],
+    /// Under the files in the confirmation: where it works and what it costs.
+    says: &'static [&'static str],
+    /// Under `Deletes …` when removing it.
+    removed: Option<&'static str>,
+}
+
+const AMP: PluginWords = PluginWords {
+    note: Some(
+        "amp needs a plugin, installed once in ~/.config/amp/plugins. It does nothing outside \
+         corral, but each amp that loads it, the desktop app too, runs one idle plugin process.",
+    ),
+    files: &[],
+    says: &[
+        "It only works in amp started by corral. Your own amp sessions and the Amp desktop app \
+         may load it too, but it does nothing there.",
+        "Each amp that loads it runs one more idle plugin process.",
+    ],
+    removed: Some(
+        "amp started by corral will stay Starting until it is installed again; amp already \
+         open keeps it until restarted.",
+    ),
+};
+
+const AGY: PluginWords = PluginWords {
+    note: Some(
+        "agy needs a plugin, installed once in ~/.gemini/config/plugins/corral. It does nothing \
+         outside corral.",
+    ),
+    files: &["hooks.json", "plugin.json"],
+    says: &[
+        "It only works in agy started by corral. Your own agy sessions run one extra sh per \
+         event and record nothing; the Antigravity IDE may load it too and does nothing there.",
+    ],
+    removed: Some("agy started by corral will stay Starting until it is installed again."),
+};
+
+/// An agent paddock has nothing particular to say about: the file and the restart only.
+const PLAIN: PluginWords = PluginWords {
+    note: None,
+    files: &[],
+    says: &[],
+    removed: None,
+};
+
+fn plugin_words(kind: &str) -> &'static PluginWords {
+    match kind {
+        "amp" => &AMP,
+        "agy" => &AGY,
+        _ => &PLAIN,
+    }
+}
+
+/// The notes under the card for the agents listed that need a plugin, in corral's order.
+fn plugin_notes(report: &integrations::Report) -> Vec<&'static str> {
+    report
+        .agents
+        .iter()
+        .filter(|agent| agent.hooks == "global")
+        .filter_map(|agent| plugin_words(&agent.kind).note)
+        .collect()
+}
+
+/// What the plugin confirmation says it writes, and each file with whether it replaces one.
+fn writes(plan: &PluginPlan) -> (String, Vec<(String, bool)>) {
+    let update = plan.status == "overwrite";
+    let files = plugin_words(&plan.kind).files;
+    if files.is_empty() {
+        return ("Writes 1 file:".into(), vec![(tilde(&plan.path), update)]);
+    }
+    (
+        format!(
+            "Writes {} in {}:",
+            count(files.len(), "file"),
+            tilde(&plan.path)
+        ),
+        files
+            .iter()
+            .map(|file| (file.to_string(), update))
+            .collect(),
+    )
+}
+
+/// The bar's message when it is done, with what corral left behind.
+fn done(message: String, warnings: &[String]) -> String {
+    if warnings.is_empty() {
+        message
+    } else {
+        format!("{message}; {}", warnings.join("; "))
+    }
+}
 
 /// `path` with the home folder written `~`.
 fn tilde(path: &str) -> String {
@@ -155,7 +244,9 @@ impl SettingsView {
         let task = cx.background_spawn(async move {
             let cancel = AtomicBool::new(false);
             match confirm {
-                Confirm::Skills(plan) => integrations::install(&corral, &plan, &cancel),
+                Confirm::Skills(plan) => {
+                    integrations::install(&corral, &plan, &cancel).map(|()| Vec::new())
+                }
                 Confirm::Plugin(plan) => integrations::plugin(&corral, &plan, &cancel),
             }
         });
@@ -164,7 +255,7 @@ impl SettingsView {
             let _ = this.update(cx, |this, cx| {
                 this.integrations.working = None;
                 match result {
-                    Ok(()) => this.say(done, false, cx),
+                    Ok(warnings) => this.say(self::done(done, &warnings), false, cx),
                     Err(error) => this.say(format!("{failed}: {error}"), true, cx),
                 }
                 this.refresh_integrations(cx);
@@ -274,7 +365,10 @@ impl SettingsView {
                     .into_any_element()
             }
         };
-        let global = matches!(&state.read, Some(Ok(report)) if integrations::global(report));
+        let plugins = match &state.read {
+            Some(Ok(report)) => plugin_notes(report),
+            _ => Vec::new(),
+        };
         let note = self.fg(|t| t.agents_dim);
         self.section_with(heading, ui)
             .child(
@@ -283,7 +377,7 @@ impl SettingsView {
                     .flex_col()
                     .child(body)
                     .child(self.under(BUILT_IN, note, ui))
-                    .when(global, |notes| notes.child(self.under(GLOBAL, note, ui)))
+                    .children(plugins.into_iter().map(|line| self.under(line, note, ui)))
                     .child(self.under(SKILLS_NOTE, note, ui)),
             )
             .into_any_element()
@@ -372,7 +466,11 @@ impl SettingsView {
 
     /// A green pill with a dot: `Built in`, `Installed`.
     fn green_pill(&self, text: &'static str, ui: &UiFont) -> Div {
-        let green = self.fg(|t| t.agents_green);
+        self.pill(text, self.fg(|t| t.agents_green), ui)
+    }
+
+    /// A pill with a dot, in `color`: `Disabled` is yellow.
+    fn pill(&self, text: &'static str, color: Hsla, ui: &UiFont) -> Div {
         div()
             .flex_shrink_0()
             .h(ui.px(22.0))
@@ -381,11 +479,11 @@ impl SettingsView {
             .items_center()
             .gap(px(6.0))
             .rounded_full()
-            .bg(green.opacity(0.14))
+            .bg(color.opacity(0.14))
             .text_size(ui.px(11.5))
             .font_weight(FontWeight::SEMIBOLD)
-            .text_color(green)
-            .child(div().size(px(6.0)).rounded_full().bg(green))
+            .text_color(color)
+            .child(div().size(px(6.0)).rounded_full().bg(color))
             .child(text)
     }
 
@@ -472,7 +570,7 @@ impl SettingsView {
                 yellow,
                 ui,
             )),
-            Some(Status::Installed) => {
+            Some(status @ (Status::Installed | Status::Disabled)) => {
                 let (rest, lit) = (self.faint(0.06), self.faint(0.12));
                 let uninstall = div()
                     .id(ElementId::Name(format!("plugin-remove-{kind}").into()))
@@ -496,8 +594,24 @@ impl SettingsView {
                             this.ask_plugin(&kind, true, cx)
                         }))
                 };
-                cell.child(self.green_pill("Installed", ui))
-                    .child(uninstall)
+                if *status == Status::Installed {
+                    cell.child(self.green_pill("Installed", ui))
+                        .child(uninstall)
+                } else {
+                    // Turned off in agy: what to run goes under, for the room it needs.
+                    cell.flex_col()
+                        .items_start()
+                        .gap(px(4.0))
+                        .child(
+                            div()
+                                .flex()
+                                .items_center()
+                                .gap(px(8.0))
+                                .child(self.pill("Disabled", yellow, ui))
+                                .child(uninstall),
+                        )
+                        .children(self.cell_note(row.status_note.clone(), yellow, ui))
+                }
             }
             Some(Status::NotManaged) => cell
                 .flex_col()
@@ -675,38 +789,41 @@ impl SettingsView {
                         ],
                     )
                 }
-                Confirm::Plugin(plan) if plan.remove => (
-                    format!("Remove the corral plugin for {}?", plan.name),
-                    "Remove",
-                    red,
-                    vec![
+                Confirm::Plugin(plan) if plan.remove => {
+                    let mut content = vec![
                         div()
                             .text_color(dim)
                             .child(format!("Deletes {}.", tilde(&plan.path)))
                             .into_any_element(),
-                        quiet(format!(
-                            "{0} started by corral will stay Starting until it is installed \
-                             again; {0} already open keeps it until restarted.",
-                            plan.name
-                        ))
-                        .into_any_element(),
-                    ],
-                ),
-                Confirm::Plugin(plan) => {
-                    let update = plan.status == "overwrite";
-                    let verb = if update { "Update" } else { "Install" };
-                    let mut content = vec![
-                        div()
-                            .text_color(dim)
-                            .child("Writes 1 file:")
-                            .into_any_element(),
-                        file_list(vec![(tilde(&plan.path), update)]).into_any_element(),
                     ];
-                    content.extend(PLUGIN_SAYS.map(|line| {
+                    content.extend(
+                        plugin_words(&plan.kind)
+                            .removed
+                            .map(|line| quiet(line.into()).into_any_element()),
+                    );
+                    (
+                        format!("Remove the corral plugin for {}?", plan.name),
+                        "Remove",
+                        red,
+                        content,
+                    )
+                }
+                Confirm::Plugin(plan) => {
+                    let verb = if plan.status == "overwrite" {
+                        "Update"
+                    } else {
+                        "Install"
+                    };
+                    let (says, files) = writes(plan);
+                    let mut content = vec![
+                        div().text_color(dim).child(says).into_any_element(),
+                        file_list(files).into_any_element(),
+                    ];
+                    content.extend(plugin_words(&plan.kind).says.iter().map(|line| {
                         div()
                             .text_size(ui.px(12.5))
                             .text_color(dim)
-                            .child(line)
+                            .child(*line)
                             .into_any_element()
                     }));
                     content.push(
@@ -815,5 +932,106 @@ mod tests {
         );
         assert_eq!(count(1, "file"), "1 file");
         assert_eq!(count(4, "file"), "4 files");
+    }
+
+    fn agent(kind: &str, hooks: &str) -> integrations::Agent {
+        integrations::Agent {
+            kind: kind.into(),
+            path: Some(format!("/bin/{kind}")),
+            version: None,
+            hooks: hooks.into(),
+            install: None,
+            targets: Vec::new(),
+        }
+    }
+    fn report(agents: Vec<integrations::Agent>) -> integrations::Report {
+        integrations::Report {
+            agents,
+            files: Vec::new(),
+            ranch: integrations::Ranch::Answered,
+        }
+    }
+
+    #[test]
+    fn each_agent_with_a_plugin_has_its_own_note_when_it_is_listed() {
+        let amp = agent("amp", "global");
+        let agy = agent("agy", "global");
+        let claude = agent("claude", "launch");
+        assert_eq!(
+            plugin_notes(&report(vec![claude.clone(), amp.clone(), agy.clone()])),
+            [
+                AMP.note.unwrap(),
+                "agy needs a plugin, installed once in ~/.gemini/config/plugins/corral. It does \
+                 nothing outside corral."
+            ]
+        );
+        assert_eq!(
+            plugin_notes(&report(vec![claude.clone(), amp])),
+            [AMP.note.unwrap()]
+        );
+        assert_eq!(plugin_notes(&report(vec![agy])).len(), 1);
+        assert!(plugin_notes(&report(vec![claude, agent("next", "global")])).is_empty());
+    }
+
+    fn plan(kind: &str, path: &str, status: &str) -> PluginPlan {
+        PluginPlan {
+            kind: kind.into(),
+            name: kind.into(),
+            path: path.into(),
+            status: status.into(),
+            remove: false,
+        }
+    }
+
+    #[test]
+    fn the_confirmation_names_each_file_the_plugin_writes() {
+        let (says, files) = writes(&plan("amp", "/x/.config/amp/plugins/corral.ts", "create"));
+        assert_eq!(says, "Writes 1 file:");
+        assert_eq!(
+            files,
+            [("/x/.config/amp/plugins/corral.ts".to_string(), false)]
+        );
+        let (says, files) = writes(&plan("agy", "/x/.gemini/config/plugins/corral", "create"));
+        assert_eq!(says, "Writes 2 files in /x/.gemini/config/plugins/corral:");
+        assert_eq!(
+            files,
+            [
+                ("hooks.json".to_string(), false),
+                ("plugin.json".to_string(), false)
+            ]
+        );
+        let (_, files) = writes(&plan(
+            "agy",
+            "/x/.gemini/config/plugins/corral",
+            "overwrite",
+        ));
+        assert!(files.iter().all(|(_, replace)| *replace));
+        assert_eq!(
+            AGY.says,
+            [
+                "It only works in agy started by corral. Your own agy sessions run one extra sh \
+                 per event and record nothing; the Antigravity IDE may load it too and does \
+                 nothing there."
+            ]
+        );
+        assert_eq!(
+            AGY.removed,
+            Some("agy started by corral will stay Starting until it is installed again.")
+        );
+    }
+
+    #[test]
+    fn what_corral_left_behind_is_reported_with_the_rest() {
+        assert_eq!(
+            done("Removed the agy plugin".into(), &[]),
+            "Removed the agy plugin"
+        );
+        assert_eq!(
+            done(
+                "Removed the agy plugin".into(),
+                &["left /h/.gemini/config/plugins/corral in place".into()]
+            ),
+            "Removed the agy plugin; left /h/.gemini/config/plugins/corral in place"
+        );
     }
 }

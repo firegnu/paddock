@@ -115,7 +115,7 @@ fn group(name: &str) -> &'static str {
         "agent_selected" => GROUPS[1],
         _ if name.starts_with("agents_") => GROUPS[1],
         _ if name.starts_with("agent_") => GROUPS[2],
-        "claude" | "codex" | "pi" | "omp" | "amp" => GROUPS[3],
+        "claude" | "codex" | "pi" | "omp" | "amp" | "agy" => GROUPS[3],
         _ => GROUPS[0],
     }
 }
@@ -974,7 +974,7 @@ mod tests {
     fn every_colour_has_a_field_in_its_group() {
         let fields = fields();
         let colors: Vec<_> = fields.iter().filter(|f| f.kind == Kind::Color).collect();
-        assert_eq!(colors.len(), 42 + 20);
+        assert_eq!(colors.len(), 43 + 20);
         let groups: Vec<_> = colors.iter().map(|f| f.group).collect();
         let mut order = groups.clone();
         order.dedup();

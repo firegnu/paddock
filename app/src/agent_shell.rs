@@ -11,7 +11,7 @@ use std::{
     process::{Command, Stdio},
 };
 
-pub const KINDS: &[&str] = &["claude", "codex", "pi", "omp", "amp"];
+pub const KINDS: &[&str] = &["claude", "codex", "pi", "omp", "amp", "agy"];
 
 pub struct Setup {
     pub command: Vec<String>,
@@ -424,10 +424,27 @@ pub fn passthrough(kind: &str, args: &[OsString], stdin: bool, stdout: bool) -> 
         "completions",
     ];
     const AMP_FLAGS: &[&str] = &["-x", "--execute", "--no-tui", "-V"];
+    // agy's subcommands as `agy --help` lists them (P5-88); `--prompt` is its alias for `--print`.
+    const AGY: &[&str] = &[
+        "agent",
+        "agents",
+        "changelog",
+        "help",
+        "install",
+        "mcp",
+        "mic-serve",
+        "models",
+        "plugin",
+        "plugins",
+        "remote-control",
+        "update",
+    ];
+    const AGY_FLAGS: &[&str] = &["--prompt"];
     let (commands, flags) = match kind {
         "claude" => (CLAUDE, &[][..]),
         "codex" => (CODEX, &[][..]),
         "amp" => (AMP, AMP_FLAGS),
+        "agy" => (AGY, AGY_FLAGS),
         _ => (&[][..], &[][..]),
     };
     let words: Vec<Option<&str>> = args.iter().map(|arg| arg.to_str()).collect();
@@ -548,5 +565,41 @@ mod tests {
         ] {
             assert!(!passthrough("amp", &args(words), true, true), "{words:?}");
         }
+    }
+    #[test]
+    fn agy_is_hosted_but_its_one_shot_and_managing_commands_run_as_they_are() {
+        assert!(KINDS.contains(&"agy"));
+        let args = |words: &[&str]| words.iter().map(OsString::from).collect::<Vec<_>>();
+        for words in [
+            &["--version"][..],
+            &["-h"],
+            &["-p", "hi"],
+            &["--print", "hi"],
+            &["--prompt", "hi"],
+            &["models"],
+            &["plugin", "list"],
+            &["plugins", "list"],
+            &["agent"],
+            &["agents"],
+            &["changelog"],
+            &["help"],
+            &["install"],
+            &["mcp", "list"],
+            &["remote-control", "status"],
+            &["update"],
+            &["mic-serve"],
+        ] {
+            assert!(passthrough("agy", &args(words), true, true), "{words:?}");
+        }
+        for words in [
+            &[][..],
+            &["--prompt-interactive", "hi"],
+            &["-i", "hi"],
+            &["--continue"],
+            &["--model", "x"],
+        ] {
+            assert!(!passthrough("agy", &args(words), true, true), "{words:?}");
+        }
+        assert!(passthrough("agy", &[], false, true));
     }
 }

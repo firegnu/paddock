@@ -278,6 +278,7 @@ fn tide() -> Theme {
         pi: rgb(0xeef2f7),
         omp: rgb(0xb07cf2),
         amp: rgb(0xe3cb73),
+        agy: rgb(0x6aa6f2),
         ..Theme::default()
     }
 }
@@ -328,6 +329,7 @@ fn lagoon() -> Theme {
         pi: rgb(0xeef5f2),
         omp: rgb(0xb07cf2),
         amp: rgb(0xe3cb73),
+        agy: rgb(0x6aa6f2),
         ..Theme::default()
     }
 }
@@ -381,6 +383,7 @@ fn catppuccin() -> Theme {
         pi: rgb(0xcdd6f4),
         omp: rgb(0xcba6f7),
         amp: rgb(0xf9e2af),
+        agy: rgb(0x89b4fa),
         ..Theme::default()
     }
 }
@@ -437,6 +440,7 @@ fn tokyo_night() -> Theme {
         pi: rgb(0xc0caf5),
         omp: rgb(0x9d7cd8),
         amp: rgb(0xe0af68),
+        agy: rgb(0x7aa2f7),
         ..Theme::default()
     }
 }
@@ -493,6 +497,7 @@ fn rose_pine() -> Theme {
         pi: rgb(0xe0def4),
         omp: rgb(0xc4a7e7),
         amp: rgb(0xf6c177),
+        agy: rgb(0x3e8fb0),
         ..Theme::default()
     }
 }
@@ -548,6 +553,7 @@ fn kanagawa() -> Theme {
         pi: rgb(0xdcd7ba),
         omp: rgb(0x957fb8),
         amp: rgb(0xdca561),
+        agy: rgb(0x7e9cd8),
         ..Theme::default()
     }
 }
@@ -597,6 +603,7 @@ pub struct Theme {
     pub pi: Color,
     pub omp: Color,
     pub amp: Color,
+    pub agy: Color,
 }
 
 impl Default for Theme {
@@ -644,6 +651,7 @@ impl Default for Theme {
             pi: Color::Rgb(0xff, 0xff, 0xff),
             omp: Color::Rgb(0xa8, 0x55, 0xf7),
             amp: Color::Rgb(0xe5, 0xcf, 0x6f),
+            agy: Color::Rgb(0x5b, 0x9c, 0xf2),
         }
     }
 }
@@ -703,7 +711,7 @@ pub fn parse_color(value: &str) -> Result<Color, String> {
 
 impl Theme {
     /// Every configurable color by its `[colors]` key.
-    pub fn named_mut(&mut self) -> [(&'static str, &mut Color); 42] {
+    pub fn named_mut(&mut self) -> [(&'static str, &mut Color); 43] {
         [
             ("bg", &mut self.bg),
             ("overlay", &mut self.overlay),
@@ -747,6 +755,7 @@ impl Theme {
             ("pi", &mut self.pi),
             ("omp", &mut self.omp),
             ("amp", &mut self.amp),
+            ("agy", &mut self.agy),
         ]
     }
 }
@@ -759,7 +768,7 @@ mod kind_colours {
     fn every_theme_tells_the_agent_kinds_apart() {
         for preset in Preset::ALL {
             let mut theme = preset.theme();
-            let kinds = ["claude", "codex", "pi", "omp", "amp"];
+            let kinds = ["claude", "codex", "pi", "omp", "amp", "agy"];
             let colours: Vec<Color> = theme
                 .named_mut()
                 .into_iter()

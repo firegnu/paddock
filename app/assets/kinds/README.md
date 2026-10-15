@@ -4,7 +4,7 @@ The sidebar draws one of these after an agent's name, tinted with the theme's co
 They are compiled into the program (`src/kind_icon.rs`).
 
 On a machine with its own originals in `~/.config/paddock/icons/` (`claude`, `codex`, `pi`, `omp`,
-`amp`; `.svg` or `.png`, the SVG when both are there), those are drawn instead, in their own
+`amp`, `agy`; `.svg` or `.png`, the SVG when both are there), those are drawn instead, in their own
 colours, with their transparent margins cut away; one that is missing or cannot be read falls back
 to the silhouette here. That folder stays on the machine: its files are never added to this
 repository.
@@ -16,10 +16,11 @@ repository.
 | `claude.svg` | Original drawing for paddock, not the official mark. | Part of paddock. |
 | `codex.svg` | Original drawing for paddock, not the official mark. | Part of paddock. |
 | `amp.svg` | Original drawing for paddock, not the official mark. | Part of paddock. |
+| `agy.svg` | Original drawing for paddock, not the official mark. | Part of paddock. |
 
-`claude.svg`, `codex.svg` and `amp.svg` are original drawings for paddock, not the official marks;
-Claude and Codex are trademarks of Anthropic and OpenAI, Amp of its makers. They borrow only the
-kinds' colours and ideas (a spark, a terminal prompt, an amplifier's level bars), not the shapes of
-any of their logos.
+`claude.svg`, `codex.svg`, `amp.svg` and `agy.svg` are original drawings for paddock, not the
+official marks; Claude and Codex are trademarks of Anthropic and OpenAI, Amp of its makers,
+Antigravity of Google. They borrow only the kinds' colours and ideas (a spark, a terminal prompt,
+an amplifier's level bars, a chevron lifting off the ground), not the shapes of any of their logos.
 
 These icons must be reviewed again before paddock is distributed.

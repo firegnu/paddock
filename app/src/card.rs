@@ -58,6 +58,7 @@ pub fn brand(kind: &str) -> Brand {
         "pi" => |t| t.pi,
         "omp" => |t| t.omp,
         "amp" => |t| t.amp,
+        "agy" => |t| t.agy,
         _ => |t| t.agents_dim,
     };
     Brand {
@@ -922,6 +923,15 @@ fn card(
 mod tests {
     use super::*;
     use crate::git::Changes;
+
+    #[test]
+    fn each_kind_is_in_its_own_colour() {
+        let theme = Theme::default();
+        let colour = |kind| (brand(kind).color)(&theme);
+        assert_eq!(colour("agy"), theme.agy);
+        assert_eq!(colour("AMP"), theme.amp);
+        assert_eq!(colour("other"), theme.agents_dim);
+    }
 
     fn agent(name: &str, state: &str) -> Agent {
         Agent {
