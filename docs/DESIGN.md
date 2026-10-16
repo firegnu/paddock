@@ -88,6 +88,7 @@ paddock 与 Saddle 在代码上完全分开：用到的 Saddle 代码迁入 padd
 
 ## 4. 依赖与工具链隔离
 
+- 子进程描述符隔离（P5-126）：保证范围仅为命令的标准流管道和 PTY。paddock 自己的所有启动入口共用一把进程内锁，覆盖标准库创建输入/输出管道到 `spawn` 返回，以及 portable-pty 的 `openpty`、描述符复制到 `spawn_command` 返回；直接 `exec` 同样经过它。macOS 上管道和 PTY 创建与 close-on-exec 设置不是原子的，锁使别的 paddock 调用不能在这段空档启动并继承它们。启动返回即释放，读写、等待退出、超时和取消都在锁外，不把远程等待串到本机调用前面。paddock 自己的 ctl socket（`app/src/control.rs` 的建 socket、`bind`、`accept`）尚未经过此锁；GPUI 或其他库内部自行创建描述符/启动的进程也不经过此锁，均不在这个保证内。socket 隔离不在本次修复范围。
 - 每个 Cargo 清单有自己的 `[workspace]` 和 `Cargo.lock`。
 - 不再有 `saddle` 依赖（M0；锁文件因此少了 32 个包，其余版本未变）。`alacritty_terminal`、`portable-pty` 等库的版本由 paddock 自己决定，不再要求与 Saddle 一致；升级照常作为单独任务。`ratatui`、`crossterm` 已在 M1 去掉（锁文件又少了 68 个包），按键、鼠标、颜色改用 paddock 自己的类型。
 - **不依赖 ratatui**（用户 10-05：“不能依赖ratatui”）：应用、插件 SDK 和仓库里维护的插件都不用 ratatui（也不用 crossterm）。别人写的插件程序在它自己的进程里用什么库，不算 paddock 的依赖。

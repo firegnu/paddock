@@ -4,6 +4,7 @@
 //! `.local/bin`, where ranch puts it.
 mod common;
 use paddock::{
+    command,
     config::Machine,
     corral::{Client, Poller},
     remote::{self, Link, Problem, Rounds},
@@ -21,7 +22,7 @@ const ODD: &str = "it's $(touch pwned) `id` \"q\" ~ *\n第二行 ;|&";
 
 /// The fake `ssh`: skips the options as ssh would take them, notes the socket, the target and each
 /// command (apart by a NUL), then fails, hangs (its pid noted) or runs the command as the files
-/// beside it say. Asked to close a connection (`-O`), it notes the socket in `closing`, waits while
+/// beside it say. Asked to close a connection (`-O`), it waits while
 /// `hold-exit` is there, then notes the socket and whether the call that hung had ended by then.
 const SSH: &str = r#"#!/bin/sh
 root=$(dirname "$0")
@@ -38,7 +39,6 @@ while [ $# -gt 0 ]; do
   esac
 done
 if [ -n "$op" ]; then
-  printf '%s\n' "$socket" >> "$root/closing"
   while [ -e "$root/hold-exit" ]; do sleep 0.05; done
   state=ended
   if [ -e "$root/hung-pid" ] && kill -0 "$(cat "$root/hung-pid")" 2>/dev/null; then state=running; fi
@@ -206,11 +206,14 @@ fn control_sockets_live_in_a_private_directory_short_enough_for_macos() {
 #[test]
 fn quoted_words_reach_the_shell_as_written() {
     for word in [ODD, "", "'", "a b", "$HOME", "{a,b}", "!x", "^y", "中文"] {
-        let output = std::process::Command::new("/bin/sh")
-            .arg("-c")
-            .arg(format!("printf '%s' {}", remote::quote(word)))
-            .output()
-            .unwrap();
+        let output = command::run(
+            "/bin/sh",
+            &["-c", &format!("printf '%s' {}", remote::quote(word))],
+            None,
+            Duration::from_secs(5),
+            &never(),
+        )
+        .unwrap();
         assert_eq!(String::from_utf8(output.stdout).unwrap(), word);
     }
 }
@@ -490,10 +493,6 @@ fn shown_again_before_the_old_connection_has_closed_it_gets_one_of_its_own() {
     // Hidden, and its connection still closing when it is shown again.
     std::fs::write(fake.root().join("hold-exit"), "").unwrap();
     old.retire();
-    // Begun before the new one starts: two ssh started at the same moment may each get the
-    // other's pipe (on macOS the standard library marks a new pipe close-on-exec only after
-    // making it), and this one, held, would keep the new call's output open until it times out.
-    written(&fake.root().join("closing"));
     let new = open();
     new.connect(&never()).unwrap();
     std::fs::remove_file(fake.root().join("hold-exit")).unwrap();
@@ -542,11 +541,10 @@ fn what_starts_only_after_the_wait_ran_out_is_closed_after_it_ends() {
     assert_eq!(written(&controls), format!("exit {socket} ended\n"));
     // It starts only now, through the socket, which can open the connection again (any call
     // through it can: here a plain one, as the attach's would never end).
-    let late = std::process::Command::new(&ssh)
-        .args(link.args("true").unwrap())
-        .status()
-        .unwrap();
-    assert!(late.success());
+    let args = link.args("true").unwrap();
+    let args: Vec<&str> = args.iter().map(String::as_str).collect();
+    let late = command::run(&ssh, &args, None, Duration::from_secs(5), &never()).unwrap();
+    assert!(late.status.success());
     thread::sleep(Duration::from_millis(300));
     assert_eq!(lines(&controls, 1).lines().count(), 1);
     // Once it is let go, the connection is closed again.

@@ -31,13 +31,14 @@ pub fn parse_path(output: &str) -> Option<String> {
 /// thread only, so the caller may still change the environment afterwards.
 pub fn login_path(shell: &Path, timeout: Duration) -> Option<String> {
     let script = format!("printf '{START}%s{END}' \"$PATH\"");
-    let mut child = Command::new(shell)
-        .args(["-l", "-c", &script])
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .ok()?;
+    let mut child = crate::command::start(
+        Command::new(shell)
+            .args(["-l", "-c", &script])
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null()),
+    )
+    .ok()?;
     let deadline = Instant::now() + timeout;
     loop {
         match child.try_wait() {

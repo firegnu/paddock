@@ -48,6 +48,7 @@ impl Session {
         env: Option<&[(String, String)]>,
     ) -> Result<Self> {
         let program = command.first().context("empty terminal command")?;
+        let spawning = crate::command::spawn_guard();
         let pair = native_pty_system().openpty(pty_size(size))?;
         let mut cmd = CommandBuilder::new(program);
         cmd.args(&command[1..]);
@@ -77,6 +78,7 @@ impl Session {
             .spawn_command(cmd)
             .with_context(|| format!("starting {program}"))?;
         drop(pair.slave);
+        drop(spawning);
         let screen = Arc::new(Mutex::new(Screen::new(size)));
         let (input, rx) = mpsc::sync_channel::<Vec<u8>>(64);
         thread::spawn(move || {

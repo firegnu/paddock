@@ -171,7 +171,10 @@ pub fn run(kind: &str) -> i32 {
         std::io::stdin().is_terminal(),
         std::io::stdout().is_terminal(),
     ) {
-        let error = Command::new(program).args(args).env("PATH", path).exec();
+        let error = {
+            let _guard = crate::command::spawn_guard();
+            Command::new(program).args(args).env("PATH", path).exec()
+        };
         eprintln!("{kind}: could not execute program: {error}");
         return 126;
     }
@@ -257,9 +260,9 @@ fn managed(kind: &str, program: &Path, args: &[OsString], path: &OsStr) -> Resul
         return Ok(0);
     }
     eprintln!("paddock ctl unavailable; attaching to {name} in this terminal.");
-    let status = Command::new(corral)
-        .args(["attach", &name])
-        .status()
+    let status = crate::command::start(Command::new(corral).args(["attach", &name]))
+        .map_err(spawn_error)?
+        .wait()
         .map_err(spawn_error)?;
     use std::os::unix::process::ExitStatusExt;
     Ok(status
@@ -332,11 +335,16 @@ fn spawn_error(error: std::io::Error) -> anyhow::Error {
 
 // Do not use Client::json here: its diagnostic includes argv, which contains the environment.
 fn start_agent(corral: &OsStr, args: &[String], env: &[(String, String)]) -> Result<String> {
-    let output = Command::new(corral)
-        .args(args)
-        .stdin(Stdio::null())
-        .output()
-        .map_err(spawn_error)?;
+    let output = crate::command::start(
+        Command::new(corral)
+            .args(args)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped()),
+    )
+    .map_err(spawn_error)?
+    .wait_with_output()
+    .map_err(spawn_error)?;
     let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap_or_default();
     if !output.status.success() || value["ok"] == false {
         let detail = match (value["error"].as_str(), value["message"].as_str()) {
