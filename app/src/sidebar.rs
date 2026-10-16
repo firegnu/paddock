@@ -53,8 +53,8 @@ pub struct MachineTab {
     /// How many agents its corral holds, as last read, written after its name: another
     /// machine's, when it has any (see [`agents_written`]).
     pub agents: Option<usize>,
-    /// Its agents that want the user, as its bell counts them.
-    pub count: usize,
+    /// What wants the user on it, as its bell counts it (P5-130).
+    pub attention: Option<attention::Capsule>,
     /// How its connection stands while it does not answer.
     pub status: Option<String>,
     /// The status tells of something wrong.
@@ -1539,12 +1539,18 @@ impl Sidebar {
             });
             let (hanging, press) = menu.unzip();
             let hanging = hanging.flatten();
-            let count = (machine.count > 0).then(|| {
+            let attention = machine.attention.as_ref().map(|attention| {
+                let color = match attention.kind {
+                    attention::Kind::Error | attention::Kind::ReadFailed => red,
+                    attention::Kind::Waiting => amber,
+                    attention::Kind::Reply => accent,
+                };
                 div()
                     .text_size(ui.px(11.0))
                     .font_weight(FontWeight::BOLD)
                     .font_features(tabular())
-                    .child(format!("●{}", machine.count))
+                    .text_color(color)
+                    .child(format!("{}{}", attention.kind.mark(), attention.count))
             });
             if narrow {
                 bar = bar.child(
@@ -1580,7 +1586,7 @@ impl Sidebar {
                             };
                             tab.child(div().size(ui.px(6.0)).rounded_full().bg(color))
                         })
-                        .children(count.map(|count| count.text_color(amber))),
+                        .children(attention),
                 );
                 continue;
             }
@@ -1633,7 +1639,7 @@ impl Sidebar {
                 // Another machine's agents after that, on a count's tag as the Cairn switch
                 // has them (P5-122 rework 1, 3).
                 .children(machine.agents.map(|agents| sunk::count(agents, text, &ui)))
-                .children(count.map(|count| count.text_color(amber))),
+                .children(attention),
             );
         }
         Some(if narrow {

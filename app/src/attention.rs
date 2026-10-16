@@ -15,6 +15,16 @@ pub enum Kind {
     Reply,
 }
 
+impl Kind {
+    pub fn mark(self) -> &'static str {
+        match self {
+            Kind::Waiting => "?",
+            Kind::Error | Kind::ReadFailed => "!",
+            Kind::Reply => "•",
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Item {
     pub kind: Kind,
@@ -41,11 +51,7 @@ impl Item {
     }
 
     pub fn mark(&self) -> &'static str {
-        match self.kind {
-            Kind::Waiting => "?",
-            Kind::Error | Kind::ReadFailed => "!",
-            Kind::Reply => "•",
-        }
+        self.kind.mark()
     }
 }
 
@@ -68,6 +74,46 @@ pub fn bell(items: &[Item]) -> (usize, Urgency) {
         Urgency::Replies
     };
     (items.len(), urgency)
+}
+
+/// What a machine's capsule in the switcher shows of the `items` that ring its bell (DESIGN §13
+/// P5-130): the most urgent [`Kind`] (`Error` and `ReadFailed` before `Waiting`, before `Reply`),
+/// how many there are in all, and the hover line naming the counts by kind.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Capsule {
+    pub kind: Kind,
+    pub count: usize,
+    pub line: String,
+}
+
+/// [`Capsule`] for a machine's `items`; `None` with nothing to look at.
+pub fn capsule(items: &[Item]) -> Option<Capsule> {
+    let order = [Kind::Error, Kind::ReadFailed, Kind::Waiting, Kind::Reply];
+    let kind = order
+        .into_iter()
+        .find(|&wanted| items.iter().any(|item| item.kind == wanted))?;
+    let mut parts = Vec::new();
+    for wanted in order {
+        let n = items.iter().filter(|item| item.kind == wanted).count();
+        if n == 0 {
+            continue;
+        }
+        let part = match (wanted, n) {
+            (Kind::Error, 1) => "1 error".into(),
+            (Kind::Error, n) => format!("{n} errors"),
+            (Kind::ReadFailed, 1) => "1 read failed".into(),
+            (Kind::ReadFailed, n) => format!("{n} reads failed"),
+            (Kind::Waiting, n) => format!("{n} waiting"),
+            (Kind::Reply, 1) => "1 new reply".into(),
+            (Kind::Reply, n) => format!("{n} new replies"),
+        };
+        parts.push(part);
+    }
+    Some(Capsule {
+        kind,
+        count: items.len(),
+        line: parts.join(" · "),
+    })
 }
 
 /// Why an agent is in error: corral's error for it, or that its protocol is not this one's.
@@ -236,5 +282,73 @@ mod tests {
             ..reply.clone()
         };
         assert_eq!(bell(&[reply, waiting]), (2, Urgency::Needs));
+    }
+
+    #[test]
+    fn machine_capsule_takes_the_most_urgent_kind_counts_all_and_names_each() {
+        let item = |kind: Kind| Item {
+            kind,
+            agent: (kind != Kind::ReadFailed).then(|| "p/a".into()),
+            label: "p/a".into(),
+            note: String::new(),
+        };
+        assert_eq!(capsule(&[]), None);
+        // Only new replies.
+        assert_eq!(
+            capsule(&[item(Kind::Reply)]),
+            Some(Capsule {
+                kind: Kind::Reply,
+                count: 1,
+                line: "1 new reply".into(),
+            })
+        );
+        assert_eq!(
+            capsule(&[item(Kind::Reply), item(Kind::Reply)]),
+            Some(Capsule {
+                kind: Kind::Reply,
+                count: 2,
+                line: "2 new replies".into(),
+            })
+        );
+        // Waiting and new replies: `?` for waiting, the total of both.
+        assert_eq!(
+            capsule(&[item(Kind::Waiting), item(Kind::Reply), item(Kind::Reply)]),
+            Some(Capsule {
+                kind: Kind::Waiting,
+                count: 3,
+                line: "1 waiting · 2 new replies".into(),
+            })
+        );
+        // Error, waiting and new replies: `!` for the error, even when waiting comes first.
+        assert_eq!(
+            capsule(&[
+                item(Kind::Waiting),
+                item(Kind::Error),
+                item(Kind::Reply),
+                item(Kind::Reply),
+            ]),
+            Some(Capsule {
+                kind: Kind::Error,
+                count: 4,
+                line: "1 error · 1 waiting · 2 new replies".into(),
+            })
+        );
+        // Only a failed read: `!`, written apart from agent errors.
+        assert_eq!(
+            capsule(&[item(Kind::ReadFailed)]),
+            Some(Capsule {
+                kind: Kind::ReadFailed,
+                count: 1,
+                line: "1 read failed".into(),
+            })
+        );
+        assert_eq!(
+            capsule(&[item(Kind::Error), item(Kind::Error), item(Kind::ReadFailed)]),
+            Some(Capsule {
+                kind: Kind::Error,
+                count: 3,
+                line: "2 errors · 1 read failed".into(),
+            })
+        );
     }
 }
