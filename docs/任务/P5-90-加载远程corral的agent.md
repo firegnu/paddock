@@ -142,7 +142,7 @@
 - 一键暂停只管显示着的那台：它的按钮本来就只看得到这台的 agent；要问时确认框加一行 `These agents run on <机器>; only they pause.`。
 - 本机的收件箱行不标机器名，远程的标。
 - 远程视图里不开 shell（New Shell、面板里的 Shell／Agent shell 写一句说明、面板不列）：shell 只能开在本机，放进远程那套窗格会把两边混起来。
-- 看着远程时 `paddock ctl` 除 `inspect`（照样答本机的）外回 busy（`looking at another machine`）：它改的是本机窗格，而本机窗格这时不在眼前。
+- ~~看着远程时 `paddock ctl` 除 `inspect` 外回 busy~~：主控审查不接受，已返工，见下面「返工」。
 - 启动时总在 This Mac；`ControlPersist=600`；切换栏、只读条、说明的英文文案。
 - 配置里暂时去掉的机器，它在 `layout.json` 里那份留着，加回来时还在。
 
@@ -159,3 +159,12 @@
 - 按用户 10-16，断线、断网、重连没写测试，只做了功能。
 - “远程 agent 不进本机的分组、workspace、看板认领”没有界面层的自动测试：GPUI 窗口没有测试环境，这一条靠结构保证（每台一套 `Sidebar`，看板认领和 New Agent 候选只取本机那套），测试里覆盖了轮询互不拖累和没配机器时配置、布局文件不变。
 - 没有真机器实测；用户 VPS 的 sshd 设 `ClientAliveInterval`（P5-90a §5）合并时提醒用户。
+
+### 返工（主控审查 10-16：看着远程时 ctl 不能回 busy）
+- 改了什么：去掉 `ctl_busy` 里“看着远程就回 `looking at another machine`”那一条，busy 又只在用户手上正有事时（拖分隔线、开菜单、面板、提问等，和原来一样）。座位的账提成纯数据的 `seating.rs`（`Seating`：哪台在字段里、别的各停在哪），`window.rs` 的 `here`／`seats`／`swap_seat` 换成它。`on_local` 原来只把字段对调、`here` 不动，所以看着远程时新开的窗格会按远程那台来做；现在它真的把本机那套请进字段（`here` 暂时是 0），`view`／`fill`／New Agent 晚到结果的放置都按本机走，做完再把远程那台请回来。
+- `--focus` 选了“照常完成、不切换”：看着远程时，`--focus` 只让那个窗格成为本机那套的当前窗格，键盘留在用户眼前的远程窗格（`visiting` 期间 `focus_active` 不动键盘，只同步左侧栏和存布局）；用户切回 This Mac 时，`switch` 照常把键盘给本机的当前窗格。理由：ctl 多是 agent 发起的，替用户切走眼前的机器，就是本机的 ctl 反过来打断用户在远程的查看；而且键盘若跟着跳进一个看不见的本机窗格，用户正在打的字会落进去（P5-2 那类事）。
+- `corral start` 晚到的结果：`control_tick` 不再因看着远程而 busy，结果一到就放进本机那套布局，请求照常回 `attaching`。
+- 关窗格（`close`）：被关的本机窗格这时不在眼前、不会有键盘，`close_quietly` 照旧把键盘放回原处。
+- 测试：`seating.rs` 加 `this_macs_ctl_works_on_its_own_seat_while_another_machine_is_on_show`（远程在字段里时把本机请进来，`here` 为 0、字段是本机那套、远程那台停着；空闲时 `busy_reason` 为 `None`、开着菜单仍是 busy；请回后复原）和 `bringing_the_seat_in_the_fields_or_none_changes_nothing`。`ctl_busy` 本身要 GPUI 窗口才能调，GPUI 的测试支持没开、开它要改依赖，所以测试落在它依据的两块纯代码上；这条测试是随新模块写的，没有在旧代码上先跑出失败。
+- 跑了：`cargo test --lib seating`（2 个过）、`cargo test --lib control_ui`（19 个过）、`cargo clippy --all-targets -- -D warnings` 无警告、`cargo fmt --check` 通过。照主控说的没跑全套。
+- 上面「拿主意」里 ctl 回 busy 那条作废；`docs/DESIGN.md` §13 P5-90「隔离」一条同步改了。

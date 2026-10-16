@@ -61,11 +61,6 @@ impl PaddockWindow {
     /// What the user is in the middle of, when a change from `paddock ctl` would get in the way.
     /// Read from the window as it is now: requests and late `corral start` results both ask here.
     fn ctl_busy(&self, window: &Window, cx: &gpui::App) -> Option<&'static str> {
-        // It acts on this Mac's panes, which wait while another machine is on show (DESIGN §13
-        // P5-90).
-        if self.here != 0 {
-            return Some("looking at another machine");
-        }
         control_ui::busy_reason(&control_ui::Activity {
             dragging: self.resizing.is_some()
                 || self.right.resizing()

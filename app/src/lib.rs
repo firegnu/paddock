@@ -61,6 +61,7 @@ pub mod remote;
 pub mod right_panel;
 pub mod rows;
 pub mod search;
+pub mod seating;
 pub mod settings;
 pub mod settings_view;
 pub mod sidebar;

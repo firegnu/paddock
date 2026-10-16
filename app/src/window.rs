@@ -30,6 +30,7 @@ use crate::{
     remote,
     right_panel::{self, RightPanel, Room, Tab as RightTab},
     search::{self, Lead, Mode, Target},
+    seating::Seating,
     settings::{Conflict, Draft, Saved},
     sidebar::{self, Sidebar, SidebarEvent, status_dot},
     tab_fit::{self, Bar, TabSize, Title},
@@ -1246,10 +1247,13 @@ pub struct PaddockWindow {
     /// The other machines the config names, in its order (DESIGN §13 P5-90); none, and the window
     /// is as it was before them.
     machines: Vec<Arc<remote::Link>>,
-    /// The machine on show: 0 for this Mac, else `machines[here - 1]`. Its sidebar, layout and
-    /// panes are the fields above; each other machine's wait in `seats`, still connected.
-    here: usize,
-    seats: Vec<Option<Seat>>,
+    /// The machine on show, its seat `here()`: 0 for this Mac, else `machines[here() - 1]`. Its
+    /// sidebar, layout and panes are the fields above; each other machine's wait in `seats`, still
+    /// connected.
+    seats: Seating<Seat>,
+    /// This Mac's seat is in the fields only for a moment while another machine is on show
+    /// ([`Self::on_local`]): nothing moves the keyboard meanwhile.
+    visiting: bool,
     /// Saved boards of machines the config no longer names, kept for when it names them again.
     boards: BTreeMap<String, Board>,
     /// What the switcher and the bell last said of the machines not on show.
@@ -1425,8 +1429,8 @@ impl PaddockWindow {
             translucency,
             ctl: ctl::Ctl::default(),
             machines: Vec::new(),
-            here: 0,
-            seats: vec![None],
+            seats: Seating::default(),
+            visiting: false,
             boards: BTreeMap::new(),
             switcher_said: Default::default(),
         };
@@ -1596,13 +1600,13 @@ impl PaddockWindow {
                 None => (Workspace::new(Shown::Empty).0, Vec::new()),
             };
             self.machines.push(link);
-            self.seats.push(Some(Seat {
+            self.seats.push(Seat {
                 sidebar,
                 workspace,
                 panes: HashMap::new(),
                 typing_to: to_tag::Target::default(),
                 folded,
-            }));
+            });
             self.fill_seat(seat, contents, window, cx);
         }
         self.boards = boards;
@@ -1638,7 +1642,10 @@ impl PaddockWindow {
 
     /// The machine on show, when another than this Mac.
     fn remote(&self) -> Option<&Arc<remote::Link>> {
-        self.here.checked_sub(1).map(|index| &self.machines[index])
+        self.seats
+            .here()
+            .checked_sub(1)
+            .map(|index| &self.machines[index])
     }
 
     /// Machine `seat`'s sidebar, layout and panes: the fields while it is on show, else where it
@@ -1651,7 +1658,7 @@ impl PaddockWindow {
         &Workspace,
         &HashMap<PaneId, Entity<TerminalView>>,
     ) {
-        match &self.seats[seat] {
+        match self.seats.parked(seat) {
             Some(parked) => (&parked.sidebar, &parked.workspace, &parked.panes),
             None => (&self.sidebar, &self.workspace, &self.panes),
         }
@@ -1661,7 +1668,7 @@ impl PaddockWindow {
         &mut self,
         seat: usize,
     ) -> (&mut Workspace, &mut HashMap<PaneId, Entity<TerminalView>>) {
-        match &mut self.seats[seat] {
+        match self.seats.parked_mut(seat) {
             Some(parked) => (&mut parked.workspace, &mut parked.panes),
             None => (&mut self.workspace, &mut self.panes),
         }
@@ -1688,26 +1695,33 @@ impl PaddockWindow {
 
     /// Puts machine `seat`'s sidebar, layout and panes in the fields, and the ones there where it
     /// waited. Nothing else changes: [`Self::switch`] and [`Self::on_local`] go by it.
-    fn swap_seat(&mut self, seat: usize) {
-        let Some(parked) = self.seats[seat].as_mut() else {
-            return;
-        };
-        std::mem::swap(&mut self.sidebar, &mut parked.sidebar);
-        std::mem::swap(&mut self.workspace, &mut parked.workspace);
-        std::mem::swap(&mut self.panes, &mut parked.panes);
-        std::mem::swap(&mut self.typing_to, &mut parked.typing_to);
-        std::mem::swap(&mut self.sidebar_folded, &mut parked.folded);
+    fn bring(&mut self, seat: usize) {
+        let mut seats = std::mem::take(&mut self.seats);
+        seats.bring(seat, |parked| {
+            std::mem::swap(&mut self.sidebar, &mut parked.sidebar);
+            std::mem::swap(&mut self.workspace, &mut parked.workspace);
+            std::mem::swap(&mut self.panes, &mut parked.panes);
+            std::mem::swap(&mut self.typing_to, &mut parked.typing_to);
+            std::mem::swap(&mut self.sidebar_folded, &mut parked.folded);
+        });
+        self.seats = seats;
     }
 
-    /// `f` on this Mac's sidebar, layout and panes, whichever machine is on show: for what only
-    /// ever reads this Mac (`paddock ctl`, the quit question). Nothing is drawn meanwhile.
+    /// `f` on this Mac's sidebar, layout and panes, whichever machine is on show: for what acts on
+    /// this Mac alone (`paddock ctl`, the quit question). While another machine is on show, this
+    /// Mac's seat is in the fields for `f` and goes back to waiting after; what `f` opens, closes
+    /// or makes active there is what the user finds on switching back, and the keyboard stays
+    /// where the user has it (P5-90 rework). Nothing is drawn meanwhile.
     fn on_local<R>(&mut self, f: impl FnOnce(&mut Self) -> R) -> R {
-        if self.here == 0 {
+        let away = self.seats.here();
+        if away == 0 {
             return f(self);
         }
-        self.swap_seat(0);
+        self.bring(0);
+        self.visiting = true;
         let result = f(self);
-        self.swap_seat(0);
+        self.visiting = false;
+        self.bring(away);
         result
     }
 
@@ -1726,15 +1740,13 @@ impl PaddockWindow {
 
     /// Machine `seat`'s sidebar and panes on show; the ones on show wait, still connected.
     fn switch(&mut self, seat: usize, window: &mut Window, cx: &mut Context<Self>) {
-        if seat == self.here || seat >= self.seats.len() {
+        if seat == self.seats.here() || seat >= self.seats.len() {
             return;
         }
         if self.popup.is_some() {
             self.close_popup(window, cx);
         }
-        self.swap_seat(seat);
-        self.seats[self.here] = self.seats[seat].take();
-        self.here = seat;
+        self.bring(seat);
         // What the pointer was doing was over the other machine's tabs and panes.
         (self.tab_hover, self.tab_left, self.splitting) = (None, None, None);
         // As the window has it now.
@@ -1866,14 +1878,14 @@ impl PaddockWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if seat == self.here {
+        if seat == self.seats.here() {
             self.on_sidebar(event, window, cx);
             return;
         }
         match event {
             SidebarEvent::Alive(names) => self.settle_parked(seat, names, window, cx),
             SidebarEvent::Folds(folds) => {
-                if let Some(parked) = &mut self.seats[seat] {
+                if let Some(parked) = self.seats.parked_mut(seat) {
                     parked.folded = folds.clone();
                 }
                 self.save_layout(cx);
@@ -1911,7 +1923,7 @@ impl PaddockWindow {
                     status,
                     problem,
                     tip,
-                    shown: seat == self.here,
+                    shown: seat == self.seats.here(),
                 }
             })
             .collect()
@@ -1920,7 +1932,7 @@ impl PaddockWindow {
     /// The other machines' rows that ring, for the bell on show: it counts every machine's.
     fn rung_elsewhere(&self, cx: &gpui::App) -> Vec<crate::attention::Item> {
         (0..self.seats.len())
-            .filter(|seat| *seat != self.here)
+            .filter(|seat| *seat != self.seats.here())
             .flat_map(|seat| self.parts(seat).0.read(cx).ringing())
             .collect()
     }
@@ -1951,7 +1963,7 @@ impl PaddockWindow {
 
     /// Says on the sidebar that something is only on this Mac for now (DESIGN §13 P5-90).
     fn only_here(&mut self, what: &str, cx: &mut Context<Self>) -> bool {
-        if self.here == 0 {
+        if self.seats.here() == 0 {
             return false;
         }
         let text = format!("{what} on This Mac only for now.");
@@ -2020,14 +2032,14 @@ impl PaddockWindow {
     /// machine's board.
     pub fn save_layout(&mut self, cx: &gpui::App) {
         let (_, workspace, _) = self.parts(0);
-        let folded = match &self.seats[0] {
+        let folded = match self.seats.parked(0) {
             Some(parked) => parked.folded.clone(),
             None => self.sidebar_folded.clone(),
         };
         let mut machines = self.boards.clone();
         for (index, link) in self.machines.iter().enumerate() {
             let seat = index + 1;
-            let folded = match &self.seats[seat] {
+            let folded = match self.seats.parked(seat) {
                 Some(parked) => parked.folded.clone(),
                 None => self.sidebar_folded.clone(),
             };
@@ -2231,7 +2243,7 @@ impl PaddockWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Entity<TerminalView> {
-        self.view_on(self.here, pane, launch, window, cx)
+        self.view_on(self.seats.here(), pane, launch, window, cx)
     }
 
     /// The terminal for `pane` on machine `seat`: another machine's attaches through its
@@ -2289,8 +2301,8 @@ impl PaddockWindow {
     /// a shell starting where ⌘N starts one.
     fn fill(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         // Another machine has no shells: its panes the layout made are empty.
-        if self.here != 0 {
-            self.fill_seat(self.here, Vec::new(), window, cx);
+        if self.seats.here() != 0 {
+            self.fill_seat(self.seats.here(), Vec::new(), window, cx);
             return;
         }
         let missing: Vec<PaneId> = self
@@ -2341,7 +2353,13 @@ impl PaddockWindow {
         });
     }
 
+    /// The active pane takes the keyboard; while [`Self::on_local`] visits this Mac, the keyboard
+    /// stays with the machine on show and this Mac's active pane takes it on switching back.
     fn focus_active(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.visiting {
+            self.sync(cx);
+            return;
+        }
         self.tabs.scroll_to_item(self.workspace.active_tab);
         let active = self.workspace.active_pane();
         if let Some(view) = self.panes.get(&active) {
@@ -2399,7 +2417,7 @@ impl PaddockWindow {
                     view.update(cx, |v, _| v.disappeared(&names));
                 }
                 // Another machine's: a lost attach goes again, one that watched may type.
-                if self.here != 0 {
+                if self.seats.here() != 0 {
                     let agents = self.sidebar.read(cx).agents();
                     for view in self.panes.values() {
                         view.update(cx, |v, cx| v.listed(&agents, cx));
@@ -3044,7 +3062,7 @@ impl PaddockWindow {
     /// The new tab and split panels' rows for `query`; another machine's offer no shells.
     fn choices(&self, query: &str, cx: &gpui::App) -> Vec<Choice> {
         let mut rows = choices(&self.sidebar.read(cx).agent_names(), query);
-        if self.here != 0 {
+        if self.seats.here() != 0 {
             rows.retain(|row| !matches!(row, Choice::Shell | Choice::AgentShell));
         }
         rows
@@ -6563,7 +6581,7 @@ impl Render for PaddockWindow {
         );
         // The Changes tab follows the focused pane, and reads only while it shows; another
         // machine's panes it does not read (DESIGN §13 P5-90).
-        let away = self.here != 0;
+        let away = self.seats.here() != 0;
         let follow = if away {
             None
         } else {
