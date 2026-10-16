@@ -38,19 +38,27 @@ const BOX_PAD: f32 = 8.0;
 /// What a row's hover brightens: this name on each row.
 const ROW: &str = "inbox-row";
 
+/// An agent the Inbox keeps things for: its machine (`None` for this Mac) and its name.
+type Who = (Option<String>, String);
+
+/// The agent of `row`, by its machine.
+fn who(row: &inbox::Row) -> Option<Who> {
+    row.agent.clone().map(|name| (row.machine.clone(), name))
+}
+
 /// The Inbox's part of the window. All of it is kept only while paddock runs.
 #[derive(Default)]
 pub(super) struct Inbox {
     /// While the panel is open.
     open: Option<Open>,
     /// What was typed and not sent, by agent.
-    drafts: HashMap<String, String>,
+    drafts: HashMap<Who, String>,
     /// What was sent, by agent, until its next reply is read.
-    sent: HashMap<String, inbox::Sent>,
+    sent: HashMap<Who, inbox::Sent>,
     /// Why corral did not take the last reply typed, by agent.
-    refused: HashMap<String, String>,
+    refused: HashMap<Who, String>,
     /// The agents a reply is on its way to.
-    sending: HashSet<String>,
+    sending: HashSet<Who>,
 }
 
 struct Open {
@@ -58,7 +66,7 @@ struct Open {
     /// The reply box.
     input: Entity<TextInput>,
     /// The row on show, by its agent, whose draft the box holds; `None` before the first.
-    on: Option<Option<String>>,
+    on: Option<Option<Who>>,
     /// Has the keys while no reply can be typed, so that they never reach a terminal.
     focus: FocusHandle,
     rows: ScrollHandle,
@@ -112,8 +120,8 @@ struct RowFacts {
 enum Showing {
     /// No rows.
     Nothing,
-    /// The failed corral read, and why.
-    ReadFailed(String),
+    /// A failed corral read: whose, and why.
+    ReadFailed(String, String),
     /// An agent corral no longer lists.
     Gone(String),
     Agent(Box<Reading>),
@@ -139,6 +147,39 @@ struct Reading {
 }
 
 impl PaddockWindow {
+    /// The machine named `machine` (`None` for this Mac): its place among the seats.
+    fn machine_seat(&self, machine: Option<&str>) -> Option<usize> {
+        match machine {
+            None => Some(0),
+            Some(name) => self
+                .machines
+                .iter()
+                .position(|link| link.name == name)
+                .map(|index| index + 1),
+        }
+    }
+
+    /// The sidebar of the machine named `machine` (`None` for this Mac).
+    fn machine_sidebar(&self, machine: Option<&str>) -> Option<&Entity<Sidebar>> {
+        self.machine_seat(machine).map(|seat| self.parts(seat).0)
+    }
+
+    /// Every machine's agents for the Inbox, this Mac's first (DESIGN §13 P5-90).
+    fn inbox_sources<'a>(&'a self, cx: &'a gpui::App) -> Vec<inbox::Source<'a>> {
+        (0..self.seats.len())
+            .map(|seat| {
+                let sidebar = self.parts(seat).0.read(cx);
+                inbox::Source {
+                    machine: seat
+                        .checked_sub(1)
+                        .map(|index| self.machines[index].name.as_str()),
+                    panel: sidebar.panel(),
+                    error: sidebar.read_error(),
+                }
+            })
+            .collect()
+    }
+
     /// ⇧⌘A and the bell: the Inbox, sorted as things stand and its first row on show; again,
     /// closed.
     pub(super) fn toggle_inbox(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -159,10 +200,7 @@ impl PaddockWindow {
             this.inbox.typed(text, at_end);
             cx.notify();
         });
-        let list = {
-            let sidebar = self.sidebar.read(cx);
-            inbox::Open::new(sidebar.panel(), sidebar.read_error(), now())
-        };
+        let list = inbox::Open::of(&self.inbox_sources(cx), now());
         self.palette = None;
         self.chooser = Chooser::default();
         self.inbox.open = Some(Open {
@@ -203,26 +241,33 @@ impl PaddockWindow {
     /// what is new without moving a row, and the row on show is kept up.
     pub(super) fn sync_inbox(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let now = now();
-        let sidebar = self.sidebar.read(cx);
-        let panel = sidebar.panel();
         let mut answered = Vec::new();
-        self.inbox.sent.retain(|name, sent| {
-            let agent = panel.agents.iter().find(|a| &a.name == name);
-            let shown = agent.is_some_and(|a| sent.shown(panel, a, now));
+        let mut sent = std::mem::take(&mut self.inbox.sent);
+        sent.retain(|who, sent| {
+            let (machine, name) = who;
+            let shown = self
+                .machine_sidebar(machine.as_deref())
+                .is_some_and(|sidebar| {
+                    let panel = sidebar.read(cx).panel();
+                    let agent = panel.agents.iter().find(|a| &a.name == name);
+                    agent.is_some_and(|a| sent.shown(panel, a, now))
+                });
             if !shown {
-                answered.push(name.clone());
+                answered.push(who.clone());
             }
             shown
         });
-        let Some(open) = &mut self.inbox.open else {
+        self.inbox.sent = sent;
+        let Some(mut open) = self.inbox.open.take() else {
             return;
         };
         // The answer to what was sent to the agent on show is read from its top.
         let on = open.on.clone().flatten();
-        if on.is_some_and(|name| answered.contains(&name)) {
+        if on.is_some_and(|who| answered.contains(&who)) {
             open.reply.set_offset(point(px(0.0), px(0.0)));
         }
-        open.list.refresh(panel, sidebar.read_error(), now);
+        open.list.refresh_of(&self.inbox_sources(cx), now);
+        self.inbox.open = Some(open);
         self.show_inbox_row(window, cx);
     }
 
@@ -244,27 +289,26 @@ impl PaddockWindow {
     /// ↩: the reply sent; for an agent showing a prompt or in error, its pane.
     pub(super) fn act_inbox(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         match self.inbox_agent(cx) {
-            Some((_, Status::Waiting | Status::Error)) => self.open_inbox_pane(window, cx),
+            Some((_, _, Status::Waiting | Status::Error)) => self.open_inbox_pane(window, cx),
             Some(_) => self.send_inbox(window, cx),
             None => {}
         }
     }
 
-    /// The agent of the selected row and its status as the Inbox goes by it; `None` for the
-    /// failed read's row and for an agent corral no longer lists.
-    fn inbox_agent(&self, cx: &gpui::App) -> Option<(Agent, Status)> {
-        let name = self.inbox.open.as_ref()?.list.selected()?.agent.as_ref()?;
-        let sidebar = self.sidebar.read(cx);
-        let panel = sidebar.panel();
-        let agent = panel.agents.iter().find(|a| &a.name == name)?;
-        let status = inbox::status(panel, agent, self.inbox.sent.get(name), now());
-        Some((agent.clone(), status))
+    /// The agent of the selected row, by its machine, and its status as the Inbox goes by it;
+    /// `None` for a failed read's row and for an agent its corral no longer lists.
+    fn inbox_agent(&self, cx: &gpui::App) -> Option<(Who, Agent, Status)> {
+        let who = who(self.inbox.open.as_ref()?.list.selected()?)?;
+        let panel = self.machine_sidebar(who.0.as_deref())?.read(cx).panel();
+        let agent = panel.agents.iter().find(|a| a.name == who.1)?;
+        let status = inbox::status(panel, agent, self.inbox.sent.get(&who), now());
+        Some((who, agent.clone(), status))
     }
 
     /// Whether a reply can be typed for the selected row now.
     fn inbox_typing(&self, cx: &gpui::App) -> bool {
-        self.inbox_agent(cx).is_some_and(|(agent, status)| {
-            inbox::composer(Some(status)).is_ok() && !self.inbox.sending.contains(&agent.name)
+        self.inbox_agent(cx).is_some_and(|(who, _, status)| {
+            inbox::composer(Some(status)).is_ok() && !self.inbox.sending.contains(&who)
         })
     }
 
@@ -280,10 +324,10 @@ impl PaddockWindow {
             return;
         };
         let row = open.list.selected().cloned();
-        let agent = row.as_ref().and_then(|row| row.agent.clone());
+        let agent = row.as_ref().and_then(who);
         if open.on.as_ref() != Some(&agent) {
-            let draft = agent.as_ref().and_then(|name| drafts.get(name)).cloned();
-            let placeholder = agent.as_ref().map(|name| format!("Reply to {name}…"));
+            let draft = agent.as_ref().and_then(|who| drafts.get(who)).cloned();
+            let placeholder = agent.as_ref().map(|(_, name)| format!("Reply to {name}…"));
             open.input.update(cx, |input, cx| {
                 input.set_placeholder(placeholder.unwrap_or_default(), cx);
                 input.set_text(draft.unwrap_or_default(), cx);
@@ -298,33 +342,39 @@ impl PaddockWindow {
         if !focus.is_focused(window) {
             window.focus(&focus, cx);
         }
-        if let Some(row) = &row {
-            self.sidebar.update(cx, |sidebar, cx| sidebar.read(row, cx));
+        if let Some(row) = &row
+            && let Some(sidebar) = self.machine_sidebar(row.machine.as_deref()).cloned()
+        {
+            sidebar.update(cx, |sidebar, cx| sidebar.read(row, cx));
         }
         cx.notify();
     }
 
-    /// `Open pane`: the Inbox closes and the agent's pane comes to the front, as a click on its
-    /// card brings it.
+    /// `Open pane`: the Inbox closes, the agent's machine comes on show and its pane to the
+    /// front, as a click on its card brings it.
     fn open_inbox_pane(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some((agent, _)) = self.inbox_agent(cx) else {
+        let Some(((machine, name), _, _)) = self.inbox_agent(cx) else {
+            return;
+        };
+        let Some(seat) = self.machine_seat(machine.as_deref()) else {
             return;
         };
         self.popup = None;
         self.inbox.open = None;
-        let metadata = self.sidebar.read(cx).metadata(&agent.name);
-        self.show_agent(&agent.name, metadata, window, cx);
+        self.switch(seat, window, cx);
+        let metadata = self.sidebar.read(cx).metadata(&name);
+        self.show_agent(&name, metadata, window, cx);
     }
 
-    /// Sends what the box holds to the selected agent, `corral send` in the background: only to an
-    /// agent that idles, nothing blank, and the text as typed. Taken, the box empties and the text
-    /// stays on show under the agent's reply; refused, it stays in the box with the reason under
-    /// it. Either way corral is read again at once.
+    /// Sends what the box holds to the selected agent with its machine's `corral send`, in the
+    /// background: only to an agent that idles, nothing blank, and the text as typed. Taken, the
+    /// box empties and the text stays on show under the agent's reply; refused, it stays in the
+    /// box with the reason under it. Either way its corral is read again at once.
     fn send_inbox(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if !self.inbox_typing(cx) {
             return;
         }
-        let Some((agent, _)) = self.inbox_agent(cx) else {
+        let Some((who, agent, _)) = self.inbox_agent(cx) else {
             return;
         };
         let Some(open) = &self.inbox.open else {
@@ -334,38 +384,45 @@ impl PaddockWindow {
         if text.trim().is_empty() {
             return;
         }
-        let (name, instance) = (agent.name, agent.instance);
-        self.inbox.sending.insert(name.clone());
-        self.inbox.refused.remove(&name);
+        let Some(seat) = self.machine_seat(who.0.as_deref()) else {
+            return;
+        };
+        let instance = agent.instance;
+        self.inbox.sending.insert(who.clone());
+        self.inbox.refused.remove(&who);
         let client = Client {
             program: self.template.corral.clone(),
+            remote: seat
+                .checked_sub(1)
+                .map(|index| self.machines[index].clone()),
         };
+        let sidebar = self.parts(seat).0.clone();
         let at = now();
         cx.spawn_in(window, async move |this, cx| {
-            let (to, words) = (name.clone(), text.clone());
+            let (to, words) = (who.1.clone(), text.clone());
             let result = cx
                 .background_spawn(async move { client.send(&to, &words, &AtomicBool::new(false)) })
                 .await;
             let _ = this.update_in(cx, |this, window, cx| {
-                this.inbox.sending.remove(&name);
+                this.inbox.sending.remove(&who);
                 match result {
                     Ok(()) => {
-                        this.inbox.drafts.remove(&name);
+                        this.inbox.drafts.remove(&who);
                         if let Some(open) = &this.inbox.open
-                            && open.on.as_ref() == Some(&Some(name.clone()))
+                            && open.on.as_ref() == Some(&Some(who.clone()))
                         {
                             open.input.update(cx, |input, cx| input.set_text("", cx));
                             // What was sent is on show, under the reply.
                             open.reply.scroll_to_bottom();
                         }
                         let sent = inbox::Sent { text, at, instance };
-                        this.inbox.sent.insert(name, sent);
+                        this.inbox.sent.insert(who, sent);
                     }
                     Err(refused) => {
-                        this.inbox.refused.insert(name, inbox::refusal(&refused));
+                        this.inbox.refused.insert(who, inbox::refusal(&refused));
                     }
                 }
-                this.sidebar.read(cx).refresh();
+                sidebar.read(cx).refresh();
                 this.sync_inbox(window, cx);
             });
         })
@@ -500,22 +557,39 @@ impl PaddockWindow {
         let lit = ground.blend(accent.opacity(0.11));
         let hover = ground.blend(text.opacity(0.04));
         let (count, facts): (usize, Vec<RowFacts>) = {
-            let sidebar = self.sidebar.read(cx);
-            let (panel, error) = (sidebar.panel(), sidebar.read_error());
-            let ringing = inbox::ringing(panel, error, now);
-            let facts = open.list.rows().iter().map(|row| {
+            let sources = self.inbox_sources(cx);
+            // What rings, by machine.
+            let ringing: Vec<(Option<&str>, Vec<crate::attention::Item>)> = sources
+                .iter()
+                .map(|s| (s.machine, inbox::ringing(s.panel, s.error, now)))
+                .collect();
+            let facts = open.list.rows().iter().filter_map(|row| {
+                let source = sources
+                    .iter()
+                    .find(|s| s.machine == row.machine.as_deref())?;
+                let (panel, error) = (source.panel, source.error);
                 let name = row.agent.as_ref();
                 let agent = name.and_then(|name| panel.agents.iter().find(|a| &a.name == name));
-                let sent = name.and_then(|name| self.inbox.sent.get(name));
+                let sent = who(row).and_then(|who| self.inbox.sent.get(&who));
                 let label = row.agent.as_deref().unwrap_or("corral");
                 let dot: Pick = match (agent, name) {
                     (Some(a), _) => card::look(inbox::status(panel, a, sent, now)).color,
                     (None, Some(_)) => |t| t.agents_faint,
                     (None, None) => |t| t.agents_red,
                 };
-                RowFacts {
+                let group = agent.map(|a| panel.group(a)).unwrap_or_default();
+                let rings = ringing
+                    .iter()
+                    .find(|(machine, _)| *machine == row.machine.as_deref())
+                    .is_some_and(|(_, items)| items.iter().any(|item| item.agent == row.agent));
+                Some(RowFacts {
                     short: label.rsplit('/').next().unwrap_or(label).to_owned(),
-                    project: agent.map(|a| panel.group(a)).unwrap_or_default().to_owned(),
+                    // Another machine's row says which (DESIGN §13 P5-90).
+                    project: match &row.machine {
+                        Some(machine) if group.is_empty() => machine.clone(),
+                        Some(machine) => format!("{machine} · {group}"),
+                        None => group.to_owned(),
+                    },
                     kind: agent.and_then(|a| a.kind.clone()),
                     dot: self.fg(dot),
                     // Since the agent came to this state, when corral says.
@@ -523,11 +597,11 @@ impl PaddockWindow {
                         .and_then(|a| a.state_started)
                         .map(|since| card::short_time(Some(now - since))),
                     line: inbox::line(panel, row, error, sent, now),
-                    quiet: row.group != Group::Read
-                        && !ringing.iter().any(|item| item.agent == row.agent),
-                }
+                    quiet: row.group != Group::Read && !rings,
+                })
             });
-            (ringing.len(), facts.collect())
+            let count = ringing.iter().map(|(_, items)| items.len()).sum();
+            (count, facts.collect())
         };
         let cap = |key: String| {
             div()
@@ -773,18 +847,27 @@ impl PaddockWindow {
             return Showing::Nothing;
         };
         let now = now();
-        let sidebar = self.sidebar.read(cx);
+        let Some(sidebar) = self.machine_sidebar(row.machine.as_deref()) else {
+            return Showing::Nothing;
+        };
+        let sidebar = sidebar.read(cx);
         let panel = sidebar.panel();
-        let Some(name) = &row.agent else {
+        // Another machine's say which (DESIGN §13 P5-90).
+        let titled = |name: &str| match &row.machine {
+            Some(machine) => format!("{name} · {machine}"),
+            None => name.to_owned(),
+        };
+        let Some(who) = who(row) else {
             let error = sidebar.read_error().unwrap_or("Read failed");
-            return Showing::ReadFailed(error.to_owned());
+            return Showing::ReadFailed(titled("corral"), error.to_owned());
         };
+        let name = &who.1;
         let Some(agent) = panel.agents.iter().find(|a| &a.name == name) else {
-            return Showing::Gone(name.clone());
+            return Showing::Gone(titled(name));
         };
-        let sent = self.inbox.sent.get(name);
+        let sent = self.inbox.sent.get(&who);
         Showing::Agent(Box::new(Reading {
-            name: name.clone(),
+            name: titled(name),
             kind: agent.kind.clone(),
             status: inbox::status(panel, agent, sent, now),
             age: agent
@@ -794,8 +877,8 @@ impl PaddockWindow {
             problem: crate::attention::problem(agent),
             reply: panel.said(agent, now).map(|said| said.reply.clone()),
             sent: sent.cloned(),
-            sending: self.inbox.sending.contains(name),
-            refused: self.inbox.refused.get(name).cloned(),
+            sending: self.inbox.sending.contains(&who),
+            refused: self.inbox.refused.get(&who).cloned(),
             draft: open.input.read(cx).text().to_owned(),
         }))
     }
@@ -955,10 +1038,10 @@ impl PaddockWindow {
                         .child("Nothing to read."),
                 );
             }
-            Showing::ReadFailed(error) => {
+            Showing::ReadFailed(title, error) => {
                 return column
                     .child(head(
-                        "corral".into(),
+                        title,
                         avatar(None, red),
                         Some(about(vec![("Error".into(), red)])),
                     ))

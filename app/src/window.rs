@@ -19,7 +19,7 @@ use crate::{
     kanban_view::{self, KanbanEvent, KanbanView, TaskDialog, TaskDialogEvent},
     kind_icon,
     layout::{self, Axis, Direction, Node, PaneId, Placement, Shown, Workspace},
-    layout_state::{Content, Layout, Store, WindowSize},
+    layout_state::{Board, Content, Layout, Store, WindowSize},
     menu,
     motion::{self, HoverMotion},
     new_agent::{self, Place, Started},
@@ -27,8 +27,10 @@ use crate::{
     pause,
     pet::PetView,
     popover::{self, Hang, Placed, Tone},
+    remote,
     right_panel::{self, RightPanel, Room, Tab as RightTab},
     search::{self, Lead, Mode, Target},
+    seating::Seating,
     settings::{Conflict, Draft, Saved},
     sidebar::{self, Sidebar, SidebarEvent, status_dot},
     tab_fit::{self, Bar, TabSize, Title},
@@ -52,9 +54,10 @@ use objc2_app_kit::{NSView, NSWindow};
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use std::{
     cell::RefCell,
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     path::PathBuf,
     rc::Rc,
+    sync::Arc,
     time::{Duration, Instant},
 };
 
@@ -1083,6 +1086,59 @@ pub struct AgentPane {
     pub attached: bool,
 }
 
+/// How a machine's connection stands in the switcher: the words beside its name (none while it
+/// answers, where a dot says so), whether they tell of a problem, and the hover note: why, and
+/// what to do.
+fn switcher_status(link: &remote::Link, now: Instant) -> (Option<String>, bool, String) {
+    let snapshot = link.snapshot();
+    match snapshot.status {
+        remote::Status::Online => {
+            let version = snapshot
+                .version
+                .map(|(version, _)| format!(" · corral {version}"))
+                .unwrap_or_default();
+            (None, false, format!("{}{version}", link.target))
+        }
+        remote::Status::Connecting => (
+            Some("Connecting…".into()),
+            false,
+            format!("Connecting to {}…", link.target),
+        ),
+        remote::Status::Down { problem, retry } => {
+            let label = if problem.transient() {
+                match retry.saturating_duration_since(now).as_secs_f32().ceil() as u64 {
+                    0 => "Reconnecting…".to_owned(),
+                    wait => format!("Reconnecting in {wait}s"),
+                }
+            } else {
+                problem.label()
+            };
+            (Some(label), true, problem.advice(&link.target))
+        }
+    }
+}
+
+/// The agent panes of `workspace`, as their views have them.
+fn agent_panes(
+    workspace: &Workspace,
+    panes: &HashMap<PaneId, Entity<TerminalView>>,
+    cx: &gpui::App,
+) -> Vec<AgentPane> {
+    workspace
+        .agent_panes()
+        .into_iter()
+        .filter_map(|(pane, name)| {
+            let view = panes.get(&pane)?.read(cx);
+            Some(AgentPane {
+                pane,
+                name,
+                instance: view.agent_metadata().instance,
+                attached: view.attaching(),
+            })
+        })
+        .collect()
+}
+
 /// The panes to close because their agent has ended, by `agents`, a listing corral has just given:
 /// it lists the agent as exited, no longer lists it, or lists another instance under its name
 /// (stopped and started again). Only panes whose attach has ended count, so a listing read just
@@ -1188,6 +1244,27 @@ pub struct PaddockWindow {
     translucency: Translucency,
     /// What `paddock ctl` asked for and is still under way.
     ctl: ctl::Ctl,
+    /// The other machines the config names, in its order (DESIGN §13 P5-90); none, and the window
+    /// is as it was before them.
+    machines: Vec<Arc<remote::Link>>,
+    /// The machine in the fields, its seat `here()`: 0 for this Mac, else `machines[here() - 1]`.
+    /// Its sidebar, layout and panes are the fields above; each other machine's wait in `seats`,
+    /// still connected. It is the one on show, except while [`Self::on_local`] brings this Mac's in
+    /// for a moment.
+    seats: Seating<Seat>,
+    /// Saved boards of machines the config no longer names, kept for when it names them again.
+    boards: BTreeMap<String, Board>,
+    /// What the switcher and the bell last said of the machines not on show.
+    switcher_said: (Vec<sidebar::MachineTab>, Vec<crate::attention::Item>),
+}
+
+/// A machine's sidebar, layout and panes while another machine is on show (DESIGN §13 P5-90).
+struct Seat {
+    sidebar: Entity<Sidebar>,
+    workspace: Workspace,
+    panes: HashMap<PaneId, Entity<TerminalView>>,
+    typing_to: to_tag::Target,
+    folded: Folds,
 }
 
 #[path = "window_ctl.rs"]
@@ -1213,14 +1290,9 @@ impl PaddockWindow {
             let theme = theme.clone();
             let (width, corral) = (config.sidebar_width, options.corral.clone());
             let refresh = std::time::Duration::from_millis(config.refresh_ms);
-            cx.new(|cx| Sidebar::new(theme, width, mono, corral, refresh, window, cx))
+            cx.new(|cx| Sidebar::new(theme, width, mono, corral, refresh, None, window, cx))
         };
-        cx.subscribe_in(&sidebar, window, Self::on_sidebar).detach();
-        // The Inbox follows the agents as they are read.
-        cx.observe_in(&sidebar, window, |this, _, window, cx| {
-            this.sync_inbox(window, cx)
-        })
-        .detach();
+        Self::follow_sidebar(&sidebar, 0, window, cx);
         let collapsed = saved
             .as_ref()
             .is_some_and(|layout| layout.sidebar_collapsed);
@@ -1354,7 +1426,12 @@ impl PaddockWindow {
             frost: Frost::install(window),
             translucency,
             ctl: ctl::Ctl::default(),
+            machines: Vec::new(),
+            seats: Seating::default(),
+            boards: BTreeMap::new(),
+            switcher_said: Default::default(),
         };
+        this.seat_machines(config, saved.as_ref(), window, cx);
         // The column shows the material through the window, which is see-through for it.
         if this.frost.is_some() {
             window.set_background_appearance(WindowBackgroundAppearance::Transparent);
@@ -1456,12 +1533,454 @@ impl PaddockWindow {
         self.focus_active(window, cx);
     }
 
+    /// Follows machine `seat`'s sidebar: what it asks, and the Inbox and the switcher as its
+    /// agents are read.
+    fn follow_sidebar(
+        sidebar: &Entity<Sidebar>,
+        seat: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        cx.subscribe_in(sidebar, window, move |this, _, event, window, cx| {
+            this.on_seat_sidebar(seat, event, window, cx)
+        })
+        .detach();
+        // The Inbox follows the agents as they are read; with other machines, the switcher and the
+        // bell too, drawn again only when what they say changed.
+        cx.observe_in(sidebar, window, |this, _, window, cx| {
+            this.sync_inbox(window, cx);
+            if !this.machines.is_empty() {
+                let said = (this.machine_tabs(cx), this.rung_elsewhere(cx));
+                if said != this.switcher_said {
+                    this.switcher_said = said;
+                    cx.notify();
+                }
+            }
+        })
+        .detach();
+    }
+
+    /// The other machines the config names (DESIGN §13 P5-90): each its own connection, sidebar
+    /// and layout as saved, whose agents attach once it answers.
+    fn seat_machines(
+        &mut self,
+        config: &Config,
+        saved: Option<&Layout>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let mut boards = saved
+            .map(|layout| layout.machines.clone())
+            .unwrap_or_default();
+        for machine in &config.machines {
+            let link = Arc::new(remote::Link::new(machine));
+            let seat = self.seats.len();
+            let sidebar = {
+                let theme = self.theme.clone();
+                let (width, corral) = (config.sidebar_width, self.template.corral.clone());
+                let mono = mono_font(&self.template);
+                let refresh = Duration::from_millis(config.refresh_ms);
+                let link = Some(link.clone());
+                cx.new(|cx| Sidebar::new(theme, width, mono, corral, refresh, link, window, cx))
+            };
+            Self::follow_sidebar(&sidebar, seat, window, cx);
+            let board = boards
+                .remove(&machine.name)
+                .filter(|board| board.validate().is_ok());
+            let folded = board
+                .as_ref()
+                .map(|board| board.folded.clone())
+                .unwrap_or_default();
+            sidebar.update(cx, |sidebar, cx| sidebar.set_folds(folded.clone(), cx));
+            let (workspace, contents) = match &board {
+                Some(board) => board.workspace(),
+                None => (Workspace::new(Shown::Empty).0, Vec::new()),
+            };
+            self.machines.push(link);
+            self.seats.push(Seat {
+                sidebar,
+                workspace,
+                panes: HashMap::new(),
+                typing_to: to_tag::Target::default(),
+                folded,
+            });
+            self.fill_seat(seat, contents, window, cx);
+        }
+        self.boards = boards;
+        if let Some(problem) = config.machines_problem.clone() {
+            self.sidebar
+                .update(cx, |sidebar, cx| sidebar.note(problem, true, cx));
+        }
+        if self.machines.is_empty() {
+            return;
+        }
+        // The switcher counts down to the next try while a machine is not answering.
+        cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor().timer(Duration::from_secs(1)).await;
+                let ticked = this.update(cx, |this, cx| {
+                    let waiting = this.machines.iter().any(|link| {
+                        matches!(
+                            link.snapshot().status,
+                            remote::Status::Down { problem, .. } if problem.transient()
+                        )
+                    });
+                    if waiting {
+                        cx.notify();
+                    }
+                });
+                if ticked.is_err() {
+                    break;
+                }
+            }
+        })
+        .detach();
+    }
+
+    /// The machine on show, when another than this Mac.
+    fn remote(&self) -> Option<&Arc<remote::Link>> {
+        self.seats
+            .here()
+            .checked_sub(1)
+            .map(|index| &self.machines[index])
+    }
+
+    /// Machine `seat`'s sidebar, layout and panes: the fields while it is on show, else where it
+    /// waits.
+    fn parts(
+        &self,
+        seat: usize,
+    ) -> (
+        &Entity<Sidebar>,
+        &Workspace,
+        &HashMap<PaneId, Entity<TerminalView>>,
+    ) {
+        match self.seats.parked(seat) {
+            Some(parked) => (&parked.sidebar, &parked.workspace, &parked.panes),
+            None => (&self.sidebar, &self.workspace, &self.panes),
+        }
+    }
+
+    fn parts_mut(
+        &mut self,
+        seat: usize,
+    ) -> (&mut Workspace, &mut HashMap<PaneId, Entity<TerminalView>>) {
+        match self.seats.parked_mut(seat) {
+            Some(parked) => (&mut parked.workspace, &mut parked.panes),
+            None => (&mut self.workspace, &mut self.panes),
+        }
+    }
+
+    /// This Mac's sidebar, whichever machine is on show: what reads this Mac goes by it.
+    fn local_sidebar(&self) -> &Entity<Sidebar> {
+        self.parts(0).0
+    }
+
+    /// Every machine's sidebar.
+    fn sidebars(&self) -> Vec<Entity<Sidebar>> {
+        (0..self.seats.len())
+            .map(|seat| self.parts(seat).0.clone())
+            .collect()
+    }
+
+    /// Every machine's panes.
+    fn all_panes(&self) -> Vec<Entity<TerminalView>> {
+        (0..self.seats.len())
+            .flat_map(|seat| self.parts(seat).2.values().cloned())
+            .collect()
+    }
+
+    /// Puts machine `seat`'s sidebar, layout and panes in the fields, and the ones there where it
+    /// waited. Nothing else changes: [`Self::switch`] and [`Self::on_local`] go by it.
+    fn bring(&mut self, seat: usize) {
+        let mut seats = std::mem::take(&mut self.seats);
+        seats.bring(seat, |parked| {
+            std::mem::swap(&mut self.sidebar, &mut parked.sidebar);
+            std::mem::swap(&mut self.workspace, &mut parked.workspace);
+            std::mem::swap(&mut self.panes, &mut parked.panes);
+            std::mem::swap(&mut self.typing_to, &mut parked.typing_to);
+            std::mem::swap(&mut self.sidebar_folded, &mut parked.folded);
+        });
+        self.seats = seats;
+    }
+
+    /// `f` on this Mac's sidebar, layout and panes, whichever machine is on show: for what acts on
+    /// this Mac alone (`paddock ctl`, the quit question). While another machine is on show, this
+    /// Mac's seat is in the fields for `f` and goes back to waiting after; what `f` opens, closes
+    /// or makes active there is what the user finds on switching back, and the keyboard stays
+    /// where the user has it (P5-90 rework). Nothing is drawn meanwhile.
+    fn on_local<R>(&mut self, f: impl FnOnce(&mut Self) -> R) -> R {
+        let away = self.seats.here();
+        if away == 0 {
+            return f(self);
+        }
+        self.bring(0);
+        let result = f(self);
+        self.bring(away);
+        result
+    }
+
+    /// The switcher's click: machine `seat` on show, and one that could not be read is tried
+    /// again at once.
+    fn pick_machine(&mut self, seat: usize, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(link) = seat
+            .checked_sub(1)
+            .and_then(|index| self.machines.get(index))
+            && matches!(link.snapshot().status, remote::Status::Down { .. })
+        {
+            self.parts(seat).0.read(cx).refresh();
+        }
+        self.switch(seat, window, cx);
+    }
+
+    /// Machine `seat`'s sidebar and panes on show; the ones on show wait, still connected.
+    fn switch(&mut self, seat: usize, window: &mut Window, cx: &mut Context<Self>) {
+        if seat == self.seats.here() || seat >= self.seats.len() {
+            return;
+        }
+        if self.popup.is_some() {
+            self.close_popup(window, cx);
+        }
+        // What the user sees changes machine: only the one on show reads replies by looking.
+        self.sidebar
+            .update(cx, |sidebar, _| sidebar.set_on_show(false));
+        self.bring(seat);
+        self.seats.look();
+        self.sidebar
+            .update(cx, |sidebar, _| sidebar.set_on_show(true));
+        // What the pointer was doing was over the other machine's tabs and panes.
+        (self.tab_hover, self.tab_left, self.splitting) = (None, None, None);
+        // As the window has it now.
+        let (collapsed, frosted) = (self.collapsed, self.frosted());
+        let (theme, width) = (self.theme.clone(), self.sidebar_width);
+        self.sidebar.update(cx, |sidebar, cx| {
+            sidebar.set_collapsed(collapsed, cx);
+            sidebar.set_frosted(frosted, cx);
+            sidebar.restyle(theme, width, cx);
+        });
+        self.fill(window, cx);
+        self.focus_active(window, cx);
+    }
+
+    /// Views for machine `seat`'s panes that have none, as [`Self::fill`] makes them for the one
+    /// on show: this Mac's shells start where ⌘N starts one; another machine has no shells, and its
+    /// agents in `contents` wait for it to answer and list them as before, then attach.
+    fn fill_seat(
+        &mut self,
+        seat: usize,
+        contents: Vec<(PaneId, Content)>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let missing: Vec<PaneId> = {
+            let (_, workspace, panes) = self.parts(seat);
+            workspace
+                .tabs
+                .iter()
+                .flat_map(|tab| tab.panes())
+                .filter(|pane| !panes.contains_key(pane))
+                .collect()
+        };
+        for pane in missing {
+            let shell = self.parts(seat).1.shown(pane) == &Shown::Shell;
+            let Some(machine) = seat
+                .checked_sub(1)
+                .map(|index| self.machines[index].name.clone())
+            else {
+                let launch = if shell { self.shell() } else { Launch::Empty };
+                let view = self.view_on(seat, pane, launch, window, cx);
+                self.parts_mut(seat).1.insert(pane, view);
+                continue;
+            };
+            let view = self.view_on(seat, pane, Launch::Empty, window, cx);
+            let saved = contents.iter().find(|(id, _)| *id == pane);
+            if let Some((
+                _,
+                Content::Agent {
+                    name,
+                    cwd,
+                    instance,
+                },
+            )) = saved
+            {
+                let metadata = AgentMetadata {
+                    cwd: cwd.clone(),
+                    instance: instance.clone(),
+                };
+                view.update(cx, |view, cx| {
+                    view.wait(name.clone(), metadata, &machine, cx)
+                });
+            }
+            let (workspace, panes) = self.parts_mut(seat);
+            if shell {
+                workspace.set_shown(pane, Shown::Empty);
+            }
+            panes.insert(pane, view);
+        }
+    }
+
+    /// Machine `seat`'s agents were read while another is on show: as [`Self::on_sidebar`] does
+    /// for the one on show, its panes let go of agents that ended, and a lost attach goes again.
+    fn settle_parked(
+        &mut self,
+        seat: usize,
+        names: &[String],
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let (sidebar, workspace, panes) = self.parts(seat);
+        let sidebar = sidebar.read(cx);
+        let agents = sidebar.agents();
+        let listed_at = sidebar.listed_at();
+        let ended = ended_panes(&agent_panes(workspace, panes, cx), &agents);
+        let changes: Vec<(Entity<TerminalView>, bool)> = panes
+            .values()
+            .map(|view| {
+                let target = view.read(cx).target();
+                (
+                    view.clone(),
+                    target.is_some_and(|name| sidebar.paused(name)),
+                )
+            })
+            .collect();
+        let names: Vec<&str> = names.iter().map(String::as_str).collect();
+        for (view, paused) in changes {
+            view.update(cx, |view, cx| {
+                view.disappeared(&names);
+                if seat != 0 {
+                    view.listed(&agents, listed_at, cx);
+                }
+                if view.paused() != paused {
+                    view.set_paused(paused, cx);
+                }
+            });
+        }
+        if ended.is_empty() {
+            return;
+        }
+        let (workspace, panes) = self.parts_mut(seat);
+        let gone: Vec<Entity<TerminalView>> = ended
+            .into_iter()
+            .flat_map(|pane| workspace.close_pane(pane))
+            .filter_map(|pane| panes.remove(&pane))
+            .collect();
+        for view in gone {
+            view.update(cx, |view, cx| view.close(cx));
+        }
+        self.fill_seat(seat, Vec::new(), window, cx);
+        self.save_layout(cx);
+        cx.notify();
+    }
+
+    /// A machine's sidebar asked something: the one on show as before; another's only reads.
+    fn on_seat_sidebar(
+        &mut self,
+        seat: usize,
+        event: &SidebarEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if seat == self.seats.here() {
+            self.on_sidebar(event, window, cx);
+            return;
+        }
+        match event {
+            SidebarEvent::Alive(names) => self.settle_parked(seat, names, window, cx),
+            SidebarEvent::Folds(folds) => {
+                if let Some(parked) = self.seats.parked_mut(seat) {
+                    parked.folded = folds.clone();
+                }
+                self.save_layout(cx);
+            }
+            _ => {}
+        }
+    }
+
+    /// The switcher over the sidebar, one tab per machine (none without other machines): how
+    /// many of its agents want the user, as its bell counts them, and how its connection stands.
+    fn machine_tabs(&self, cx: &gpui::App) -> Vec<sidebar::MachineTab> {
+        if self.machines.is_empty() {
+            return Vec::new();
+        }
+        let now = Instant::now();
+        (0..self.seats.len())
+            .map(|seat| {
+                let count = self.parts(seat).0.read(cx).ringing().len();
+                let (name, status, problem, tip) = match seat.checked_sub(1) {
+                    None => (
+                        "This Mac".to_owned(),
+                        None,
+                        false,
+                        "This Mac's corral".into(),
+                    ),
+                    Some(index) => {
+                        let link = &self.machines[index];
+                        let (status, problem, tip) = switcher_status(link, now);
+                        (link.name.clone(), status, problem, tip)
+                    }
+                };
+                sidebar::MachineTab {
+                    name,
+                    count,
+                    status,
+                    problem,
+                    tip,
+                    shown: seat == self.seats.here(),
+                }
+            })
+            .collect()
+    }
+
+    /// The other machines' rows that ring, for the bell on show: it counts every machine's.
+    fn rung_elsewhere(&self, cx: &gpui::App) -> Vec<crate::attention::Item> {
+        (0..self.seats.len())
+            .filter(|seat| *seat != self.seats.here())
+            .flat_map(|seat| self.parts(seat).0.read(cx).ringing())
+            .collect()
+    }
+
+    /// The home directory paths on the machine on show are written `~` by: another machine's own
+    /// `$HOME`, once it has said it, never this Mac's.
+    fn home(&self) -> Option<String> {
+        match self.remote() {
+            Some(link) => link.snapshot().home,
+            None => std::env::var("HOME").ok(),
+        }
+    }
+
+    /// corral on the machine on show.
+    fn client(&self) -> crate::corral::Client {
+        crate::corral::Client {
+            program: self.template.corral.clone(),
+            remote: self.remote().cloned(),
+        }
+    }
+
+    /// ` on <machine>` for another machine's question; nothing for this Mac's.
+    fn on_machine(&self) -> String {
+        self.remote()
+            .map(|link| format!(" on {}", link.name))
+            .unwrap_or_default()
+    }
+
+    /// Says on the sidebar that something is only on this Mac for now (DESIGN §13 P5-90).
+    fn only_here(&mut self, what: &str, cx: &mut Context<Self>) -> bool {
+        if self.seats.here() == 0 {
+            return false;
+        }
+        let text = format!("{what} on This Mac only for now.");
+        self.sidebar
+            .update(cx, |sidebar, cx| sidebar.note(text, true, cx));
+        true
+    }
+
     /// What a pane shows, in full, for the saved layout.
-    fn content(&self, pane: PaneId, cx: &gpui::App) -> Content {
-        match self.workspace.shown(pane) {
+    fn content(&self, seat: usize, pane: PaneId, cx: &gpui::App) -> Content {
+        let (sidebar, workspace, panes) = self.parts(seat);
+        match workspace.shown(pane) {
             Shown::Empty => Content::Empty,
             Shown::Shell => {
-                let cwd = self.panes.get(&pane).and_then(|view| view.read(cx).cwd());
+                let cwd = panes.get(&pane).and_then(|view| view.read(cx).cwd());
                 let cwd = cwd
                     .filter(|cwd| std::path::Path::new(cwd).is_absolute())
                     .unwrap_or(&self.new_shell.cwd);
@@ -1470,12 +1989,11 @@ impl PaddockWindow {
                 }
             }
             Shown::Agent(name) => {
-                let mut metadata = self
-                    .panes
+                let mut metadata = panes
                     .get(&pane)
                     .map(|view| view.read(cx).agent_metadata())
                     .unwrap_or_default();
-                let listed = self.sidebar.read(cx).metadata(name);
+                let listed = sidebar.read(cx).metadata(name);
                 metadata.cwd = metadata.cwd.or(listed.cwd);
                 metadata.instance = metadata.instance.or(listed.instance);
                 Content::Agent {
@@ -1490,12 +2008,12 @@ impl PaddockWindow {
     }
 
     /// What Diagnostics shows from this window: the commands it runs and how its reads and saves
-    /// went.
+    /// went, and how each other machine stands.
     pub fn report(&self, cx: &gpui::App) -> Report {
         Report {
             corral: self.template.corral.clone(),
             shell: self.new_shell.program.clone(),
-            agents: self.sidebar.read(cx).last_read(),
+            agents: self.local_sidebar().read(cx).last_read(),
             config_path: crate::config::default_path(),
             config_from_file: self.config_from_file,
             layout_path: self.store.path().map(std::path::Path::to_path_buf),
@@ -1504,18 +2022,41 @@ impl PaddockWindow {
             save_off: self.store.protected(),
             startup: cx.try_global::<Startup>().cloned().unwrap_or_default(),
             checked: std::time::SystemTime::now(),
+            machines: self
+                .machines
+                .iter()
+                .map(|link| crate::diagnostics::Machine::of(link))
+                .collect(),
         }
     }
 
-    /// Saves the layout when it changed since the last save.
+    /// Saves the layout when it changed since the last save: this Mac's, and each other
+    /// machine's board.
     pub fn save_layout(&mut self, cx: &gpui::App) {
+        let (_, workspace, _) = self.parts(0);
+        let folded = match self.seats.parked(0) {
+            Some(parked) => parked.folded.clone(),
+            None => self.sidebar_folded.clone(),
+        };
+        let mut machines = self.boards.clone();
+        for (index, link) in self.machines.iter().enumerate() {
+            let seat = index + 1;
+            let folded = match self.seats.parked(seat) {
+                Some(parked) => parked.folded.clone(),
+                None => self.sidebar_folded.clone(),
+            };
+            let (_, board, _) = self.parts(seat);
+            let board = Board::of(board, |pane| self.content(seat, pane, cx), folded);
+            machines.insert(link.name.clone(), board);
+        }
         let layout = Layout {
             window_size: self.window_size,
             sidebar_collapsed: self.collapsed,
             activity_folded: self.activity_folded,
-            sidebar_folded: self.sidebar_folded.clone(),
+            sidebar_folded: folded,
             right_sidebar: self.right.saved(),
-            ..Layout::of(&self.workspace, |pane| self.content(pane, cx))
+            machines,
+            ..Layout::of(workspace, |pane| self.content(0, pane, cx))
         };
         self.store.save(&layout);
     }
@@ -1696,9 +2237,22 @@ impl PaddockWindow {
         }
     }
 
-    /// The terminal for `pane`; a shell gets the pane's identity.
+    /// The terminal for `pane` on the machine on show; a shell gets the pane's identity.
     fn view(
         &self,
+        pane: PaneId,
+        launch: Launch,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Entity<TerminalView> {
+        self.view_on(self.seats.here(), pane, launch, window, cx)
+    }
+
+    /// The terminal for `pane` on machine `seat`: another machine's attaches through its
+    /// connection.
+    fn view_on(
+        &self,
+        seat: usize,
         pane: PaneId,
         mut launch: Launch,
         window: &mut Window,
@@ -1709,13 +2263,27 @@ impl PaddockWindow {
         }
         let options = Options {
             launch,
+            remote: seat
+                .checked_sub(1)
+                .map(|index| self.machines[index].clone()),
             ..self.template.clone()
         };
         let theme = self.theme.clone();
+        // A terminal takes the keyboard as it is made; one made out of the user's sight (a machine
+        // waiting, or this Mac's for a moment) gives it back (P5-90 cross review 3).
+        let before = window.focused(cx);
         let view = cx.new(|cx| TerminalView::new(options, theme, window, cx));
-        // corral is asked at once whether the agent ended with it, to close its panes.
-        cx.subscribe(&view, |this, _, _: &AttachEnded, cx| {
-            this.sidebar.read(cx).refresh()
+        if !self.seats.in_sight(seat) {
+            match before {
+                Some(focus) => window.focus(&focus, cx),
+                None => window.blur(cx),
+            }
+        }
+        // Its machine's corral is asked at once whether the agent ended with it, to close its
+        // panes.
+        let sidebar = self.parts(seat).0.clone();
+        cx.subscribe(&view, move |_, _, _: &AttachEnded, cx| {
+            sidebar.read(cx).refresh()
         })
         .detach();
         view
@@ -1743,6 +2311,11 @@ impl PaddockWindow {
     /// Views for panes the layout made on its own (the shell opened after closing the last tab),
     /// a shell starting where ⌘N starts one.
     fn fill(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // Another machine has no shells: its panes the layout made are empty.
+        if self.seats.here() != 0 {
+            self.fill_seat(self.seats.here(), Vec::new(), window, cx);
+            return;
+        }
         let missing: Vec<PaneId> = self
             .workspace
             .tabs
@@ -1762,20 +2335,7 @@ impl PaddockWindow {
 
     /// The agent panes whose agent has ended, by the listing corral has just given the sidebar.
     fn ended(&self, cx: &gpui::App) -> Vec<PaneId> {
-        let panes: Vec<AgentPane> = self
-            .workspace
-            .agent_panes()
-            .into_iter()
-            .filter_map(|(pane, name)| {
-                let view = self.panes.get(&pane)?.read(cx);
-                Some(AgentPane {
-                    pane,
-                    name,
-                    instance: view.agent_metadata().instance,
-                    attached: view.attaching(),
-                })
-            })
-            .collect();
+        let panes = agent_panes(&self.workspace, &self.panes, cx);
         ended_panes(&panes, &self.sidebar.read(cx).agents())
     }
 
@@ -1804,7 +2364,13 @@ impl PaddockWindow {
         });
     }
 
+    /// The active pane takes the keyboard; while [`Self::on_local`] visits this Mac, the keyboard
+    /// stays with the machine on show and this Mac's active pane takes it on switching back.
     fn focus_active(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.seats.visiting() {
+            self.sync(cx);
+            return;
+        }
         self.tabs.scroll_to_item(self.workspace.active_tab);
         let active = self.workspace.active_pane();
         if let Some(view) = self.panes.get(&active) {
@@ -1832,13 +2398,7 @@ impl PaddockWindow {
         }
     }
 
-    fn on_sidebar(
-        &mut self,
-        _: &Entity<Sidebar>,
-        event: &SidebarEvent,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    fn on_sidebar(&mut self, event: &SidebarEvent, window: &mut Window, cx: &mut Context<Self>) {
         match event {
             SidebarEvent::Attach { name, metadata } => {
                 self.show_agent(name, metadata.clone(), window, cx)
@@ -1867,9 +2427,20 @@ impl PaddockWindow {
                 for view in self.panes.values() {
                     view.update(cx, |v, _| v.disappeared(&names));
                 }
+                // Another machine's: a lost attach goes again, one that watched may type.
+                if self.seats.here() != 0 {
+                    let (agents, listed_at) = {
+                        let sidebar = self.sidebar.read(cx);
+                        (sidebar.agents(), sidebar.listed_at())
+                    };
+                    for view in self.panes.values() {
+                        view.update(cx, |v, cx| v.listed(&agents, listed_at, cx));
+                    }
+                }
                 self.sync_paused(cx);
                 self.close_ended(ended, window, cx);
             }
+            SidebarEvent::Machine(seat) => self.pick_machine(*seat, window, cx),
             SidebarEvent::ActivityFolded(folded) => {
                 self.activity_folded = *folded;
                 self.save_layout(cx);
@@ -1978,6 +2549,10 @@ impl PaddockWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // Another machine's agents would start there: not yet (DESIGN §13 P5-90).
+        if self.only_here("New agents start", cx) {
+            return;
+        }
         let view = match &self.new_agent {
             Some(view) => {
                 view.update(cx, |view, cx| view.reopen(seed, place, cx));
@@ -2002,11 +2577,16 @@ impl PaddockWindow {
                                 if open {
                                     this.popup = None;
                                 }
-                                if let Some(workspace) = workspace {
-                                    this.sidebar
-                                        .update(cx, |s, cx| s.join_started(workspace, cwd, cx));
-                                }
-                                this.open_started(started, cwd, *place, window, cx);
+                                // Started on this Mac, whichever machine is on show by now: it
+                                // joins, opens and is noted in this Mac's, and the user keeps
+                                // the machine and keyboard they have (P5-90 cross review 2).
+                                this.on_local(|this| {
+                                    if let Some(workspace) = workspace {
+                                        this.sidebar
+                                            .update(cx, |s, cx| s.join_started(workspace, cwd, cx));
+                                    }
+                                    this.open_started(started, cwd, *place, window, cx);
+                                });
                                 if let Some(first) = first {
                                     this.send_first(&started.name, first.clone(), cx);
                                 }
@@ -2116,7 +2696,9 @@ impl PaddockWindow {
                 let text = format!(
                     "Couldn't send the first message to {name}: {error:#}. It is on the clipboard."
                 );
-                this.sidebar
+                // The agent is this Mac's, whichever machine is on show.
+                this.local_sidebar()
+                    .clone()
                     .update(cx, |sidebar, cx| sidebar.note(text, true, cx));
             });
         })
@@ -2138,18 +2720,20 @@ impl PaddockWindow {
         self.asking = true;
         let answer = window.prompt(
             PromptLevel::Warning,
-            &format!("Stop {name}?"),
+            &format!("Stop {name}{}?", self.on_machine()),
             Some("corral stop ends the agent and its session. Panes showing it close."),
             &["Stop", "Cancel"],
             cx,
         );
-        let corral = self.template.corral.clone();
+        // What comes back is told and read again on that machine, whichever is on show by then.
+        let sidebar = self.sidebar.clone();
+        let client = self.client();
         cx.spawn_in(window, async move |this, cx| {
             let stop = matches!(answer.await, Ok(0));
             let _ = this.update(cx, |this, cx| {
                 this.asking = false;
                 if stop {
-                    this.sidebar.update(cx, |sidebar, cx| {
+                    sidebar.update(cx, |sidebar, cx| {
                         sidebar.note(format!("Stopping {name}…"), false, cx)
                     });
                 }
@@ -2159,10 +2743,10 @@ impl PaddockWindow {
             }
             let target = name.clone();
             let result = cx
-                .background_spawn(async move { new_agent::stop(&corral, &target) })
+                .background_spawn(async move { new_agent::stop_with(&client, &target) })
                 .await;
-            let _ = this.update(cx, |this, cx| {
-                this.sidebar.update(cx, |sidebar, cx| {
+            let _ = this.update(cx, |_, cx| {
+                sidebar.update(cx, |sidebar, cx| {
                     match result {
                         Ok(()) => sidebar.note(format!("Stopped {name}"), false, cx),
                         Err(error) => sidebar.note(format!("{error:#}"), true, cx),
@@ -2188,9 +2772,16 @@ impl PaddockWindow {
         }
         let answer = ask.map(|ask| {
             self.asking = true;
-            window.prompt(PromptLevel::Warning, &ask, None, &["Pause", "Cancel"], cx)
+            // Only the machine on show: its agents are the ones listed (DESIGN §13 P5-90).
+            let there = self
+                .remote()
+                .map(|link| format!("These agents run on {}; only they pause.", link.name));
+            let detail = there.as_deref();
+            window.prompt(PromptLevel::Warning, &ask, detail, &["Pause", "Cancel"], cx)
         });
-        let corral = self.template.corral.clone();
+        // What comes back is told and read again on that machine, whichever is on show by then.
+        let sidebar = self.sidebar.clone();
+        let client = self.client();
         cx.spawn_in(window, async move |this, cx| {
             if let Some(answer) = answer {
                 let go = matches!(answer.await, Ok(0));
@@ -2199,18 +2790,18 @@ impl PaddockWindow {
                     return;
                 }
             }
-            let _ = this.update(cx, |this, cx| {
-                this.sidebar.update(cx, |sidebar, cx| {
+            let _ = this.update(cx, |_, cx| {
+                sidebar.update(cx, |sidebar, cx| {
                     sidebar.note(pause::doing(&names, pause), false, cx)
                 })
             });
             let results = {
                 let names = names.clone();
-                cx.background_spawn(async move { pause::run(&corral, &names, pause) })
+                cx.background_spawn(async move { pause::run_with(&client, &names, pause) })
                     .await
             };
-            let _ = this.update(cx, |this, cx| {
-                this.sidebar.update(cx, |sidebar, cx| {
+            let _ = this.update(cx, |_, cx| {
+                sidebar.update(cx, |sidebar, cx| {
                     let (text, problem) = pause::summary(&results, pause);
                     sidebar.note(text, problem, cx);
                     sidebar.refresh();
@@ -2236,6 +2827,26 @@ impl PaddockWindow {
             None
         };
         self.pause_agents(pause::Request { names, pause, ask }, window, cx);
+    }
+
+    /// Over another machine's pane that only watches while another window there is attached
+    /// (DESIGN §13 P5-90): a strip saying so, over the terminal.
+    fn read_only_strip(&self, pane: PaneId, cx: &gpui::App) -> Option<Div> {
+        let words = self.panes[&pane].read(cx).banner()?;
+        let ui = UiFont::get(cx);
+        let amber = self.fg(|t| t.agents_yellow);
+        Some(
+            div()
+                .flex_shrink_0()
+                .h(ui.px(22.0))
+                .px(ui.px(10.0))
+                .flex()
+                .items_center()
+                .bg(amber.opacity(0.1))
+                .text_size(ui.px(11.5))
+                .text_color(amber)
+                .child(words),
+        )
     }
 
     /// Over a paused agent's pane, a little below the middle: that it is paused, and Resume. The
@@ -2328,12 +2939,15 @@ impl PaddockWindow {
             self.template.fallbacks = config.font_fallbacks.clone();
             self.template.font_size = config.font_size;
             self.template.line_height = config.line_height;
-            for view in self.panes.values() {
+            // Every machine's, on show or not.
+            for view in self.all_panes() {
                 view.update(cx, |view, cx| view.set_font(&self.template, cx));
             }
             let mono = mono_font(&self.template);
-            self.sidebar
-                .update(cx, |sidebar, cx| sidebar.set_mono(mono, cx));
+            for sidebar in self.sidebars() {
+                let mono = mono.clone();
+                sidebar.update(cx, |sidebar, cx| sidebar.set_mono(mono, cx));
+            }
         }
         if let Ok(theme) = Theme::from_config(config) {
             let theme = Rc::new(theme);
@@ -2341,10 +2955,11 @@ impl PaddockWindow {
             self.translucency = Translucency::of(config, &theme);
             let width = config.sidebar_width;
             self.sidebar_width = width;
-            let sidebar_theme = theme.clone();
-            self.sidebar
-                .update(cx, |sidebar, cx| sidebar.restyle(sidebar_theme, width, cx));
-            for view in self.panes.values() {
+            for sidebar in self.sidebars() {
+                let theme = theme.clone();
+                sidebar.update(cx, |sidebar, cx| sidebar.restyle(theme, width, cx));
+            }
+            for view in self.all_panes() {
                 let theme = theme.clone();
                 view.update(cx, |view, cx| view.set_theme(theme, cx));
             }
@@ -2365,6 +2980,9 @@ impl PaddockWindow {
 
     /// A shell: in the active pane when it is empty, else in a new tab.
     fn new_shell(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.only_here("Shells open", cx) {
+            return;
+        }
         let active = self.workspace.active_pane();
         if self.workspace.shown(active) == &Shown::Empty {
             // A fresh pane ID: a process left from a shell that once ran here keeps the old one.
@@ -2400,7 +3018,7 @@ impl PaddockWindow {
         let input = cx.new(|cx| TextInput::new("", "Open in a new tab…", colors, cx));
         cx.subscribe(&input, |this, input, _: &Changed, cx| {
             let query = input.read(cx).text().to_owned();
-            let rows = choices(&this.sidebar.read(cx).agent_names(), &query);
+            let rows = this.choices(&query, cx);
             this.chooser.index = first_choice(&query, &rows);
             cx.notify();
         })
@@ -2463,10 +3081,16 @@ impl PaddockWindow {
 
     /// The open new tab or split panel's rows.
     fn chooser_rows(&self, cx: &gpui::App) -> Vec<Choice> {
-        choices(
-            &self.sidebar.read(cx).agent_names(),
-            &self.chooser_query(cx),
-        )
+        self.choices(&self.chooser_query(cx), cx)
+    }
+
+    /// The new tab and split panels' rows for `query`; another machine's offer no shells.
+    fn choices(&self, query: &str, cx: &gpui::App) -> Vec<Choice> {
+        let mut rows = choices(&self.sidebar.read(cx).agent_names(), query);
+        if self.seats.here() != 0 {
+            rows.retain(|row| !matches!(row, Choice::Shell | Choice::AgentShell));
+        }
+        rows
     }
 
     /// An empty layer over its parent that notes where the parent is drawn, for a panel to hang
@@ -2590,6 +3214,10 @@ impl PaddockWindow {
     /// A choice from the new tab or split panel. An agent already open elsewhere moves here.
     fn choose(&mut self, choice: Choice, window: &mut Window, cx: &mut Context<Self>) {
         if choice == Choice::AgentShell && !crate::agent_shell::supported(&self.new_shell.program) {
+            return;
+        }
+        if matches!(choice, Choice::Shell | Choice::AgentShell) && self.only_here("Shells open", cx)
+        {
             return;
         }
         let direction = match self.popup {
@@ -2747,13 +3375,17 @@ impl PaddockWindow {
 
     /// Whether paddock may quit: yes when nothing runs in the shells, else as answered.
     pub fn confirm_quit(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Task<bool> {
-        let panes: Vec<PaneId> = self
-            .workspace
-            .tabs
-            .iter()
-            .flat_map(|tab| tab.panes())
-            .collect();
-        let Some(question) = self.question(&panes, true, cx) else {
+        // This Mac's shells, whichever machine is on show: another machine has none.
+        let question = self.on_local(|this| {
+            let panes: Vec<PaneId> = this
+                .workspace
+                .tabs
+                .iter()
+                .flat_map(|tab| tab.panes())
+                .collect();
+            this.question(&panes, true, cx)
+        });
+        let Some(question) = question else {
             return Task::ready(true);
         };
         if self.asking {
@@ -2883,6 +3515,22 @@ impl PaddockWindow {
             dot: self.dot(pane, agents, now),
             cwd,
         })
+    }
+
+    /// Changes, Kanban and Cairn while another machine is on show: they read this Mac only
+    /// (DESIGN §13 P5-90).
+    fn reads_here(&self, ui: &UiFont) -> Div {
+        let machine = self.remote().map_or("", |link| link.name.as_str());
+        let text = match self.workspace.active_agent() {
+            Some(name) => format!("{name} runs on {machine}; this tab reads this Mac only."),
+            None => format!("Agents here run on {machine}; this tab reads this Mac only."),
+        };
+        div()
+            .size_full()
+            .p(ui.px(16.0))
+            .text_size(ui.px(12.5))
+            .text_color(self.fg(|t| t.agents_dim))
+            .child(text)
     }
 
     /// The open shells' directories, sorted and without repeats: with the agents', the
@@ -4213,6 +4861,7 @@ impl PaddockWindow {
             .when(header, |this| {
                 this.child(self.pane_header(pane, active, agents, window, cx))
             })
+            .children(self.read_only_strip(pane, cx))
             .child(
                 div()
                     .relative()
@@ -4267,7 +4916,7 @@ impl PaddockWindow {
                 .and_then(|a| a.cwd.clone()),
             _ => None,
         };
-        let home = std::env::var("HOME").ok();
+        let home = self.home();
         let subject = self.subject(pane, cx);
         let (name, dir) = pane_name(
             &subject,
@@ -4677,8 +5326,10 @@ impl PaddockWindow {
                 )
                 .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                     this.close_popup(window, cx);
-                    this.sidebar
-                        .update(cx, |s, cx| s.new_workspace(Default::default(), window, cx));
+                    if !this.only_here("Workspaces are", cx) {
+                        this.sidebar
+                            .update(cx, |s, cx| s.new_workspace(Default::default(), window, cx));
+                    }
                 })),
             )
             .child(popover::rule(theme, &ui))
@@ -4921,7 +5572,7 @@ impl PaddockWindow {
             Mode::Everything => {
                 let agents = self.sidebar.read(cx).agents();
                 let now = now();
-                let home = std::env::var("HOME").ok();
+                let home = self.home();
                 let groups = search::everything(
                     &search::agents(self.sidebar.read(cx).panel(), now, home.as_deref()),
                     &self.tab_rows(&agents, now, cx),
@@ -5893,6 +6544,14 @@ impl Render for PaddockWindow {
         let menu_open = self.popup == Some(Popup::Actions);
         self.sidebar
             .update(cx, |sidebar, cx| sidebar.set_menu_open(menu_open, cx));
+        // The switcher, and the bell counting every machine's (DESIGN §13 P5-90).
+        if !self.machines.is_empty() {
+            let (tabs, elsewhere) = (self.machine_tabs(cx), self.rung_elsewhere(cx));
+            self.sidebar.update(cx, |sidebar, cx| {
+                sidebar.set_machines(tabs, cx);
+                sidebar.set_elsewhere(elsewhere, cx);
+            });
+        }
         let ui = UiFont::get(cx);
         // Larger interface sizes make the title bar taller; the traffic lights stay centred on it.
         let height = title_bar_height(&ui, self.pet.is_some());
@@ -5945,26 +6604,32 @@ impl Render for PaddockWindow {
             self.collapsed,
             right,
         );
-        // The Changes tab follows the focused pane, and reads only while it shows.
-        let follow = self.follow(&agents, now, cx);
+        // The Changes tab follows the focused pane, and reads only while it shows; another
+        // machine's panes it does not read (DESIGN §13 P5-90).
+        let away = self.seats.here() != 0;
+        let follow = if away {
+            None
+        } else {
+            self.follow(&agents, now, cx)
+        };
         let kanban = kanban_view::Frame {
             cwd: follow.as_ref().map(|f| f.cwd.clone()),
             shells: self.shell_dirs(cx),
-            active: right.is_some() && self.right.tab == RightTab::Kanban,
+            active: !away && right.is_some() && self.right.tab == RightTab::Kanban,
             width: right.unwrap_or(0.0),
             theme: self.theme.clone(),
             mono: mono_font(&self.template),
-            agents: self.sidebar.read(cx).seen(),
+            agents: self.local_sidebar().read(cx).seen(),
         };
         let cairn = cairn_view::Frame {
             cwd: follow.as_ref().map(|f| f.cwd.clone()),
-            active: right.is_some() && self.right.tab == RightTab::Cairn,
+            active: !away && right.is_some() && self.right.tab == RightTab::Cairn,
             theme: self.theme.clone(),
             mono: mono_font(&self.template),
         };
         let frame = Frame {
             follow,
-            active: right.is_some() && self.right.tab == RightTab::Changes,
+            active: !away && right.is_some() && self.right.tab == RightTab::Changes,
             width: right.unwrap_or(0.0),
             theme: self.theme.clone(),
             mono: mono_font(&self.template),
@@ -5979,6 +6644,9 @@ impl Render for PaddockWindow {
         // The right sidebar, a card pushed out from the right edge: the terminal narrows for it.
         if let Some(width) = right {
             let content = match self.right.tab {
+                RightTab::Changes | RightTab::Kanban | RightTab::Cairn if away => {
+                    self.reads_here(&ui).into_any_element()
+                }
                 RightTab::Changes => AnyView::from(self.changes.clone())
                     .cached(StyleRefinement::default().size_full())
                     .into_any_element(),
@@ -6127,8 +6795,10 @@ impl Render for PaddockWindow {
             // The sidebar's own panel, nothing ticked (P5-89).
             .on_action(cx.listener(|this, _: &menu::NewWorkspace, window, cx| {
                 this.close_popup(window, cx);
-                this.sidebar
-                    .update(cx, |s, cx| s.new_workspace(Default::default(), window, cx));
+                if !this.only_here("Workspaces are", cx) {
+                    this.sidebar
+                        .update(cx, |s, cx| s.new_workspace(Default::default(), window, cx));
+                }
             }))
             .on_action(cx.listener(|this, _: &menu::ToggleSidebar, _, cx| this.toggle_sidebar(cx)))
             .on_action(

@@ -901,7 +901,7 @@ impl SettingsView {
     /// One Diagnostics row: a dot for how it went, a label, and its value.
     fn diagnostic(
         &self,
-        label: &'static str,
+        label: impl Into<SharedString>,
         value: impl Into<SharedString>,
         tone: Tone,
         ui: &UiFont,
@@ -933,7 +933,7 @@ impl SettingsView {
                     .w(ui.px(108.0))
                     .flex_shrink_0()
                     .text_color(self.fg(|t| t.agents_dim))
-                    .child(label),
+                    .child(label.into()),
             )
             .child(
                 div()
@@ -991,6 +991,32 @@ impl SettingsView {
                 Some((time, Err(error))) => (format!("{} · {error}", clock(*time)), Tone::Bad),
             },
         )];
+
+        // Each other machine: how it stands, corral there and its contract, the latest error
+        // (DESIGN §13 P5-90).
+        let machines: Vec<Div> = report
+            .machines
+            .iter()
+            .map(|machine| {
+                let mut words = vec![machine.status.clone()];
+                words.extend(machine.corral.clone());
+                words.extend(
+                    machine
+                        .version
+                        .as_ref()
+                        .map(|(version, contract)| format!("{version} (contract {contract})")),
+                );
+                if let Some((time, error)) = &machine.error {
+                    words.push(format!("last error {}: {error}", clock(*time)));
+                }
+                let tone = match machine.status.as_str() {
+                    "Connected" => Tone::Good,
+                    "Connecting…" => Tone::Unknown,
+                    _ => Tone::Bad,
+                };
+                self.diagnostic(machine.name.clone(), words.join(" · "), tone, ui)
+            })
+            .collect();
 
         let config = vec![
             row("File", (shown_path(&report.config_path), Tone::Plain)),
@@ -1088,11 +1114,11 @@ impl SettingsView {
                 .flex_col()
                 .gap(ui.px(18.0))
         };
-        let left = [
-            section("Commands", commands),
-            section("Agents", agents),
-            section("Start", start),
-        ];
+        let mut left = vec![section("Commands", commands), section("Agents", agents)];
+        if !machines.is_empty() {
+            left.push(section("Machines", machines));
+        }
+        left.push(section("Start", start));
         let right = [section("Config", config), section("Layout", layout)];
         let body = if width >= ui.scale(560.0) {
             div()

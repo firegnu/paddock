@@ -115,3 +115,82 @@
 - 清单第 3 步（经公网）：不复用连接一条命令 5.4 秒；复用连接每条 0.78–1.0 秒，一次远端调用里跑 10 条也是 0.94 秒；一条常驻远端 `sh` 里一问一答 0.39–0.42 秒。结论：一定要复用连接；远程按 2 秒左右一轮；attach 里打字的回显会慢 0.4 秒左右，是网络本身的。
 - 清单第 4 步（10-16，用户跑）：直接连和复用连接下 attach 都正常，改窗口大小画面都跟着变；所以 attach 走复用连接。
 - 清单第 5 步（断网）：不做。用户 10-16：“不要测试任何断网的测试。”断线判定用 `ServerAliveInterval=5`、`ServerAliveCountMax=3`。
+
+## 完成记录
+
+### 做了什么
+- 配置（`config.rs`）：读 `[[machines]]`（`name`、`ssh`、可选 `corral`），按要求校验；写错的那一条不进 paddock，左侧栏底部写一句原因，其余配置和本机照常；没写时 `machines` 为空、什么都不说。
+- 传输（新 `remote.rs`）：`Link` 一台机器一条 paddock 自己的复用连接（`/tmp/paddock-<uid>/`，0700、查属主、不是链接、套接字路径守住 104 字节；`-S`、`ControlMaster=auto`、`ControlPersist=600`、`BatchMode=yes`、`ConnectTimeout=10`、`ServerAliveInterval=5`、`ServerAliveCountMax=3`、目标前 `--`）。连上时引号自检 → 找 corral（配置的、`command -v corral`、`$HOME/.local/bin/corral`）→ `corral --version` 查 contract。错误分成认证失败、host key、连不上、找不到 corral、contract 不对、shell 不支持、本机起不来 ssh，各有切换栏的几个字和悬停说明。
+- 轮询：`Poller::remote` 每台一个线程，`Rounds` 管节奏（在线 2 秒一轮、一轮两次远端调用；退避 1 秒起翻倍到 60 秒；Mac 唤醒后、要求刷新时立即试）。
+- 窗口（`window.rs`）：每台机器一套左侧栏、布局、窗格（`Seat`），显示的那台在原来的字段里，别的停在 `seats` 里保持连着、照样处理结束的 agent 和断线重接；切换栏在左侧栏顶上（窄条时竖排）。布局按机器另存（`layout_state.rs` 的 `Board`），重启后远程窗格等那台读到再 attach。
+- 远程视图：右侧栏 Changes／Kanban／Cairn 一句说明；没有 Activity、New Workspace；New Agent、New Shell、Shell／Agent shell 写 `… on This Mac only for now.`；命令面板和窗格标题按那台的 `$HOME` 缩写。
+- attach（`viewer.rs`、`view.rs`）：远程走 `ssh -tt -e none -S …`；`attached` 不是 0 时远程只读接入（窗格顶上 `Read-only: attached elsewhere`，只剩这一个时自动能打字），本机照旧拒绝；ssh 退出 255 写 `Lost connection to <机器> — reconnecting…`、不收键盘，那台再读到同一实例自动重接。
+- 断线：左侧栏里那台的 agent 画暗、错误行写 `read <多久> ago`，不关窗格。
+- 收件箱和铃铛（`inbox.rs`、`window_inbox.rs`）：所有机器合在一起，草稿、已发、被拒、发送中按（机器，名字）记；远程行标机器名；`Open pane` 先切到那台；回复走那台的 `corral send`；读不到的机器各一行。
+- 停、暂停恢复走显示着那台的 corral，确认框写机器名。
+- Diagnostics 加 `Machines` 一节，每台一行。
+- `docs/DESIGN.md` §13 加了 P5-90 一条。
+
+### 验证了什么
+- 在 `app/` 下带 `CARGO_TARGET_DIR=…/.target/p5-90-remote`：`cargo test --all-targets` 全过（691 个），`cargo clippy --all-targets -- -D warnings` 无警告，`cargo fmt --check` 通过；`git diff --check` 通过。
+- 新测试：`tests/remote.rs`（假 `ssh` 解析参数后把命令交给本机 `sh -c`，假 corral 在假 home 的 `.local/bin`）：ssh 参数（`-S`、保活、`--` 在目标前）；控制目录（0700、改回 0700、别的用户、链接）和套接字长度；引号（带 `'`、`$()`、反引号、换行、中文、`{a,b}`、`!`、`^`）原样到 shell；PATH 里没有 corral 时找到 `~/.local/bin/corral`、配置的 `~` 换成那边 home；contract 不对时不读列表；一轮恰好两次远端调用、名字原样到 corral、状态按分隔行拆对；收件箱回复原样到远端；ssh 错误分类；远程假 ssh 卡住或报错时本机的列表照样按时刷新、停得下来；远程 `attached` 非 0 只读接入、本机照旧拒绝。`remote.rs` 单元测试（找 corral 的顺序、拆分、退避、错误分类）；`config.rs`（校验和没写时为空）；`tests/layout_state.rs`（按机器存、没有机器时不写这一项、坏一份不影响别的）。
+- 没起窗口、没截图、没连真机器。切换栏、只读条、说明文字、画暗的样子没看过，留给合并前用户在场实测。
+
+### 拿主意的地方
+- 轮询选“一轮两次调用”而不是常驻远端 shell：实测两次调用 1 秒左右已够 2 秒一轮；常驻 shell 要自己管生死和输出边界，断线时更难收拾。
+- 引号没用 `shell-words::quote`（它让 `{}`、`!`、`^` 不加引号），自己写了总加单引号的版本。
+- 一键暂停只管显示着的那台：它的按钮本来就只看得到这台的 agent；要问时确认框加一行 `These agents run on <机器>; only they pause.`。
+- 本机的收件箱行不标机器名，远程的标。
+- 远程视图里不开 shell（New Shell、面板里的 Shell／Agent shell 写一句说明、面板不列）：shell 只能开在本机，放进远程那套窗格会把两边混起来。
+- ~~看着远程时 `paddock ctl` 除 `inspect` 外回 busy~~：主控审查不接受，已返工，见下面「返工」。
+- 启动时总在 This Mac；`ControlPersist=600`；切换栏、只读条、说明的英文文案。
+- 配置里暂时去掉的机器，它在 `layout.json` 里那份留着，加回来时还在。
+
+### 改了本机共用的地方（本机行为和原有测试结果不变）
+- `corral.rs`：`Client` 加 `remote`（`Client::local` 建本机的），`json`／`collect`／`send` 按它分到本机命令或远端；`answer`／`checked`／`merge` 从原来的方法里提出来（逻辑不变）；`Poller` 的循环提成 `spawn`，本机仍是每 `every` 读一次、要求刷新时立即读。
+- `viewer.rs`／`view.rs`：`Viewer::with`（`Viewer::new` 照旧收本机程序名）、`read_only`、`lost`、`wait`、`listed`；attach 前核对只在远程时放过 `attached` 非 0。
+- `sidebar.rs`：`Sidebar::new` 多一个 `remote`（本机传 `None`，Git、workspace、Activity 照旧）；铃铛加上别的机器的；切换栏只在有远程机器时出现。
+- `inbox.rs`：行多一个 `machine`（本机为 `None`），`Open::new`／`refresh` 走同一套按机器的实现。
+- `window.rs`／`window_inbox.rs`／`window_ctl.rs`：上面说的座位、收件箱按机器、ctl 和退出提问只看本机；本机的 `view`／`fill`／`ended`／`save_layout` 等走原来的路。
+- `pause.rs`／`new_agent.rs`：加 `run_with`／`stop_with`，原函数照旧。`layout_state.rs`：`machines` 为空时不写进文件。`diagnostics.rs`／`settings_view.rs`：加 Machines 一节，`diagnostic` 的标签改收 `impl Into<SharedString>`。
+
+### 没做的事
+- 乙（在远程开 agent）、丙（远程的 git、Changes、Kanban、Cairn、Activity）。
+- 按用户 10-16，断线、断网、重连没写测试，只做了功能。
+- “远程 agent 不进本机的分组、workspace、看板认领”没有界面层的自动测试：GPUI 窗口没有测试环境，这一条靠结构保证（每台一套 `Sidebar`，看板认领和 New Agent 候选只取本机那套），测试里覆盖了轮询互不拖累和没配机器时配置、布局文件不变。
+- 没有真机器实测；用户 VPS 的 sshd 设 `ClientAliveInterval`（P5-90a §5）合并时提醒用户。
+
+### 返工（主控审查 10-16：看着远程时 ctl 不能回 busy）
+- 改了什么：去掉 `ctl_busy` 里“看着远程就回 `looking at another machine`”那一条，busy 又只在用户手上正有事时（拖分隔线、开菜单、面板、提问等，和原来一样）。座位的账提成纯数据的 `seating.rs`（`Seating`：哪台在字段里、别的各停在哪），`window.rs` 的 `here`／`seats`／`swap_seat` 换成它。`on_local` 原来只把字段对调、`here` 不动，所以看着远程时新开的窗格会按远程那台来做；现在它真的把本机那套请进字段（`here` 暂时是 0），`view`／`fill`／New Agent 晚到结果的放置都按本机走，做完再把远程那台请回来。
+- `--focus` 选了“照常完成、不切换”：看着远程时，`--focus` 只让那个窗格成为本机那套的当前窗格，键盘留在用户眼前的远程窗格（`visiting` 期间 `focus_active` 不动键盘，只同步左侧栏和存布局）；用户切回 This Mac 时，`switch` 照常把键盘给本机的当前窗格。理由：ctl 多是 agent 发起的，替用户切走眼前的机器，就是本机的 ctl 反过来打断用户在远程的查看；而且键盘若跟着跳进一个看不见的本机窗格，用户正在打的字会落进去（P5-2 那类事）。
+- `corral start` 晚到的结果：`control_tick` 不再因看着远程而 busy，结果一到就放进本机那套布局，请求照常回 `attaching`。
+- 关窗格（`close`）：被关的本机窗格这时不在眼前、不会有键盘，`close_quietly` 照旧把键盘放回原处。
+- 测试：`seating.rs` 加 `this_macs_ctl_works_on_its_own_seat_while_another_machine_is_on_show`（远程在字段里时把本机请进来，`here` 为 0、字段是本机那套、远程那台停着；空闲时 `busy_reason` 为 `None`、开着菜单仍是 busy；请回后复原）和 `bringing_the_seat_in_the_fields_or_none_changes_nothing`。`ctl_busy` 本身要 GPUI 窗口才能调，GPUI 的测试支持没开、开它要改依赖，所以测试落在它依据的两块纯代码上；这条测试是随新模块写的，没有在旧代码上先跑出失败。
+- 跑了：`cargo test --lib seating`（2 个过）、`cargo test --lib control_ui`（19 个过）、`cargo clippy --all-targets -- -D warnings` 无警告、`cargo fmt --check` 通过。照主控说的没跑全套。
+- 上面「拿主意」里 ctl 回 busy 那条作废；`docs/DESIGN.md` §13 P5-90「隔离」一条同步改了。
+
+### 返工 2（交叉审查 `docs/任务/P5-90-交叉审查.md`，主控 10-16 逐条定）
+- 第 1 条（关闭核对中的远程窗格会在界面线程等 ssh）：`Viewer` 给每次 attach 一个取消标记，传给接入前的 `corral status`；改目标、关闭（`cancel_pending`）和释放都会置位，查询中的子进程立即被杀掉，核对完、起 PTY 前再看一次。`Viewer::drop` 不再 `join`：在途的工作线程交给一个后台线程去等，晚到的 PTY 在那里放掉（`Session` 的 drop 照旧先中断再等它退出）。测试：`viewer.rs` 的 `closing_while_the_check_before_an_attach_waits_neither_blocks_nor_lets_it_run_on`（假 corral 的 `status` 睡 5 秒；关闭加释放在 500 毫秒内返回，查询进程随即结束）和 `a_pty_arriving_after_its_pane_went_is_let_go_in_the_background`（工作线程 300 毫秒后才交出 PTY；释放在 100 毫秒内返回，那个 PTY 的进程随后结束）。两条都先在旧代码上跑过，分别阻塞约 5 秒和 335 毫秒、失败。
+- 第 2 条（本机 New Agent 晚到的结果落进远程）：`NewAgentEvent::Started` 的 workspace 归属、放置、`Started …` 提示和刷新整件走 `on_local`；首条消息发不出去的提示也写到本机左侧栏。眼前的机器不变；键盘照第 3 条不动。测试：`seating.rs` 的 `a_start_on_this_mac_ending_while_another_machine_is_on_show_changes_only_this_macs_layout`（看着远程时，按 `on_local` 的方式把结果放进本机那套：只有本机布局多了它，远程布局和眼前的机器都不变）。这条只测座位的账，事件处理接线本身要 GPUI 窗口，没有自动测试。
+- 第 3 条（后台建窗格抢键盘）：`Seating` 分开记“哪台在字段里”（`here`）和“用户看到哪台”（`shown`，只有切换栏 `look` 时改）。`view_on` 建 `TerminalView` 前记下焦点，这一台不在眼前（`in_sight` 为假：等着的机器，或者临时请进来的本机那套）时，建完把焦点还回去；`focus_active` 在请进来的期间（`visiting`）不动键盘。这样 `ctl open --focus` 新建、晚到的 start、隐藏机器自动补窗格都走同一处。测不了的部分：`TerminalView::new` 抢焦点、还焦点要 GPUI 窗口。能测的是判断本身：`seating.rs` 的 `a_seat_brought_in_for_a_moment_or_waiting_is_out_of_sight`。窗口里的实际效果靠所有建窗格的路都经过 `view_on` 这一处来保证（`TerminalView::new` 只在这里调用），留给用户在场实测。
+- 第 4 条（隐藏机器把新回复当已读）：左侧栏加 `on_show`，切换时旧的置假、新的置真，本机启动时为真、远程为假；`on_local` 不碰它。轮询时用 `looking_at(selected, on_show)` 决定“用户正看着谁”，不在眼前的机器传 `None`，新回复留在未读、铃铛和收件箱都算它；切回后下一轮才按看到算已读。测试：`sidebar.rs` 的 `a_reply_on_a_machine_not_on_show_stays_unread_until_it_is`。`looking_at` 是这次新加的，这条测试没有在旧代码上跑出失败（旧代码直接传活动 agent，没有对应的入口可测）；它对的是审查里定点复核的同一组状态（working → idle）。
+- 第 6 条（建议改，采纳）：停、暂停／恢复在发起时记下当时那台的左侧栏，`Stopping…`／`Stopped …`、暂停的结果和刷新都回到那台。提示只在那台的左侧栏显示，没有加机器名。
+- 第 7 条（建议改，采纳最小的一步）：`Poller` 每次读取带上开始时间（`updates` 变成 `(Instant, 结果)`，本机的读取节奏不变），左侧栏记下当前列表那次读取的开始时间（`listed_at`）。`Viewer` 只读接入时记下接入时刻，`listed` 只认在那之后才开始的读取，才按 `attached <= 1` 清掉只读条。测试：`viewer.rs` 的 `a_count_read_before_the_attach_leaves_it_watching`（在旧判断上跑过、失败）；`tests/remote.rs` 原有的那条改成传读取时间。
+  - 说不清的局限（不改 ranch）：`attached` 只是总数，有多个客户端时说不出哪一个能输入。“接入时刻”取的是本机 ssh 起来、PTY 交回的时候，远端真正算上这个客户端可能还要一小会儿；这段时间里开始的读取仍可能只数到另一个窗口，过早清掉只读条。只读条只是显示，真正谁能输入由远端 corral 定。要准确，需要 corral 的公开输出说明各客户端谁能写，这得在 ranch 自己的流程里提需求。
+- 第 5 条（`send` 加 `--`）照主控说的这次没改：这是本机原有的 P5-87 问题，等 ranch 把 `--` 写进公开约定、用户点头再说。
+- 跑了：`cargo test --lib -- viewer:: seating:: sidebar:: control_ui`（51 个过）、`cargo test --lib -- window:: corral::`（38 个过）、`cargo test --test remote`（10 个过），`cargo clippy --all-targets -- -D warnings` 无警告，`cargo fmt --check` 和 `git diff --check` 通过。照主控说的没跑全套；没写断网、断线、重连测试；没起窗口。
+- `docs/DESIGN.md` §13 P5-90「隔离」一条补了第 2、3、4、6 条的规矩。
+
+## 主控审查
+
+- 10-16 主控看 7aa48b4 的 diff（24 个文件，约 3000 行）：「不要做」一件没做（没连真机器、没读 `~/.ssh`、没加依赖、没写断网测试）；拿主意的地方除 ctl 外都同意。重跑 `cargo test --all-targets` 691 个全过，和对方说的一致。
+- 交回一次返工：看着远程时本机 `paddock ctl` 回 busy，违反「要做的」第 4 条和用户“远程不能影响本地”。3210f43 改为 ctl 照常作用在本机那套，`--focus` 不切机器。
+- 交叉审查（Codex，gpt-6-astra / xhigh，`docs/任务/P5-90-交叉审查.md`）第一轮「改完再合并」：必须改 5 条、建议改 2 条。主控采纳第 1–4 条和建议改第 6、7 条（第 7 条只做最小一步），交回返工 2（27bcd5a）。第 5 条（收件箱文字开头是 `-` 时 `corral send` 要加 `--`）是本机原有的 P5-87 问题，用户 10-16：“先把功能做完，之后碰到问题了再修。”这次不改。
+- 复核第 1 轮「可以合并」：必须改 0 条；全套 699 个通过（复核者跑）。新增一条建议改：应用退出时，后台回收中的远程身份查询进程可能留到超时（最多 15 秒）；照用户的话碰到再修，不在本轮。
+- 没核实的：窗口里的样子、键盘焦点、输入法都没起窗口看过；“远程 agent 不进本机分组、workspace、看板认领”靠结构保证、没有自动测试。合并前请用户在场，用 Linux 实测机上的 pi 测试实例走一遍。
+
+## 用户真机实测（10-16）
+
+- 用分支 release 版本，临时 HOME、配置里只有 Linux 实测机一台；那边开 `paddock/test-remote`（pi，`--label role=test`）。
+- 用户在场走完：切换栏、切到那台看卡片、开窗格打字、改窗口大小、收件箱和铃铛、暂停／恢复、只读（终端 attach 着时显示 `Read-only: attached elsewhere`，终端 `Ctrl-]` 退出后能打字）、在 paddock 里停掉。用户：“都测完了，没问题”。停掉后那台 `corral ls` 为空，卡片在下一次轮询后消失。
+- 测试窗口是从主控会话起的，继承了 `CORRAL_HOME`，所以 This Mac 一栏读的是本机真实的 agent（只读，没做任何操作）。

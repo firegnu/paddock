@@ -2,7 +2,7 @@
 mod common;
 use paddock::{
     layout::{Shown, Workspace},
-    layout_state::{Content, Layout, Store},
+    layout_state::{Board, Content, Layout, Store},
 };
 
 fn layout() -> Layout {
@@ -82,4 +82,46 @@ fn a_file_that_cannot_be_restored_is_kept() {
     assert!(store.problem().unwrap().contains("kept as it was"));
     store.save(&layout());
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "{ not a layout");
+}
+
+/// Another machine's panes are saved apart from this Mac's (DESIGN §13 P5-90); a file without
+/// other machines is written as before, and a broken board keeps neither this Mac's layout nor the
+/// other machines' from opening.
+#[test]
+fn each_machine_keeps_its_own_board_and_none_is_written_without_machines() {
+    let temp = common::tempdir();
+    let path = temp.path().join("layout.json");
+    let (mut store, _) = Store::open(Some(path.clone()));
+    store.save(&layout());
+    let written: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    assert!(written.get("machines").is_none());
+
+    let (workspace, _) = Workspace::new(Shown::Agent("p/a".into()));
+    let agent = Content::Agent {
+        name: "p/a".into(),
+        cwd: Some("/srv/a".into()),
+        instance: Some("i-a".into()),
+    };
+    let board = Board::of(&workspace, |_| agent.clone(), Default::default());
+    let mut with = layout();
+    with.machines.insert("studio".into(), board.clone());
+    store.save(&with);
+    let (_, saved) = Store::open(Some(path.clone()));
+    let saved = saved.unwrap();
+    assert_eq!(saved, with);
+    let board = &saved.machines["studio"];
+    assert!(board.validate().is_ok());
+    let (_, contents) = board.workspace();
+    assert_eq!(contents.len(), 1);
+    assert_eq!(contents[0].1, agent);
+
+    let mut file = serde_json::to_value(&with).unwrap();
+    file["machines"]["broken"] = serde_json::json!({"active_tab": 3, "tabs": []});
+    std::fs::write(&path, serde_json::to_vec(&file).unwrap()).unwrap();
+    let (store, saved) = Store::open(Some(path));
+    assert!(store.problem().is_none());
+    let saved = saved.unwrap();
+    assert!(saved.machines["broken"].validate().is_err());
+    assert!(saved.machines["studio"].validate().is_ok());
 }

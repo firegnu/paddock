@@ -838,9 +838,7 @@ pub struct Started {
 
 /// Runs `corral start …`; blocks, so call it off the UI thread.
 pub fn start(corral: &str, args: &[String]) -> Result<Started> {
-    let client = Client {
-        program: corral.to_owned(),
-    };
+    let client = Client::local(corral);
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
     let value = client.json(&args, CORRAL_TIMEOUT, &AtomicBool::new(false))?;
     let name = value["name"]
@@ -896,9 +894,7 @@ pub fn send_first(corral: &str, name: &str, text: &str) -> Result<()> {
         (Some("blocked"), _) => bail!("it is waiting for you"),
         _ => bail!("it is {state}"),
     }
-    let client = Client {
-        program: corral.to_owned(),
-    };
+    let client = Client::local(corral);
     client
         .send(name, text, &cancel)
         .map_err(|refused| anyhow::anyhow!(refused.message))
@@ -906,9 +902,11 @@ pub fn send_first(corral: &str, name: &str, text: &str) -> Result<()> {
 
 /// Runs `corral stop NAME`; blocks, so call it off the UI thread.
 pub fn stop(corral: &str, name: &str) -> Result<()> {
-    let client = Client {
-        program: corral.to_owned(),
-    };
+    stop_with(&Client::local(corral), name)
+}
+
+/// [`stop`] with any corral: this Mac's or another machine's (DESIGN §13 P5-90).
+pub fn stop_with(client: &Client, name: &str) -> Result<()> {
     client.json(&["stop", name], CORRAL_TIMEOUT, &AtomicBool::new(false))?;
     Ok(())
 }

@@ -122,6 +122,8 @@ pub struct Options {
     pub launch: Launch,
     /// The `corral` program the pane attaches with.
     pub corral: String,
+    /// The machine whose corral it is, when not this Mac (DESIGN §13 P5-90).
+    pub remote: Option<std::sync::Arc<crate::remote::Link>>,
     pub font_family: String,
     /// Families tried for glyphs the main font lacks (prompt icons, symbols).
     pub fallbacks: Vec<String>,
@@ -197,7 +199,10 @@ impl TerminalView {
         cx: &mut Context<Self>,
     ) -> Self {
         let size = Size { rows: 24, cols: 80 };
-        let mut viewer = Viewer::new(options.corral);
+        let mut viewer = Viewer::with(crate::corral::Client {
+            program: options.corral,
+            remote: options.remote,
+        });
         let mut direct = None;
         let mut note = String::new();
         let (label, subject) = match options.launch {
@@ -448,6 +453,45 @@ impl TerminalView {
         }
     }
 
+    /// Its machine's agents as just read, for another machine's pane (DESIGN §13 P5-90): a lost
+    /// attach goes again, and one that only watched may type. `read_began`: when that read began.
+    pub fn listed(
+        &mut self,
+        agents: &[crate::corral::Agent],
+        read_began: Option<std::time::Instant>,
+        cx: &mut Context<Self>,
+    ) {
+        let read_only = self.viewer.read_only;
+        if let Err(error) = self.viewer.listed(agents, read_began) {
+            self.note = format!("{error:#}");
+        }
+        if read_only != self.viewer.read_only {
+            cx.notify();
+        }
+    }
+
+    /// Another machine's agent from the saved layout, shown by name until that machine answers
+    /// and lists it as before; then it attaches (DESIGN §13 P5-90).
+    pub fn wait(
+        &mut self,
+        name: String,
+        metadata: AgentMetadata,
+        machine: &str,
+        cx: &mut Context<Self>,
+    ) {
+        self.viewer
+            .wait(name.clone(), metadata, format!("Connecting to {machine}…"));
+        self.label = format!("corral attach {name}");
+        self.subject = name;
+        cx.notify();
+    }
+
+    /// Over another machine's pane: it only watches, while another window there is attached.
+    pub fn banner(&self) -> Option<&'static str> {
+        (self.viewer.read_only && self.viewer.showing.is_some())
+            .then_some("Read-only: attached elsewhere")
+    }
+
     /// A `Launch::Command` session ends off the UI thread, since dropping one waits for its exit.
     fn retire_direct(&mut self) {
         if let Some(mut session) = self.direct.take() {
@@ -563,7 +607,8 @@ impl TerminalView {
     /// Typed input: back to the live bottom, selection cleared, bytes to the PTY. Nothing while
     /// the agent is paused, not even the view moving.
     fn write(&mut self, bytes: Vec<u8>, cx: &mut Context<Self>) {
-        if bytes.is_empty() || self.paused() {
+        // Nor while another machine's connection is down: it says so, and comes back by itself.
+        if bytes.is_empty() || self.paused() || self.viewer.lost.is_some() {
             return;
         }
         let Some(session) = self.session() else {

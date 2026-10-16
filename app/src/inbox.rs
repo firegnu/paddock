@@ -39,6 +39,35 @@ pub struct Row {
     pub group: Group,
     /// The agent; `None` for a failed corral read.
     pub agent: Option<String>,
+    /// The machine it is on, when not this Mac (DESIGN §13 P5-90).
+    pub machine: Option<String>,
+}
+
+impl Row {
+    /// The same agent, or the same failed read, on the same machine.
+    pub fn same(&self, other: &Row) -> bool {
+        self.agent == other.agent && self.machine == other.machine
+    }
+}
+
+/// One machine's agents for the Inbox: which machine (`None` for this Mac), as listed, and why
+/// its latest read failed.
+#[derive(Clone, Copy)]
+pub struct Source<'a> {
+    pub machine: Option<&'a str>,
+    pub panel: &'a Panel,
+    pub error: Option<&'a str>,
+}
+
+impl<'a> Source<'a> {
+    /// This Mac's agents.
+    pub fn here(panel: &'a Panel, error: Option<&'a str>) -> Self {
+        Source {
+            machine: None,
+            panel,
+            error,
+        }
+    }
 }
 
 /// Labelled a controller. Only the public `role` label says so, never the name.
@@ -72,6 +101,7 @@ pub fn rows(panel: &Panel, corral_error: Option<&str>, now: f64) -> Vec<Row> {
                 Group::New
             },
             agent: item.agent,
+            machine: None,
         })
         .collect();
     let mut read: Vec<String> = panel
@@ -85,8 +115,29 @@ pub fn rows(panel: &Panel, corral_error: Option<&str>, now: f64) -> Vec<Row> {
     rows.extend(read.into_iter().map(|name| Row {
         group: Group::Read,
         agent: Some(name),
+        machine: None,
     }));
     rows
+}
+
+/// The list over every machine (DESIGN §13 P5-90): group by group, and in a group this Mac's rows
+/// first, then each machine's in the order given, each machine's as [`rows`] has them.
+pub fn rows_of(sources: &[Source], now: f64) -> Vec<Row> {
+    let each: Vec<Vec<Row>> = sources
+        .iter()
+        .map(|source| {
+            let mut rows = rows(source.panel, source.error, now);
+            for row in &mut rows {
+                row.machine = source.machine.map(str::to_owned);
+            }
+            rows
+        })
+        .collect();
+    Group::ALL
+        .iter()
+        .flat_map(|&group| each.iter().flatten().filter(move |row| row.group == group))
+        .cloned()
+        .collect()
 }
 
 /// The list while the Inbox stays open, and the row selected in it.
@@ -98,8 +149,13 @@ pub struct Open {
 impl Open {
     /// Sorted as things stand, the first row selected.
     pub fn new(panel: &Panel, corral_error: Option<&str>, now: f64) -> Self {
+        Self::of(&[Source::here(panel, corral_error)], now)
+    }
+
+    /// Over every machine.
+    pub fn of(sources: &[Source], now: f64) -> Self {
         Open {
-            rows: rows(panel, corral_error, now),
+            rows: rows_of(sources, now),
             selected: 0,
         }
     }
@@ -130,15 +186,25 @@ impl Open {
     /// failed read, once corral answers). What is new comes in at the end of its group, a row
     /// moving only to a more urgent one. The selection stays on its row.
     pub fn refresh(&mut self, panel: &Panel, corral_error: Option<&str>, now: f64) {
-        let fresh = rows(panel, corral_error, now);
-        let there = |row: &Row| match &row.agent {
-            Some(name) => panel.agents.iter().any(|a| &a.name == name),
-            None => corral_error.is_some(),
+        self.refresh_of(&[Source::here(panel, corral_error)], now)
+    }
+
+    /// [`Self::refresh`] over every machine.
+    pub fn refresh_of(&mut self, sources: &[Source], now: f64) {
+        let fresh = rows_of(sources, now);
+        let there = |row: &Row| {
+            let Some(source) = sources.iter().find(|s| s.machine == row.machine.as_deref()) else {
+                return false;
+            };
+            match &row.agent {
+                Some(name) => source.panel.agents.iter().any(|a| &a.name == name),
+                None => source.error.is_some(),
+            }
         };
         let mut rows = Vec::new();
         for group in Group::ALL {
             for row in &self.rows {
-                let now_in = fresh.iter().find(|f| f.agent == row.agent).map(|f| f.group);
+                let now_in = fresh.iter().find(|f| f.same(row)).map(|f| f.group);
                 if row.group == group && there(row) && now_in.is_none_or(|now_in| now_in >= group) {
                     rows.push(row.clone());
                 }
@@ -147,14 +213,14 @@ impl Open {
                 let held = self
                     .rows
                     .iter()
-                    .any(|old| old.agent == row.agent && old.group <= group);
+                    .any(|old| old.same(row) && old.group <= group);
                 if !held {
                     rows.push(row.clone());
                 }
             }
         }
-        let on = self.selected().map(|row| row.agent.clone());
-        let at = on.and_then(|agent| rows.iter().position(|row| row.agent == agent));
+        let on = self.selected().cloned();
+        let at = on.and_then(|on| rows.iter().position(|row| row.same(&on)));
         self.rows = rows;
         self.select(at.unwrap_or(self.selected));
     }

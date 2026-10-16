@@ -17,7 +17,7 @@ case "$1:$2" in
 esac
 "##,
     );
-    let agents = Client { program }.collect().unwrap();
+    let agents = Client::local(program).collect().unwrap();
     assert_eq!(agents.len(), 3);
     let a = &agents[0];
     assert_eq!(a.name, "demo/a");
@@ -45,7 +45,7 @@ fn command_errors_and_timeouts_are_not_empty_successful_lists() {
         "#!/bin/sh\necho '{\"ok\":false,\"error\":\"unavailable\"}'\nexit 1\n",
     );
     assert!(
-        Client { program }
+        Client::local(program)
             .collect()
             .unwrap_err()
             .to_string()
@@ -54,7 +54,7 @@ fn command_errors_and_timeouts_are_not_empty_successful_lists() {
     let program = common::script(temp.path(), "slow", "#!/bin/sh\nexec sleep 30\n");
     let start = Instant::now();
     let result =
-        Client { program }.json(&["ls"], Duration::from_millis(100), &AtomicBool::new(false));
+        Client::local(program).json(&["ls"], Duration::from_millis(100), &AtomicBool::new(false));
     assert!(result.unwrap_err().to_string().contains("timed out"));
     assert!(start.elapsed() < Duration::from_secs(2));
 }
@@ -79,7 +79,7 @@ case "$1:$2" in
 esac
 "##,
     );
-    let agents = Client { program }.collect().unwrap();
+    let agents = Client::local(program).collect().unwrap();
     let effort = |name: &str| agents.iter().find(|a| a.name == name).unwrap().effort();
     assert_eq!(effort("d/m"), Some(Effort::Medium));
     assert_eq!(effort("d/h"), Some(Effort::High)); // status is the fresher public source
@@ -107,7 +107,7 @@ case "$1:$2" in
 esac
 "##,
     );
-    let agents = Client { program }.collect().unwrap();
+    let agents = Client::local(program).collect().unwrap();
     let paused = |name: &str| {
         let a = agents.iter().find(|a| a.name == name).unwrap();
         (a.paused, a.paused_at)

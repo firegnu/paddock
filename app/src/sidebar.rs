@@ -42,6 +42,22 @@ use std::{
 mod workspaces_view;
 use workspaces_view::Floating;
 
+/// One machine in the switcher over the list (DESIGN §13 P5-90).
+#[derive(Clone, Debug, PartialEq)]
+pub struct MachineTab {
+    pub name: String,
+    /// Its agents that want the user, as its bell counts them.
+    pub count: usize,
+    /// How its connection stands while it does not answer.
+    pub status: Option<String>,
+    /// The status tells of something wrong.
+    pub problem: bool,
+    /// The hover note: where it is, or why it does not answer and what to do.
+    pub tip: String,
+    /// On show.
+    pub shown: bool,
+}
+
 /// What the sidebar asks of the window.
 pub enum SidebarEvent {
     /// Show this agent: where it already is, or by the layout rules.
@@ -74,6 +90,9 @@ pub enum SidebarEvent {
     ActivityFolded(bool),
     /// A group was folded to its heading or opened: save them with the layout.
     Folds(Folds),
+    /// The switcher's machine at this place: show it, and try it again when it could not be
+    /// read (DESIGN §13 P5-90).
+    Machine(usize),
 }
 
 /// How often the agents' worktrees are summarised, as in Saddle.
@@ -222,6 +241,9 @@ const ARROW_RADIUS: f32 = 5.0;
 const ARROW_ICON: f32 = 0.8;
 /// How strongly a paused agent's card and tile show.
 const PAUSED_OPACITY: f32 = 0.55;
+/// How bright another machine's cards stay while it cannot be read: as last read, dimmed
+/// (DESIGN §13 P5-90).
+const STALE: f32 = 0.5;
 /// What a card asks before pausing an agent in a turn.
 const PAUSE_WORKING: &str = "Working \u{2014} pause anyway?";
 /// An agent's tile in the strip: its side, corners and the room above and below it, and how far
@@ -400,6 +422,12 @@ fn button_left(ui: &UiFont) -> f32 {
     .max(0.0)
 }
 
+/// The agent the user sees in a machine's active pane, whose new reply is read at once: none while
+/// that machine waits for another on show (DESIGN §13 P5-90).
+pub fn looking_at(selected: Option<&str>, on_show: bool) -> Option<&str> {
+    selected.filter(|_| on_show)
+}
+
 /// The list model: the last good `corral ls`, the last error if the latest read failed, and the
 /// Git summaries by directory.
 #[derive(Default)]
@@ -538,11 +566,27 @@ pub struct Sidebar {
     mono: Font,
     listing: Listing,
     poller: Poller,
-    git: git::Poller,
+    /// Another machine's agents, rather than this Mac's (DESIGN §13 P5-90): read over ssh, with
+    /// nothing read from this Mac's directories (no Git, Activity or workspaces).
+    remote: Option<Arc<crate::remote::Link>>,
+    /// When its agents were last read, for saying how long ago while it cannot be reached.
+    read_at: Option<f64>,
+    /// When the read of the agents listed now began: a pane checks a count it reads against when
+    /// it attached (DESIGN §13 P5-90).
+    listed_at: Option<std::time::Instant>,
+    /// What rings the bell on the other machines, which the Inbox lists too.
+    elsewhere: Vec<attention::Item>,
+    /// The switcher's machines; none without other machines.
+    machines: Vec<MachineTab>,
+    /// None for another machine's agents.
+    git: Option<git::Poller>,
     /// Reads last replies for the cards' previews.
     replies: Replies<Spell>,
-    /// The active pane's agent.
+    /// The active pane's agent, in this machine's layout.
     selected: Option<String>,
+    /// This machine is the one on show: its active pane's agent is what the user sees, and a
+    /// new reply there is read. Another machine's, waiting, reads nothing (DESIGN §13 P5-90).
+    on_show: bool,
     /// Every agent open in this window's panes.
     here: Vec<String>,
     /// Written `~` in directories.
@@ -576,12 +620,14 @@ pub struct Sidebar {
 impl EventEmitter<SidebarEvent> for Sidebar {}
 
 impl Sidebar {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         theme: Rc<Theme>,
         width: f32,
         mono: Font,
         corral: String,
         refresh: Duration,
+        remote: Option<Arc<crate::remote::Link>>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -589,7 +635,9 @@ impl Sidebar {
         let floating_out = cx.on_focus_out(&floating_focus, window, |sidebar, _, window, cx| {
             sidebar.floating_left(window, cx)
         });
-        let workspaces_path = crate::workspaces::path();
+        // The window opens on this Mac.
+        let on_show = remote.is_none();
+        let workspaces_path = crate::workspaces::path().filter(|_| remote.is_none());
         let mut listing = Listing::default();
         if let Some(path) = &workspaces_path {
             listing.panel.workspaces = crate::workspaces::Workspaces::load(path);
@@ -623,12 +671,28 @@ impl Sidebar {
             listing,
             replies: Replies::start(Client {
                 program: corral.clone(),
+                remote: remote.clone(),
             }),
-            poller: Poller::start(Client { program: corral }, refresh),
-            git: git::Poller::start("git".into(), GIT_REFRESH),
+            poller: match &remote {
+                None => Poller::start(Client::local(corral), refresh),
+                Some(link) => Poller::remote(link.clone()),
+            },
+            git: remote
+                .is_none()
+                .then(|| git::Poller::start("git".into(), GIT_REFRESH)),
+            // Another machine's home is known once it answers.
+            home: match &remote {
+                None => std::env::var("HOME").ok(),
+                Some(_) => None,
+            },
+            remote,
+            read_at: None,
+            listed_at: None,
+            elsewhere: Vec::new(),
+            machines: Vec::new(),
             selected: None,
+            on_show,
             here: Vec::new(),
-            home: std::env::var("HOME").ok(),
             note: None,
             collapsed: false,
             menu_open: false,
@@ -682,6 +746,11 @@ impl Sidebar {
             self.here = here;
             cx.notify();
         }
+    }
+
+    /// This machine on show in the window, or waiting while another is.
+    pub fn set_on_show(&mut self, on_show: bool) {
+        self.on_show = on_show;
     }
 
     /// Collapsed to the strip, or expanded.
@@ -844,10 +913,12 @@ impl Sidebar {
             self.badge(spot, cx)
         };
         let pause_gap = ui.px(PAUSE_GAP);
-        let new_workspace = self
-            .new_workspace_button(cx)
-            .mr(pause_gap)
-            .on_mouse_down(MouseButton::Left, keep);
+        // Another machine's agents are in no workspace.
+        let new_workspace = self.remote.is_none().then(|| {
+            self.new_workspace_button(cx)
+                .mr(pause_gap)
+                .on_mouse_down(MouseButton::Left, keep)
+        });
         let pause_all = pause_all.map(|button| {
             button.map(move |button| button.mr(pause_gap).on_mouse_down(MouseButton::Left, keep))
         });
@@ -884,7 +955,7 @@ impl Sidebar {
                 }),
         )
         .child(div().flex_1())
-        .child(new_workspace)
+        .children(new_workspace)
         .children(pause_all)
         .child(bell.map(move |bell| bell.on_mouse_down(MouseButton::Left, keep)))
     }
@@ -1007,7 +1078,8 @@ impl Sidebar {
     /// How many rows the Inbox has under `Needs you` and `New replies`, and the bell's colour for
     /// them.
     fn bell(&self) -> (usize, Hsla) {
-        let ringing = inbox::ringing(&self.listing.panel, self.listing.error.as_deref(), now());
+        let mut ringing = self.ringing();
+        ringing.extend(self.elsewhere.iter().cloned());
         let (count, urgency) = attention::bell(&ringing);
         let color = hsla(
             match urgency {
@@ -1253,6 +1325,7 @@ impl Sidebar {
             .pt(ui.px(8.0))
             // `New Workspace…` from the View menu or the palette opens over the strip too.
             .children(self.editor(window, cx))
+            .children(self.switcher(true, cx))
             .child(self.rail_bell(cx).map({
                 let top = ui.px(2.0);
                 move |bell| bell.mt(top)
@@ -1261,7 +1334,9 @@ impl Sidebar {
                 let top = ui.px(4.0);
                 button.map(move |button| button.mt(top))
             }))
-            .child(self.new_workspace_button(cx).mt(ui.px(4.0)))
+            .when(self.remote.is_none(), |rail| {
+                rail.child(self.new_workspace_button(cx).mt(ui.px(4.0)))
+            })
             .child(rule(24.0, 0.0).mt(ui.px(8.0)).mb(ui.px(4.0)))
             .child(tiles)
             .child(
@@ -1283,6 +1358,11 @@ impl Sidebar {
     /// The agents as corral last listed them.
     pub fn agents(&self) -> Vec<Agent> {
         self.listing.panel.agents.clone()
+    }
+
+    /// When the read of [`Self::agents`] began; none before the first.
+    pub fn listed_at(&self) -> Option<std::time::Instant> {
+        self.listed_at
     }
 
     pub fn panel(&self) -> &Panel {
@@ -1308,6 +1388,138 @@ impl Sidebar {
     /// Why the latest corral read failed, for the Inbox's row about it.
     pub fn read_error(&self) -> Option<&str> {
         self.listing.error.as_deref()
+    }
+
+    /// What rings the bell from these agents: the Inbox's first two groups.
+    pub fn ringing(&self) -> Vec<attention::Item> {
+        inbox::ringing(&self.listing.panel, self.listing.error.as_deref(), now())
+    }
+
+    /// What rings the bell on the other machines (DESIGN §13 P5-90): the bell counts it too.
+    pub fn set_elsewhere(&mut self, items: Vec<attention::Item>, cx: &mut Context<Self>) {
+        if self.elsewhere != items {
+            self.elsewhere = items;
+            cx.notify();
+        }
+    }
+
+    /// The machine these agents run on, when not this Mac.
+    pub fn remote(&self) -> Option<&Arc<crate::remote::Link>> {
+        self.remote.as_ref()
+    }
+
+    /// The switcher's machines, as the window has them now.
+    pub fn set_machines(&mut self, machines: Vec<MachineTab>, cx: &mut Context<Self>) {
+        if self.machines != machines {
+            self.machines = machines;
+            cx.notify();
+        }
+    }
+
+    /// The switcher over the list, one tab per machine (`This Mac │ studio ●2`): its name, how
+    /// many of its agents want the user, and how its connection stands, why on hover. A click
+    /// shows that machine, and tries one that could not be read again. Narrow, on the strip, each
+    /// machine's first letters. None without other machines.
+    fn switcher(&self, narrow: bool, cx: &mut Context<Self>) -> Option<Div> {
+        if self.machines.is_empty() {
+            return None;
+        }
+        let ui = UiFont::get(cx);
+        let fg = |pick: Pick| hsla(self.theme.fg(pick), 1.0);
+        let (text, dim, amber, red, green) = (
+            fg(|t| t.agents_text),
+            fg(|t| t.agents_dim),
+            fg(|t| t.agents_yellow),
+            fg(|t| t.agents_red),
+            fg(|t| t.agents_green),
+        );
+        let selected = self.grounds().selected;
+        let mut bar = div()
+            .flex_shrink_0()
+            .flex()
+            .items_center()
+            .gap(ui.px(2.0))
+            .when(narrow, |bar| bar.flex_col().pb(ui.px(4.0)))
+            .when(!narrow, |bar| {
+                bar.flex_wrap().px(ui.px(8.0)).pt(ui.px(4.0)).pb(ui.px(6.0))
+            });
+        for (index, machine) in self.machines.iter().enumerate() {
+            if index > 0 && !narrow {
+                bar = bar.child(div().w(px(1.0)).h(ui.px(14.0)).bg(dim.opacity(0.35)));
+            }
+            let tip = Tip {
+                text: machine.tip.clone().into(),
+                size: ui.px(NOTE_SIZE),
+                color: text,
+                background: hsla(self.theme.bg(|t| t.agents_bg), 1.0),
+                border: fg(|t| t.agents_rule),
+            };
+            let on_click =
+                cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(SidebarEvent::Machine(index)));
+            let name = if narrow {
+                machine.name.chars().take(2).collect()
+            } else {
+                machine.name.clone()
+            };
+            let status = machine.status.clone().filter(|_| !narrow);
+            bar = bar.child(
+                div()
+                    .id(("machine", index))
+                    .flex()
+                    .items_center()
+                    .gap(ui.px(5.0))
+                    .h(ui.px(24.0))
+                    .px(ui.px(8.0))
+                    .rounded(ui.px(6.0))
+                    .cursor_pointer()
+                    .whitespace_nowrap()
+                    .text_size(ui.px(12.5))
+                    .text_color(if machine.shown { text } else { dim })
+                    .when(machine.shown, |tab| {
+                        tab.bg(selected).font_weight(FontWeight::SEMIBOLD)
+                    })
+                    .hover(move |style| style.bg(selected))
+                    .tooltip(move |_, cx| cx.new(|_| tip.clone()).into())
+                    .on_click(on_click)
+                    .child(name)
+                    // Another machine answering: a dot; not answering, what stands.
+                    .when(index > 0 && machine.status.is_none(), |tab| {
+                        tab.child(div().size(ui.px(6.0)).rounded_full().bg(green))
+                    })
+                    .when(index > 0 && machine.status.is_some() && narrow, |tab| {
+                        let color = if machine.problem { red } else { dim };
+                        tab.child(div().size(ui.px(6.0)).rounded_full().bg(color))
+                    })
+                    .children(status.map(|status| {
+                        div()
+                            .text_size(ui.px(11.0))
+                            .font_weight(FontWeight::NORMAL)
+                            .text_color(if machine.problem { red } else { dim })
+                            .child(status)
+                    }))
+                    .when(machine.count > 0, |tab| {
+                        tab.child(
+                            div()
+                                .text_size(ui.px(11.0))
+                                .font_weight(FontWeight::BOLD)
+                                .font_features(tabular())
+                                .text_color(amber)
+                                .child(format!("●{}", machine.count)),
+                        )
+                    }),
+            );
+        }
+        Some(bar)
+    }
+
+    /// Another machine's failed read as its line says it: why, and how long ago its agents were
+    /// last read.
+    fn stale_line(&self, error: &str, now: f64) -> String {
+        let why = error.strip_prefix("corral: ").unwrap_or(error);
+        match self.read_at {
+            Some(at) => format!("{why} · read {} ago", card::short_time(Some(now - at))),
+            None => why.to_owned(),
+        }
     }
 
     /// The Inbox shows `row`'s reply: it is read, for the bell, its card and its tab.
@@ -1382,25 +1594,40 @@ impl Sidebar {
     fn poll(&mut self, cx: &mut Context<Self>) {
         let now = now();
         let mut changed = false;
-        for update in self.poller.updates.try_iter().collect::<Vec<_>>() {
+        for (began, update) in self.poller.updates.try_iter().collect::<Vec<_>>() {
             changed = true;
-            if let Some(alive) = self.listing.absorb(update, self.selected.as_deref(), now) {
+            if update.is_ok() {
+                self.read_at = Some(now);
+                self.listed_at = Some(began);
+            }
+            let looking = looking_at(self.selected.as_deref(), self.on_show);
+            if let Some(alive) = self.listing.absorb(update, looking, now) {
                 cx.emit(SidebarEvent::Alive(alive));
             }
         }
-        if changed {
+        if let Some(link) = &self.remote {
+            // Another machine: its paths written `~` by its own home, nothing read here.
+            if changed {
+                self.home = link.snapshot().home;
+                self.listing.ask_replies(&self.replies, now);
+            }
+        } else if changed {
             // As often as corral is read: another window may have changed the workspaces.
             self.reload_workspaces();
-            self.git.watch(self.listing.cwds());
+            if let Some(git) = &mut self.git {
+                git.watch(self.listing.cwds());
+            }
             let cwds = self.listing.cwds();
             self.activity.update(cx, |activity, _| activity.watch(cwds));
             self.listing.ask_replies(&self.replies, now);
         }
-        for batch in self.git.updates.try_iter().collect::<Vec<_>>() {
-            changed = true;
-            self.listing.absorb_git(batch);
+        if let Some(git) = &self.git {
+            for batch in git.updates.try_iter().collect::<Vec<_>>() {
+                changed = true;
+                self.listing.absorb_git(batch);
+            }
         }
-        if changed {
+        if changed && self.remote.is_none() {
             self.adopt_named(cx);
         }
         changed |= self.listing.absorb_replies(&self.replies);
@@ -1426,7 +1653,10 @@ impl Sidebar {
         let ui = UiFont::get(cx);
         let fg = |pick: Pick| hsla(self.theme.fg(pick), 1.0);
         let hover: SharedString = format!("group-{index}").into();
-        let (button, menu) = self.group_button(&heading, &hover, cx).unzip();
+        let (button, menu) = match self.remote {
+            None => self.group_button(&heading, &hover, cx).unzip(),
+            Some(_) => (None, None),
+        };
         let card::Heading {
             group,
             title,
@@ -1751,11 +1981,14 @@ impl Render for Sidebar {
                     Some(_) => column - ui.scale(2.0 * CHIP_X + MARK_GAP + CHEVRON),
                     None => column,
                 };
-                let place = card.workspace.as_deref().unwrap_or("None");
-                places.insert(
-                    card.name.clone(),
-                    card::elide(place, &|name| normal(name, SECOND_SIZE) <= button),
-                );
+                // Another machine's agents are in no workspace: no cell.
+                if self.remote.is_none() {
+                    let place = card.workspace.as_deref().unwrap_or("None");
+                    places.insert(
+                        card.name.clone(),
+                        card::elide(place, &|name| normal(name, SECOND_SIZE) <= button),
+                    );
+                }
                 if let Some(path) = &card.details.path {
                     card.details.path = Some(card::shorten(path, &|path| mono(path) <= room));
                 }
@@ -1790,7 +2023,13 @@ impl Render for Sidebar {
         // The list runs on under the activity panel, and ends the panel's height below its last
         // card (P5-70).
         let folded = self.activity.read(cx).folded();
-        let end = list_end(self.width, &ui, folded, self.frosted);
+        let end = match self.remote {
+            None => list_end(self.width, &ui, folded, self.frosted),
+            // No activity panel for another machine: only the footer.
+            Some(_) => LIST_END + if self.frosted { 0.0 } else { ui.scale(FOOTER) },
+        };
+        // Another machine that cannot be read: its agents as last read, dimmed.
+        let stale = self.remote.is_some() && self.listing.error.is_some();
         let mut list = div()
             .id("agents")
             .flex_1()
@@ -1804,8 +2043,8 @@ impl Render for Sidebar {
             .pb(px(end));
         if !listed && self.listing.loaded {
             // Nothing listed: why, or how to start one, in the middle of the list.
-            let quiet = match lines.first() {
-                Some(Line::Error(text)) => quiet(
+            let quiet = match (lines.first(), &self.remote) {
+                (Some(Line::Error(text)), None) => quiet(
                     &theme,
                     &ui,
                     "Can't read corral",
@@ -1814,7 +2053,26 @@ impl Render for Sidebar {
                     None,
                     grounds.selected,
                 ),
-                _ => quiet(
+                (Some(Line::Error(text)), Some(link)) => quiet(
+                    &theme,
+                    &ui,
+                    &format!("Can't read {}", link.name),
+                    &self.stale_line(text, now),
+                    None,
+                    None,
+                    grounds.selected,
+                ),
+                // New agents start on this Mac only for now (DESIGN §13 P5-90).
+                (_, Some(link)) => quiet(
+                    &theme,
+                    &ui,
+                    &format!("No agents on {}", link.name),
+                    "The agents corral runs there show here.",
+                    None,
+                    None,
+                    grounds.selected,
+                ),
+                (_, None) => quiet(
                     &theme,
                     &ui,
                     "No agents yet",
@@ -1880,7 +2138,10 @@ impl Render for Sidebar {
                         .pt(px(6.0))
                         .text_size(ui.px(NOTE_SIZE))
                         .text_color(fg(|t| t.agents_red))
-                        .child(text)
+                        .child(match self.remote {
+                            None => text,
+                            Some(_) => self.stale_line(&text, now),
+                        })
                         .into_any_element(),
                     // Sixteen points below the card above, the gap between lines included
                     // (closer to the top for the first: the window's title bar is over it); under
@@ -1911,7 +2172,7 @@ impl Render for Sidebar {
                         } else {
                             grounds
                         };
-                        AgentCard {
+                        let drawn = AgentCard {
                             asking: self.asking.as_ref() == Some(&card.name),
                             card: *card,
                             theme: theme.clone(),
@@ -1921,7 +2182,12 @@ impl Render for Sidebar {
                             workspace: place,
                             grounds: card_grounds,
                         }
-                        .into_any_element()
+                        .into_any_element();
+                        if stale {
+                            div().opacity(STALE).child(drawn).into_any_element()
+                        } else {
+                            drawn
+                        }
                     }
                 });
                 if tray.is_none() {
@@ -1984,6 +2250,7 @@ impl Render for Sidebar {
         self.activity
             .update(cx, |view, cx| view.frame(activity, cx));
 
+        let switcher = self.switcher(false, cx);
         div()
             .flex_shrink_0()
             .w(px(self.width))
@@ -1992,6 +2259,7 @@ impl Render for Sidebar {
             .flex_col()
             // Closer than GPUI's default, as in the design.
             .line_height(relative(1.3))
+            .children(switcher)
             .child(
                 div()
                     .flex_1()
@@ -2011,7 +2279,10 @@ impl Render for Sidebar {
                             .left_0()
                             .right_0()
                             .bottom_0()
-                            .child(self.activity.clone())
+                            // Another machine's agents work in its directories: no Activity here.
+                            .when(self.remote.is_none(), |foot| {
+                                foot.child(self.activity.clone())
+                            })
                             .child(if self.frosted {
                                 footer
                             } else {
@@ -2246,7 +2517,7 @@ fn over(top: Hsla, bottom: Hsla) -> Hsla {
 fn quiet(
     theme: &Theme,
     ui: &UiFont,
-    title: &'static str,
+    title: &str,
     text: &str,
     icon: Option<Icon>,
     action: Option<gpui::Stateful<Div>>,
@@ -2280,7 +2551,7 @@ fn quiet(
                 .text_size(ui.px(NAME_SIZE))
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(fg(|t| t.agents_text))
-                .child(title),
+                .child(title.to_owned()),
         )
         .child(
             div()
@@ -3663,6 +3934,28 @@ mod tests {
         }
     }
 
+    /// A machine waiting while another is on show: the reply its active pane's agent just gave is
+    /// new for the bell and the inbox, and read only once the user looks (P5-90 cross review 4).
+    #[test]
+    fn a_reply_on_a_machine_not_on_show_stays_unread_until_it_is() {
+        let mut listing = Listing::default();
+        let active = Some("p/main");
+        let _ = listing.absorb(Ok(vec![agent("p/main", "working")]), None, 1000.0);
+        let hidden = looking_at(active, false);
+        let _ = listing.absorb(Ok(vec![agent("p/main", "idle")]), hidden, 1001.0);
+        assert!(listing.panel.unread.contains("p/main"));
+        // Still waiting, the next read leaves it so.
+        let _ = listing.absorb(Ok(vec![agent("p/main", "idle")]), hidden, 1002.0);
+        assert!(listing.panel.unread.contains("p/main"));
+        // On show again: what the active pane shows is seen.
+        let _ = listing.absorb(
+            Ok(vec![agent("p/main", "idle")]),
+            looking_at(active, true),
+            1003.0,
+        );
+        assert!(!listing.panel.unread.contains("p/main"));
+    }
+
     #[test]
     fn a_paused_working_agent_is_not_working_for_spinners_or_the_activity_glow() {
         let mut listing = Listing::default();
@@ -4058,11 +4351,12 @@ mod tests {
     }
 
     fn first_update(program: String) -> Result<Vec<Agent>> {
-        let poller = Poller::start(Client { program }, Duration::from_secs(60));
+        let poller = Poller::start(Client::local(program), Duration::from_secs(60));
         poller
             .updates
             .recv_timeout(Duration::from_secs(20))
             .expect("poller result")
+            .1
     }
 
     #[test]
@@ -4152,7 +4446,7 @@ reply) echo "$2" >> "$calls"
   printf '{"ok": true, "name": "%s", "text": "Reply %s.\\n\\nAll green.", "at": 1}\n' "$2" "$n" ;;
 esac"#,
         );
-        let replies = Replies::start(Client { program });
+        let replies = Replies::start(Client::local(program));
         let mut listing = Listing::default();
         let idle = |since: f64| Agent {
             state_started: Some(since),

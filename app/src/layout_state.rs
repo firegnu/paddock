@@ -9,7 +9,7 @@ use crate::{
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     fs,
     path::PathBuf,
     time::SystemTime,
@@ -107,6 +107,64 @@ pub struct Layout {
     pub sidebar_folded: crate::agents::Folds,
     #[serde(default)]
     pub window_size: WindowSize,
+    /// Each other machine's tabs, panes and folded groups, by the machine's name (DESIGN §13
+    /// P5-90); left out while there are none, so files without machines read as before.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub machines: BTreeMap<String, Board>,
+}
+
+/// Another machine's tabs and panes as saved, and its sidebar's folded groups.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Board {
+    pub active_tab: usize,
+    pub tabs: Vec<SavedTab>,
+    #[serde(default)]
+    pub folded: crate::agents::Folds,
+}
+
+impl Board {
+    /// The workspace's tabs and panes, as [`Layout::of`] saves them, and the folds.
+    pub fn of(
+        workspace: &Workspace,
+        content: impl Fn(PaneId) -> Content,
+        folded: crate::agents::Folds,
+    ) -> Board {
+        let Layout {
+            active_tab, tabs, ..
+        } = Layout::of(workspace, content);
+        Board {
+            active_tab,
+            tabs,
+            folded,
+        }
+    }
+
+    /// As a layout of its own, for its checks and its workspace.
+    fn layout(&self) -> Layout {
+        Layout {
+            active_tab: self.active_tab,
+            tabs: self.tabs.clone(),
+            version: VERSION,
+            sidebar_collapsed: false,
+            right_sidebar: right_panel::Saved::default(),
+            activity_folded: false,
+            sidebar_folded: Default::default(),
+            window_size: WindowSize::default(),
+            machines: BTreeMap::new(),
+        }
+    }
+
+    /// The rules a layout keeps. A board that breaks them is left out alone: this Mac's layout
+    /// and the other machines' still open.
+    pub fn validate(&self) -> Result<()> {
+        self.layout().validate()
+    }
+
+    /// A workspace laid out as saved, and what each of its panes is to show. Call
+    /// [`Self::validate`] first.
+    pub fn workspace(&self) -> (Workspace, Vec<(PaneId, Content)>) {
+        self.layout().workspace()
+    }
 }
 
 fn even() -> f32 {
@@ -234,6 +292,7 @@ impl Layout {
             activity_folded: false,
             sidebar_folded: Default::default(),
             window_size: WindowSize::default(),
+            machines: BTreeMap::new(),
         }
     }
 

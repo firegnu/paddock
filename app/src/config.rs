@@ -47,6 +47,68 @@ pub struct Config {
     /// How opaque, in percent, the darker frame lies over the material beside the sidebar; `None`
     /// (not written) is [`FRAME_OPACITY`].
     pub frame_opacity: Option<u8>,
+    /// `[[machines]]` as written; read into `machines` by [`Config::parse`].
+    #[serde(rename = "machines")]
+    pub machines_written: Vec<toml::Value>,
+    /// The other machines whose corral agents paddock shows, each in a view of its own (DESIGN
+    /// §13 P5-90), written by hand and only read. An entry that is wrong is left out and said in
+    /// `machines_problem`: it never keeps paddock from opening on this Mac.
+    #[serde(skip)]
+    pub machines: Vec<Machine>,
+    #[serde(skip)]
+    pub machines_problem: Option<String>,
+}
+
+/// One `[[machines]]` entry: what paddock calls the machine, what it hands `ssh`, and where corral
+/// is there when `ssh` cannot find it.
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Machine {
+    /// Lower-case letters, digits and `-`; not `local`.
+    pub name: String,
+    /// An alias from `~/.ssh/config` or `user@host`, given to `ssh` as it is.
+    pub ssh: String,
+    /// corral's path there; a leading `~` is that machine's `$HOME`.
+    #[serde(default)]
+    pub corral: Option<String>,
+}
+
+impl Machine {
+    fn validate(&self) -> Result<()> {
+        let name = &self.name;
+        ensure!(
+            !name.is_empty()
+                && name
+                    .chars()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-'),
+            "machines: name {name:?} may have only lower-case letters, digits and -"
+        );
+        ensure!(
+            name != "local",
+            "machines: name \"local\" is taken by this Mac"
+        );
+        let ssh = &self.ssh;
+        ensure!(
+            !ssh.is_empty(),
+            "machines: {name} needs ssh, a host from ~/.ssh/config or user@host"
+        );
+        ensure!(
+            !ssh.chars().any(|c| c.is_whitespace() || c.is_control()),
+            "machines: {name}'s ssh {ssh:?} must not have spaces or control characters"
+        );
+        ensure!(
+            !ssh.starts_with('-'),
+            "machines: {name}'s ssh {ssh:?} must not start with -"
+        );
+        if let Some(corral) = &self.corral {
+            ensure!(
+                (corral.starts_with('/') || corral == "~" || corral.starts_with("~/"))
+                    && !corral.chars().any(char::is_control),
+                "machines: {name}'s corral {corral:?} must be a path, from / or ~/"
+            );
+        }
+        Ok(())
+    }
 }
 
 impl Default for Config {
@@ -76,13 +138,16 @@ impl Default for Config {
             agent_models: Default::default(),
             sidebar_opacity: None,
             frame_opacity: None,
+            machines_written: Vec::new(),
+            machines: Vec::new(),
+            machines_problem: None,
         }
     }
 }
 
 impl Config {
     pub fn parse(text: &str) -> Result<Self> {
-        let config: Self = toml::from_str(text)?;
+        let mut config: Self = toml::from_str(text)?;
         ensure!(
             config.sidebar_width.is_finite() && config.sidebar_width > 0.0,
             "sidebar_width must be positive"
@@ -105,6 +170,32 @@ impl Config {
                 value.is_none_or(|percent| percent <= 100),
                 "{key} must be from 0 to 100"
             );
+        }
+        let mut problems = Vec::new();
+        for written in &config.machines_written {
+            let machine = written
+                .clone()
+                .try_into::<Machine>()
+                .map_err(|error| anyhow::anyhow!("machines: {}", error.message()))
+                .and_then(|machine| {
+                    machine.validate()?;
+                    ensure!(
+                        !config.machines.iter().any(|m| m.name == machine.name),
+                        "machines: {} is named twice",
+                        machine.name
+                    );
+                    Ok(machine)
+                });
+            match machine {
+                Ok(machine) => config.machines.push(machine),
+                Err(error) => problems.push(format!("{error:#}")),
+            }
+        }
+        if !problems.is_empty() {
+            config.machines_problem = Some(format!(
+                "{}; left out of paddock until fixed",
+                problems.join("; ")
+            ));
         }
         Ok(config)
     }
@@ -464,5 +555,96 @@ efforts = ["low", "high"]
         ] {
             assert!(Config::parse(bad).is_err(), "{bad}");
         }
+    }
+}
+
+#[cfg(test)]
+mod machine_tests {
+    use super::*;
+
+    #[test]
+    fn machines_are_read_with_an_optional_corral() {
+        let config = Config::parse(
+            r#"
+[[machines]]
+name = "studio"
+ssh = "me@studio.local"
+
+[[machines]]
+name = "vps-2"
+ssh = "vps"
+corral = "~/.local/bin/corral"
+"#,
+        )
+        .unwrap();
+        assert_eq!(config.machines_problem, None);
+        assert_eq!(
+            config.machines,
+            [
+                Machine {
+                    name: "studio".into(),
+                    ssh: "me@studio.local".into(),
+                    corral: None,
+                },
+                Machine {
+                    name: "vps-2".into(),
+                    ssh: "vps".into(),
+                    corral: Some("~/.local/bin/corral".into()),
+                },
+            ]
+        );
+        // None written: none, and nothing to say.
+        let config = Config::parse("").unwrap();
+        assert!(config.machines.is_empty() && config.machines_problem.is_none());
+    }
+
+    #[test]
+    fn a_wrong_machine_is_left_out_and_said_without_failing_the_config() {
+        for (entry, says) in [
+            (
+                "name = \"x\"\nssh = \"-oProxyCommand=evil\"",
+                "must not start with -",
+            ),
+            ("name = \"x\"\nssh = \"me@host extra\"", "spaces or control"),
+            ("name = \"x\"\nssh = \"me@host\\n\"", "spaces or control"),
+            ("name = \"x\"\nssh = \"\"", "needs ssh"),
+            ("name = \"local\"\nssh = \"host\"", "taken by this Mac"),
+            ("name = \"Studio\"\nssh = \"host\"", "lower-case"),
+            ("name = \"a b\"\nssh = \"host\"", "lower-case"),
+            ("name = \"\"\nssh = \"host\"", "lower-case"),
+            (
+                "name = \"x\"\nssh = \"host\"\ncorral = \"corral\"",
+                "must be a path",
+            ),
+            ("name = \"x\"\nssh = \"host\"\nport = 22", "port"),
+            ("name = \"x\"", "ssh"),
+        ] {
+            let text = format!(
+                "font_size = 15\n[[machines]]\nname = \"good\"\nssh = \"h\"\n[[machines]]\n{entry}\n"
+            );
+            let config = Config::parse(&text).unwrap_or_else(|e| panic!("{entry}: {e:#}"));
+            // The rest of the config, and the good machine, stand.
+            assert_eq!(config.font_size, 15.0);
+            assert_eq!(config.machines.len(), 1, "{entry}");
+            assert_eq!(config.machines[0].name, "good");
+            let problem = config.machines_problem.unwrap();
+            assert!(problem.contains(says), "{entry}: {problem}");
+        }
+    }
+
+    #[test]
+    fn a_machine_named_twice_keeps_the_first() {
+        let config = Config::parse(
+            "[[machines]]\nname = \"a\"\nssh = \"one\"\n[[machines]]\nname = \"a\"\nssh = \"two\"\n",
+        )
+        .unwrap();
+        assert_eq!(config.machines.len(), 1);
+        assert_eq!(config.machines[0].ssh, "one");
+        assert!(
+            config
+                .machines_problem
+                .unwrap()
+                .contains("a is named twice")
+        );
     }
 }
