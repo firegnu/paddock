@@ -4,6 +4,7 @@
 //! `.local/bin`, where ranch puts it.
 mod common;
 use paddock::{
+    command,
     config::Machine,
     corral::{Client, Poller},
     remote::{self, Link, Problem, Rounds},
@@ -205,11 +206,14 @@ fn control_sockets_live_in_a_private_directory_short_enough_for_macos() {
 #[test]
 fn quoted_words_reach_the_shell_as_written() {
     for word in [ODD, "", "'", "a b", "$HOME", "{a,b}", "!x", "^y", "中文"] {
-        let output = std::process::Command::new("/bin/sh")
-            .arg("-c")
-            .arg(format!("printf '%s' {}", remote::quote(word)))
-            .output()
-            .unwrap();
+        let output = command::run(
+            "/bin/sh",
+            &["-c", &format!("printf '%s' {}", remote::quote(word))],
+            None,
+            Duration::from_secs(5),
+            &never(),
+        )
+        .unwrap();
         assert_eq!(String::from_utf8(output.stdout).unwrap(), word);
     }
 }
@@ -537,11 +541,10 @@ fn what_starts_only_after_the_wait_ran_out_is_closed_after_it_ends() {
     assert_eq!(written(&controls), format!("exit {socket} ended\n"));
     // It starts only now, through the socket, which can open the connection again (any call
     // through it can: here a plain one, as the attach's would never end).
-    let late = std::process::Command::new(&ssh)
-        .args(link.args("true").unwrap())
-        .status()
-        .unwrap();
-    assert!(late.success());
+    let args = link.args("true").unwrap();
+    let args: Vec<&str> = args.iter().map(String::as_str).collect();
+    let late = command::run(&ssh, &args, None, Duration::from_secs(5), &never()).unwrap();
+    assert!(late.status.success());
     thread::sleep(Duration::from_millis(300));
     assert_eq!(lines(&controls, 1).lines().count(), 1);
     // Once it is let go, the connection is closed again.
