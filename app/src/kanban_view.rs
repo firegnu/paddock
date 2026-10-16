@@ -1568,7 +1568,13 @@ impl KanbanView {
                 ),
             };
         }
-        let note = self.menu.as_ref().and_then(|menu| menu.note.clone());
+        // Why the folder just chosen was not taken, or why the list was not saved; the latter
+        // stays until a save works.
+        let note = self
+            .menu
+            .as_ref()
+            .and_then(|menu| menu.note.clone())
+            .or_else(|| self.looking.problem().map(SharedString::from));
         panel
             .children(note.map(|note| {
                 div()
