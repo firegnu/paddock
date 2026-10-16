@@ -47,6 +47,9 @@ use workspaces_view::Floating;
 #[derive(Clone, Debug, PartialEq)]
 pub struct MachineTab {
     pub name: String,
+    /// How many agents its corral holds, as last read, written after its name: another
+    /// machine's, when it has any (see [`agents_written`]).
+    pub agents: Option<usize>,
     /// Its agents that want the user, as its bell counts them.
     pub count: usize,
     /// How its connection stands while it does not answer.
@@ -60,6 +63,12 @@ pub struct MachineTab {
     pub trouble: Option<(String, String)>,
     /// On show.
     pub shown: bool,
+}
+
+/// How many agents the switcher writes after machine `seat`'s name, of the `agents` its corral
+/// last listed (P5-122 rework 1): another machine's, when it has any; none for This Mac.
+pub fn agents_written(seat: usize, agents: usize) -> Option<usize> {
+    (seat > 0 && agents > 0).then_some(agents)
 }
 
 /// What the sidebar asks of the window.
@@ -1538,6 +1547,11 @@ impl Sidebar {
                 continue;
             }
             let on = machine.shown;
+            let agents_color = if on {
+                ground.opacity(SHOWN_STATUS)
+            } else {
+                dim
+            };
             let (dot, status_color, count_color) = if on {
                 (ground, ground.opacity(SHOWN_STATUS), ground)
             } else if machine.problem {
@@ -1571,6 +1585,15 @@ impl Sidebar {
                     .tooltip(move |_, cx| cx.new(|_| tip.clone()).into())
                     .on_click(on_click)
                     .child(machine.name.clone())
+                    // Another machine's agents, faint after its name (P5-122 rework 1).
+                    .children(machine.agents.map(|agents| {
+                        div()
+                            .text_size(ui.px(11.0))
+                            .font_weight(FontWeight::NORMAL)
+                            .font_features(tabular())
+                            .text_color(agents_color)
+                            .child(agents.to_string())
+                    }))
                     // Another machine answering: a dot; not answering, what stands.
                     .when(index > 0 && machine.status.is_none(), |pill| {
                         pill.child(div().size(ui.px(6.0)).rounded_full().bg(dot))
@@ -4820,5 +4843,15 @@ esac"#,
                 assert_eq!(full_screen.color(key), given.color(key), "{name} {key}");
             }
         }
+    }
+
+    /// The switcher writes another machine's agents after its name, all its corral holds, and
+    /// nothing when it holds none; never on This Mac (P5-122 rework 1).
+    #[test]
+    fn another_machines_capsule_says_how_many_agents_it_holds() {
+        assert_eq!(agents_written(1, 3), Some(3));
+        assert_eq!(agents_written(2, 1), Some(1));
+        assert_eq!(agents_written(1, 0), None);
+        assert_eq!(agents_written(0, 5), None);
     }
 }

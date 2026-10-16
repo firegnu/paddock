@@ -1954,7 +1954,9 @@ impl PaddockWindow {
         let now = Instant::now();
         (0..self.seats.len())
             .map(|seat| {
-                let count = self.parts(seat).0.read(cx).ringing().len();
+                let sidebar = self.parts(seat).0.read(cx);
+                let count = sidebar.ringing().len();
+                let agents = sidebar::agents_written(seat, sidebar.panel().agents.len());
                 let (name, status, problem, tip, trouble) = match seat.checked_sub(1) {
                     None => (
                         "This Mac".to_owned(),
@@ -1971,6 +1973,7 @@ impl PaddockWindow {
                 };
                 sidebar::MachineTab {
                     name,
+                    agents,
                     count,
                     status,
                     problem,
