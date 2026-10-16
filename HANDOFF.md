@@ -4,8 +4,8 @@
 
 ## 现在在哪
 
-- **没有进行中的活**：没有任务 worktree。主控在 5090 上开着一个测试 agent `paddock/test-pi`（pi，`role=test`，目录远端家目录，用户要的、拿来看远程视图；经远端 `zsh -l` 跑 `$HOME/.local/bin/corral start` 开的，非交互 ssh 找不到 nvm 下的 pi），用完 `corral stop`。工作区里未提交的草稿是 P5-54、P5-106、P5-111、P5-115、P5-120、P5-124、P5-125（看板 DRAFT，有意留，不要 `git add -A`）。
-- `~/Applications/paddock.app` 是 P5-123 分支 `cad7f3e` 的版本（10-17 00:17 装，代码和合并后的 main 相同；本机 Apple Development 证书签名）。
+- **没有进行中的活**：没有任务 worktree。主控在 5090 上开着一个测试 agent `paddock/test-pi`（pi，`role=test`，目录远端家目录，用户要的、拿来看远程视图；经远端 `zsh -l` 跑 `$HOME/.local/bin/corral start` 开的，非交互 ssh 找不到 nvm 下的 pi），用完 `corral stop`。工作区里未提交的草稿是 P5-54、P5-106、P5-111、P5-115、P5-120、P5-124、P5-125、P5-126（看板 DRAFT，有意留，不要 `git add -A`）。
+- `~/Applications/paddock.app` 是 main `90b7da6` 的版本（10-17 00:35 装，P5-123 之后主控直接改了切换栏胶囊和右侧栏说明卡，用户还没看；本机 Apple Development 证书签名）。
 - 已合并：第一至第三阶段、迁移 M0–M3、P4-1～P4-3、P5-1～P5-80、P5-82、P5-85～P5-89、P5-90、P5-90a、P5-91～P5-105、P5-107～P5-110、P5-112～P5-114、P5-114a、P5-116～P5-118、P5-118a、P5-119、P5-121、P5-121a、P5-122、P5-123（P5-95b 已被 P5-95c 撤）。P5-83 已收尾（讨论记录）；P5-84、P5-81 不做；P5-52 只查明原因、改法用户暂不定。
 - **远程机器（P5-90 甲）**：用户本机 `~/.config/paddock/config.toml` 已加一台 `[[machines]]`（名字 `5090`，ssh 别名在本机配置里，不进仓库）；只有 P5-90 之后的版本认这一项，旧版会报配置错。远端 corral 用 `$HOME/.local/bin/corral`（ranch R10 部署）。
 - 重新打包安装：在 `app/` 下 `cargo build --release`，再 `cargo run --release --example bundle -- --install`（编译目录 `.target/main`）。打包默认选本机 Apple Development 身份，可用 `PADDOCK_SIGN_IDENTITY` 指定；退回 ad-hoc 时会提示授权会失效。
@@ -29,7 +29,7 @@
 3. **P5-120 委派的 agent 放进 sandbox**（草稿）：五个待定问题在草稿里（先调研还是直接做、放哪一层、管到什么程度、哪些 agent、用什么做），等用户定。
 4. **P5-124 远程机器上开 agent（简单版）**（草稿，优先：高，依赖 P5-123）：五个待定问题在草稿里，等用户定。
 5. **P5-125 递归自我改进（RSI）**（草稿）：五个待定问题在草稿里（改什么、素材、多久回头看、谁批、要不要界面），等用户定。
-6. **既有问题：并发起的子进程带走别的调用的输出管道**（P5-123 开发查明机制：macOS 上 Rust 标准库先 `pipe` 再 `set_cloexec`）：连不上的机器上卡着的 ssh 可能拖住别的调用。10-17 合并 P5-123 后主控在 main 上复跑，`tests/remote.rs` 的 `a_machine_that_hangs_or_fails_never_holds_this_macs_agents_back`（本机列表在远程卡住时照常刷新）在整组跑时时过时不过（机器负载 5.5 左右，合并前的 main 一样会失败，不是 P5-123 带进来的），很可能同一原因。要不要另开一件修等用户定；修的时候不放宽断言、不加长超时。
+6. **P5-126 同时起的子进程带走别的调用的输出管道**（草稿，用户 10-17 说稍后做）：机制、`tests/remote.rs` 那条时过时不过的测试（合并 P5-123 前就有）和可能的真实影响都记在草稿里。
 7. 以后：Changes 第二步（行上评论发给 agent、暂存、撤销，可能和 P5-54a 合并考虑）；Kanban 能拖来纠正（排在后面）。
 
 ## 用户用到时顺带看（不用决定、不挡任何事）
