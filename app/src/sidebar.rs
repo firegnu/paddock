@@ -278,11 +278,9 @@ const PAUSED_OPACITY: f32 = 0.55;
 /// (DESIGN §13 P5-90).
 const STALE: f32 = 0.5;
 /// The switcher's well (P5-122): the room inside it, and its corners, round on one row of
-/// capsules; how much accent fills the machine on show's capsule, in the ring the right sidebar's
-/// chosen tab has (10-17: the solid accent was too heavy there).
+/// capsules.
 const WELL_PAD: f32 = 3.0;
 const WELL_RADIUS: f32 = 15.0;
-const SHOWN_FILL: f32 = 0.18;
 /// The widest a machine's name is in its capsule before it is cut short (P5-123).
 const CAPSULE_NAME: f32 = 120.0;
 /// How wide a machine's capsule menu is (P5-123): at least, and at most for a long name.
@@ -1586,64 +1584,53 @@ impl Sidebar {
             let on = machine.shown;
             let status_color = if machine.problem { red } else { dim };
             bar = bar.child(
-                div()
-                    .id(("machine", index))
-                    .flex_grow(1.0)
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .gap(ui.px(6.0))
-                    .px(ui.px(14.0))
-                    .py(ui.px(4.0))
-                    .rounded_full()
-                    .border(px(crate::window::TAB_RING))
-                    .cursor_pointer()
-                    .whitespace_nowrap()
-                    .when(on, |pill| {
-                        pill.bg(accent.opacity(SHOWN_FILL))
-                            .border_color(accent.opacity(crate::window::RING_ACTIVE))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(bright)
-                    })
-                    .when(!on, |pill| {
-                        pill.border_color(gpui::transparent_black())
-                            .text_color(text)
-                            .hover(move |style| style.text_color(bright))
-                    })
-                    .tooltip(move |_, cx| cx.new(|_| tip.clone()).into())
-                    .on_click(on_click)
-                    .when_some(press, |pill, press| {
-                        pill.relative().on_mouse_down(MouseButton::Right, press)
-                    })
-                    .children(hanging)
-                    // A long name cut short; the hover note has it whole (P5-123).
-                    .child(
-                        div()
-                            .min_w(px(0.0))
-                            .max_w(ui.px(CAPSULE_NAME))
-                            .overflow_hidden()
-                            .text_ellipsis()
-                            .child(machine.name.clone()),
-                    )
-                    // Another machine answering: a dot; not answering, what stands.
-                    .when(index > 0 && machine.status.is_none(), |pill| {
-                        pill.child(div().size(ui.px(6.0)).rounded_full().bg(green))
-                    })
-                    .children(machine.status.clone().map(|status| {
-                        div()
-                            .text_size(ui.px(11.0))
-                            .font_weight(FontWeight::NORMAL)
-                            .text_color(status_color)
-                            .child(status)
-                    }))
-                    // Another machine's agents after that, on a count's tag as the Cairn switch
-                    // has them (P5-122 rework 1, 3).
-                    .children(
-                        machine
-                            .agents
-                            .map(|agents| sunk::count(agents, false, ground, text, &ui)),
-                    )
-                    .children(count.map(|count| count.text_color(amber))),
+                sunk::chosen(
+                    div()
+                        .id(("machine", index))
+                        .flex_grow(1.0)
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .gap(ui.px(6.0))
+                        .px(ui.px(14.0))
+                        .py(ui.px(4.0))
+                        .cursor_pointer()
+                        .whitespace_nowrap(),
+                    on,
+                    accent,
+                    text,
+                    bright,
+                )
+                .tooltip(move |_, cx| cx.new(|_| tip.clone()).into())
+                .on_click(on_click)
+                .when_some(press, |pill, press| {
+                    pill.relative().on_mouse_down(MouseButton::Right, press)
+                })
+                .children(hanging)
+                // A long name cut short; the hover note has it whole (P5-123).
+                .child(
+                    div()
+                        .min_w(px(0.0))
+                        .max_w(ui.px(CAPSULE_NAME))
+                        .overflow_hidden()
+                        .text_ellipsis()
+                        .child(machine.name.clone()),
+                )
+                // Another machine answering: a dot; not answering, what stands.
+                .when(index > 0 && machine.status.is_none(), |pill| {
+                    pill.child(div().size(ui.px(6.0)).rounded_full().bg(green))
+                })
+                .children(machine.status.clone().map(|status| {
+                    div()
+                        .text_size(ui.px(11.0))
+                        .font_weight(FontWeight::NORMAL)
+                        .text_color(status_color)
+                        .child(status)
+                }))
+                // Another machine's agents after that, on a count's tag as the Cairn switch
+                // has them (P5-122 rework 1, 3).
+                .children(machine.agents.map(|agents| sunk::count(agents, text, &ui)))
+                .children(count.map(|count| count.text_color(amber))),
             );
         }
         Some(if narrow {

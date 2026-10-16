@@ -1224,13 +1224,13 @@ impl CairnView {
     }
 
     /// Under the hooks where cairn keeps a ledger: the switch between the notes, the ledger and the
-    /// lessons, a well at the left as wide as its words, the page shown a solid capsule of the
-    /// accent set in it, the ledger's and the lessons' with how many entries each has; on those two
-    /// pages, what it is to the right (P5-118a, P5-121, P5-121a).
+    /// lessons, a well at the left as wide as its words, the page shown the chosen capsule of the
+    /// accent set in it, as the sidebar's machine switcher draws it, the ledger's and the lessons'
+    /// with how many entries each has; on those two pages, what it is to the right (P5-118a,
+    /// P5-121, P5-121a).
     fn switch(&self, ledger: &Ledger, ui: &UiFont, cx: &mut Context<Self>) -> Div {
         let c = self.colors;
         let well = sunk::well(c.ground, c.ground.l >= 0.5, c.text);
-        let pill_shadows = sunk::capsule(c.accent);
         let (count, lessons) = match ledger {
             Ledger::Groups(groups) => {
                 let (book, lessons) = split(groups);
@@ -1245,33 +1245,28 @@ impl CairnView {
         let lessons = (lessons > 0).then_some(lessons);
         let half = |id: &'static str, page: Page, words: &'static str, count: Option<usize>| {
             let on = self.page == page;
-            div()
-                .id(id)
-                .flex()
-                .items_center()
-                .gap(ui.px(6.0))
-                .px(ui.px(14.0))
-                .py(ui.px(4.0))
-                .rounded_full()
-                .cursor_pointer()
-                .when(on, |half| {
-                    half.bg(c.accent)
-                        .shadow(pill_shadows.clone())
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(c.ground)
-                })
-                .when(!on, |half| {
-                    half.text_color(c.text)
-                        .hover(move |style| style.text_color(c.title))
-                })
-                .child(words)
-                .children(count.map(|count| sunk::count(count, on, c.ground, c.text, ui)))
-                .on_click(cx.listener(move |view, _: &ClickEvent, _, cx| {
-                    if view.page != page {
-                        view.page = page;
-                        cx.notify();
-                    }
-                }))
+            sunk::chosen(
+                div()
+                    .id(id)
+                    .flex()
+                    .items_center()
+                    .gap(ui.px(6.0))
+                    .px(ui.px(14.0))
+                    .py(ui.px(4.0))
+                    .cursor_pointer(),
+                on,
+                c.accent,
+                c.text,
+                c.title,
+            )
+            .child(words)
+            .children(count.map(|count| sunk::count(count, c.text, ui)))
+            .on_click(cx.listener(move |view, _: &ClickEvent, _, cx| {
+                if view.page != page {
+                    view.page = page;
+                    cx.notify();
+                }
+            }))
         };
         let capsule = div()
             .flex_shrink_0()

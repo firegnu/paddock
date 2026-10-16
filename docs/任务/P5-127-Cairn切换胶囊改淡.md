@@ -37,3 +37,35 @@
 
 ## 做完
 在本文件末尾追加「## 完成记录」（在你的分支里提交）：做了什么、验证了什么、拿主意的地方、没做的事、踩过的坑（没有就写「没有」）。回复里只写这几样，加上有没有要主控决定的事。命令都在前台跑完，全部做完后，回复最后一行写 DONE。
+
+## 完成记录
+
+2026-10-17，omp（paddock/dev-cairn-pill）。
+
+### 做了什么
+- `app/src/sunk.rs`：选中胶囊的画法收成一处的 `pub fn chosen(pill: Stateful<Div>, on: bool, accent: Hsla, text: Hsla, bright: Hsla) -> Stateful<Div>`：`rounded_full()`、`border(px(TAB_RING))`；选中时 `bg(accent.opacity(SHOWN_FILL))`、`border_color(accent.opacity(RING_ACTIVE))`、`font_weight(SEMIBOLD)`、`text_color(bright)`；没选中时透明边、`text_color(text)`、悬停转 `bright`。`SHOWN_FILL = 0.18` 从 `sidebar.rs` 挪进来。删掉没人用的 `sunk::capsule` 和 `PILL_LIGHT`／`PILL_DARK`／`PILL_SHADOW`／`PILL_GLOW`。
+- `sunk::count` 去掉 `on`（两处都只传 `false`），只给 `on` 用的 `COUNT_ON` 删除；`ground` 参数只喂 `on` 那条分支，一并去掉，签名成 `count(count: usize, text: Hsla, ui: &UiFont)`。
+- `app/src/sidebar.rs`（`fn switcher`）：胶囊改成 `sunk::chosen(div()…, on, accent, text, bright)` 再接着挂 tooltip、点击、名字、状态、计数；自己的 `SHOWN_FILL` 常量删掉；计数小签改传 `text`。
+- `app/src/cairn_view.rs`（`fn switch`）：三颗胶囊都走 `sunk::chosen`，选中那颗亮色字用 `c.title`（和左侧栏的 `bright` 是同一个主题值 `t.bright`）；里面的计数小签按没选中画（`sunk::count(count, c.text, ui)`）；`pill_shadows` 删掉。`fn switch` 上面的说明和 `sunk.rs` 开头的说明改成现在这样。
+
+### 验证了什么
+- 只做任务点名的那四条（编译目录 `.target/p5-127-cairn-pill`）：`git diff --check` 干净；`cargo clippy --all-targets -- -D warnings` 无警告；`cargo fmt --check` 通过；`cargo test --lib` 573 通过、0 失败。
+- 没起 paddock 窗口、没截图（任务写明样子留给用户看），所以两种主题下的淡底和细环的实际观感没实测。觉得不够的话：可以做一次临时 HOME 加假 corral 起的窗口看，按任务没自己加。
+
+### 拿主意的地方
+- 共享函数叫 `sunk::chosen`，把 `rounded_full` 和 `border(px(TAB_RING))` 也收进函数，两处调用点相应删掉这两句——渲染结果不变。
+- 没选中的边在共享函数里显式设成 `transparent_black()`（照左侧栏原来的写法）。Cairn 未选中的胶囊原来没有边，现在跟着有一条 1px 透明边；GPUI 按 border-box 排版，外框尺寸不变（内容内缩 1px，同左侧栏的胶囊），所以看不出来。
+- `sunk::count` 的 `ground` 跟着 `on` 一起去掉，调用点从 `(agents, false, ground, text, &ui)` 变成 `(agents, text, &ui)`，`(count, on, c.ground, c.text, ui)` 变成 `(count, c.text, ui)`。
+- Cairn 选中的胶囊内容因为多了 1px 边而内缩 1px，这是“边同左侧栏”的必然结果。
+- 提交没写 `Co-Authored-By: Claude …`（历来的提交都有）：这一件是 omp 做的，我不想冒名，也没找到 omp 的署名约定。要不要给 omp 定一个 trailer，请主控定。
+
+### 没做的事
+- 不改凹槽、不改没选中的胶囊的外观和悬停、不改右侧栏标签和别的界面。
+- 没起窗口、没截图、没碰任何 corral agent；没合并、没推送；没加依赖。
+
+### 踩过的坑
+- 没有。
+
+## 主控审查
+
+看了 diff：`sunk::chosen` 一处画选中和没选中的胶囊，左侧栏和 Cairn 切换都用它，旧的实心胶囊 `sunk::capsule` 和它的常量删了，`sunk::count` 只剩没选中的画法；只动了三个文件，「不要做」一件没做。影响面是看得见，不重跑。署名：omp 的提交不加 trailer，不另定格式。可以合并，样子留给用户看。
