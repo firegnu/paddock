@@ -25,9 +25,9 @@ use crate::{
     view::hsla,
 };
 use gpui::{
-    AnyElement, BoxShadow, ClickEvent, Context, Div, Font, FontStyle, FontWeight, HighlightStyle,
-    Hsla, IntoElement, Render, Stateful, StyledText, Task, UnderlineStyle, Window, div, prelude::*,
-    px, relative,
+    AnyElement, ClickEvent, Context, Div, Font, FontStyle, FontWeight, HighlightStyle, Hsla,
+    IntoElement, Render, Stateful, StyledText, Task, UnderlineStyle, Window, div, prelude::*, px,
+    relative,
 };
 use std::{
     collections::HashMap,
@@ -58,6 +58,15 @@ const FACTS: f32 = 0.04;
 const BETWEEN: f32 = 0.05;
 /// The rule between two sessions in the box of what the next session is given, in the accent.
 const NEXT_RULE: f32 = 0.16;
+/// The Notes | Ledger switch (P5-118a): its ground and edge in the text colour; the page shown, its
+/// ground and edge in the accent; the ledger's count, its ground in the text colour and on the page
+/// shown in the accent.
+const SWITCH_GROUND: f32 = 0.05;
+const SWITCH_EDGE: f32 = 0.08;
+const SWITCH_ON: f32 = 0.12;
+const SWITCH_ON_EDGE: f32 = 0.38;
+const SWITCH_COUNT: f32 = 0.08;
+const SWITCH_COUNT_ON: f32 = 0.16;
 /// How tall the icon of the agent that saved a note is drawn.
 const MARK: f32 = 13.0;
 /// How many of an open session's earlier notes are listed before Show all.
@@ -1214,11 +1223,11 @@ impl CairnView {
         }
     }
 
-    /// Under the hooks where cairn keeps a ledger: the switch between the notes and the ledger, the
-    /// page shown standing out as a raised key, the ledger's with how many entries it has.
+    /// Under the hooks where cairn keeps a ledger: the switch between the notes and the ledger, a
+    /// small capsule at the left as wide as its words, the page shown in the accent, the ledger's
+    /// with how many entries it has; on the ledger's page, what it is to the right (P5-118a).
     fn switch(&self, ledger: &Ledger, ui: &UiFont, cx: &mut Context<Self>) -> Div {
         let c = self.colors;
-        let face = raised::face(&self.theme);
         let count = match ledger {
             Ledger::Groups(groups) => Some(groups.iter().map(|group| group.entries.len()).sum()),
             Ledger::Unsupported | Ledger::Failed(_) => None,
@@ -1228,32 +1237,41 @@ impl CairnView {
             let on = self.page == page;
             div()
                 .id(id)
-                .flex_1()
                 .flex()
                 .items_center()
-                .justify_center()
-                .gap(ui.px(5.0))
-                .py(ui.px(4.0))
-                .rounded(ui.px(6.0))
+                .gap(ui.px(6.0))
+                .px(ui.px(12.0))
+                .py(ui.px(2.0))
+                .rounded_full()
+                // An edge on both, clear on the other, so the words do not move when it turns on.
+                .border_1()
                 .cursor_pointer()
                 .when(on, |half| {
-                    half.bg(face)
-                        .shadow(vec![
-                            BoxShadow::new(px(0.0), ui.px(1.0), gpui::black().opacity(0.35))
-                                .blur_radius(ui.px(2.0)),
-                        ])
+                    half.bg(c.accent.opacity(SWITCH_ON))
+                        .border_color(c.accent.opacity(SWITCH_ON_EDGE))
                         .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(c.title)
+                        .text_color(c.accent)
                 })
                 .when(!on, |half| {
-                    half.text_color(c.muted)
+                    half.border_color(gpui::transparent_black())
+                        .text_color(c.muted)
                         .hover(move |style| style.text_color(c.text))
                 })
                 .child(words)
                 .children(count.map(|count| {
                     div()
-                        .font_weight(FontWeight::NORMAL)
-                        .text_color(c.dim)
+                        .px(ui.px(6.0))
+                        .rounded_full()
+                        .text_size(ui.px(11.0))
+                        .font_weight(FontWeight::MEDIUM)
+                        .when(on, |count| {
+                            count
+                                .bg(c.accent.opacity(SWITCH_COUNT_ON))
+                                .text_color(c.accent)
+                        })
+                        .when(!on, |count| {
+                            count.bg(c.text.opacity(SWITCH_COUNT)).text_color(c.muted)
+                        })
                         .child(count.to_string())
                 }))
                 .on_click(cx.listener(move |view, _: &ClickEvent, _, cx| {
@@ -1263,17 +1281,38 @@ impl CairnView {
                     }
                 }))
         };
+        let capsule = div()
+            .flex_shrink_0()
+            .flex()
+            .p(px(2.0))
+            .rounded_full()
+            .border_1()
+            .border_color(c.text.opacity(SWITCH_EDGE))
+            .bg(c.text.opacity(SWITCH_GROUND))
+            .text_size(ui.px(12.0))
+            .child(half("cairn-page-notes", Page::Notes, "Notes", None))
+            .child(half("cairn-page-ledger", Page::Ledger, "Ledger", count));
         div()
             .flex_shrink_0()
             .flex()
+            .items_center()
+            .gap(ui.px(10.0))
+            .min_w(px(0.0))
             .mx(ui.px(16.0))
             .mt(ui.px(12.0))
-            .p(px(2.0))
-            .rounded(ui.px(8.0))
-            .bg(c.text.opacity(SOFT))
-            .text_size(ui.px(12.0))
-            .child(half("cairn-page-notes", Page::Notes, "Notes", None))
-            .child(half("cairn-page-ledger", Page::Ledger, "Ledger", count))
+            .child(capsule)
+            .child(div().flex_1())
+            .children((self.page == Page::Ledger).then(|| {
+                div()
+                    .flex_shrink(1.0)
+                    .min_w(px(0.0))
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .text_ellipsis()
+                    .text_size(ui.px(11.5))
+                    .text_color(c.dim)
+                    .child("Kept across sessions by cairn")
+            }))
     }
 
     /// The ledger's page: its entries, or that it has none yet, or why there are none to show.
@@ -1303,8 +1342,8 @@ impl CairnView {
         }
     }
 
-    /// The ledger's entries, scrolling: what the ledger is, how many the next session is not given
-    /// if any, then each kind under its name in a raised box.
+    /// The ledger's entries, scrolling: how many the next session is not given if any, then each
+    /// kind under its name in a raised box.
     fn entries(&self, groups: &[Group], ui: &UiFont, cx: &mut Context<Self>) -> Stateful<Div> {
         let c = self.colors;
         let left_out = groups
@@ -1312,34 +1351,21 @@ impl CairnView {
             .flat_map(|group| &group.entries)
             .filter(|entry| !entry.given)
             .count();
-        let line = |words: String| {
+        let head = (left_out > 0).then(|| {
             div()
-                .text_size(ui.px(12.0))
+                .flex_shrink_0()
+                .pt(ui.px(10.0))
+                .px(ui.px(16.0))
+                .text_size(ui.px(11.5))
                 .line_height(relative(1.5))
-                .text_color(c.muted)
-                .child(words)
-        };
-        let head = div()
-            .flex_shrink_0()
-            .flex()
-            .flex_col()
-            .gap(ui.px(4.0))
-            .pt(ui.px(12.0))
-            .px(ui.px(16.0))
-            .pb(ui.px(2.0))
-            .child(line(
-                "What holds for this project across sessions. cairn keeps it after each session \
-                 ends; every new session starts with it."
-                    .into(),
-            ))
-            .children((left_out > 0).then(|| {
-                line(match left_out {
+                .text_color(c.dim)
+                .child(match left_out {
                     1 => "1 entry is left out of what the next session receives.".into(),
                     _ => format!(
                         "{left_out} entries are left out of what the next session receives."
                     ),
                 })
-            }));
+        });
         let raised = raised::raised(&self.theme, ui);
         let mut list = div()
             .flex_shrink_0()
@@ -1399,7 +1425,7 @@ impl CairnView {
             .overflow_y_scroll()
             .flex()
             .flex_col()
-            .child(head)
+            .children(head)
             .child(list)
     }
 
