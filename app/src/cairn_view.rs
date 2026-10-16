@@ -58,9 +58,6 @@ const FACTS: f32 = 0.04;
 const BETWEEN: f32 = 0.05;
 /// The rule between two sessions in the box of what the next session is given, in the accent.
 const NEXT_RULE: f32 = 0.16;
-/// A page's count: its ground in the text colour; on the page shown, in the card's ground.
-const SWITCH_COUNT: f32 = 0.12;
-const SWITCH_COUNT_ON: f32 = 0.18;
 /// How tall the icon of the agent that saved a note is drawn.
 const MARK: f32 = 13.0;
 /// How many of an open session's earlier notes are listed before Show all.
@@ -1268,22 +1265,7 @@ impl CairnView {
                         .hover(move |style| style.text_color(c.title))
                 })
                 .child(words)
-                .children(count.map(|count| {
-                    div()
-                        .px(ui.px(6.0))
-                        .rounded_full()
-                        .text_size(ui.px(11.0))
-                        .font_weight(FontWeight::MEDIUM)
-                        .when(on, |count| {
-                            count
-                                .bg(c.ground.opacity(SWITCH_COUNT_ON))
-                                .text_color(c.ground)
-                        })
-                        .when(!on, |count| {
-                            count.bg(c.text.opacity(SWITCH_COUNT)).text_color(c.text)
-                        })
-                        .child(count.to_string())
-                }))
+                .children(count.map(|count| sunk::count(count, on, c.ground, c.text, ui)))
                 .on_click(cx.listener(move |view, _: &ClickEvent, _, cx| {
                     if view.page != page {
                         view.page = page;

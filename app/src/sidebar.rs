@@ -265,10 +265,6 @@ const STALE: f32 = 0.5;
 const WELL_PAD: f32 = 3.0;
 const WELL_RADIUS: f32 = 15.0;
 const SHOWN_STATUS: f32 = 0.75;
-/// Another machine's agents in its capsule (P5-122 rework 2): the agent icon, about as tall as the
-/// digits after it, and the room between them.
-const AGENTS_ICON: f32 = 11.0;
-const AGENTS_GAP: f32 = 2.0;
 /// How strongly the grey cards show while another machine is not read yet, one after another.
 const PLACEHOLDERS: [f32; 3] = [1.0, 0.6, 0.3];
 /// What a card asks before pausing an agent in a turn.
@@ -1551,11 +1547,6 @@ impl Sidebar {
                 continue;
             }
             let on = machine.shown;
-            let agents_color = if on {
-                ground.opacity(SHOWN_STATUS)
-            } else {
-                dim
-            };
             let (dot, status_color, count_color) = if on {
                 (ground, ground.opacity(SHOWN_STATUS), ground)
             } else if machine.problem {
@@ -1600,24 +1591,13 @@ impl Sidebar {
                             .text_color(status_color)
                             .child(status)
                     }))
-                    // Another machine's agents, faint after that: the agent icon and how many,
-                    // close together (P5-122 rework 1, 2).
-                    .children(machine.agents.map(|agents| {
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap(ui.px(AGENTS_GAP))
-                            .text_size(ui.px(11.0))
-                            .font_weight(FontWeight::NORMAL)
-                            .font_features(tabular())
-                            .text_color(agents_color)
-                            .child(footer_icon::icon(
-                                Icon::Agent,
-                                agents_color,
-                                ui.scale(AGENTS_ICON / footer_icon::SIZE),
-                            ))
-                            .child(agents.to_string())
-                    }))
+                    // Another machine's agents after that, on a count's tag as the Cairn switch
+                    // has them (P5-122 rework 1, 3).
+                    .children(
+                        machine
+                            .agents
+                            .map(|agents| sunk::count(agents, on, ground, text, &ui)),
+                    )
                     .children(count.map(|count| count.text_color(count_color))),
             );
         }
