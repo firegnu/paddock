@@ -196,8 +196,9 @@ const PREVIEW_SIZE: f32 = 12.5;
 const SECOND_SIZE: f32 = 12.0;
 const NOTE_SIZE: f32 = 11.5;
 const KIND_SIZE: f32 = 11.0;
-/// A group's heading (a repository's line): the name, and the count after it (P5-129).
-const GROUP_NAME_SIZE: f32 = 12.0;
+/// A group's heading (a repository's line): the name, and the count after it (P5-129, P5-129a:
+/// the name sits with the card's folder and time (`NOTE_SIZE`)).
+const GROUP_NAME_SIZE: f32 = 11.5;
 const GROUP_COUNT_SIZE: f32 = 11.0;
 const CELL_LABEL_SIZE: f32 = 9.5;
 const BADGE_SIZE: f32 = 9.0;
