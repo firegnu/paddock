@@ -19,22 +19,41 @@ use std::{
 /// A name and a reply only a shell that keeps quoted words as written passes on unchanged.
 const ODD: &str = "it's $(touch pwned) `id` \"q\" ~ *\n第二行 ;|&";
 
-/// The fake `ssh`: skips the options as ssh would take them, notes the target and each command
-/// (apart by a NUL), then fails, hangs or runs the command as the files beside it say.
+/// The fake `ssh`: skips the options as ssh would take them, notes the socket, the target and each
+/// command (apart by a NUL), then fails, hangs (its pid noted) or runs the command as the files
+/// beside it say. Asked to close a connection (`-O`), it notes the socket in `closing`, waits while
+/// `hold-exit` is there, then notes the socket and whether the call that hung had ended by then.
 const SSH: &str = r#"#!/bin/sh
 root=$(dirname "$0")
+socket=
+op=
 while [ $# -gt 0 ]; do
   case "$1" in
-    -S|-o|-e) shift 2 ;;
+    -S) socket=$2; shift 2 ;;
+    -O) op=$2; shift 2 ;;
+    -o|-e) shift 2 ;;
     -tt) shift ;;
     --) shift; break ;;
     *) break ;;
   esac
 done
+if [ -n "$op" ]; then
+  printf '%s\n' "$socket" >> "$root/closing"
+  while [ -e "$root/hold-exit" ]; do sleep 0.05; done
+  state=ended
+  if [ -e "$root/hung-pid" ] && kill -0 "$(cat "$root/hung-pid")" 2>/dev/null; then state=running; fi
+  printf '%s %s %s\n' "$op" "$socket" "$state" >> "$root/controls"
+  exit 0
+fi
+printf '%s\n' "$socket" >> "$root/sockets"
 printf '%s\n' "$1" >> "$root/targets"
 shift
 printf '%s\0' "$*" >> "$root/calls"
-if [ -e "$root/hang" ]; then exec sleep 30; fi
+if [ -e "$root/hang" ]; then
+  printf '%s' $$ > "$root/hung-pid.new"
+  mv "$root/hung-pid.new" "$root/hung-pid"
+  exec sleep 30
+fi
 if [ -e "$root/refuse" ]; then cat "$root/refuse" >&2; exit 255; fi
 HOME="$root/home" PATH=/usr/bin:/bin exec /bin/sh -c "$*"
 "#;
@@ -102,6 +121,17 @@ fn nul_separated(path: &Path) -> Vec<String> {
         .collect()
 }
 
+/// The machine called `studio`, as configured.
+fn studio(configured: Option<&str>) -> Machine {
+    Machine {
+        name: "studio".into(),
+        ssh: "me@studio".into(),
+        corral: configured.map(str::to_owned),
+        label: None,
+        show: true,
+    }
+}
+
 /// A machine called `studio` behind the fake ssh, corral there speaking `contract`.
 fn machine(contract: &str, configured: Option<&str>) -> Fake {
     let dir = common::tempdir();
@@ -112,12 +142,7 @@ fn machine(contract: &str, configured: Option<&str>) -> Fake {
     common::script(&bin, "corral", &corral(&root));
     std::fs::write(root.join("contract"), contract).unwrap();
     std::fs::write(root.join("listing"), listing()).unwrap();
-    let machine = Machine {
-        name: "studio".into(),
-        ssh: "me@studio".into(),
-        corral: configured.map(str::to_owned),
-    };
-    let link = Link::with(&machine, ssh, Ok(root.join("socket")));
+    let link = Link::with(&studio(configured), ssh, Ok(root.join("socket")));
     Fake {
         dir,
         link: Arc::new(link),
@@ -400,4 +425,134 @@ fn attached_elsewhere_watches_there_and_is_refused_here() {
     tick_until(&mut viewer, |v| v.note.contains("attached elsewhere"));
     assert!(viewer.showing.is_none());
     assert!(!viewer.read_only);
+}
+
+/// Waits up to five seconds for `path` to have something in it, and gives it.
+fn written(path: &Path) -> String {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let text = std::fs::read_to_string(path).unwrap_or_default();
+        if !text.is_empty() {
+            return text;
+        }
+        assert!(Instant::now() < deadline, "nothing in {}", path.display());
+        thread::sleep(Duration::from_millis(10));
+    }
+}
+
+#[test]
+fn a_call_under_way_when_the_machine_is_taken_out_ends_before_its_connection_closes() {
+    let studio = machine("1", None);
+    std::fs::write(studio.root().join("hang"), "").unwrap();
+    let link = studio.link.clone();
+    let call = thread::spawn(move || {
+        link.run("true", Duration::from_secs(25), &never())
+            .map(|_| ())
+    });
+    // The call is past every check and its ssh runs; then the machine is hidden.
+    written(&studio.root().join("hung-pid"));
+    let taken = Instant::now();
+    studio.link.retire();
+    // paddock's connection is closed only once that call has ended, which is at once.
+    let socket = studio.root().join("socket").display().to_string();
+    assert_eq!(
+        written(&studio.root().join("controls")),
+        format!("exit {socket} ended\n")
+    );
+    assert!(call.join().unwrap().is_err());
+    assert!(taken.elapsed() < Duration::from_secs(5));
+    // Nothing more is run there.
+    let calls = studio.calls().len();
+    assert!(
+        studio
+            .link
+            .run("true", Duration::from_secs(5), &never())
+            .is_err()
+    );
+    assert!(studio.link.attach("p/a").is_err());
+    assert_eq!(studio.calls().len(), calls);
+}
+
+#[test]
+fn shown_again_before_the_old_connection_has_closed_it_gets_one_of_its_own() {
+    let fake = machine("1", None);
+    let ssh = fake.root().join("ssh").display().to_string();
+    let sockets = common::short_tempdir();
+    let open = || {
+        Arc::new(Link::in_dir(
+            &studio(None),
+            ssh.clone(),
+            Ok(sockets.path().into()),
+        ))
+    };
+    let old = open();
+    old.connect(&never()).unwrap();
+    // Hidden, and its connection still closing when it is shown again.
+    std::fs::write(fake.root().join("hold-exit"), "").unwrap();
+    old.retire();
+    // Begun before the new one starts: two ssh started at the same moment may each get the
+    // other's pipe (on macOS the standard library marks a new pipe close-on-exec only after
+    // making it), and this one, held, would keep the new call's output open until it times out.
+    written(&fake.root().join("closing"));
+    let new = open();
+    new.connect(&never()).unwrap();
+    std::fs::remove_file(fake.root().join("hold-exit")).unwrap();
+    let used = std::fs::read_to_string(fake.root().join("sockets")).unwrap();
+    let used: Vec<&str> = used.lines().collect();
+    let (first, last) = (used[0], used[used.len() - 1]);
+    // The old closing reached the old connection only; the new one goes on.
+    assert_eq!(
+        written(&fake.root().join("controls")),
+        format!("exit {first} ended\n")
+    );
+    assert_ne!(first, last);
+    assert!(new.run("true", Duration::from_secs(5), &never()).is_ok());
+    // The first connection in a run keeps the socket it always had.
+    let usual = remote::socket_path(sockets.path(), "studio", "me@studio").unwrap();
+    assert_eq!(first, usual.display().to_string());
+}
+
+/// Waits up to five seconds for `path` to have `count` lines, and gives them.
+fn lines(path: &Path, count: usize) -> String {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let text = std::fs::read_to_string(path).unwrap_or_default();
+        if text.lines().count() >= count {
+            return text;
+        }
+        assert!(Instant::now() < deadline, "{text:?} in {}", path.display());
+        thread::sleep(Duration::from_millis(10));
+    }
+}
+
+#[test]
+fn what_starts_only_after_the_wait_ran_out_is_closed_after_it_ends() {
+    let fake = machine("1", None);
+    let ssh = fake.root().join("ssh").display().to_string();
+    let socket = fake.root().join("socket");
+    let link = Link::with(&studio(None), ssh.clone(), Ok(socket.clone()));
+    let link = Arc::new(link.with_patience(Duration::from_millis(200)));
+    link.connect(&never()).unwrap();
+    // An attach is let in, and has not started when the machine is hidden.
+    let (_, hold) = link.attach("p/a").unwrap();
+    link.retire();
+    // The wait runs out: the connection is closed once, the attach still to start.
+    let controls = fake.root().join("controls");
+    let socket = socket.display();
+    assert_eq!(written(&controls), format!("exit {socket} ended\n"));
+    // It starts only now, through the socket, which can open the connection again (any call
+    // through it can: here a plain one, as the attach's would never end).
+    let late = std::process::Command::new(&ssh)
+        .args(link.args("true").unwrap())
+        .status()
+        .unwrap();
+    assert!(late.success());
+    thread::sleep(Duration::from_millis(300));
+    assert_eq!(lines(&controls, 1).lines().count(), 1);
+    // Once it is let go, the connection is closed again.
+    drop(hold);
+    assert_eq!(
+        lines(&controls, 2),
+        format!("exit {socket} ended\nexit {socket} ended\n")
+    );
 }

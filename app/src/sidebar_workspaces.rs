@@ -84,6 +84,8 @@ pub(super) enum Floating {
     },
     /// `New workspace`, or `Add to <name>`.
     Editor(Editor),
+    /// Another machine's capsule in the switcher, right-clicked (P5-123), by the machine's name.
+    Machine(String),
 }
 
 impl Floating {
@@ -93,6 +95,7 @@ impl Floating {
             Floating::Group(menu) => group_key(menu.workspace.as_deref(), &menu.group),
             Floating::Agent(name) => agent_key(name),
             Floating::Workspace { name, .. } => workspace_key(name),
+            Floating::Machine(name) => format!("machine {name}"),
             Floating::Rename { .. } | Floating::Editor(_) => String::new(),
         }
     }
@@ -264,7 +267,12 @@ impl Sidebar {
 
     /// Opens `floating` in place of any other. It takes the keys, for Esc and Return, and gives
     /// them back as it closes.
-    fn float(&mut self, floating: Floating, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn float(
+        &mut self,
+        floating: Floating,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if self.floating.is_none() {
             self.floating_back = window.focused(cx);
         }
@@ -281,7 +289,7 @@ impl Sidebar {
         cx.notify();
     }
 
-    fn close_floating(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn close_floating(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.floating.take().is_none() {
             return;
         }
@@ -316,7 +324,7 @@ impl Sidebar {
     }
 
     /// A press on a menu's button: opens it, unless this press has just closed it.
-    fn press_menu(
+    pub(super) fn press_menu(
         &mut self,
         floating: Floating,
         event: &MouseDownEvent,
@@ -330,7 +338,12 @@ impl Sidebar {
 
     /// The root of something floating: it has the keys, Esc closes it and so does a press
     /// outside, and nothing under it feels the pointer.
-    fn floated(&self, panel: Div, id: &'static str, cx: &mut Context<Self>) -> gpui::Stateful<Div> {
+    pub(super) fn floated(
+        &self,
+        panel: Div,
+        id: &'static str,
+        cx: &mut Context<Self>,
+    ) -> gpui::Stateful<Div> {
         panel
             .id(id)
             .track_focus(&self.floating_focus)
@@ -344,7 +357,7 @@ impl Sidebar {
 
     /// `menu` hung under the right end of the row it is added to, or (`left`) under the left
     /// end, inside the window.
-    fn hung(menu: impl IntoElement, left: bool) -> Div {
+    pub(super) fn hung(menu: impl IntoElement, left: bool) -> Div {
         let hung = anchored().snap_to_window_with_margin(px(8.0));
         let hung = if left {
             hung

@@ -1,5 +1,5 @@
 //! PTY sessions. From Saddle `src/pty.rs` at commit `df1c727`; paddock added `running_programs`,
-//! so quitting asks only when something runs in a shell (DESIGN §13 P5-66).
+//! so quitting asks only when something runs in a shell (DESIGN §13 P5-66), and `keep` (P5-123).
 use crate::terminal::{Screen, Size};
 use anyhow::{Context, Result};
 use portable_pty::{Child, CommandBuilder, MasterPty, PtySize, native_pty_system};
@@ -25,6 +25,9 @@ pub struct Session {
     exit_code: Option<u32>,
     shell: bool,
     groups: Vec<i32>,
+    /// Let go once the child has ended (P5-123: an attached pane's hold on its machine's
+    /// connection).
+    _kept: Option<Box<dyn Send + Sync>>,
 }
 impl Session {
     pub fn spawn(command: &[String], cwd: Option<&Path>, size: Size) -> Result<Self> {
@@ -116,7 +119,12 @@ impl Session {
             exit_code: None,
             shell: env.is_some(),
             groups: Vec::new(),
+            _kept: None,
         })
+    }
+    /// Keeps `thing` until the child has ended and the session is dropped.
+    pub fn keep(&mut self, thing: impl Send + Sync + 'static) {
+        self._kept = Some(Box::new(thing));
     }
     pub fn send(&self, bytes: Vec<u8>) -> Result<()> {
         if !bytes.is_empty() {

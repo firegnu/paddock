@@ -30,6 +30,33 @@ impl<T> Seating<T> {
         self.parked.len() - 1
     }
 
+    /// Another machine's seat, waiting, at `seat` (P5-123): those from there on move one place
+    /// along, the ones in the fields and on show with them.
+    pub fn insert(&mut self, seat: usize, waiting: T) {
+        let seat = seat.clamp(1, self.parked.len());
+        self.parked.insert(seat, Some(waiting));
+        for place in [&mut self.here, &mut self.shown] {
+            if *place >= seat {
+                *place += 1;
+            }
+        }
+    }
+
+    /// Takes out another machine's seat while it waits (P5-123): those after it move one place
+    /// back. Never this Mac's, nor the one in the fields or on show: `None`.
+    pub fn remove(&mut self, seat: usize) -> Option<T> {
+        if seat == 0 || seat == self.here || seat == self.shown || seat >= self.parked.len() {
+            return None;
+        }
+        let waiting = self.parked.remove(seat);
+        for place in [&mut self.here, &mut self.shown] {
+            if *place > seat {
+                *place -= 1;
+            }
+        }
+        waiting
+    }
+
     pub fn here(&self) -> usize {
         self.here
     }
@@ -171,6 +198,40 @@ mod tests {
         // Switching back is looking.
         switch(&mut seating, &mut fields, 0);
         assert!(seating.in_sight(0) && !seating.in_sight(studio));
+    }
+
+    /// P5-123: a machine hidden or removed takes its seat out, one shown again puts one in; the
+    /// machine in the fields and on show stays the same machine.
+    #[test]
+    fn seats_come_out_and_go_in_and_the_one_on_show_stays_the_same_machine() {
+        let mut seating = Seating::default();
+        let mut fields = "this Mac";
+        let studio = seating.push("studio");
+        let vps = seating.push("vps");
+        switch(&mut seating, &mut fields, vps);
+        // studio taken out: vps, on show, is now seat 1.
+        assert_eq!(seating.remove(studio), Some("studio"));
+        assert_eq!((seating.len(), seating.here(), fields), (2, 1, "vps"));
+        assert!(seating.in_sight(1));
+        assert_eq!(seating.parked(0), Some(&"this Mac"));
+        // Back before it: vps moves along with the eyes.
+        seating.insert(1, "studio");
+        assert_eq!((seating.len(), seating.here(), fields), (3, 2, "vps"));
+        assert!(seating.in_sight(2));
+        assert_eq!(seating.parked(1), Some(&"studio"));
+        // Never this Mac's, nor the one on show or in the fields, nor one not there.
+        assert_eq!(seating.remove(0), None);
+        assert_eq!(seating.remove(2), None);
+        assert_eq!(seating.remove(7), None);
+        bring(&mut seating, &mut fields, 0);
+        assert_eq!(seating.remove(2), None, "on show though not in the fields");
+        bring(&mut seating, &mut fields, 2);
+        // Put in at the end, or past it.
+        seating.insert(9, "pi");
+        assert_eq!(seating.parked(3), Some(&"pi"));
+        switch(&mut seating, &mut fields, 0);
+        assert_eq!(seating.remove(2), Some("vps"));
+        assert_eq!((seating.len(), seating.here(), fields), (3, 0, "this Mac"));
     }
 
     #[test]

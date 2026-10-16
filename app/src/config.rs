@@ -60,20 +60,71 @@ pub struct Config {
 }
 
 /// One `[[machines]]` entry: what paddock calls the machine, what it hands `ssh`, and where corral
-/// is there when `ssh` cannot find it.
+/// is there when `ssh` cannot find it; the name it is shown by, and whether it is shown at all
+/// (P5-123).
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Machine {
-    /// Lower-case letters, digits and `-`; not `local`.
+    /// Lower-case letters, digits and `-`; not `local`. Who the machine is: its saved panes and
+    /// its connection go by it, never by `label`.
     pub name: String,
     /// An alias from `~/.ssh/config` or `user@host`, given to `ssh` as it is.
     pub ssh: String,
     /// corral's path there; a leading `~` is that machine's `$HOME`.
     #[serde(default)]
     pub corral: Option<String>,
+    /// The name people see; `None` (not written) is `name`. Read without the spaces at its ends.
+    #[serde(default)]
+    pub label: Option<String>,
+    /// `false`: hidden, as if not configured: not connected, not read, its saved panes kept.
+    #[serde(default = "shown")]
+    pub show: bool,
+}
+
+/// The longest a machine's label may be, in characters: room for a host's own name.
+pub const LABEL_MAX: usize = 40;
+
+fn shown() -> bool {
+    true
+}
+
+/// The keys P5-123 added are of their kinds, named when not: serde's own words lose the key.
+fn typed(written: &toml::Value) -> Result<()> {
+    let name = written
+        .get("name")
+        .and_then(toml::Value::as_str)
+        .unwrap_or("a machine");
+    if written.get("label").is_some_and(|label| !label.is_str()) {
+        anyhow::bail!("machines: {name}'s label must be text");
+    }
+    if written.get("show").is_some_and(|show| !show.is_bool()) {
+        anyhow::bail!("machines: {name}'s show must be true or false");
+    }
+    Ok(())
+}
+
+/// `text` as a machine's label: without the spaces at its ends, not empty, no control characters,
+/// at most [`LABEL_MAX`] characters.
+pub fn label(text: &str) -> Result<String> {
+    let text = text.trim();
+    ensure!(!text.is_empty(), "the name shown must not be empty");
+    ensure!(
+        !text.chars().any(char::is_control),
+        "the name shown must not have control characters"
+    );
+    ensure!(
+        text.chars().count() <= LABEL_MAX,
+        "the name shown must be at most {LABEL_MAX} characters"
+    );
+    Ok(text.to_owned())
 }
 
 impl Machine {
+    /// The name people see: its label, else its name.
+    pub fn shown_name(&self) -> &str {
+        self.label.as_deref().map_or(&self.name, str::trim)
+    }
+
     fn validate(&self) -> Result<()> {
         let name = &self.name;
         ensure!(
@@ -106,6 +157,9 @@ impl Machine {
                     && !corral.chars().any(char::is_control),
                 "machines: {name}'s corral {corral:?} must be a path, from / or ~/"
             );
+        }
+        if let Some(text) = &self.label {
+            label(text).map_err(|error| anyhow::anyhow!("machines: {name}'s label: {error}"))?;
         }
         Ok(())
     }
@@ -173,10 +227,13 @@ impl Config {
         }
         let mut problems = Vec::new();
         for written in &config.machines_written {
-            let machine = written
-                .clone()
-                .try_into::<Machine>()
-                .map_err(|error| anyhow::anyhow!("machines: {}", error.message()))
+            let machine = typed(written)
+                .and_then(|()| {
+                    written
+                        .clone()
+                        .try_into::<Machine>()
+                        .map_err(|error| anyhow::anyhow!("machines: {}", error.message()))
+                })
                 .and_then(|machine| {
                     machine.validate()?;
                     ensure!(
@@ -585,11 +642,15 @@ corral = "~/.local/bin/corral"
                     name: "studio".into(),
                     ssh: "me@studio.local".into(),
                     corral: None,
+                    label: None,
+                    show: true,
                 },
                 Machine {
                     name: "vps-2".into(),
                     ssh: "vps".into(),
                     corral: Some("~/.local/bin/corral".into()),
+                    label: None,
+                    show: true,
                 },
             ]
         );
@@ -646,5 +707,52 @@ corral = "~/.local/bin/corral"
                 .unwrap()
                 .contains("a is named twice")
         );
+    }
+
+    /// P5-123: the name shown and whether the machine is shown, both left out by default.
+    #[test]
+    fn a_machine_has_an_optional_label_and_can_be_hidden() {
+        let config = Config::parse(
+            "[[machines]]\nname = \"5090\"\nssh = \"gpu\"\nlabel = \"  RTX 5090 \"\nshow = false\n\
+             [[machines]]\nname = \"vps\"\nssh = \"v\"\nshow = true\n\
+             [[machines]]\nname = \"pi\"\nssh = \"p\"\n",
+        )
+        .unwrap();
+        assert_eq!(config.machines_problem, None);
+        let [gpu, vps, pi] = &config.machines[..] else {
+            panic!("{:?}", config.machines);
+        };
+        // Shown without the spaces at its ends; the name stays who it is.
+        assert_eq!((gpu.shown_name(), gpu.name.as_str()), ("RTX 5090", "5090"));
+        assert!(!gpu.show);
+        assert_eq!((vps.shown_name(), vps.show), ("vps", true));
+        assert_eq!((pi.shown_name(), pi.show, &pi.label), ("pi", true, &None));
+    }
+
+    #[test]
+    fn a_wrong_label_or_show_leaves_the_machine_out_and_says_why() {
+        let long = "x".repeat(LABEL_MAX + 1);
+        for (entry, says) in [
+            ("label = \"\"", "must not be empty"),
+            ("label = \"   \"", "must not be empty"),
+            ("label = \"a\\tb\"", "control characters"),
+            ("label = \"a\\u0007\"", "control characters"),
+            (&format!("label = \"{long}\"")[..], "at most 40 characters"),
+            ("label = 5090", "label"),
+            ("show = \"no\"", "show"),
+            ("show = 0", "show"),
+        ] {
+            let text = format!(
+                "[[machines]]\nname = \"good\"\nssh = \"h\"\n[[machines]]\nname = \"x\"\nssh = \"h\"\n{entry}\n"
+            );
+            let config = Config::parse(&text).unwrap_or_else(|e| panic!("{entry}: {e:#}"));
+            assert_eq!(config.machines.len(), 1, "{entry}");
+            assert_eq!(config.machines[0].name, "good");
+            let problem = config.machines_problem.unwrap();
+            assert!(problem.contains(says), "{entry}: {problem}");
+        }
+        // As long as allowed, and in any script, is fine.
+        let most = "名".repeat(LABEL_MAX);
+        assert_eq!(label(&format!(" {most} ")).unwrap(), most);
     }
 }

@@ -155,7 +155,7 @@ impl Client {
             None => crate::command::run(&self.program, args, None, timeout, cancel),
             Some(link) => link
                 .corral(args, timeout, cancel)
-                .map_err(|problem| anyhow::anyhow!("{}: {problem}", link.name)),
+                .map_err(|problem| anyhow::anyhow!("{}: {problem}", link.label())),
         }
     }
 

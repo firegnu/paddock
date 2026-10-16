@@ -151,11 +151,7 @@ impl PaddockWindow {
     fn machine_seat(&self, machine: Option<&str>) -> Option<usize> {
         match machine {
             None => Some(0),
-            Some(name) => self
-                .machines
-                .iter()
-                .position(|link| link.name == name)
-                .map(|index| index + 1),
+            Some(name) => self.machines.seat_of(name),
         }
     }
 
@@ -170,9 +166,7 @@ impl PaddockWindow {
             .map(|seat| {
                 let sidebar = self.parts(seat).0.read(cx);
                 inbox::Source {
-                    machine: seat
-                        .checked_sub(1)
-                        .map(|index| self.machines[index].name.as_str()),
+                    machine: self.machines.link(seat).map(|link| link.name.as_str()),
                     panel: sidebar.panel(),
                     error: sidebar.read_error(),
                 }
@@ -392,9 +386,7 @@ impl PaddockWindow {
         self.inbox.refused.remove(&who);
         let client = Client {
             program: self.template.corral.clone(),
-            remote: seat
-                .checked_sub(1)
-                .map(|index| self.machines[index].clone()),
+            remote: self.machines.link(seat).cloned(),
         };
         let sidebar = self.parts(seat).0.clone();
         let at = now();
@@ -585,8 +577,8 @@ impl PaddockWindow {
                 Some(RowFacts {
                     short: label.rsplit('/').next().unwrap_or(label).to_owned(),
                     // Another machine's row says which (DESIGN §13 P5-90).
-                    project: match &row.machine {
-                        Some(machine) if group.is_empty() => machine.clone(),
+                    project: match row.machine.as_deref().map(|name| self.machines.label(name)) {
+                        Some(machine) if group.is_empty() => machine,
                         Some(machine) => format!("{machine} · {group}"),
                         None => group.to_owned(),
                     },
@@ -853,7 +845,8 @@ impl PaddockWindow {
         let sidebar = sidebar.read(cx);
         let panel = sidebar.panel();
         // Another machine's say which (DESIGN §13 P5-90).
-        let titled = |name: &str| match &row.machine {
+        let machine = row.machine.as_deref().map(|name| self.machines.label(name));
+        let titled = |name: &str| match &machine {
             Some(machine) => format!("{name} · {machine}"),
             None => name.to_owned(),
         };

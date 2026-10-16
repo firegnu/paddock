@@ -39,3 +39,16 @@ pub fn tempdir() -> TempDir {
     // Canonical, so scripts that `cd` next to themselves agree with the test about paths.
     TempDir(path.canonicalize().unwrap())
 }
+
+/// Like [`tempdir`], under `/tmp`, short enough for a control socket's path.
+pub fn short_tempdir() -> TempDir {
+    static NEXT: AtomicUsize = AtomicUsize::new(0);
+    let path = PathBuf::from(format!(
+        "/tmp/pdt-{}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    ));
+    let _ = fs::remove_dir_all(&path);
+    fs::create_dir_all(&path).unwrap();
+    TempDir(path.canonicalize().unwrap())
+}

@@ -67,7 +67,7 @@ impl Machine {
             crate::remote::Status::Down { problem, .. } => problem.label(),
         };
         Machine {
-            name: link.name.clone(),
+            name: link.label(),
             status,
             corral: snapshot.corral,
             version: snapshot.version,
