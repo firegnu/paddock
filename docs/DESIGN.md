@@ -642,3 +642,28 @@ paddock 与 Saddle 在代码上完全分开：用到的 Saddle 代码迁入 padd
   - 实际做法（P5-105 做完补）：`workspaces.rs` 判断归属只看主仓库路径（读不到时照前缀），不再看名字；`join` 带的是仓库；旧名单换算是 `adopt`。`agents.rs` 的 `named_read` 判断名单里的名字对应的、正在运行（照 P5-89 的读法：在 `corral ls` 里）的 agent 的仓库 Git 是不是都读到了（读到“不在仓库里”也算），`adopt_named` 按读到的换算。改名单都走 `Panel::edit_workspaces`：先重读文件、按已读到的换一遍，再做这次的改动。这次改动本身改变了名单就存盘（名单里剩下的名字随之去掉，这是改名单的既定规则）；没改变时，只有换过、而且名单里剩下的名字都读到了才存盘，否则内存退回读到的样子、不写文件。这样从 workspace 里开的 agent 的仓库已在别处、读不到仓库、那个 workspace 已被删等没变化的回调，不会把只换了一部分的名单存下去，免得还在等 Git 的名字被去掉（返工 R1）。左侧栏刷新时名单里还有名字就走一次空改动，名字都读到了才真正存盘。按 workspace 名字的顺序换，同一仓库的名字记在两个 workspace 里时归先换到的那个。成员浮层的 `Done` 只按浮层打开以来勾上、勾掉的仓库改（`Picks` 记着打开时的成员，`set_picked`），其余照文件现在的样子；浮层开着时换算或别的窗口加进这个 workspace 的仓库，浮层跟着勾上（`Picks::follow`），`Done` 不会撤掉（返工 R2）。浮层的列表按主仓库路径一项一行（`Panel::repositories`），同名不同路径是两行、分别勾（返工 R3）。
   - 界面细节：新建和 `Add repositories…` 浮层的列表标题从 `Repositories and agents` 改成 `Repositories`，下面的说明去掉 “Tick single agents to add only those.”，只剩 `A ticked repository brings every agent in it, and any started there later.`；每行是一个主仓库：勾、仓库目录名、个数（或 `in <名字>`，按这一个路径算），没有展开箭头；个数只数 Git 读到在这个仓库里的 agent，按前缀分组的不算。两行目录名相同时，名字后面多一段淡色的上级目录（`~` 开头，太长时中间省略）来区分；左侧栏的同名组照 P5-80 仍合成一组（返工 R3）。卡片 `Workspace` 一格：`None` 只在它的仓库在某个 workspace 里时出现；菜单里的 `New workspace…` 带上这个仓库；前缀组的 agent（仓库还没读到的也一样）这一格画成和别的格子一样的字，不是按钮。菜单里 workspace 名后面的淡字只数仓库（`Empty`、`1 repo`、`3 repos`）。
   - 不做：同一仓库分在两个 workspace、按 agent 挑成员、给前缀组单独记成员。
+- **Settings 加一页 Instructions：看、改各 agent 的全局设定（P5-119）**（用户 10-16 经 cairn/main 转达：“是否可以在paddock的setting中显示出来各个agent的全局设定。而且可以切换到编辑。不管是claude的，还有codex和现在接入的所有的agent。”主控列了几条（只管主文件、安全保存、写明生效时机、没有就新建、omp 写明还读别家的、只管本机），用户都点了头；agy 选“只管 GEMINI.md”；看过样稿 `docs/设计稿/P5-119-agent全局设定/`：“那就甲。开始吧”）：
+  - 放哪：Settings 左边 Agents 和 Diagnostics 之间新的一页 `Instructions`（图标用 Document），命令面板的 Settings 一组跟着多这一页。
+  - 管哪些文件：`agent_shell::KINDS` 里每家只管一个主文件，路径照下表算（设了环境变量且不为空就用它指的目录）。Claude 的 `@` 引用、auto-memory、各家自带的记忆文件、其余配置和 agy 的另外几处、pi 的 `AGENTS.override.md` 都不读不碰；不管远端。
+
+    | agent | 主文件 | 环境变量 |
+    | --- | --- | --- |
+    | Claude Code | `~/.claude/CLAUDE.md` | `CLAUDE_CONFIG_DIR` |
+    | Codex | `~/.codex/AGENTS.md` | `CODEX_HOME` |
+    | pi | `~/.pi/agent/AGENTS.md` | `PI_CODING_AGENT_DIR` |
+    | omp | `~/.omp/agent/AGENTS.md` | 无 |
+    | amp | `~/.config/amp/AGENTS.md` | 无 |
+    | agy | `~/.gemini/GEMINI.md` | 无 |
+
+  - 看：顶上一排六家胶囊，有文件的带绿色实心点，没有的带空圈，选中的强调色淡底细边；点哪家下面换成哪家（编辑中其余几家变淡、点不动，免得丢了改动）。下面一张卡：头上主文件路径（家目录写 `~`，是软链接的后面淡色写 `→ <指向的文件>`）、大小（`3.7 KB`，按 1000 算，空文件 `Empty`）和 `changed Oct 15`（不是今年的带年份），右上 `Edit`；正文照 Markdown 画（`markdown_view`），只读，在卡里滚动；空文件写 `This file is empty.`；读不出来的（权限、不是 UTF-8）写原因，不给 `Edit`。卡下面一行：`<名字> reads this file when a session starts.`，omp 接一句 `It also reads other agents' global files, such as ~/.claude/CLAUDE.md and ~/.codex/AGENTS.md.`，agy 接一句 `Gemini CLI reads this file too.`，最后 `Changes apply to sessions started after you save; agents already running keep what they read.`（编辑中和没有文件时只留最后一句）。这一页不放进可滚动的列表，卡片占满剩下的高度；底部消息条出现时给它留出位置，不盖住卡片的按钮。
+  - 改：点 `Edit` 先重读文件，正文换成等宽的多行编辑框（`TextInput::wrapping(true)`，原文，不渲染），头上黄色 `Editing`；底下左边一句改了几行（`1 line added`、`2 lines added, 1 removed`、`No changes`），右边 `Cancel`（丢掉改动）和 `Review changes…`（没改动时变淡、点不动）。
+  - 对比：`Review changes…` 显示前后对比（`similar` 按行比），加的绿底 `+`、删的红底 `−`，前后各留 3 行，其余没变的折成 `⋯`；行号删的用旧文件的、其余用新文件的；长行折行。头上黄色 `Review`。底下写 `The current file is copied to <备份路径> first.`，`Back to editing` 和 `Save`。
+  - 安全保存：
+    - 进对比时定下备份名 `~/.config/paddock/backups/<agent>-<文件名>.<本地时间 YYYYMMDD-HHMMSS>`；存的时候先把这次核对过的原文件内容复制过去（只新建，名字被占了就加 `-2`、`-3`…，不覆盖已有备份），备份不成功就不写。备份文件建的时候就是 `0600`；`backups` 目录要新建时是 `0700`，已有的目录不改权限。
+    - 编辑时记下 agent 的主路径和点 `Edit` 时解析到的文件。从读进来到保存，文件变了的都算冲突：进对比时、Settings 回到前台时、按 `Save` 时都从主路径重新解析一次，解析到的文件和打开时不同（链接改了指向、普通文件变成链接或反过来）、它不是普通文件、或内容和读进来时不同。冲突时卡片顶上黄条 `This file changed on disk after you opened it.`，`Save` 变淡点不动，只给 `Copy my text`（编辑框全文放进剪贴板）和 `Reload`（丢掉自己的改动，从主路径重新解析、读新版接着编辑；文件没了就回到看）。
+    - 主文件是软链接的，一路跟到最后指向的文件，写那个文件，链接本身不动。
+    - 先写同目录的临时文件（建的时候就是 `0600`，写完 `fsync`，再设成原文件的权限）；改名换上去之前，从主路径重新解析、再读一次要被替换的文件并比较，变了就删掉临时文件和刚做的备份、按冲突处理，不写、编辑框内容保留；没变才改名换上去。中途失败删掉临时文件和刚做的备份，原文件不动。没有加锁，这最后一次比较和改名之间（几个系统调用）别处的改动仍会被覆盖，备份里是核对过的内容、不是那次改动。
+    - 写失败（备份或写入）在底部消息条红字写原因，编辑框里的内容和对比都留着；写成功回到看，消息条写存了哪个文件、旧的备份在哪。
+  - 没有文件：卡头路径加 `Not created`，正文写 `<名字> has no global instructions file yet` 和 `<名字> reads <路径> when a session starts.`（omp 接上面那句别家的），给 `Create file`：建好目录和空文件（不覆盖已有的）后直接进编辑。
+  - 什么时候读：打开这一页、点某一家、点 `Edit`、Settings 回到前台时，在界面线程上直接读（一家一个小文件）；不放进每秒刷新。
+  - 实际做法：`app/src/instructions.rs`（路径、读、跟软链接、备份、整份替换、新建、对比行和大小日期的说法），`app/src/settings_instructions.rs`（这一页，照 `settings_integrations.rs` 挂在 `settings_view.rs` 下）。测试只测看的一侧（路径和环境变量、文件不存在、软链接指向、读出的内容和大小，`app/tests/instructions.rs`）；编辑、备份、保存、新建不写测试（用户：“测试的时候不要加编辑的测试，但是要有可以编辑的功能。”）。

@@ -24,6 +24,8 @@ use gpui::{
 };
 use std::{cell::RefCell, collections::HashMap, path::PathBuf, rc::Rc, time::Duration};
 
+#[path = "settings_instructions.rs"]
+mod instructions_page;
 #[path = "settings_integrations.rs"]
 mod integrations_page;
 #[path = "settings_models.rs"]
@@ -84,6 +86,8 @@ pub struct SettingsView {
     integrations: integrations_page::Integrations,
     /// Agents › Models: what New Agent offers for Claude and Codex, and from where.
     models: models_page::Models,
+    /// Instructions: each agent's global instructions file, and the one being edited.
+    instructions: instructions_page::Instructions,
     /// Where each slider's track was last drawn, for the mouse's place along it.
     tracks: Rc<RefCell<HashMap<String, Bounds<Pixels>>>>,
     focus: FocusHandle,
@@ -361,6 +365,7 @@ impl SettingsView {
             sliding: None,
             integrations: Default::default(),
             models: Default::default(),
+            instructions: Default::default(),
             tracks: Rc::default(),
             focus: cx.focus_handle(),
             _subscriptions: Vec::new(),
@@ -368,10 +373,14 @@ impl SettingsView {
         view.make_inputs(window, cx);
         view.load_models();
         view.load_fonts(cx);
-        // Back in front: the file may have changed meanwhile (a sidebar drag, an editor).
+        // Back in front: the file may have changed meanwhile (a sidebar drag, an editor), and so
+        // may the agents' instructions files.
         let activation = cx.observe_window_activation(window, |this, window, cx| {
             if window.is_window_active() {
                 this.reload(cx);
+                if this.page == Page::Instructions {
+                    this.refresh_instructions();
+                }
             }
         });
         view._subscriptions.push(activation);
@@ -1115,6 +1124,9 @@ impl SettingsView {
         if page == Page::Agents {
             self.load_models();
             self.refresh_integrations(cx);
+        }
+        if page == Page::Instructions {
+            self.refresh_instructions();
         }
         cx.notify();
     }
@@ -2344,6 +2356,8 @@ impl SettingsView {
                 ]
             }
             Page::Diagnostics => self.diagnostics_page(width, ui),
+            // Not a list: it fills the window (`instructions_page`).
+            Page::Instructions => Vec::new(),
         }
     }
 
@@ -2554,7 +2568,31 @@ impl Render for SettingsView {
         let nav = ui.px(196.0);
         // The pages' width inside their margins.
         let width = f32::from(window.viewport_size().width - nav - px(1.0)) - 80.0;
-        let items = self.page_items(width, window, &ui, cx);
+        let page = if self.page == Page::Instructions {
+            // Room for the bar while it shows, so it covers none of the card's buttons.
+            let room = if self.message.is_some() {
+                ui.px(78.0)
+            } else {
+                ui.px(22.0)
+            };
+            self.instructions_page(room, &ui, cx).into_any_element()
+        } else {
+            let items = self.page_items(width, window, &ui, cx);
+            div()
+                .id("settings-list")
+                .flex_1()
+                .min_h(px(0.0))
+                .overflow_y_scroll()
+                .flex()
+                .flex_col()
+                .gap(ui.px(22.0))
+                .px(px(40.0))
+                .pt(px(10.0))
+                // Room to scroll the last row above the bar.
+                .pb(ui.px(90.0))
+                .children(items)
+                .into_any_element()
+        };
         let content = div()
             .relative()
             .flex_1()
@@ -2562,21 +2600,7 @@ impl Render for SettingsView {
             .flex()
             .flex_col()
             .child(self.title_row(bar, &ui, cx))
-            .child(
-                div()
-                    .id("settings-list")
-                    .flex_1()
-                    .min_h(px(0.0))
-                    .overflow_y_scroll()
-                    .flex()
-                    .flex_col()
-                    .gap(ui.px(22.0))
-                    .px(px(40.0))
-                    .pt(px(10.0))
-                    // Room to scroll the last row above the bar.
-                    .pb(ui.px(90.0))
-                    .children(items),
-            )
+            .child(page)
             .children(self.message_bar(&ui, cx).map(|pill| {
                 div()
                     .absolute()

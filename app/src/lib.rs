@@ -32,6 +32,7 @@ pub mod icon;
 pub mod ime;
 pub mod inbox;
 pub mod input;
+pub mod instructions;
 pub mod integrations;
 pub mod kanban;
 pub mod kanban_repos;

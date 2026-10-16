@@ -24,15 +24,18 @@ pub enum Page {
     Appearance,
     /// How paddock reads its agents: the refresh interval and the corral command.
     Agents,
+    /// Each agent's global instructions file, read and edited (`instructions.rs`).
+    Instructions,
     /// Read-only: what paddock runs and how its reads and saves went.
     Diagnostics,
 }
 
 impl Page {
-    pub const ALL: [Page; 4] = [
+    pub const ALL: [Page; 5] = [
         Page::General,
         Page::Appearance,
         Page::Agents,
+        Page::Instructions,
         Page::Diagnostics,
     ];
 
@@ -41,6 +44,7 @@ impl Page {
             Page::General => "General",
             Page::Appearance => "Appearance",
             Page::Agents => "Agents",
+            Page::Instructions => "Instructions",
             Page::Diagnostics => "Diagnostics",
         }
     }
@@ -51,6 +55,7 @@ impl Page {
             Page::General => Icon::Settings,
             Page::Appearance => Icon::Palette,
             Page::Agents => Icon::Agent,
+            Page::Instructions => Icon::Document,
             Page::Diagnostics => Icon::Pulse,
         }
     }
@@ -1004,7 +1009,13 @@ mod tests {
         assert!(!on(Page::General).contains(&"refresh_ms"));
         assert_eq!(
             Page::ALL.map(Page::label),
-            ["General", "Appearance", "Agents", "Diagnostics"]
+            [
+                "General",
+                "Appearance",
+                "Agents",
+                "Instructions",
+                "Diagnostics"
+            ]
         );
     }
 
