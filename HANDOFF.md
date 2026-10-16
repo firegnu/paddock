@@ -5,12 +5,12 @@
 ## 现在在哪
 
 - **没有进行中的活**：没有任务 worktree，主控没开测试 agent（corral 里的其他 agent 都是用户的）。工作区里未提交的草稿是 P5-54、P5-106（看板 DRAFT，有意留，不要 `git add -A`）。
-- `~/Applications/paddock.app` 是合并 P5-117 之后的版本（10-15 21:57 装，本机 Apple Development 证书签名）。
-- 已合并：第一至第三阶段、迁移 M0–M3、P4-1～P4-3、P5-1～P5-80、P5-82、P5-85～P5-89、P5-90a、P5-91～P5-105、P5-107～P5-110、P5-112～P5-114、P5-114a、P5-116、P5-117（P5-95b 已被 P5-95c 撤）。P5-83 已收尾（讨论记录）；P5-84、P5-81 不做；P5-52 只查明原因、改法用户暂不定；P5-90 已提交、等远端准备好（见「下一步」）。
+- `~/Applications/paddock.app` 是合并 P5-118 之后的版本（10-16 10:15 装，本机 Apple Development 证书签名）。
+- 已合并：第一至第三阶段、迁移 M0–M3、P4-1～P4-3、P5-1～P5-80、P5-82、P5-85～P5-89、P5-90a、P5-91～P5-105、P5-107～P5-110、P5-112～P5-114、P5-114a、P5-116～P5-118（P5-95b 已被 P5-95c 撤）。P5-83 已收尾（讨论记录）；P5-84、P5-81 不做；P5-52 只查明原因、改法用户暂不定；P5-90 已提交、等远端准备好（见「下一步」）。
 - 重新打包安装：在 `app/` 下 `cargo build --release`，再 `cargo run --release --example bundle -- --install`（编译目录 `.target/main`）。打包默认选本机 Apple Development 身份，可用 `PADDOCK_SIGN_IDENTITY` 指定；退回 ad-hoc 时会提示授权会失效。
 - **paddock ctl 已部署**：`~/.local/bin/paddock` 链到 app 里的程序，重新打包后不用重建；技能正文改了要重跑 `paddock install-skills`（装在 `~/.claude/skills/paddock`、`~/.agents/skills/paddock`、`~/.gemini/config/skills/paddock`），已开着的 agent 要重开才看到。
 - 全局 `~/.local/bin/corral`、`ranch` 是 ranch `f86d1c2`（R8 接入 agy 之后）。amp 插件（ranch R6）、agy 插件（`~/.gemini/config/plugins/corral`）在本机装着，用户定留着；两家的真图标放在本机 `~/.config/paddock/icons/`，不进仓库。
-- **cairn 0.5.0 加了“项目的账”**：10-16 照本文件起了 29 条（`cairn ledger` 看，`cairn ledger log` 看旁路模型每笔改动和依据）；和本文件并行用一周左右，看自动记得准不准，之后由用户定本文件和 AGENTS.md 里维护它的规矩删不删，这期间都照旧。面板展示是 P5-118（草稿，等用户看样稿定排法，只读）。
+- **cairn 0.5.0 加了“项目的账”**：10-16 照本文件起了 29 条（`cairn ledger` 看，`cairn ledger log` 看旁路模型每笔改动和依据）；和本文件并行用一周左右，看自动记得准不准，之后由用户定本文件和 AGENTS.md 里维护它的规矩删不删，这期间都照旧。面板展示 P5-118 已合并（Cairn 标签 `Notes | Ledger` 切换，只读）。
 - **cairn**（没什么可接续的会话不写记录）：Claude Code（`~/.claude/settings.json` 4 个 hook）和 Codex（`~/.codex/hooks.json` 4 处，直接启动的 Codex 要用户到 `/hooks` 里信任）都装了；本仓库已 `adopt`。接续摘要由 cairn 后台写，主控不用每回合 `cairn save`，用户要留记录时才存。paddock 调用的 cairn 命令（`status --json`、`show [<ID>] --json`、`list --json`、`adopt`）是 cairn DESIGN §7.1 的公开约定。退回：`cairn unadopt`；卸掉：`cairn uninstall --agent claude|codex`。
 - 上下文：`AGENTS.md`（规矩，含「开发方式」里的看板约定）、`docs/DESIGN.md`（§13 是界面改版的全部决定和用户原话）、`docs/背景与决策记录.md`、`docs/设计稿/`、`docs/调研/`。
 
@@ -36,6 +36,7 @@
 - 主控没起窗口看过的新界面：P5-103 收件箱（高度跟内容是最可能要调的地方）；P5-99、P5-101、P5-102 New Agent 底边和模型选单；P5-105 workspace 浮层每个仓库一行、同名的带淡色上级目录、浮层开着时新进来的仓库自动勾上；P5-95 磨砂透出来的样子、标题栏上的字和按钮看不看得清、拉窗口时边上闪不闪。
 - P5-91 workspace：收起时一摞的层次和间距、叠卡的大小和歪的角度、只有 1 个和没有 agent 的 workspace 收起的样子；展开时槽的深浅；浅色主题；透出系统材质时槽里卡片的亮度；界面字号调大、侧栏拖窄时。
 - P5-89 仓库收起和 workspace：点仓库小标题收起和展开、悬停才出的箭头；`New Workspace…` 浮层里 `Choose folder…` 回来以后浮层还在不在；中文输入法下起名字（选字时的 Return 归不归输入法）；workspace 标题上的 `⋯` 菜单（就地改名、`Add repositories…`、点两次的 `Remove workspace`）、卡片详情里的 `Workspace` 一格；左侧栏收成窄条时的分隔线和悬停说明；界面字号调大、侧栏拖窄时挤不挤。
+- P5-118 Cairn 的 Ledger 页：切换和凸起框的样子、条目点开、右侧栏最窄 426 和字号调大时挤不挤。
 - P5-79 Cairn 记录列表：摘要两行／三行截断、高亮卡片、右侧栏拖到最窄 426 时每条第一行挤不挤；带更正的记录点开后有没有 `Corrected` 那段；`Show older` 要记录超过 50 条才出现。
 - P5-80 按仓库分组：刚启动或新 agent 刚出现时会先按名字前缀放、读到仓库后挪一次组，看着突不突兀；⌘P 里前缀和仓库名不一样的 agent 那行多写一个组名。
 - P5-55、P5-78 Cairn 标签：右侧栏拖到最窄（426）、界面字号调大时四个标签、两个按钮和状态行挤不挤；在没采用的仓库里看 `Adopt…` 和确认卡片（真点 `Adopt` 会采用那个仓库，`cairn unadopt` 撤回）。
