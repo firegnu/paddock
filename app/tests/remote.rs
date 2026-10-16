@@ -21,7 +21,7 @@ const ODD: &str = "it's $(touch pwned) `id` \"q\" ~ *\n第二行 ;|&";
 
 /// The fake `ssh`: skips the options as ssh would take them, notes the socket, the target and each
 /// command (apart by a NUL), then fails, hangs (its pid noted) or runs the command as the files
-/// beside it say. Asked to close a connection (`-O`), it notes the socket in `closing`, waits while
+/// beside it say. Asked to close a connection (`-O`), it waits while
 /// `hold-exit` is there, then notes the socket and whether the call that hung had ended by then.
 const SSH: &str = r#"#!/bin/sh
 root=$(dirname "$0")
@@ -38,7 +38,6 @@ while [ $# -gt 0 ]; do
   esac
 done
 if [ -n "$op" ]; then
-  printf '%s\n' "$socket" >> "$root/closing"
   while [ -e "$root/hold-exit" ]; do sleep 0.05; done
   state=ended
   if [ -e "$root/hung-pid" ] && kill -0 "$(cat "$root/hung-pid")" 2>/dev/null; then state=running; fi
@@ -490,10 +489,6 @@ fn shown_again_before_the_old_connection_has_closed_it_gets_one_of_its_own() {
     // Hidden, and its connection still closing when it is shown again.
     std::fs::write(fake.root().join("hold-exit"), "").unwrap();
     old.retire();
-    // Begun before the new one starts: two ssh started at the same moment may each get the
-    // other's pipe (on macOS the standard library marks a new pipe close-on-exec only after
-    // making it), and this one, held, would keep the new call's output open until it times out.
-    written(&fake.root().join("closing"));
     let new = open();
     new.connect(&never()).unwrap();
     std::fs::remove_file(fake.root().join("hold-exit")).unwrap();

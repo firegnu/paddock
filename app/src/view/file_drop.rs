@@ -80,10 +80,16 @@ mod tests {
         // Let the local shells interpret only the generated argument text. The resulting
         // argument must be byte-for-byte the original filename, including its controls.
         for shell in ["/bin/zsh", "/bin/bash"] {
-            let output = std::process::Command::new(shell)
-                .args(["-f", "-c", &format!("printf '%s' {pasted}")])
-                .output()
-                .unwrap();
+            let output = crate::command::start(
+                std::process::Command::new(shell)
+                    .args(["-f", "-c", &format!("printf '%s' {pasted}")])
+                    .stdin(std::process::Stdio::null())
+                    .stdout(std::process::Stdio::piped())
+                    .stderr(std::process::Stdio::piped()),
+            )
+            .unwrap()
+            .wait_with_output()
+            .unwrap();
             assert!(output.status.success(), "{shell}: {:?}", output.stderr);
             assert_eq!(output.stdout, path.as_bytes(), "{shell}");
         }

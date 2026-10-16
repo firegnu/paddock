@@ -5,14 +5,29 @@ use std::{
     ffi::OsString,
     io::{Read, Write},
     path::Path,
-    process::{Command, ExitStatus, Stdio},
+    process::{Child, Command, ExitStatus, Stdio},
     sync::{
+        Mutex, MutexGuard,
         atomic::{AtomicBool, Ordering},
         mpsc,
     },
     thread,
     time::{Duration, Instant},
 };
+
+/// macOS creates pipes and PTYs before marking them CLOEXEC. Every paddock spawn/exec must
+/// share this lock, including PTY allocation and duplication. Never hold it while waiting for
+/// a child or doing pipe I/O. Library-internal spawns cannot participate in this protocol.
+pub(crate) fn spawn_guard() -> MutexGuard<'static, ()> {
+    static SPAWNING: Mutex<()> = Mutex::new(());
+    SPAWNING.lock().unwrap()
+}
+
+/// Serializes only descriptor setup and spawn, not the child's lifetime.
+pub(crate) fn start(command: &mut Command) -> std::io::Result<Child> {
+    let _guard = spawn_guard();
+    command.spawn()
+}
 
 pub struct Output {
     pub status: ExitStatus,
@@ -114,17 +129,18 @@ fn spawn(
     for name in remove {
         command.env_remove(name);
     }
-    let mut child = command
-        .args(args)
-        .stdin(if input.is_some() {
-            Stdio::piped()
-        } else {
-            Stdio::null()
-        })
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .with_context(|| format!("starting {} {}", program, args.join(" ")))?;
+    let mut child = start(
+        command
+            .args(args)
+            .stdin(if input.is_some() {
+                Stdio::piped()
+            } else {
+                Stdio::null()
+            })
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped()),
+    )
+    .with_context(|| format!("starting {} {}", program, args.join(" ")))?;
     if let (Some(input), Some(mut stdin)) = (input, child.stdin.take()) {
         // A child that stops reading early only loses what it did not want.
         thread::spawn(move || {
