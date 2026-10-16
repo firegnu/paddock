@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Remote view today</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+.win *{box-sizing:border-box}
+.sw0{display:flex;align-items:center;gap:4px;padding:2px 2px 8px;flex-wrap:wrap}
+.sw0 .t{display:flex;align-items:center;gap:6px;height:24px;padding:0 8px;border-radius:6px;font-size:12.5px;color:#6b7f7a}
+.sw0 .t.on{background:rgba(223,233,229,.09);color:#dfe9e5;font-weight:600}
+.sw0 .bar{width:1px;height:14px;background:rgba(107,127,122,.35)}
+.dot{width:6px;height:6px;border-radius:3px;background:#7fd99a;flex:none}
+.cnt{color:#e6b45a;font-weight:600;font-size:12px}
+.ghead{display:flex;align-items:center;gap:6px;padding:8px 8px 4px;font-size:11px;font-weight:600;color:#8a9e99}
+.card{display:flex;gap:10px;padding:9px 12px 9px 10px;border-radius:10px;background:rgba(223,233,229,.05);border:1px solid rgba(223,233,229,.07);margin-bottom:6px}
+.card.sel{background:rgba(95,211,176,.08);border-color:rgba(95,211,176,.38)}
+.av{position:relative;width:32px;height:32px;border-radius:8px;flex:none}
+.av b{position:absolute;right:-2px;bottom:-2px;width:9px;height:9px;border-radius:5px;border:2px solid #0c1514}
+.cb{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.l1{display:flex;align-items:center;gap:6px}.l1 .n{font-weight:600}.l1 .t{margin-left:auto;font-size:11px;color:#8a9e99}
+.l2{font-size:12px;color:#b4c3bf;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.l3{font-size:11px;color:#8a9e99}
+.foot{margin-top:auto;display:flex;align-items:center;gap:8px;padding:8px 6px 2px;border-top:1px solid rgba(223,233,229,.07);font-size:12px;color:#8a9e99}
+.plus{width:24px;height:24px;border-radius:6px;background:rgba(223,233,229,.07);display:flex;align-items:center;justify-content:center;color:#dfe9e5}
+.ptitle{display:flex;align-items:center;gap:8px;height:30px;padding:0 12px;border-bottom:1px solid rgba(223,233,229,.07);font-size:12px;color:#8a9e99}
+.ptitle .n{color:#dfe9e5;font-weight:600}
+.term{flex:1;padding:10px 14px;font-family:'JetBrains Mono','SF Mono',Menlo,monospace;font-size:12px;line-height:1.55;color:#c9d6d2;position:relative}
+.nametag{position:absolute;right:12px;top:8px;padding:2px 8px;border-radius:6px;background:#5fd3b0;color:#0b1a16;font-family:-apple-system,'SF Pro Text',sans-serif;font-size:11px;font-weight:600}
+.tabs{display:flex;gap:4px;padding:6px 8px;border-bottom:1px solid rgba(223,233,229,.07)}
+.tabs span{font-size:12px;padding:3px 9px;border-radius:6px;color:#8a9e99}
+.tabs span.on{background:rgba(223,233,229,.08);color:#dfe9e5;font-weight:600}
+</style>
+</helmet>
+<div class="win" style="width: 980px; height: 470px; box-sizing: border-box; display: flex; gap: 8px; padding: 8px; background: #0f1817; font-family: -apple-system, 'SF Pro Text', 'Helvetica Neue', sans-serif; color: #dfe9e5; font-size: 13px; overflow: hidden">
+  <div style="width: 280px; flex: none; background: #0c1514; border-radius: 10px; display: flex; flex-direction: column; padding: 8px">
+    <div class="sw0"><span class="t">This Mac</span><span class="bar"></span><span class="t on">5090 <span class="dot"></span> <span class="cnt">●1</span></span></div>
+    <div class="ghead">pi-lab <span style="color: #6b7f7a">2</span></div>
+    <div class="card sel"><span class="av" style="background: #c08ad8"><b style="background: #7fd99a"></b></span><div class="cb"><div class="l1"><span class="n">pi-main</span><span class="t">3m</span></div><div class="l2">Training loop restarted; loss 1.82.</div><div class="l3">~/Develop/pi-lab</div></div></div>
+    <div class="card"><span class="av" style="background: #d7a35f"><b style="background: #e6b45a"></b></span><div class="cb"><div class="l1"><span class="n">omp-eval</span><span class="t">8m</span></div><div class="l2" style="color: #e6b45a">Needs you: run the full eval?</div><div class="l3">~/Develop/pi-lab</div></div></div>
+    <div class="foot"><span class="plus">+</span>New Agent<span style="margin-left: auto">⋯</span></div>
+    <div style="font-size: 11.5px; color: #e88a80; padding: 6px 8px 0">New agents start on This Mac only for now.</div>
+  </div>
+  <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; background: #0b1312; border-radius: 10px; overflow: hidden">
+    <div class="ptitle"><span class="n">pi-main</span><span>~/Develop/pi-lab</span></div>
+    <div class="term"><div><span style="color: #5fd3b0">›</span> continue the sweep with lr 3e-4</div><div style="color: #8a9e99">  Resuming from step 4200…</div><div>  loss 1.82 · eta 41m</div><div class="nametag">pi-main</div></div>
+  </div>
+  <div style="width: 250px; flex: none; background: #0c1514; border-radius: 10px; display: flex; flex-direction: column">
+    <div class="tabs"><span class="on">Changes</span><span>Kanban</span><span>Cairn</span><span>Browser</span></div>
+    <div style="padding: 16px; font-size: 12.5px; color: #6b7f7a; line-height: 1.55">pi-main runs on 5090; this tab reads this Mac only.</div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":980,"height":470}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

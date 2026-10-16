@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Machine switcher as a well</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+.well{display:flex;padding:3px;border-radius:999px;background:rgba(0,0,0,.28);box-shadow:inset 0 1px 2px rgba(0,0,0,.45),0 1px 0 rgba(255,255,255,.04);border:1px solid rgba(223,233,229,.10)}
+.well span.p{flex:1;display:flex;align-items:center;justify-content:center;gap:6px;height:24px;border-radius:999px;font-size:12.5px;color:#dfe9e5}
+.well span.p.on{background:#5fd3b0;color:#0b1a16;font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,.4)}
+.dot{width:6px;height:6px;border-radius:3px;background:#7fd99a;flex:none}
+.on .dot{background:#0b1a16}
+.cnt{color:#e6b45a;font-weight:600;font-size:12px}
+.on .cnt{color:#5a3a00}
+.err{color:#e88a80;font-size:11px}
+.tag{font-size:11px;color:#6b7f7a}
+.mini{width:300px;box-sizing:border-box;background:#0c1514;border:1px solid rgba(223,233,229,.12);border-radius:10px;padding:10px 8px}
+</style>
+</helmet>
+<div style="width: 1000px; height: 140px; box-sizing: border-box; padding: 20px; display: flex; gap: 30px; background: #0a1110; font-family: -apple-system, 'SF Pro Text', 'Helvetica Neue', sans-serif; color: #dfe9e5; font-size: 13px">
+  <div style="display: flex; flex-direction: column; gap: 6px"><span class="tag">5090 selected</span><div class="mini"><div class="well"><span class="p">This Mac <span class="cnt">●2</span></span><span class="p on">5090 <span class="dot"></span><span class="cnt">●1</span></span></div></div></div>
+  <div style="display: flex; flex-direction: column; gap: 6px"><span class="tag">This Mac selected, 5090 down</span><div class="mini"><div class="well"><span class="p on">This Mac</span><span class="p">5090 <span class="err">Can't connect</span></span></div></div></div>
+  <div style="display: flex; flex-direction: column; gap: 6px"><span class="tag">Three machines</span><div class="mini"><div class="well"><span class="p">This Mac</span><span class="p on">5090 <span class="dot"></span></span><span class="p">vps <span class="dot"></span></span></div></div></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1000,"height":140}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

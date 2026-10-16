@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Remote view polish</title>
+<style>
+:root{
+  --page:#0a1110; --bg:#0f1817; --side:#0c1514; --face:#182524; --card:rgba(223,233,229,.05);
+  --line:rgba(223,233,229,.07); --line2:rgba(223,233,229,.12);
+  --text:#dfe9e5; --bright:#eef5f2; --muted:#8a9e99; --dim:#6b7f7a;
+  --accent:#5fd3b0; --green:#7fd99a; --amber:#e6b45a; --red:#e88a80; --blue:#7fa8f0;
+  --mono:'JetBrains Mono','SF Mono',Menlo,monospace;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--page);font-family:-apple-system,'SF Pro Text','PingFang SC','Helvetica Neue',sans-serif;color:var(--text);font-size:13px}
+h1{font-size:18px;margin:28px 28px 4px} .lead{margin:0 28px 8px;color:var(--muted);line-height:1.6;max-width:980px}
+section{padding:22px 28px;border-top:1px solid var(--line)}
+section h2{font-size:15px;margin:0 0 6px;color:var(--bright)}
+.cap{color:var(--muted);line-height:1.6;max-width:980px;margin:0 0 14px}
+.cap b{color:var(--bright)}
+.row{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start}
+.tag{display:inline-block;font-size:11px;color:var(--dim);margin-bottom:6px}
+
+/* window */
+.win{display:flex;gap:8px;padding:8px;background:var(--bg);border:1px solid var(--line2);border-radius:12px;width:980px;height:470px;overflow:hidden}
+.side{width:280px;flex:none;background:var(--side);border-radius:10px;display:flex;flex-direction:column;padding:8px}
+.main{flex:1;min-width:0;display:flex;flex-direction:column;background:#0b1312;border-radius:10px;overflow:hidden}
+.right{width:250px;flex:none;background:var(--side);border-radius:10px;display:flex;flex-direction:column}
+
+/* switcher now */
+.sw0{display:flex;align-items:center;gap:4px;padding:2px 2px 8px;flex-wrap:wrap}
+.sw0 .t{display:flex;align-items:center;gap:6px;height:24px;padding:0 8px;border-radius:6px;font-size:12.5px;color:var(--dim)}
+.sw0 .t.on{background:rgba(223,233,229,.09);color:var(--text);font-weight:600}
+.sw0 .bar{width:1px;height:14px;background:rgba(107,127,122,.35)}
+.dot{width:6px;height:6px;border-radius:3px;background:var(--green);flex:none}
+.cnt{color:var(--amber);font-weight:600;font-size:12px}
+/* switcher proposed: well + pill (same family as Cairn's switch, P5-121a) */
+.well{display:flex;padding:3px;border-radius:999px;background:rgba(0,0,0,.28);box-shadow:inset 0 1px 2px rgba(0,0,0,.45),0 1px 0 rgba(255,255,255,.04);border:1px solid rgba(223,233,229,.10);margin:2px 2px 8px}
+.well span{flex:1;display:flex;align-items:center;justify-content:center;gap:6px;height:24px;border-radius:999px;font-size:12.5px;color:var(--text)}
+.well span.on{background:var(--accent);color:#0b1a16;font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,.4)}
+.well span.on .dot{background:#0b1a16}
+.well span.on .cnt{color:#5a3a00}
+.well .err{color:var(--red);font-size:11px}
+
+.ghead{display:flex;align-items:center;gap:6px;padding:8px 8px 4px;font-size:11px;font-weight:600;color:var(--muted)}
+.ghead i{font-style:normal;color:var(--dim)}
+.card{display:flex;gap:10px;padding:9px 12px 9px 10px;border-radius:10px;background:var(--card);border:1px solid var(--line);margin-bottom:6px}
+.card.sel{background:rgba(95,211,176,.08);border-color:rgba(95,211,176,.38)}
+.av{position:relative;width:32px;height:32px;border-radius:8px;flex:none}
+.av b{position:absolute;right:-2px;bottom:-2px;width:9px;height:9px;border-radius:5px;border:2px solid var(--side)}
+.cb{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.l1{display:flex;align-items:center;gap:6px}.l1 .n{font-weight:600}.l1 .k{font-size:11px;color:var(--muted)}.l1 .t{margin-left:auto;font-size:11px;color:var(--muted)}
+.l2{font-size:12px;color:#b4c3bf;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.l3{font-size:11px;color:var(--muted)}
+.stale{opacity:.5}
+.redline{font-size:11px;color:var(--red);margin:-2px 0 6px 10px}
+.foot{margin-top:auto;display:flex;align-items:center;gap:8px;padding:8px 6px 2px;border-top:1px solid var(--line);font-size:12px;color:var(--muted)}
+.foot .plus{width:24px;height:24px;border-radius:6px;background:rgba(223,233,229,.07);display:flex;align-items:center;justify-content:center;color:var(--text)}
+.note-red{font-size:11.5px;color:var(--red);padding:6px 8px 0}
+
+/* pane */
+.ptitle{display:flex;align-items:center;gap:8px;height:30px;padding:0 12px;border-bottom:1px solid var(--line);font-size:12px;color:var(--muted)}
+.ptitle .n{color:var(--text);font-weight:600}
+.mchip{display:inline-flex;align-items:center;gap:5px;height:18px;padding:0 7px;border-radius:999px;background:rgba(127,168,240,.14);color:var(--blue);font-size:11px;font-weight:600}
+.mchip .dot{background:var(--blue)}
+.ro{height:22px;display:flex;align-items:center;padding:0 12px;background:rgba(230,180,90,.10);color:var(--amber);font-size:11.5px}
+.term{flex:1;padding:10px 14px;font-family:var(--mono);font-size:12px;line-height:1.55;color:#c9d6d2;position:relative}
+.term .p{color:var(--accent)}
+.nametag{position:absolute;right:12px;top:8px;padding:2px 8px;border-radius:6px;background:var(--accent);color:#0b1a16;font-family:-apple-system,'SF Pro Text',sans-serif;font-size:11px;font-weight:600;display:flex;gap:5px;align-items:center}
+.nametag .m{padding:0 5px;border-radius:4px;background:rgba(11,26,22,.18)}
+.tabs{display:flex;gap:4px;padding:6px 8px;border-bottom:1px solid var(--line)}
+.tabs span{font-size:12px;padding:3px 9px;border-radius:6px;color:var(--muted)}
+.tabs span.on{background:rgba(223,233,229,.08);color:var(--text);font-weight:600}
+.rbody{padding:16px;font-size:12.5px;color:var(--dim);line-height:1.55}
+/* empty state proposed */
+.empty{margin:auto 18px;display:flex;flex-direction:column;align-items:center;text-align:center;gap:8px;padding:22px 12px;border-radius:12px;background:rgba(223,233,229,.035);border:1px dashed rgba(223,233,229,.12)}
+.empty .ic{width:34px;height:34px;border-radius:9px;background:rgba(127,168,240,.12);display:flex;align-items:center;justify-content:center;color:var(--blue);font-size:17px}
+.empty .h{font-weight:600;color:var(--text)}
+.empty .b{font-size:12px;color:var(--muted);line-height:1.5}
+.btn{display:inline-flex;align-items:center;height:26px;padding:0 12px;border-radius:7px;background:rgba(223,233,229,.09);border:1px solid rgba(223,233,229,.14);font-size:12px;color:var(--text);font-weight:600}
+.btn.acc{background:rgba(95,211,176,.14);border-color:rgba(95,211,176,.4);color:var(--accent)}
+/* banner */
+.banner{display:flex;align-items:flex-start;gap:8px;padding:8px 10px;margin:0 2px 8px;border-radius:9px;background:rgba(232,138,128,.09);border:1px solid rgba(232,138,128,.32);font-size:12px}
+.banner .w{flex:1;line-height:1.45}.banner .w b{color:var(--red)}.banner .w span{color:var(--muted)}
+.skel{height:52px;border-radius:10px;background:linear-gradient(90deg,rgba(223,233,229,.04),rgba(223,233,229,.08),rgba(223,233,229,.04));margin-bottom:6px}
+/* menu */
+.menu{width:240px;padding:5px;border-radius:10px;background:var(--face);border:1px solid var(--line2);box-shadow:0 14px 36px rgba(0,0,0,.45)}
+.menu div{display:flex;align-items:center;height:28px;padding:0 9px;border-radius:6px;font-size:12.5px}
+.menu div.off{color:var(--dim)}
+.menu div .r{margin-left:auto;font-size:11px;color:var(--dim)}
+.menu div.hov{background:rgba(223,233,229,.08)}
+.menu hr{border:0;border-top:1px solid var(--line);margin:4px 2px}
+.toast{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:9px;background:var(--face);border:1px solid var(--line2);font-size:12px;width:300px}
+.toast span{flex:1;color:var(--muted)}
+.mini{width:300px;background:var(--side);border:1px solid var(--line2);border-radius:10px;padding:8px}
+</style>
+</head>
+<body>
+<h1>P5-122 远程视图的界面优化 · 样稿</h1>
+<p class="lead">照代码画的示意，没起窗口截图；配色取 Lagoon 的近似值，实现时一律从主题取色。远程机器叫 <code>5090</code>，agent 名字、路径都是编的。下面先画现在的样子，再分甲到己六处改法，每处单独挑：要、不要、改成别的。界面文字都是英文。</p>
+
+<!-- 0 now -->
+<section>
+<h2>现在（P5-90 合并后）</h2>
+<p class="cap">切换栏是一排平的小标签。远程卡片第三行只有目录（读不了 git）。窗格标题、名字签里看不出是哪台机器，只靠左上角的切换栏。右侧栏 Changes／Kanban／Cairn 能点，点开只有一行灰字。点 New Agent、New Shell、New Workspace，侧栏底部出一行<b>红字</b>。</p>
+<div class="win">
+  <div class="side">
+    <div class="sw0"><span class="t">This Mac</span><span class="bar"></span><span class="t on">5090 <span class="dot"></span> <span class="cnt">●1</span></span></div>
+    <div class="ghead">pi-lab <i>2</i></div>
+    <div class="card sel"><span class="av" style="background:#c08ad8"><b style="background:var(--green)"></b></span><div class="cb"><div class="l1"><span class="n">pi-main</span><span class="t">3m</span></div><div class="l2">Training loop restarted; loss 1.82.</div><div class="l3">~/Develop/pi-lab</div></div></div>
+    <div class="card"><span class="av" style="background:#d7a35f"><b style="background:var(--amber)"></b></span><div class="cb"><div class="l1"><span class="n">omp-eval</span><span class="t">8m</span></div><div class="l2" style="color:var(--amber)">Needs you: run the full eval?</div><div class="l3">~/Develop/pi-lab</div></div></div>
+    <div class="foot"><span class="plus">+</span>New Agent<span style="margin-left:auto">⋯</span></div>
+    <div class="note-red">New agents start on This Mac only for now.</div>
+  </div>
+  <div class="main">
+    <div class="ptitle"><span class="n">pi-main</span><span>~/Develop/pi-lab</span></div>
+    <div class="term"><div><span class="p">›</span> continue the sweep with lr 3e-4</div><div style="color:var(--muted)">  Resuming from step 4200…</div><div>  loss 1.82 · eta 41m</div><div class="nametag">pi-main</div></div>
+  </div>
+  <div class="right">
+    <div class="tabs"><span class="on">Changes</span><span>Kanban</span><span>Cairn</span><span>Browser</span></div>
+    <div class="rbody">pi-main runs on 5090; this tab reads this Mac only.</div>
+  </div>
+</div>
+</section>
+
+<!-- A switcher -->
+<section>
+<h2>甲　机器切换做成凹槽加实心胶囊</h2>
+<p class="cap">和 P5-121a 定的 Cairn 切换同一套画法：外框是压暗的凹槽，选中的那台是实心强调色。每台照旧带状态点和 <code>●n</code>（等你的数）。连不上时那颗里写短原因（红字），悬停说明照旧。机器多到放不下时照现在折行。侧栏收成窄条时不变。</p>
+<div class="row">
+  <div><span class="tag">选中 5090</span><div class="mini"><div class="well"><span>This Mac <span class="cnt">●2</span></span><span class="on">5090 <span class="dot"></span><span class="cnt">●1</span></span></div></div></div>
+  <div><span class="tag">选中 This Mac，5090 连不上</span><div class="mini"><div class="well"><span class="on">This Mac</span><span>5090 <span class="err">Can't connect</span></span></div></div></div>
+  <div><span class="tag">三台</span><div class="mini"><div class="well"><span>This Mac</span><span class="on">5090 <span class="dot"></span></span><span>vps <span class="dot"></span></span></div></div></div>
+</div>
+</section>
+
+<!-- B identity -->
+<section>
+<h2>乙　远程窗格标出机器</h2>
+<p class="cap">打字之前一眼看出字会落到哪台。窗格标题行在名字前加一枚蓝色小签 <code>5090</code>。输入框右上角的名字签（P5-77c）后面跟上机器名。本机窗格一点不变。只读条照旧在标题下面。蓝色只是示意，实现时取主题里和强调色区分得开的一色。</p>
+<div class="win" style="width:700px;height:200px">
+  <div class="main">
+    <div class="ptitle"><span class="mchip"><span class="dot"></span>5090</span><span class="n">pi-main</span><span>~/Develop/pi-lab</span></div>
+    <div class="ro">Read-only: attached elsewhere</div>
+    <div class="term"><div><span class="p">›</span> continue the sweep with lr 3e-4</div><div style="color:var(--muted)">  Resuming from step 4200…</div><div class="nametag">pi-main <span class="m">5090</span></div></div>
+  </div>
+</div>
+</section>
+
+<!-- C stale / loading -->
+<section>
+<h2>丙　读不到、连接中</h2>
+<p class="cap">现在读不到时每张卡都变暗，各写一行红字，同样的话重复好几遍；刚切过去、还在连的时候列表是空的。改成：列表顶上<b>一条</b>横幅写原因和多久前读的，带 <code>Try again</code>。卡片照旧变暗，不再逐张写红字。连接中显示 <code>Connecting to 5090…</code> 和两三张灰色占位卡。</p>
+<div class="row">
+  <div><span class="tag">现在：读不到</span><div class="mini">
+    <div class="sw0"><span class="t">This Mac</span><span class="bar"></span><span class="t on">5090 <span style="color:var(--red);font-size:11px">Can't connect</span></span></div>
+    <div class="card stale"><span class="av" style="background:#c08ad8"><b style="background:var(--green)"></b></span><div class="cb"><div class="l1"><span class="n">pi-main</span><span class="t">3m</span></div><div class="l2">Training loop restarted; loss 1.82.</div><div class="l3">~/Develop/pi-lab</div></div></div>
+    <div class="redline">Can't connect · read 2m ago</div>
+    <div class="card stale"><span class="av" style="background:#d7a35f"><b style="background:var(--amber)"></b></span><div class="cb"><div class="l1"><span class="n">omp-eval</span><span class="t">8m</span></div><div class="l2">Needs you: run the full eval?</div><div class="l3">~/Develop/pi-lab</div></div></div>
+    <div class="redline">Can't connect · read 2m ago</div>
+  </div></div>
+  <div><span class="tag">改后：读不到</span><div class="mini">
+    <div class="well"><span>This Mac</span><span class="on">5090 <span class="err" style="color:#7a1d14">Can't connect</span></span></div>
+    <div class="banner"><div class="w"><b>Can't connect to 5090</b><br><span>Showing what was read 2m ago. Trying again by itself.</span></div><span class="btn">Try again</span></div>
+    <div class="card stale"><span class="av" style="background:#c08ad8"><b style="background:var(--green)"></b></span><div class="cb"><div class="l1"><span class="n">pi-main</span><span class="t">3m</span></div><div class="l2">Training loop restarted; loss 1.82.</div><div class="l3">~/Develop/pi-lab</div></div></div>
+    <div class="card stale"><span class="av" style="background:#d7a35f"><b style="background:var(--amber)"></b></span><div class="cb"><div class="l1"><span class="n">omp-eval</span><span class="t">8m</span></div><div class="l2">Needs you: run the full eval?</div><div class="l3">~/Develop/pi-lab</div></div></div>
+  </div></div>
+  <div><span class="tag">改后：连接中</span><div class="mini">
+    <div class="well"><span>This Mac</span><span class="on">5090 <span style="font-size:11px;color:#0b1a16;opacity:.7">Connecting…</span></span></div>
+    <div style="padding:4px 8px 8px;font-size:12px;color:var(--muted)">Connecting to 5090…</div>
+    <div class="skel"></div><div class="skel" style="opacity:.6"></div><div class="skel" style="opacity:.3"></div>
+  </div></div>
+</div>
+</section>
+
+<!-- D right panel -->
+<section>
+<h2>丁　右侧栏 Changes／Kanban／Cairn 在远程视图里</h2>
+<p class="cap">现在点开只有左上角一行灰字，像是坏了。两种改法挑一种：<b>丁一</b>，换成居中的说明卡，写明这一页只读本机，带 <code>Show This Mac</code> 一键切回本机；<b>丁二</b>，标签上直接标出只读本机（标签变淡、带小 <code>Mac</code> 字），点开仍是丁一那张卡。Browser 照旧。</p>
+<div class="row">
+  <div><span class="tag">丁一</span><div class="right" style="height:300px;border:1px solid var(--line2)">
+    <div class="tabs"><span class="on">Changes</span><span>Kanban</span><span>Cairn</span><span>Browser</span></div>
+    <div class="empty"><div class="ic">⌂</div><div class="h">Changes reads This Mac</div><div class="b">pi-main runs on 5090. Changes, Kanban and Cairn read only this Mac's repositories for now.</div><span class="btn acc">Show This Mac</span></div>
+  </div></div>
+  <div><span class="tag">丁二</span><div class="right" style="height:300px;border:1px solid var(--line2)">
+    <div class="tabs"><span class="on" style="color:var(--muted)">Changes <sup style="font-size:9px;color:var(--dim)">Mac</sup></span><span style="color:var(--dim)">Kanban <sup style="font-size:9px">Mac</sup></span><span style="color:var(--dim)">Cairn <sup style="font-size:9px">Mac</sup></span><span>Browser</span></div>
+    <div class="empty"><div class="ic">⌂</div><div class="h">Changes reads This Mac</div><div class="b">pi-main runs on 5090. Changes, Kanban and Cairn read only this Mac's repositories for now.</div><span class="btn acc">Show This Mac</span></div>
+  </div></div>
+</div>
+</section>
+
+<!-- E local-only actions -->
+<section>
+<h2>戊　只在本机能做的操作</h2>
+<p class="cap">现在 New Agent／New Shell／New Workspace 在远程视图里照常能点，点了侧栏底部出一行红字，像出错了。改成：菜单里这三项变灰，右边写 <code>This Mac</code>；按快捷键（⇧⌘N 等）时不出红字，出一条中性的小提示，带 <code>Switch to This Mac</code>，点了切回本机并照常打开 New Agent。侧栏底部的 <code>+</code> 也变灰，悬停说明 <code>New agents start on This Mac</code>。</p>
+<div class="row">
+  <div><span class="tag">底部 ⋯ 菜单</span><div class="menu">
+    <div class="off">New Agent…<span class="r">This Mac</span></div>
+    <div class="off">New Shell<span class="r">This Mac</span></div>
+    <div class="off">New Workspace…<span class="r">This Mac</span></div>
+    <hr>
+    <div class="hov">Pause all on 5090</div>
+    <div>Refresh</div>
+  </div></div>
+  <div><span class="tag">远程视图里按 ⇧⌘N</span><div class="toast"><span>New agents start on This Mac.</span><span class="btn acc" style="flex:none">Switch to This Mac</span></div></div>
+</div>
+<p class="cap" style="margin-top:12px">菜单里 <code>Pause all on 5090</code>、<code>Refresh</code> 两行只是凑菜单的样子，不是要加的东西。</p>
+</section>
+
+<!-- F all together -->
+<section>
+<h2>己　合起来的样子（甲、乙、丁一、戊）</h2>
+<p class="cap">远程视图里：切换栏一眼看出在哪台；窗格标出机器；右侧栏说清只读本机；只在本机能做的变灰，不出红字。卡片本身不动，分支和改动数要等丙那一层（读远端 git）另开。</p>
+<div class="win">
+  <div class="side">
+    <div class="well"><span>This Mac <span class="cnt">●2</span></span><span class="on">5090 <span class="dot"></span><span class="cnt">●1</span></span></div>
+    <div class="ghead">pi-lab <i>2</i></div>
+    <div class="card sel"><span class="av" style="background:#c08ad8"><b style="background:var(--green)"></b></span><div class="cb"><div class="l1"><span class="n">pi-main</span><span class="t">3m</span></div><div class="l2">Training loop restarted; loss 1.82.</div><div class="l3">~/Develop/pi-lab</div></div></div>
+    <div class="card"><span class="av" style="background:#d7a35f"><b style="background:var(--amber)"></b></span><div class="cb"><div class="l1"><span class="n">omp-eval</span><span class="t">8m</span></div><div class="l2" style="color:var(--amber)">Needs you: run the full eval?</div><div class="l3">~/Develop/pi-lab</div></div></div>
+    <div class="foot"><span class="plus" style="color:var(--dim)">+</span><span style="color:var(--dim)">New Agent</span><span style="margin-left:auto">⋯</span></div>
+  </div>
+  <div class="main">
+    <div class="ptitle"><span class="mchip"><span class="dot"></span>5090</span><span class="n">pi-main</span><span>~/Develop/pi-lab</span></div>
+    <div class="term"><div><span class="p">›</span> continue the sweep with lr 3e-4</div><div style="color:var(--muted)">  Resuming from step 4200…</div><div>  loss 1.82 · eta 41m</div><div class="nametag">pi-main <span class="m">5090</span></div></div>
+  </div>
+  <div class="right">
+    <div class="tabs"><span class="on">Changes</span><span>Kanban</span><span>Cairn</span><span>Browser</span></div>
+    <div class="empty"><div class="ic">⌂</div><div class="h">Changes reads This Mac</div><div class="b">pi-main runs on 5090. Changes, Kanban and Cairn read only this Mac's repositories for now.</div><span class="btn acc">Show This Mac</span></div>
+  </div>
+</div>
+</section>
+<p class="lead" style="margin:16px 28px 40px">没画的：侧栏收成窄条时的切换（照现在竖排两字）；收件箱（现在远程的行已经写机器名，不改）；⌘P（不改）；浅色主题。</p>
+</body>
+</html>
