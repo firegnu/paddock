@@ -168,6 +168,73 @@ pub fn open_settings_at(page: crate::settings::Page, cx: &mut App) {
     }
 }
 
+/// How a machine stands in the main window, for Settings › Machines (P5-123).
+#[derive(Clone, Debug, PartialEq)]
+pub enum Standing {
+    /// It answers: how many agents its corral holds.
+    Online(usize),
+    /// Connecting, or waiting to try again: the switcher's words.
+    Waiting(String),
+    /// Something to fix: the switcher's words.
+    Down(String),
+    Hidden,
+    /// Shown in config.toml but not in the window: written there by hand since paddock started.
+    AfterRestart,
+}
+
+/// How machine `name` stands in the main window.
+pub fn machine_standing(name: &str, cx: &App) -> Standing {
+    cx.try_global::<Windows>()
+        .and_then(|windows| windows.main)
+        .and_then(|main| main.read(cx).ok())
+        .and_then(|main| main.machine_standing(name, cx))
+        .unwrap_or(Standing::AfterRestart)
+}
+
+/// `edit` made to machine `name` (P5-123): written over config.toml as it is now, keeping all
+/// else, then put into effect at once in the main window, and in Settings' copy of the file. Call
+/// it outside any window's update (`App::defer`). Why not, for the caller to say; nothing was
+/// written then.
+pub fn edit_machine(
+    name: &str,
+    edit: &crate::settings::MachineEdit,
+    cx: &mut App,
+) -> Result<(), String> {
+    let path = crate::config::default_path();
+    let not = |error: String| format!("Not changed: {error}");
+    let disk = crate::settings_view::read(&path).map_err(|error| not(error.to_string()))?;
+    let (text, config) = crate::settings::edit_machine(disk.as_deref(), name, edit)
+        .map_err(|error| not(format!("{error:#}")))?;
+    crate::settings_view::write(&path, &text).map_err(|error| not(error.to_string()))?;
+    let windows = cx.default_global::<Windows>();
+    let (main, settings) = (windows.main, windows.settings);
+    if let Some(main) = main {
+        let _ = main.update(cx, |main, window, cx| {
+            main.machine_edited(name, edit, &config, window, cx)
+        });
+    }
+    if let Some(settings) = settings {
+        let _ = settings.update(cx, |view, _, cx| view.machines_written(text, cx));
+    }
+    Ok(())
+}
+
+/// Settings › Machines with machine `name`'s name as a field, from its capsule's Rename….
+pub fn rename_machine(name: &str, cx: &mut App) {
+    open_settings_at(crate::settings::Page::Machines, cx);
+    if let Some(settings) = cx.default_global::<Windows>().settings {
+        let _ = settings.update(cx, |view, window, cx| view.rename_machine(name, window, cx));
+    }
+}
+
+/// Settings › Machines asking whether to remove machine `name`, from its capsule's Remove….
+pub fn remove_machine(name: &str, cx: &mut App) {
+    open_settings_at(crate::settings::Page::Machines, cx);
+    if let Some(settings) = cx.default_global::<Windows>().settings {
+        let _ = settings.update(cx, |view, _, cx| view.ask_remove_machine(name, cx));
+    }
+}
+
 /// What Diagnostics shows from the main window.
 pub fn report(cx: &App) -> Option<crate::diagnostics::Report> {
     let main = cx.try_global::<Windows>()?.main?;

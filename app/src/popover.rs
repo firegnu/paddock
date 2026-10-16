@@ -119,6 +119,41 @@ pub fn row(
     }
 }
 
+/// A row of its label alone, for a menu without icons (a machine's capsule menu, P5-123); give
+/// it a click. `Danger` reads red, as [`row`] has it.
+pub fn text_row(
+    theme: &Theme,
+    ui: &UiFont,
+    id: impl Into<ElementId>,
+    label: impl Into<SharedString>,
+    tone: Tone,
+) -> Stateful<Div> {
+    let colors = Colors::of(theme);
+    let (ink, hover) = match tone {
+        Tone::Danger => (colors.danger, colors.danger.opacity(0.16)),
+        Tone::Plain | Tone::Off => (colors.text, colors.hover),
+    };
+    div()
+        .id(id)
+        .flex_shrink_0()
+        .flex()
+        .items_center()
+        .h(ui.px(ROW))
+        .px(ui.px(ROW_X))
+        .rounded(ui.px(ROW_RADIUS))
+        .text_color(ink)
+        .cursor_pointer()
+        .hover(move |style| style.bg(hover))
+        .child(
+            div()
+                .flex_1()
+                .min_w(px(0.0))
+                .overflow_hidden()
+                .text_ellipsis()
+                .child(label.into()),
+        )
+}
+
 /// A row that only holds what is on its right, such as a choice: it does not light up itself.
 pub fn line(
     theme: &Theme,

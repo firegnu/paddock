@@ -28,6 +28,8 @@ use std::{cell::RefCell, collections::HashMap, path::PathBuf, rc::Rc, time::Dura
 mod instructions_page;
 #[path = "settings_integrations.rs"]
 mod integrations_page;
+#[path = "settings_machines.rs"]
+mod machines_page;
 #[path = "settings_models.rs"]
 mod models_page;
 
@@ -88,6 +90,8 @@ pub struct SettingsView {
     models: models_page::Models,
     /// Instructions: each agent's global instructions file, and the one being edited.
     instructions: instructions_page::Instructions,
+    /// Machines: the name being typed over, and Remove…'s question.
+    machines: machines_page::Machines,
     /// Where each slider's track was last drawn, for the mouse's place along it.
     tracks: Rc<RefCell<HashMap<String, Bounds<Pixels>>>>,
     focus: FocusHandle,
@@ -120,7 +124,7 @@ impl Focusable for SettingsView {
     }
 }
 
-fn read(path: &PathBuf) -> std::io::Result<Option<String>> {
+pub(crate) fn read(path: &PathBuf) -> std::io::Result<Option<String>> {
     match std::fs::read_to_string(path) {
         Ok(text) => Ok(Some(text)),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
@@ -318,7 +322,7 @@ fn text_width(text: &str, family: SharedString, size: Pixels, window: &Window) -
 }
 
 /// Writes the whole file at once: to a temporary file beside it, then renamed over it.
-fn write(path: &PathBuf, text: &str) -> std::io::Result<()> {
+pub(crate) fn write(path: &PathBuf, text: &str) -> std::io::Result<()> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
     }
@@ -366,6 +370,7 @@ impl SettingsView {
             integrations: Default::default(),
             models: Default::default(),
             instructions: Default::default(),
+            machines: Default::default(),
             tracks: Rc::default(),
             focus: cx.focus_handle(),
             _subscriptions: Vec::new(),
@@ -1153,6 +1158,10 @@ impl SettingsView {
         }
         if page == Page::Instructions {
             self.refresh_instructions();
+        }
+        if page == Page::Machines {
+            self.reload(cx);
+            self.tick_machines(cx);
         }
         cx.notify();
     }
@@ -2381,6 +2390,7 @@ impl SettingsView {
                     self.colors(window, ui, cx).into_any_element(),
                 ]
             }
+            Page::Machines => self.machines_page(ui, cx),
             Page::Diagnostics => self.diagnostics_page(width, ui),
             // Not a list: it fills the window (`instructions_page`).
             Page::Instructions => Vec::new(),
@@ -2675,6 +2685,7 @@ impl Render for SettingsView {
             .child(div().w(px(1.0)).h_full().bg(self.faint(0.06)))
             .child(content)
             .children(self.integrations_confirm(&ui, cx))
+            .children(self.machines_confirm(&ui, cx))
     }
 }
 

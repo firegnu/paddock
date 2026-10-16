@@ -405,7 +405,8 @@ impl Viewer {
                             if exit_code == Some(crate::remote::SSH_FAILED) && !self.closing =>
                         {
                             self.failed = false;
-                            self.note = format!("Lost connection to {} — reconnecting…", link.name);
+                            self.note =
+                                format!("Lost connection to {} — reconnecting…", link.label());
                             self.lost = Some((name, self.metadata.clone()));
                         }
                         _ => {

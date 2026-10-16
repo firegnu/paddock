@@ -99,6 +99,8 @@ pub enum Icon {
     Agent,
     /// A pulse line: Settings' Diagnostics.
     Pulse,
+    /// A screen on a stand: Settings' Machines (P5-123).
+    Machine,
     /// A triangle round an exclamation mark: the config file changed on disk.
     Warning,
 }
@@ -726,6 +728,16 @@ fn shapes(icon: Icon, pose: Pose, bounds: Bounds<Pixels>, scale: f32) -> Vec<Pat
             line.line_to(at(10.25, 7.0));
             line.line_to(at(13.0, 7.0));
             vec![line]
+        }
+        Icon::Machine => {
+            let mut screen = stroke();
+            rounded_rect(&mut screen, at(1.0, 2.0), at(13.0, 10.0), 1.5 * scale);
+            let mut stand = stroke();
+            stand.move_to(at(7.0, 10.0));
+            stand.line_to(at(7.0, 12.5));
+            stand.move_to(at(4.5, 12.5));
+            stand.line_to(at(9.5, 12.5));
+            vec![screen, stand]
         }
         Icon::Warning => {
             let mut edge = stroke();

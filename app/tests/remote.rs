@@ -116,6 +116,8 @@ fn machine(contract: &str, configured: Option<&str>) -> Fake {
         name: "studio".into(),
         ssh: "me@studio".into(),
         corral: configured.map(str::to_owned),
+        label: None,
+        show: true,
     };
     let link = Link::with(&machine, ssh, Ok(root.join("socket")));
     Fake {

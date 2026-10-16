@@ -46,6 +46,9 @@ use workspaces_view::Floating;
 /// One machine in the switcher over the list (DESIGN §13 P5-90).
 #[derive(Clone, Debug, PartialEq)]
 pub struct MachineTab {
+    /// Who the machine is, its config name; `None` for This Mac.
+    pub id: Option<String>,
+    /// The name people see: its label, else its name (P5-123).
     pub name: String,
     /// How many agents its corral holds, as last read, written after its name: another
     /// machine's, when it has any (see [`agents_written`]).
@@ -109,6 +112,20 @@ pub enum SidebarEvent {
     /// `Switch to This Mac` on the hint about what starts there alone: show This Mac, then do it
     /// (P5-122).
     ThisMac(Only),
+    /// A choice in another machine's capsule menu (P5-123), for the machine by its name.
+    MachineMenu { machine: String, ask: MachineAsk },
+}
+
+/// What a machine's capsule menu offers (P5-123).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MachineAsk {
+    /// Settings › Machines, its name as a field.
+    Rename,
+    Hide,
+    /// Settings › Machines, asking first.
+    Remove,
+    /// Settings › Machines.
+    Settings,
 }
 
 /// How often the agents' worktrees are summarised, as in Saddle.
@@ -265,6 +282,10 @@ const STALE: f32 = 0.5;
 const WELL_PAD: f32 = 3.0;
 const WELL_RADIUS: f32 = 15.0;
 const SHOWN_STATUS: f32 = 0.75;
+/// The widest a machine's name is in its capsule before it is cut short (P5-123).
+const CAPSULE_NAME: f32 = 120.0;
+/// How wide a machine's capsule menu is (P5-123): at least, and at most for a long name.
+const MACHINE_MENU: (f32, f32) = (210.0, 320.0);
 /// How strongly the grey cards show while another machine is not read yet, one after another.
 const PLACEHOLDERS: [f32; 3] = [1.0, 0.6, 0.3];
 /// What a card asks before pausing an agent in a turn.
@@ -1505,6 +1526,19 @@ impl Sidebar {
             };
             let on_click =
                 cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(SidebarEvent::Machine(index)));
+            // Another machine's capsule, right-clicked: its menu, hanging from it (P5-123).
+            let menu = machine.id.clone().map(|id| {
+                let open = matches!(&self.floating, Some(Floating::Machine(open)) if *open == id);
+                let hanging =
+                    open.then(|| Self::hung(self.machine_menu(&id, &machine.name, &ui, cx), true));
+                let press = cx.listener(move |this, event: &MouseDownEvent, window, cx| {
+                    cx.stop_propagation();
+                    this.press_menu(Floating::Machine(id.clone()), event, window, cx);
+                });
+                (hanging, press)
+            });
+            let (hanging, press) = menu.unzip();
+            let hanging = hanging.flatten();
             let count = (machine.count > 0).then(|| {
                 div()
                     .text_size(ui.px(11.0))
@@ -1532,6 +1566,10 @@ impl Sidebar {
                         .hover(move |style| style.bg(selected))
                         .tooltip(move |_, cx| cx.new(|_| tip.clone()).into())
                         .on_click(on_click)
+                        .when_some(press, |tab, press| {
+                            tab.relative().on_mouse_down(MouseButton::Right, press)
+                        })
+                        .children(hanging)
                         .child(machine.name.chars().take(2).collect::<String>())
                         // Another machine answering: a dot; not answering, a dot for what stands.
                         .when(index > 0, |tab| {
@@ -1579,7 +1617,19 @@ impl Sidebar {
                     })
                     .tooltip(move |_, cx| cx.new(|_| tip.clone()).into())
                     .on_click(on_click)
-                    .child(machine.name.clone())
+                    .when_some(press, |pill, press| {
+                        pill.relative().on_mouse_down(MouseButton::Right, press)
+                    })
+                    .children(hanging)
+                    // A long name cut short; the hover note has it whole (P5-123).
+                    .child(
+                        div()
+                            .min_w(px(0.0))
+                            .max_w(ui.px(CAPSULE_NAME))
+                            .overflow_hidden()
+                            .text_ellipsis()
+                            .child(machine.name.clone()),
+                    )
                     // Another machine answering: a dot; not answering, what stands.
                     .when(index > 0 && machine.status.is_none(), |pill| {
                         pill.child(div().size(ui.px(6.0)).rounded_full().bg(dot))
@@ -1613,6 +1663,80 @@ impl Sidebar {
         })
     }
 
+    /// Another machine's capsule menu (P5-123): Rename… and Remove… go on in Settings › Machines,
+    /// Hide hides it at once; Machines Settings… opens that page.
+    fn machine_menu(
+        &self,
+        id: &str,
+        name: &str,
+        ui: &UiFont,
+        cx: &mut Context<Self>,
+    ) -> gpui::Stateful<Div> {
+        let (rename, hide, remove, settings) = (
+            Self::machine_ask(id, MachineAsk::Rename, cx),
+            Self::machine_ask(id, MachineAsk::Hide, cx),
+            Self::machine_ask(id, MachineAsk::Remove, cx),
+            Self::machine_ask(id, MachineAsk::Settings, cx),
+        );
+        let theme = &*self.theme;
+        let row = |id: &'static str, label: String, tone| {
+            crate::popover::text_row(theme, ui, id, label, tone)
+        };
+        self.floated(crate::popover::panel(theme, ui), "machine-menu", cx)
+            .min_w(ui.px(MACHINE_MENU.0))
+            .max_w(ui.px(MACHINE_MENU.1))
+            .mt(ui.px(4.0))
+            .child(
+                row(
+                    "machine-rename",
+                    "Rename…".into(),
+                    crate::popover::Tone::Plain,
+                )
+                .on_click(rename),
+            )
+            .child(
+                row(
+                    "machine-hide",
+                    format!("Hide {name}"),
+                    crate::popover::Tone::Plain,
+                )
+                .on_click(hide),
+            )
+            .child(
+                row(
+                    "machine-remove",
+                    format!("Remove {name}…"),
+                    crate::popover::Tone::Danger,
+                )
+                .on_click(remove),
+            )
+            .child(crate::popover::rule(theme, ui))
+            .child(
+                row(
+                    "machine-settings",
+                    "Machines Settings…".into(),
+                    crate::popover::Tone::Plain,
+                )
+                .on_click(settings),
+            )
+    }
+
+    /// A click on a capsule menu's row: the menu closes and the window is asked.
+    fn machine_ask(
+        machine: &str,
+        ask: MachineAsk,
+        cx: &mut Context<Self>,
+    ) -> impl Fn(&ClickEvent, &mut Window, &mut gpui::App) + 'static {
+        let machine = machine.to_owned();
+        cx.listener(move |this, _: &ClickEvent, window, cx| {
+            this.close_floating(window, cx);
+            cx.emit(SidebarEvent::MachineMenu {
+                machine: machine.clone(),
+                ask,
+            });
+        })
+    }
+
     /// Over the list of another machine's agents while it cannot be read (P5-122): what stands,
     /// with its name; how long ago its agents were read, and what to do; `Try again`, as a click on
     /// it in the switcher. The cards under it are dimmed.
@@ -1625,7 +1749,11 @@ impl Sidebar {
             fg(|t| t.agents_text),
         );
         let shown = self.machines.iter().position(|machine| machine.shown);
-        let name = self.remote.as_ref().map_or("", |link| link.name.as_str());
+        let name = self
+            .remote
+            .as_ref()
+            .map(|link| link.label())
+            .unwrap_or_default();
         // Down, as the switcher says; else corral there failed: why.
         let (headline, step) = match shown.and_then(|index| self.machines[index].trouble.clone()) {
             Some(trouble) => trouble,
@@ -1748,7 +1876,11 @@ impl Sidebar {
     /// place of its agents.
     fn connecting(&self, cx: &mut Context<Self>) -> Div {
         let ui = UiFont::get(cx);
-        let name = self.remote.as_ref().map_or("", |link| link.name.as_str());
+        let name = self
+            .remote
+            .as_ref()
+            .map(|link| link.label())
+            .unwrap_or_default();
         let card = self.grounds().card;
         let mut list = div().flex().flex_col().gap(px(CARD_GAP)).child(
             div()
@@ -2318,7 +2450,7 @@ impl Render for Sidebar {
                 (_, Some(link)) => quiet(
                     &theme,
                     &ui,
-                    &format!("No agents on {}", link.name),
+                    &format!("No agents on {}", link.label()),
                     "The agents corral runs there show here.",
                     None,
                     None,

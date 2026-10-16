@@ -24,6 +24,8 @@ pub enum Page {
     Appearance,
     /// How paddock reads its agents: the refresh interval and the corral command.
     Agents,
+    /// The other machines (P5-123): each shown or hidden, renamed, or removed.
+    Machines,
     /// Each agent's global instructions file, read and edited (`instructions.rs`).
     Instructions,
     /// Read-only: what paddock runs and how its reads and saves went.
@@ -31,10 +33,11 @@ pub enum Page {
 }
 
 impl Page {
-    pub const ALL: [Page; 5] = [
+    pub const ALL: [Page; 6] = [
         Page::General,
         Page::Appearance,
         Page::Agents,
+        Page::Machines,
         Page::Instructions,
         Page::Diagnostics,
     ];
@@ -44,6 +47,7 @@ impl Page {
             Page::General => "General",
             Page::Appearance => "Appearance",
             Page::Agents => "Agents",
+            Page::Machines => "Machines",
             Page::Instructions => "Instructions",
             Page::Diagnostics => "Diagnostics",
         }
@@ -55,6 +59,7 @@ impl Page {
             Page::General => Icon::Settings,
             Page::Appearance => Icon::Palette,
             Page::Agents => Icon::Agent,
+            Page::Machines => Icon::Machine,
             Page::Instructions => Icon::Document,
             Page::Diagnostics => Icon::Pulse,
         }
@@ -341,6 +346,16 @@ impl Draft {
 
     pub fn edited(&self) -> bool {
         !self.changes.is_empty()
+    }
+
+    /// The other machines as the file has them (P5-123), hidden ones too.
+    pub fn machines(&self) -> &[crate::config::Machine] {
+        &self.config.machines
+    }
+
+    /// Why some `[[machines]]` entry is left out.
+    pub fn machines_problem(&self) -> Option<&str> {
+        self.config.machines_problem.as_deref()
     }
 
     /// The theme as drafted.
@@ -659,6 +674,82 @@ impl Draft {
             config: Box::new(config),
             restart,
         }))
+    }
+}
+
+/// What paddock changes in one `[[machines]]` entry (P5-123).
+#[derive(Clone, Debug, PartialEq)]
+pub enum MachineEdit {
+    /// The name shown: written as `label`; empty, or the machine's own name, takes `label` out.
+    Rename(String),
+    /// Shown again (`show` taken out, never written `true`), or hidden (`show = false`).
+    Show(bool),
+    /// The whole entry taken out.
+    Remove,
+}
+
+/// `edit` made to machine `name`'s entry in the config file as it is now on `disk`, keeping its
+/// comments and everything else; the new text, and the config it reads as. Like a Settings save,
+/// a file that isn't a valid config is never written over, and an entry no longer there (taken
+/// out or renamed elsewhere) is not put back.
+pub fn edit_machine(
+    disk: Option<&str>,
+    name: &str,
+    edit: &MachineEdit,
+) -> Result<(String, Config)> {
+    let text = disk.unwrap_or("");
+    Config::parse(text)?;
+    let mut document: DocumentMut = text.parse().context("the config file is not valid TOML")?;
+    let gone = || anyhow::anyhow!("{name} is no longer in config.toml");
+    let entries = document
+        .get_mut("machines")
+        .ok_or_else(gone)?
+        .as_array_of_tables_mut()
+        .context("machines in config.toml is not a list of [[machines]] tables")?;
+    let index = entries
+        .iter()
+        .position(|entry| entry.get("name").and_then(Item::as_str) == Some(name))
+        .ok_or_else(gone)?;
+    match edit {
+        MachineEdit::Remove => {
+            entries.remove(index);
+            if entries.is_empty() {
+                document.remove("machines");
+            }
+        }
+        MachineEdit::Rename(text) if text.trim().is_empty() || text.trim() == name => {
+            entries.get_mut(index).ok_or_else(gone)?.remove("label");
+        }
+        MachineEdit::Rename(text) => {
+            let label = crate::config::label(text)?;
+            let entry = entries.get_mut(index).ok_or_else(gone)?;
+            apply_in(entry, "label", Value::from(label));
+        }
+        MachineEdit::Show(true) => {
+            entries.get_mut(index).ok_or_else(gone)?.remove("show");
+        }
+        MachineEdit::Show(false) => {
+            let entry = entries.get_mut(index).ok_or_else(gone)?;
+            apply_in(entry, "show", Value::from(false));
+        }
+    }
+    let text = document.to_string();
+    let config = Config::parse(&text)?;
+    Ok((text, config))
+}
+
+/// Sets `key` in `table`, keeping the place and comment of a value already there.
+fn apply_in(table: &mut toml_edit::Table, key: &str, mut value: Value) {
+    match table.get_mut(key) {
+        Some(item) => {
+            if let Some(old) = item.as_value() {
+                *value.decor_mut() = old.decor().clone();
+            }
+            *item = Item::Value(value);
+        }
+        None => {
+            table.insert(key, Item::Value(value));
+        }
     }
 }
 
@@ -1013,6 +1104,7 @@ mod tests {
                 "General",
                 "Appearance",
                 "Agents",
+                "Machines",
                 "Instructions",
                 "Diagnostics"
             ]
@@ -1324,6 +1416,131 @@ mod tests {
         let config = Config::parse(&text).unwrap();
         assert!(config.colors.is_empty(), "{text}");
         assert_eq!(draft.theme_name(), "dune");
+    }
+
+    /// Two machines among other settings, each with comments of its own (P5-123).
+    const MACHINES: &str = "# my paddock\nfont = \"Geist Mono\"   # mono\n\n# the GPU box\n[[machines]]\nname = \"5090\"   # who it is\nssh = \"gpu-box\"\n\n# rented\n[[machines]]\nname = \"vps\"\nssh = \"me@vps.example\"   # keep\ncorral = \"~/bin/corral\"\n\n[colors]\n# warm accent\nfocus = \"yellow\"\n";
+
+    fn edited(disk: &str, name: &str, edit: MachineEdit) -> (String, Config) {
+        edit_machine(Some(disk), name, &edit).unwrap()
+    }
+
+    #[test]
+    fn a_machine_is_renamed_and_the_name_taken_out_again_keeping_the_rest() {
+        let (text, config) = edited(MACHINES, "vps", MachineEdit::Rename("  My VPS ".into()));
+        // Written without the spaces at its ends, in that entry alone; all else as it was.
+        assert_eq!(
+            text,
+            MACHINES.replace(
+                "corral = \"~/bin/corral\"\n",
+                "corral = \"~/bin/corral\"\nlabel = \"My VPS\"\n"
+            )
+        );
+        assert_eq!(config.machines[1].shown_name(), "My VPS");
+        assert_eq!(config.machines[1].name, "vps");
+        assert_eq!(config.machines[0].label, None);
+        // Renamed again: in place.
+        let (again, _) = edited(&text, "vps", MachineEdit::Rename("Rented".into()));
+        assert_eq!(again, text.replace("My VPS", "Rented"));
+        // Emptied, or set to its own name: the label goes, the name is shown again.
+        for back in ["", "   ", "vps"] {
+            let (text, config) = edited(&again, "vps", MachineEdit::Rename(back.into()));
+            assert_eq!(text, MACHINES, "{back:?}");
+            assert_eq!(config.machines[1].shown_name(), "vps");
+        }
+    }
+
+    #[test]
+    fn a_machine_is_hidden_and_shown_again_without_writing_show_true() {
+        let (text, config) = edited(MACHINES, "5090", MachineEdit::Show(false));
+        assert_eq!(
+            text,
+            MACHINES.replace("ssh = \"gpu-box\"\n", "ssh = \"gpu-box\"\nshow = false\n")
+        );
+        assert!(!config.machines[0].show && config.machines[1].show);
+        // Hiding it again changes nothing; showing it takes the line out.
+        assert_eq!(edited(&text, "5090", MachineEdit::Show(false)).0, text);
+        let (shown, config) = edited(&text, "5090", MachineEdit::Show(true));
+        assert_eq!(shown, MACHINES);
+        assert!(config.machines[0].show);
+        assert!(!shown.contains("show"));
+        // Written `show = true` by hand: shown, and the line goes too.
+        let by_hand = MACHINES.replace("ssh = \"gpu-box\"\n", "ssh = \"gpu-box\"\nshow = true\n");
+        assert_eq!(
+            edited(&by_hand, "5090", MachineEdit::Show(true)).0,
+            MACHINES
+        );
+    }
+
+    #[test]
+    fn removing_a_machine_takes_out_that_entry_alone() {
+        let (text, config) = edited(MACHINES, "5090", MachineEdit::Remove);
+        assert_eq!(
+            text,
+            MACHINES.replace(
+                "\n# the GPU box\n[[machines]]\nname = \"5090\"   # who it is\nssh = \"gpu-box\"\n",
+                ""
+            )
+        );
+        assert_eq!(config.machines.len(), 1);
+        assert_eq!(config.machines[0].name, "vps");
+        assert!(
+            text.contains("# rented\n[[machines]]\nname = \"vps\""),
+            "{text}"
+        );
+        assert!(text.starts_with("# my paddock\nfont = \"Geist Mono\"   # mono\n"));
+        assert!(text.contains("[colors]\n# warm accent\nfocus = \"yellow\"\n"));
+        // The other one too: no machines left, and the rest of the file stands.
+        let (text, config) = edited(&text, "vps", MachineEdit::Remove);
+        assert!(config.machines.is_empty());
+        assert!(
+            !text.contains("machines") && !text.contains("vps"),
+            "{text}"
+        );
+        assert!(text.starts_with("# my paddock\nfont = \"Geist Mono\"   # mono\n"));
+        assert!(text.contains("[colors]\n# warm accent\nfocus = \"yellow\"\n"));
+        // Of three, the one in the middle.
+        let three = format!("{MACHINES}\n[[machines]]\nname = \"pi\"\nssh = \"pi.local\"\n");
+        let three = three.replace("\n[colors]\n# warm accent\nfocus = \"yellow\"\n", "");
+        let (text, config) = edited(&three, "vps", MachineEdit::Remove);
+        let names: Vec<&str> = config.machines.iter().map(|m| m.name.as_str()).collect();
+        assert_eq!(names, ["5090", "pi"]);
+        assert!(!text.contains("me@vps.example") && !text.contains("# rented"));
+    }
+
+    #[test]
+    fn a_machine_edit_goes_over_the_file_as_it_is_now() {
+        // Changed elsewhere since it was read: those changes stay.
+        let disk = MACHINES.replace("font = \"Geist Mono\"", "font = \"Menlo\"\nfont_size = 15");
+        let (text, _) = edited(&disk, "vps", MachineEdit::Show(false));
+        assert!(text.contains("font = \"Menlo\"\nfont_size = 15"), "{text}");
+        // Taken out or renamed elsewhere: nothing is written, and it does not come back.
+        let without = MACHINES.replace("name = \"vps\"", "name = \"vps-2\"");
+        for edit in [
+            MachineEdit::Rename("x".into()),
+            MachineEdit::Show(false),
+            MachineEdit::Remove,
+        ] {
+            let error = edit_machine(Some(&without), "vps", &edit).unwrap_err();
+            assert!(format!("{error:#}").contains("vps is no longer in config.toml"));
+            assert!(edit_machine(None, "vps", &edit).is_err());
+        }
+        // A file that isn't a valid config is never written over.
+        for broken in [
+            "theme = ",
+            "no_such_key = 1\n[[machines]]\nname = \"vps\"\nssh = \"v\"\n",
+        ] {
+            assert!(edit_machine(Some(broken), "vps", &MachineEdit::Remove).is_err());
+        }
+        // A name that can't be written is said, and nothing is written.
+        for (text, says) in [
+            ("a\u{7}b", "control characters"),
+            (&"x".repeat(41)[..], "at most 40 characters"),
+        ] {
+            let error =
+                edit_machine(Some(MACHINES), "vps", &MachineEdit::Rename(text.into())).unwrap_err();
+            assert!(format!("{error:#}").contains(says), "{error:#}");
+        }
     }
 
     #[test]

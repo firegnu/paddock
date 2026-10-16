@@ -30,9 +30,10 @@ use crate::{
     popover::{self, Hang, Placed, Tone},
     remote,
     right_panel::{self, RightPanel, Room, Tab as RightTab},
+    roster::Roster,
     search::{self, Lead, Mode, Target},
     seating::Seating,
-    settings::{Conflict, Draft, Saved},
+    settings::{Conflict, Draft, MachineEdit, Saved},
     sidebar::{self, Sidebar, SidebarEvent, status_dot},
     tab_fit::{self, Bar, TabSize, Title},
     tab_stack::{self, Face, Inks},
@@ -55,7 +56,7 @@ use objc2_app_kit::{NSView, NSWindow};
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use std::{
     cell::RefCell,
-    collections::{BTreeMap, HashMap},
+    collections::HashMap,
     path::PathBuf,
     rc::Rc,
     sync::Arc,
@@ -1160,7 +1161,7 @@ fn switcher_status(link: &remote::Link, now: Instant) -> (Option<String>, bool, 
 fn trouble(link: &remote::Link) -> Option<(String, String)> {
     match link.snapshot().status {
         remote::Status::Down { problem, .. } => Some((
-            problem.headline(&link.name),
+            problem.headline(&link.label()),
             problem.next_step(&link.target),
         )),
         remote::Status::Online | remote::Status::Connecting => None,
@@ -1293,18 +1294,19 @@ pub struct PaddockWindow {
     translucency: Translucency,
     /// What `paddock ctl` asked for and is still under way.
     ctl: ctl::Ctl,
-    /// The other machines the config names, in its order (DESIGN §13 P5-90); none, and the window
-    /// is as it was before them.
-    machines: Vec<Arc<remote::Link>>,
-    /// The machine in the fields, its seat `here()`: 0 for this Mac, else `machines[here() - 1]`.
+    /// The other machines the config names and shows, in its order (DESIGN §13 P5-90, P5-123),
+    /// and the saved boards of those it hides or no longer names, kept for when they come back;
+    /// none, and the window is as it was before them.
+    machines: Roster,
+    /// The machine in the fields, its seat `here()`: 0 for this Mac, else `machines.link(here())`.
     /// Its sidebar, layout and panes are the fields above; each other machine's wait in `seats`,
     /// still connected. It is the one on show, except while [`Self::on_local`] brings this Mac's in
     /// for a moment.
     seats: Seating<Seat>,
-    /// Saved boards of machines the config no longer names, kept for when it names them again.
-    boards: BTreeMap<String, Board>,
     /// What the switcher and the bell last said of the machines not on show.
     switcher_said: (Vec<sidebar::MachineTab>, Vec<crate::attention::Item>),
+    /// The switcher counts down to a machine's next try, once there has been a machine.
+    ticking: bool,
 }
 
 /// A machine's sidebar, layout and panes while another machine is on show (DESIGN §13 P5-90).
@@ -1341,7 +1343,7 @@ impl PaddockWindow {
             let refresh = std::time::Duration::from_millis(config.refresh_ms);
             cx.new(|cx| Sidebar::new(theme, width, mono, corral, refresh, None, window, cx))
         };
-        Self::follow_sidebar(&sidebar, 0, window, cx);
+        Self::follow_sidebar(&sidebar, window, cx);
         let collapsed = saved
             .as_ref()
             .is_some_and(|layout| layout.sidebar_collapsed);
@@ -1475,10 +1477,10 @@ impl PaddockWindow {
             frost: Frost::install(window),
             translucency,
             ctl: ctl::Ctl::default(),
-            machines: Vec::new(),
+            machines: Roster::default(),
             seats: Seating::default(),
-            boards: BTreeMap::new(),
             switcher_said: Default::default(),
+            ticking: false,
         };
         this.seat_machines(config, saved.as_ref(), window, cx);
         // The column shows the material through the window, which is see-through for it.
@@ -1582,16 +1584,13 @@ impl PaddockWindow {
         self.focus_active(window, cx);
     }
 
-    /// Follows machine `seat`'s sidebar: what it asks, and the Inbox and the switcher as its
-    /// agents are read.
-    fn follow_sidebar(
-        sidebar: &Entity<Sidebar>,
-        seat: usize,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        cx.subscribe_in(sidebar, window, move |this, _, event, window, cx| {
-            this.on_seat_sidebar(seat, event, window, cx)
+    /// Follows a machine's sidebar: what it asks, by the seat it has then (seats move as machines
+    /// are hidden and shown, P5-123), and the Inbox and the switcher as its agents are read.
+    fn follow_sidebar(sidebar: &Entity<Sidebar>, window: &mut Window, cx: &mut Context<Self>) {
+        cx.subscribe_in(sidebar, window, move |this, sidebar, event, window, cx| {
+            if let Some(seat) = (0..this.seats.len()).find(|&seat| this.parts(seat).0 == sidebar) {
+                this.on_seat_sidebar(seat, event, window, cx)
+            }
         })
         .detach();
         // The Inbox follows the agents as they are read; with other machines, the switcher and the
@@ -1609,8 +1608,9 @@ impl PaddockWindow {
         .detach();
     }
 
-    /// The other machines the config names (DESIGN §13 P5-90): each its own connection, sidebar
-    /// and layout as saved, whose agents attach once it answers.
+    /// The other machines the config names and shows (DESIGN §13 P5-90, P5-123): each its own
+    /// connection, sidebar and layout as saved, whose agents attach once it answers. A hidden
+    /// one's saved layout waits for it.
     fn seat_machines(
         &mut self,
         config: &Config,
@@ -1618,57 +1618,75 @@ impl PaddockWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let mut boards = saved
+        let boards = saved
             .map(|layout| layout.machines.clone())
             .unwrap_or_default();
-        for machine in &config.machines {
-            let link = Arc::new(remote::Link::new(machine));
-            let seat = self.seats.len();
-            let sidebar = {
-                let theme = self.theme.clone();
-                let (width, corral) = (config.sidebar_width, self.template.corral.clone());
-                let mono = mono_font(&self.template);
-                let refresh = Duration::from_millis(config.refresh_ms);
-                let link = Some(link.clone());
-                cx.new(|cx| Sidebar::new(theme, width, mono, corral, refresh, link, window, cx))
-            };
-            Self::follow_sidebar(&sidebar, seat, window, cx);
-            let board = boards
-                .remove(&machine.name)
-                .filter(|board| board.validate().is_ok());
-            let folded = board
-                .as_ref()
-                .map(|board| board.folded.clone())
-                .unwrap_or_default();
-            sidebar.update(cx, |sidebar, cx| sidebar.set_folds(folded.clone(), cx));
-            let (workspace, contents) = match &board {
-                Some(board) => board.workspace(),
-                None => (Workspace::new(Shown::Empty).0, Vec::new()),
-            };
-            self.machines.push(link);
-            self.seats.push(Seat {
+        self.machines = Roster::new(boards);
+        for machine in config.machines.iter().filter(|machine| machine.show) {
+            self.seat_machine(machine, config, window, cx);
+        }
+        if let Some(problem) = config.machines_problem.clone() {
+            self.sidebar
+                .update(cx, |sidebar, cx| sidebar.note(problem, true, cx));
+        }
+    }
+
+    /// Seats `machine`, at its place in `config`'s order: its own connection, sidebar and layout as
+    /// saved, whose agents attach once it answers.
+    fn seat_machine(
+        &mut self,
+        machine: &crate::config::Machine,
+        config: &Config,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let link = Arc::new(remote::Link::new(machine));
+        let sidebar = {
+            let theme = self.theme.clone();
+            let (width, corral) = (self.sidebar_width, self.template.corral.clone());
+            let mono = mono_font(&self.template);
+            let refresh = Duration::from_millis(config.refresh_ms);
+            let link = Some(link.clone());
+            cx.new(|cx| Sidebar::new(theme, width, mono, corral, refresh, link, window, cx))
+        };
+        Self::follow_sidebar(&sidebar, window, cx);
+        let order: Vec<&str> = config.machines.iter().map(|m| m.name.as_str()).collect();
+        let (seat, board) = self.machines.seat(link, &order);
+        let folded = board
+            .as_ref()
+            .map(|board| board.folded.clone())
+            .unwrap_or_default();
+        sidebar.update(cx, |sidebar, cx| sidebar.set_folds(folded.clone(), cx));
+        let (workspace, contents) = match &board {
+            Some(board) => board.workspace(),
+            None => (Workspace::new(Shown::Empty).0, Vec::new()),
+        };
+        self.seats.insert(
+            seat,
+            Seat {
                 sidebar,
                 workspace,
                 panes: HashMap::new(),
                 typing_to: to_tag::Target::default(),
                 folded,
-            });
-            self.fill_seat(seat, contents, window, cx);
-        }
-        self.boards = boards;
-        if let Some(problem) = config.machines_problem.clone() {
-            self.sidebar
-                .update(cx, |sidebar, cx| sidebar.note(problem, true, cx));
-        }
-        if self.machines.is_empty() {
+            },
+        );
+        self.fill_seat(seat, contents, window, cx);
+        self.tick_machines(cx);
+    }
+
+    /// The switcher counts down to the next try while a machine is not answering: once there is a
+    /// machine, every second.
+    fn tick_machines(&mut self, cx: &mut Context<Self>) {
+        if self.ticking {
             return;
         }
-        // The switcher counts down to the next try while a machine is not answering.
+        self.ticking = true;
         cx.spawn(async move |this, cx| {
             loop {
                 cx.background_executor().timer(Duration::from_secs(1)).await;
                 let ticked = this.update(cx, |this, cx| {
-                    let waiting = this.machines.iter().any(|link| {
+                    let waiting = this.machines.links().iter().any(|link| {
                         matches!(
                             link.snapshot().status,
                             remote::Status::Down { problem, .. } if problem.transient()
@@ -1686,12 +1704,107 @@ impl PaddockWindow {
         .detach();
     }
 
+    /// Takes machine `name` out of the window, hidden (`keep`: its panes as they are now are
+    /// saved for when it is shown again) or removed (they are forgotten), P5-123: This Mac comes
+    /// on show first if it was on show; its panes close and it is not connected or read any more.
+    /// Nothing on the machine is touched: its agents go on.
+    fn unseat_machine(
+        &mut self,
+        name: &str,
+        keep: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(seat) = self.machines.seat_of(name) else {
+            if !keep {
+                self.machines.remove(name);
+                self.save_layout(cx);
+            }
+            return;
+        };
+        if self.seats.here() == seat {
+            self.switch(0, window, cx);
+        }
+        let board = {
+            let folded = match self.seats.parked(seat) {
+                Some(parked) => parked.folded.clone(),
+                None => self.sidebar_folded.clone(),
+            };
+            let (_, workspace, _) = self.parts(seat);
+            Board::of(workspace, |pane| self.content(seat, pane, cx), folded)
+        };
+        let Some(parked) = self.seats.remove(seat) else {
+            return;
+        };
+        for view in parked.panes.into_values() {
+            view.update(cx, |view, cx| view.close(cx));
+        }
+        if keep {
+            self.machines.hide(name, board);
+        } else {
+            self.machines.remove(name);
+        }
+        self.save_layout(cx);
+        self.sync_inbox(window, cx);
+        cx.notify();
+    }
+
+    /// Machine `name` was changed in config.toml from paddock (P5-123): in effect at once.
+    /// Renamed, it is shown by its new name everywhere; hidden or removed, it leaves the window;
+    /// shown again, it comes back in its place with its saved panes.
+    pub fn machine_edited(
+        &mut self,
+        name: &str,
+        edit: &MachineEdit,
+        config: &Config,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let machine = config.machines.iter().find(|machine| machine.name == name);
+        match edit {
+            MachineEdit::Rename(_) => {
+                let seated = self
+                    .machines
+                    .seat_of(name)
+                    .and_then(|seat| self.machines.link(seat));
+                if let (Some(link), Some(machine)) = (seated, machine) {
+                    link.relabel(machine.shown_name());
+                }
+                for sidebar in self.sidebars() {
+                    sidebar.update(cx, |_, cx| cx.notify());
+                }
+                self.sync_inbox(window, cx);
+            }
+            MachineEdit::Show(false) => self.unseat_machine(name, true, window, cx),
+            MachineEdit::Remove => self.unseat_machine(name, false, window, cx),
+            MachineEdit::Show(true) => {
+                if let Some(machine) = machine
+                    && self.machines.seat_of(name).is_none()
+                {
+                    self.seat_machine(machine, config, window, cx);
+                    self.save_layout(cx);
+                }
+            }
+        }
+        cx.notify();
+    }
+
+    /// How machine `name` stands, for Settings › Machines; `None` while it is not seated.
+    pub fn machine_standing(&self, name: &str, cx: &gpui::App) -> Option<windows::Standing> {
+        let seat = self.machines.seat_of(name)?;
+        let link = self.machines.link(seat)?;
+        Some(match switcher_status(link, Instant::now()) {
+            (None, _, _) => {
+                windows::Standing::Online(self.parts(seat).0.read(cx).panel().agents.len())
+            }
+            (Some(words), true, _) => windows::Standing::Down(words),
+            (Some(words), false, _) => windows::Standing::Waiting(words),
+        })
+    }
+
     /// The machine on show, when another than this Mac.
     fn remote(&self) -> Option<&Arc<remote::Link>> {
-        self.seats
-            .here()
-            .checked_sub(1)
-            .map(|index| &self.machines[index])
+        self.machines.link(self.seats.here())
     }
 
     /// Machine `seat`'s sidebar, layout and panes: the fields while it is on show, else where it
@@ -1772,9 +1885,7 @@ impl PaddockWindow {
     /// The switcher's click: machine `seat` on show, and one that could not be read is tried
     /// again at once.
     fn pick_machine(&mut self, seat: usize, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(link) = seat
-            .checked_sub(1)
-            .and_then(|index| self.machines.get(index))
+        if let Some(link) = self.machines.link(seat)
             && matches!(link.snapshot().status, remote::Status::Down { .. })
         {
             self.parts(seat).0.read(cx).refresh();
@@ -1832,10 +1943,7 @@ impl PaddockWindow {
         };
         for pane in missing {
             let shell = self.parts(seat).1.shown(pane) == &Shown::Shell;
-            let Some(machine) = seat
-                .checked_sub(1)
-                .map(|index| self.machines[index].name.clone())
-            else {
+            let Some(machine) = self.machines.link(seat).map(|link| link.label()) else {
                 let launch = if shell { self.shell() } else { Launch::Empty };
                 let view = self.view_on(seat, pane, launch, window, cx);
                 self.parts_mut(seat).1.insert(pane, view);
@@ -1957,21 +2065,26 @@ impl PaddockWindow {
                 let sidebar = self.parts(seat).0.read(cx);
                 let count = sidebar.ringing().len();
                 let agents = sidebar::agents_written(seat, sidebar.panel().agents.len());
-                let (name, status, problem, tip, trouble) = match seat.checked_sub(1) {
+                let (id, name, status, problem, tip, trouble) = match self.machines.link(seat) {
                     None => (
+                        None,
                         "This Mac".to_owned(),
                         None,
                         false,
                         "This Mac's corral".into(),
                         None,
                     ),
-                    Some(index) => {
-                        let link = &self.machines[index];
+                    Some(link) => {
                         let (status, problem, tip) = switcher_status(link, now);
-                        (link.name.clone(), status, problem, tip, trouble(link))
+                        // The whole name over the rest, as the capsule may cut it short.
+                        let label = link.label();
+                        let tip = format!("{label}\n{tip}");
+                        let id = Some(link.name.clone());
+                        (id, label, status, problem, tip, trouble(link))
                     }
                 };
                 sidebar::MachineTab {
+                    id,
                     name,
                     agents,
                     count,
@@ -2013,7 +2126,7 @@ impl PaddockWindow {
     /// ` on <machine>` for another machine's question; nothing for this Mac's.
     fn on_machine(&self) -> String {
         self.remote()
-            .map(|link| format!(" on {}", link.name))
+            .map(|link| format!(" on {}", link.label()))
             .unwrap_or_default()
     }
 
@@ -2041,6 +2154,27 @@ impl PaddockWindow {
                 Step::Then(Only::NewWorkspace) => self.new_workspace(window, cx),
             }
         }
+    }
+
+    /// A choice in machine `name`'s capsule menu (P5-123), made once this window is done with the
+    /// event: Hide here at once, the rest in Settings › Machines.
+    fn machine_menu(&mut self, name: &str, ask: sidebar::MachineAsk, cx: &mut Context<Self>) {
+        let (name, this) = (name.to_owned(), cx.entity().downgrade());
+        cx.defer(move |cx| match ask {
+            sidebar::MachineAsk::Rename => windows::rename_machine(&name, cx),
+            sidebar::MachineAsk::Remove => windows::remove_machine(&name, cx),
+            sidebar::MachineAsk::Settings => {
+                windows::open_settings_at(crate::settings::Page::Machines, cx)
+            }
+            sidebar::MachineAsk::Hide => {
+                if let Err(error) = windows::edit_machine(&name, &MachineEdit::Show(false), cx) {
+                    let _ = this.update(cx, |this, cx| {
+                        this.sidebar
+                            .update(cx, |sidebar, cx| sidebar.note(error, true, cx))
+                    });
+                }
+            }
+        });
     }
 
     /// `New Workspace…`: the sidebar's own panel, nothing ticked (P5-89).
@@ -2102,6 +2236,7 @@ impl PaddockWindow {
             checked: std::time::SystemTime::now(),
             machines: self
                 .machines
+                .links()
                 .iter()
                 .map(|link| crate::diagnostics::Machine::of(link))
                 .collect(),
@@ -2116,8 +2251,8 @@ impl PaddockWindow {
             Some(parked) => parked.folded.clone(),
             None => self.sidebar_folded.clone(),
         };
-        let mut machines = self.boards.clone();
-        for (index, link) in self.machines.iter().enumerate() {
+        let mut machines = self.machines.boards().clone();
+        for (index, link) in self.machines.links().iter().enumerate() {
             let seat = index + 1;
             let folded = match self.seats.parked(seat) {
                 Some(parked) => parked.folded.clone(),
@@ -2341,9 +2476,7 @@ impl PaddockWindow {
         }
         let options = Options {
             launch,
-            remote: seat
-                .checked_sub(1)
-                .map(|index| self.machines[index].clone()),
+            remote: self.machines.link(seat).cloned(),
             ..self.template.clone()
         };
         let theme = self.theme.clone();
@@ -2520,6 +2653,7 @@ impl PaddockWindow {
             }
             SidebarEvent::Machine(seat) => self.pick_machine(*seat, window, cx),
             SidebarEvent::ThisMac(only) => self.take_offer(*only, window, cx),
+            SidebarEvent::MachineMenu { machine, ask } => self.machine_menu(machine, *ask, cx),
             SidebarEvent::ActivityFolded(folded) => {
                 self.activity_folded = *folded;
                 self.save_layout(cx);
@@ -2854,7 +2988,7 @@ impl PaddockWindow {
             // Only the machine on show: its agents are the ones listed (DESIGN §13 P5-90).
             let there = self
                 .remote()
-                .map(|link| format!("These agents run on {}; only they pause.", link.name));
+                .map(|link| format!("These agents run on {}; only they pause.", link.label()));
             let detail = there.as_deref();
             window.prompt(PromptLevel::Warning, &ask, detail, &["Pause", "Cancel"], cx)
         });
@@ -3601,7 +3735,7 @@ impl PaddockWindow {
     /// (DESIGN §13 P5-90). A card in the middle says so (P5-122): the tab's icon in the machine's
     /// colour, `<tab> reads This Mac`, why, and `Show This Mac`, which switches to it.
     fn reads_here(&self, tab: RightTab, ui: &UiFont, cx: &mut Context<Self>) -> Div {
-        let machine = self.remote().map_or("", |link| link.name.as_str());
+        let machine = self.remote().map(|link| link.label()).unwrap_or_default();
         let who = match self.workspace.active_agent() {
             Some(name) => format!("{name} runs on {machine}."),
             None => format!("Agents here run on {machine}."),
@@ -3884,11 +4018,9 @@ impl PaddockWindow {
     }
 
     /// The machine `pane`'s header and name tag mark (see [`machine_mark`]).
-    fn pane_machine(&self, pane: PaneId) -> Option<&str> {
-        machine_mark(
-            self.remote().map(|link| link.name.as_str()),
-            self.workspace.shown(pane),
-        )
+    fn pane_machine(&self, pane: PaneId) -> Option<String> {
+        let label = self.remote().map(|link| link.label());
+        machine_mark(label.as_deref(), self.workspace.shown(pane)).map(str::to_owned)
     }
 
     /// A card on the frame, the right sidebar's: the terminal's ground, rounded, with a faint rim.
@@ -5104,7 +5236,7 @@ impl PaddockWindow {
             }
             Subject::Command(_) | Subject::Empty => (name, None),
         };
-        let machine = self.pane_machine(pane).map(str::to_owned);
+        let machine = self.pane_machine(pane);
         // The room the name and the icons leave in the panel as it was last drawn; until then,
         // the text as it is.
         let drawn = self.spots.borrow().get(&Spot::Pane(pane)).copied();
@@ -5332,6 +5464,7 @@ impl PaddockWindow {
         };
         // Another machine's agent: the machine after the name (P5-122).
         let machine = self.pane_machine(pane);
+        let machine = machine.as_deref();
         let ink = self.machine_ink();
         // How wide a tag is but for its topic: the rim's two points, the room at its ends, `To`
         // and the icon with the gaps after them, the name, and the machine with the gap before it.
@@ -6762,14 +6895,13 @@ impl Render for PaddockWindow {
         let menu_open = self.popup == Some(Popup::Actions);
         self.sidebar
             .update(cx, |sidebar, cx| sidebar.set_menu_open(menu_open, cx));
-        // The switcher, and the bell counting every machine's (DESIGN §13 P5-90).
-        if !self.machines.is_empty() {
-            let (tabs, elsewhere) = (self.machine_tabs(cx), self.rung_elsewhere(cx));
-            self.sidebar.update(cx, |sidebar, cx| {
-                sidebar.set_machines(tabs, cx);
-                sidebar.set_elsewhere(elsewhere, cx);
-            });
-        }
+        // The switcher, and the bell counting every machine's (DESIGN §13 P5-90); none once the
+        // last machine is hidden or removed (P5-123).
+        let (tabs, elsewhere) = (self.machine_tabs(cx), self.rung_elsewhere(cx));
+        self.sidebar.update(cx, |sidebar, cx| {
+            sidebar.set_machines(tabs, cx);
+            sidebar.set_elsewhere(elsewhere, cx);
+        });
         let ui = UiFont::get(cx);
         // Larger interface sizes make the title bar taller; the traffic lights stay centred on it.
         let height = title_bar_height(&ui, self.pet.is_some());

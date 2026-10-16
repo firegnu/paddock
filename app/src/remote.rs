@@ -212,8 +212,12 @@ pub struct Snapshot {
 
 /// One machine: its ssh target and connection, and what is known of corral there.
 pub struct Link {
-    /// What paddock calls it.
+    /// What paddock calls it: who it is, for its saved panes and its socket.
     pub name: String,
+    /// The name people see (P5-123): its label, else its name; renamed while it is in use.
+    label: Mutex<String>,
+    /// Taken out of the window (hidden or removed, P5-123): nothing more is run there.
+    retired: AtomicBool,
     /// What `ssh` is given.
     pub target: String,
     /// corral's path as configured, `~` not yet replaced.
@@ -249,6 +253,8 @@ impl Link {
     ) -> Self {
         Self {
             name: machine.name.clone(),
+            label: Mutex::new(machine.shown_name().to_owned()),
+            retired: AtomicBool::new(false),
             target: machine.ssh.clone(),
             configured: machine.corral.clone(),
             ssh,
@@ -272,6 +278,38 @@ impl Link {
 
     pub fn online(&self) -> bool {
         self.snapshot().status == Status::Online
+    }
+
+    /// The name people see: its label, else its name.
+    pub fn label(&self) -> String {
+        self.label.lock().unwrap().clone()
+    }
+
+    /// Renamed in paddock: shown by `label` from now on.
+    pub fn relabel(&self, label: &str) {
+        *self.label.lock().unwrap() = label.to_owned();
+    }
+
+    /// Taken out of the window, hidden or removed (P5-123): nothing more is run there, and
+    /// paddock's own connection is closed, in the background. Nothing on the machine is touched.
+    pub fn retire(&self) {
+        self.retired.store(true, Ordering::Relaxed);
+        let Ok(socket) = &self.socket else {
+            return;
+        };
+        let (ssh, socket, target) = (
+            self.ssh.clone(),
+            socket.display().to_string(),
+            self.target.clone(),
+        );
+        std::thread::spawn(move || {
+            let args = ["-S", socket.as_str(), "-O", "exit", "--", target.as_str()];
+            let _ = crate::command::run(&ssh, &args, None, CALL, &AtomicBool::new(false));
+        });
+    }
+
+    pub fn retired(&self) -> bool {
+        self.retired.load(Ordering::Relaxed)
     }
 
     /// The options every ssh here takes: paddock's own connection, never a prompt, and a dead
@@ -309,7 +347,7 @@ impl Link {
         let corral = self
             .snapshot()
             .corral
-            .ok_or_else(|| anyhow!("{} is not connected", self.name))?;
+            .ok_or_else(|| anyhow!("{} is not connected", self.label()))?;
         let mut argv = vec![self.ssh.clone(), "-tt".into(), "-e".into(), "none".into()];
         argv.extend(self.options().map_err(|problem| anyhow!("{problem}"))?);
         argv.extend([
@@ -328,6 +366,12 @@ impl Link {
         timeout: Duration,
         cancel: &AtomicBool,
     ) -> Result<crate::command::Output, Problem> {
+        if self.retired() {
+            return Err(Problem::Local(format!(
+                "{} is no longer shown",
+                self.label()
+            )));
+        }
         let args = self.args(command)?;
         let args: Vec<&str> = args.iter().map(String::as_str).collect();
         let output =
@@ -339,7 +383,7 @@ impl Link {
                     }
                     _ => Problem::Unreachable(format!(
                         "no answer from {} in {}s",
-                        self.name,
+                        self.label(),
                         timeout.as_secs()
                     )),
                 }
@@ -357,10 +401,9 @@ impl Link {
         timeout: Duration,
         cancel: &AtomicBool,
     ) -> Result<crate::command::Output, Problem> {
-        let corral = self
-            .snapshot()
-            .corral
-            .ok_or_else(|| Problem::Unreachable(format!("{} is not connected yet", self.name)))?;
+        let corral = self.snapshot().corral.ok_or_else(|| {
+            Problem::Unreachable(format!("{} is not connected yet", self.label()))
+        })?;
         let mut words = vec![corral.as_str()];
         words.extend_from_slice(args);
         self.run(&command_line(&words), timeout, cancel)
@@ -618,6 +661,10 @@ impl Rounds {
     }
 
     pub fn round(&mut self, forced: bool, cancel: &AtomicBool) -> Option<Result<Vec<Agent>>> {
+        // Hidden or removed: not read again.
+        if self.link.retired() {
+            return None;
+        }
         let (now, wall) = (Instant::now(), SystemTime::now());
         // The wall clock went on while the Mac slept, and the other did not.
         let slept = wall

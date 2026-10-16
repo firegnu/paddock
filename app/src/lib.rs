@@ -60,6 +60,7 @@ pub mod raised;
 pub mod reduce_motion;
 pub mod remote;
 pub mod right_panel;
+pub mod roster;
 pub mod rows;
 pub mod search;
 pub mod seating;
