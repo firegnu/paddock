@@ -1,9 +1,9 @@
 //! The Cairn tab's reads and its Adopt, through a fake `cairn` and made-up JSON (DESIGN §13
-//! P5-55, P5-79, P5-110); never the real one.
+//! P5-55, P5-79, P5-110, P5-118); never the real one.
 mod common;
 use paddock::cairn::{
-    Adopting, Body, Day, Fired, Found, Full, Note, PAGE, Read, Records, Session, adopt, note, read,
-    shown,
+    Adopting, Body, Day, Entry, Fired, Found, Full, Group, Ledger, Note, PAGE, Read, Records,
+    Session, adopt, note, read, shown,
 };
 use std::{
     fs,
@@ -161,12 +161,15 @@ fn the_two_commands_tell_the_seven_states() {
             codex_fired: Fired::Unknown,
             uncollected: 0,
             body: Body::NoHooks,
+            ledger: None,
         })
     );
     put("status.out", &status(false, false, "adopted", 0));
     let adopted = found(&repo);
     assert!(adopted.adopted);
     assert_eq!(adopted.body, Body::NoHooks);
+    // Nothing keeps a ledger without hooks either: it is not read.
+    assert_eq!(adopted.ledger, None);
 
     // 4. Not adopted, in a repository: Adopt is offered for it, from any directory inside.
     put("status.out", &status(true, false, "not_adopted", 0));
@@ -262,12 +265,13 @@ fn the_two_commands_tell_the_seven_states() {
     put("show.code", "1");
     assert_eq!(at(&repo), Read::Failed("cairn show: boom".into()));
 
-    // Reading runs nothing but the three.
+    // Reading runs nothing but the four.
     let all = calls(&bin);
     assert!(
         all.iter().all(|call| call.ends_with("|status --json")
             || call.ends_with("|show --json")
-            || call.ends_with("|list --json --limit 200")),
+            || call.ends_with("|list --json --limit 200")
+            || call.ends_with("|ledger --json")),
         "{all:?}"
     );
 }
@@ -503,11 +507,17 @@ fn the_notes_are_listed_by_the_day_they_were_saved_on_the_newest_first() {
     assert!(listed.older);
     days[3].sessions[0].more = true;
     assert_eq!(listed.days, days);
-    // Status, show, which takes in what was just saved, then the list, in the pane's directory.
+    // Status, show, which takes in what was just saved, then the list and the ledger, in the pane's
+    // directory.
     assert_eq!(
         calls(&bin),
-        ["status --json", "show --json", "list --json --limit 200"]
-            .map(|args| format!("{}|{args}", repo.display()))
+        [
+            "status --json",
+            "show --json",
+            "list --json --limit 200",
+            "ledger --json"
+        ]
+        .map(|args| format!("{}|{args}", repo.display()))
     );
 
     // Show older asks for a page more; with all of them given, there are none older.
@@ -517,8 +527,8 @@ fn the_notes_are_listed_by_the_day_they_were_saved_on_the_newest_first() {
     assert_eq!(all.days, days);
     assert!(!all.older);
     assert_eq!(
-        calls(&bin).last().unwrap(),
-        &format!("{}|list --json --limit 400", repo.display())
+        calls(&bin)[2],
+        format!("{}|list --json --limit 400", repo.display())
     );
 
     // With nothing for the next session, the notes are listed all the same, none marked.
@@ -855,6 +865,236 @@ fn a_cairn_that_cannot_list_shows_the_text_alone_and_one_that_fails_is_trouble()
         calls(&bin),
         ["status --json", "show --json"].map(|args| format!("{}|{args}", repo.display()))
     );
+}
+
+/// An entry as `cairn ledger --json` gives one, with what the tab does not use left in.
+fn item(
+    id: &str,
+    no: u64,
+    kind: &str,
+    title: &str,
+    body: Option<&str>,
+    (created, updated): (&str, &str),
+    by: &str,
+) -> serde_json::Value {
+    serde_json::json!({
+        "id": id,
+        "no": no,
+        "kind": kind,
+        "title": title,
+        "body": body,
+        "status": "active",
+        "created_at": created,
+        "created_by": by,
+        "updated_at": updated,
+        "closed_at": null,
+        "close_reason": null,
+        "deleted_at": null,
+    })
+}
+
+/// What `cairn ledger --json` prints.
+fn ledger(version: u64, items: &[serde_json::Value]) -> String {
+    serde_json::json!({ "version": version, "items": items }).to_string()
+}
+
+#[test]
+fn the_ledger_is_read_beside_the_notes_by_kind_and_marked_where_the_next_session_is_given_it() {
+    let temp = common::tempdir();
+    let (bin, repo, program) = adopted(temp.path(), &["01A"]);
+    let none = AtomicBool::new(false);
+    let at = || match read(&program, "git", dir(&repo), PAGE, now(), &east, &none) {
+        Read::Found(found) => found,
+        other => panic!("{other:?}"),
+    };
+    let put = |file: &str, text: &str| fs::write(bin.join(file), text).unwrap();
+    let take = |file: &str| fs::remove_file(bin.join(file)).unwrap();
+    let show = |records: &[&str], entries: Option<&[&str]>| {
+        let mut show = serde_json::json!({ "text": TEXT, "record_ids": records });
+        if let Some(entries) = entries {
+            show["ledger_item_ids"] = entries.into();
+        }
+        put("show.out", &show.to_string());
+    };
+    put(
+        "list.out",
+        &list(
+            1,
+            &[record(
+                "01A",
+                "2026-10-10T09:44:15.999Z",
+                "claude",
+                Some("main"),
+                "checkpoint",
+                "P5-78 看过，没问题。",
+            )],
+        ),
+    );
+    let same = ("2026-10-16T02:12:01.000Z", "2026-10-16T02:12:01.000Z");
+    let later = ("2026-10-16T02:12:01.000Z", "2026-10-16T05:40:09.500Z");
+    // In cairn's order, by kind then number, one of a kind cairn adds later at the end.
+    let items = [
+        item(
+            "L1",
+            1,
+            "state",
+            "装着的是 P5-117",
+            Some("本机签名。"),
+            same,
+            "user",
+        ),
+        item(
+            "L5",
+            5,
+            "state",
+            "cairn 0.5.0 已装",
+            None,
+            later,
+            "codex:9c0d1e2f-aaaa-bbbb",
+        ),
+        item(
+            "L2",
+            2,
+            "open",
+            "P5-90 卡在 R10",
+            Some("等用户定验收。"),
+            later,
+            "claude:bfb02923-1c0d-4e5f",
+        ),
+        item("L3", 3, "convention", "别强退 paddock", None, same, "user"),
+        item("L4", 4, "decision", "以后才有的类", None, same, "sidecar"),
+    ];
+    put("ledger.out", &ledger(9, &items));
+    show(&["01A"], Some(&["L1", "L2", "L3"]));
+    calls(&bin);
+
+    let entry = |id: &str, no: u64, title: &str, body: Option<&str>| Entry {
+        id: id.into(),
+        no,
+        title: title.into(),
+        body: body.map(Into::into),
+        added: "Oct 16, 2026 at 10:12:01".into(),
+        updated: None,
+        by: "You".into(),
+        session: None,
+        given: true,
+    };
+    let groups = vec![
+        Group {
+            name: "State",
+            entries: vec![
+                entry("L1", 1, "装着的是 P5-117", Some("本机签名。")),
+                // Not in the text the next session is given.
+                Entry {
+                    updated: Some("Oct 16, 2026 at 13:40:09".into()),
+                    by: "Codex".into(),
+                    session: Some("9c0d1e2f".into()),
+                    given: false,
+                    ..entry("L5", 5, "cairn 0.5.0 已装", None)
+                },
+            ],
+        },
+        Group {
+            name: "Open",
+            entries: vec![Entry {
+                updated: Some("Oct 16, 2026 at 13:40:09".into()),
+                by: "Claude".into(),
+                session: Some("bfb02923".into()),
+                ..entry("L2", 2, "P5-90 卡在 R10", Some("等用户定验收。"))
+            }],
+        },
+        Group {
+            name: "Conventions",
+            entries: vec![entry("L3", 3, "别强退 paddock", None)],
+        },
+        Group {
+            name: "Other",
+            entries: vec![Entry {
+                by: "sidecar".into(),
+                given: false,
+                ..entry("L4", 4, "以后才有的类", None)
+            }],
+        },
+    ];
+    let found = at();
+    assert!(matches!(found.body, Body::Records(_)));
+    assert_eq!(found.ledger, Some(Ledger::Groups(groups.clone())));
+    // After the notes, in the pane's directory; never `--all`, never a command that writes.
+    assert_eq!(
+        calls(&bin),
+        [
+            "status --json",
+            "show --json",
+            "list --json --limit 200",
+            "ledger --json"
+        ]
+        .map(|args| format!("{}|{args}", repo.display()))
+    );
+
+    // A kind with no entries has no group.
+    put("ledger.out", &ledger(9, &items[3..4]));
+    assert_eq!(at().ledger, Some(Ledger::Groups(vec![groups[2].clone()])));
+    // No entries yet is no trouble: an empty ledger, with nothing recorded too.
+    put("ledger.out", &ledger(0, &[]));
+    assert_eq!(at().ledger, Some(Ledger::Groups(Vec::new())));
+    show(&[], Some(&[]));
+    let notes = fs::read_to_string(bin.join("list.out")).unwrap();
+    put("list.out", &list(0, &[]));
+    let found = at();
+    assert_eq!(found.body, Body::NoRecords);
+    assert_eq!(found.ledger, Some(Ledger::Groups(Vec::new())));
+    // With no database yet there is no ledger to ask for.
+    put("show.out", "{\"status\":\"no_data\"}");
+    calls(&bin);
+    assert_eq!(at().ledger, Some(Ledger::Groups(Vec::new())));
+    assert_eq!(
+        calls(&bin),
+        ["status --json", "show --json"].map(|args| format!("{}|{args}", repo.display()))
+    );
+
+    // A cairn whose `show` does not say which entries it gives: none are marked given.
+    put("list.out", &notes);
+    show(&["01A"], None);
+    put("ledger.out", &ledger(9, &items[..1]));
+    assert_eq!(
+        at().ledger,
+        Some(Ledger::Groups(vec![Group {
+            name: "State",
+            entries: vec![Entry {
+                given: false,
+                ..groups[0].entries[0].clone()
+            }],
+        }]))
+    );
+
+    // A cairn before 0.5.0 knows no `ledger` and leaves with 2: it keeps none, and the notes show
+    // all the same.
+    put("ledger.err", "error: unrecognized subcommand 'ledger'\n");
+    put("ledger.code", "2");
+    let found = at();
+    assert!(matches!(found.body, Body::Records(_)));
+    assert_eq!(found.ledger, Some(Ledger::Unsupported));
+    // Leaving with 1 is the ledger's trouble alone.
+    put("ledger.err", "database is locked\nsecond line\n");
+    put("ledger.code", "1");
+    let found = at();
+    assert!(matches!(found.body, Body::Records(_)));
+    assert_eq!(
+        found.ledger,
+        Some(Ledger::Failed("cairn ledger: database is locked".into()))
+    );
+    take("ledger.err");
+    take("ledger.code");
+    // So is output without its entries, or an entry whose time cannot be read.
+    let unexpected = Some(Ledger::Failed("cairn ledger: unexpected output".into()));
+    for unreadable in ["", "not json", "{\"version\":3}"] {
+        put("ledger.out", unreadable);
+        assert_eq!(at().ledger, unexpected);
+    }
+    let mut odd = items[0].clone();
+    odd["updated_at"] = "just now".into();
+    put("ledger.out", &ledger(9, &[odd]));
+    assert_eq!(at().ledger, unexpected);
 }
 
 #[test]
