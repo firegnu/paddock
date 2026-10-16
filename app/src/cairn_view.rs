@@ -14,8 +14,8 @@
 use crate::{
     activity::local_offset,
     cairn::{
-        self, Adopting, Body, Entry, Fired, Found, Full, Group, Ledger, Note, Notes, Read, Records,
-        Session,
+        self, Adopting, Body, Entry, Fired, Found, Full, Group, LESSONS, Ledger, Note, Notes, Read,
+        Records, Session,
     },
     card,
     fonts::UiFont,
@@ -80,11 +80,19 @@ const ENTRY_INDENT: f32 = INDENT + NO + 8.0;
 /// The arrows that fold a note and the exact text.
 const ARROW: f32 = 10.0;
 
-/// Which of its two pages the tab shows where cairn keeps a ledger.
+/// Which of its pages the tab shows where cairn keeps a ledger.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Page {
     Notes,
     Ledger,
+    Lessons,
+}
+
+/// The ledger's groups apart from its lessons, and the lessons, if any.
+fn split(groups: &[Group]) -> (Vec<&Group>, Option<&Group>) {
+    let (lessons, book): (Vec<&Group>, Vec<&Group>) =
+        groups.iter().partition(|group| group.name == LESSONS);
+    (book, lessons.into_iter().next())
 }
 
 /// What the window tells the tab every time it draws.
@@ -462,6 +470,7 @@ impl Render for CairnView {
                         match self.page {
                             Page::Notes => root.child(self.body(found, &ui, cx)),
                             Page::Ledger => root.child(self.ledger(ledger, &ui, cx)),
+                            Page::Lessons => root.child(self.lessons(ledger, &ui, cx)),
                         }
                     }
                     None => root.child(self.body(found, &ui, cx)),
@@ -1223,16 +1232,24 @@ impl CairnView {
         }
     }
 
-    /// Under the hooks where cairn keeps a ledger: the switch between the notes and the ledger, a
-    /// small capsule at the left as wide as its words, the page shown in the accent, the ledger's
-    /// with how many entries it has; on the ledger's page, what it is to the right (P5-118a).
+    /// Under the hooks where cairn keeps a ledger: the switch between the notes, the ledger and the
+    /// lessons, a small capsule at the left as wide as its words, the page shown in the accent, the
+    /// ledger's and the lessons' with how many entries each has; on those two pages, what it is to
+    /// the right (P5-118a, P5-121).
     fn switch(&self, ledger: &Ledger, ui: &UiFont, cx: &mut Context<Self>) -> Div {
         let c = self.colors;
-        let count = match ledger {
-            Ledger::Groups(groups) => Some(groups.iter().map(|group| group.entries.len()).sum()),
-            Ledger::Unsupported | Ledger::Failed(_) => None,
-        }
-        .filter(|count: &usize| *count > 0);
+        let (count, lessons) = match ledger {
+            Ledger::Groups(groups) => {
+                let (book, lessons) = split(groups);
+                (
+                    book.iter().map(|group| group.entries.len()).sum(),
+                    lessons.map_or(0, |group| group.entries.len()),
+                )
+            }
+            Ledger::Unsupported | Ledger::Failed(_) => (0, 0),
+        };
+        let count = (count > 0).then_some(count);
+        let lessons = (lessons > 0).then_some(lessons);
         let half = |id: &'static str, page: Page, words: &'static str, count: Option<usize>| {
             let on = self.page == page;
             div()
@@ -1291,7 +1308,18 @@ impl CairnView {
             .bg(c.text.opacity(SWITCH_GROUND))
             .text_size(ui.px(12.0))
             .child(half("cairn-page-notes", Page::Notes, "Notes", None))
-            .child(half("cairn-page-ledger", Page::Ledger, "Ledger", count));
+            .child(half("cairn-page-ledger", Page::Ledger, "Ledger", count))
+            .child(half(
+                "cairn-page-lessons",
+                Page::Lessons,
+                "Lessons",
+                lessons,
+            ));
+        let hint = match self.page {
+            Page::Notes => None,
+            Page::Ledger => Some("Kept across sessions by cairn"),
+            Page::Lessons => Some("Learned across sessions by cairn"),
+        };
         div()
             .flex_shrink_0()
             .flex()
@@ -1302,7 +1330,7 @@ impl CairnView {
             .mt(ui.px(12.0))
             .child(capsule)
             .child(div().flex_1())
-            .children((self.page == Page::Ledger).then(|| {
+            .children(hint.map(|hint| {
                 div()
                     .flex_shrink(1.0)
                     .min_w(px(0.0))
@@ -1311,7 +1339,7 @@ impl CairnView {
                     .text_ellipsis()
                     .text_size(ui.px(11.5))
                     .text_color(c.dim)
-                    .child("Kept across sessions by cairn")
+                    .child(hint)
             }))
     }
 
@@ -1329,28 +1357,72 @@ impl CairnView {
                 .child(self.title("Could not read the ledger", ui))
                 .child(self.refusal(why, ui))
                 .into_any_element(),
-            Ledger::Groups(groups) if groups.is_empty() => self
-                .middle(ui)
-                .child(self.title("No ledger entries yet", ui))
-                .child(self.sub(
-                    "cairn adds the first ones after a session here ends. You can also add \
-                     entries with `cairn ledger add`.",
-                    ui,
-                ))
-                .into_any_element(),
-            Ledger::Groups(groups) => self.entries(groups, ui, cx).into_any_element(),
+            Ledger::Groups(groups) => match split(groups).0 {
+                book if book.is_empty() => self
+                    .middle(ui)
+                    .child(self.title("No ledger entries yet", ui))
+                    .child(self.sub(
+                        "cairn adds the first ones after a session here ends. You can also add \
+                         entries with `cairn ledger add`.",
+                        ui,
+                    ))
+                    .into_any_element(),
+                book => self.entries(&book, false, ui, cx).into_any_element(),
+            },
         }
     }
 
-    /// The ledger's entries, scrolling: how many the next session is not given if any, then each
-    /// kind under its name in a raised box.
-    fn entries(&self, groups: &[Group], ui: &UiFont, cx: &mut Context<Self>) -> Stateful<Div> {
+    /// The lessons' page: the lessons cairn has drawn from the sessions here (0.6.0), kept apart
+    /// from the ledger, or that there are none yet, or why there are none to show (P5-121).
+    fn lessons(&self, ledger: &Ledger, ui: &UiFont, cx: &mut Context<Self>) -> AnyElement {
+        match ledger {
+            Ledger::Unsupported => self
+                .middle(ui)
+                .child(self.title("This cairn keeps no lessons", ui))
+                .child(self.sub("Lessons come with cairn 0.6.0.", ui))
+                .into_any_element(),
+            Ledger::Failed(why) => self
+                .middle(ui)
+                .gap(ui.px(10.0))
+                .child(self.title("Could not read the lessons", ui))
+                .child(self.refusal(why, ui))
+                .into_any_element(),
+            Ledger::Groups(groups) => match split(groups).1 {
+                Some(lessons) => self.entries(&[lessons], true, ui, cx).into_any_element(),
+                None => self
+                    .middle(ui)
+                    .child(self.title("No lessons yet", ui))
+                    .child(self.sub(
+                        "cairn keeps a lesson when a session here learns something worth \
+                         remembering (cairn 0.6.0). You can also add one with `cairn ledger add \
+                         lesson`.",
+                        ui,
+                    ))
+                    .into_any_element(),
+            },
+        }
+    }
+
+    /// Entries, scrolling: how many the next session is not given if any, then each kind under its
+    /// name in a raised box; the lessons, one kind with the switch to name it, in the box alone.
+    fn entries(
+        &self,
+        groups: &[&Group],
+        lessons: bool,
+        ui: &UiFont,
+        cx: &mut Context<Self>,
+    ) -> Stateful<Div> {
         let c = self.colors;
         let left_out = groups
             .iter()
             .flat_map(|group| &group.entries)
             .filter(|entry| !entry.given)
             .count();
+        let (one, many) = if lessons {
+            ("lesson is", "lessons are")
+        } else {
+            ("entry is", "entries are")
+        };
         let head = (left_out > 0).then(|| {
             div()
                 .flex_shrink_0()
@@ -1360,10 +1432,8 @@ impl CairnView {
                 .line_height(relative(1.5))
                 .text_color(c.dim)
                 .child(match left_out {
-                    1 => "1 entry is left out of what the next session receives.".into(),
-                    _ => format!(
-                        "{left_out} entries are left out of what the next session receives."
-                    ),
+                    1 => format!("1 {one} left out of what the next session receives."),
+                    _ => format!("{left_out} {many} left out of what the next session receives."),
                 })
         });
         let raised = raised::raised(&self.theme, ui);
@@ -1372,32 +1442,35 @@ impl CairnView {
             .flex()
             .flex_col()
             .px(ui.px(8.0))
-            .pb(ui.px(16.0));
+            .pb(ui.px(16.0))
+            .when(lessons, |list| list.pt(ui.px(12.0)));
         let mut nth = 0;
         for group in groups {
-            list = list.child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(ui.px(8.0))
-                    .pt(ui.px(14.0))
-                    .px(ui.px(8.0))
-                    .pb(ui.px(7.0))
-                    .text_size(ui.px(12.0))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(c.title)
-                    .child(group.name)
-                    .child(
-                        div()
-                            .px(ui.px(7.0))
-                            .rounded_full()
-                            .bg(c.text.opacity(SOFT))
-                            .font_weight(FontWeight::NORMAL)
-                            .text_size(ui.px(11.5))
-                            .text_color(c.muted)
-                            .child(group.entries.len().to_string()),
-                    ),
-            );
+            list = list.when(!lessons, |list| {
+                list.child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(ui.px(8.0))
+                        .pt(ui.px(14.0))
+                        .px(ui.px(8.0))
+                        .pb(ui.px(7.0))
+                        .text_size(ui.px(12.0))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(c.title)
+                        .child(group.name)
+                        .child(
+                            div()
+                                .px(ui.px(7.0))
+                                .rounded_full()
+                                .bg(c.text.opacity(SOFT))
+                                .font_weight(FontWeight::NORMAL)
+                                .text_size(ui.px(11.5))
+                                .text_color(c.muted)
+                                .child(group.entries.len().to_string()),
+                        ),
+                )
+            });
             let mut rows = div()
                 .flex()
                 .flex_col()
@@ -1419,7 +1492,11 @@ impl CairnView {
             list = list.child(rows);
         }
         div()
-            .id("cairn-ledger")
+            .id(if lessons {
+                "cairn-lessons"
+            } else {
+                "cairn-ledger"
+            })
             .flex_1()
             .min_h(px(0.0))
             .overflow_y_scroll()

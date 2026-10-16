@@ -2,8 +2,8 @@
 //! P5-55, P5-79, P5-110, P5-118); never the real one.
 mod common;
 use paddock::cairn::{
-    Adopting, Body, Day, Entry, Fired, Found, Full, Group, Ledger, Note, PAGE, Read, Records,
-    Session, adopt, note, read, shown,
+    Adopting, Body, Day, Entry, Fired, Found, Full, Group, LESSONS, Ledger, Note, PAGE, Read,
+    Records, Session, adopt, note, read, shown,
 };
 use std::{
     fs,
@@ -1095,6 +1095,97 @@ fn the_ledger_is_read_beside_the_notes_by_kind_and_marked_where_the_next_session
     odd["updated_at"] = "just now".into();
     put("ledger.out", &ledger(9, &[odd]));
     assert_eq!(at().ledger, unexpected);
+}
+
+#[test]
+fn lessons_are_their_own_group_after_the_ledger_and_a_kind_cairn_adds_later_still_shows() {
+    let temp = common::tempdir();
+    let (bin, repo, program) = adopted(temp.path(), &["01A"]);
+    let none = AtomicBool::new(false);
+    let put = |file: &str, text: &str| fs::write(bin.join(file), text).unwrap();
+    put(
+        "list.out",
+        &list(
+            1,
+            &[record(
+                "01A",
+                "2026-10-10T09:44:15.999Z",
+                "claude",
+                Some("main"),
+                "checkpoint",
+                "P5-78 看过，没问题。",
+            )],
+        ),
+    );
+    let same = ("2026-10-16T02:12:01.000Z", "2026-10-16T02:12:01.000Z");
+    // cairn 0.6.0's order: the ledger's kinds, then lessons; numbers shared between them.
+    let items = [
+        item("L1", 1, "convention", "别强退 paddock", None, same, "user"),
+        item(
+            "L2",
+            2,
+            "lesson",
+            "改共享文件前先看谁在用",
+            Some("P5-29r2 合并时被工作区改动挡住过。"),
+            same,
+            "user",
+        ),
+        item("L3", 3, "lesson", "GPUI 遮挡时不重画", None, same, "user"),
+        item("L4", 4, "decision", "以后才有的类", None, same, "user"),
+    ];
+    put("ledger.out", &ledger(4, &items));
+    // The lessons the next session is given come after the ledger's entries.
+    put(
+        "show.out",
+        &serde_json::json!({
+            "text": TEXT,
+            "record_ids": ["01A"],
+            "ledger_item_ids": ["L1", "L2"],
+        })
+        .to_string(),
+    );
+
+    let entry = |id: &str, no: u64, title: &str, body: Option<&str>, given: bool| Entry {
+        id: id.into(),
+        no,
+        title: title.into(),
+        body: body.map(Into::into),
+        added: "Oct 16, 2026 at 10:12:01".into(),
+        updated: None,
+        by: "You".into(),
+        session: None,
+        given,
+    };
+    let found = match read(&program, "git", dir(&repo), PAGE, now(), &east, &none) {
+        Read::Found(found) => found,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(
+        found.ledger,
+        Some(Ledger::Groups(vec![
+            Group {
+                name: "Conventions",
+                entries: vec![entry("L1", 1, "别强退 paddock", None, true)],
+            },
+            Group {
+                name: LESSONS,
+                entries: vec![
+                    entry(
+                        "L2",
+                        2,
+                        "改共享文件前先看谁在用",
+                        Some("P5-29r2 合并时被工作区改动挡住过。"),
+                        true,
+                    ),
+                    entry("L3", 3, "GPUI 遮挡时不重画", None, false),
+                ],
+            },
+            Group {
+                name: "Other",
+                entries: vec![entry("L4", 4, "以后才有的类", None, false)],
+            },
+        ]))
+    );
 }
 
 #[test]

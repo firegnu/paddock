@@ -30,3 +30,10 @@
 ## 不要做
 - 不调 `cairn ledger add/edit/close/delete` 等写命令；不读 cairn 的内部状态。
 - 不动 Notes 页和 Ledger 页条目的画法。
+
+## 完成记录
+
+- 做了什么：`cairn.rs` 的 `KINDS` 加 `lesson`，归到新常量 `LESSONS`（`Lessons`）一组，排在账的三类之后、`Other` 之前；不认识的类照旧进 `Other`。`cairn_view.rs` 的切换加第三颗 `Lessons`（带经验条数），`Ledger` 的条数不再算经验；Ledger 页只画账的几组，Lessons 页只画经验（一组，不画组标题，右边 `Learned across sessions by cairn`）；没带上的那行按页写 entry／lesson；两页的滚动各用自己的 id。没有经验、0.5.0 之前、读不出来，各写一句。DESIGN §13 P5-118 那条后补了 P5-121。
+- 验证了什么：先加测试 `lessons_are_their_own_group_after_the_ledger_and_a_kind_cairn_adds_later_still_shows`（假 `cairn` 给出约定、两条经验、一条以后才有的类），改之前失败在经验进了 `Other`，改后通过。`app/` 下 `cargo test --all-targets` 673 个全过，`cargo clippy --all-targets -- -D warnings`、`cargo fmt --check`、`git diff --check` 通过。
+- 拿主意的地方：Lessons 页不画组标题（胶囊已经写着 Lessons 和条数，再画一遍重复）；0.5.0 的 cairn 也有账但不会有经验，Lessons 页写 `No lessons yet` 并注明 0.6.0 起才有，不另判版本。
+- 没做的事：没起窗口看样子（主控不在 agent 会话里起测试窗口），按用户的话没往真实的账里加经验；真实效果等旁路模型记下第一条经验时用户看。没加写操作。
