@@ -422,6 +422,12 @@ fn button_left(ui: &UiFont) -> f32 {
     .max(0.0)
 }
 
+/// The agent the user sees in a machine's active pane, whose new reply is read at once: none while
+/// that machine waits for another on show (DESIGN §13 P5-90).
+pub fn looking_at(selected: Option<&str>, on_show: bool) -> Option<&str> {
+    selected.filter(|_| on_show)
+}
+
 /// The list model: the last good `corral ls`, the last error if the latest read failed, and the
 /// Git summaries by directory.
 #[derive(Default)]
@@ -565,6 +571,9 @@ pub struct Sidebar {
     remote: Option<Arc<crate::remote::Link>>,
     /// When its agents were last read, for saying how long ago while it cannot be reached.
     read_at: Option<f64>,
+    /// When the read of the agents listed now began: a pane checks a count it reads against when
+    /// it attached (DESIGN §13 P5-90).
+    listed_at: Option<std::time::Instant>,
     /// What rings the bell on the other machines, which the Inbox lists too.
     elsewhere: Vec<attention::Item>,
     /// The switcher's machines; none without other machines.
@@ -573,8 +582,11 @@ pub struct Sidebar {
     git: Option<git::Poller>,
     /// Reads last replies for the cards' previews.
     replies: Replies<Spell>,
-    /// The active pane's agent.
+    /// The active pane's agent, in this machine's layout.
     selected: Option<String>,
+    /// This machine is the one on show: its active pane's agent is what the user sees, and a
+    /// new reply there is read. Another machine's, waiting, reads nothing (DESIGN §13 P5-90).
+    on_show: bool,
     /// Every agent open in this window's panes.
     here: Vec<String>,
     /// Written `~` in directories.
@@ -623,6 +635,8 @@ impl Sidebar {
         let floating_out = cx.on_focus_out(&floating_focus, window, |sidebar, _, window, cx| {
             sidebar.floating_left(window, cx)
         });
+        // The window opens on this Mac.
+        let on_show = remote.is_none();
         let workspaces_path = crate::workspaces::path().filter(|_| remote.is_none());
         let mut listing = Listing::default();
         if let Some(path) = &workspaces_path {
@@ -673,9 +687,11 @@ impl Sidebar {
             },
             remote,
             read_at: None,
+            listed_at: None,
             elsewhere: Vec::new(),
             machines: Vec::new(),
             selected: None,
+            on_show,
             here: Vec::new(),
             note: None,
             collapsed: false,
@@ -730,6 +746,11 @@ impl Sidebar {
             self.here = here;
             cx.notify();
         }
+    }
+
+    /// This machine on show in the window, or waiting while another is.
+    pub fn set_on_show(&mut self, on_show: bool) {
+        self.on_show = on_show;
     }
 
     /// Collapsed to the strip, or expanded.
@@ -1339,6 +1360,11 @@ impl Sidebar {
         self.listing.panel.agents.clone()
     }
 
+    /// When the read of [`Self::agents`] began; none before the first.
+    pub fn listed_at(&self) -> Option<std::time::Instant> {
+        self.listed_at
+    }
+
     pub fn panel(&self) -> &Panel {
         &self.listing.panel
     }
@@ -1568,12 +1594,14 @@ impl Sidebar {
     fn poll(&mut self, cx: &mut Context<Self>) {
         let now = now();
         let mut changed = false;
-        for update in self.poller.updates.try_iter().collect::<Vec<_>>() {
+        for (began, update) in self.poller.updates.try_iter().collect::<Vec<_>>() {
             changed = true;
             if update.is_ok() {
                 self.read_at = Some(now);
+                self.listed_at = Some(began);
             }
-            if let Some(alive) = self.listing.absorb(update, self.selected.as_deref(), now) {
+            let looking = looking_at(self.selected.as_deref(), self.on_show);
+            if let Some(alive) = self.listing.absorb(update, looking, now) {
                 cx.emit(SidebarEvent::Alive(alive));
             }
         }
@@ -3906,6 +3934,28 @@ mod tests {
         }
     }
 
+    /// A machine waiting while another is on show: the reply its active pane's agent just gave is
+    /// new for the bell and the inbox, and read only once the user looks (P5-90 cross review 4).
+    #[test]
+    fn a_reply_on_a_machine_not_on_show_stays_unread_until_it_is() {
+        let mut listing = Listing::default();
+        let active = Some("p/main");
+        let _ = listing.absorb(Ok(vec![agent("p/main", "working")]), None, 1000.0);
+        let hidden = looking_at(active, false);
+        let _ = listing.absorb(Ok(vec![agent("p/main", "idle")]), hidden, 1001.0);
+        assert!(listing.panel.unread.contains("p/main"));
+        // Still waiting, the next read leaves it so.
+        let _ = listing.absorb(Ok(vec![agent("p/main", "idle")]), hidden, 1002.0);
+        assert!(listing.panel.unread.contains("p/main"));
+        // On show again: what the active pane shows is seen.
+        let _ = listing.absorb(
+            Ok(vec![agent("p/main", "idle")]),
+            looking_at(active, true),
+            1003.0,
+        );
+        assert!(!listing.panel.unread.contains("p/main"));
+    }
+
     #[test]
     fn a_paused_working_agent_is_not_working_for_spinners_or_the_activity_glow() {
         let mut listing = Listing::default();
@@ -4306,6 +4356,7 @@ mod tests {
             .updates
             .recv_timeout(Duration::from_secs(20))
             .expect("poller result")
+            .1
     }
 
     #[test]

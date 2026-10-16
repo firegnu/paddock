@@ -454,10 +454,15 @@ impl TerminalView {
     }
 
     /// Its machine's agents as just read, for another machine's pane (DESIGN §13 P5-90): a lost
-    /// attach goes again, and one that only watched may type.
-    pub fn listed(&mut self, agents: &[crate::corral::Agent], cx: &mut Context<Self>) {
+    /// attach goes again, and one that only watched may type. `read_began`: when that read began.
+    pub fn listed(
+        &mut self,
+        agents: &[crate::corral::Agent],
+        read_began: Option<std::time::Instant>,
+        cx: &mut Context<Self>,
+    ) {
         let read_only = self.viewer.read_only;
-        if let Err(error) = self.viewer.listed(agents) {
+        if let Err(error) = self.viewer.listed(agents, read_began) {
             self.note = format!("{error:#}");
         }
         if read_only != self.viewer.read_only {

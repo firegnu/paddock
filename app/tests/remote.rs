@@ -379,14 +379,16 @@ fn attached_elsewhere_watches_there_and_is_refused_here() {
         "{:?}",
         studio.calls()
     );
-    // The other window went: it may type.
+    // The other window went, as a read begun after the attach says: it may type.
     let alone = vec![paddock::corral::Agent {
         name: "p/a".into(),
         attached: 1,
         instance: Some("i-a".into()),
         ..Default::default()
     }];
-    viewer.listed(&alone).unwrap();
+    viewer
+        .listed(&alone, Some(std::time::Instant::now()))
+        .unwrap();
     assert!(!viewer.read_only);
     viewer.close().unwrap();
 

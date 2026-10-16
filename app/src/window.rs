@@ -1247,13 +1247,11 @@ pub struct PaddockWindow {
     /// The other machines the config names, in its order (DESIGN §13 P5-90); none, and the window
     /// is as it was before them.
     machines: Vec<Arc<remote::Link>>,
-    /// The machine on show, its seat `here()`: 0 for this Mac, else `machines[here() - 1]`. Its
-    /// sidebar, layout and panes are the fields above; each other machine's wait in `seats`, still
-    /// connected.
+    /// The machine in the fields, its seat `here()`: 0 for this Mac, else `machines[here() - 1]`.
+    /// Its sidebar, layout and panes are the fields above; each other machine's wait in `seats`,
+    /// still connected. It is the one on show, except while [`Self::on_local`] brings this Mac's in
+    /// for a moment.
     seats: Seating<Seat>,
-    /// This Mac's seat is in the fields only for a moment while another machine is on show
-    /// ([`Self::on_local`]): nothing moves the keyboard meanwhile.
-    visiting: bool,
     /// Saved boards of machines the config no longer names, kept for when it names them again.
     boards: BTreeMap<String, Board>,
     /// What the switcher and the bell last said of the machines not on show.
@@ -1430,7 +1428,6 @@ impl PaddockWindow {
             ctl: ctl::Ctl::default(),
             machines: Vec::new(),
             seats: Seating::default(),
-            visiting: false,
             boards: BTreeMap::new(),
             switcher_said: Default::default(),
         };
@@ -1718,9 +1715,7 @@ impl PaddockWindow {
             return f(self);
         }
         self.bring(0);
-        self.visiting = true;
         let result = f(self);
-        self.visiting = false;
         self.bring(away);
         result
     }
@@ -1746,7 +1741,13 @@ impl PaddockWindow {
         if self.popup.is_some() {
             self.close_popup(window, cx);
         }
+        // What the user sees changes machine: only the one on show reads replies by looking.
+        self.sidebar
+            .update(cx, |sidebar, _| sidebar.set_on_show(false));
         self.bring(seat);
+        self.seats.look();
+        self.sidebar
+            .update(cx, |sidebar, _| sidebar.set_on_show(true));
         // What the pointer was doing was over the other machine's tabs and panes.
         (self.tab_hover, self.tab_left, self.splitting) = (None, None, None);
         // As the window has it now.
@@ -1830,6 +1831,7 @@ impl PaddockWindow {
         let (sidebar, workspace, panes) = self.parts(seat);
         let sidebar = sidebar.read(cx);
         let agents = sidebar.agents();
+        let listed_at = sidebar.listed_at();
         let ended = ended_panes(&agent_panes(workspace, panes, cx), &agents);
         let changes: Vec<(Entity<TerminalView>, bool)> = panes
             .values()
@@ -1846,7 +1848,7 @@ impl PaddockWindow {
             view.update(cx, |view, cx| {
                 view.disappeared(&names);
                 if seat != 0 {
-                    view.listed(&agents, cx);
+                    view.listed(&agents, listed_at, cx);
                 }
                 if view.paused() != paused {
                     view.set_paused(paused, cx);
@@ -2267,7 +2269,16 @@ impl PaddockWindow {
             ..self.template.clone()
         };
         let theme = self.theme.clone();
+        // A terminal takes the keyboard as it is made; one made out of the user's sight (a machine
+        // waiting, or this Mac's for a moment) gives it back (P5-90 cross review 3).
+        let before = window.focused(cx);
         let view = cx.new(|cx| TerminalView::new(options, theme, window, cx));
+        if !self.seats.in_sight(seat) {
+            match before {
+                Some(focus) => window.focus(&focus, cx),
+                None => window.blur(cx),
+            }
+        }
         // Its machine's corral is asked at once whether the agent ended with it, to close its
         // panes.
         let sidebar = self.parts(seat).0.clone();
@@ -2356,7 +2367,7 @@ impl PaddockWindow {
     /// The active pane takes the keyboard; while [`Self::on_local`] visits this Mac, the keyboard
     /// stays with the machine on show and this Mac's active pane takes it on switching back.
     fn focus_active(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.visiting {
+        if self.seats.visiting() {
             self.sync(cx);
             return;
         }
@@ -2418,9 +2429,12 @@ impl PaddockWindow {
                 }
                 // Another machine's: a lost attach goes again, one that watched may type.
                 if self.seats.here() != 0 {
-                    let agents = self.sidebar.read(cx).agents();
+                    let (agents, listed_at) = {
+                        let sidebar = self.sidebar.read(cx);
+                        (sidebar.agents(), sidebar.listed_at())
+                    };
                     for view in self.panes.values() {
-                        view.update(cx, |v, cx| v.listed(&agents, cx));
+                        view.update(cx, |v, cx| v.listed(&agents, listed_at, cx));
                     }
                 }
                 self.sync_paused(cx);
@@ -2563,11 +2577,16 @@ impl PaddockWindow {
                                 if open {
                                     this.popup = None;
                                 }
-                                if let Some(workspace) = workspace {
-                                    this.sidebar
-                                        .update(cx, |s, cx| s.join_started(workspace, cwd, cx));
-                                }
-                                this.open_started(started, cwd, *place, window, cx);
+                                // Started on this Mac, whichever machine is on show by now: it
+                                // joins, opens and is noted in this Mac's, and the user keeps
+                                // the machine and keyboard they have (P5-90 cross review 2).
+                                this.on_local(|this| {
+                                    if let Some(workspace) = workspace {
+                                        this.sidebar
+                                            .update(cx, |s, cx| s.join_started(workspace, cwd, cx));
+                                    }
+                                    this.open_started(started, cwd, *place, window, cx);
+                                });
                                 if let Some(first) = first {
                                     this.send_first(&started.name, first.clone(), cx);
                                 }
@@ -2677,7 +2696,9 @@ impl PaddockWindow {
                 let text = format!(
                     "Couldn't send the first message to {name}: {error:#}. It is on the clipboard."
                 );
-                this.sidebar
+                // The agent is this Mac's, whichever machine is on show.
+                this.local_sidebar()
+                    .clone()
                     .update(cx, |sidebar, cx| sidebar.note(text, true, cx));
             });
         })
@@ -2704,13 +2725,15 @@ impl PaddockWindow {
             &["Stop", "Cancel"],
             cx,
         );
+        // What comes back is told and read again on that machine, whichever is on show by then.
+        let sidebar = self.sidebar.clone();
         let client = self.client();
         cx.spawn_in(window, async move |this, cx| {
             let stop = matches!(answer.await, Ok(0));
             let _ = this.update(cx, |this, cx| {
                 this.asking = false;
                 if stop {
-                    this.sidebar.update(cx, |sidebar, cx| {
+                    sidebar.update(cx, |sidebar, cx| {
                         sidebar.note(format!("Stopping {name}…"), false, cx)
                     });
                 }
@@ -2722,8 +2745,8 @@ impl PaddockWindow {
             let result = cx
                 .background_spawn(async move { new_agent::stop_with(&client, &target) })
                 .await;
-            let _ = this.update(cx, |this, cx| {
-                this.sidebar.update(cx, |sidebar, cx| {
+            let _ = this.update(cx, |_, cx| {
+                sidebar.update(cx, |sidebar, cx| {
                     match result {
                         Ok(()) => sidebar.note(format!("Stopped {name}"), false, cx),
                         Err(error) => sidebar.note(format!("{error:#}"), true, cx),
@@ -2756,6 +2779,8 @@ impl PaddockWindow {
             let detail = there.as_deref();
             window.prompt(PromptLevel::Warning, &ask, detail, &["Pause", "Cancel"], cx)
         });
+        // What comes back is told and read again on that machine, whichever is on show by then.
+        let sidebar = self.sidebar.clone();
         let client = self.client();
         cx.spawn_in(window, async move |this, cx| {
             if let Some(answer) = answer {
@@ -2765,8 +2790,8 @@ impl PaddockWindow {
                     return;
                 }
             }
-            let _ = this.update(cx, |this, cx| {
-                this.sidebar.update(cx, |sidebar, cx| {
+            let _ = this.update(cx, |_, cx| {
+                sidebar.update(cx, |sidebar, cx| {
                     sidebar.note(pause::doing(&names, pause), false, cx)
                 })
             });
@@ -2775,8 +2800,8 @@ impl PaddockWindow {
                 cx.background_spawn(async move { pause::run_with(&client, &names, pause) })
                     .await
             };
-            let _ = this.update(cx, |this, cx| {
-                this.sidebar.update(cx, |sidebar, cx| {
+            let _ = this.update(cx, |_, cx| {
+                sidebar.update(cx, |sidebar, cx| {
                     let (text, problem) = pause::summary(&results, pause);
                     sidebar.note(text, problem, cx);
                     sidebar.refresh();

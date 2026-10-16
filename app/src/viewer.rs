@@ -65,6 +65,9 @@ pub struct Viewer {
     /// Another machine's agent shown while another window there is attached to it: corral lets
     /// this one only watch until that one leaves (DESIGN §13 P5-90).
     pub read_only: bool,
+    /// When the attach that only watches began to: a count read before then does not count it
+    /// (P5-90 cross review 7).
+    watching_since: Option<std::time::Instant>,
     /// Another machine's agent whose ssh connection was lost (ssh exited 255): attached again once
     /// that machine lists it as before.
     pub lost: Option<(String, AgentMetadata)>,
@@ -76,6 +79,8 @@ pub struct Viewer {
     client: Client,
     /// The attach under way found another window attached there.
     elsewhere: Arc<AtomicBool>,
+    /// Stops the check before the attach under way: set once that attach is no longer wanted.
+    cancel: Arc<AtomicBool>,
     spawning: Option<(u64, String, JoinHandle<Result<Session>>)>,
 }
 impl Viewer {
@@ -93,8 +98,10 @@ impl Viewer {
             generation: 0,
             client,
             elsewhere: Arc::default(),
+            cancel: Arc::default(),
             read_only: false,
             lost: None,
+            watching_since: None,
             spawning: None,
             shell: None,
             metadata: AgentMetadata::default(),
@@ -162,7 +169,12 @@ impl Viewer {
     /// Another machine's listing, just read (DESIGN §13 P5-90): an attach whose connection was
     /// lost goes again when the agent is there as before; one that only watches can type once no
     /// other window is attached (corral hands it the keys).
-    pub fn listed(&mut self, agents: &[crate::corral::Agent]) -> Result<()> {
+    /// `read_began`: when that read began.
+    pub fn listed(
+        &mut self,
+        agents: &[crate::corral::Agent],
+        read_began: Option<std::time::Instant>,
+    ) -> Result<()> {
         if let Some((name, metadata)) = &self.lost
             && self.pending.is_none()
             && self.session.is_none()
@@ -175,7 +187,11 @@ impl Viewer {
             let (name, metadata) = self.lost.take().expect("checked");
             self.select_agent(name, metadata)?;
         }
+        // Only a read begun after this attach: one from before counts the other window alone.
         if self.read_only
+            && read_began
+                .zip(self.watching_since)
+                .is_some_and(|(read, since)| read > since)
             && let Some(name) = &self.showing
             && agents.iter().any(|a| &a.name == name && a.attached <= 1)
         {
@@ -205,6 +221,8 @@ impl Viewer {
     pub fn cancel_pending(&mut self) {
         self.pending = None;
         self.generation += 1;
+        // The check before an attach no longer wanted stops, rather than wait on a slow machine.
+        self.cancel.store(true, Ordering::Relaxed);
     }
     pub fn close(&mut self) -> Result<()> {
         self.closing = true;
@@ -253,6 +271,7 @@ impl Viewer {
                             self.shell = None;
                             self.showing = Some(name);
                             self.read_only = self.elsewhere.load(Ordering::Relaxed);
+                            self.watching_since = self.read_only.then(std::time::Instant::now);
                             if !session.poll_exit()? {
                                 self.metadata = pending.unwrap().1;
                             }
@@ -290,6 +309,8 @@ impl Viewer {
             let size = size.unwrap_or(Size { rows: 24, cols: 80 });
             let elsewhere = Arc::new(AtomicBool::new(false));
             self.elsewhere = elsewhere.clone();
+            let cancel = Arc::new(AtomicBool::new(false));
+            self.cancel = cancel.clone();
             self.spawning = Some((
                 self.generation,
                 name,
@@ -306,7 +327,7 @@ impl Viewer {
                         let status = client.json(
                             &["status", &checked_name],
                             std::time::Duration::from_secs(15),
-                            &AtomicBool::new(false),
+                            &cancel,
                         )?;
                         anyhow::ensure!(status["state"].as_str() != Some("exited"), EXITED);
                         anyhow::ensure!(status["instance"].as_str() == Some(&instance), REPLACED);
@@ -319,6 +340,7 @@ impl Viewer {
                         );
                         elsewhere.store(attached, Ordering::Relaxed);
                     }
+                    anyhow::ensure!(!cancel.load(Ordering::Relaxed), "attach cancelled");
                     Session::spawn(&command, None, size)
                 }),
             ));
@@ -458,9 +480,11 @@ impl Viewer {
 }
 impl Drop for Viewer {
     fn drop(&mut self) {
-        // A spawn already in flight still owns its PTY; join and detach it on exit.
+        // A spawn already in flight still owns its PTY: its check stops, and it is waited for and
+        // its PTY let go off this thread, which is the UI thread when a pane closes (P5-90).
+        self.cancel.store(true, Ordering::Relaxed);
         if let Some((_, _, worker)) = self.spawning.take() {
-            let _ = worker.join();
+            thread::spawn(move || drop(worker.join()));
         }
     }
 }
@@ -469,6 +493,134 @@ impl Drop for Viewer {
 mod tests {
     use super::*;
     use std::time::{Duration, Instant};
+
+    /// A scratch directory of the test's own.
+    fn scratch(name: &str) -> std::path::PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("paddock-viewer-{name}-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// The pid a test's process wrote to `file`, once it has.
+    fn written_pid(file: &std::path::Path) -> libc::pid_t {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            if let Ok(pid) = std::fs::read_to_string(file)
+                && let Ok(pid) = pid.trim().parse()
+            {
+                return pid;
+            }
+            assert!(Instant::now() < deadline, "no pid in {}", file.display());
+            thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    /// Whether `pid` ends, and is waited for, within five seconds.
+    fn ends(pid: libc::pid_t) -> bool {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        // SAFETY: signal 0 only asks whether the test's own child still exists.
+        while unsafe { libc::kill(pid, 0) } == 0 {
+            if Instant::now() >= deadline {
+                return false;
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        true
+    }
+
+    /// A pane closed while the check before its attach waits on a slow machine: closing and
+    /// letting the pane go return at once, and the check stops (P5-90 cross review 1).
+    #[test]
+    fn closing_while_the_check_before_an_attach_waits_neither_blocks_nor_lets_it_run_on() {
+        let dir = scratch("slow-status");
+        let (corral, pid) = (dir.join("corral"), dir.join("pid"));
+        std::fs::write(
+            &corral,
+            format!("#!/bin/sh\necho $$ > '{}'\nexec sleep 5\n", pid.display()),
+        )
+        .unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&corral, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let mut viewer = Viewer::new(corral.display().to_string());
+        let metadata = AgentMetadata {
+            cwd: None,
+            instance: Some("i-1".into()),
+        };
+        viewer.select_agent("p/a".into(), metadata).unwrap();
+        viewer.tick(Size { rows: 10, cols: 40 }).unwrap();
+        let checking = written_pid(&pid);
+        let start = Instant::now();
+        viewer.close().unwrap();
+        drop(viewer);
+        assert!(
+            start.elapsed() < Duration::from_millis(500),
+            "{:?}",
+            start.elapsed()
+        );
+        assert!(ends(checking), "the check went on");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// A pane that only watches another machine's agent: a count read before it attached says
+    /// nothing about it; one read after, with no other window there, lets it type (P5-90 cross
+    /// review 7).
+    #[test]
+    fn a_count_read_before_the_attach_leaves_it_watching() {
+        let mut viewer = Viewer::new("unused".to_owned());
+        let before = Instant::now();
+        thread::sleep(Duration::from_millis(2));
+        viewer.showing = Some("s/a".into());
+        viewer.read_only = true;
+        viewer.watching_since = Some(Instant::now());
+        let alone = [crate::corral::Agent {
+            name: "s/a".into(),
+            attached: 1,
+            ..Default::default()
+        }];
+        viewer.listed(&alone, Some(before)).unwrap();
+        assert!(viewer.read_only);
+        viewer.listed(&alone, None).unwrap();
+        assert!(viewer.read_only);
+        thread::sleep(Duration::from_millis(2));
+        viewer.listed(&alone, Some(Instant::now())).unwrap();
+        assert!(!viewer.read_only);
+    }
+
+    /// A PTY that arrives after its pane went is let go off the thread that let the pane go.
+    #[test]
+    fn a_pty_arriving_after_its_pane_went_is_let_go_in_the_background() {
+        let dir = scratch("late-pty");
+        let pid = dir.join("pid");
+        let script = format!("echo $$ > '{}'; exec sleep 30", pid.display());
+        let written = pid.clone();
+        let mut viewer = Viewer::new("unused".to_owned());
+        viewer.pending = Some(("p/late".into(), AgentMetadata::default()));
+        viewer.spawning = Some((
+            0,
+            "p/late".into(),
+            thread::spawn(move || {
+                thread::sleep(Duration::from_millis(300));
+                let session = Session::spawn(
+                    &["/bin/sh".into(), "-c".into(), script],
+                    None,
+                    Size { rows: 10, cols: 40 },
+                )?;
+                // Running, so that letting it go is seen to end it.
+                written_pid(&written);
+                Ok(session)
+            }),
+        ));
+        let start = Instant::now();
+        drop(viewer);
+        assert!(
+            start.elapsed() < Duration::from_millis(100),
+            "{:?}",
+            start.elapsed()
+        );
+        assert!(ends(written_pid(&pid)), "the late PTY was kept");
+        let _ = std::fs::remove_dir_all(dir);
+    }
 
     #[test]
     fn already_exited_attach_worker_is_never_published_as_running() {

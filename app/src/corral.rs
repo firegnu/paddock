@@ -10,7 +10,7 @@ use std::{
         mpsc,
     },
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -308,7 +308,8 @@ impl<K> Drop for Replies<K> {
 }
 
 pub struct Poller {
-    pub updates: mpsc::Receiver<Result<Vec<Agent>>>,
+    /// Each read, with when it began.
+    pub updates: mpsc::Receiver<(Instant, Result<Vec<Agent>>)>,
     cancel: Arc<AtomicBool>,
     wake: mpsc::Sender<()>,
     worker: Option<thread::JoinHandle<()>>,
@@ -342,8 +343,9 @@ impl Poller {
         let worker = thread::spawn(move || {
             let mut forced = true;
             while !quitting.load(Ordering::Relaxed) {
+                let began = Instant::now();
                 if let Some(update) = round(forced, &quitting)
-                    && tx.send(update).is_err()
+                    && tx.send((began, update)).is_err()
                 {
                     break;
                 }
