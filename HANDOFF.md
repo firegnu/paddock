@@ -48,6 +48,7 @@
 
 ## 悬着
 
+- P5-118、P5-118a（Cairn 的 Ledger 页）是主控自己做的，合并前没让别的 agent 交叉审查；用户 10-16 说先不开审查。
 - **别强制退出 paddock、别点 Dock 上多出来的 paddock／`exec` 图标**：从 paddock 里开的 agent 都在 paddock 的 coalition 里，强制退出会把它们一起结束（P5-52；主控建议测试实例用 Accessory 策略，用户暂时不改）。正常 ⌘Q 没事。
 - 收件箱回复以 `-` 开头的送不出去：要 ranch 把 `corral send … -- <文字>` 的 `--` 写进公开约定后 paddock 固定带上，等用户点头（P5-87）。agent 输入框里有没提交的字时，回复会接在后面一起提交。
 - `AGENTS.md` 里“只通过 `corral`、`ranch` 命令打交道”那句没把 cairn 写进去（paddock 已在调 cairn 的公开命令），要不要补问用户。
