@@ -173,7 +173,7 @@ fn worktrees_and_subdirectories_belong_to_their_main_repository() {
 }
 
 #[test]
-fn the_list_keeps_paths_only_and_skips_those_gone() {
+fn the_list_keeps_paths_only_and_leaves_the_ones_away_on_it() {
     let temp = common::tempdir();
     let path = temp.path().join("state/paddock/activity-repos.json");
     // No list yet.
@@ -192,10 +192,35 @@ fn the_list_keeps_paths_only_and_skips_those_gone() {
         serde_json::json!([a.to_str().unwrap(), b.to_str().unwrap()])
     );
     assert_eq!(load_repos(&path), [a.clone(), b.clone()]);
-    // A repository no longer there is left out.
+    // A repository no longer there stays on the list, for when it is back.
     fs::remove_dir_all(&b).unwrap();
-    assert_eq!(load_repos(&path), [a]);
+    assert_eq!(load_repos(&path), [a.clone(), b.clone()]);
     // A list that cannot be read gives none.
     fs::write(&path, "{ not json").unwrap();
     assert!(load_repos(&path).is_empty());
+}
+
+#[test]
+fn a_round_that_finds_a_new_repository_keeps_the_ones_that_are_away() {
+    let temp = common::tempdir();
+    let path = temp.path().join("state/paddock/activity-repos.json");
+    let (away, here, found) = (
+        temp.path().join("away"),
+        temp.path().join("here"),
+        temp.path().join("found"),
+    );
+    fs::create_dir_all(&away).unwrap();
+    fs::create_dir_all(&here).unwrap();
+    fs::create_dir_all(&found).unwrap();
+    let mut repos = Vec::new();
+    assert!(remember(&mut repos, [away.clone(), here.clone()]));
+    save_repos(&path, &repos).unwrap();
+    // The disk the first one was on is unplugged for a while, and the grid finds a new repository.
+    fs::remove_dir_all(&away).unwrap();
+    let mut list = load_repos(&path);
+    assert!(remember(&mut list, [found.clone()]));
+    save_repos(&path, &list).unwrap();
+    let mut expected = vec![away.clone(), here.clone(), found.clone()];
+    expected.sort();
+    assert_eq!(load_repos(&path), expected);
 }

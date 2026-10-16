@@ -1,7 +1,9 @@
 //! The left sidebar's activity grid, what it knows (DESIGN §13 P5-32): each day's commits in the
 //! repositories the sidebar's agents work in, read from Git and never stored. The one thing kept
 //! is the list of those repositories, in paddock's state directory beside the layout, so one stays
-//! counted after its agents are gone; only their paths are written (`load_repos`, `save_repos`).
+//! counted after its agents are gone — and stays on the list while it is away (a disk unplugged, a
+//! directory renamed), so it counts again on its own once it is back; only their paths are written
+//! (`load_repos`, `save_repos`).
 //! Git is read in the background with read-only commands, through [`git::git`]'s options
 //! (`Poller`). `activity_view.rs` draws it.
 use crate::{git, kanban, layout_state};
@@ -346,19 +348,19 @@ pub fn repos_path() -> Option<PathBuf> {
     layout_state::default_path().map(|path| path.with_file_name("activity-repos.json"))
 }
 
-/// The repositories listed at `path` that are still there; none when there is no list or it
-/// cannot be read.
+/// The repositories listed at `path`, in the order written; none when there is no list or it
+/// cannot be read. One whose directory is not there now stays on the list — a disk unplugged, or
+/// a directory renamed, is usually not forever — and whoever counts (`Poller`, the board's menu)
+/// leaves it out until it is back, rather than dropping it from the list.
 pub fn load_repos(path: &Path) -> Vec<PathBuf> {
     fs::read(path)
         .ok()
         .and_then(|bytes| serde_json::from_slice::<Vec<PathBuf>>(&bytes).ok())
         .unwrap_or_default()
-        .into_iter()
-        .filter(|repo| repo.is_dir())
-        .collect()
 }
 
-/// Writes `repos` to `path`: their paths, nothing else.
+/// Writes `repos` to `path`: their paths, nothing else, the ones away included — what the list
+/// holds, not what is there now, so writing back a list [`load_repos`] read keeps them.
 pub fn save_repos(path: &Path, repos: &[PathBuf]) -> io::Result<()> {
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir)?;
@@ -451,6 +453,7 @@ impl Poller {
                     }
                     let today = today();
                     let first = first_day(today, current.weeks);
+                    // The ones away stay on the list as written; only the ones there are counted.
                     let present: Vec<PathBuf> =
                         repos.iter().filter(|r| r.is_dir()).cloned().collect();
                     let key = (today, first, present);

@@ -2,10 +2,26 @@
 //! file, the directory the board reads, and what the button back to the focused pane says.
 mod common;
 use paddock::kanban_repos::{KEPT, Looking, OPEN_NOW, Row, back_label, menu};
-use std::{fs, path::PathBuf};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 fn path(text: &str) -> PathBuf {
     PathBuf::from(text)
+}
+
+/// The paths the kept list holds, as the file has them.
+fn kept_file(file: &Path) -> Vec<PathBuf> {
+    serde_json::from_slice(&fs::read(file).unwrap()).unwrap()
+}
+
+fn repo_at(path: &Path, kept: bool, on: bool) -> Row {
+    Row::Repo {
+        path: path.to_path_buf(),
+        kept,
+        on,
+    }
 }
 
 fn repo(text: &str, kept: bool, on: bool) -> Row {
@@ -128,16 +144,17 @@ fn kept_repositories_are_saved_as_paths_and_read_back() {
     assert_eq!(other.kept(), [b.clone(), c.clone()]);
     looking.refresh();
     assert_eq!(looking.kept(), [b.clone(), c.clone()]);
-    // A repository no longer there is left out.
+    // A repository no longer there stays on the list; only the menu leaves it out (the test below
+    // for one that is away covers that).
     fs::remove_dir_all(&b).unwrap();
     assert_eq!(
         Looking::load(Some(file.clone())).kept(),
-        std::slice::from_ref(&c)
+        [b.clone(), c.clone()]
     );
-    // The last one removed leaves an empty list.
+    // The last one removed leaves the one that is away, and nothing else.
     looking.remove(&c);
-    assert!(looking.kept().is_empty());
-    assert!(Looking::load(Some(file)).kept().is_empty());
+    assert_eq!(looking.kept(), std::slice::from_ref(&b));
+    assert_eq!(Looking::load(Some(file)).kept(), std::slice::from_ref(&b));
 }
 
 #[test]
@@ -180,4 +197,80 @@ fn the_button_back_names_the_focused_panes_repository_when_it_is_another() {
     assert_eq!(back_label(None, &pasture), "Follow focus");
     // The focused pane is in the repository the board stays on.
     assert_eq!(back_label(Some(&pasture), &pasture), "Follow focus");
+}
+
+#[test]
+fn a_repository_away_for_a_while_stays_kept_but_is_not_listed() {
+    let temp = common::tempdir();
+    let file = temp.path().join("state/paddock/kanban-repos.json");
+    let (a, b) = (temp.path().join("a"), temp.path().join("b"));
+    fs::create_dir_all(&a).unwrap();
+    fs::create_dir_all(&b).unwrap();
+    let mut looking = Looking::load(Some(file.clone()));
+    looking.choose(a.clone());
+    looking.choose(b.clone());
+    assert_eq!(kept_file(&file), [a.clone(), b.clone()]);
+    // b is away for a while — an unplugged disk, a directory renamed: it is not listed, and the
+    // list keeps it for when it is back.
+    fs::remove_dir_all(&b).unwrap();
+    looking.refresh();
+    // The board is still on b, so nothing follows the focused pane, and no row is ticked: b is
+    // not listed while it is away.
+    assert_eq!(
+        menu(None, &[], &looking),
+        [
+            follow(None, false),
+            Row::Heading(KEPT),
+            repo_at(&a, true, false),
+            Row::Choose,
+        ]
+    );
+    // Keeping another one writes the list back with b still on it.
+    let c = temp.path().join("c");
+    fs::create_dir_all(&c).unwrap();
+    looking.choose(c.clone());
+    assert_eq!(kept_file(&file), [a.clone(), b.clone(), c.clone()]);
+    // Removing one does too.
+    looking.remove(&c);
+    assert_eq!(kept_file(&file), [a.clone(), b.clone()]);
+    // Back: it is listed again, without anyone keeping it again.
+    fs::create_dir_all(&b).unwrap();
+    looking.refresh();
+    assert_eq!(
+        menu(None, &[], &looking),
+        [
+            follow(None, true),
+            Row::Heading(KEPT),
+            repo_at(&a, true, false),
+            repo_at(&b, true, false),
+            Row::Choose,
+        ]
+    );
+}
+
+#[test]
+fn a_list_that_cannot_be_saved_is_said_so_until_one_is() {
+    let temp = common::tempdir();
+    // A file where the list's directory should be: nothing can be written under it.
+    let state = temp.path().join("state");
+    fs::write(&state, "not a directory").unwrap();
+    let file = state.join("paddock/kanban-repos.json");
+    let (a, b) = (temp.path().join("a"), temp.path().join("b"));
+    fs::create_dir_all(&a).unwrap();
+    fs::create_dir_all(&b).unwrap();
+    let mut looking = Looking::load(Some(file.clone()));
+    assert!(looking.problem().is_none());
+    // Kept, but the list could not be written: said so, with the reason.
+    looking.choose(a.clone());
+    let problem = looking.problem().expect("a save that failed").to_owned();
+    assert!(problem.starts_with("Couldn't save the list: "), "{problem}");
+    assert_ne!(problem.trim(), "Couldn't save the list:");
+    assert!(!file.exists());
+    // A save that works takes it back.
+    fs::remove_file(&state).unwrap();
+    looking.choose(b.clone());
+    assert!(looking.problem().is_none());
+    assert_eq!(kept_file(&file), std::slice::from_ref(&b));
+    // A window that keeps nothing on disk has nothing to say.
+    assert!(Looking::load(None).problem().is_none());
 }
