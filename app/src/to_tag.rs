@@ -161,20 +161,24 @@ pub fn top_on(row: u16, line: f32, tag: f32) -> f32 {
         .max(0.0)
 }
 
-/// What a tag says: `To` before the name or not, the agent's whole name, and the session's topic.
+/// What a tag says: `To` before the name or not, the agent's whole name, the machine it runs on
+/// when not this Mac (P5-122), and the session's topic.
 #[derive(Debug, PartialEq)]
 pub struct Label {
     pub to: bool,
     pub name: String,
+    pub machine: Option<String>,
     pub topic: Option<String>,
 }
 
-/// The tag of the agent `name` whose session is about `topic`: at rest the name alone, `lit` with
-/// `To` before it and the topic after, when there is one.
-pub fn label(name: &str, topic: Option<&str>, lit: bool) -> Label {
+/// The tag of the agent `name` on `machine` (none on this Mac) whose session is about `topic`: at
+/// rest the name and the machine after it; `lit` with `To` before the name and the topic after,
+/// when there is one.
+pub fn label(name: &str, machine: Option<&str>, topic: Option<&str>, lit: bool) -> Label {
     Label {
         to: lit,
         name: name.to_owned(),
+        machine: machine.map(str::to_owned),
         topic: topic.filter(|_| lit).map(str::to_owned),
     }
 }
@@ -411,29 +415,43 @@ mod tests {
     fn the_tag_names_the_agent_and_lit_adds_to_and_the_topic() {
         let topic = Some("读取 HANDOFF 进入状态");
         assert_eq!(
-            label("paddock/main", topic, false),
+            label("paddock/main", None, topic, false),
             Label {
                 to: false,
                 name: "paddock/main".into(),
+                machine: None,
                 topic: None,
             }
         );
         assert_eq!(
-            label("paddock/main", topic, true),
+            label("paddock/main", None, topic, true),
             Label {
                 to: true,
                 name: "paddock/main".into(),
+                machine: None,
                 topic: topic.map(str::to_owned),
             }
         );
         // Without a topic, the name alone after `To`.
         assert_eq!(
-            label("paddock/main", None, true),
+            label("paddock/main", None, None, true),
             Label {
                 to: true,
                 name: "paddock/main".into(),
+                machine: None,
                 topic: None,
             }
         );
+    }
+
+    /// Another machine's agent: the machine after the name, at rest and lit (P5-122).
+    #[test]
+    fn another_machines_tag_names_the_machine_after_the_agent() {
+        for lit in [false, true] {
+            let tag = label("pi-main", Some("5090"), Some("sweep"), lit);
+            assert_eq!(tag.name, "pi-main");
+            assert_eq!(tag.machine.as_deref(), Some("5090"), "{lit}");
+            assert_eq!(tag.topic.is_some(), lit);
+        }
     }
 }

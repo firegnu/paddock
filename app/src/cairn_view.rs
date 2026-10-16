@@ -20,14 +20,14 @@ use crate::{
     card,
     fonts::UiFont,
     footer_icon::{self, Icon},
-    kind_icon, markdown, raised,
+    kind_icon, markdown, raised, sunk,
     theme::Theme,
     view::hsla,
 };
 use gpui::{
-    AnyElement, BoxShadow, ClickEvent, Context, Div, Font, FontStyle, FontWeight, HighlightStyle,
-    Hsla, IntoElement, Render, Stateful, StyledText, Task, UnderlineStyle, Window, div, prelude::*,
-    px, relative,
+    AnyElement, ClickEvent, Context, Div, Font, FontStyle, FontWeight, HighlightStyle, Hsla,
+    IntoElement, Render, Stateful, StyledText, Task, UnderlineStyle, Window, div, prelude::*, px,
+    relative,
 };
 use std::{
     collections::HashMap,
@@ -58,20 +58,6 @@ const FACTS: f32 = 0.04;
 const BETWEEN: f32 = 0.05;
 /// The rule between two sessions in the box of what the next session is given, in the accent.
 const NEXT_RULE: f32 = 0.16;
-/// The Notes | Ledger | Lessons switch (P5-121a): a well sunk into the card, the card's ground with
-/// black over it, less on a light ground; inside, a shadow under its top edge and a dark rim;
-/// outside, a light lip under it and a faint edge in the text colour around it.
-const WELL: (f32, f32) = (0.38, 0.07);
-const WELL_TOP: f32 = 0.65;
-const WELL_RIM: f32 = 0.45;
-const WELL_LIP: (f32, f32) = (0.07, 0.70);
-const WELL_EDGE: f32 = 0.06;
-/// The page shown, solid in the accent: a light line inside its top edge and a dark one inside its
-/// bottom edge, in white and black; under it a small shadow and a faint glow of the accent.
-const PILL_LIGHT: f32 = 0.30;
-const PILL_DARK: f32 = 0.18;
-const PILL_SHADOW: f32 = 0.45;
-const PILL_GLOW: f32 = 0.18;
 /// A page's count: its ground in the text colour; on the page shown, in the card's ground.
 const SWITCH_COUNT: f32 = 0.12;
 const SWITCH_COUNT_ON: f32 = 0.18;
@@ -1246,27 +1232,8 @@ impl CairnView {
     /// pages, what it is to the right (P5-118a, P5-121, P5-121a).
     fn switch(&self, ledger: &Ledger, ui: &UiFont, cx: &mut Context<Self>) -> Div {
         let c = self.colors;
-        let (black, white) = (gpui::black(), gpui::white());
-        let light = c.ground.l >= 0.5;
-        let pick = |(dark, lit): (f32, f32)| if light { lit } else { dark };
-        let well = c.ground.blend(black.opacity(pick(WELL)));
-        let shadow = |y: f32, color: Hsla| BoxShadow::new(px(0.0), px(y), color);
-        let well_shadows = vec![
-            shadow(1.0, black.opacity(WELL_TOP))
-                .blur_radius(px(2.0))
-                .inset(),
-            shadow(0.0, black.opacity(WELL_RIM))
-                .spread_radius(px(1.0))
-                .inset(),
-            shadow(1.0, white.opacity(pick(WELL_LIP))),
-            shadow(0.0, c.text.opacity(WELL_EDGE)).spread_radius(px(1.0)),
-        ];
-        let pill_shadows = vec![
-            shadow(1.0, white.opacity(PILL_LIGHT)).inset(),
-            shadow(-1.0, black.opacity(PILL_DARK)).inset(),
-            shadow(1.0, black.opacity(PILL_SHADOW)).blur_radius(px(2.0)),
-            shadow(2.0, c.accent.opacity(PILL_GLOW)).blur_radius(px(6.0)),
-        ];
+        let well = sunk::well(c.ground, c.ground.l >= 0.5, c.text);
+        let pill_shadows = sunk::capsule(c.accent);
         let (count, lessons) = match ledger {
             Ledger::Groups(groups) => {
                 let (book, lessons) = split(groups);
@@ -1329,8 +1296,8 @@ impl CairnView {
             .flex()
             .p(ui.px(3.0))
             .rounded_full()
-            .bg(well)
-            .shadow(well_shadows)
+            .bg(well.ground)
+            .shadow(well.shadows)
             .text_size(ui.px(12.5))
             .child(half("cairn-page-notes", Page::Notes, "Notes", None))
             .child(half("cairn-page-ledger", Page::Ledger, "Ledger", count))

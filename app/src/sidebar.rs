@@ -17,8 +17,9 @@ use crate::{
     fonts::UiFont,
     footer_icon::{self, Icon, Pose},
     git, inbox, kind_icon,
+    local_only::Only,
     motion::{self, Hover, HoverMotion},
-    pause, reduce_motion,
+    pause, reduce_motion, sunk,
     theme::Theme,
     view::hsla,
     viewer::AgentMetadata,
@@ -54,6 +55,9 @@ pub struct MachineTab {
     pub problem: bool,
     /// The hover note: where it is, or why it does not answer and what to do.
     pub tip: String,
+    /// While it is down, the banner over its list (P5-122): what stands, with its name, and what
+    /// to do.
+    pub trouble: Option<(String, String)>,
     /// On show.
     pub shown: bool,
 }
@@ -93,6 +97,9 @@ pub enum SidebarEvent {
     /// The switcher's machine at this place: show it, and try it again when it could not be
     /// read (DESIGN §13 P5-90).
     Machine(usize),
+    /// `Switch to This Mac` on the hint about what starts there alone: show This Mac, then do it
+    /// (P5-122).
+    ThisMac(Only),
 }
 
 /// How often the agents' worktrees are summarised, as in Saddle.
@@ -244,6 +251,13 @@ const PAUSED_OPACITY: f32 = 0.55;
 /// How bright another machine's cards stay while it cannot be read: as last read, dimmed
 /// (DESIGN §13 P5-90).
 const STALE: f32 = 0.5;
+/// The switcher's well (P5-122): the room inside it, and its corners, round on one row of
+/// capsules; how strongly the machine on show says how it stands, on the accent.
+const WELL_PAD: f32 = 3.0;
+const WELL_RADIUS: f32 = 15.0;
+const SHOWN_STATUS: f32 = 0.75;
+/// How strongly the grey cards show while another machine is not read yet, one after another.
+const PLACEHOLDERS: [f32; 3] = [1.0, 0.6, 0.3];
 /// What a card asks before pausing an agent in a turn.
 const PAUSE_WORKING: &str = "Working \u{2014} pause anyway?";
 /// An agent's tile in the strip: its side, corners and the room above and below it, and how far
@@ -751,6 +765,10 @@ impl Sidebar {
     /// This machine on show in the window, or waiting while another is.
     pub fn set_on_show(&mut self, on_show: bool) {
         self.on_show = on_show;
+        // The offer to switch to This Mac was for while this one showed.
+        if !on_show && self.note.as_ref().is_some_and(|note| note.offer.is_some()) {
+            self.note = None;
+        }
     }
 
     /// Collapsed to the strip, or expanded.
@@ -816,6 +834,21 @@ impl Sidebar {
             })
             .detach();
         }
+        cx.notify();
+    }
+
+    /// What starts on This Mac alone was asked for while this machine is on show (P5-122): in
+    /// place of the footer's note, the hint in neutral words over the footer with `Switch to This
+    /// Mac`. It stays until the next note, its button, or another machine on show.
+    pub fn offer(&mut self, only: Only, cx: &mut Context<Self>) {
+        let mut note = Note::new(
+            only.hint().into(),
+            false,
+            Instant::now(),
+            reduce_motion::on(),
+        );
+        note.offer = Some(only);
+        self.note = Some(note);
         cx.notify();
     }
 
@@ -1416,10 +1449,12 @@ impl Sidebar {
         }
     }
 
-    /// The switcher over the list, one tab per machine (`This Mac │ studio ●2`): its name, how
-    /// many of its agents want the user, and how its connection stands, why on hover. A click
-    /// shows that machine, and tries one that could not be read again. Narrow, on the strip, each
-    /// machine's first letters. None without other machines.
+    /// The switcher over the list, one capsule per machine set in a well, drawn as the Cairn tab's
+    /// switch (P5-121a, P5-122): its name, how many of its agents want the user, and how its
+    /// connection stands, why on hover; the machine on show solid in the accent. Too many for one
+    /// row, they go on in the next. A click shows that machine, and tries one that could not be
+    /// read again. Narrow, on the strip, a column of each machine's first letters. None without
+    /// other machines.
     fn switcher(&self, narrow: bool, cx: &mut Context<Self>) -> Option<Div> {
         if self.machines.is_empty() {
             return None;
@@ -1433,20 +1468,25 @@ impl Sidebar {
             fg(|t| t.agents_red),
             fg(|t| t.agents_green),
         );
-        let selected = self.grounds().selected;
-        let mut bar = div()
-            .flex_shrink_0()
-            .flex()
-            .items_center()
-            .gap(ui.px(2.0))
-            .when(narrow, |bar| bar.flex_col().pb(ui.px(4.0)))
-            .when(!narrow, |bar| {
-                bar.flex_wrap().px(ui.px(8.0)).pt(ui.px(4.0)).pb(ui.px(6.0))
-            });
+        let (bright, accent) = (fg(|t| t.bright), fg(|t| t.agents_accent));
+        let grounds = self.grounds();
+        let selected = grounds.selected;
+        // On the accent, the parts of the machine on show are in the sidebar's own ground.
+        let ground = hsla(self.given.bg(|t| t.agents_bg), 1.0);
+        let well = sunk::well(grounds.base, ground.l >= 0.5, text);
+        let pill_shadows = sunk::capsule(accent);
+        let mut bar = div().flex_shrink_0().flex();
+        bar = if narrow {
+            bar.items_center().gap(ui.px(2.0)).flex_col().pb(ui.px(4.0))
+        } else {
+            bar.flex_wrap()
+                .p(ui.px(WELL_PAD))
+                .rounded(ui.px(WELL_RADIUS))
+                .bg(well.ground)
+                .shadow(well.shadows)
+                .text_size(ui.px(12.5))
+        };
         for (index, machine) in self.machines.iter().enumerate() {
-            if index > 0 && !narrow {
-                bar = bar.child(div().w(px(1.0)).h(ui.px(14.0)).bg(dim.opacity(0.35)));
-            }
             let tip = Tip {
                 text: machine.tip.clone().into(),
                 size: ui.px(NOTE_SIZE),
@@ -1456,70 +1496,263 @@ impl Sidebar {
             };
             let on_click =
                 cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(SidebarEvent::Machine(index)));
-            let name = if narrow {
-                machine.name.chars().take(2).collect()
+            let count = (machine.count > 0).then(|| {
+                div()
+                    .text_size(ui.px(11.0))
+                    .font_weight(FontWeight::BOLD)
+                    .font_features(tabular())
+                    .child(format!("●{}", machine.count))
+            });
+            if narrow {
+                bar = bar.child(
+                    div()
+                        .id(("machine", index))
+                        .flex()
+                        .items_center()
+                        .gap(ui.px(5.0))
+                        .h(ui.px(24.0))
+                        .px(ui.px(8.0))
+                        .rounded(ui.px(6.0))
+                        .cursor_pointer()
+                        .whitespace_nowrap()
+                        .text_size(ui.px(12.5))
+                        .text_color(if machine.shown { text } else { dim })
+                        .when(machine.shown, |tab| {
+                            tab.bg(selected).font_weight(FontWeight::SEMIBOLD)
+                        })
+                        .hover(move |style| style.bg(selected))
+                        .tooltip(move |_, cx| cx.new(|_| tip.clone()).into())
+                        .on_click(on_click)
+                        .child(machine.name.chars().take(2).collect::<String>())
+                        // Another machine answering: a dot; not answering, a dot for what stands.
+                        .when(index > 0, |tab| {
+                            let color = match machine.status {
+                                None => green,
+                                Some(_) if machine.problem => red,
+                                Some(_) => dim,
+                            };
+                            tab.child(div().size(ui.px(6.0)).rounded_full().bg(color))
+                        })
+                        .children(count.map(|count| count.text_color(amber))),
+                );
+                continue;
+            }
+            let on = machine.shown;
+            let (dot, status_color, count_color) = if on {
+                (ground, ground.opacity(SHOWN_STATUS), ground)
+            } else if machine.problem {
+                (green, red, amber)
             } else {
-                machine.name.clone()
+                (green, dim, amber)
             };
-            let status = machine.status.clone().filter(|_| !narrow);
             bar = bar.child(
                 div()
                     .id(("machine", index))
+                    .flex_grow(1.0)
                     .flex()
                     .items_center()
-                    .gap(ui.px(5.0))
-                    .h(ui.px(24.0))
-                    .px(ui.px(8.0))
-                    .rounded(ui.px(6.0))
+                    .justify_center()
+                    .gap(ui.px(6.0))
+                    .px(ui.px(14.0))
+                    .py(ui.px(4.0))
+                    .rounded_full()
                     .cursor_pointer()
                     .whitespace_nowrap()
-                    .text_size(ui.px(12.5))
-                    .text_color(if machine.shown { text } else { dim })
-                    .when(machine.shown, |tab| {
-                        tab.bg(selected).font_weight(FontWeight::SEMIBOLD)
+                    .when(on, |pill| {
+                        pill.bg(accent)
+                            .shadow(pill_shadows.clone())
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(ground)
                     })
-                    .hover(move |style| style.bg(selected))
+                    .when(!on, |pill| {
+                        pill.text_color(text)
+                            .hover(move |style| style.text_color(bright))
+                    })
                     .tooltip(move |_, cx| cx.new(|_| tip.clone()).into())
                     .on_click(on_click)
-                    .child(name)
+                    .child(machine.name.clone())
                     // Another machine answering: a dot; not answering, what stands.
-                    .when(index > 0 && machine.status.is_none(), |tab| {
-                        tab.child(div().size(ui.px(6.0)).rounded_full().bg(green))
+                    .when(index > 0 && machine.status.is_none(), |pill| {
+                        pill.child(div().size(ui.px(6.0)).rounded_full().bg(dot))
                     })
-                    .when(index > 0 && machine.status.is_some() && narrow, |tab| {
-                        let color = if machine.problem { red } else { dim };
-                        tab.child(div().size(ui.px(6.0)).rounded_full().bg(color))
-                    })
-                    .children(status.map(|status| {
+                    .children(machine.status.clone().map(|status| {
                         div()
                             .text_size(ui.px(11.0))
                             .font_weight(FontWeight::NORMAL)
-                            .text_color(if machine.problem { red } else { dim })
+                            .text_color(status_color)
                             .child(status)
                     }))
-                    .when(machine.count > 0, |tab| {
-                        tab.child(
-                            div()
-                                .text_size(ui.px(11.0))
-                                .font_weight(FontWeight::BOLD)
-                                .font_features(tabular())
-                                .text_color(amber)
-                                .child(format!("●{}", machine.count)),
-                        )
-                    }),
+                    .children(count.map(|count| count.text_color(count_color))),
             );
         }
-        Some(bar)
+        Some(if narrow {
+            bar
+        } else {
+            div()
+                .flex_shrink_0()
+                .px(ui.px(8.0))
+                .pt(ui.px(4.0))
+                .pb(ui.px(8.0))
+                .child(bar)
+        })
     }
 
-    /// Another machine's failed read as its line says it: why, and how long ago its agents were
-    /// last read.
-    fn stale_line(&self, error: &str, now: f64) -> String {
-        let why = error.strip_prefix("corral: ").unwrap_or(error);
-        match self.read_at {
-            Some(at) => format!("{why} · read {} ago", card::short_time(Some(now - at))),
-            None => why.to_owned(),
+    /// Over the list of another machine's agents while it cannot be read (P5-122): what stands,
+    /// with its name; how long ago its agents were read, and what to do; `Try again`, as a click on
+    /// it in the switcher. The cards under it are dimmed.
+    fn banner(&self, error: &str, now: f64, cx: &mut Context<Self>) -> Div {
+        let ui = UiFont::get(cx);
+        let fg = |pick: Pick| hsla(self.theme.fg(pick), 1.0);
+        let (red, dim, text) = (
+            fg(|t| t.agents_red),
+            fg(|t| t.agents_dim),
+            fg(|t| t.agents_text),
+        );
+        let shown = self.machines.iter().position(|machine| machine.shown);
+        let name = self.remote.as_ref().map_or("", |link| link.name.as_str());
+        // Down, as the switcher says; else corral there failed: why.
+        let (headline, step) = match shown.and_then(|index| self.machines[index].trouble.clone()) {
+            Some(trouble) => trouble,
+            None => (
+                format!("Can't read {name}"),
+                error.strip_prefix("corral: ").unwrap_or(error).to_owned(),
+            ),
+        };
+        let read = self.read_at.map(|at| {
+            format!(
+                "Showing what was read {} ago.",
+                card::short_time(Some(now - at))
+            )
+        });
+        let body = read.into_iter().chain([step]).collect::<Vec<_>>().join(" ");
+        let again = shown.map(|index| {
+            div()
+                .id("machine-try-again")
+                .flex_shrink_0()
+                .flex()
+                .items_center()
+                .h(ui.px(26.0))
+                .px(ui.px(12.0))
+                .rounded(ui.px(7.0))
+                .bg(text.opacity(0.09))
+                .border_1()
+                .border_color(text.opacity(0.14))
+                .text_color(text)
+                .font_weight(FontWeight::SEMIBOLD)
+                .cursor_pointer()
+                .hover(move |style| style.bg(text.opacity(0.14)))
+                .child("Try again")
+                .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
+                    cx.emit(SidebarEvent::Machine(index))
+                }))
+        });
+        div()
+            .flex_shrink_0()
+            .flex()
+            .items_start()
+            .gap(ui.px(8.0))
+            .px(ui.px(10.0))
+            .py(ui.px(8.0))
+            .rounded(ui.px(9.0))
+            .bg(red.opacity(0.09))
+            .border_1()
+            .border_color(red.opacity(0.32))
+            .text_size(ui.px(SECOND_SIZE))
+            .line_height(relative(1.45))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w(px(0.0))
+                    .flex()
+                    .flex_col()
+                    .child(
+                        div()
+                            .text_color(red)
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child(headline),
+                    )
+                    .child(div().text_color(dim).child(body)),
+            )
+            .children(again)
+    }
+
+    /// The offer over the footer (P5-122): the hint about what starts on This Mac alone, and
+    /// `Switch to This Mac`, which shows This Mac and then does it.
+    fn offer_card(&self, only: Only, cx: &mut Context<Self>) -> Div {
+        let ui = UiFont::get(cx);
+        let fg = |pick: Pick| hsla(self.given.fg(pick), 1.0);
+        let (text, accent) = (fg(|t| t.agents_text), fg(|t| t.agents_accent));
+        let switch = div()
+            .id("switch-to-this-mac")
+            .flex_shrink_0()
+            .flex()
+            .items_center()
+            .h(ui.px(26.0))
+            .px(ui.px(12.0))
+            .rounded(ui.px(7.0))
+            .bg(accent.opacity(0.14))
+            .border_1()
+            .border_color(accent.opacity(0.4))
+            .text_color(accent)
+            .font_weight(FontWeight::SEMIBOLD)
+            .cursor_pointer()
+            .hover(move |style| style.bg(accent.opacity(0.22)))
+            .child("Switch to This Mac")
+            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                this.note = None;
+                cx.emit(SidebarEvent::ThisMac(only));
+                cx.notify();
+            }));
+        // On its own opaque ground: it lies over the list's end.
+        div()
+            .flex()
+            .items_center()
+            .gap(ui.px(10.0))
+            .mx(px(PAD))
+            .mb(ui.px(6.0))
+            .px(ui.px(10.0))
+            .py(ui.px(8.0))
+            .rounded(ui.px(9.0))
+            .bg(hsla(self.given.bg(|t| t.agents_bg), 1.0).blend(text.opacity(0.06)))
+            .border_1()
+            .border_color(text.opacity(0.12))
+            .shadow_md()
+            .text_size(ui.px(SECOND_SIZE))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w(px(0.0))
+                    .text_color(fg(|t| t.agents_dim))
+                    .child(only.hint()),
+            )
+            .child(switch)
+    }
+
+    /// Another machine not read yet (P5-122): `Connecting to <machine>…` and grey cards in the
+    /// place of its agents.
+    fn connecting(&self, cx: &mut Context<Self>) -> Div {
+        let ui = UiFont::get(cx);
+        let name = self.remote.as_ref().map_or("", |link| link.name.as_str());
+        let card = self.grounds().card;
+        let mut list = div().flex().flex_col().gap(px(CARD_GAP)).child(
+            div()
+                .px(px(8.0))
+                .pt(px(4.0))
+                .pb(px(2.0))
+                .text_size(ui.px(SECOND_SIZE))
+                .text_color(hsla(self.theme.fg(|t| t.agents_dim), 1.0))
+                .child(format!("Connecting to {name}…")),
+        );
+        for opacity in PLACEHOLDERS {
+            list = list.child(
+                div()
+                    .h(ui.px(AVATAR) + px(2.0 * (CARD_Y + 1.0)))
+                    .rounded(px(CARD_RADIUS))
+                    .bg(card)
+                    .opacity(opacity),
+            );
         }
+        list
     }
 
     /// The Inbox shows `row`'s reply: it is read, for the bell, its card and its tab.
@@ -2005,7 +2238,12 @@ impl Render for Sidebar {
                 }
             }
             // The note beside the footer's button, in line with the words beside the avatars.
-            let note = self.note.as_ref().zip(shown).map(|(note, opacity)| {
+            let note = self
+                .note
+                .as_ref()
+                .zip(shown)
+                .filter(|(note, _)| note.offer.is_none());
+            let note = note.map(|(note, opacity)| {
                 let text = card::elide(&note.text, &|cut| normal(cut, NOTE_SIZE) <= full);
                 // Cut short (agents that could not be paused, say), it shows whole on hover.
                 let whole = (text != note.text).then(|| note.text.clone());
@@ -2041,7 +2279,14 @@ impl Render for Sidebar {
             .px(px(PAD))
             .pt(px(2.0))
             .pb(px(end));
-        if !listed && self.listing.loaded {
+        // Another machine that cannot be read: the banner over its list, in place of the error's
+        // line; not read yet, grey cards (P5-122).
+        if let (Some(error), Some(_)) = (&self.listing.error, &self.remote) {
+            list = list.child(self.banner(error, now, cx));
+        } else if self.remote.is_some() && !self.listing.loaded {
+            list = list.child(self.connecting(cx));
+        }
+        if !listed && self.listing.loaded && !stale {
             // Nothing listed: why, or how to start one, in the middle of the list.
             let quiet = match (lines.first(), &self.remote) {
                 (Some(Line::Error(text)), None) => quiet(
@@ -2049,15 +2294,6 @@ impl Render for Sidebar {
                     &ui,
                     "Can't read corral",
                     text,
-                    None,
-                    None,
-                    grounds.selected,
-                ),
-                (Some(Line::Error(text)), Some(link)) => quiet(
-                    &theme,
-                    &ui,
-                    &format!("Can't read {}", link.name),
-                    &self.stale_line(text, now),
                     None,
                     None,
                     grounds.selected,
@@ -2132,16 +2368,15 @@ impl Render for Sidebar {
                 let Some((index, line)) = next else { break };
                 let first = inside.is_empty();
                 inside.push(match line {
+                    // Another machine's says it in the banner over the list.
+                    Line::Error(_) if self.remote.is_some() => continue,
                     // The list corral last gave stays below this.
                     Line::Error(text) => div()
                         .px(px(8.0))
                         .pt(px(6.0))
                         .text_size(ui.px(NOTE_SIZE))
                         .text_color(fg(|t| t.agents_red))
-                        .child(match self.remote {
-                            None => text,
-                            Some(_) => self.stale_line(&text, now),
-                        })
+                        .child(text)
                         .into_any_element(),
                     // Sixteen points below the card above, the gap between lines included
                     // (closer to the top for the first: the window's title bar is over it); under
@@ -2230,6 +2465,11 @@ impl Render for Sidebar {
                 .opacity(opacity)
                 .child(text)
         });
+        let offer = self
+            .note
+            .as_ref()
+            .and_then(|note| note.offer)
+            .map(|only| self.offer_card(only, cx));
         let footer = div()
             .flex_shrink_0()
             .h(ui.px(FOOTER))
@@ -2283,6 +2523,7 @@ impl Render for Sidebar {
                             .when(self.remote.is_none(), |foot| {
                                 foot.child(self.activity.clone())
                             })
+                            .children(offer)
                             .child(if self.frosted {
                                 footer
                             } else {
@@ -2299,6 +2540,9 @@ struct Note {
     text: String,
     /// A problem: it stays, in red, until the next note.
     problem: bool,
+    /// The offer to switch to This Mac for what starts there alone (P5-122): it stays, in neutral
+    /// words, with its button.
+    offer: Option<Only>,
     /// When it came.
     at: Instant,
     /// The system's Reduce Motion then: it goes at once rather than fading.
@@ -2310,14 +2554,20 @@ impl Note {
         Self {
             text,
             problem,
+            offer: None,
             at,
             still,
         }
     }
 
+    /// It stays until the next note rather than fading.
+    fn stays(&self) -> bool {
+        self.problem || self.offer.is_some()
+    }
+
     /// How much of it shows `now`: all of it while it holds, less as it fades, `None` once gone.
     fn opacity(&self, now: Instant) -> Option<f32> {
-        if self.problem {
+        if self.stays() {
             return Some(1.0);
         }
         let Some(fading) = now
@@ -2334,7 +2584,7 @@ impl Note {
 
     /// Whether it is fading `now`, and needs drawing every frame.
     fn fading(&self, now: Instant) -> bool {
-        !self.problem && now >= self.at + NOTE_HOLD && self.opacity(now).is_some()
+        !self.stays() && now >= self.at + NOTE_HOLD && self.opacity(now).is_some()
     }
 }
 
