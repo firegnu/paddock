@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Agent count on the capsule</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+.lab{font-size:12px;color:#9aa5a2;width:120px;flex:none;line-height:1.4}
+.well{width:300px;box-sizing:border-box;display:flex;padding:3px;border-radius:999px;background:#111515;box-shadow:inset 0 1px 2px rgba(0,0,0,.6),0 1px 0 rgba(255,255,255,.05);border:1px solid rgba(232,236,234,.09)}
+.p{flex:1;display:flex;align-items:center;justify-content:center;gap:6px;height:28px;border-radius:999px;font-size:14px;color:#e8ecea}
+.p.on{background:#7ccfbd;color:#10201c;font-weight:600}
+.dot{width:7px;height:7px;border-radius:4px;background:#8fd39a;flex:none}
+.on .dot{background:#10201c}
+.chip{display:inline-flex;align-items:center;height:17px;padding:0 6px;border-radius:999px;background:rgba(232,236,234,.10);font-size:11px;font-weight:500;color:#b9c2bf;font-variant-numeric:tabular-nums}
+.on .chip{background:rgba(16,32,28,.16);color:#10201c}
+.gchip{display:inline-flex;align-items:center;gap:4px;height:17px;padding:0 6px 0 5px;border-radius:999px;background:rgba(143,211,154,.16);font-size:11px;font-weight:600;color:#8fd39a;font-variant-numeric:tabular-nums}
+.gchip i{width:6px;height:6px;border-radius:3px;background:#8fd39a}
+.on .gchip{background:rgba(16,32,28,.16);color:#10201c}
+.on .gchip i{background:#10201c}
+.ico{display:inline-flex;align-items:center;gap:3px;font-size:12px;color:#9aa5a2;font-variant-numeric:tabular-nums}
+.on .ico{color:rgba(16,32,28,.75)}
+</style>
+</helmet>
+<div style="width: 820px; height: 330px; box-sizing: border-box; padding: 24px 28px; display: flex; flex-direction: column; gap: 18px; background: #262a2a; font-family: -apple-system, 'SF Pro Text', 'Helvetica Neue', sans-serif; color: #e8ecea; font-size: 13px">
+  <div style="display: flex; align-items: center; gap: 24px">
+    <span class="lab">现在（返工 1）</span>
+    <div class="well"><span class="p on">This Mac</span><span class="p">5090 <span style="font-size: 12.5px; color: #9aa5a2">1</span><span class="dot"></span></span></div>
+    <div class="well"><span class="p">This Mac</span><span class="p on">5090 <span style="font-size: 12.5px; opacity: .75">1</span><span class="dot"></span></span></div>
+  </div>
+  <div style="display: flex; align-items: center; gap: 24px">
+    <span class="lab">一　计数小签<br>（同 Cairn 切换的条数签）</span>
+    <div class="well"><span class="p on">This Mac</span><span class="p">5090 <span class="dot"></span><span class="chip">1</span></span></div>
+    <div class="well"><span class="p">This Mac</span><span class="p on">5090 <span class="dot"></span><span class="chip">1</span></span></div>
+  </div>
+  <div style="display: flex; align-items: center; gap: 24px">
+    <span class="lab">二　状态点和数合成一枚</span>
+    <div class="well"><span class="p on">This Mac</span><span class="p">5090 <span class="gchip"><i></i>1</span></span></div>
+    <div class="well"><span class="p">This Mac</span><span class="p on">5090 <span class="gchip"><i></i>1</span></span></div>
+  </div>
+  <div style="display: flex; align-items: center; gap: 24px">
+    <span class="lab">三　小图标加数</span>
+    <div class="well"><span class="p on">This Mac</span><span class="p">5090 <span class="dot"></span><span class="ico"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="7" width="16" height="12" rx="3"></rect><path d="M12 3v4M9 12h.01M15 12h.01"></path></svg>1</span></span></div>
+    <div class="well"><span class="p">This Mac</span><span class="p on">5090 <span class="dot"></span><span class="ico"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="7" width="16" height="12" rx="3"></rect><path d="M12 3v4M9 12h.01M15 12h.01"></path></svg>1</span></span></div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":820,"height":330}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

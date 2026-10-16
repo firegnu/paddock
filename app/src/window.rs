@@ -20,6 +20,7 @@ use crate::{
     kind_icon,
     layout::{self, Axis, Direction, Node, PaneId, Placement, Shown, Workspace},
     layout_state::{Board, Content, Layout, Store, WindowSize},
+    local_only::{self, Ask, Only, Step},
     menu,
     motion::{self, HoverMotion},
     new_agent::{self, Place, Started},
@@ -472,6 +473,22 @@ const TO_TAG_END: f32 = 10.0;
 const TO_TAG_RIM: f32 = 0.14;
 const TO_TAG_ICON_REST: f32 = 0.5;
 const TO_TAG_INK: f32 = 0.8;
+/// Another machine's mark before the name in its pane's header (P5-122): its height, the room at
+/// its ends, its dot and the room after it, its text's size and how much of its colour its ground
+/// takes. In the name tag, the machine after the name: the room at its ends, its corners and its
+/// ground, in the terminal's ground on the lit tag and in the text colour at rest.
+const MACHINE_CHIP: f32 = 18.0;
+const MACHINE_CHIP_X: f32 = 7.0;
+const MACHINE_DOT: f32 = 6.0;
+const MACHINE_DOT_GAP: f32 = 5.0;
+const MACHINE_TEXT: f32 = 11.0;
+const MACHINE_GROUND: f32 = 0.14;
+const MACHINE_TAG_X: f32 = 5.0;
+const MACHINE_TAG_RADIUS: f32 = 4.0;
+const MACHINE_TAG_GROUND: [f32; 2] = [0.08, 0.18];
+/// How far apart in hue another machine's colour keeps from the accent: the theme's blue when it
+/// is this far, else its purple when that is further.
+const MACHINE_APART: f32 = 30.0 / 360.0;
 /// The kind icon in a tab or a pane's header, and the status dot on its corner.
 const BADGE_ICON: f32 = 13.0;
 const BADGE_DOT: f32 = 6.0;
@@ -851,6 +868,26 @@ pub fn short_dir(path: &str, home: Option<&str>) -> String {
     }
 }
 
+/// The machine a pane's header and name tag mark (P5-122): `machine`, the one on show when not
+/// this Mac, for a pane that shows one of its agents; none on this Mac.
+fn machine_mark<'a>(machine: Option<&'a str>, shown: &Shown) -> Option<&'a str> {
+    machine.filter(|_| matches!(shown, Shown::Agent(_)))
+}
+
+/// The colour another machine is marked in (P5-122), set apart from the `accent`: the theme's
+/// `blue`, or its `purple` when the blue is near the accent in hue and the purple further.
+fn machine_ink(accent: Hsla, blue: Hsla, purple: Hsla) -> Hsla {
+    let apart = |color: Hsla| {
+        let turn = (color.h - accent.h).abs();
+        turn.min(1.0 - turn)
+    };
+    if apart(blue) >= MACHINE_APART || apart(purple) <= apart(blue) {
+        blue
+    } else {
+        purple
+    }
+}
+
 /// A pane's header, and the Changes header: the name, an agent's as [`agent_name`] has it
 /// among the agents `open` in the window, and the directory, short, when there is one.
 pub fn pane_name(
@@ -1115,6 +1152,18 @@ fn switcher_status(link: &remote::Link, now: Instant) -> (Option<String>, bool, 
             };
             (Some(label), true, problem.advice(&link.target))
         }
+    }
+}
+
+/// While a machine is down, what the banner over its list says (P5-122): what stands, with its
+/// name, and what to do.
+fn trouble(link: &remote::Link) -> Option<(String, String)> {
+    match link.snapshot().status {
+        remote::Status::Down { problem, .. } => Some((
+            problem.headline(&link.name),
+            problem.next_step(&link.target),
+        )),
+        remote::Status::Online | remote::Status::Connecting => None,
     }
 }
 
@@ -1905,26 +1954,31 @@ impl PaddockWindow {
         let now = Instant::now();
         (0..self.seats.len())
             .map(|seat| {
-                let count = self.parts(seat).0.read(cx).ringing().len();
-                let (name, status, problem, tip) = match seat.checked_sub(1) {
+                let sidebar = self.parts(seat).0.read(cx);
+                let count = sidebar.ringing().len();
+                let agents = sidebar::agents_written(seat, sidebar.panel().agents.len());
+                let (name, status, problem, tip, trouble) = match seat.checked_sub(1) {
                     None => (
                         "This Mac".to_owned(),
                         None,
                         false,
                         "This Mac's corral".into(),
+                        None,
                     ),
                     Some(index) => {
                         let link = &self.machines[index];
                         let (status, problem, tip) = switcher_status(link, now);
-                        (link.name.clone(), status, problem, tip)
+                        (link.name.clone(), status, problem, tip, trouble(link))
                     }
                 };
                 sidebar::MachineTab {
                     name,
+                    agents,
                     count,
                     status,
                     problem,
                     tip,
+                    trouble,
                     shown: seat == self.seats.here(),
                 }
             })
@@ -1963,15 +2017,39 @@ impl PaddockWindow {
             .unwrap_or_default()
     }
 
-    /// Says on the sidebar that something is only on this Mac for now (DESIGN §13 P5-90).
-    fn only_here(&mut self, what: &str, cx: &mut Context<Self>) -> bool {
-        if self.seats.here() == 0 {
-            return false;
+    /// Whether `only` waits for This Mac: while another machine is on show, the sidebar offers to
+    /// switch to This Mac and do it there (DESIGN §13 P5-90, P5-122).
+    fn only_here(&mut self, only: Only, cx: &mut Context<Self>) -> bool {
+        match local_only::ask(self.seats.here(), only) {
+            Ask::Go => false,
+            Ask::Offer(only) => {
+                self.sidebar
+                    .update(cx, |sidebar, cx| sidebar.offer(only, cx));
+                true
+            }
         }
-        let text = format!("{what} on This Mac only for now.");
-        self.sidebar
-            .update(cx, |sidebar, cx| sidebar.note(text, true, cx));
-        true
+    }
+
+    /// `Switch to This Mac` on that offer: This Mac on show as the switcher shows it, then what
+    /// was asked for, there.
+    fn take_offer(&mut self, only: Only, window: &mut Window, cx: &mut Context<Self>) {
+        for step in local_only::take(only) {
+            match step {
+                Step::Show(seat) => self.switch(seat, window, cx),
+                Step::Then(Only::NewAgent) => self.open_new_agent(Place::Current, window, cx),
+                Step::Then(Only::NewShell) => self.new_shell(window, cx),
+                Step::Then(Only::NewWorkspace) => self.new_workspace(window, cx),
+            }
+        }
+    }
+
+    /// `New Workspace…`: the sidebar's own panel, nothing ticked (P5-89).
+    fn new_workspace(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.close_popup(window, cx);
+        if !self.only_here(Only::NewWorkspace, cx) {
+            self.sidebar
+                .update(cx, |s, cx| s.new_workspace(Default::default(), window, cx));
+        }
     }
 
     /// What a pane shows, in full, for the saved layout.
@@ -2441,6 +2519,7 @@ impl PaddockWindow {
                 self.close_ended(ended, window, cx);
             }
             SidebarEvent::Machine(seat) => self.pick_machine(*seat, window, cx),
+            SidebarEvent::ThisMac(only) => self.take_offer(*only, window, cx),
             SidebarEvent::ActivityFolded(folded) => {
                 self.activity_folded = *folded;
                 self.save_layout(cx);
@@ -2550,7 +2629,7 @@ impl PaddockWindow {
         cx: &mut Context<Self>,
     ) {
         // Another machine's agents would start there: not yet (DESIGN §13 P5-90).
-        if self.only_here("New agents start", cx) {
+        if self.only_here(Only::NewAgent, cx) {
             return;
         }
         let view = match &self.new_agent {
@@ -2980,7 +3059,7 @@ impl PaddockWindow {
 
     /// A shell: in the active pane when it is empty, else in a new tab.
     fn new_shell(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.only_here("Shells open", cx) {
+        if self.only_here(Only::NewShell, cx) {
             return;
         }
         let active = self.workspace.active_pane();
@@ -3216,7 +3295,8 @@ impl PaddockWindow {
         if choice == Choice::AgentShell && !crate::agent_shell::supported(&self.new_shell.program) {
             return;
         }
-        if matches!(choice, Choice::Shell | Choice::AgentShell) && self.only_here("Shells open", cx)
+        if matches!(choice, Choice::Shell | Choice::AgentShell)
+            && self.only_here(Only::NewShell, cx)
         {
             return;
         }
@@ -3518,19 +3598,91 @@ impl PaddockWindow {
     }
 
     /// Changes, Kanban and Cairn while another machine is on show: they read this Mac only
-    /// (DESIGN §13 P5-90).
-    fn reads_here(&self, ui: &UiFont) -> Div {
+    /// (DESIGN §13 P5-90). A card in the middle says so (P5-122): the tab's icon in the machine's
+    /// colour, `<tab> reads This Mac`, why, and `Show This Mac`, which switches to it.
+    fn reads_here(&self, tab: RightTab, ui: &UiFont, cx: &mut Context<Self>) -> Div {
         let machine = self.remote().map_or("", |link| link.name.as_str());
-        let text = match self.workspace.active_agent() {
-            Some(name) => format!("{name} runs on {machine}; this tab reads this Mac only."),
-            None => format!("Agents here run on {machine}; this tab reads this Mac only."),
+        let who = match self.workspace.active_agent() {
+            Some(name) => format!("{name} runs on {machine}."),
+            None => format!("Agents here run on {machine}."),
         };
+        let icon = match tab {
+            RightTab::Changes => Icon::Changes,
+            RightTab::Kanban => Icon::Kanban,
+            RightTab::Cairn => Icon::Cairn,
+            RightTab::Browser => Icon::Browser,
+        };
+        let (text, accent, ink) = (
+            self.fg(|t| t.agents_text),
+            self.fg(|t| t.agents_accent),
+            self.machine_ink(),
+        );
+        let show = div()
+            .id("show-this-mac")
+            .flex()
+            .items_center()
+            .h(ui.px(26.0))
+            .px(ui.px(12.0))
+            .rounded(ui.px(7.0))
+            .bg(accent.opacity(0.14))
+            .border_1()
+            .border_color(accent.opacity(0.4))
+            .text_color(accent)
+            .font_weight(FontWeight::SEMIBOLD)
+            .cursor_pointer()
+            .hover(move |style| style.bg(accent.opacity(0.22)))
+            .child("Show This Mac")
+            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                this.switch(local_only::THIS_MAC, window, cx)
+            }));
         div()
             .size_full()
+            .flex()
+            .items_center()
             .p(ui.px(16.0))
-            .text_size(ui.px(12.5))
-            .text_color(self.fg(|t| t.agents_dim))
-            .child(text)
+            .child(
+                div()
+                    .flex_1()
+                    .flex()
+                    .flex_col()
+                    .items_center()
+                    .gap(ui.px(8.0))
+                    .px(ui.px(12.0))
+                    .py(ui.px(20.0))
+                    .rounded(ui.px(12.0))
+                    .bg(text.opacity(0.035))
+                    .border_1()
+                    .border_dashed()
+                    .border_color(text.opacity(0.12))
+                    .text_center()
+                    .text_size(ui.px(12.0))
+                    .line_height(relative(1.5))
+                    .child(
+                        div()
+                            .size(ui.px(34.0))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .rounded(ui.px(9.0))
+                            .bg(ink.opacity(0.12))
+                            .child(footer_icon::icon(
+                                icon,
+                                ink,
+                                ui.scale(18.0 / footer_icon::SIZE),
+                            )),
+                    )
+                    .child(
+                        div()
+                            .text_size(ui.px(13.0))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(text)
+                            .child(format!("{} reads This Mac", tab.label())),
+                    )
+                    .child(div().text_color(self.fg(|t| t.agents_dim)).child(format!(
+                        "{who} Changes, Kanban and Cairn read only this Mac's repositories for now."
+                    )))
+                    .child(show),
+            )
     }
 
     /// The open shells' directories, sorted and without repeats: with the agents', the
@@ -3720,6 +3872,23 @@ impl PaddockWindow {
 
     fn fg(&self, pick: Pick) -> Hsla {
         hsla(self.theme.fg(pick), 1.0)
+    }
+
+    /// The colour another machine is marked in, from the theme (see [`machine_ink`]).
+    fn machine_ink(&self) -> Hsla {
+        machine_ink(
+            self.fg(|t| t.agents_accent),
+            self.fg(|t| t.agents_blue),
+            self.fg(|t| t.agents_purple),
+        )
+    }
+
+    /// The machine `pane`'s header and name tag mark (see [`machine_mark`]).
+    fn pane_machine(&self, pane: PaneId) -> Option<&str> {
+        machine_mark(
+            self.remote().map(|link| link.name.as_str()),
+            self.workspace.shown(pane),
+        )
     }
 
     /// A card on the frame, the right sidebar's: the terminal's ground, rounded, with a faint rim.
@@ -4935,6 +5104,7 @@ impl PaddockWindow {
             }
             Subject::Command(_) | Subject::Empty => (name, None),
         };
+        let machine = self.pane_machine(pane).map(str::to_owned);
         // The room the name and the icons leave in the panel as it was last drawn; until then,
         // the text as it is.
         let drawn = self.spots.borrow().get(&Spot::Pane(pane)).copied();
@@ -4944,8 +5114,14 @@ impl PaddockWindow {
                     |text: &str, weight| ui_text_width(window, &ui, text, PANE_HEADER_TEXT, weight);
                 let name_width = width(name.0.as_deref().unwrap_or_default(), FontWeight::NORMAL)
                     + width(&name.1, FontWeight::SEMIBOLD);
+                let chip = machine.as_deref().map_or(0.0, |machine| {
+                    ui_text_width(window, &ui, machine, MACHINE_TEXT, FontWeight::SEMIBOLD)
+                        + (2.0 * MACHINE_CHIP_X + MACHINE_DOT + MACHINE_DOT_GAP + PANE_HEADER_GAP)
+                            * scale
+                });
                 let room = f32::from(bounds.size.width)
                     - name_width
+                    - chip
                     - (PANE_HEADER_START
                         + BADGE_ICON
                         + 2.0
@@ -5074,6 +5250,25 @@ impl PaddockWindow {
                 None,
                 &ui,
             ))
+            // Another machine's agent: the machine before its name (P5-122).
+            .children(machine.map(|machine| {
+                let ink = self.machine_ink();
+                div()
+                    .flex_shrink_0()
+                    .flex()
+                    .items_center()
+                    .gap(ui.px(MACHINE_DOT_GAP))
+                    .h(ui.px(MACHINE_CHIP))
+                    .px(ui.px(MACHINE_CHIP_X))
+                    .rounded_full()
+                    .bg(ink.opacity(MACHINE_GROUND))
+                    .whitespace_nowrap()
+                    .text_size(ui.px(MACHINE_TEXT))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(ink)
+                    .child(div().size(ui.px(MACHINE_DOT)).rounded_full().bg(ink))
+                    .child(machine)
+            }))
             .child(
                 div()
                     .flex_shrink_0()
@@ -5135,8 +5330,11 @@ impl PaddockWindow {
         let width = |text: &str, lit: bool, weight| {
             ui_text_width(window, &ui, text, TO_TAG_TEXT[usize::from(lit)], weight)
         };
+        // Another machine's agent: the machine after the name (P5-122).
+        let machine = self.pane_machine(pane);
+        let ink = self.machine_ink();
         // How wide a tag is but for its topic: the rim's two points, the room at its ends, `To`
-        // and the icon with the gaps after them, and the name.
+        // and the icon with the gaps after them, the name, and the machine with the gap before it.
         let bare = |lit: bool| {
             let i = usize::from(lit);
             let (start, end) = TO_TAG_PAD[i];
@@ -5148,7 +5346,10 @@ impl PaddockWindow {
             } else {
                 (0.0, FontWeight::NORMAL)
             };
-            2.0 + (start + end + icon) * scale + to + width(name, lit, weight)
+            let machine = machine.map_or(0.0, |machine| {
+                (gap + 2.0 * MACHINE_TAG_X) * scale + width(machine, lit, FontWeight::NORMAL)
+            });
+            2.0 + (start + end + icon) * scale + to + width(name, lit, weight) + machine
         };
         // On the accent, the lit tag's parts are drawn in the terminal's ground.
         let tag = |label: to_tag::Label| {
@@ -5184,6 +5385,15 @@ impl PaddockWindow {
                         })
                         .child(label.name),
                 )
+                .children(label.machine.map(|machine| {
+                    let (words, under) = if lit { (ground, ground) } else { (ink, text) };
+                    part()
+                        .px(ui.px(MACHINE_TAG_X))
+                        .rounded(ui.px(MACHINE_TAG_RADIUS))
+                        .bg(under.opacity(MACHINE_TAG_GROUND[i]))
+                        .text_color(words)
+                        .child(machine)
+                }))
                 .children(label.topic.map(|topic| part().child(format!("· {topic}"))))
         };
         // A tag at the terminal's right, on the row the view has room for it, `down` points below
@@ -5196,13 +5406,13 @@ impl PaddockWindow {
             }
         };
         let on = view.tag_top(bare(false), ui.scale(TO_TAG[0]), TO_TAG_END);
-        let rest = place(tag(to_tag::label(name, None, false)), on, 0.0)
+        let rest = place(tag(to_tag::label(name, machine, None, false)), on, 0.0)
             .bg(ground)
             .border_color(text.opacity(TO_TAG_RIM))
             .text_color(self.fg(|t| t.agents_dimmer));
         let lit = (glow > 0.0).then(|| {
             let topic = view.terminal_title().as_deref().and_then(session_topic);
-            let mut label = to_tag::label(name, topic.as_deref(), true);
+            let mut label = to_tag::label(name, machine, topic.as_deref(), true);
             let taken = bare(true);
             let gap = TO_TAG_GAP[1] * scale;
             let dotted = |topic: &str| width(&format!("· {topic}"), true, FontWeight::NORMAL);
@@ -5278,6 +5488,20 @@ impl PaddockWindow {
                 this.pause_active(window, cx);
             }));
         }
+        // What starts on This Mac alone: off while another machine is on show, `This Mac` at
+        // their right (P5-122).
+        let (on, aside) = local_only::menu_row(self.seats.here());
+        let only = |id: &'static str,
+                    icon: Icon,
+                    label: &'static str,
+                    shortcut: Option<&dyn gpui::Action>| {
+            let tone = if on { Tone::Plain } else { Tone::Off };
+            let row = popover::row(theme, &ui, id, icon, label, tone);
+            match aside {
+                Some(aside) => row.child(popover::keys(theme, &ui, &[aside.to_owned()])),
+                None => row.children(shortcut.map(&keys)),
+            }
+        };
         let (left, bottom) = sidebar::menu_anchor(self.collapsed, &ui);
         let panel = popover::panel(theme, &ui)
             .id("actions-menu")
@@ -5287,50 +5511,44 @@ impl PaddockWindow {
             .w(ui.px(252.0))
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .child(
-                popover::row(
-                    theme,
-                    &ui,
+                only(
                     "menu-new-agent",
                     Icon::NewAgent,
                     "New Agent…",
-                    Tone::Plain,
+                    Some(&menu::NewAgent),
                 )
-                .child(keys(&menu::NewAgent))
-                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                    this.open_new_agent(Place::Current, window, cx);
-                })),
+                .when(on, |row| {
+                    row.on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                        this.open_new_agent(Place::Current, window, cx);
+                    }))
+                }),
             )
             .child(
-                popover::row(
-                    theme,
-                    &ui,
+                only(
                     "menu-new-shell",
                     Icon::NewShell,
                     "New Shell",
-                    Tone::Plain,
+                    Some(&menu::NewShell),
                 )
-                .child(keys(&menu::NewShell))
-                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                    this.close_popup(window, cx);
-                    this.new_shell(window, cx);
-                })),
+                .when(on, |row| {
+                    row.on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                        this.close_popup(window, cx);
+                        this.new_shell(window, cx);
+                    }))
+                }),
             )
             .child(
-                popover::row(
-                    theme,
-                    &ui,
+                only(
                     "menu-new-workspace",
                     Icon::NewWorkspace,
                     "New Workspace…",
-                    Tone::Plain,
+                    None,
                 )
-                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                    this.close_popup(window, cx);
-                    if !this.only_here("Workspaces are", cx) {
-                        this.sidebar
-                            .update(cx, |s, cx| s.new_workspace(Default::default(), window, cx));
-                    }
-                })),
+                .when(on, |row| {
+                    row.on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                        this.new_workspace(window, cx)
+                    }))
+                }),
             )
             .child(popover::rule(theme, &ui))
             .child(
@@ -6644,8 +6862,8 @@ impl Render for PaddockWindow {
         // The right sidebar, a card pushed out from the right edge: the terminal narrows for it.
         if let Some(width) = right {
             let content = match self.right.tab {
-                RightTab::Changes | RightTab::Kanban | RightTab::Cairn if away => {
-                    self.reads_here(&ui).into_any_element()
+                tab @ (RightTab::Changes | RightTab::Kanban | RightTab::Cairn) if away => {
+                    self.reads_here(tab, &ui, cx).into_any_element()
                 }
                 RightTab::Changes => AnyView::from(self.changes.clone())
                     .cached(StyleRefinement::default().size_full())
@@ -6792,13 +7010,8 @@ impl Render for PaddockWindow {
                 this.sidebar.update(cx, |s, cx| s.toggle_sort(cx));
                 cx.notify();
             }))
-            // The sidebar's own panel, nothing ticked (P5-89).
             .on_action(cx.listener(|this, _: &menu::NewWorkspace, window, cx| {
-                this.close_popup(window, cx);
-                if !this.only_here("Workspaces are", cx) {
-                    this.sidebar
-                        .update(cx, |s, cx| s.new_workspace(Default::default(), window, cx));
-                }
+                this.new_workspace(window, cx)
             }))
             .on_action(cx.listener(|this, _: &menu::ToggleSidebar, _, cx| this.toggle_sidebar(cx)))
             .on_action(
@@ -7796,5 +8009,52 @@ mod tests {
         assert_eq!(chooser_child(true, 3), 5);
         // Split: OPEN …, then every row.
         assert_eq!(chooser_child(false, 2), 3);
+    }
+
+    /// The header's machine mark and the name tag's machine (P5-122): another machine's agent
+    /// pane has them; this Mac's panes, and a pane without an agent, never.
+    #[test]
+    fn only_another_machines_agent_panes_are_marked_with_the_machine() {
+        let agent = Shown::Agent("pi-main".into());
+        assert_eq!(machine_mark(None, &agent), None);
+        assert_eq!(machine_mark(None, &Shown::Shell), None);
+        assert_eq!(machine_mark(Some("5090"), &agent), Some("5090"));
+        assert_eq!(machine_mark(Some("5090"), &Shown::Empty), None);
+        assert_eq!(machine_mark(Some("5090"), &Shown::Shell), None);
+    }
+
+    /// The machine's colour stays apart from the accent in every preset: the blue, or the purple
+    /// where the blue is the accent's near neighbour (Tokyo Night's is the same blue).
+    #[test]
+    fn the_machines_colour_keeps_apart_from_the_accent_in_every_preset() {
+        let apart = |a: Hsla, b: Hsla| {
+            let turn = (a.h - b.h).abs();
+            turn.min(1.0 - turn)
+        };
+        for name in crate::preset::Preset::ALL.map(crate::preset::Preset::name) {
+            let theme = Theme::from_config(&crate::config::Config {
+                theme: Some(name.into()),
+                ..crate::config::Config::default()
+            })
+            .unwrap();
+            let fg = |pick: Pick| hsla(theme.fg(pick), 1.0);
+            let accent = fg(|t| t.agents_accent);
+            let (blue, purple) = (fg(|t| t.agents_blue), fg(|t| t.agents_purple));
+            let ink = machine_ink(accent, blue, purple);
+            assert!(ink == blue || ink == purple, "{name}");
+            assert!(
+                apart(ink, accent) >= MACHINE_APART,
+                "{name}: {:.0}° from the accent",
+                apart(ink, accent) * 360.0
+            );
+        }
+        // The blue whenever it is far enough.
+        let accent = gpui::hsla(0.45, 0.5, 0.6, 1.0);
+        let (blue, purple) = (
+            gpui::hsla(0.61, 0.7, 0.7, 1.0),
+            gpui::hsla(0.70, 0.6, 0.7, 1.0),
+        );
+        assert_eq!(machine_ink(accent, blue, purple), blue);
+        assert_eq!(machine_ink(blue, blue, purple), purple);
     }
 }

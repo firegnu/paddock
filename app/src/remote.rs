@@ -109,6 +109,40 @@ impl Problem {
         }
     }
 
+    /// The first line of the banner over the list of `machine`'s agents (P5-122): the switcher's
+    /// words, with the machine in them.
+    pub fn headline(&self, machine: &str) -> String {
+        match self {
+            Problem::SignIn(_) => format!("Can't sign in to {machine}"),
+            Problem::HostKey(_) => format!("Host key of {machine} unknown"),
+            Problem::Unreachable(_) => format!("Can't connect to {machine}"),
+            Problem::NoCorral(_) => format!("corral not found on {machine}"),
+            Problem::Contract(contract) => {
+                format!("corral contract {contract} on {machine}, needs {CONTRACT}")
+            }
+            Problem::Quoting => format!("Shell on {machine} not supported"),
+            Problem::Local(_) => format!("Can't start ssh for {machine}"),
+        }
+    }
+
+    /// What to do, as the hover note says it, for the banner (which has its own `Try again`); for
+    /// a problem on this side, what went wrong.
+    pub fn next_step(&self, target: &str) -> String {
+        match self {
+            Problem::SignIn(_) => format!(
+                "Run ssh {target} once in Terminal; a key with a passphrase needs ssh-add first."
+            ),
+            Problem::HostKey(_) => {
+                format!("Run ssh {target} once in Terminal to check and accept its host key.")
+            }
+            Problem::Unreachable(_) => "Trying again by itself.".into(),
+            Problem::NoCorral(_) => "Install corral there with ranch, or write its path as corral = \"…\" under this [[machines]] entry.".into(),
+            Problem::Contract(_) => "Upgrade corral on that machine.".into(),
+            Problem::Quoting => "paddock needs sh, bash or zsh there.".into(),
+            Problem::Local(why) => why.clone(),
+        }
+    }
+
     /// Worth retrying soon by itself: the network, not something the user must fix.
     pub fn transient(&self) -> bool {
         matches!(self, Problem::Unreachable(_))
@@ -693,5 +727,22 @@ mod tests {
             Problem::Unreachable(_)
         ));
         assert!(matches!(classify(""), Problem::Unreachable(said) if said == "ssh failed"));
+    }
+
+    /// The banner over a machine's list that cannot be read (P5-122): the switcher's words with the
+    /// machine's name, and the hover note's next step without its `click to try now`.
+    #[test]
+    fn the_banner_names_the_machine_and_says_what_to_do() {
+        let down = Problem::Unreachable("ssh: connect to host 5090 port 22: timed out".into());
+        assert_eq!(down.headline("5090"), "Can't connect to 5090");
+        assert_eq!(down.next_step("me@5090"), "Trying again by itself.");
+        assert!(down.advice("me@5090").contains("click to try now"));
+        let sign_in = Problem::SignIn("Permission denied".into());
+        assert_eq!(sign_in.headline("5090"), "Can't sign in to 5090");
+        assert!(
+            sign_in
+                .advice("me@5090")
+                .ends_with(&sign_in.next_step("me@5090"))
+        );
     }
 }
