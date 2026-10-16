@@ -186,10 +186,14 @@ pub enum Ledger {
     Groups(Vec<Group>),
 }
 
+/// The group of cairn's lessons (0.6.0), kept beside the ledger rather than in it: the tab shows
+/// them on a page of their own (P5-121).
+pub const LESSONS: &str = "Lessons";
+
 /// The entries of one kind, by number.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Group {
-    /// `State`, `Open`, `Conventions`, or `Other` for kinds cairn adds later.
+    /// `State`, `Open`, `Conventions`, [`LESSONS`], or `Other` for kinds cairn adds later.
     pub name: &'static str,
     pub entries: Vec<Entry>,
 }
@@ -511,12 +515,13 @@ fn show(program: &str, cwd: &str, cancel: &AtomicBool) -> Result<Option<Shown>, 
     }
 }
 
-/// The ledger's kinds as cairn names them, in its order, and what the tab calls each; those it
-/// adds later go under `Other`, after them.
-const KINDS: [(&str, &str); 3] = [
+/// The ledger's kinds as cairn names them, in its order, and what the tab calls each, its lessons
+/// last; those it adds later go under `Other`, after them.
+const KINDS: [(&str, &str); 4] = [
     ("state", "State"),
     ("open", "Open"),
     ("convention", "Conventions"),
+    ("lesson", LESSONS),
 ];
 
 /// The project's ledger: `cairn ledger --json` run in `cwd`, the entries in `given` marked as
