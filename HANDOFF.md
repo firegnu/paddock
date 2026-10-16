@@ -4,9 +4,9 @@
 
 ## 现在在哪
 
-- **没有进行中的活**：没有任务 worktree，主控没开测试 agent（corral 里的其他 agent 都是用户的）。工作区里未提交的草稿是 P5-54、P5-106、P5-111、P5-115、P5-120、P5-122（看板 DRAFT，有意留，不要 `git add -A`）。
-- `~/Applications/paddock.app` 是合并 P5-90 之后的版本（10-16 19:03 装，本机 Apple Development 证书签名）。
-- 已合并：第一至第三阶段、迁移 M0–M3、P4-1～P4-3、P5-1～P5-80、P5-82、P5-85～P5-89、P5-90、P5-90a、P5-91～P5-105、P5-107～P5-110、P5-112～P5-114、P5-114a、P5-116～P5-118、P5-118a、P5-119、P5-121、P5-121a（P5-95b 已被 P5-95c 撤）。P5-83 已收尾（讨论记录）；P5-84、P5-81 不做；P5-52 只查明原因、改法用户暂不定。
+- **没有进行中的活**：没有任务 worktree。主控在 5090 上开着一个测试 agent `paddock/test-pi`（pi，`role=test`，目录远端家目录，用户要的、拿来看远程视图；经远端 `zsh -l` 跑 `$HOME/.local/bin/corral start` 开的，非交互 ssh 找不到 nvm 下的 pi），用完 `corral stop`。工作区里未提交的草稿是 P5-54、P5-106、P5-111、P5-115、P5-120、P5-123（看板 DRAFT，有意留，不要 `git add -A`）。
+- `~/Applications/paddock.app` 是合并 P5-122 之后的版本（10-16 22:58 装，本机 Apple Development 证书签名）。
+- 已合并：第一至第三阶段、迁移 M0–M3、P4-1～P4-3、P5-1～P5-80、P5-82、P5-85～P5-89、P5-90、P5-90a、P5-91～P5-105、P5-107～P5-110、P5-112～P5-114、P5-114a、P5-116～P5-118、P5-118a、P5-119、P5-121、P5-121a、P5-122（P5-95b 已被 P5-95c 撤）。P5-83 已收尾（讨论记录）；P5-84、P5-81 不做；P5-52 只查明原因、改法用户暂不定。
 - **远程机器（P5-90 甲）**：用户本机 `~/.config/paddock/config.toml` 已加一台 `[[machines]]`（名字 `5090`，ssh 别名在本机配置里，不进仓库）；只有 P5-90 之后的版本认这一项，旧版会报配置错。远端 corral 用 `$HOME/.local/bin/corral`（ranch R10 部署）。
 - 重新打包安装：在 `app/` 下 `cargo build --release`，再 `cargo run --release --example bundle -- --install`（编译目录 `.target/main`）。打包默认选本机 Apple Development 身份，可用 `PADDOCK_SIGN_IDENTITY` 指定；退回 ad-hoc 时会提示授权会失效。
 - **paddock ctl 已部署**：`~/.local/bin/paddock` 链到 app 里的程序，重新打包后不用重建；技能正文改了要重跑 `paddock install-skills`（装在 `~/.claude/skills/paddock`、`~/.agents/skills/paddock`、`~/.gemini/config/skills/paddock`），已开着的 agent 要重开才看到。
@@ -27,7 +27,7 @@
 1. **P5-54** Browser 选中元素、Changes 选中 diff 写上要怎么改后送给 agent（优先：高，草稿）。主控提议（用户还没表态）：样稿主控自己做；实现拆成 P5-54a Changes、P5-54b Browser（WKWebView 注入 JS 加 WKScriptMessageHandler，代码库里还没有），a 合并后再派 b；测试只用假 corral。下次从列出待定问题开始。
 2. **P5-106 看板加 loop**（草稿）：五个待定问题列在草稿里，等用户想好再定范围和验收。
 3. **P5-120 委派的 agent 放进 sandbox**（草稿）：五个待定问题在草稿里（先调研还是直接做、放哪一层、管到什么程度、哪些 agent、用什么做），等用户定。
-4. **P5-122 继续远程 agent 的接入**（草稿）：在 paddock 里开远程 agent、远程显示的界面优化等；五个待定问题在草稿里，等用户定。
+4. **P5-123 远程机器藏起来、放回来、删掉**（草稿，依赖 P5-122 已合并）：Settings 加 Machines 一页加胶囊右键；样稿在画布「P5-123 远程机器样稿」和 `docs/设计稿/P5-123-远程机器/`（未提交），六个待定问题在草稿里，等用户看样稿定。P5-122 里决定不做在 paddock 里新建远程 agent（用户 10-16 认为不必要）。
 5. 以后：Changes 第二步（行上评论发给 agent、暂存、撤销，可能和 P5-54a 合并考虑）；Kanban 能拖来纠正（排在后面）。
 
 ## 用户用到时顺带看（不用决定、不挡任何事）
