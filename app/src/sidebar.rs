@@ -2027,6 +2027,7 @@ impl Sidebar {
             bar,
             folded,
             showing,
+            stack,
             workspace,
             ..
         } = heading;
@@ -2036,6 +2037,9 @@ impl Sidebar {
         let (dim, dimmer) = (fg(|t| t.agents_dim), fg(|t| t.agents_dimmer));
         // The agent the active pane shows is folded away in it.
         let showing = folded && showing;
+        // Folded to this line, its agents' cards stacked before its name, as a folded workspace's
+        // title has them (P5-128); open, no icon.
+        let stack = (folded && !stack.is_empty()).then(|| self.stack_mark(&stack, &ui));
         let on_click = cx.listener(move |this, _: &ClickEvent, _, cx| {
             this.fold_group(workspace.as_deref(), &group, cx)
         });
@@ -2052,6 +2056,7 @@ impl Sidebar {
             .cursor_pointer()
             .hover(move |style| style.bg(lit))
             .on_click(on_click)
+            .children(stack)
             .child(
                 div()
                     .flex()

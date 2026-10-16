@@ -373,6 +373,26 @@ impl Sidebar {
 
     // The tray.
 
+    /// The mark led by the cards of the agents `stack` names, front first (P5-91): as a split
+    /// tab's mark, each the kind's icon in its colour, no status dot. A folded workspace's title
+    /// wears it, and a folded group's heading (P5-128).
+    pub(super) fn stack_mark(&self, stack: &[String], ui: &UiFont) -> AnyElement {
+        let agents = &self.listing.panel.agents;
+        let faces: Vec<_> = stack
+            .iter()
+            .map(|name| {
+                let kind = agents
+                    .iter()
+                    .find(|a| a.name == *name)
+                    .and_then(|a| a.kind.as_deref())
+                    .unwrap_or_default();
+                tab_stack::Face::of_kind(&self.theme, kind)
+            })
+            .collect();
+        let inks = tab_stack::Inks::of(&self.theme);
+        tab_stack::stack(&faces, inks, div().into_any_element(), ui.scale(1.0)).into_any_element()
+    }
+
     /// A workspace: its title and under it `inside`, its groups' lines, in a tray sunk in the
     /// column; folded, the title alone with the bar of all its agents, on the top card of a pile
     /// and led by its agents' cards stacked (P5-91). A click on the title folds it or opens it.
@@ -457,19 +477,7 @@ impl Sidebar {
         } else if stack.is_empty() {
             mask(LAYERS_FILLED, ui.px(14.0), accent).into_any_element()
         } else {
-            let agents = &self.listing.panel.agents;
-            let faces: Vec<_> = (stack.iter())
-                .map(|name| {
-                    let kind = (agents.iter())
-                        .find(|a| a.name == *name)
-                        .and_then(|a| a.kind.as_deref())
-                        .unwrap_or_default();
-                    tab_stack::Face::of_kind(&self.theme, kind)
-                })
-                .collect();
-            let inks = tab_stack::Inks::of(&self.theme);
-            tab_stack::stack(&faces, inks, div().into_any_element(), ui.scale(1.0))
-                .into_any_element()
+            self.stack_mark(&stack, &ui)
         };
         // Open, the arrow a step brighter, as the well is a step darker.
         let chevron = if folded {

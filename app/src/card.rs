@@ -621,6 +621,10 @@ pub struct Heading {
     pub folded: bool,
     /// The active pane's agent is one of its own.
     pub showing: bool,
+    /// The agents whose cards its folded heading stacks, by name, the front one first (P5-128),
+    /// as a workspace's title does (P5-91): the active pane's when it is one of them, then the
+    /// others as they are listed, [`MOST`] in all.
+    pub stack: Vec<String>,
     /// The workspace it is in: a group of the same name may be in another, or in none, when two
     /// repositories have that name.
     pub workspace: Option<String>,
@@ -646,10 +650,12 @@ pub struct Tray {
     pub stack: Vec<String>,
 }
 
-/// The most cards a folded workspace's title stacks, as a split tab's mark.
+/// The most cards a folded workspace's title or a folded group's heading stacks, as a split tab's
+/// mark.
 pub const MOST: usize = 3;
 
-/// The agents whose cards a workspace listing `agents` stacks: see [`Tray::stack`].
+/// The agents whose cards a folded title or heading of `agents` stacks: see [`Tray::stack`] and
+/// [`Heading::stack`].
 fn stacked(agents: &[&Agent], selected: Option<&str>) -> Vec<String> {
     let names = agents.iter().map(|a| a.name.as_str());
     let front = selected.filter(|selected| names.clone().any(|name| name == *selected));
@@ -780,6 +786,7 @@ fn listed(
             bar: bar(agents),
             folded,
             showing: showing(agents),
+            stack: stacked(agents, selected),
             workspace: place.map(str::to_owned),
             repos,
         }));
@@ -985,6 +992,40 @@ mod tests {
             }),
             untracked: Some(3),
         })
+    }
+
+    #[test]
+    fn a_folded_groups_heading_stacks_its_agents_cards() {
+        let panel = panel(vec![
+            agent("p/a", "idle"),
+            agent("p/b", "idle"),
+            agent("p/c", "idle"),
+            agent("p/d", "idle"),
+            agent("q/e", "idle"),
+        ]);
+        let stacks = |selected: Option<&str>| -> Vec<(String, Vec<String>)> {
+            lines(&panel, None, selected, &[], None, 100.0)
+                .into_iter()
+                .filter_map(|line| match line {
+                    Line::Group(heading) => Some((heading.title, heading.stack)),
+                    _ => None,
+                })
+                .collect()
+        };
+        let stack = |names: &[&str]| names.iter().map(|n| (*n).to_owned()).collect::<Vec<_>>();
+        // The agent the active pane shows leads; three at most, the rest as listed.
+        assert_eq!(
+            stacks(Some("p/c")),
+            [
+                ("p/".to_owned(), stack(&["p/c", "p/a", "p/b"])),
+                ("q/".to_owned(), stack(&["q/e"])),
+            ]
+        );
+        // Its agent is not one of this group's: the group's first leads.
+        assert_eq!(stacks(Some("q/e"))[0].1, stack(&["p/a", "p/b", "p/c"]));
+        // Nothing shown: as listed.
+        assert_eq!(stacks(None)[0].1, stack(&["p/a", "p/b", "p/c"]));
+        assert_eq!(stacks(None)[1].1, stack(&["q/e"]));
     }
 
     #[test]
