@@ -26,3 +26,26 @@
 ## 不做
 - 写账的命令（用户 10-16 定只读）。
 - `--all` 看已了结、已删除的条目（用户 10-16：“不加 Show closed”）。
+
+## 完成记录（主控 10-16）
+
+做了什么：
+- `cairn.rs`：采用了、有 hook 的仓库里，在 `show --json`、`list --json` 之后跑 `cairn ledger --json`，按 State／Open／Conventions／Other 分组成 `Ledger::Groups`；`show --json` 的 `ledger_item_ids` 标出 `given`（缺字段当空）。`show` 说 `no_data` 时不跑，当空账。退出码 2 是 `Ledger::Unsupported`（0.5.0 之前），别的失败和读不懂的输出是 `Ledger::Failed`，只影响账那一页，记录照常。条目的 Added／Updated 用和记录全文一样的本机时间写法（抽成 `stamp`）；`created_by` 的 `user` 写 `You`，`<agent>:<session>` 写 agent 名加会话前 8 位。
+- `cairn_view.rs`：照样稿甲，状态行下 `Notes | Ledger` 切换，Ledger 页每组一个 `raised.rs` 凸起框；点一条就地展开正文（Markdown）和 Added／Updated／By／Entry；空账 `No ledger entries yet`；不调用任何写账命令。记录全文那块的事实格子和“谁写的”抽成 `facts`、`by` 两个小函数，两边共用，画法不变。
+- `docs/DESIGN.md` §13 加 P5-118 一条。
+
+验证：
+- 新测试 `the_ledger_is_read_beside_the_notes_by_kind_and_marked_where_the_next_session_is_given_it`（假 cairn）：分组与顺序、不认识的类、`given`、调用顺序和目录、从不带 `--all`、空账、没有数据库不跑、旧 `show` 缺 `ledger_item_ids`、退出码 2／1、读不懂的输出和时间。先在只返回 `None` 的桩上跑过，确认因为账没读到而失败，再实现。旧测试里列全部调用的三处补上 `ledger --json`。
+- `cargo test --all-targets` 667 个全过（原 666 加 1），`cargo clippy --all-targets -- -D warnings`、`cargo fmt --check` 通过。
+- 对本仓库真实的 `cairn ledger --json`、`cairn show --json` 只读看了一眼字段：29 条、`ledger_item_ids` 29 个，时间格式和约定一致。
+- 没起窗口截图（主控不在 agent 会话里起测试窗口），样子留给用户实际看。
+
+拿主意的地方：
+- 选哪页只在 paddock 开着时记着（不存盘），换仓库不变；开着的条目换仓库复位。
+- 下个会话没带上的条目：标题画淡、展开后多一行说明，说明下多一行写几条；cairn 账超出预算只给条数时会出现。注入里只给标题的条目从 `ledger_item_ids` 看不出来，不区分。
+- 账读失败不让整个标签报错（任务文件原写“按 `Read::Failed` 处理”，改成只在账那一页报），免得旧 cairn 或账出问题时连记录也看不到。
+- 正文摘要两行时把换行并成空格再按行内 Markdown 画。
+
+没做的事：
+- 写账的命令、Show closed（用户定）。
+- 窗口里实际的样子、字号调大和右侧栏最窄 426 时挤不挤，留给用户看。

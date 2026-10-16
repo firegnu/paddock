@@ -1,8 +1,9 @@
 //! The right sidebar's Cairn tab, what it knows: whether cairn is at work in the focused pane's
-//! directory, the handover notes agents have saved there, and what the next session would be given
-//! (DESIGN §13 P5-55, P5-79, P5-110). All of it comes from cairn's own commands,
-//! `cairn status --json` and, in a repository that has adopted it, `cairn show --json` and
-//! `cairn list --json`, then `cairn show <ID> --json` for a note that is opened, and from Git for
+//! directory, the handover notes agents have saved there, what the next session would be given,
+//! and the project's ledger (DESIGN §13 P5-55, P5-79, P5-110, P5-118). All of it comes from
+//! cairn's own commands, `cairn status --json` and, in a repository that has adopted it,
+//! `cairn show --json`, `cairn list --json` and `cairn ledger --json`, then
+//! `cairn show <ID> --json` for a note that is opened, and from Git for
 //! the repository's name and branch; cairn's database, settings and hook files are never read
 //! (DESIGN §3). One thing writes: `adopt`, which runs `cairn adopt`, and the tab runs it only once
 //! the user has confirmed (`Adopting`).
@@ -60,6 +61,9 @@ pub struct Found {
     /// The records agents have saved that cairn has not yet taken into its database.
     pub uncollected: u64,
     pub body: Body,
+    /// The project's ledger, read where the notes are: in an adopted repository with some agent's
+    /// hooks.
+    pub ledger: Option<Ledger>,
 }
 
 /// When an agent's hooks last ran in the repository read, as far as cairn tells.
@@ -169,6 +173,48 @@ pub struct Full {
     pub correction: Option<(String, Option<String>)>,
 }
 
+/// The project's ledger, what holds across sessions, as `cairn ledger --json` gives its entries
+/// in force (cairn DESIGN §7.1, P5-118). Its trouble is its own: the notes show all the same.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Ledger {
+    /// A cairn before 0.5.0, which keeps none.
+    Unsupported,
+    /// `cairn ledger` failed, or said something the tab cannot read: the first line of why.
+    Failed(String),
+    /// The entries by kind, in cairn's order of kinds and those it may add after; none yet when
+    /// empty.
+    Groups(Vec<Group>),
+}
+
+/// The entries of one kind, by number.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Group {
+    /// `State`, `Open`, `Conventions`, or `Other` for kinds cairn adds later.
+    pub name: &'static str,
+    pub entries: Vec<Entry>,
+}
+
+/// One entry of the ledger.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Entry {
+    pub id: String,
+    /// Its number in the project, written `#no`.
+    pub no: u64,
+    pub title: String,
+    /// Its text, Markdown; `None` without one.
+    pub body: Option<String>,
+    /// When it was added, on this machine's clock: `Oct 16, 2026 at 10:12:01`.
+    pub added: String,
+    /// When it was last changed, written as `added`, if ever since.
+    pub updated: Option<String>,
+    /// Who added it: `You`, `Claude`, `Codex`, or what cairn calls the agent.
+    pub by: String,
+    /// The first eight characters of the agent's session, for one an agent added.
+    pub session: Option<String>,
+    /// The next session here is given it.
+    pub given: bool,
+}
+
 /// Why a cairn command gave nothing.
 enum Trouble {
     /// There is no such command.
@@ -234,6 +280,28 @@ struct Show {
     status: Option<String>,
     text: Option<String>,
     record_ids: Option<Vec<String>>,
+    /// From cairn 0.5.0: the ledger's entries in the text.
+    #[serde(default)]
+    ledger_item_ids: Vec<String>,
+}
+
+/// What `cairn ledger --json` prints.
+#[derive(Deserialize)]
+struct LedgerOut {
+    items: Vec<Item>,
+}
+
+/// An entry as `cairn ledger --json` gives one.
+#[derive(Deserialize)]
+struct Item {
+    id: String,
+    no: u64,
+    kind: String,
+    title: String,
+    body: Option<String>,
+    created_at: String,
+    updated_at: String,
+    created_by: String,
 }
 
 /// What `cairn list --json` prints.
@@ -302,15 +370,21 @@ pub fn read(
         }
         None => (last_part(Path::new(cwd)), None, None),
     };
-    let body = if !claude && !codex {
-        Body::NoHooks
+    let (body, ledger) = if !claude && !codex {
+        (Body::NoHooks, None)
     } else if adopted {
         match records(program, cwd, limit, now, offset, cancel) {
-            Ok(body) => body,
+            // With no database yet there is no ledger either.
+            Ok((body, given)) => (
+                body,
+                Some(given.map_or(Ledger::Groups(Vec::new()), |given| {
+                    self::ledger(program, cwd, &given, offset, cancel)
+                })),
+            ),
             Err(trouble) => return trouble.into(),
         }
     } else {
-        repo.clone().map_or(Body::Outside, Body::NotAdopted)
+        (repo.clone().map_or(Body::Outside, Body::NotAdopted), None)
     };
     Read::Found(Found {
         cwd: cwd.to_owned(),
@@ -324,6 +398,7 @@ pub fn read(
         codex_fired: fired(&status.agents.codex, adopted, now),
         uncollected: status.spool.pending_json,
         body,
+        ledger,
     })
 }
 
@@ -379,7 +454,9 @@ fn unix(text: &str) -> Option<u64> {
     Some(days * 86_400 + hour * 3_600 + minute * 60 + second)
 }
 
-/// What an adopted project in `cwd` has on record: `cairn show --json`, then the notes.
+/// What an adopted project in `cwd` has on record: `cairn show --json`, then the notes; beside
+/// them the ledger's entries in the text the next session is given, or with no database yet
+/// `None`.
 fn records(
     program: &str,
     cwd: &str,
@@ -387,32 +464,37 @@ fn records(
     now: SystemTime,
     offset: &dyn Fn(i64) -> i64,
     cancel: &AtomicBool,
-) -> Result<Body, Trouble> {
-    let Some((text, next)) = show(program, cwd, cancel)? else {
-        return Ok(Body::NoRecords);
+) -> Result<(Body, Option<Vec<String>>), Trouble> {
+    let Some(Shown { text, next, given }) = show(program, cwd, cancel)? else {
+        return Ok((Body::NoRecords, None));
     };
     let notes = notes(program, cwd, limit, &next, now, offset, cancel)?;
     let none = next.is_empty()
         && notes
             .as_ref()
             .is_none_or(|notes| notes.next.is_empty() && notes.days.is_empty());
-    Ok(if none {
+    let body = if none {
         Body::NoRecords
     } else {
         Body::Records(Records {
             text: shown(&text).to_owned(),
             notes,
         })
-    })
+    };
+    Ok((body, Some(given)))
 }
 
-/// What `cairn show --json` in `cwd` has for an adopted project: the text the next session would
-/// be given and the records in it, or with no database yet nothing.
-fn show(
-    program: &str,
-    cwd: &str,
-    cancel: &AtomicBool,
-) -> Result<Option<(String, Vec<String>)>, Trouble> {
+/// The text the next session would be given, and what is in it.
+struct Shown {
+    text: String,
+    /// The records.
+    next: Vec<String>,
+    /// The ledger's entries.
+    given: Vec<String>,
+}
+
+/// What `cairn show --json` in `cwd` has for an adopted project, or with no database yet nothing.
+fn show(program: &str, cwd: &str, cancel: &AtomicBool) -> Result<Option<Shown>, Trouble> {
     let out = run(program, &["show", "--json"], cwd, cancel)?;
     match serde_json::from_slice::<Show>(&out) {
         Ok(Show {
@@ -421,11 +503,81 @@ fn show(
         }) if status == "no_data" => Ok(None),
         Ok(Show {
             text: Some(text),
-            record_ids: Some(ids),
+            record_ids: Some(next),
+            ledger_item_ids: given,
             ..
-        }) => Ok(Some((text, ids))),
+        }) => Ok(Some(Shown { text, next, given })),
         _ => Err(Trouble::Failed("cairn show: unexpected output".into())),
     }
+}
+
+/// The ledger's kinds as cairn names them, in its order, and what the tab calls each; those it
+/// adds later go under `Other`, after them.
+const KINDS: [(&str, &str); 3] = [
+    ("state", "State"),
+    ("open", "Open"),
+    ("convention", "Conventions"),
+];
+
+/// The project's ledger: `cairn ledger --json` run in `cwd`, the entries in `given` marked as
+/// what the next session is given.
+fn ledger(
+    program: &str,
+    cwd: &str,
+    given: &[String],
+    offset: &dyn Fn(i64) -> i64,
+    cancel: &AtomicBool,
+) -> Ledger {
+    let out = match run(program, &["ledger", "--json"], cwd, cancel) {
+        Ok(out) => out,
+        // cairn before 0.5.0, which has no `ledger`.
+        Err(Trouble::Unknown(_)) => return Ledger::Unsupported,
+        Err(Trouble::Missing) => {
+            return Ledger::Failed("cairn ledger: cairn is not installed".into());
+        }
+        Err(Trouble::Failed(why)) => return Ledger::Failed(why),
+    };
+    let unexpected = || Ledger::Failed("cairn ledger: unexpected output".into());
+    let Ok(out) = serde_json::from_slice::<LedgerOut>(&out) else {
+        return unexpected();
+    };
+    let mut groups: Vec<Group> = KINDS
+        .iter()
+        .map(|(_, name)| *name)
+        .chain(["Other"])
+        .map(|name| Group {
+            name,
+            entries: Vec::new(),
+        })
+        .collect();
+    for item in out.items {
+        let (Some(added), Some(updated)) = (
+            stamp(&item.created_at, offset),
+            stamp(&item.updated_at, offset),
+        ) else {
+            return unexpected();
+        };
+        // An agent's session is `<agent>:<session>`.
+        let (by, session) = match item.created_by.split_once(':') {
+            Some((agent, session)) => (by(agent), Some(session.chars().take(8).collect())),
+            None if item.created_by == "user" => ("You".to_owned(), None),
+            None => (item.created_by, None),
+        };
+        let kind = KINDS.iter().position(|(kind, _)| *kind == item.kind);
+        groups[kind.unwrap_or(KINDS.len())].entries.push(Entry {
+            given: given.contains(&item.id),
+            id: item.id,
+            no: item.no,
+            title: item.title,
+            body: item.body,
+            updated: (updated != added).then_some(updated),
+            added,
+            by,
+            session,
+        });
+    }
+    groups.retain(|group| !group.entries.is_empty());
+    Ledger::Groups(groups)
 }
 
 /// The project's handover notes, the newest `limit` records' worth, by the session that saved them,
@@ -572,19 +724,7 @@ pub fn note(
     };
     let unexpected = || format!("cairn show {id}: unexpected output");
     let record = serde_json::from_slice::<Record>(&out).map_err(|_| unexpected())?;
-    let saved = |record: &Record| {
-        let at = unix(&record.created_at)? as i64;
-        let local = at + offset(at);
-        let (year, month, day) = activity::date(local.div_euclid(DAY));
-        let of_day = local.rem_euclid(DAY);
-        Some(format!(
-            "{} {day}, {year} at {:02}:{:02}:{:02}",
-            MONTHS[month as usize - 1],
-            of_day / 3600,
-            of_day % 3600 / 60,
-            of_day % 60
-        ))
-    };
+    let saved = |record: &Record| stamp(&record.created_at, offset);
     let correction = match record.correction.as_deref() {
         Some(correction) => Some((
             saved(correction).ok_or_else(unexpected)?,
@@ -602,6 +742,21 @@ pub fn note(
         body: record.body,
         correction,
     })
+}
+
+/// A time as cairn writes them, on the clock `offset` gives: `Oct 10, 2026 at 17:44:51`.
+fn stamp(text: &str, offset: &dyn Fn(i64) -> i64) -> Option<String> {
+    let at = unix(text)? as i64;
+    let local = at + offset(at);
+    let (year, month, day) = activity::date(local.div_euclid(DAY));
+    let of_day = local.rem_euclid(DAY);
+    Some(format!(
+        "{} {day}, {year} at {:02}:{:02}:{:02}",
+        MONTHS[month as usize - 1],
+        of_day / 3600,
+        of_day % 3600 / 60,
+        of_day % 60
+    ))
 }
 
 /// Who saved a record, from what cairn calls its agent: `local` is none of them, a save by hand

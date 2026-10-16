@@ -6,11 +6,17 @@
 //! then the notes one line for each session that saved them, those the next session starts from in
 //! a box of their own and the others by day; a session opens in place to its note in full, read
 //! when it is first opened, and to its earlier notes, and at the foot the exact text the next
-//! session receives unfolds, drawn as Markdown. A repository that has not adopted cairn offers
-//! Adopt, which asks first; nothing else here changes anything (DESIGN §13 P5-55, P5-79, P5-110).
+//! session receives unfolds, drawn as Markdown. Where the notes are read, the project's ledger is
+//! too, on a page of its own the switch under the hooks turns to: its entries by kind, each kind in
+//! a raised box, one opening in place to its text. A repository that has not adopted cairn offers
+//! Adopt, which asks first; nothing else here changes anything (DESIGN §13 P5-55, P5-79, P5-110,
+//! P5-118).
 use crate::{
     activity::local_offset,
-    cairn::{self, Adopting, Body, Fired, Found, Full, Note, Notes, Read, Records, Session},
+    cairn::{
+        self, Adopting, Body, Entry, Fired, Found, Full, Group, Ledger, Note, Notes, Read, Records,
+        Session,
+    },
     card,
     fonts::UiFont,
     footer_icon::{self, Icon},
@@ -19,9 +25,9 @@ use crate::{
     view::hsla,
 };
 use gpui::{
-    AnyElement, ClickEvent, Context, Div, Font, FontStyle, FontWeight, HighlightStyle, Hsla,
-    IntoElement, Render, Stateful, StyledText, Task, UnderlineStyle, Window, div, prelude::*, px,
-    relative,
+    AnyElement, BoxShadow, ClickEvent, Context, Div, Font, FontStyle, FontWeight, HighlightStyle,
+    Hsla, IntoElement, Render, Stateful, StyledText, Task, UnderlineStyle, Window, div, prelude::*,
+    px, relative,
 };
 use std::{
     collections::HashMap,
@@ -58,8 +64,19 @@ const MARK: f32 = 13.0;
 const SHOWN_EARLIER: usize = 3;
 /// How far in a note's words start: its arrow and the room after it.
 const INDENT: f32 = 18.0;
+/// How wide a ledger entry's `#no` is drawn, and how far in its words start: its arrow, its
+/// number and the room after each.
+const NO: f32 = 28.0;
+const ENTRY_INDENT: f32 = INDENT + NO + 8.0;
 /// The arrows that fold a note and the exact text.
 const ARROW: f32 = 10.0;
+
+/// Which of its two pages the tab shows where cairn keeps a ledger.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Page {
+    Notes,
+    Ledger,
+}
 
 /// What the window tells the tab every time it draws.
 pub struct Frame {
@@ -134,6 +151,10 @@ pub struct CairnView {
     full: HashMap<String, Option<Result<Full, String>>>,
     /// The exact text the next session receives is unfolded.
     exact: bool,
+    /// The page last turned to, kept from one repository to the next.
+    page: Page,
+    /// The ledger entry that is open, by its id.
+    entry: Option<String>,
 }
 
 impl CairnView {
@@ -155,6 +176,8 @@ impl CairnView {
             all: false,
             full: HashMap::new(),
             exact: false,
+            page: Page::Notes,
+            entry: None,
         }
     }
 
@@ -243,6 +266,7 @@ impl CairnView {
             self.all = false;
             self.full.clear();
             self.exact = false;
+            self.entry = None;
         }
         let repo = match &read {
             Read::Found(Found {
@@ -419,10 +443,21 @@ impl Render for CairnView {
                     .child(self.title("Could not read cairn", &ui))
                     .child(self.refusal(why, &ui)),
             ),
-            (_, Some(Read::Found(found))) => root
-                .child(self.header(found, &ui))
-                .child(self.hooks(found, &ui))
-                .child(self.body(found, &ui, cx)),
+            (_, Some(Read::Found(found))) => {
+                let root = root
+                    .child(self.header(found, &ui))
+                    .child(self.hooks(found, &ui));
+                match &found.ledger {
+                    Some(ledger) => {
+                        let root = root.child(self.switch(ledger, &ui, cx));
+                        match self.page {
+                            Page::Notes => root.child(self.body(found, &ui, cx)),
+                            Page::Ledger => root.child(self.ledger(ledger, &ui, cx)),
+                        }
+                    }
+                    None => root.child(self.body(found, &ui, cx)),
+                }
+            }
         }
     }
 }
@@ -1087,56 +1122,18 @@ impl CairnView {
                     .child("Loading\u{2026}");
             }
         };
-        let fact = |label: &'static str, value: Div| {
-            div()
-                .flex()
-                .gap(ui.px(8.0))
-                .child(
-                    div()
-                        .flex_shrink_0()
-                        .w(ui.px(50.0))
-                        .text_color(c.muted)
-                        .child(label),
-                )
-                .child(value.flex_1().min_w(px(0.0)))
-        };
         let code = || div().font(self.mono.clone()).text_size(ui.px(11.0));
-        let by = match &full.session {
-            Some(session) => {
-                let words = format!("{}, session {session}", full.by);
-                let session = words.len() - session.len()..words.len();
-                div().child(
-                    StyledText::new(words)
-                        .with_font_family_overrides(vec![(session, self.mono.family.clone())]),
-                )
-            }
-            None => div().child(full.by.clone()),
-        };
-        let facts = div()
-            .flex()
-            .flex_col()
-            .gap(ui.px(4.0))
-            .px(ui.px(11.0))
-            .py(ui.px(9.0))
-            .rounded(ui.px(7.0))
-            .bg(if next {
-                c.ground.opacity(FACTS_ON_NEXT)
-            } else {
-                c.text.opacity(FACTS)
-            })
-            .text_size(ui.px(11.5))
-            .line_height(relative(1.45))
-            .child(fact("Saved", div().child(full.saved.clone())))
-            .child(fact("By", by))
-            .children(
-                full.branch
-                    .clone()
-                    .map(|branch| fact("Branch", code().child(branch))),
-            )
-            .child(fact(
-                "Record",
-                code().text_color(c.muted).child(id.to_owned()),
-            ));
+        let mut rows = vec![
+            ("Saved", div().child(full.saved.clone())),
+            ("By", self.by(&full.by, full.session.as_deref())),
+        ];
+        rows.extend(
+            full.branch
+                .clone()
+                .map(|branch| ("Branch", code().child(branch))),
+        );
+        rows.push(("Record", code().text_color(c.muted).child(id.to_owned())));
+        let facts = self.facts(rows, next, ui);
         let text = |text: &str| {
             let words = div()
                 .flex()
@@ -1162,6 +1159,362 @@ impl CairnView {
                             .child(format!("Corrected {saved}")),
                     )
                     .children(body.as_deref().map(&text))
+            }))
+    }
+
+    /// The facts about a note or a ledger entry, each after its label, on a ground of their own:
+    /// for one on a raised box's face (`raised`), the panel's ground through it.
+    fn facts(&self, rows: Vec<(&'static str, Div)>, raised: bool, ui: &UiFont) -> Div {
+        let c = self.colors;
+        let mut facts = div()
+            .flex()
+            .flex_col()
+            .gap(ui.px(4.0))
+            .px(ui.px(11.0))
+            .py(ui.px(9.0))
+            .rounded(ui.px(7.0))
+            .bg(if raised {
+                c.ground.opacity(FACTS_ON_NEXT)
+            } else {
+                c.text.opacity(FACTS)
+            })
+            .text_size(ui.px(11.5))
+            .line_height(relative(1.45));
+        for (label, value) in rows {
+            facts = facts.child(
+                div()
+                    .flex()
+                    .gap(ui.px(8.0))
+                    .child(
+                        div()
+                            .flex_shrink_0()
+                            .w(ui.px(50.0))
+                            .text_color(c.muted)
+                            .child(label),
+                    )
+                    .child(value.flex_1().min_w(px(0.0))),
+            );
+        }
+        facts
+    }
+
+    /// Who wrote a note or a ledger entry, and for an agent which of its sessions, in the
+    /// monospace font.
+    fn by(&self, by: &str, session: Option<&str>) -> Div {
+        match session {
+            Some(session) => {
+                let words = format!("{by}, session {session}");
+                let session = words.len() - session.len()..words.len();
+                div().child(
+                    StyledText::new(words)
+                        .with_font_family_overrides(vec![(session, self.mono.family.clone())]),
+                )
+            }
+            None => div().child(by.to_owned()),
+        }
+    }
+
+    /// Under the hooks where cairn keeps a ledger: the switch between the notes and the ledger, the
+    /// page shown standing out as a raised key, the ledger's with how many entries it has.
+    fn switch(&self, ledger: &Ledger, ui: &UiFont, cx: &mut Context<Self>) -> Div {
+        let c = self.colors;
+        let face = raised::face(&self.theme);
+        let count = match ledger {
+            Ledger::Groups(groups) => Some(groups.iter().map(|group| group.entries.len()).sum()),
+            Ledger::Unsupported | Ledger::Failed(_) => None,
+        }
+        .filter(|count: &usize| *count > 0);
+        let half = |id: &'static str, page: Page, words: &'static str, count: Option<usize>| {
+            let on = self.page == page;
+            div()
+                .id(id)
+                .flex_1()
+                .flex()
+                .items_center()
+                .justify_center()
+                .gap(ui.px(5.0))
+                .py(ui.px(4.0))
+                .rounded(ui.px(6.0))
+                .cursor_pointer()
+                .when(on, |half| {
+                    half.bg(face)
+                        .shadow(vec![
+                            BoxShadow::new(px(0.0), ui.px(1.0), gpui::black().opacity(0.35))
+                                .blur_radius(ui.px(2.0)),
+                        ])
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(c.title)
+                })
+                .when(!on, |half| {
+                    half.text_color(c.muted)
+                        .hover(move |style| style.text_color(c.text))
+                })
+                .child(words)
+                .children(count.map(|count| {
+                    div()
+                        .font_weight(FontWeight::NORMAL)
+                        .text_color(c.dim)
+                        .child(count.to_string())
+                }))
+                .on_click(cx.listener(move |view, _: &ClickEvent, _, cx| {
+                    if view.page != page {
+                        view.page = page;
+                        cx.notify();
+                    }
+                }))
+        };
+        div()
+            .flex_shrink_0()
+            .flex()
+            .mx(ui.px(16.0))
+            .mt(ui.px(12.0))
+            .p(px(2.0))
+            .rounded(ui.px(8.0))
+            .bg(c.text.opacity(SOFT))
+            .text_size(ui.px(12.0))
+            .child(half("cairn-page-notes", Page::Notes, "Notes", None))
+            .child(half("cairn-page-ledger", Page::Ledger, "Ledger", count))
+    }
+
+    /// The ledger's page: its entries, or that it has none yet, or why there are none to show.
+    fn ledger(&self, ledger: &Ledger, ui: &UiFont, cx: &mut Context<Self>) -> AnyElement {
+        match ledger {
+            Ledger::Unsupported => self
+                .middle(ui)
+                .child(self.title("This cairn keeps no ledger", ui))
+                .child(self.sub("The project ledger comes with cairn 0.5.0.", ui))
+                .into_any_element(),
+            Ledger::Failed(why) => self
+                .middle(ui)
+                .gap(ui.px(10.0))
+                .child(self.title("Could not read the ledger", ui))
+                .child(self.refusal(why, ui))
+                .into_any_element(),
+            Ledger::Groups(groups) if groups.is_empty() => self
+                .middle(ui)
+                .child(self.title("No ledger entries yet", ui))
+                .child(self.sub(
+                    "cairn adds the first ones after a session here ends. You can also add \
+                     entries with `cairn ledger add`.",
+                    ui,
+                ))
+                .into_any_element(),
+            Ledger::Groups(groups) => self.entries(groups, ui, cx).into_any_element(),
+        }
+    }
+
+    /// The ledger's entries, scrolling: what the ledger is, how many the next session is not given
+    /// if any, then each kind under its name in a raised box.
+    fn entries(&self, groups: &[Group], ui: &UiFont, cx: &mut Context<Self>) -> Stateful<Div> {
+        let c = self.colors;
+        let left_out = groups
+            .iter()
+            .flat_map(|group| &group.entries)
+            .filter(|entry| !entry.given)
+            .count();
+        let line = |words: String| {
+            div()
+                .text_size(ui.px(12.0))
+                .line_height(relative(1.5))
+                .text_color(c.muted)
+                .child(words)
+        };
+        let head = div()
+            .flex_shrink_0()
+            .flex()
+            .flex_col()
+            .gap(ui.px(4.0))
+            .pt(ui.px(12.0))
+            .px(ui.px(16.0))
+            .pb(ui.px(2.0))
+            .child(line(
+                "What holds for this project across sessions. cairn keeps it after each session \
+                 ends; every new session starts with it."
+                    .into(),
+            ))
+            .children((left_out > 0).then(|| {
+                line(match left_out {
+                    1 => "1 entry is left out of what the next session receives.".into(),
+                    _ => format!(
+                        "{left_out} entries are left out of what the next session receives."
+                    ),
+                })
+            }));
+        let raised = raised::raised(&self.theme, ui);
+        let mut list = div()
+            .flex_shrink_0()
+            .flex()
+            .flex_col()
+            .px(ui.px(8.0))
+            .pb(ui.px(16.0));
+        let mut nth = 0;
+        for group in groups {
+            list = list.child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(ui.px(8.0))
+                    .pt(ui.px(14.0))
+                    .px(ui.px(8.0))
+                    .pb(ui.px(7.0))
+                    .text_size(ui.px(12.0))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(c.title)
+                    .child(group.name)
+                    .child(
+                        div()
+                            .px(ui.px(7.0))
+                            .rounded_full()
+                            .bg(c.text.opacity(SOFT))
+                            .font_weight(FontWeight::NORMAL)
+                            .text_size(ui.px(11.5))
+                            .text_color(c.muted)
+                            .child(group.entries.len().to_string()),
+                    ),
+            );
+            let mut rows = div()
+                .flex()
+                .flex_col()
+                .rounded(ui.px(10.0))
+                .border_1()
+                .border_color(raised.edge)
+                .bg(raised.face)
+                .shadow(raised.shadows.clone())
+                .overflow_hidden();
+            for (at, entry) in group.entries.iter().enumerate() {
+                let row = self.entry(entry, nth, ui, cx);
+                rows = rows.child(if at == 0 {
+                    row
+                } else {
+                    row.border_t_1().border_color(c.text.opacity(BETWEEN))
+                });
+                nth += 1;
+            }
+            list = list.child(rows);
+        }
+        div()
+            .id("cairn-ledger")
+            .flex_1()
+            .min_h(px(0.0))
+            .overflow_y_scroll()
+            .flex()
+            .flex_col()
+            .child(head)
+            .child(list)
+    }
+
+    /// One ledger entry: its number and title, and two quiet lines of its text; open, its text in
+    /// full and the facts about it. The title of one the next session is not given is quiet too.
+    fn entry(&self, entry: &Entry, nth: usize, ui: &UiFont, cx: &mut Context<Self>) -> Div {
+        let c = self.colors;
+        let open = self.entry.as_deref() == Some(entry.id.as_str());
+        let body = entry.body.as_deref().filter(|body| !body.trim().is_empty());
+        let id = entry.id.clone();
+        let line = div()
+            .flex()
+            .items_start()
+            .gap(ui.px(8.0))
+            .min_w(px(0.0))
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .h(ui.px(18.0))
+                    .flex()
+                    .items_center()
+                    .child(self.arrow(open, if open { c.text } else { c.dim }, ui)),
+            )
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .w(ui.px(NO))
+                    .flex()
+                    .justify_end()
+                    .font(self.mono.clone())
+                    .text_size(ui.px(11.5))
+                    .line_height(ui.px(18.0))
+                    .text_color(c.dim)
+                    .child(format!("#{}", entry.no)),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_w(px(0.0))
+                    .text_size(ui.px(12.5))
+                    .line_height(ui.px(18.0))
+                    .map(|title| match (open, entry.given) {
+                        (true, _) => title.font_weight(FontWeight::MEDIUM).text_color(c.title),
+                        (false, true) => title.text_color(c.text),
+                        (false, false) => title.text_color(c.muted),
+                    })
+                    .child(entry.title.clone()),
+            );
+        let head = div()
+            .id(("cairn-entry", nth))
+            .flex()
+            .flex_col()
+            .gap(ui.px(2.0))
+            .px(ui.px(10.0))
+            .py(ui.px(7.0))
+            .cursor_pointer()
+            .child(line)
+            .children(body.filter(|_| !open).map(|body| {
+                let body = body.split_whitespace().collect::<Vec<_>>().join(" ");
+                div()
+                    .pl(ui.px(ENTRY_INDENT))
+                    .text_size(ui.px(12.0))
+                    .line_height(relative(1.5))
+                    .text_color(c.muted)
+                    .line_clamp(2)
+                    .child(self.words(&body))
+            }))
+            .on_click(cx.listener(move |view, _: &ClickEvent, _, cx| {
+                view.entry = if view.entry.as_deref() == Some(id.as_str()) {
+                    None
+                } else {
+                    Some(id.clone())
+                };
+                cx.notify();
+            }));
+        div()
+            .flex_shrink_0()
+            .flex()
+            .flex_col()
+            .child(head)
+            .children(open.then(|| {
+                let code = || div().font(self.mono.clone()).text_size(ui.px(11.0));
+                let mut rows = vec![("Added", div().child(entry.added.clone()))];
+                rows.extend(
+                    entry
+                        .updated
+                        .clone()
+                        .map(|updated| ("Updated", div().child(updated))),
+                );
+                rows.push(("By", self.by(&entry.by, entry.session.as_deref())));
+                rows.push(("Entry", code().text_color(c.muted).child(entry.id.clone())));
+                let text = body.map(|body| {
+                    let words = div()
+                        .flex()
+                        .flex_col()
+                        .pb(ui.px(10.0))
+                        .text_size(ui.px(12.5))
+                        .line_height(relative(1.55));
+                    self.written(words, body, true, ui)
+                });
+                div()
+                    .flex()
+                    .flex_col()
+                    .pl(ui.px(10.0 + ENTRY_INDENT))
+                    .pr(ui.px(12.0))
+                    .pb(ui.px(12.0))
+                    .children(text)
+                    .child(self.facts(rows, true, ui))
+                    .children((!entry.given).then(|| {
+                        div()
+                            .pt(ui.px(8.0))
+                            .text_size(ui.px(11.5))
+                            .text_color(c.dim)
+                            .child("Left out of what the next session receives.")
+                    }))
             }))
     }
 
