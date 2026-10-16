@@ -224,6 +224,8 @@ pub struct Link {
     ended: Condvar,
     /// Taken out: what is under way there stops.
     stop: AtomicBool,
+    /// How long taking it out waits for what is under way before closing the connection anyway.
+    patience: Duration,
     /// What `ssh` is given.
     pub target: String,
     /// corral's path as configured, `~` not yet replaced.
@@ -317,6 +319,7 @@ impl Link {
             }),
             ended: Condvar::new(),
             stop: AtomicBool::new(false),
+            patience: CALL,
             target: machine.ssh.clone(),
             configured: machine.corral.clone(),
             ssh,
@@ -332,6 +335,12 @@ impl Link {
                 failures: 0,
             }),
         }
+    }
+
+    /// Waiting `patience` instead of the time a call may take, when it is taken out: for tests.
+    pub fn with_patience(mut self, patience: Duration) -> Self {
+        self.patience = patience;
+        self
     }
 
     pub fn snapshot(&self) -> Snapshot {
@@ -353,36 +362,46 @@ impl Link {
     }
 
     /// Taken out of the window, hidden or removed (P5-123): nothing new is run there, what is
-    /// under way is stopped, and once it has ended paddock's own connection is closed, in the
-    /// background. Nothing on the machine is touched.
+    /// under way is stopped, and paddock's own connection is closed, in the background, after the
+    /// last of it has ended. Nothing on the machine is touched.
     pub fn retire(self: &Arc<Self>) {
-        {
+        let idle = {
             let mut uses = self.uses.lock().unwrap();
             if uses.retired {
                 return;
             }
             uses.retired = true;
-        }
+            uses.running == 0
+        };
         self.stop.store(true, Ordering::Relaxed);
+        if idle {
+            return self.close();
+        }
+        // A call ends at once, its ssh stopped; an attached pane once the window has let it go;
+        // the last of them closes the connection (see `leave`). One may take longer, even to
+        // start: the connection is closed then all the same, and again after that last one.
         let link = self.clone();
         std::thread::spawn(move || {
-            // A call ends at once, its ssh stopped; an attached pane once the window has let it
-            // go. Nothing opens the connection again after them; one that will not end in the
-            // time a call may take is ended with the connection.
-            link.idle(CALL);
-            let Ok(socket) = &link.socket else {
-                return;
-            };
-            let socket = socket.display().to_string();
-            let args = [
-                "-S",
-                socket.as_str(),
-                "-O",
-                "exit",
-                "--",
-                link.target.as_str(),
-            ];
-            let _ = crate::command::run(&link.ssh, &args, None, CALL, &AtomicBool::new(false));
+            if !link.idle(link.patience) {
+                link.close();
+            }
+        });
+    }
+
+    /// Closes paddock's own connection there, in the background: `ssh -O exit` on its socket,
+    /// which talks to the connection on this Mac, not to the machine.
+    fn close(&self) {
+        let Ok(socket) = &self.socket else {
+            return;
+        };
+        let (ssh, socket, target) = (
+            self.ssh.clone(),
+            socket.display().to_string(),
+            self.target.clone(),
+        );
+        std::thread::spawn(move || {
+            let args = ["-S", socket.as_str(), "-O", "exit", "--", target.as_str()];
+            let _ = crate::command::run(&ssh, &args, None, CALL, &AtomicBool::new(false));
         });
     }
 
@@ -401,22 +420,32 @@ impl Link {
         Ok(())
     }
 
+    /// It ended; the last to end once the machine is taken out closes the connection, which
+    /// anything let in before could have opened again, however late it started.
     fn leave(&self) {
-        self.uses.lock().unwrap().running -= 1;
+        let last = {
+            let mut uses = self.uses.lock().unwrap();
+            uses.running -= 1;
+            uses.retired && uses.running == 0
+        };
         self.ended.notify_all();
+        if last {
+            self.close();
+        }
     }
 
-    /// Waits until nothing goes through the connection, or `longest`.
-    fn idle(&self, longest: Duration) {
+    /// Waits until nothing goes through the connection, or `longest`; whether nothing does.
+    fn idle(&self, longest: Duration) -> bool {
         let deadline = Instant::now() + longest;
         let mut uses = self.uses.lock().unwrap();
         while uses.running > 0 {
             let left = deadline.saturating_duration_since(Instant::now());
             if left.is_zero() {
-                break;
+                return false;
             }
             uses = self.ended.wait_timeout(uses, left).unwrap().0;
         }
+        true
     }
 
     /// Why nothing is run there any more.

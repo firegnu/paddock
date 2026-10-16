@@ -21,8 +21,8 @@ const ODD: &str = "it's $(touch pwned) `id` \"q\" ~ *\n第二行 ;|&";
 
 /// The fake `ssh`: skips the options as ssh would take them, notes the socket, the target and each
 /// command (apart by a NUL), then fails, hangs (its pid noted) or runs the command as the files
-/// beside it say. Asked to close a connection (`-O`), it waits while `hold-exit` is there, then
-/// notes the socket and whether the call that hung had ended by then.
+/// beside it say. Asked to close a connection (`-O`), it notes the socket in `closing`, waits while
+/// `hold-exit` is there, then notes the socket and whether the call that hung had ended by then.
 const SSH: &str = r#"#!/bin/sh
 root=$(dirname "$0")
 socket=
@@ -38,6 +38,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 if [ -n "$op" ]; then
+  printf '%s\n' "$socket" >> "$root/closing"
   while [ -e "$root/hold-exit" ]; do sleep 0.05; done
   state=ended
   if [ -e "$root/hung-pid" ] && kill -0 "$(cat "$root/hung-pid")" 2>/dev/null; then state=running; fi
@@ -489,6 +490,10 @@ fn shown_again_before_the_old_connection_has_closed_it_gets_one_of_its_own() {
     // Hidden, and its connection still closing when it is shown again.
     std::fs::write(fake.root().join("hold-exit"), "").unwrap();
     old.retire();
+    // Begun before the new one starts: two ssh started at the same moment may each get the
+    // other's pipe (on macOS the standard library marks a new pipe close-on-exec only after
+    // making it), and this one, held, would keep the new call's output open until it times out.
+    written(&fake.root().join("closing"));
     let new = open();
     new.connect(&never()).unwrap();
     std::fs::remove_file(fake.root().join("hold-exit")).unwrap();
@@ -505,4 +510,49 @@ fn shown_again_before_the_old_connection_has_closed_it_gets_one_of_its_own() {
     // The first connection in a run keeps the socket it always had.
     let usual = remote::socket_path(sockets.path(), "studio", "me@studio").unwrap();
     assert_eq!(first, usual.display().to_string());
+}
+
+/// Waits up to five seconds for `path` to have `count` lines, and gives them.
+fn lines(path: &Path, count: usize) -> String {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let text = std::fs::read_to_string(path).unwrap_or_default();
+        if text.lines().count() >= count {
+            return text;
+        }
+        assert!(Instant::now() < deadline, "{text:?} in {}", path.display());
+        thread::sleep(Duration::from_millis(10));
+    }
+}
+
+#[test]
+fn what_starts_only_after_the_wait_ran_out_is_closed_after_it_ends() {
+    let fake = machine("1", None);
+    let ssh = fake.root().join("ssh").display().to_string();
+    let socket = fake.root().join("socket");
+    let link = Link::with(&studio(None), ssh.clone(), Ok(socket.clone()));
+    let link = Arc::new(link.with_patience(Duration::from_millis(200)));
+    link.connect(&never()).unwrap();
+    // An attach is let in, and has not started when the machine is hidden.
+    let (_, hold) = link.attach("p/a").unwrap();
+    link.retire();
+    // The wait runs out: the connection is closed once, the attach still to start.
+    let controls = fake.root().join("controls");
+    let socket = socket.display();
+    assert_eq!(written(&controls), format!("exit {socket} ended\n"));
+    // It starts only now, through the socket, which can open the connection again (any call
+    // through it can: here a plain one, as the attach's would never end).
+    let late = std::process::Command::new(&ssh)
+        .args(link.args("true").unwrap())
+        .status()
+        .unwrap();
+    assert!(late.success());
+    thread::sleep(Duration::from_millis(300));
+    assert_eq!(lines(&controls, 1).lines().count(), 1);
+    // Once it is let go, the connection is closed again.
+    drop(hold);
+    assert_eq!(
+        lines(&controls, 2),
+        format!("exit {socket} ended\nexit {socket} ended\n")
+    );
 }
