@@ -196,7 +196,9 @@ const PREVIEW_SIZE: f32 = 12.5;
 const SECOND_SIZE: f32 = 12.0;
 const NOTE_SIZE: f32 = 11.5;
 const KIND_SIZE: f32 = 11.0;
-const LABEL_SIZE: f32 = 10.5;
+/// A group's heading (a repository's line): the name, and the count after it (P5-129).
+const GROUP_NAME_SIZE: f32 = 12.0;
+const GROUP_COUNT_SIZE: f32 = 11.0;
 const CELL_LABEL_SIZE: f32 = 9.5;
 const BADGE_SIZE: f32 = 9.0;
 const TILE_SIZE: f32 = 12.5;
@@ -2062,7 +2064,7 @@ impl Sidebar {
                     .flex()
                     .items_baseline()
                     .gap(ui.px(6.0))
-                    .text_size(ui.px(LABEL_SIZE))
+                    .text_size(ui.px(GROUP_NAME_SIZE))
                     .font_weight(FontWeight::SEMIBOLD)
                     .child(
                         div()
@@ -2072,6 +2074,7 @@ impl Sidebar {
                     )
                     .child(
                         div()
+                            .text_size(ui.px(GROUP_COUNT_SIZE))
                             .text_color(dimmer.opacity(0.6))
                             .child(count.to_string()),
                     ),

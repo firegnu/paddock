@@ -712,14 +712,19 @@ impl Sidebar {
             .gap(ui.px(6.0))
             .px(px(4.0))
             .py(px(2.0))
-            .text_size(ui.px(LABEL_SIZE))
+            .text_size(ui.px(GROUP_NAME_SIZE))
             .children(repo.map(|repo| {
                 div()
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(dimmer)
                     .child(repo)
             }))
-            .child(div().text_color(dimmer.opacity(0.6)).child("No agents"))
+            .child(
+                div()
+                    .text_size(ui.px(GROUP_COUNT_SIZE))
+                    .text_color(dimmer.opacity(0.6))
+                    .child("No agents"),
+            )
             .child(div().flex_1())
             // No taller than the line's words: the button lies over it, not in it.
             .child(div().h(px(0.0)).flex().items_center().child(button))
