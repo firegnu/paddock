@@ -76,3 +76,21 @@ paddock 接入的 agent 是 `agent_shell::KINDS`：claude、codex、pi、omp、a
 
 ## 做完
 在本文件末尾追加「## 完成记录」（在你的分支里提交）：做了什么、验证了什么、拿主意的地方、没做的事，各几句话。回复里只写这几样，加上有没有要主控决定的事。命令都在前台跑完，全部做完后，回复最后一行写 DONE。
+
+## 完成记录
+
+- 做了什么：Settings 在 Agents 和 Diagnostics 之间加了一页 `Instructions`（图标 Document），照样稿甲做了看、改、对比、没有文件四屏。新模块 `app/src/instructions.rs`：六家主文件的路径（`CLAUDE_CONFIG_DIR`、`CODEX_HOME`、`PI_CODING_AGENT_DIR`，设了但为空当没设）、读（内容、大小、修改时间，读不出的写原因）、顺着软链接找到最后指向的文件、先备份再写（备份只新建、重名加 `-2`…，备份失败不写）、写同目录临时文件后改名换上去并保留原权限、新建空文件、按行对比和大小／日期的说法。新界面文件 `app/src/settings_instructions.rs`，照 `settings_integrations.rs` 挂在 `settings_view.rs` 下。`settings.rs` 加 `Page::Instructions`；`settings_view.rs` 挂上这一页，Settings 回到前台时重读，这一页不放进滚动列表，卡片占满剩下的高度。`search.rs` 加了这一页的搜索说明 `CLAUDE.md, AGENTS.md, GEMINI.md`，测试里页数 4 改成 5（主控 10-16 同意）。`docs/DESIGN.md` §13 加了 P5-119 一条。
+- 验证了什么：在 `app/` 下带本任务的 `CARGO_TARGET_DIR` 跑 `cargo clippy --all-targets -- -D warnings`、`cargo test --all-targets`（库 538 个，新增 `app/tests/instructions.rs` 5 个，全过）、`cargo fmt --check`，再跑 `git diff --check`，各一次，都一次通过。新测试只测看的一侧，用临时目录和编的文件：各家路径和环境变量、文件不存在（读了也不建东西）、相对／绝对／连环软链接和指向还没有的文件、读出的内容和大小（含空文件、不是 UTF-8 的）。没有读、写、建任何真实的全局文件；没起窗口、没截图，样子留给用户实际看。
+- 拿主意的地方：
+  - 编辑中顶上其余几家变淡、点不动，免得切走丢了改动；在别的 Settings 页之间切换，编辑状态还留着。
+  - 备份名 `<agent>-<文件名>.<本地时间 YYYYMMDD-HHMMSS>`（几家都叫 AGENTS.md，所以带上 agent）；进对比时定名、显示，存时用这个名字，被占了才加后缀，消息条写实际的备份位置。空文件照样备份。
+  - 文件变没变按内容比，在进对比、Settings 回到前台、按 `Save` 时各比一次；编辑时就发现变了的，黄条在编辑屏也出（不只在对比屏）。`Reload` 读新版后接着编辑；文件已经没了就回到看。
+  - 卡头是软链接的，在路径后面淡色写 `→ <指向的文件>`，让人知道实际写的是哪个文件。
+  - 卡下面那句：看的时候写 `<名字> reads this file when a session starts.`，omp、agy 接各自那句，最后是生效时机；编辑中和没有文件时只留生效时机（照样稿）。
+  - 大小按 1000 算（和 Finder 一样），空文件写 `Empty`；修改时间只写日期，不是今年的带年份。
+  - 不是 UTF-8 的文件只说原因、不给 `Edit`，免得按有损的文字写回去把文件弄坏。
+  - 底部消息条出现时，这一页底下留出位置，不盖住卡片的 `Save` 等按钮。
+- 没做的事：
+  - 照用户的话，没写编辑、对比、备份、保存、新建的测试，这些只靠代码本身，没有实际点过。
+  - 编辑框不会自动滚到光标处（和 Kanban 任务弹框的正文一样）；正在编辑时关掉 Settings 窗口，改动不提示就丢了（Settings 本来就没有关窗确认）。
+  - 样稿乙、远端、`@` 引用展开、每家的其余文件，按任务都没做。
