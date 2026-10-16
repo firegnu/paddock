@@ -2063,9 +2063,9 @@ impl PaddockWindow {
         (0..self.seats.len())
             .map(|seat| {
                 let sidebar = self.parts(seat).0.read(cx);
-                let count = sidebar.ringing().len();
+                let attention = crate::attention::capsule(&sidebar.ringing());
                 let agents = sidebar::agents_written(seat, sidebar.panel().agents.len());
-                let (id, name, status, problem, tip, trouble) = match self.machines.link(seat) {
+                let (id, name, status, problem, mut tip, trouble) = match self.machines.link(seat) {
                     None => (
                         None,
                         "This Mac".to_owned(),
@@ -2083,11 +2083,15 @@ impl PaddockWindow {
                         (id, label, status, problem, tip, trouble(link))
                     }
                 };
+                if let Some(attention) = &attention {
+                    tip.push('\n');
+                    tip.push_str(&attention.line);
+                }
                 sidebar::MachineTab {
                     id,
                     name,
                     agents,
-                    count,
+                    attention,
                     status,
                     problem,
                     tip,
