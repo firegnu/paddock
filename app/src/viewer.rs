@@ -1,9 +1,15 @@
 //! The shell / `corral attach` lifecycle of one terminal pane. From Saddle `src/viewer.rs` at
 //! commit `df1c727`, without the `remembered` field that only Saddle's layout saving uses; paddock
 //! added `paused` and `send`, which drops input for a paused agent (DESIGN §13 P5-33).
-use crate::{pty::Session, terminal::Size};
+use crate::{corral::Client, pty::Session, terminal::Size};
 use anyhow::Result;
-use std::thread::{self, JoinHandle};
+use std::{
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    thread::{self, JoinHandle},
+};
 
 pub struct Shell {
     pub program: String,
@@ -25,10 +31,7 @@ pub struct AgentMetadata {
 /// when corral cannot say; the pane then attaches as before, but cannot stand for its agent in
 /// `paddock ctl`.
 pub fn public_metadata(corral: &str, name: &str) -> AgentMetadata {
-    let status = crate::corral::Client {
-        program: corral.to_owned(),
-    }
-    .json(
+    let status = crate::corral::Client::local(corral).json(
         &["status", name],
         std::time::Duration::from_secs(5),
         &std::sync::atomic::AtomicBool::new(false),
@@ -59,21 +62,39 @@ pub struct Viewer {
     /// The agent shown is paused (DESIGN §13 P5-33), as the window last heard from corral: its input
     /// is dropped.
     pub paused: bool,
+    /// Another machine's agent shown while another window there is attached to it: corral lets
+    /// this one only watch until that one leaves (DESIGN §13 P5-90).
+    pub read_only: bool,
+    /// Another machine's agent whose ssh connection was lost (ssh exited 255): attached again once
+    /// that machine lists it as before.
+    pub lost: Option<(String, AgentMetadata)>,
     failed: bool,
     closing: bool,
     pending: Option<(String, AgentMetadata)>,
     generation: u64,
-    corral: String,
+    /// corral, on this Mac or another machine.
+    client: Client,
+    /// The attach under way found another window attached there.
+    elsewhere: Arc<AtomicBool>,
     spawning: Option<(u64, String, JoinHandle<Result<Session>>)>,
 }
 impl Viewer {
+    /// Attaches with this Mac's `corral`.
     pub fn new(corral: String) -> Self {
+        Self::with(Client::local(corral))
+    }
+
+    /// Attaches with `client`'s corral, on this Mac or another machine.
+    pub fn with(client: Client) -> Self {
         Self {
             session: None,
             showing: None,
             pending: None,
             generation: 0,
-            corral,
+            client,
+            elsewhere: Arc::default(),
+            read_only: false,
+            lost: None,
             spawning: None,
             shell: None,
             metadata: AgentMetadata::default(),
@@ -110,6 +131,8 @@ impl Viewer {
         self.pending = Some((name, metadata));
         self.exit_code = None;
         self.failed = false;
+        self.lost = None;
+        self.read_only = false;
         if let Some(session) = &mut self.session {
             session.interrupt()?;
         }
@@ -136,6 +159,37 @@ impl Viewer {
         }
         Ok(())
     }
+    /// Another machine's listing, just read (DESIGN §13 P5-90): an attach whose connection was
+    /// lost goes again when the agent is there as before; one that only watches can type once no
+    /// other window is attached (corral hands it the keys).
+    pub fn listed(&mut self, agents: &[crate::corral::Agent]) -> Result<()> {
+        if let Some((name, metadata)) = &self.lost
+            && self.pending.is_none()
+            && self.session.is_none()
+            && agents.iter().any(|a| {
+                &a.name == name
+                    && a.state.as_deref() != Some("exited")
+                    && (metadata.instance.is_none() || a.instance == metadata.instance)
+            })
+        {
+            let (name, metadata) = self.lost.take().expect("checked");
+            self.select_agent(name, metadata)?;
+        }
+        if self.read_only
+            && let Some(name) = &self.showing
+            && agents.iter().any(|a| &a.name == name && a.attached <= 1)
+        {
+            self.read_only = false;
+        }
+        Ok(())
+    }
+    /// Another machine's agent from the saved layout: attached once that machine lists it as
+    /// before ([`Self::listed`]).
+    pub fn wait(&mut self, name: String, metadata: AgentMetadata, note: String) {
+        self.metadata = metadata.clone();
+        self.lost = Some((name, metadata));
+        self.note = note;
+    }
     pub fn target(&self) -> Option<&str> {
         self.pending
             .as_ref()
@@ -155,6 +209,8 @@ impl Viewer {
     pub fn close(&mut self) -> Result<()> {
         self.closing = true;
         self.paused = false;
+        self.lost = None;
+        self.read_only = false;
         self.cancel_pending();
         if let Some(session) = &mut self.session {
             session.interrupt()?;
@@ -196,6 +252,7 @@ impl Viewer {
                         } else {
                             self.shell = None;
                             self.showing = Some(name);
+                            self.read_only = self.elsewhere.load(Ordering::Relaxed);
                             if !session.poll_exit()? {
                                 self.metadata = pending.unwrap().1;
                             }
@@ -227,27 +284,40 @@ impl Viewer {
             && let Some((name, metadata)) = &self.pending
         {
             let name = name.clone();
-            let command = vec![self.corral.clone(), "attach".into(), name.clone()];
             let instance = metadata.instance.clone();
             let checked_name = name.clone();
-            let program = self.corral.clone();
+            let client = self.client.clone();
             let size = size.unwrap_or(Size { rows: 24, cols: 80 });
+            let elsewhere = Arc::new(AtomicBool::new(false));
+            self.elsewhere = elsewhere.clone();
             self.spawning = Some((
                 self.generation,
                 name,
                 thread::spawn(move || {
+                    let command = match &client.remote {
+                        None => vec![
+                            client.program.clone(),
+                            "attach".into(),
+                            checked_name.clone(),
+                        ],
+                        Some(link) => link.attach_argv(&checked_name)?,
+                    };
                     if let Some(instance) = instance {
-                        let status = crate::corral::Client { program }.json(
+                        let status = client.json(
                             &["status", &checked_name],
                             std::time::Duration::from_secs(15),
-                            &std::sync::atomic::AtomicBool::new(false),
+                            &AtomicBool::new(false),
                         )?;
                         anyhow::ensure!(status["state"].as_str() != Some("exited"), EXITED);
                         anyhow::ensure!(status["instance"].as_str() == Some(&instance), REPLACED);
+                        let attached = status["attached"].as_u64().unwrap_or(0) != 0;
+                        // Another machine's agent is watched until the other window leaves; this
+                        // Mac's is refused, as before.
                         anyhow::ensure!(
-                            status["attached"].as_u64().unwrap_or(0) == 0,
+                            !attached || client.remote.is_some(),
                             "agent attached elsewhere"
                         );
+                        elsewhere.store(attached, Ordering::Relaxed);
                     }
                     Session::spawn(&command, None, size)
                 }),
@@ -262,7 +332,7 @@ impl Viewer {
             let cwd = std::path::PathBuf::from(&shell.cwd);
             let env = shell.env.clone();
             let agent_shell = shell.agent_shell;
-            let corral = self.corral.clone();
+            let corral = self.client.program.clone();
             let size = size.unwrap_or(Size { rows: 24, cols: 80 });
             self.spawning = Some((
                 self.generation,
@@ -305,11 +375,25 @@ impl Viewer {
                 }
                 if let Some(name) = self.showing.take() {
                     self.exit_code = exit_code;
-                    self.failed = exit_code.is_some_and(|code| code != 0);
-                    self.note = format!(
-                        "{name} attach exited ({}). Select an agent on the left to reconnect.",
-                        exit_code.unwrap_or(0)
-                    );
+                    self.read_only = false;
+                    match &self.client.remote {
+                        // ssh lost the connection, not the agent: attached again once its machine
+                        // answers.
+                        Some(link)
+                            if exit_code == Some(crate::remote::SSH_FAILED) && !self.closing =>
+                        {
+                            self.failed = false;
+                            self.note = format!("Lost connection to {} — reconnecting…", link.name);
+                            self.lost = Some((name, self.metadata.clone()));
+                        }
+                        _ => {
+                            self.failed = exit_code.is_some_and(|code| code != 0);
+                            self.note = format!(
+                                "{name} attach exited ({}). Select an agent on the left to reconnect.",
+                                exit_code.unwrap_or(0)
+                            );
+                        }
+                    }
                 }
             } else if let Some(size) = size {
                 session.resize(size)?;
@@ -389,7 +473,7 @@ mod tests {
     #[test]
     fn already_exited_attach_worker_is_never_published_as_running() {
         let size = Size { rows: 10, cols: 40 };
-        let mut viewer = Viewer::new("unused".into());
+        let mut viewer = Viewer::new("unused".to_owned());
         viewer.pending = Some(("p/failed".into(), AgentMetadata::default()));
         viewer.spawning = Some((
             0,

@@ -247,9 +247,7 @@ esac
 #[test]
 fn a_reply_goes_to_corral_send_as_typed_and_a_refusal_says_why() {
     let temp = common::tempdir();
-    let client = Client {
-        program: fake_corral(temp.path()),
-    };
+    let client = Client::local(fake_corral(temp.path()));
     let cancel = AtomicBool::new(false);
     let text = "line one\n\"quoted\" 'single' $HOME `x` \\n\n  --force 第二行";
     assert_eq!(client.send("p/main", text, &cancel), Ok(()));
@@ -275,9 +273,7 @@ fn a_reply_goes_to_corral_send_as_typed_and_a_refusal_says_why() {
         !garbled.is_empty() && !garbled.contains("hello"),
         "{garbled}"
     );
-    let missing = Client {
-        program: temp.path().join("nowhere").to_str().unwrap().into(),
-    };
+    let missing = Client::local(temp.path().join("nowhere").to_str().unwrap());
     let none = inbox::refusal(&missing.send("p/main", "hello", &cancel).unwrap_err());
     assert!(!none.is_empty() && !none.contains("hello"), "{none}");
 }

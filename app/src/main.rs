@@ -207,6 +207,7 @@ fn main() -> Result<()> {
     let mut options = Options {
         launch,
         corral: corral.unwrap_or_else(|| config.corral.clone()),
+        remote: None,
         font_family: config.font.clone(),
         fallbacks: config.font_fallbacks.clone(),
         font_size: config.font_size,

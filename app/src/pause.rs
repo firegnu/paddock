@@ -77,9 +77,15 @@ pub fn question(agents: &[Agent], names: &[String]) -> Option<String> {
 
 /// Pauses (`pause`) or resumes each of `names` in turn with corral: each name, with why it failed.
 pub fn run(corral: &str, names: &[String], pause: bool) -> Vec<(String, Result<(), String>)> {
-    let client = Client {
-        program: corral.to_owned(),
-    };
+    run_with(&Client::local(corral), names, pause)
+}
+
+/// [`run`] with any corral: this Mac's or another machine's (DESIGN §13 P5-90).
+pub fn run_with(
+    client: &Client,
+    names: &[String],
+    pause: bool,
+) -> Vec<(String, Result<(), String>)> {
     let op = if pause { "pause" } else { "resume" };
     names
         .iter()

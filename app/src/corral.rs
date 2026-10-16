@@ -84,32 +84,83 @@ impl Agent {
 /// the text.
 const SEND_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// corral's JSON answer to `args`, as `output` holds it; an error when it is not JSON, corral
+/// failed, or it said `ok: false`.
+pub fn answer(args: &[&str], output: &crate::command::Output) -> Result<Value> {
+    let value: Value = serde_json::from_slice(&output.stdout).with_context(|| {
+        format!(
+            "{}: invalid JSON ({})",
+            args.join(" "),
+            String::from_utf8_lossy(&output.stderr).trim()
+        )
+    })?;
+    checked(args, output.status.success(), value)
+}
+
+/// `value` unless corral failed (`success` false) or said `ok: false`: then its error.
+pub fn checked(args: &[&str], success: bool, value: Value) -> Result<Value> {
+    if !success || value.get("ok") == Some(&Value::Bool(false)) {
+        bail!(
+            "{}: {}",
+            args.join(" "),
+            value
+                .get("error")
+                .and_then(Value::as_str)
+                .unwrap_or("command failed")
+        );
+    }
+    Ok(value)
+}
+
+/// Takes `agent`'s `corral status` into what `corral ls` said of it: the status in full, with
+/// the listing's directory and, when the status has none, its instance; or why it failed.
+pub fn merge(agent: &mut Agent, status: Result<Value>) {
+    match status.and_then(|v| Ok(serde_json::from_value::<Agent>(v)?)) {
+        Ok(mut status) => {
+            status.name.clone_from(&agent.name);
+            status.cwd = agent.cwd.take();
+            if status.instance.is_none() {
+                status.instance = agent.instance.take();
+            }
+            *agent = status;
+        }
+        Err(error) => agent.error = Some(error.to_string()),
+    }
+}
+
+/// corral on this Mac (`program`), or on another machine (`remote`, DESIGN §13 P5-90), where
+/// `program` is not used.
 #[derive(Clone)]
 pub struct Client {
     pub program: String,
+    pub remote: Option<Arc<crate::remote::Link>>,
 }
 impl Client {
-    pub fn json(&self, args: &[&str], timeout: Duration, cancel: &AtomicBool) -> Result<Value> {
-        let result = crate::command::run(&self.program, args, None, timeout, cancel)?;
-        let (status, output, errors) = (result.status, result.stdout, result.stderr);
-        let value: Value = serde_json::from_slice(&output).with_context(|| {
-            format!(
-                "{}: invalid JSON ({})",
-                args.join(" "),
-                String::from_utf8_lossy(&errors).trim()
-            )
-        })?;
-        if !status.success() || value.get("ok") == Some(&Value::Bool(false)) {
-            bail!(
-                "{}: {}",
-                args.join(" "),
-                value
-                    .get("error")
-                    .and_then(Value::as_str)
-                    .unwrap_or("command failed")
-            );
+    /// corral on this Mac.
+    pub fn local(program: impl Into<String>) -> Self {
+        Self {
+            program: program.into(),
+            remote: None,
         }
-        Ok(value)
+    }
+
+    /// Runs corral with `args`, here or there.
+    fn output(
+        &self,
+        args: &[&str],
+        timeout: Duration,
+        cancel: &AtomicBool,
+    ) -> Result<crate::command::Output> {
+        match &self.remote {
+            None => crate::command::run(&self.program, args, None, timeout, cancel),
+            Some(link) => link
+                .corral(args, timeout, cancel)
+                .map_err(|problem| anyhow::anyhow!("{}: {problem}", link.name)),
+        }
+    }
+
+    pub fn json(&self, args: &[&str], timeout: Duration, cancel: &AtomicBool) -> Result<Value> {
+        answer(args, &self.output(args, timeout, cancel)?)
     }
 
     pub fn collect(&self) -> Result<Vec<Agent>> {
@@ -117,6 +168,12 @@ impl Client {
     }
 
     pub fn collect_until(&self, cancel: &AtomicBool) -> Result<Vec<Agent>> {
+        if let Some(link) = &self.remote {
+            return crate::remote::collect(link, cancel).map_err(|fault| match fault {
+                crate::remote::Fault::Ssh(problem) => anyhow::anyhow!("{problem}"),
+                crate::remote::Fault::Corral(error) => error,
+            });
+        }
         #[derive(Deserialize)]
         struct Listing {
             agents: Vec<Agent>,
@@ -131,20 +188,8 @@ impl Client {
             if agent.starting || agent.incompatible {
                 continue;
             }
-            match self
-                .json(&["status", &agent.name], Duration::from_secs(15), cancel)
-                .and_then(|v| Ok(serde_json::from_value::<Agent>(v)?))
-            {
-                Ok(mut status) => {
-                    status.name.clone_from(&agent.name);
-                    status.cwd = agent.cwd.take();
-                    if status.instance.is_none() {
-                        status.instance = agent.instance.take();
-                    }
-                    *agent = status;
-                }
-                Err(error) => agent.error = Some(error.to_string()),
-            }
+            let status = self.json(&["status", &agent.name], Duration::from_secs(15), cancel);
+            merge(agent, status);
         }
         agents.sort_by(|a, b| a.name.cmp(&b.name));
         Ok(agents)
@@ -171,9 +216,11 @@ impl Client {
             message,
         };
         let args = ["send", name, text];
-        let output = crate::command::run(&self.program, &args, None, SEND_TIMEOUT, cancel)
+        let output = self
+            .output(&args, SEND_TIMEOUT, cancel)
             // Not the command line, which has the whole reply in it: only what went wrong.
             .map_err(|error| match error.chain().nth(1) {
+                _ if self.remote.is_some() => unanswered(format!("{error}")),
                 Some(cause) => unanswered(format!("corral did not run: {cause}")),
                 None => unanswered("corral did not answer in time".into()),
             })?;
@@ -268,16 +315,39 @@ pub struct Poller {
 }
 impl Poller {
     pub fn start(client: Client, every: Duration) -> Self {
+        Self::spawn(every, move |_, quitting| {
+            Some(client.collect_until(quitting))
+        })
+    }
+
+    /// Another machine's agents (DESIGN §13 P5-90): its own thread, looking every
+    /// [`crate::remote::TICK`] whether a read is due.
+    pub fn remote(link: Arc<crate::remote::Link>) -> Self {
+        let mut rounds = crate::remote::Rounds::new(link);
+        Self::spawn(crate::remote::TICK, move |forced, quitting| {
+            rounds.round(forced, quitting)
+        })
+    }
+
+    /// A thread calling `round` every `tick`, and at once when asked to refresh (`true`), sending
+    /// on what it gives.
+    fn spawn(
+        tick: Duration,
+        mut round: impl FnMut(bool, &AtomicBool) -> Option<Result<Vec<Agent>>> + Send + 'static,
+    ) -> Self {
         let (tx, updates) = mpsc::channel();
         let (wake, wait) = mpsc::channel();
         let cancel = Arc::new(AtomicBool::new(false));
         let quitting = cancel.clone();
         let worker = thread::spawn(move || {
+            let mut forced = true;
             while !quitting.load(Ordering::Relaxed) {
-                if tx.send(client.collect_until(&quitting)).is_err() {
+                if let Some(update) = round(forced, &quitting)
+                    && tx.send(update).is_err()
+                {
                     break;
                 }
-                let _ = wait.recv_timeout(every);
+                forced = wait.recv_timeout(tick).is_ok();
             }
         });
         Self {

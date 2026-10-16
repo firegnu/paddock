@@ -61,6 +61,11 @@ impl PaddockWindow {
     /// What the user is in the middle of, when a change from `paddock ctl` would get in the way.
     /// Read from the window as it is now: requests and late `corral start` results both ask here.
     fn ctl_busy(&self, window: &Window, cx: &gpui::App) -> Option<&'static str> {
+        // It acts on this Mac's panes, which wait while another machine is on show (DESIGN §13
+        // P5-90).
+        if self.here != 0 {
+            return Some("looking at another machine");
+        }
         control_ui::busy_reason(&control_ui::Activity {
             dragging: self.resizing.is_some()
                 || self.right.resizing()
@@ -105,6 +110,17 @@ impl PaddockWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Value {
+        // This Mac's, whichever machine is on show.
+        self.on_local(|this| this.control_here(message, records, window, cx))
+    }
+
+    fn control_here(
+        &mut self,
+        message: &Message,
+        records: &Records,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Value {
         let facts = self.pane_facts(cx);
         let listed = self.listed(cx);
         let model = Model {
@@ -129,7 +145,7 @@ impl PaddockWindow {
             let request = message.request_id.clone();
             let corral = self.template.corral.clone();
             let task = cx.background_spawn(async move {
-                let value = crate::corral::Client { program: corral }.json(
+                let value = crate::corral::Client::local(corral).json(
                     &["ls"],
                     Duration::from_secs(15),
                     &std::sync::atomic::AtomicBool::new(false),
@@ -415,6 +431,14 @@ impl PaddockWindow {
     /// corral has started (once the user is not in the middle of something), and notes requests
     /// that have finished. Returns the results that changed, for the transport's records.
     pub fn control_tick(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Vec<(String, Value)> {
+        self.on_local(|this| this.control_tick_here(window, cx))
+    }
+
+    fn control_tick_here(
         &mut self,
         window: &mut Window,
         cx: &mut Context<Self>,

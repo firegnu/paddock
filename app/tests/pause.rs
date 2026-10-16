@@ -113,9 +113,7 @@ case "$1:$2" in
 esac
 "##,
     );
-    let client = Client {
-        program: program.clone(),
-    };
+    let client = Client::local(program.clone());
     // Nobody working: straight on, every live agent and never the one that exited.
     std::fs::write(temp.path().join("b-state"), "idle").unwrap();
     let request = every(&client.collect().unwrap()).unwrap();

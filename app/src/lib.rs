@@ -57,6 +57,7 @@ pub mod preset;
 pub mod pty;
 pub mod raised;
 pub mod reduce_motion;
+pub mod remote;
 pub mod right_panel;
 pub mod rows;
 pub mod search;

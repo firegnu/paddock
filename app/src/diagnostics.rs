@@ -40,6 +40,40 @@ pub struct Report {
     pub save_off: bool,
     pub startup: Startup,
     pub checked: SystemTime,
+    /// Each other machine in the config, in its order (DESIGN §13 P5-90).
+    pub machines: Vec<Machine>,
+}
+
+/// Another machine as paddock last found it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Machine {
+    pub name: String,
+    /// Connected, or how it stands.
+    pub status: String,
+    /// corral there, once found.
+    pub corral: Option<String>,
+    /// `corral --version` there: the version and the contract.
+    pub version: Option<(String, String)>,
+    /// The latest error, and when.
+    pub error: Option<(SystemTime, String)>,
+}
+
+impl Machine {
+    pub fn of(link: &crate::remote::Link) -> Self {
+        let snapshot = link.snapshot();
+        let status = match &snapshot.status {
+            crate::remote::Status::Connecting => "Connecting…".to_owned(),
+            crate::remote::Status::Online => "Connected".to_owned(),
+            crate::remote::Status::Down { problem, .. } => problem.label(),
+        };
+        Machine {
+            name: link.name.clone(),
+            status,
+            corral: snapshot.corral,
+            version: snapshot.version,
+            error: snapshot.error,
+        }
+    }
 }
 
 /// A command as paddock would start it.

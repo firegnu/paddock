@@ -115,3 +115,47 @@
 - 清单第 3 步（经公网）：不复用连接一条命令 5.4 秒；复用连接每条 0.78–1.0 秒，一次远端调用里跑 10 条也是 0.94 秒；一条常驻远端 `sh` 里一问一答 0.39–0.42 秒。结论：一定要复用连接；远程按 2 秒左右一轮；attach 里打字的回显会慢 0.4 秒左右，是网络本身的。
 - 清单第 4 步（10-16，用户跑）：直接连和复用连接下 attach 都正常，改窗口大小画面都跟着变；所以 attach 走复用连接。
 - 清单第 5 步（断网）：不做。用户 10-16：“不要测试任何断网的测试。”断线判定用 `ServerAliveInterval=5`、`ServerAliveCountMax=3`。
+
+## 完成记录
+
+### 做了什么
+- 配置（`config.rs`）：读 `[[machines]]`（`name`、`ssh`、可选 `corral`），按要求校验；写错的那一条不进 paddock，左侧栏底部写一句原因，其余配置和本机照常；没写时 `machines` 为空、什么都不说。
+- 传输（新 `remote.rs`）：`Link` 一台机器一条 paddock 自己的复用连接（`/tmp/paddock-<uid>/`，0700、查属主、不是链接、套接字路径守住 104 字节；`-S`、`ControlMaster=auto`、`ControlPersist=600`、`BatchMode=yes`、`ConnectTimeout=10`、`ServerAliveInterval=5`、`ServerAliveCountMax=3`、目标前 `--`）。连上时引号自检 → 找 corral（配置的、`command -v corral`、`$HOME/.local/bin/corral`）→ `corral --version` 查 contract。错误分成认证失败、host key、连不上、找不到 corral、contract 不对、shell 不支持、本机起不来 ssh，各有切换栏的几个字和悬停说明。
+- 轮询：`Poller::remote` 每台一个线程，`Rounds` 管节奏（在线 2 秒一轮、一轮两次远端调用；退避 1 秒起翻倍到 60 秒；Mac 唤醒后、要求刷新时立即试）。
+- 窗口（`window.rs`）：每台机器一套左侧栏、布局、窗格（`Seat`），显示的那台在原来的字段里，别的停在 `seats` 里保持连着、照样处理结束的 agent 和断线重接；切换栏在左侧栏顶上（窄条时竖排）。布局按机器另存（`layout_state.rs` 的 `Board`），重启后远程窗格等那台读到再 attach。
+- 远程视图：右侧栏 Changes／Kanban／Cairn 一句说明；没有 Activity、New Workspace；New Agent、New Shell、Shell／Agent shell 写 `… on This Mac only for now.`；命令面板和窗格标题按那台的 `$HOME` 缩写。
+- attach（`viewer.rs`、`view.rs`）：远程走 `ssh -tt -e none -S …`；`attached` 不是 0 时远程只读接入（窗格顶上 `Read-only: attached elsewhere`，只剩这一个时自动能打字），本机照旧拒绝；ssh 退出 255 写 `Lost connection to <机器> — reconnecting…`、不收键盘，那台再读到同一实例自动重接。
+- 断线：左侧栏里那台的 agent 画暗、错误行写 `read <多久> ago`，不关窗格。
+- 收件箱和铃铛（`inbox.rs`、`window_inbox.rs`）：所有机器合在一起，草稿、已发、被拒、发送中按（机器，名字）记；远程行标机器名；`Open pane` 先切到那台；回复走那台的 `corral send`；读不到的机器各一行。
+- 停、暂停恢复走显示着那台的 corral，确认框写机器名。
+- Diagnostics 加 `Machines` 一节，每台一行。
+- `docs/DESIGN.md` §13 加了 P5-90 一条。
+
+### 验证了什么
+- 在 `app/` 下带 `CARGO_TARGET_DIR=…/.target/p5-90-remote`：`cargo test --all-targets` 全过（691 个），`cargo clippy --all-targets -- -D warnings` 无警告，`cargo fmt --check` 通过；`git diff --check` 通过。
+- 新测试：`tests/remote.rs`（假 `ssh` 解析参数后把命令交给本机 `sh -c`，假 corral 在假 home 的 `.local/bin`）：ssh 参数（`-S`、保活、`--` 在目标前）；控制目录（0700、改回 0700、别的用户、链接）和套接字长度；引号（带 `'`、`$()`、反引号、换行、中文、`{a,b}`、`!`、`^`）原样到 shell；PATH 里没有 corral 时找到 `~/.local/bin/corral`、配置的 `~` 换成那边 home；contract 不对时不读列表；一轮恰好两次远端调用、名字原样到 corral、状态按分隔行拆对；收件箱回复原样到远端；ssh 错误分类；远程假 ssh 卡住或报错时本机的列表照样按时刷新、停得下来；远程 `attached` 非 0 只读接入、本机照旧拒绝。`remote.rs` 单元测试（找 corral 的顺序、拆分、退避、错误分类）；`config.rs`（校验和没写时为空）；`tests/layout_state.rs`（按机器存、没有机器时不写这一项、坏一份不影响别的）。
+- 没起窗口、没截图、没连真机器。切换栏、只读条、说明文字、画暗的样子没看过，留给合并前用户在场实测。
+
+### 拿主意的地方
+- 轮询选“一轮两次调用”而不是常驻远端 shell：实测两次调用 1 秒左右已够 2 秒一轮；常驻 shell 要自己管生死和输出边界，断线时更难收拾。
+- 引号没用 `shell-words::quote`（它让 `{}`、`!`、`^` 不加引号），自己写了总加单引号的版本。
+- 一键暂停只管显示着的那台：它的按钮本来就只看得到这台的 agent；要问时确认框加一行 `These agents run on <机器>; only they pause.`。
+- 本机的收件箱行不标机器名，远程的标。
+- 远程视图里不开 shell（New Shell、面板里的 Shell／Agent shell 写一句说明、面板不列）：shell 只能开在本机，放进远程那套窗格会把两边混起来。
+- 看着远程时 `paddock ctl` 除 `inspect`（照样答本机的）外回 busy（`looking at another machine`）：它改的是本机窗格，而本机窗格这时不在眼前。
+- 启动时总在 This Mac；`ControlPersist=600`；切换栏、只读条、说明的英文文案。
+- 配置里暂时去掉的机器，它在 `layout.json` 里那份留着，加回来时还在。
+
+### 改了本机共用的地方（本机行为和原有测试结果不变）
+- `corral.rs`：`Client` 加 `remote`（`Client::local` 建本机的），`json`／`collect`／`send` 按它分到本机命令或远端；`answer`／`checked`／`merge` 从原来的方法里提出来（逻辑不变）；`Poller` 的循环提成 `spawn`，本机仍是每 `every` 读一次、要求刷新时立即读。
+- `viewer.rs`／`view.rs`：`Viewer::with`（`Viewer::new` 照旧收本机程序名）、`read_only`、`lost`、`wait`、`listed`；attach 前核对只在远程时放过 `attached` 非 0。
+- `sidebar.rs`：`Sidebar::new` 多一个 `remote`（本机传 `None`，Git、workspace、Activity 照旧）；铃铛加上别的机器的；切换栏只在有远程机器时出现。
+- `inbox.rs`：行多一个 `machine`（本机为 `None`），`Open::new`／`refresh` 走同一套按机器的实现。
+- `window.rs`／`window_inbox.rs`／`window_ctl.rs`：上面说的座位、收件箱按机器、ctl 和退出提问只看本机；本机的 `view`／`fill`／`ended`／`save_layout` 等走原来的路。
+- `pause.rs`／`new_agent.rs`：加 `run_with`／`stop_with`，原函数照旧。`layout_state.rs`：`machines` 为空时不写进文件。`diagnostics.rs`／`settings_view.rs`：加 Machines 一节，`diagnostic` 的标签改收 `impl Into<SharedString>`。
+
+### 没做的事
+- 乙（在远程开 agent）、丙（远程的 git、Changes、Kanban、Cairn、Activity）。
+- 按用户 10-16，断线、断网、重连没写测试，只做了功能。
+- “远程 agent 不进本机的分组、workspace、看板认领”没有界面层的自动测试：GPUI 窗口没有测试环境，这一条靠结构保证（每台一套 `Sidebar`，看板认领和 New Agent 候选只取本机那套），测试里覆盖了轮询互不拖累和没配机器时配置、布局文件不变。
+- 没有真机器实测；用户 VPS 的 sshd 设 `ClientAliveInterval`（P5-90a §5）合并时提醒用户。
