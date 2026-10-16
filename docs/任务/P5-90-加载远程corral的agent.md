@@ -1,7 +1,7 @@
 # 任务：在 paddock 里加载远程机器上 corral 托管的 agent（甲层）
 
-2026-10-16，paddock/main 交给 paddock/dev-remote（Claude Code，重档：opus[1m] / xhigh）。
-路由：重 / 交叉审查要 / 影响面：碰要害（路由：重、要、碰要害）
+2026-10-16，paddock/main 交给 paddock/dev-remote（Claude Code，opus[1m] / high）。
+路由：重 / 交叉审查要 / 影响面：碰要害（路由：重、要、碰要害；推翻：强度按用户 10-16 “effort用high，不要用xhigh”用 high）
 类型：功能变更
 依据：用户 10-14：“再记一个draft task，我要能在paddock中加载远程的corral托管的agent”。调研 P5-90a 已合并；用户 10-15 定了本机和远程隔开（下文「用户定的」）；ranch R10 已在用户的 Linux 机器上装好 corral（10-16）。本轮做甲：远程 agent 看得到、能 attach 打字、读回复、收件箱能回、能停和暂停恢复；不做在远程开 agent（乙）和远程的 git、Changes 等（丙）。
 依赖：P5-90a
@@ -69,8 +69,8 @@
   - 一轮最多两次远端调用，输出按行拆对；
   - **隔离**：远程的假 ssh 卡住不返回或报错时，本机的列表照样按时刷新；没配机器时和现在一样；远程 agent 不进本机的分组、workspace、看板认领；
   - attach 前的核对：远程 `attached` 不是 0 时只读接入，本机照旧拒绝；
-  - 断线：机器读不到时 agent 留着、不算消失；重连退避。
 - 验证只做这些：在 `app/` 下带上面的 `CARGO_TARGET_DIR` 跑 `cargo test --all-targets`、`cargo clippy --all-targets -- -D warnings`、`cargo fmt --check`，再跑 `git diff --check`。觉得不够，在回复里说，不要自己加。
+- 用户 10-16：“不要测试任何断网的测试。”断线、断网、重连只做功能，不写这方面的测试。
 - 不起窗口、不截图、不连真机器。真机器上的实测由主控合并前请用户在场时做。
 
 ## 不要做
@@ -114,4 +114,4 @@
 - 清单第 2 步（当时）：远端没装 corral；pi、omp 只在交互 shell 的 PATH 里，ssh 直接跑命令时找不到。
 - 清单第 3 步（经公网）：不复用连接一条命令 5.4 秒；复用连接每条 0.78–1.0 秒，一次远端调用里跑 10 条也是 0.94 秒；一条常驻远端 `sh` 里一问一答 0.39–0.42 秒。结论：一定要复用连接；远程按 2 秒左右一轮；attach 里打字的回显会慢 0.4 秒左右，是网络本身的。
 - 清单第 4 步（10-16，用户跑）：直接连和复用连接下 attach 都正常，改窗口大小画面都跟着变；所以 attach 走复用连接。
-- 清单第 5 步（断网）：用户 10-16 说有时间再测；断线判定先用 `ServerAliveInterval=5`、`ServerAliveCountMax=3`，测完主控再调。
+- 清单第 5 步（断网）：不做。用户 10-16：“不要测试任何断网的测试。”断线判定用 `ServerAliveInterval=5`、`ServerAliveCountMax=3`。
