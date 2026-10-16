@@ -25,9 +25,9 @@ use crate::{
     view::hsla,
 };
 use gpui::{
-    AnyElement, ClickEvent, Context, Div, Font, FontStyle, FontWeight, HighlightStyle, Hsla,
-    IntoElement, Render, Stateful, StyledText, Task, UnderlineStyle, Window, div, prelude::*, px,
-    relative,
+    AnyElement, BoxShadow, ClickEvent, Context, Div, Font, FontStyle, FontWeight, HighlightStyle,
+    Hsla, IntoElement, Render, Stateful, StyledText, Task, UnderlineStyle, Window, div, prelude::*,
+    px, relative,
 };
 use std::{
     collections::HashMap,
@@ -58,15 +58,23 @@ const FACTS: f32 = 0.04;
 const BETWEEN: f32 = 0.05;
 /// The rule between two sessions in the box of what the next session is given, in the accent.
 const NEXT_RULE: f32 = 0.16;
-/// The Notes | Ledger switch (P5-118a): its ground and edge in the text colour; the page shown, its
-/// ground and edge in the accent; the ledger's count, its ground in the text colour and on the page
-/// shown in the accent.
-const SWITCH_GROUND: f32 = 0.05;
-const SWITCH_EDGE: f32 = 0.08;
-const SWITCH_ON: f32 = 0.12;
-const SWITCH_ON_EDGE: f32 = 0.38;
-const SWITCH_COUNT: f32 = 0.08;
-const SWITCH_COUNT_ON: f32 = 0.16;
+/// The Notes | Ledger | Lessons switch (P5-121a): a well sunk into the card, the card's ground with
+/// black over it, less on a light ground; inside, a shadow under its top edge and a dark rim;
+/// outside, a light lip under it and a faint edge in the text colour around it.
+const WELL: (f32, f32) = (0.38, 0.07);
+const WELL_TOP: f32 = 0.65;
+const WELL_RIM: f32 = 0.45;
+const WELL_LIP: (f32, f32) = (0.07, 0.70);
+const WELL_EDGE: f32 = 0.06;
+/// The page shown, solid in the accent: a light line inside its top edge and a dark one inside its
+/// bottom edge, in white and black; under it a small shadow and a faint glow of the accent.
+const PILL_LIGHT: f32 = 0.30;
+const PILL_DARK: f32 = 0.18;
+const PILL_SHADOW: f32 = 0.45;
+const PILL_GLOW: f32 = 0.18;
+/// A page's count: its ground in the text colour; on the page shown, in the card's ground.
+const SWITCH_COUNT: f32 = 0.12;
+const SWITCH_COUNT_ON: f32 = 0.18;
 /// How tall the icon of the agent that saved a note is drawn.
 const MARK: f32 = 13.0;
 /// How many of an open session's earlier notes are listed before Show all.
@@ -1233,11 +1241,32 @@ impl CairnView {
     }
 
     /// Under the hooks where cairn keeps a ledger: the switch between the notes, the ledger and the
-    /// lessons, a small capsule at the left as wide as its words, the page shown in the accent, the
-    /// ledger's and the lessons' with how many entries each has; on those two pages, what it is to
-    /// the right (P5-118a, P5-121).
+    /// lessons, a well at the left as wide as its words, the page shown a solid capsule of the
+    /// accent set in it, the ledger's and the lessons' with how many entries each has; on those two
+    /// pages, what it is to the right (P5-118a, P5-121, P5-121a).
     fn switch(&self, ledger: &Ledger, ui: &UiFont, cx: &mut Context<Self>) -> Div {
         let c = self.colors;
+        let (black, white) = (gpui::black(), gpui::white());
+        let light = c.ground.l >= 0.5;
+        let pick = |(dark, lit): (f32, f32)| if light { lit } else { dark };
+        let well = c.ground.blend(black.opacity(pick(WELL)));
+        let shadow = |y: f32, color: Hsla| BoxShadow::new(px(0.0), px(y), color);
+        let well_shadows = vec![
+            shadow(1.0, black.opacity(WELL_TOP))
+                .blur_radius(px(2.0))
+                .inset(),
+            shadow(0.0, black.opacity(WELL_RIM))
+                .spread_radius(px(1.0))
+                .inset(),
+            shadow(1.0, white.opacity(pick(WELL_LIP))),
+            shadow(0.0, c.text.opacity(WELL_EDGE)).spread_radius(px(1.0)),
+        ];
+        let pill_shadows = vec![
+            shadow(1.0, white.opacity(PILL_LIGHT)).inset(),
+            shadow(-1.0, black.opacity(PILL_DARK)).inset(),
+            shadow(1.0, black.opacity(PILL_SHADOW)).blur_radius(px(2.0)),
+            shadow(2.0, c.accent.opacity(PILL_GLOW)).blur_radius(px(6.0)),
+        ];
         let (count, lessons) = match ledger {
             Ledger::Groups(groups) => {
                 let (book, lessons) = split(groups);
@@ -1257,22 +1286,19 @@ impl CairnView {
                 .flex()
                 .items_center()
                 .gap(ui.px(6.0))
-                .px(ui.px(12.0))
-                .py(ui.px(2.0))
+                .px(ui.px(14.0))
+                .py(ui.px(4.0))
                 .rounded_full()
-                // An edge on both, clear on the other, so the words do not move when it turns on.
-                .border_1()
                 .cursor_pointer()
                 .when(on, |half| {
-                    half.bg(c.accent.opacity(SWITCH_ON))
-                        .border_color(c.accent.opacity(SWITCH_ON_EDGE))
+                    half.bg(c.accent)
+                        .shadow(pill_shadows.clone())
                         .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(c.accent)
+                        .text_color(c.ground)
                 })
                 .when(!on, |half| {
-                    half.border_color(gpui::transparent_black())
-                        .text_color(c.muted)
-                        .hover(move |style| style.text_color(c.text))
+                    half.text_color(c.text)
+                        .hover(move |style| style.text_color(c.title))
                 })
                 .child(words)
                 .children(count.map(|count| {
@@ -1283,11 +1309,11 @@ impl CairnView {
                         .font_weight(FontWeight::MEDIUM)
                         .when(on, |count| {
                             count
-                                .bg(c.accent.opacity(SWITCH_COUNT_ON))
-                                .text_color(c.accent)
+                                .bg(c.ground.opacity(SWITCH_COUNT_ON))
+                                .text_color(c.ground)
                         })
                         .when(!on, |count| {
-                            count.bg(c.text.opacity(SWITCH_COUNT)).text_color(c.muted)
+                            count.bg(c.text.opacity(SWITCH_COUNT)).text_color(c.text)
                         })
                         .child(count.to_string())
                 }))
@@ -1301,12 +1327,11 @@ impl CairnView {
         let capsule = div()
             .flex_shrink_0()
             .flex()
-            .p(px(2.0))
+            .p(ui.px(3.0))
             .rounded_full()
-            .border_1()
-            .border_color(c.text.opacity(SWITCH_EDGE))
-            .bg(c.text.opacity(SWITCH_GROUND))
-            .text_size(ui.px(12.0))
+            .bg(well)
+            .shadow(well_shadows)
+            .text_size(ui.px(12.5))
             .child(half("cairn-page-notes", Page::Notes, "Notes", None))
             .child(half("cairn-page-ledger", Page::Ledger, "Ledger", count))
             .child(half(
