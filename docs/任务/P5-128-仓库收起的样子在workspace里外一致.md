@@ -37,3 +37,37 @@
 
 ## 做完
 在本文件末尾追加「## 完成记录」（在你的分支里提交）：做了什么、验证了什么、拿主意的地方、没做的事、踩过的坑（没有就写「没有」）。回复里只写这几样，加上有没有要主控决定的事。命令都在前台跑完，全部做完后，回复最后一行写 DONE。
+
+## 完成记录
+
+### 做了什么
+
+- `card.rs`：`Heading` 加 `stack: Vec<String>` 字段（和 `Tray::stack` 同一份算法，共用 `stacked`），`listed` 的 `section` 里给每个仓库组算：`stack: stacked(agents, selected)`。`MOST`、`stacked` 的文档跟着说清两处都用。
+- `sidebar_workspaces.rs`：把 workspace 标题里画叠卡那段抽成 `pub(super) fn Sidebar::stack_mark(&self, stack: &[String], ui: &UiFont) -> AnyElement`（照 `stack.iter()` 在 `self.listing.panel.agents` 里找 kind、`tab_stack::Face::of_kind` / `Inks::of` / `stack`，不挂状态点），`tray` 里那处改成调它，一行画法只留一处。
+- `sidebar.rs` 的 `fn heading`（仓库小标题）：解构出 `stack`，收起时（`folded`，且这一组有 agent）在标题行最前面、名字前放同一个 `stack_mark`；展开时不画，别的（箭头、个数、强调色小圈、右边状态细条、悬停、点击收起展开、按钮、菜单、`above` 间距算法）一个没动。窄条（rail）走 `unfolded`、不画组标题，天然不变。
+- `docs/DESIGN.md`：P5-91 那条「不在 workspace 里的仓库小标题、仓库的收起、左侧栏收成窄条、卡片本身都不变」里给「仓库的收起」加了括号说明 P5-128 改了它；其后新增 P5-128 一条（用户原话 + 画法、共用代码、不变项、不做项）。
+- 测试：`card.rs` 加 `a_folded_groups_heading_stacks_its_agents_cards`（谁在前、最多三张、活动窗格的 agent 不在这组时取第一个、没 agent 在活动窗格时按列表先后、只 1 个 agent 时一张）。
+
+### 验证了什么
+
+- `cargo clippy --all-targets -- -D warnings`：通过（只有 `block v0.1.6` 的既有 future-incompat 提示，与本改动无关）。
+- `cargo fmt --check`：通过。
+- `cargo test --lib`：574 通过 0 失败；新用例单跑也通过。
+- `git diff --check`：干净。
+
+### 拿主意的地方
+
+- 叠卡作为标题行的直接子元素放在名字前，和 workspace 标题把 mark 放行里一致。
+- 行高：收起时这一行从约 21.7pt 变成 28pt（叠卡 20pt 高），比展开的行高；和 workspace 收起(34)/展开(30) 一样是「收起略高」，没有为它改间距算法。`above`、`mb(-HEADING_Y)` 那套算的是行与行之间的间距，行变高只把下面的行往下推，不压。
+- `stack` 为空时不画（`tab_stack::stack` 对空切片取 `faces[0]` 会 panic）；现在仓库组至少 1 个 agent 走不到这里，只是留个安全边。
+
+### 没做的事
+
+- 没起 paddock 窗口、没截图（照任务「样子留给用户看」），所以叠卡实际画出来的样子只在编译层面验过，构图/间距的实际观感留给用户实测。
+- 没跑集成测试（`app/tests/*`，含 `workspaces.rs` 里 workspace 的那条叠卡用例）：任务的验证清单只要求 `--lib`。`--all-targets` 的 clippy 已覆盖它们能编译。
+- 没加别的测试、没改卡片、workspace 托盘、分屏标签叠卡、窄条画法。
+
+### 踩过的坑
+
+没有。
+
