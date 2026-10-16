@@ -5,8 +5,9 @@
 ## 现在在哪
 
 - **没有进行中的活**：没有任务 worktree，主控没开测试 agent（corral 里的其他 agent 都是用户的）。工作区里未提交的草稿是 P5-54、P5-106、P5-111、P5-115、P5-120（看板 DRAFT，有意留，不要 `git add -A`）。
-- `~/Applications/paddock.app` 是合并 P5-121a 之后的版本（10-16 装，本机 Apple Development 证书签名）。
-- 已合并：第一至第三阶段、迁移 M0–M3、P4-1～P4-3、P5-1～P5-80、P5-82、P5-85～P5-89、P5-90a、P5-91～P5-105、P5-107～P5-110、P5-112～P5-114、P5-114a、P5-116～P5-118、P5-118a、P5-119、P5-121、P5-121a（P5-95b 已被 P5-95c 撤）。P5-83 已收尾（讨论记录）；P5-84、P5-81 不做；P5-52 只查明原因、改法用户暂不定；P5-90 已提交、等远端准备好（见「下一步」）。
+- `~/Applications/paddock.app` 是合并 P5-90 之后的版本（10-16 19:03 装，本机 Apple Development 证书签名）。
+- 已合并：第一至第三阶段、迁移 M0–M3、P4-1～P4-3、P5-1～P5-80、P5-82、P5-85～P5-89、P5-90、P5-90a、P5-91～P5-105、P5-107～P5-110、P5-112～P5-114、P5-114a、P5-116～P5-118、P5-118a、P5-119、P5-121、P5-121a（P5-95b 已被 P5-95c 撤）。P5-83 已收尾（讨论记录）；P5-84、P5-81 不做；P5-52 只查明原因、改法用户暂不定。
+- **远程机器（P5-90 甲）**：用户本机 `~/.config/paddock/config.toml` 已加一台 `[[machines]]`（名字 `5090`，ssh 别名在本机配置里，不进仓库）；只有 P5-90 之后的版本认这一项，旧版会报配置错。远端 corral 用 `$HOME/.local/bin/corral`（ranch R10 部署）。
 - 重新打包安装：在 `app/` 下 `cargo build --release`，再 `cargo run --release --example bundle -- --install`（编译目录 `.target/main`）。打包默认选本机 Apple Development 身份，可用 `PADDOCK_SIGN_IDENTITY` 指定；退回 ad-hoc 时会提示授权会失效。
 - **paddock ctl 已部署**：`~/.local/bin/paddock` 链到 app 里的程序，重新打包后不用重建；技能正文改了要重跑 `paddock install-skills`（装在 `~/.claude/skills/paddock`、`~/.agents/skills/paddock`、`~/.gemini/config/skills/paddock`），已开着的 agent 要重开才看到。
 - 全局 `~/.local/bin/corral`、`ranch` 是 ranch `f86d1c2`（R8 接入 agy 之后）。amp 插件（ranch R6）、agy 插件（`~/.gemini/config/plugins/corral`）在本机装着，用户定留着；两家的真图标放在本机 `~/.config/paddock/icons/`，不进仓库。
@@ -23,11 +24,10 @@
 
 ## 下一步
 
-1. **P5-90 在 paddock 里接远程机器上 corral 托管的 agent**（优先：高）。调研 P5-90a 已合并，推荐先做甲；本机和远程按机器隔开的做法用户已定（任务文件「本机和远程隔开」）。实测清单 1–3 已在用户的 5090 上跑过：免密能登，远端没装 corral，必须复用连接（每条约 0.9 秒）。**ranch 的 R10 已完成**（10-16，远端装好，非交互 ssh 用绝对路径 `$HOME/.local/bin/corral` 调）。下一步请用户跑清单 4–5（attach 改窗口大小、断网），并确认任务文件 `待用户：` 里那两件，然后写甲的任务文件。
-2. **P5-54** Browser 选中元素、Changes 选中 diff 写上要怎么改后送给 agent（优先：高，草稿）。主控提议（用户还没表态）：样稿主控自己做；实现拆成 P5-54a Changes、P5-54b Browser（WKWebView 注入 JS 加 WKScriptMessageHandler，代码库里还没有），a 合并后再派 b；测试只用假 corral。下次从列出待定问题开始。
-3. **P5-106 看板加 loop**（草稿）：五个待定问题列在草稿里，等用户想好再定范围和验收。
-4. **P5-120 委派的 agent 放进 sandbox**（草稿）：五个待定问题在草稿里（先调研还是直接做、放哪一层、管到什么程度、哪些 agent、用什么做），等用户定。
-5. 以后：Changes 第二步（行上评论发给 agent、暂存、撤销，可能和 P5-54a 合并考虑）；Kanban 能拖来纠正（排在后面）。
+1. **P5-54** Browser 选中元素、Changes 选中 diff 写上要怎么改后送给 agent（优先：高，草稿）。主控提议（用户还没表态）：样稿主控自己做；实现拆成 P5-54a Changes、P5-54b Browser（WKWebView 注入 JS 加 WKScriptMessageHandler，代码库里还没有），a 合并后再派 b；测试只用假 corral。下次从列出待定问题开始。
+2. **P5-106 看板加 loop**（草稿）：五个待定问题列在草稿里，等用户想好再定范围和验收。
+3. **P5-120 委派的 agent 放进 sandbox**（草稿）：五个待定问题在草稿里（先调研还是直接做、放哪一层、管到什么程度、哪些 agent、用什么做），等用户定。
+4. 以后：Changes 第二步（行上评论发给 agent、暂存、撤销，可能和 P5-54a 合并考虑）；Kanban 能拖来纠正（排在后面）。
 
 ## 用户用到时顺带看（不用决定、不挡任何事）
 
@@ -55,7 +55,8 @@
 - P5-118、P5-118a（Cairn 的 Ledger 页）是主控自己做的，合并前没让别的 agent 交叉审查；用户 10-16 说先不开审查。
 - P5-119 遗留：编辑时直接关掉 Settings 窗口，改动不提示就丢（交叉审查建议改）；编辑框不自动滚到光标处。用户 10-16：“暂时这样，这些都是小问题”，不另开。保存不加锁，改名前最后一次核对到改名之间别处的改动仍会被覆盖（已写进 DESIGN）。
 - **别强制退出 paddock、别点 Dock 上多出来的 paddock／`exec` 图标**：从 paddock 里开的 agent 都在 paddock 的 coalition 里，强制退出会把它们一起结束（P5-52；主控建议测试实例用 Accessory 策略，用户暂时不改）。正常 ⌘Q 没事。
-- 收件箱回复以 `-` 开头的送不出去：要 ranch 把 `corral send … -- <文字>` 的 `--` 写进公开约定后 paddock 固定带上，等用户点头（P5-87）。agent 输入框里有没提交的字时，回复会接在后面一起提交。
+- P5-90 遗留（用户 10-16：“先把功能做完，之后碰到问题了再修。”）：断网、断线、重连没测过（用户：“断网那个有时间再测试吧”，不让主控做任何断网测试）；退出 paddock 时正在跑的远程查询进程可能多留最多 15 秒（交叉审查复核建议改）；只读条靠 `attached` 总数判断，多个客户端时可能过早消失。建议用户给 5090 的 sshd 设 `ClientAliveInterval`，Mac 睡眠或断网后残留连接能自己清掉（用户自己改）。
+- 收件箱回复以 `-` 开头的送不出去（本机和远程都是）：要 ranch 把 `corral send … -- <文字>` 的 `--` 写进公开约定后 paddock 固定带上，等用户点头（P5-87）。agent 输入框里有没提交的字时，回复会接在后面一起提交。
 - `AGENTS.md` 里“只通过 `corral`、`ranch` 命令打交道”那句没把 cairn 写进去（paddock 已在调 cairn 的公开命令），要不要补问用户。
 - 从程序坞菜单“退出”或注销时由系统直接结束，不问运行中的 shell（GPUI 没有拦截）。Claude Code 带的 `caffeinate` 冻住后“不睡眠”断言仍在，暂停 agent 不等于让 Mac 能睡。
 - Saddle 用户基本不用了；Saddle 仓库里的 `t76-*` 分支、worktree 由 Saddle 主控处理。
