@@ -2,13 +2,15 @@
 //! §13 P5-119): one main file per agent paddock hosts, where the agent reads it when a session
 //! starts. Nothing else of the agent's is read: not what the file pulls in with `@`, not its
 //! memories or settings. A save backs the old file up first, refuses a file that changed since it
-//! was read, writes where a link leads rather than over the link, and replaces the file whole.
+//! was read or whose link now leads elsewhere, writes where a link leads rather than over the
+//! link, and replaces the file whole.
 use crate::activity;
 use similar::{ChangeTag, TextDiff};
 use std::{
     ffi::OsString,
     fs,
     io::{self, Write as _},
+    os::unix::fs::{DirBuilderExt as _, OpenOptionsExt as _},
     path::{Path, PathBuf},
     time::SystemTime,
 };
@@ -162,33 +164,86 @@ pub enum SaveError {
     Failed(String),
 }
 
-/// Whether `target` still holds `opened`, what was read when editing began.
-pub fn unchanged(target: &Path, opened: &str) -> bool {
-    fs::read(target).is_ok_and(|bytes| bytes == opened.as_bytes())
+/// Whether `path` still leads to `target`, a plain file that still holds `opened`: what was read,
+/// and where, when editing began. A link pointed elsewhere, or a file turned into a link or back,
+/// counts as changed.
+pub fn unchanged(path: &Path, target: &Path, opened: &str) -> bool {
+    checked(path, target, opened).is_ok()
 }
 
-/// Writes `text` over `target`, which must still hold `opened`: first the file as it is copied to
-/// `backup` (or, when that is taken, `backup-2` and on; never over another backup), then `text`
-/// written to a file beside it and put in its place, with the old file's permissions. Nothing is
-/// written when the backup fails. The backup made.
-pub fn save(target: &Path, text: &str, opened: &str, backup: &Path) -> Result<PathBuf, SaveError> {
-    let failed = |what: &str, error: io::Error| SaveError::Failed(format!("{what}: {error}"));
-    let current = fs::read(target).map_err(|_| SaveError::Changed)?;
-    if current != opened.as_bytes() {
+/// The bytes at `target` when `path` still leads there, to a plain file holding `opened`.
+fn checked(path: &Path, target: &Path, opened: &str) -> Result<Vec<u8>, SaveError> {
+    let plain = fs::symlink_metadata(target).is_ok_and(|m| m.is_file());
+    if self::target(path) != target || !plain {
         return Err(SaveError::Changed);
     }
+    match fs::read(target) {
+        Ok(bytes) if bytes == opened.as_bytes() => Ok(bytes),
+        _ => Err(SaveError::Changed),
+    }
+}
+
+/// Writes `text` where `path` leads, which must still be `target` holding `opened`: first those
+/// bytes are copied to `backup` (or, when that is taken, `backup-2` and on; never over another
+/// backup), then `text` is written to a file beside `target`, given its permissions, looked at
+/// once more and put in its place. Nothing is written when the backup fails, nor when the last
+/// look finds the file changed; then the backup and the file beside are taken away again. The
+/// backup is the user's alone to read, and so is the file beside until it takes the old file's
+/// permissions. The backup made.
+///
+/// Without a lock, a change made between the last look and the rename (a few system calls) is
+/// still replaced; the backup then holds what was looked at, not that change.
+pub fn save(
+    path: &Path,
+    target: &Path,
+    text: &str,
+    opened: &str,
+    backup: &Path,
+) -> Result<PathBuf, SaveError> {
+    let failed = |what: &str, error: io::Error| SaveError::Failed(format!("{what}: {error}"));
+    let current = checked(path, target, opened)?;
     let permissions = fs::metadata(target)
         .map_err(|e| failed("Couldn't read the file", e))?
         .permissions();
     let backup = keep(&current, backup).map_err(|e| failed("Couldn't back it up", e))?;
-    replace(target, text.as_bytes(), permissions).map_err(|e| failed("Couldn't write it", e))?;
+    let temporary = beside(target, text.as_bytes(), permissions).map_err(|e| {
+        let _ = fs::remove_file(&backup);
+        failed("Couldn't write it", e)
+    })?;
+    // The last look, at the file about to be replaced: still where `path` leads, still `opened`.
+    if let Err(changed) = checked(path, target, opened) {
+        let _ = fs::remove_file(&temporary);
+        let _ = fs::remove_file(&backup);
+        return Err(changed);
+    }
+    if let Err(error) = fs::rename(&temporary, target) {
+        let _ = fs::remove_file(&temporary);
+        let _ = fs::remove_file(&backup);
+        return Err(failed("Couldn't write it", error));
+    }
     Ok(backup)
 }
 
-/// `bytes` in a new file at `path`, or the first of `path-2`, `path-3`… not taken.
+/// A new file that only the user can read and write.
+fn private_file(path: &Path) -> io::Result<fs::File> {
+    fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(path)
+}
+
+/// `bytes` in a new file at `path`, or the first of `path-2`, `path-3`… not taken. Its folder,
+/// when it has to be made, is the user's alone; one already there is left as it is.
 fn keep(bytes: &[u8], path: &Path) -> io::Result<PathBuf> {
     if let Some(dir) = path.parent() {
-        fs::create_dir_all(dir)?;
+        if let Some(parent) = dir.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        match fs::DirBuilder::new().mode(0o700).create(dir) {
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists && dir.is_dir() => {}
+            other => other?,
+        }
     }
     for n in 1..=100 {
         let at = if n == 1 {
@@ -198,11 +253,7 @@ fn keep(bytes: &[u8], path: &Path) -> io::Result<PathBuf> {
             name.push(format!("-{n}"));
             PathBuf::from(name)
         };
-        match fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&at)
-        {
+        match private_file(&at) {
             Ok(mut file) => {
                 file.write_all(bytes)?;
                 file.sync_all()?;
@@ -218,9 +269,9 @@ fn keep(bytes: &[u8], path: &Path) -> io::Result<PathBuf> {
     ))
 }
 
-/// `bytes` in place of `target`, whole or not at all: written to a new file in the same folder,
-/// given `permissions`, then renamed over it.
-fn replace(target: &Path, bytes: &[u8], permissions: fs::Permissions) -> io::Result<()> {
+/// `bytes` in a new file in `target`'s folder, ready to be renamed over it: written only the
+/// user's, then given `permissions`. Its path.
+fn beside(target: &Path, bytes: &[u8], permissions: fs::Permissions) -> io::Result<PathBuf> {
     let dir = target.parent().unwrap_or(Path::new("."));
     let name = target
         .file_name()
@@ -233,19 +284,18 @@ fn replace(target: &Path, bytes: &[u8], permissions: fs::Permissions) -> io::Res
         std::process::id()
     ));
     let written = (|| {
-        let mut file = fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&temporary)?;
+        let mut file = private_file(&temporary)?;
         file.write_all(bytes)?;
         file.sync_all()?;
-        fs::set_permissions(&temporary, permissions)?;
-        fs::rename(&temporary, target)
+        fs::set_permissions(&temporary, permissions)
     })();
-    if written.is_err() {
-        let _ = fs::remove_file(&temporary);
+    match written {
+        Ok(()) => Ok(temporary),
+        Err(error) => {
+            let _ = fs::remove_file(&temporary);
+            Err(error)
+        }
     }
-    written
 }
 
 /// An empty file at `target`, its folders made first; never over one that is there.

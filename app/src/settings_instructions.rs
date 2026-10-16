@@ -27,14 +27,17 @@ pub(super) struct Instructions {
 struct Edit {
     /// The agent, an index into `files`.
     index: usize,
-    /// The file written.
+    /// Where the agent reads its file, looked at again before each check and the save.
+    path: PathBuf,
+    /// Where `path` led when editing began: the file written, as long as it still leads there.
     target: PathBuf,
     /// The text read when editing began: the file must still hold it to be saved over.
     opened: String,
     input: Entity<TextInput>,
     /// The changes shown before a save, when they are.
     review: Option<Review>,
-    /// The file no longer holds `opened`: changed somewhere else since.
+    /// Changed somewhere else since editing began: the file no longer holds `opened`, or `path`
+    /// no longer leads to `target`.
     changed: bool,
     _subscription: Subscription,
 }
@@ -96,7 +99,7 @@ impl SettingsView {
         state.files = instructions::read_all();
         state.shown = state.shown.min(state.files.len().saturating_sub(1));
         if let Some(edit) = &mut state.edit {
-            edit.changed = !instructions::unchanged(&edit.target, &edit.opened);
+            edit.changed = !instructions::unchanged(&edit.path, &edit.target, &edit.opened);
         }
         self.parse_instructions();
     }
@@ -147,6 +150,7 @@ impl SettingsView {
         window.focus(&input.read(cx).focus_handle(cx), cx);
         self.instructions.edit = Some(Edit {
             index,
+            path: file.path,
             target: file.target,
             opened: text,
             input,
@@ -204,7 +208,7 @@ impl SettingsView {
             &edit.target,
             SystemTime::now(),
         ));
-        edit.changed = !instructions::unchanged(&edit.target, &edit.opened);
+        edit.changed = !instructions::unchanged(&edit.path, &edit.target, &edit.opened);
         edit.review = Some(Review {
             rows: instructions::diff(&edit.opened, &text),
             backup,
@@ -233,7 +237,13 @@ impl SettingsView {
             return;
         }
         let text = edit.input.read(cx).text().to_owned();
-        match instructions::save(&edit.target, &text, &edit.opened, &review.backup) {
+        match instructions::save(
+            &edit.path,
+            &edit.target,
+            &text,
+            &edit.opened,
+            &review.backup,
+        ) {
             Ok(backup) => {
                 let index = edit.index;
                 self.instructions.edit = None;
@@ -266,6 +276,7 @@ impl SettingsView {
         match (file, &mut self.instructions.edit) {
             (
                 Some(File {
+                    path,
                     target,
                     state: State::Text { text, .. },
                     ..
@@ -275,6 +286,7 @@ impl SettingsView {
                 edit.input
                     .update(cx, |input, cx| input.set_text(text.clone(), cx));
                 edit.opened = text;
+                edit.path = path;
                 edit.target = target;
                 edit.changed = false;
                 edit.review = None;
