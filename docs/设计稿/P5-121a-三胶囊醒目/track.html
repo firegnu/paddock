@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Cairn switch track</title>
+<style>
+:root{
+  --bg:#0f1817; --line:rgba(223,233,229,.07); --line2:rgba(223,233,229,.11);
+  --text:#dfe9e5; --bright:#eef5f2; --muted:#8a9e99; --dim:#6b7f7a;
+  --accent:#5fd3b0; --chip:rgba(223,233,229,.07); --green:#7fd99a; --face:#182524;
+}
+*{box-sizing:border-box}
+body{margin:0;background:#0a1110;font-family:-apple-system,'SF Pro Text','PingFang SC','Helvetica Neue',sans-serif;color:var(--text);font-size:13px}
+.wrap{display:flex;gap:28px;padding:28px;align-items:flex-start;flex-wrap:wrap}
+.col{display:flex;flex-direction:column;gap:12px}
+.cap{font-size:13px;color:var(--muted);width:430px;line-height:1.55;min-height:118px}
+.cap b{color:var(--bright)}
+.pane{width:430px;background:var(--bg);border:1px solid var(--line2);border-radius:12px;overflow:hidden;padding-bottom:14px}
+.zoom{width:430px;height:120px;background:var(--bg);border:1px solid var(--line2);border-radius:12px;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.zoom>div{transform:scale(1.9);transform-origin:center}
+.label{font-size:11px;color:var(--dim);margin-bottom:-6px}
+.mono{font-family:'JetBrains Mono','SF Mono',Menlo,monospace}
+.head{display:flex;align-items:center;gap:8px;padding:14px 16px 8px}
+.repo{font-weight:600;font-size:15px}
+.chip{padding:1px 8px;border-radius:999px;background:var(--chip);color:var(--muted);font-size:11px}
+.adopted{margin-left:auto;padding:3px 11px;border-radius:999px;background:rgba(127,217,154,.12);color:var(--green);font-size:12px;font-weight:600}
+.hooks{display:flex;gap:12px;padding:2px 16px 12px;font-size:12px;color:var(--muted);border-bottom:1px solid var(--line)}
+.hooks span:first-child{color:var(--dim)} .hooks .r{margin-left:auto;color:var(--dim)}
+.cbar{display:flex;align-items:center;margin:14px 16px 2px}
+.cbar .hint{margin-left:auto;font-size:11.5px;color:var(--dim)}
+.h2{padding:16px 16px 4px;font-size:14px;font-weight:600;color:var(--bright)}
+.p{padding:0 16px;font-size:12px;line-height:1.5;color:var(--muted)}
+
+/* the switch: 甲's pills, the same in every track */
+.sw{display:inline-flex;padding:3px;border-radius:999px;font-size:12.5px}
+.sw span{display:flex;align-items:center;gap:6px;padding:4px 14px;border-radius:999px;color:var(--text)}
+.sw span:not(.on):hover{color:var(--bright)}
+.sw span.on{color:#0b1a16;font-weight:600;background:var(--accent);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.30), inset 0 -1px 0 rgba(0,0,0,.18), 0 1px 2px rgba(0,0,0,.45), 0 2px 6px rgba(95,211,176,.18)}
+.n{font-size:11px;font-weight:500;padding:0 6px;border-radius:999px;line-height:16px;background:rgba(223,233,229,.12);color:var(--text)}
+.on .n{background:rgba(11,26,22,.18);color:#0b1a16}
+
+/* now */
+.now{background:rgba(223,233,229,.05);border:1px solid rgba(223,233,229,.08);font-size:12px;padding:2px}
+.now span{color:var(--muted);padding:3px 13px}
+.now span.on{color:var(--accent);background:rgba(95,211,176,.12);box-shadow:inset 0 0 0 1px rgba(95,211,176,.38)}
+.now .n{background:rgba(223,233,229,.08);color:var(--muted)}
+.now .on .n{background:rgba(95,211,176,.16);color:var(--accent)}
+
+/* A: sunken well */
+.A{background:#091110;
+  box-shadow:inset 0 1px 2px rgba(0,0,0,.65), inset 0 0 0 1px rgba(0,0,0,.45), 0 1px 0 rgba(223,233,229,.09), 0 0 0 1px rgba(223,233,229,.06)}
+
+/* B: raised plate, the group boxes' face */
+.B{background:#1a2826;border:1px solid rgba(223,233,229,.13);
+  box-shadow:inset 0 1px 0 rgba(223,233,229,.12), inset 0 -1px 0 rgba(0,0,0,.40), 0 2px 3px rgba(0,0,0,.45), 0 6px 14px rgba(0,0,0,.30)}
+
+/* C: accent hairline, tinted glass */
+.C{background:linear-gradient(180deg, rgba(95,211,176,.10), rgba(95,211,176,.04));border:1px solid rgba(95,211,176,.32);
+  box-shadow:inset 0 1px 0 rgba(223,233,229,.08), 0 0 0 3px rgba(95,211,176,.05)}
+</style>
+</head>
+<body>
+<div class="wrap" id="w"></div>
+
+<template id="top">
+  <div class="head"><span class="repo">paddock</span><span class="chip mono">main</span><span class="adopted">● Adopted</span></div>
+  <div class="hooks"><span>Hooks</span><span>Claude ✓ 38m</span><span>Codex ✓ 5d</span><span class="r">0 uncollected</span></div>
+</template>
+<template id="page">
+  <div class="h2">Handover notes</div>
+  <div class="p">cairn summarizes sessions in the background once they have been quiet for 3 minutes or have ended, skipping ones with nothing to carry over.</div>
+</template>
+
+<script>
+const sw=(cls)=>`<div class="sw ${cls}"><span class="on">Notes</span><span>Ledger<span class="n">33</span></span><span>Lessons<span class="n">2</span></span></div>`;
+const shots=[
+ ['now','<b>现在</b>：外框是文字色 5% 的底、8% 的边，比面板只亮一点点，几乎融进底色。'],
+ ['A','<b>一　凹槽</b>：外框比面板<b>暗</b>，顶上一道内阴影、外沿下面一道 1 点亮线，像在面板上刻出来的一条槽；实心的胶囊“嵌”在槽里、微微凸起。和 macOS 深色分段控件一个路数，安静、有分量。'],
+ ['B','<b>二　凸起托盘</b>：外框是和看板分组框、Cairn 下次会话框（P5-117）同一套的凸起面：亮一档的面、顶亮线、底暗线、两层投影。和面板上已有的凸起框成一家，最“实”。'],
+ ['C','<b>三　强调色描边</b>：外框是强调色 32% 的细边、上浓下淡的强调色淡底，外面再一圈很淡的光晕。最醒目，但强调色用得多，和选中的实心胶囊抢眼。'],
+];
+const w=document.getElementById('w');
+const header=document.getElementById('top').innerHTML, page=document.getElementById('page').innerHTML;
+for(const [cls,cap] of shots){
+  const col=document.createElement('div'); col.className='col';
+  col.innerHTML=`<div class="cap">${cap}</div><div class="pane">${header}<div class="cbar">${sw(cls)}</div>${page}</div><div class="label">放大 1.9 倍看细节</div><div class="zoom"><div>${sw(cls)}</div></div>`;
+  w.appendChild(col);
+}
+</script>
+</body>
+</html>
