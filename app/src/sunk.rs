@@ -1,5 +1,6 @@
 //! A well sunk into a ground, and the solid capsule of the accent set in it (P5-121a): the Cairn
-//! tab's `Notes | Ledger | Lessons` and the left sidebar's machine switcher (P5-122) share it. The
+//! tab's `Notes | Ledger | Lessons` has both; the left sidebar's machine switcher (P5-122) the well
+//! and the count, its capsule a fainter one of its own (10-17). The
 //! well is the ground with black over it, less on a light ground; inside, a shadow under its top
 //! edge and a dark rim; outside, a light lip under it and a faint edge in the text colour around
 //! it. The capsule has a light line inside its top edge and a dark one inside its bottom edge, in

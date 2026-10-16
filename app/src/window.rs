@@ -3774,9 +3774,11 @@ impl PaddockWindow {
             .flex()
             .items_center()
             .p(ui.px(16.0))
+            // As wide as the sidebar is, however narrow, its words wrapping (10-17).
             .child(
                 div()
                     .flex_1()
+                    .min_w(px(0.0))
                     .flex()
                     .flex_col()
                     .items_center()
@@ -3807,12 +3809,13 @@ impl PaddockWindow {
                     )
                     .child(
                         div()
+                            .w_full()
                             .text_size(ui.px(13.0))
                             .font_weight(FontWeight::SEMIBOLD)
                             .text_color(text)
                             .child(format!("{} reads This Mac", tab.label())),
                     )
-                    .child(div().text_color(self.fg(|t| t.agents_dim)).child(format!(
+                    .child(div().w_full().text_color(self.fg(|t| t.agents_dim)).child(format!(
                         "{who} Changes, Kanban and Cairn read only this Mac's repositories for now."
                     )))
                     .child(show),

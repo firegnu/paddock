@@ -278,10 +278,11 @@ const PAUSED_OPACITY: f32 = 0.55;
 /// (DESIGN §13 P5-90).
 const STALE: f32 = 0.5;
 /// The switcher's well (P5-122): the room inside it, and its corners, round on one row of
-/// capsules; how strongly the machine on show says how it stands, on the accent.
+/// capsules; how much accent fills the machine on show's capsule, in the ring the right sidebar's
+/// chosen tab has (10-17: the solid accent was too heavy there).
 const WELL_PAD: f32 = 3.0;
 const WELL_RADIUS: f32 = 15.0;
-const SHOWN_STATUS: f32 = 0.75;
+const SHOWN_FILL: f32 = 0.18;
 /// The widest a machine's name is in its capsule before it is cut short (P5-123).
 const CAPSULE_NAME: f32 = 120.0;
 /// How wide a machine's capsule menu is (P5-123): at least, and at most for a long name.
@@ -1501,10 +1502,8 @@ impl Sidebar {
         let (bright, accent) = (fg(|t| t.bright), fg(|t| t.agents_accent));
         let grounds = self.grounds();
         let selected = grounds.selected;
-        // On the accent, the parts of the machine on show are in the sidebar's own ground.
         let ground = hsla(self.given.bg(|t| t.agents_bg), 1.0);
         let well = sunk::well(grounds.base, ground.l >= 0.5, text);
-        let pill_shadows = sunk::capsule(accent);
         let mut bar = div().flex_shrink_0().flex();
         bar = if narrow {
             bar.items_center().gap(ui.px(2.0)).flex_col().pb(ui.px(4.0))
@@ -1585,13 +1584,7 @@ impl Sidebar {
                 continue;
             }
             let on = machine.shown;
-            let (dot, status_color, count_color) = if on {
-                (ground, ground.opacity(SHOWN_STATUS), ground)
-            } else if machine.problem {
-                (green, red, amber)
-            } else {
-                (green, dim, amber)
-            };
+            let status_color = if machine.problem { red } else { dim };
             bar = bar.child(
                 div()
                     .id(("machine", index))
@@ -1603,16 +1596,18 @@ impl Sidebar {
                     .px(ui.px(14.0))
                     .py(ui.px(4.0))
                     .rounded_full()
+                    .border(px(crate::window::TAB_RING))
                     .cursor_pointer()
                     .whitespace_nowrap()
                     .when(on, |pill| {
-                        pill.bg(accent)
-                            .shadow(pill_shadows.clone())
+                        pill.bg(accent.opacity(SHOWN_FILL))
+                            .border_color(accent.opacity(crate::window::RING_ACTIVE))
                             .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(ground)
+                            .text_color(bright)
                     })
                     .when(!on, |pill| {
-                        pill.text_color(text)
+                        pill.border_color(gpui::transparent_black())
+                            .text_color(text)
                             .hover(move |style| style.text_color(bright))
                     })
                     .tooltip(move |_, cx| cx.new(|_| tip.clone()).into())
@@ -1632,7 +1627,7 @@ impl Sidebar {
                     )
                     // Another machine answering: a dot; not answering, what stands.
                     .when(index > 0 && machine.status.is_none(), |pill| {
-                        pill.child(div().size(ui.px(6.0)).rounded_full().bg(dot))
+                        pill.child(div().size(ui.px(6.0)).rounded_full().bg(green))
                     })
                     .children(machine.status.clone().map(|status| {
                         div()
@@ -1646,9 +1641,9 @@ impl Sidebar {
                     .children(
                         machine
                             .agents
-                            .map(|agents| sunk::count(agents, on, ground, text, &ui)),
+                            .map(|agents| sunk::count(agents, false, ground, text, &ui)),
                     )
-                    .children(count.map(|count| count.text_color(count_color))),
+                    .children(count.map(|count| count.text_color(amber))),
             );
         }
         Some(if narrow {
