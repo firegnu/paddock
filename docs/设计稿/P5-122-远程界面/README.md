@@ -13,3 +13,4 @@
 | 丁 | 右侧栏 Changes／Kanban／Cairn：丁一 居中说明卡加 `Show This Mac`；丁二 另在标签上标 `Mac` |
 | 戊 | New Agent／New Shell／New Workspace 在远程视图变灰写 `This Mac`；快捷键出中性提示加 `Switch to This Mac` |
 | 己 | 甲、乙、丁一、戊合起来 |
+| 返工 | `G-Count.dc.html`：胶囊上 agent 数的三种画法（计数小签／状态点和数合一／小图标加数），用户选三 |
