@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Cairn tab, project ledger</title>
+<style>
+:root{
+  --bg:#0f1817; --line:rgba(223,233,229,.07); --line2:rgba(223,233,229,.11);
+  --text:#dfe9e5; --bright:#eef5f2; --muted:#8a9e99; --dim:#6b7f7a;
+  --accent:#5fd3b0; --accent-line:rgba(95,211,176,.30);
+  --chip:rgba(223,233,229,.07); --green:#7fd99a; --yellow:#e8c46a;
+}
+*{box-sizing:border-box}
+body{margin:0;background:#0a1110;font-family:-apple-system,'SF Pro Text','PingFang SC','Helvetica Neue',sans-serif;color:var(--text);font-size:13px}
+.wrap{display:flex;gap:28px;padding:28px;align-items:flex-start;flex-wrap:wrap}
+.col{display:flex;flex-direction:column;gap:10px}
+.cap{font-size:13px;color:var(--muted);width:430px;line-height:1.5;min-height:80px}
+.cap b{color:var(--bright)}
+.pane{width:430px;background:var(--bg);border:1px solid var(--line2);border-radius:12px;overflow:hidden;padding-bottom:14px}
+.mono{font-family:'JetBrains Mono','SF Mono',Menlo,monospace}
+.tabs{display:flex;gap:6px;padding:10px 12px 8px}
+.tab{padding:5px 11px;border-radius:999px;background:var(--chip);color:var(--muted);font-size:12.5px}
+.tab.on{color:var(--bright);border:1px solid var(--accent-line);background:rgba(95,211,176,.10)}
+.head{display:flex;align-items:center;gap:8px;padding:8px 16px 8px}
+.repo{font-weight:600;font-size:15px}
+.chip{padding:1px 8px;border-radius:999px;background:var(--chip);color:var(--muted);font-size:11px}
+.adopted{margin-left:auto;padding:3px 11px;border-radius:999px;background:rgba(127,217,154,.12);color:var(--green);font-size:12px;font-weight:600}
+.hooks{display:flex;gap:12px;padding:2px 16px 12px;font-size:12px;color:var(--muted);border-bottom:1px solid var(--line)}
+.hooks span:first-child{color:var(--dim)} .hooks .r{margin-left:auto;color:var(--dim)}
+/* the switch */
+.seg{display:flex;margin:12px 16px 2px;padding:2px;border-radius:8px;background:var(--chip);font-size:12px}
+.seg span{flex:1;text-align:center;padding:4px 0;border-radius:6px;color:var(--muted)}
+.seg span.on{background:#1d2b29;color:var(--bright);font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,.35)}
+.seg .n{color:var(--dim);font-weight:400;margin-left:4px}
+.intro{padding:12px 16px 2px}
+.intro h3{margin:0 0 4px;font-size:13.5px;color:var(--bright)}
+.intro p{margin:0;font-size:12px;line-height:1.5;color:var(--muted)}
+.sec{display:flex;align-items:center;gap:8px;padding:14px 16px 7px;font-size:12px;font-weight:600;color:var(--bright)}
+.sec .n{font-weight:400;font-size:11.5px;padding:0 7px;border-radius:999px;background:var(--chip);color:var(--muted);line-height:18px}
+.sec.acc{color:var(--accent);font-size:11.5px}
+.sec.plain{color:var(--muted);font-size:11.5px}
+svg{flex:none;display:block}
+/* raised box, as Kanban's groups and Cairn's Next session (P5-117) */
+.box{margin:0 8px 4px;border-radius:10px;background:#182524;border:1px solid rgba(223,233,229,.12);
+  box-shadow:inset 0 1px 0 rgba(223,233,229,.12), inset 0 -1px 0 rgba(0,0,0,.40), 0 2px 3px rgba(0,0,0,.45), 0 8px 20px rgba(0,0,0,.35)}
+.it{position:relative;padding:7px 12px 7px 10px}
+.it+.it:before{content:'';position:absolute;left:10px;right:10px;top:0;border-top:1px solid rgba(223,233,229,.06)}
+.top{display:flex;align-items:flex-start;gap:8px}
+.chev{flex:none;width:10px;height:10px;margin-top:4px}
+.no{flex:none;width:28px;font-size:11.5px;color:var(--dim);line-height:18px;text-align:right}
+.t{flex:1;min-width:0;line-height:18px;font-size:12.5px}
+.one .t{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sum{padding-left:54px;margin-top:2px;font-size:12px;line-height:1.5;color:var(--muted);display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
+.open .t{color:var(--bright);font-weight:500}
+.facts{padding-left:54px;margin-top:8px;display:grid;grid-template-columns:62px 1fr;gap:3px 8px;font-size:11.5px}
+.facts span:nth-child(odd){color:var(--dim)} .facts span:nth-child(even){color:var(--muted)}
+.body{padding-left:54px;margin-top:8px;font-size:12px;line-height:1.55;color:var(--text)}
+code{font-family:'JetBrains Mono','SF Mono',Menlo,monospace;font-size:11px;background:rgba(223,233,229,.07);padding:0 4px;border-radius:4px}
+.foot{padding:12px 16px 0;font-size:12px;color:var(--muted);display:flex;flex-direction:column;gap:8px}
+/* 乙: ledger folded above the notes */
+.fold{display:flex;align-items:center;gap:8px;margin:12px 8px 0;padding:9px 12px;border-radius:10px;background:var(--chip);font-size:12px;color:var(--muted)}
+.fold b{color:var(--bright);font-weight:600}
+.fold .r{margin-left:auto;color:var(--dim)}
+.group{margin:0 8px;border-radius:10px;background:#182524;border:1px solid rgba(223,233,229,.12);
+  box-shadow:inset 0 1px 0 rgba(223,233,229,.12), inset 0 -1px 0 rgba(0,0,0,.40), 0 2px 3px rgba(0,0,0,.45), 0 8px 20px rgba(0,0,0,.35)}
+.group .item{padding:9px 12px 10px 10px}
+.group .item+.item{border-top:1px solid rgba(95,211,176,.16)}
+.meta{display:flex;align-items:center;gap:8px}
+.time{font-size:12.5px;font-weight:500;color:var(--bright)} .ago{font-size:11.5px;color:var(--muted)}
+.nsum{padding-left:18px;margin-top:4px;font-size:12.5px;line-height:1.5;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
+/* empty */
+.mid{display:flex;flex-direction:column;align-items:center;text-align:center;gap:6px;padding:56px 32px 40px}
+.mid h3{margin:0;font-size:13.5px;color:var(--bright)}
+.mid p{margin:0;font-size:12px;line-height:1.5;color:var(--muted)}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="chev" viewBox="0 0 10 10"><path d="M3.5 2l3 3-3 3" fill="none" stroke="#8a9e99" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="chevd" viewBox="0 0 10 10"><path d="M2 3.5l3 3 3-3" fill="none" stroke="#8a9e99" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="arrow" viewBox="0 0 12 12"><path d="M2 6h7.5M6.5 3l3 3-3 3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="claude" viewBox="0 0 14 14"><g stroke="#d9845f" stroke-width="1.6" stroke-linecap="round"><path d="M7 1.5v11M1.5 7h11M3.1 3.1l7.8 7.8M10.9 3.1l-7.8 7.8"/></g></symbol>
+</svg>
+
+<div class="wrap">
+
+<!-- ================= 甲 ================= -->
+<div class="col">
+  <div class="cap"><b>甲　标签里切两页</b>：状态行下面一个 <span class="mono">Notes | Ledger</span> 的切换，记住上次选的。Ledger 页按 State／Open／Conventions 三组，每组一个凸起的框（同 Kanban 分组），每条 <span class="mono">#编号</span>、标题，正文淡色两行；点一条就地展开。</div>
+  <div class="pane">
+    <div class="tabs"><span class="tab">± Changes</span><span class="tab">Browser</span><span class="tab">Kanban</span><span class="tab on">Cairn</span></div>
+    <div class="head"><span class="repo">paddock</span><span class="chip mono">main</span><span class="adopted">● Adopted</span></div>
+    <div class="hooks"><span>Hooks</span><span>Claude ✓ 45s</span><span>Codex ✓ 5d</span><span class="r">0 uncollected</span></div>
+    <div class="seg"><span>Notes</span><span class="on">Ledger<span class="n">29</span></span></div>
+    <div class="intro"><p>What holds for this project across sessions. cairn keeps it after each session ends; every new session starts with it.</p></div>
+
+    <div class="sec">State <span class="n">8</span></div>
+    <div class="box">
+      <div class="it"><div class="top"><svg class="chev"><use href="#chev"/></svg><span class="no mono">#1</span><span class="t" lang="zh">没有进行中的活；主仓库有 4 份任务草稿未提交</span></div><div class="sum" lang="zh">P5-54、P5-106、P5-111、P5-115，看板显示 DRAFT，有意留着。</div></div>
+      <div class="it"><div class="top"><svg class="chev"><use href="#chev"/></svg><span class="no mono">#2</span><span class="t" lang="zh">装着的 paddock.app 是 P5-117 合并后的版本（10-15）</span></div><div class="sum" lang="zh">本机 Apple Development 证书签名。</div></div>
+      <div class="it"><div class="top"><svg class="chev"><use href="#chev"/></svg><span class="no mono">#6</span><span class="t" lang="zh">cairn 0.5.0 已装，本仓库已采用</span></div><div class="sum" lang="zh">两家 hook 都装了（直接启动的 Codex 要在 /hooks 信任）；paddock 调用以 cairn DESIGN §7.1 为准。</div></div>
+    </div>
+    <div class="sec">Open <span class="n">12</span></div>
+    <div class="box">
+      <div class="it"><div class="top"><svg class="chev"><use href="#chev"/></svg><span class="no mono">#9</span><span class="t" lang="zh">P5-90 接远程 corral agent（优先高）卡在 ranch R10</span></div><div class="sum" lang="zh">R10 草稿在 ranch 未提交，等用户定验收、远端目录、同步方式；之后跑清单 4–5、写甲的任务文件。</div></div>
+      <div class="it"><div class="top"><svg class="chev"><use href="#chev"/></svg><span class="no mono">#12</span><span class="t" lang="zh">P5-111 调研 OSC 7501 agent 状态标准（草稿）范围待定</span></div></div>
+    </div>
+    <div class="sec">Conventions <span class="n">9</span></div>
+    <div class="box">
+      <div class="it"><div class="top"><svg class="chev"><use href="#chev"/></svg><span class="no mono">#21</span><span class="t" lang="zh">用户的 Linux 实测机（5090）暂时只用 pi、omp</span></div><div class="sum" lang="zh">pi、omp 也不委派活；放开以用户明说为准。远程支持照样做；主机名、地址不进仓库。</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ================= 甲 点开 ================= -->
+<div class="col">
+  <div class="cap"><b>甲　点开 #9</b>：标题变亮，正文全文照 Markdown 画；下面四行：<span class="mono">Added／Updated／By／Entry</span>（By 是 cairn 记的来源：用户，或哪家 agent 的会话）。只读，没有按钮；要改用 <span class="mono">cairn ledger</span> 命令。</div>
+  <div class="pane">
+    <div class="tabs"><span class="tab">± Changes</span><span class="tab">Browser</span><span class="tab">Kanban</span><span class="tab on">Cairn</span></div>
+    <div class="head"><span class="repo">paddock</span><span class="chip mono">main</span><span class="adopted">● Adopted</span></div>
+    <div class="hooks"><span>Hooks</span><span>Claude ✓ 45s</span><span>Codex ✓ 5d</span><span class="r">0 uncollected</span></div>
+    <div class="seg"><span>Notes</span><span class="on">Ledger<span class="n">29</span></span></div>
+    <div class="sec">Open <span class="n">12</span></div>
+    <div class="box">
+      <div class="it open"><div class="top"><svg class="chev"><use href="#chevd"/></svg><span class="no mono">#9</span><span class="t" lang="zh">P5-90 接远程 corral agent（优先高）卡在 ranch R10</span></div>
+        <div class="body" lang="zh">R10 草稿在 ranch 未提交，等用户定验收、远端目录、同步方式；之后跑清单 4–5、写甲的任务文件。</div>
+        <div class="facts"><span>Added</span><span>Oct 16, 2026 at 10:12</span><span>Updated</span><span>Oct 16, 2026 at 10:14</span><span>By</span><span>You</span><span>Entry</span><span class="mono">01M5174W…Q10B</span></div>
+      </div>
+      <div class="it"><div class="top"><svg class="chev"><use href="#chev"/></svg><span class="no mono">#10</span><span class="t" lang="zh">P5-54 选中内容写明改法送给 agent（优先高，草稿）</span></div><div class="sum" lang="zh">主控提议拆 54a Changes、54b Browser，样稿主控做，用户未表态；下次先列待定问题。</div></div>
+      <div class="it"><div class="top"><svg class="chev"><use href="#chev"/></svg><span class="no mono">#11</span><span class="t" lang="zh">P5-106 看板加 loop（草稿）等用户定范围</span></div><div class="sum" lang="zh">草稿里五个待定问题。</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ================= 乙 ================= -->
+<div class="col">
+  <div class="cap"><b>乙　同一页，账收成一行放在最上面</b>：不加切换；<span class="mono">Project ledger</span> 一行写三组各几条，点开在原地列出（列法同甲），下面照旧是 Next session 和 Earlier。一页什么都有，但账展开后记录被推到很下面。</div>
+  <div class="pane">
+    <div class="tabs"><span class="tab">± Changes</span><span class="tab">Browser</span><span class="tab">Kanban</span><span class="tab on">Cairn</span></div>
+    <div class="head"><span class="repo">paddock</span><span class="chip mono">main</span><span class="adopted">● Adopted</span></div>
+    <div class="hooks"><span>Hooks</span><span>Claude ✓ 45s</span><span>Codex ✓ 5d</span><span class="r">0 uncollected</span></div>
+    <div class="fold"><svg class="chev" style="margin-top:0"><use href="#chev"/></svg><b>Project ledger</b><span class="r">8 state · 12 open · 9 conventions</span></div>
+    <div class="sec acc"><svg width="11" height="11"><use href="#arrow"/></svg>Next session starts from these</div>
+    <div class="group">
+      <div class="item"><div class="meta"><svg class="chev" style="margin-top:0"><use href="#chev"/></svg><span class="time mono">21:57</span><span class="ago">12h ago</span><span style="flex:1"></span><svg width="14" height="14"><use href="#claude"/></svg></div><div class="nsum" lang="zh">P5-117 已完成、合并、推送，并安装到 ~/Applications/paddock.app。</div></div>
+      <div class="item"><div class="meta"><svg class="chev" style="margin-top:0"><use href="#chev"/></svg><span class="time mono">16:03</span><span class="ago">18h ago</span><span style="flex:1"></span><svg width="14" height="14"><use href="#claude"/></svg></div><div class="nsum" lang="zh">会话停在等待用户选择下一项工作：R10、P5-102 或 P5-106。</div></div>
+    </div>
+    <div class="sec plain">Earlier</div>
+    <div class="foot"><span>Show older</span><span>› Exact text the next session receives</span></div>
+  </div>
+</div>
+
+<!-- ================= 空账 ================= -->
+<div class="col">
+  <div class="cap"><b>空账</b>（甲、乙都一样）：没有条目不算出错，写明还没有、谁会写。乙里那一行写成 <span class="mono">Project ledger · No entries yet</span>，点不开。</div>
+  <div class="pane">
+    <div class="tabs"><span class="tab">± Changes</span><span class="tab">Browser</span><span class="tab">Kanban</span><span class="tab on">Cairn</span></div>
+    <div class="head"><span class="repo">ranch</span><span class="chip mono">main</span><span class="adopted">● Adopted</span></div>
+    <div class="hooks"><span>Hooks</span><span>Claude ✓ 2m</span><span>Codex ✓ 5d</span><span class="r">0 uncollected</span></div>
+    <div class="seg"><span>Notes</span><span class="on">Ledger</span></div>
+    <div class="mid"><h3>No ledger entries yet</h3><p>cairn adds the first ones after a session here ends. You can also add entries with <code>cairn ledger add</code>.</p></div>
+  </div>
+</div>
+
+</div>
+</body>
+</html>
