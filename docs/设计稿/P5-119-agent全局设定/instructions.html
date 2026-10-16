@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Settings, agent instructions</title>
+<style>
+:root{
+  --win:#0c1616; --card:#111c1c; --field:#172322; --text:#d6e6e1; --muted:#83a098; --dim:#668580;
+  --rule:rgba(214,230,225,.06); --accent:#7fd4bf; --accent-bg:rgba(127,212,191,.13); --green:#9cc98e;
+  --yellow:#e6b45a; --red:#e88a8a; --add:rgba(156,201,142,.13); --del:rgba(232,138,138,.12);
+}
+*{box-sizing:border-box}
+body{margin:0;background:#070d0d;font-family:-apple-system,'SF Pro Text','PingFang SC','Helvetica Neue',sans-serif;color:var(--text);font-size:13px}
+.wrap{display:flex;flex-direction:column;gap:34px;padding:28px}
+.cap{font-size:13px;color:var(--muted);max-width:960px;line-height:1.55;margin-bottom:10px}
+.cap b{color:#eef5f2}
+.mono{font-family:'SF Mono',Menlo,monospace}
+.win{width:960px;height:660px;display:flex;background:var(--win);border-radius:12px;overflow:hidden;position:relative}
+.nav{flex:none;width:200px;display:flex;flex-direction:column;gap:2px;padding:52px 12px 14px}
+.nav div{display:flex;align-items:center;height:34px;padding:0 10px;border-radius:8px;color:rgba(214,230,225,.7);font-size:13.5px}
+.nav div.on{background:var(--accent-bg);color:var(--text)}
+.nav .sp{flex:1;height:auto;background:none}
+.nav .cfg{height:auto;font-family:'SF Mono',Menlo,monospace;font-size:11px;color:var(--dim)}
+.main{flex:1;min-width:0;display:flex;flex-direction:column;gap:14px;padding:52px 28px 22px 8px}
+.lbl{padding-left:4px;font-size:12.5px;font-weight:600;color:var(--muted);display:flex;align-items:center;gap:8px}
+.card{display:flex;flex-direction:column;border-radius:12px;background:var(--card)}
+.note{padding-left:4px;font-size:12px;line-height:1.5;color:var(--dim)}
+/* agent strip */
+.agents{display:flex;gap:6px;flex-wrap:wrap}
+.ag{display:flex;align-items:center;gap:7px;height:30px;padding:0 12px;border-radius:999px;background:var(--card);color:var(--muted);font-size:12.5px}
+.ag.on{background:var(--accent-bg);color:var(--text);box-shadow:inset 0 0 0 1px rgba(127,212,191,.40)}
+.ag .dot{width:6px;height:6px;border-radius:3px;background:var(--green)}
+.ag .dot.none{background:transparent;box-shadow:inset 0 0 0 1.2px var(--dim)}
+/* file card head */
+.fh{display:flex;align-items:center;gap:10px;padding:12px 12px 12px 16px;border-bottom:1px solid var(--rule)}
+.fh .path{font-family:'SF Mono',Menlo,monospace;font-size:12px;color:var(--text)}
+.fh .meta{font-size:12px;color:var(--dim)}
+.fh .sp{flex:1}
+.btn{display:inline-flex;align-items:center;height:28px;padding:0 13px;border-radius:999px;font-size:12px;border:0}
+.btn.q{background:rgba(214,230,225,.07);color:var(--text)}
+.btn.go{background:rgba(127,212,191,.16);box-shadow:inset 0 0 0 1px rgba(127,212,191,.45);color:var(--accent);font-weight:600}
+.btn.solid{background:var(--accent);color:#0c1616;font-weight:600}
+.tag{display:inline-flex;align-items:center;height:20px;padding:0 8px;border-radius:999px;font-size:11px;background:rgba(214,230,225,.07);color:var(--muted)}
+.tag.y{background:rgba(230,180,90,.13);color:var(--yellow)}
+/* markdown view */
+.md{flex:1;min-height:0;overflow:hidden;padding:12px 18px 14px;font-size:12.5px;line-height:1.6}
+.md h1{font-size:14px;margin:2px 0 8px} .md h2{font-size:12.5px;margin:12px 0 4px;color:#eef5f2}
+.md p{margin:0 0 6px;color:var(--text)} .md ul{margin:0 0 6px;padding-left:18px} .md li{color:var(--text)}
+.md code{font-family:'SF Mono',Menlo,monospace;font-size:11.5px;background:rgba(214,230,225,.07);padding:0 4px;border-radius:4px}
+/* editor */
+.ed{flex:1;min-height:0;margin:10px 12px;border-radius:8px;background:var(--field);box-shadow:inset 0 0 0 1px rgba(127,212,191,.35);padding:10px 12px;font-family:'SF Mono',Menlo,monospace;font-size:12px;line-height:1.6;white-space:pre;overflow:hidden;color:var(--text)}
+.caret{display:inline-block;width:1.5px;height:14px;background:var(--accent);vertical-align:-2px}
+.ff{display:flex;align-items:center;gap:8px;padding:10px 12px 12px 16px;border-top:1px solid var(--rule)}
+.ff .sp{flex:1} .ff .hint{font-size:12px;color:var(--dim)}
+/* diff */
+.diff{flex:1;min-height:0;overflow:hidden;padding:8px 0;font-family:'SF Mono',Menlo,monospace;font-size:12px;line-height:1.65}
+.dl{display:flex;padding:0 16px;white-space:pre}
+.dl .n{flex:none;width:34px;color:var(--dim);text-align:right;padding-right:10px}
+.dl .s{flex:none;width:14px;color:var(--dim)}
+.dl.add{background:var(--add)} .dl.add .s{color:var(--green)}
+.dl.del{background:var(--del)} .dl.del .s{color:var(--red)}
+.dl.gap{color:var(--dim);padding-left:60px}
+.banner{display:flex;align-items:center;gap:10px;margin:10px 12px 0;padding:9px 12px;border-radius:8px;background:rgba(230,180,90,.10);box-shadow:inset 0 0 0 1px rgba(230,180,90,.30);font-size:12.5px;color:var(--yellow)}
+.banner .sp{flex:1}
+/* empty */
+.empty{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;text-align:center;padding:0 60px}
+.empty h3{margin:0;font-size:14px} .empty p{margin:0;font-size:12.5px;color:var(--muted);line-height:1.55}
+/* 乙 table */
+.row{display:grid;grid-template-columns:120px minmax(0,1fr) 90px 70px;align-items:center;gap:14px;min-height:46px;padding:4px 14px 4px 16px}
+.row+.row{border-top:1px solid var(--rule)}
+.row .p{font-family:'SF Mono',Menlo,monospace;font-size:11.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row .z{font-size:12px;color:var(--dim)}
+.th{display:grid;grid-template-columns:120px minmax(0,1fr) 90px 70px;gap:14px;padding:8px 14px 2px 16px;font-size:11.5px;color:var(--dim)}
+.scrim{position:absolute;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center}
+.sheet{width:700px;height:540px;display:flex;flex-direction:column;border-radius:14px;background:#122020;box-shadow:0 20px 60px rgba(0,0,0,.6),inset 0 0 0 1px rgba(214,230,225,.10)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<!-- 甲 浏览 -->
+<div>
+<div class="cap"><b>甲 · 新开一页 Instructions（看）</b>：左边多一页 Instructions。顶上一排六家（绿点是有文件，空圈是还没有）；下面一张卡：文件路径、大小、上次修改，右上 <span class="mono">Edit</span>；正文照 Markdown 画（只读）。卡下面一行写明：改完只对新开的会话生效。</div>
+<div class="win">
+  <div class="nav"><div>General</div><div>Appearance</div><div>Agents</div><div class="on">Instructions</div><div>Diagnostics</div><div class="sp"></div><div class="cfg">~/.config/paddock/<br>config.toml</div></div>
+  <div class="main">
+    <div class="agents"><span class="ag on"><span class="dot"></span>Claude Code</span><span class="ag"><span class="dot"></span>Codex</span><span class="ag"><span class="dot none"></span>pi</span><span class="ag"><span class="dot none"></span>omp</span><span class="ag"><span class="dot"></span>amp</span><span class="ag"><span class="dot"></span>agy</span></div>
+    <div class="card" style="flex:1;min-height:0">
+      <div class="fh"><span class="path">~/.claude/CLAUDE.md</span><span class="meta">3.7 KB · changed Oct 15</span><span class="sp"></span><button class="btn go">Edit</button></div>
+      <div class="md">
+        <h1>CLAUDE.md</h1>
+        <p>Behavioral guidelines for every project. (示意内容，不是真实文件。)</p>
+        <h2>1. Think before coding</h2>
+        <ul><li>State your assumptions explicitly. If uncertain, ask.</li><li>If a simpler approach exists, say so.</li></ul>
+        <h2>2. Simplicity first</h2>
+        <ul><li>No features beyond what was asked.</li><li>No abstractions for single-use code.</li></ul>
+        <h2>Tooling</h2>
+        <p>Run <code>gitleaks</code> and <code>trufflehog</code> when asked to scan for secrets.</p>
+      </div>
+    </div>
+    <div class="note">Claude Code reads this file when a session starts. Changes apply to sessions started after you save; agents already running keep what they read.</div>
+  </div>
+</div>
+</div>
+
+<!-- 甲 编辑 -->
+<div>
+<div class="cap"><b>甲 · 点 Edit（改）</b>：正文换成等宽的多行编辑框（原文，不渲染）；底下 <span class="mono">Cancel</span> 和 <span class="mono">Review changes…</span>。没改动时 Review 是灰的。</div>
+<div class="win">
+  <div class="nav"><div>General</div><div>Appearance</div><div>Agents</div><div class="on">Instructions</div><div>Diagnostics</div><div class="sp"></div><div class="cfg">~/.config/paddock/<br>config.toml</div></div>
+  <div class="main">
+    <div class="agents"><span class="ag on"><span class="dot"></span>Claude Code</span><span class="ag"><span class="dot"></span>Codex</span><span class="ag"><span class="dot none"></span>pi</span><span class="ag"><span class="dot none"></span>omp</span><span class="ag"><span class="dot"></span>amp</span><span class="ag"><span class="dot"></span>agy</span></div>
+    <div class="card" style="flex:1;min-height:0">
+      <div class="fh"><span class="path">~/.claude/CLAUDE.md</span><span class="tag y">Editing</span><span class="sp"></span></div>
+      <div class="ed"># CLAUDE.md
+
+Behavioral guidelines for every project.
+
+## 1. Think before coding
+
+- State your assumptions explicitly. If uncertain, ask.
+- If a simpler approach exists, say so.
+- Reply in Chinese; UI copy stays English.<span class="caret"></span>
+
+## 2. Simplicity first
+
+- No features beyond what was asked.</div>
+      <div class="ff"><span class="hint">1 line added</span><span class="sp"></span><button class="btn q">Cancel</button><button class="btn go">Review changes…</button></div>
+    </div>
+    <div class="note">Changes apply to sessions started after you save; agents already running keep what they read.</div>
+  </div>
+</div>
+</div>
+
+<!-- 甲 对比 + 冲突 -->
+<div>
+<div class="cap"><b>甲 · Review changes（存之前）</b>：前后对比，加的绿、删的红；底下写明存之前会把原文件备份到哪；<span class="mono">Back to editing</span> 或 <span class="mono">Save</span>。若打开之后文件被别处改了，顶上一条黄色提示，Save 不能点，只能 <span class="mono">Reload</span>（放弃自己的改动、读新版）或 <span class="mono">Copy my text</span>。</div>
+<div class="win">
+  <div class="nav"><div>General</div><div>Appearance</div><div>Agents</div><div class="on">Instructions</div><div>Diagnostics</div><div class="sp"></div><div class="cfg">~/.config/paddock/<br>config.toml</div></div>
+  <div class="main">
+    <div class="agents"><span class="ag on"><span class="dot"></span>Claude Code</span><span class="ag"><span class="dot"></span>Codex</span><span class="ag"><span class="dot none"></span>pi</span><span class="ag"><span class="dot none"></span>omp</span><span class="ag"><span class="dot"></span>amp</span><span class="ag"><span class="dot"></span>agy</span></div>
+    <div class="card" style="flex:1;min-height:0">
+      <div class="fh"><span class="path">~/.claude/CLAUDE.md</span><span class="tag y">Review</span><span class="sp"></span></div>
+      <div class="banner">This file changed on disk after you opened it.<span class="sp"></span><button class="btn q">Copy my text</button><button class="btn q">Reload</button></div>
+      <div class="diff">
+        <div class="dl"><span class="n">5</span><span class="s"> </span>## 1. Think before coding</div>
+        <div class="dl"><span class="n">6</span><span class="s"> </span></div>
+        <div class="dl"><span class="n">7</span><span class="s"> </span>- State your assumptions explicitly. If uncertain, ask.</div>
+        <div class="dl"><span class="n">8</span><span class="s"> </span>- If a simpler approach exists, say so.</div>
+        <div class="dl add"><span class="n">9</span><span class="s">+</span>- Reply in Chinese; UI copy stays English.</div>
+        <div class="dl"><span class="n">10</span><span class="s"> </span></div>
+        <div class="dl"><span class="n">11</span><span class="s"> </span>## 2. Simplicity first</div>
+        <div class="dl gap">⋯</div>
+        <div class="dl"><span class="n">31</span><span class="s"> </span>## Tooling</div>
+        <div class="dl del"><span class="n">32</span><span class="s">−</span>Run gitleaks when asked to scan for secrets.</div>
+        <div class="dl add"><span class="n">32</span><span class="s">+</span>Run gitleaks and trufflehog when asked to scan for secrets.</div>
+      </div>
+      <div class="ff"><span class="hint">The current file is copied to <span class="mono">~/.config/paddock/backups/CLAUDE.md.20261016-1052</span> first.</span><span class="sp"></span><button class="btn q">Back to editing</button><button class="btn solid" style="opacity:.4">Save</button></div>
+    </div>
+    <div class="note">Changes apply to sessions started after you save; agents already running keep what they read.</div>
+  </div>
+</div>
+</div>
+
+<!-- 甲 没有文件 / omp -->
+<div>
+<div class="cap"><b>甲 · 还没有文件（omp）</b>：写明这家会读哪个文件、现在还没有，给 <span class="mono">Create file</span>（建空文件后进编辑）。omp 另起一行写明它还会读 Claude、Codex 等别家的全局文件；agy 那一栏同样位置写 “Gemini CLI reads this file too.”</div>
+<div class="win">
+  <div class="nav"><div>General</div><div>Appearance</div><div>Agents</div><div class="on">Instructions</div><div>Diagnostics</div><div class="sp"></div><div class="cfg">~/.config/paddock/<br>config.toml</div></div>
+  <div class="main">
+    <div class="agents"><span class="ag"><span class="dot"></span>Claude Code</span><span class="ag"><span class="dot"></span>Codex</span><span class="ag"><span class="dot none"></span>pi</span><span class="ag on"><span class="dot none"></span>omp</span><span class="ag"><span class="dot"></span>amp</span><span class="ag"><span class="dot"></span>agy</span></div>
+    <div class="card" style="flex:1;min-height:0">
+      <div class="fh"><span class="path">~/.omp/agent/AGENTS.md</span><span class="tag">Not created</span><span class="sp"></span></div>
+      <div class="empty">
+        <h3>omp has no global instructions file yet</h3>
+        <p>omp reads <span class="mono">~/.omp/agent/AGENTS.md</span> when a session starts. It also reads other agents' global files, such as <span class="mono">~/.claude/CLAUDE.md</span> and <span class="mono">~/.codex/AGENTS.md</span>.</p>
+        <button class="btn go" style="margin-top:8px">Create file</button>
+      </div>
+    </div>
+    <div class="note">Changes apply to sessions started after you save; agents already running keep what they read.</div>
+  </div>
+</div>
+</div>
+
+<!-- 乙 Agents 页一节 -->
+<div>
+<div class="cap"><b>乙 · 放进 Agents 页（列表）</b>：Integrations 下面加一节 Global instructions，每家一行：路径、大小或 <span class="mono">Not created</span>、<span class="mono">Open</span>。Agents 页本来就长，这一节要往下翻。</div>
+<div class="win">
+  <div class="nav"><div>General</div><div>Appearance</div><div class="on">Agents</div><div>Diagnostics</div><div class="sp"></div><div class="cfg">~/.config/paddock/<br>config.toml</div></div>
+  <div class="main" style="gap:10px">
+    <div class="lbl">Integrations</div>
+    <div class="card" style="height:70px;opacity:.5;justify-content:center;padding-left:16px;color:var(--dim);font-size:12px">（现有的 Integrations 表，略）</div>
+    <div class="lbl" style="margin-top:8px">Global instructions</div>
+    <div class="card">
+      <div class="th"><span>Agent</span><span>File</span><span>Size</span><span></span></div>
+      <div class="row"><span>Claude Code</span><span class="p">~/.claude/CLAUDE.md</span><span class="z">3.7 KB</span><button class="btn q">Open</button></div>
+      <div class="row"><span>Codex</span><span class="p">~/.codex/AGENTS.md</span><span class="z">4.0 KB</span><button class="btn q">Open</button></div>
+      <div class="row"><span>pi</span><span class="p">~/.pi/agent/AGENTS.md</span><span class="z">Not created</span><button class="btn q">Create</button></div>
+      <div class="row"><span>omp</span><span class="p">~/.omp/agent/AGENTS.md</span><span class="z">Not created</span><button class="btn q">Create</button></div>
+      <div class="row"><span>amp</span><span class="p">~/.config/amp/AGENTS.md</span><span class="z">4.5 KB</span><button class="btn q">Open</button></div>
+      <div class="row"><span>agy</span><span class="p">~/.gemini/GEMINI.md</span><span class="z">Empty</span><button class="btn q">Open</button></div>
+    </div>
+    <div class="note">Each agent reads its file when a session starts; changes apply to sessions started after you save.</div>
+  </div>
+</div>
+</div>
+
+<!-- 乙 弹框 -->
+<div>
+<div class="cap"><b>乙 · 点 Open（弹框）</b>：盖在 Settings 上的弹框，里面看、改、对比和甲一样；关掉回到列表。</div>
+<div class="win">
+  <div class="nav"><div>General</div><div>Appearance</div><div class="on">Agents</div><div>Diagnostics</div><div class="sp"></div><div class="cfg">~/.config/paddock/<br>config.toml</div></div>
+  <div class="main"></div>
+  <div class="scrim"><div class="sheet">
+    <div class="fh"><span style="font-weight:600">Claude Code</span><span class="path">~/.claude/CLAUDE.md</span><span class="meta">3.7 KB</span><span class="sp"></span><button class="btn go">Edit</button><button class="btn q">Close</button></div>
+    <div class="md">
+      <h1>CLAUDE.md</h1>
+      <p>Behavioral guidelines for every project. (示意内容，不是真实文件。)</p>
+      <h2>1. Think before coding</h2>
+      <ul><li>State your assumptions explicitly. If uncertain, ask.</li><li>If a simpler approach exists, say so.</li></ul>
+      <h2>2. Simplicity first</h2>
+      <ul><li>No features beyond what was asked.</li></ul>
+    </div>
+    <div class="ff"><span class="hint">Changes apply to sessions started after you save.</span></div>
+  </div></div>
+</div>
+</div>
+
+</div>
+</body>
+</html>
