@@ -315,13 +315,20 @@ impl Viewer {
                 self.generation,
                 name,
                 thread::spawn(move || {
-                    let command = match &client.remote {
-                        None => vec![
-                            client.program.clone(),
-                            "attach".into(),
-                            checked_name.clone(),
-                        ],
-                        Some(link) => link.attach_argv(&checked_name)?,
+                    // Another machine's pane holds its connection while it runs (P5-123).
+                    let (command, hold) = match &client.remote {
+                        None => (
+                            vec![
+                                client.program.clone(),
+                                "attach".into(),
+                                checked_name.clone(),
+                            ],
+                            None,
+                        ),
+                        Some(link) => {
+                            let (command, hold) = link.attach(&checked_name)?;
+                            (command, Some(hold))
+                        }
                     };
                     if let Some(instance) = instance {
                         let status = client.json(
@@ -341,7 +348,11 @@ impl Viewer {
                         elsewhere.store(attached, Ordering::Relaxed);
                     }
                     anyhow::ensure!(!cancel.load(Ordering::Relaxed), "attach cancelled");
-                    Session::spawn(&command, None, size)
+                    let mut session = Session::spawn(&command, None, size)?;
+                    if let Some(hold) = hold {
+                        session.keep(hold);
+                    }
+                    Ok(session)
                 }),
             ));
         }

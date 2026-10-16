@@ -706,10 +706,19 @@ pub fn edit_machine(
         .ok_or_else(gone)?
         .as_array_of_tables_mut()
         .context("machines in config.toml is not a list of [[machines]] tables")?;
-    let index = entries
+    // The entry named so, and only it: with two, which one is meant is not clear (one may be left
+    // out for a wrong key, or as named twice), and removing one would bring the other in.
+    let named: Vec<usize> = entries
         .iter()
-        .position(|entry| entry.get("name").and_then(Item::as_str) == Some(name))
-        .ok_or_else(gone)?;
+        .enumerate()
+        .filter(|(_, entry)| entry.get("name").and_then(Item::as_str) == Some(name))
+        .map(|(index, _)| index)
+        .collect();
+    let index = match named[..] {
+        [index] => index,
+        [] => return Err(gone()),
+        _ => anyhow::bail!("{name} is in config.toml more than once; keep one entry there first"),
+    };
     match edit {
         MachineEdit::Remove => {
             entries.remove(index);
@@ -1541,6 +1550,39 @@ mod tests {
                 edit_machine(Some(MACHINES), "vps", &MachineEdit::Rename(text.into())).unwrap_err();
             assert!(format!("{error:#}").contains(says), "{error:#}");
         }
+    }
+
+    #[test]
+    fn a_name_in_config_toml_more_than_once_is_not_edited_and_the_others_still_are() {
+        // The first gpu is left out for its label, the second is the one shown: which one an edit
+        // meant is not clear, so nothing is written.
+        let twice = "[[machines]]\nname = \"gpu\"\nssh = \"old-host\"\nlabel = 7\n\n\
+                     [[machines]]\nname = \"gpu\"\nssh = \"current-host\"\n\n\
+                     [[machines]]\nname = \"vps\"\nssh = \"v\"\n";
+        let config = Config::parse(twice).unwrap();
+        assert_eq!(config.machines[0].ssh, "current-host");
+        // Both valid: the second is left out as named twice, and removing either brings the other.
+        let both = twice.replace("label = 7\n", "");
+        for disk in [twice, &both[..]] {
+            for edit in [
+                MachineEdit::Rename("GPU".into()),
+                MachineEdit::Show(false),
+                MachineEdit::Remove,
+            ] {
+                let error = edit_machine(Some(disk), "gpu", &edit).unwrap_err();
+                assert!(
+                    format!("{error:#}").contains("gpu is in config.toml more than once"),
+                    "{error:#}"
+                );
+            }
+        }
+        // The machine named once is still edited, the other entries as they were.
+        let (text, config) = edited(twice, "vps", MachineEdit::Remove);
+        assert_eq!(
+            text,
+            twice.replace("\n[[machines]]\nname = \"vps\"\nssh = \"v\"\n", "")
+        );
+        assert_eq!(config.machines.len(), 1);
     }
 
     #[test]

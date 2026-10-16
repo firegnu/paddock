@@ -9,9 +9,10 @@ use crate::corral::Agent;
 use anyhow::{Result, anyhow};
 use serde_json::Value;
 use std::{
+    collections::BTreeMap,
     path::{Path, PathBuf},
     sync::{
-        Mutex,
+        Arc, Condvar, Mutex,
         atomic::{AtomicBool, Ordering},
     },
     time::{Duration, Instant, SystemTime},
@@ -216,8 +217,13 @@ pub struct Link {
     pub name: String,
     /// The name people see (P5-123): its label, else its name; renamed while it is in use.
     label: Mutex<String>,
-    /// Taken out of the window (hidden or removed, P5-123): nothing more is run there.
-    retired: AtomicBool,
+    /// What is under way through its connection (P5-123): once it is taken out of the window
+    /// (hidden or removed), nothing new starts, and its connection closes after these end.
+    uses: Mutex<Uses>,
+    /// A use ended.
+    ended: Condvar,
+    /// Taken out: what is under way there stops.
+    stop: AtomicBool,
     /// What `ssh` is given.
     pub target: String,
     /// corral's path as configured, `~` not yet replaced.
@@ -227,6 +233,32 @@ pub struct Link {
     /// The control socket, or why there is none.
     socket: Result<PathBuf, String>,
     state: Mutex<State>,
+}
+
+/// An attached pane's hold on its machine's connection (P5-123): taking the machine out waits
+/// for it to be let go, which is when the pane's process has ended.
+pub struct Hold(Arc<Link>);
+
+impl Drop for Hold {
+    fn drop(&mut self) {
+        self.0.leave();
+    }
+}
+
+/// A call through the connection, under way while it lives.
+struct Using<'a>(&'a Link);
+
+impl Drop for Using<'_> {
+    fn drop(&mut self) {
+        self.0.leave();
+    }
+}
+
+/// What goes through a machine's connection, and whether it may still.
+struct Uses {
+    retired: bool,
+    /// Calls and attached panes going through the connection.
+    running: usize,
 }
 
 struct State {
@@ -239,10 +271,35 @@ impl Link {
     /// A machine as configured, connecting through paddock's own socket in `/tmp`.
     pub fn new(machine: &crate::config::Machine) -> Self {
         let uid = unsafe { libc::getuid() };
-        let socket = control_dir(Path::new("/tmp"), uid)
-            .and_then(|dir| socket_path(&dir, &machine.name, &machine.ssh))
-            .map_err(|error| format!("{error:#}"));
-        Self::with(machine, "ssh".into(), socket)
+        let dir = control_dir(Path::new("/tmp"), uid).map_err(|error| format!("{error:#}"));
+        Self::in_dir(machine, "ssh".into(), dir)
+    }
+
+    /// Through `ssh` (another only in tests), its socket in `dir`. A machine shown again in this
+    /// run, after it was hidden, gets a socket of its own (P5-123): the old connection may still
+    /// be closing, and that never reaches the new one.
+    pub fn in_dir(
+        machine: &crate::config::Machine,
+        ssh: String,
+        dir: Result<PathBuf, String>,
+    ) -> Self {
+        static OPENED: Mutex<BTreeMap<PathBuf, u32>> = Mutex::new(BTreeMap::new());
+        let socket = dir.and_then(|dir| {
+            let first = socket_path(&dir, &machine.name, &machine.ssh);
+            let first = first.map_err(|error| format!("{error:#}"))?;
+            let opened = {
+                let mut opened = OPENED.lock().unwrap();
+                let count = opened.entry(first.clone()).or_default();
+                *count += 1;
+                *count - 1
+            };
+            match opened {
+                0 => Ok(first),
+                opened => numbered_socket(&dir, &machine.name, &machine.ssh, opened)
+                    .map_err(|error| format!("{error:#}")),
+            }
+        });
+        Self::with(machine, ssh, socket)
     }
 
     /// With another `ssh` program and socket: for tests.
@@ -254,7 +311,12 @@ impl Link {
         Self {
             name: machine.name.clone(),
             label: Mutex::new(machine.shown_name().to_owned()),
-            retired: AtomicBool::new(false),
+            uses: Mutex::new(Uses {
+                retired: false,
+                running: 0,
+            }),
+            ended: Condvar::new(),
+            stop: AtomicBool::new(false),
             target: machine.ssh.clone(),
             configured: machine.corral.clone(),
             ssh,
@@ -290,26 +352,76 @@ impl Link {
         *self.label.lock().unwrap() = label.to_owned();
     }
 
-    /// Taken out of the window, hidden or removed (P5-123): nothing more is run there, and
-    /// paddock's own connection is closed, in the background. Nothing on the machine is touched.
-    pub fn retire(&self) {
-        self.retired.store(true, Ordering::Relaxed);
-        let Ok(socket) = &self.socket else {
-            return;
-        };
-        let (ssh, socket, target) = (
-            self.ssh.clone(),
-            socket.display().to_string(),
-            self.target.clone(),
-        );
+    /// Taken out of the window, hidden or removed (P5-123): nothing new is run there, what is
+    /// under way is stopped, and once it has ended paddock's own connection is closed, in the
+    /// background. Nothing on the machine is touched.
+    pub fn retire(self: &Arc<Self>) {
+        {
+            let mut uses = self.uses.lock().unwrap();
+            if uses.retired {
+                return;
+            }
+            uses.retired = true;
+        }
+        self.stop.store(true, Ordering::Relaxed);
+        let link = self.clone();
         std::thread::spawn(move || {
-            let args = ["-S", socket.as_str(), "-O", "exit", "--", target.as_str()];
-            let _ = crate::command::run(&ssh, &args, None, CALL, &AtomicBool::new(false));
+            // A call ends at once, its ssh stopped; an attached pane once the window has let it
+            // go. Nothing opens the connection again after them; one that will not end in the
+            // time a call may take is ended with the connection.
+            link.idle(CALL);
+            let Ok(socket) = &link.socket else {
+                return;
+            };
+            let socket = socket.display().to_string();
+            let args = [
+                "-S",
+                socket.as_str(),
+                "-O",
+                "exit",
+                "--",
+                link.target.as_str(),
+            ];
+            let _ = crate::command::run(&link.ssh, &args, None, CALL, &AtomicBool::new(false));
         });
     }
 
     pub fn retired(&self) -> bool {
-        self.retired.load(Ordering::Relaxed)
+        self.uses.lock().unwrap().retired
+    }
+
+    /// Something begins to go through the connection, unless the machine is taken out; it ends
+    /// with [`Self::leave`].
+    fn enter(&self) -> Result<(), Problem> {
+        let mut uses = self.uses.lock().unwrap();
+        if uses.retired {
+            return Err(self.gone());
+        }
+        uses.running += 1;
+        Ok(())
+    }
+
+    fn leave(&self) {
+        self.uses.lock().unwrap().running -= 1;
+        self.ended.notify_all();
+    }
+
+    /// Waits until nothing goes through the connection, or `longest`.
+    fn idle(&self, longest: Duration) {
+        let deadline = Instant::now() + longest;
+        let mut uses = self.uses.lock().unwrap();
+        while uses.running > 0 {
+            let left = deadline.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                break;
+            }
+            uses = self.ended.wait_timeout(uses, left).unwrap().0;
+        }
+    }
+
+    /// Why nothing is run there any more.
+    fn gone(&self) -> Problem {
+        Problem::Local(format!("{} is no longer shown", self.label()))
     }
 
     /// The options every ssh here takes: paddock's own connection, never a prompt, and a dead
@@ -358,25 +470,32 @@ impl Link {
         Ok(argv)
     }
 
-    /// Runs `command` there. ssh's own failures come back as the problem they are; the command's
-    /// output, whatever its status, as it is.
+    /// [`Self::attach_argv`], unless the machine is taken out, and the hold the pane keeps on the
+    /// connection while it runs (P5-123).
+    pub fn attach(self: &Arc<Self>, name: &str) -> Result<(Vec<String>, Hold)> {
+        self.enter().map_err(|problem| anyhow!("{problem}"))?;
+        let hold = Hold(self.clone());
+        Ok((self.attach_argv(name)?, hold))
+    }
+
+    /// Runs `command` there, unless the machine is taken out, which also stops it. ssh's own
+    /// failures come back as the problem they are; the command's output, whatever its status, as
+    /// it is.
     pub fn run(
         &self,
         command: &str,
         timeout: Duration,
         cancel: &AtomicBool,
     ) -> Result<crate::command::Output, Problem> {
-        if self.retired() {
-            return Err(Problem::Local(format!(
-                "{} is no longer shown",
-                self.label()
-            )));
-        }
+        self.enter()?;
+        let _using = Using(self);
         let args = self.args(command)?;
         let args: Vec<&str> = args.iter().map(String::as_str).collect();
-        let output =
-            crate::command::run(&self.ssh, &args, None, timeout, cancel).map_err(|error| {
+        let output = crate::command::run_either(&self.ssh, &args, timeout, cancel, &self.stop)
+            .map_err(|error| {
+                let stopped = self.stop.load(Ordering::Relaxed);
                 match error.chain().nth(1) {
+                    _ if stopped => self.gone(),
                     // Could not start: ssh itself is missing.
                     Some(cause) if !cancel.load(Ordering::Relaxed) => {
                         Problem::Local(format!("ssh did not run: {cause}"))
@@ -551,9 +670,20 @@ pub fn control_dir(base: &Path, uid: u32) -> Result<PathBuf> {
 /// The control socket for a machine in `dir`: named by its name and target, so another target
 /// never uses its connection, and short enough for OpenSSH to bind.
 pub fn socket_path(dir: &Path, name: &str, target: &str) -> Result<PathBuf> {
+    numbered_socket(dir, name, target, 0)
+}
+
+/// The socket for a machine's connection after its first `opened` in this run (see
+/// [`Link::in_dir`]); the first is [`socket_path`].
+fn numbered_socket(dir: &Path, name: &str, target: &str, opened: u32) -> Result<PathBuf> {
+    let mut key: Vec<u8> = name.bytes().chain([0]).chain(target.bytes()).collect();
+    if opened > 0 {
+        key.push(0);
+        key.extend(opened.to_string().bytes());
+    }
     // FNV-1a: the same name in every run, without a dependency.
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
-    for byte in name.bytes().chain([0]).chain(target.bytes()) {
+    for byte in key {
         hash ^= u64::from(byte);
         hash = hash.wrapping_mul(0x0100_0000_01b3);
     }

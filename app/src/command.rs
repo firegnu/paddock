@@ -58,7 +58,7 @@ pub fn run_with_input(
         remove,
         input,
         timeout,
-        cancel,
+        &|| cancel.load(Ordering::Relaxed),
         usize::MAX,
     )
 }
@@ -72,7 +72,29 @@ pub fn run_bounded(
     cancel: &AtomicBool,
     limit: usize,
 ) -> Result<Output> {
-    spawn(program, args, cwd, remove, None, timeout, cancel, limit)
+    let cancelled = || cancel.load(Ordering::Relaxed);
+    spawn(program, args, cwd, remove, None, timeout, &cancelled, limit)
+}
+/// Like `run`, ended by either of two: the caller's `cancel`, or `also`, of what it runs through
+/// (a remote machine taken out, P5-123).
+pub fn run_either(
+    program: &str,
+    args: &[&str],
+    timeout: Duration,
+    cancel: &AtomicBool,
+    also: &AtomicBool,
+) -> Result<Output> {
+    let cancelled = || cancel.load(Ordering::Relaxed) || also.load(Ordering::Relaxed);
+    spawn(
+        program,
+        args,
+        None,
+        &[],
+        None,
+        timeout,
+        &cancelled,
+        usize::MAX,
+    )
 }
 #[allow(clippy::too_many_arguments)]
 fn spawn(
@@ -82,7 +104,7 @@ fn spawn(
     remove: &[OsString],
     input: Option<Vec<u8>>,
     timeout: Duration,
-    cancel: &AtomicBool,
+    cancelled: &dyn Fn() -> bool,
     limit: usize,
 ) -> Result<Output> {
     let mut command = Command::new(program);
@@ -151,7 +173,7 @@ fn spawn(
             let _ = child.wait();
             bail!("Output truncated (limit {limit} bytes)");
         }
-        if cancel.load(Ordering::Relaxed) || Instant::now() >= deadline {
+        if cancelled() || Instant::now() >= deadline {
             let _ = child.kill();
             let _ = child.wait();
             bail!("{} cancelled or timed out", args.join(" "));
