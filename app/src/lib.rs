@@ -59,6 +59,8 @@ pub mod pty;
 pub mod raised;
 pub mod reduce_motion;
 pub mod remote;
+pub mod remote_agent_view;
+pub mod remote_start;
 pub mod right_panel;
 pub mod roster;
 pub mod rows;

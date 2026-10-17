@@ -56,3 +56,40 @@
 
 ## 做完
 在本文件末尾追加「## 完成记录」（在你的分支里提交）：做了什么、验证了什么、拿主意的地方、没做的事、踩过的坑（试了不行换了办法的，工具或环境和预想不一样的；没有就写「没有」）。回复里只写这几样，加上有没有要主控决定的事。命令都在前台跑完，全部做完后，回复最后一行写 DONE。
+
+## 完成记录
+
+### 做了什么
+- 新增 `app/src/remote_start.rs`（规则）：登录 shell 包装 `exec "${SHELL:-/bin/sh}" -l -c '<内层>'`；查种类的命令（`claude codex pi omp` 每种 `command -v`，找得到的写一行种类名）和解析；目录校验（只收绝对路径、`~`、`~/…`）；`~` 用连接时拿到的远端 `$HOME` 展开；留空名字的默认名 `<目录最后一段>/<种类>`（`~` 时 `home`）；手填名字照本机规则；`corral start <名字> --unique --cwd <目录> --label role=regular -- <种类的命令>`，内外两层都用 `remote::quote`；读 corral 的回答（成功取 corral 给的名字，失败原样给出它那行 JSON，`bad_cwd` 标在目录上）；最近目录按机器分开记 5 个（`recent-remote-dirs.json`，和本机的 `recent-projects.json` 分开）。
+- 新增 `app/src/remote_agent_view.rs`（对话框，样稿 C、D）：`New Agent on` 加机器小签；Agent（`Checking…`／凹槽胶囊／没找到／查不成）、Directory（可折行的输入框、当场提示、Recent 小签）、Name（占位字是会用的名字）；出错框；Cancel、Start ⌘↩（`Starting…`，宽度固定）。键盘：开时焦点在 Directory，Tab／⇧Tab 在三样间转（没有可选种类时跳过 Agent），Agent 有焦点时 ←→ 换，⌘↩ 开始，Esc／⌘W／点暗处关。
+- `local_only.rs`：New Agent 移出“只在本机”，加 `new_agent`（本机／那台）和 `new_agent_row`（那台没连上时变灰、右边写短状态）；New Shell、New Workspace 不变。
+- `window.rs`：`Popup::RemoteAgent`；New Agent 各入口在远程视图打开那台的对话框（没连上时左侧栏底部写 `Can't start an agent on <机器> now: <短状态>`）；底部菜单那一行按 `new_agent_row` 画；胶囊右键 `New Agent on <显示名>…` 先切过去再开；起好后用新的 `on_seat`（`on_local` 改成调它）落在那台的那一套里，走本机 `open_started` 的摆放和 attach，并刷新那台侧栏；设置改了主题时对话框跟着换色。
+- `sidebar.rs`：胶囊右键菜单最上面加那一行和分隔线（`MachineAsk::NewAgent`）；一处过时注释改了。`main.rs` 注册对话框的按键；`new_agent_view.rs` 的 `hold_main_window` 改成 `pub(crate)` 复用。
+- `docs/DESIGN.md`：P5-123 后补 P5-124 一条；P5-90 远程视图、P5-122 戊里“New Agent 只在本机”的说法改成现在的做法。
+
+### 验证了什么
+- `remote_start.rs` 8 个单元测试：登录 shell 包装；目录、名字带空格、单双引号、`$`、`;`、反引号、`$(…)` 时按 POSIX 规则拆回来一字不差；`~`、`~/x` 按给定的远端 HOME 展开（不是本机的）；留空名字的默认名、手填和留空都带 `--unique`；目录拒掉空、相对路径、`./x`、`~root`、带换行；名字规则；`command -v` 输出（夹着 profile 的问候、路径、amp/agy）到可选种类；corral 的成功、`bad_cwd`、别的错、无输出、没名字；最近目录按机器分开、只留 5 个、存读一致、和本机文件互不影响。
+- `app/tests/remote_start.rs` 4 个集成测试：假 ssh 把命令交给本机 `sh`，PATH 里没有 agent；`$SHELL` 指向一个假登录 shell，`-l` 时才读 `.profile` 把 nvm 样的目录加进 PATH；假 corral 在 `~/.local/bin`。验证：只列登录 shell 找得到的（claude、pi，amp 不列），普通命令找不到，登录 shell 收到的是 `-l -c`；带怪字符的目录和名字原样到 corral，profile 跑过、没有被当成命令执行（没有 `pwned`）；留空名字时问的是 `home/pi`，以 corral 给的名字为准；目录不在时错误是 corral 那行 JSON 原文、标在目录上。
+- `local_only.rs`：远程视图 New Agent 是“在那台开”、菜单那一行连着时可点带快捷键、没连上时灰并写短状态；New Shell、New Workspace 照旧给 `Switch to This Mac`。
+- `git diff --check`；`app/` 下 `cargo test --all-targets`（全过，lib 584 个）、`cargo clippy --all-targets -- -D warnings`、`cargo fmt --check` 各跑过。
+
+### 拿主意的地方
+- 查种类没用一句 `command -v claude codex pi omp`：它对 alias、函数打印的不是路径，分不清哪行是哪种；改成每种各 `command -v`，找得到就写种类名，仍是一次远端调用。
+- `~` 用连接时拿到的远端 `$HOME` 展开（可测，也和窗格里写 `~` 同一个来源）。
+- 起不来时显示的“原文”：有 corral 的 JSON 时只显示那一行（登录 profile 先打印的问候略过），没有时显示 stdout、stderr。目录框只在 corral 说 `bad_cwd` 时标红（样稿 D2 的例子是目录不在；别的错不标，免得误指）。
+- 那台没连上时：底部菜单那一行灰；快捷键、菜单栏、面板等别的入口在左侧栏底部写一句 `Can't start an agent on <机器> now: <短状态>`（任务没说这时怎样）；胶囊右键那一行不灰，点了切过去后同样写这句。
+- 摆放照本机：从底部菜单、⇧⌘N、菜单栏、胶囊右键来的是当前窗格；从新标签、分屏面板的 `Agent…` 来的照那里（新标签／那一侧），和本机 New Agent 一样；对话框里不选。
+- 每次打开都是新的对话框：目录回到 `~`，种类重新查、默认第一种找得到的；按了 Start 后关掉的那个还在起时，再要 New Agent 回到它，起好照样落地。
+- 目录、名字的问题当场写在框下（红字、红边）并让 Start 不能点；名字留空时框下写 `Leave empty to use <名字>.`。
+- Agent 胶囊 ←→ 到两头停住，不绕回。最近目录记 5 个。
+- 标题里的机器小签用 P5-122 乙的机器色，圆点用绿色（能打开时那台一定连着）。
+
+### 没做的事
+- 没起 paddock 窗口、没截图：样子、深浅主题、字号缩放、键盘和输入法留给用户实际看。界面画法没有测试（同 P5-122、P5-123）。
+- 没连任何机器（包括 5090），没跑真实 ssh、corral start。
+- 没做远端选目录、列目录、amp/agy、模型强度、第一句话、Controller 开关、摆放选择（任务说不做）。
+
+### 踩过的坑
+- 集成测试先用真的 `/bin/sh -l` 当远端登录 shell，它会读本机的 `/etc/profile`（path_helper 把本机的 PATH 带进来），结果“找到”了本机装的 codex；改成假登录 shell 脚本，只读假 HOME 里的 `.profile`，顺便也验证了用的是 `$SHELL -l -c`。
+- 假 profile 打印的问候混进了错误原文；改成有 corral JSON 时只显示 JSON。
+- 用 perl 批量替换 window.rs 时，`|` 作分隔符让转义的 `\|` 变成了“或”，把第一行文档注释里的 `row` 替换掉了；看 diff 发现后恢复成原文，其余替换核对过。

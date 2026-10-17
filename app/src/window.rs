@@ -29,6 +29,7 @@ use crate::{
     pet::PetView,
     popover::{self, Hang, Placed, Tone},
     remote,
+    remote_agent_view::{RemoteAgentEvent, RemoteAgentView},
     right_panel::{self, RightPanel, Room, Tab as RightTab},
     roster::Roster,
     search::{self, Lead, Mode, Target},
@@ -159,6 +160,8 @@ enum Popup {
     Overflow,
     /// The New Agent panel over the dimmed window.
     NewAgent,
+    /// The New Agent dialog for another machine over the dimmed window (P5-124).
+    RemoteAgent,
 }
 
 /// What dragging the divider carries: nothing, only that it is the divider.
@@ -877,7 +880,7 @@ fn machine_mark<'a>(machine: Option<&'a str>, shown: &Shown) -> Option<&'a str> 
 
 /// The colour another machine is marked in (P5-122), set apart from the `accent`: the theme's
 /// `blue`, or its `purple` when the blue is near the accent in hue and the purple further.
-fn machine_ink(accent: Hsla, blue: Hsla, purple: Hsla) -> Hsla {
+pub(crate) fn machine_ink(accent: Hsla, blue: Hsla, purple: Hsla) -> Hsla {
     let apart = |color: Hsla| {
         let turn = (color.h - accent.h).abs();
         turn.min(1.0 - turn)
@@ -1241,6 +1244,9 @@ pub struct PaddockWindow {
     new_task: Option<Entity<TaskDialog>>,
     /// The New Agent panel, kept with what was typed while it is closed, until it starts an agent.
     new_agent: Option<Entity<NewAgentView>>,
+    /// The New Agent dialog for another machine (P5-124), kept while it starts an agent there after
+    /// it was closed, so that the agent still opens.
+    remote_agent: Option<Entity<RemoteAgentView>>,
     /// Where the `+`, the split icon and the panes were last drawn, for the panels that hang from
     /// them.
     spots: Rc<RefCell<HashMap<Spot, Bounds<Pixels>>>>,
@@ -1447,6 +1453,7 @@ impl PaddockWindow {
             chooser: Chooser::default(),
             new_task: None,
             new_agent: None,
+            remote_agent: None,
             spots: Rc::default(),
             tab_hover: None,
             tab_left: None,
@@ -1872,11 +1879,17 @@ impl PaddockWindow {
     /// or makes active there is what the user finds on switching back, and the keyboard stays
     /// where the user has it (P5-90 rework). Nothing is drawn meanwhile.
     fn on_local<R>(&mut self, f: impl FnOnce(&mut Self) -> R) -> R {
+        self.on_seat(0, f)
+    }
+
+    /// [`Self::on_local`] for machine `seat`: an agent started there from its New Agent dialog
+    /// opens among its panes whichever machine is on show by then (P5-124).
+    fn on_seat<R>(&mut self, seat: usize, f: impl FnOnce(&mut Self) -> R) -> R {
         let away = self.seats.here();
-        if away == 0 {
+        if away == seat {
             return f(self);
         }
-        self.bring(0);
+        self.bring(seat);
         let result = f(self);
         self.bring(away);
         result
@@ -2153,7 +2166,6 @@ impl PaddockWindow {
         for step in local_only::take(only) {
             match step {
                 Step::Show(seat) => self.switch(seat, window, cx),
-                Step::Then(Only::NewAgent) => self.open_new_agent(Place::Current, window, cx),
                 Step::Then(Only::NewShell) => self.new_shell(window, cx),
                 Step::Then(Only::NewWorkspace) => self.new_workspace(window, cx),
             }
@@ -2165,6 +2177,8 @@ impl PaddockWindow {
     fn machine_menu(&mut self, name: &str, ask: sidebar::MachineAsk, cx: &mut Context<Self>) {
         let (name, this) = (name.to_owned(), cx.entity().downgrade());
         cx.defer(move |cx| match ask {
+            // Opened at once, by [`Self::new_agent_on`].
+            sidebar::MachineAsk::NewAgent => {}
             sidebar::MachineAsk::Rename => windows::rename_machine(&name, cx),
             sidebar::MachineAsk::Remove => windows::remove_machine(&name, cx),
             sidebar::MachineAsk::Settings => {
@@ -2179,6 +2193,16 @@ impl PaddockWindow {
                 }
             }
         });
+    }
+
+    /// `New Agent on <machine>…` in its capsule menu (P5-124): that machine on show, as the
+    /// switcher shows it, then New Agent there.
+    fn new_agent_on(&mut self, machine: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(seat) = self.machines.seat_of(machine) else {
+            return;
+        };
+        self.switch(seat, window, cx);
+        self.open_new_agent(Place::Current, window, cx);
     }
 
     /// `New Workspace…`: the sidebar's own panel, nothing ticked (P5-89).
@@ -2657,6 +2681,10 @@ impl PaddockWindow {
             }
             SidebarEvent::Machine(seat) => self.pick_machine(*seat, window, cx),
             SidebarEvent::ThisMac(only) => self.take_offer(*only, window, cx),
+            SidebarEvent::MachineMenu {
+                machine,
+                ask: sidebar::MachineAsk::NewAgent,
+            } => self.new_agent_on(machine, window, cx),
             SidebarEvent::MachineMenu { machine, ask } => self.machine_menu(machine, *ask, cx),
             SidebarEvent::ActivityFolded(folded) => {
                 self.activity_folded = *folded;
@@ -2766,9 +2794,9 @@ impl PaddockWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        // Another machine's agents would start there: not yet (DESIGN §13 P5-90).
-        if self.only_here(Only::NewAgent, cx) {
-            return;
+        // Another machine on show: the agent starts there, from its own slim dialog (P5-124).
+        if let local_only::NewAgent::There(seat) = local_only::new_agent(self.seats.here()) {
+            return self.open_remote_agent(seat, place, window, cx);
         }
         let view = match &self.new_agent {
             Some(view) => {
@@ -2825,6 +2853,95 @@ impl PaddockWindow {
         let focus = view.read(cx).focus_handle(cx);
         window.focus(&focus, cx);
         cx.notify();
+    }
+
+    /// New Agent with machine `seat` on show (P5-124): its slim dialog over the dimmed window,
+    /// the directory taking the keys, once the machine answers; while it does not, the sidebar
+    /// says why. One open already only takes the keys back, and one closed while it still starts
+    /// an agent comes back as it is.
+    fn open_remote_agent(
+        &mut self,
+        seat: usize,
+        place: Place,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(link) = self.machines.link(seat).cloned() else {
+            return;
+        };
+        let open = self.popup == Some(Popup::RemoteAgent);
+        let view = match &self.remote_agent {
+            Some(view)
+                if view.read(cx).starting() || (open && view.read(cx).machine() == link.name) =>
+            {
+                view.clone()
+            }
+            _ => {
+                if let (Some(words), _, _) = switcher_status(&link, Instant::now()) {
+                    let note = format!("Can't start an agent on {} now: {words}", link.label());
+                    self.sidebar
+                        .update(cx, |sidebar, cx| sidebar.note(note, true, cx));
+                    return;
+                }
+                let (theme, mono) = (self.theme.clone(), self.template.font_family.clone().into());
+                let view = cx.new(|cx| RemoteAgentView::new(link, place, theme, mono, cx));
+                cx.subscribe_in(&view, window, Self::on_remote_agent)
+                    .detach();
+                self.remote_agent = Some(view.clone());
+                view
+            }
+        };
+        self.palette = None;
+        self.chooser = Chooser::default();
+        self.new_task = None;
+        self.popup = Some(Popup::RemoteAgent);
+        let focus = view.read(cx).focus_handle(cx);
+        window.focus(&focus, cx);
+        cx.notify();
+    }
+
+    /// What the dialog for another machine says: an agent started there opens among that
+    /// machine's panes, as this Mac's New Agent would open it, whichever machine is on show by
+    /// then, the keyboard staying where the user has it; closing lets the dialog go unless it is
+    /// still starting one.
+    fn on_remote_agent(
+        &mut self,
+        view: &Entity<RemoteAgentView>,
+        event: &RemoteAgentEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let ours = self.remote_agent.as_ref() == Some(view);
+        let open = ours && self.popup == Some(Popup::RemoteAgent);
+        match event {
+            RemoteAgentEvent::Started {
+                machine,
+                started,
+                cwd,
+                place,
+            } => {
+                if ours {
+                    self.remote_agent = None;
+                }
+                if open {
+                    self.popup = None;
+                }
+                // Hidden or removed meanwhile: it runs there, and shows once the machine does.
+                if let Some(seat) = self.machines.seat_of(machine) {
+                    self.on_seat(seat, |this| {
+                        this.open_started(started, cwd, *place, window, cx)
+                    });
+                }
+            }
+            RemoteAgentEvent::Close => {
+                if ours && !view.read(cx).starting() {
+                    self.remote_agent = None;
+                }
+                if open {
+                    self.close_popup(window, cx);
+                }
+            }
+        }
     }
 
     /// The New Agent panel is starting an agent, open or closed.
@@ -3192,6 +3309,10 @@ impl PaddockWindow {
         if let Some(view) = &self.new_agent {
             view.update(cx, |view, cx| view.restyle(config, cx));
         }
+        if let Some(view) = &self.remote_agent {
+            let (theme, mono) = (self.theme.clone(), config.font.clone().into());
+            view.update(cx, |view, cx| view.restyle(theme, mono, cx));
+        }
         cx.notify();
     }
 
@@ -3447,7 +3568,8 @@ impl PaddockWindow {
                 | Popup::Actions
                 | Popup::NewTask
                 | Popup::Overflow
-                | Popup::NewAgent,
+                | Popup::NewAgent
+                | Popup::RemoteAgent,
             )
             | None => {
                 return;
@@ -5629,19 +5751,26 @@ impl PaddockWindow {
             }));
         }
         // What starts on This Mac alone: off while another machine is on show, `This Mac` at
-        // their right (P5-122).
+        // their right (P5-122). New Agent starts on the machine on show (P5-124): off only while
+        // it does not answer, its short status at the right.
         let (on, aside) = local_only::menu_row(self.seats.here());
+        let waiting = self
+            .remote()
+            .and_then(|link| switcher_status(link, Instant::now()).0);
+        let (agent_on, agent_aside) = local_only::new_agent_row(self.seats.here(), waiting);
         let only = |id: &'static str,
                     icon: Icon,
                     label: &'static str,
-                    shortcut: Option<&dyn gpui::Action>| {
+                    shortcut: Option<&dyn gpui::Action>,
+                    (on, aside): (bool, Option<String>)| {
             let tone = if on { Tone::Plain } else { Tone::Off };
             let row = popover::row(theme, &ui, id, icon, label, tone);
             match aside {
-                Some(aside) => row.child(popover::keys(theme, &ui, &[aside.to_owned()])),
+                Some(aside) => row.child(popover::keys(theme, &ui, &[aside])),
                 None => row.children(shortcut.map(&keys)),
             }
         };
+        let aside = aside.map(str::to_owned);
         let (left, bottom) = sidebar::menu_anchor(self.collapsed, &ui);
         let panel = popover::panel(theme, &ui)
             .id("actions-menu")
@@ -5656,8 +5785,9 @@ impl PaddockWindow {
                     Icon::NewAgent,
                     "New Agent…",
                     Some(&menu::NewAgent),
+                    (agent_on, agent_aside),
                 )
-                .when(on, |row| {
+                .when(agent_on, |row| {
                     row.on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                         this.open_new_agent(Place::Current, window, cx);
                     }))
@@ -5669,6 +5799,7 @@ impl PaddockWindow {
                     Icon::NewShell,
                     "New Shell",
                     Some(&menu::NewShell),
+                    (on, aside.clone()),
                 )
                 .when(on, |row| {
                     row.on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
@@ -5683,6 +5814,7 @@ impl PaddockWindow {
                     Icon::NewWorkspace,
                     "New Workspace…",
                     None,
+                    (on, aside),
                 )
                 .when(on, |row| {
                     row.on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
@@ -7071,6 +7203,9 @@ impl Render for PaddockWindow {
                 .map(|palette| self.palette_panel(palette, window, cx).into_any_element()),
             Some(Popup::NewTask) => self.new_task.clone().map(IntoElement::into_any_element),
             Some(Popup::NewAgent) => self.new_agent.clone().map(IntoElement::into_any_element),
+            Some(Popup::RemoteAgent) => {
+                self.remote_agent.clone().map(IntoElement::into_any_element)
+            }
             Some(popup) => Some(self.chooser_panel(popup, window, cx).into_any_element()),
             None => None,
         };
