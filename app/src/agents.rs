@@ -27,6 +27,10 @@ pub struct Panel {
     pub folded: Folds,
     /// The workspaces, over the groups (DESIGN §13 P5-89).
     pub workspaces: Workspaces,
+    /// Workspaces with no agent that stay above, open, rather than at the list's foot: opened
+    /// from there or just made (P5-134). Each goes back once its title is clicked, or once it
+    /// has had agents and they have stopped. Kept in memory alone.
+    opened: Vec<String>,
     pub show_reply: bool,
     pub reply_top: usize,
     pub top: usize,
@@ -58,6 +62,14 @@ pub struct Folds {
     pub workspaces: Vec<String>,
     /// The groups inside a workspace: the workspace, then the group.
     pub within: Vec<(String, String)>,
+    /// The `Idle workspaces` group at the list's foot is folded to its heading (P5-134). Left out
+    /// of the file while open, as files from before it have it.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub idle: bool,
+    /// The workspaces whose one line of repositories with no agent is opened out, a line each,
+    /// by name (P5-134); left out while there are none.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub vacant_open: Vec<String>,
 }
 
 impl Folds {
@@ -89,9 +101,24 @@ impl Folds {
         toggle(&mut self.workspaces, name.to_owned());
     }
 
-    /// A workspace has a new name: what was folded of it stays so.
+    /// Opens the workspace, if it was folded.
+    pub fn open_workspace(&mut self, name: &str) {
+        self.workspaces.retain(|folded| folded != name);
+    }
+
+    /// Whether the workspace's line of repositories with no agent is opened out (P5-134).
+    pub fn vacant_open(&self, workspace: &str) -> bool {
+        self.vacant_open.iter().any(|open| open == workspace)
+    }
+
+    /// Opens out the workspace's line of repositories with no agent, or puts them back in one.
+    pub fn toggle_vacant(&mut self, workspace: &str) {
+        toggle(&mut self.vacant_open, workspace.to_owned());
+    }
+
+    /// A workspace has a new name: what was folded or opened out of it stays so.
     pub fn rename_workspace(&mut self, from: &str, to: &str) {
-        let names = self.workspaces.iter_mut();
+        let names = self.workspaces.iter_mut().chain(&mut self.vacant_open);
         for name in names.chain(self.within.iter_mut().map(|(workspace, _)| workspace)) {
             if name == from {
                 to.clone_into(name);
@@ -103,6 +130,7 @@ impl Folds {
     pub fn forget_workspace(&mut self, name: &str) {
         self.workspaces.retain(|folded| folded != name);
         self.within.retain(|(workspace, _)| workspace != name);
+        self.vacant_open.retain(|open| open != name);
     }
 }
 
@@ -162,6 +190,7 @@ impl Panel {
         self.expanded
             .retain(|name| agents.iter().any(|a| &a.name == name));
         self.agents = agents;
+        self.settle_opened();
         if !self
             .agents
             .iter()
@@ -191,6 +220,55 @@ impl Panel {
                 self.git.insert(cwd, summary);
             }
         }
+        // An agent's repository, read, may put it in an opened workspace.
+        self.settle_opened();
+    }
+
+    /// Whether the workspace stays above while it has no agent, opened (P5-134).
+    pub fn opened(&self, workspace: &str) -> bool {
+        self.opened.iter().any(|opened| opened == workspace)
+    }
+
+    /// A workspace with no agent comes up from the list's foot, open whatever was kept of it
+    /// (P5-134): opened there, or just made. One made with agents is up as any is.
+    pub fn raise(&mut self, workspace: &str) {
+        if !self.opened(workspace) {
+            self.opened.push(workspace.to_owned());
+        }
+        self.folded.open_workspace(workspace);
+        self.settle_opened();
+    }
+
+    /// The workspace goes back down while it has no agent; what is kept folded of it stays as it
+    /// was. Whether it was up.
+    pub fn lower(&mut self, workspace: &str) -> bool {
+        let up = self.opened(workspace);
+        self.opened.retain(|opened| opened != workspace);
+        up
+    }
+
+    /// A workspace has a new name: what is folded, opened out or up of it stays so.
+    pub fn rename_workspace(&mut self, from: &str, to: &str) {
+        self.folded.rename_workspace(from, to);
+        for name in &mut self.opened {
+            if name == from {
+                to.clone_into(name);
+            }
+        }
+    }
+
+    /// A workspace is gone, and what was kept of it.
+    pub fn forget_workspace(&mut self, name: &str) {
+        self.folded.forget_workspace(name);
+        self.lower(name);
+    }
+
+    /// An opened workspace that has agents is up as any is: it goes down once they stop.
+    fn settle_opened(&mut self) {
+        let busy: HashSet<String> = (self.agents.iter())
+            .filter_map(|agent| self.workspace(agent).map(str::to_owned))
+            .collect();
+        self.opened.retain(|name| !busy.contains(name));
     }
 
     /// Opens or closes one agent's details.
@@ -388,6 +466,8 @@ impl Panel {
         let adopted = self.adopt_named();
         let before = self.workspaces.clone();
         change(&mut self.workspaces);
+        // Repositories with agents added to an opened workspace put it up as any is.
+        self.settle_opened();
         if self.workspaces == before && !(adopted && self.named_read()) {
             self.workspaces = read;
             return Ok(());

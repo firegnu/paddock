@@ -838,6 +838,19 @@ impl Sidebar {
         self.folds_changed(cx);
     }
 
+    /// Folds the `Idle workspaces` group to its heading, or opens it again (P5-134).
+    fn fold_idle(&mut self, cx: &mut Context<Self>) {
+        let folded = &mut self.listing.panel.folded;
+        folded.idle = !folded.idle;
+        self.folds_changed(cx);
+    }
+
+    /// Opens out a workspace's one line of repositories with no agent, or puts them back in it.
+    fn fold_vacant(&mut self, workspace: &str, cx: &mut Context<Self>) {
+        self.listing.panel.folded.toggle_vacant(workspace);
+        self.folds_changed(cx);
+    }
+
     /// What is folded changed: the window saves it with the layout.
     fn folds_changed(&mut self, cx: &mut Context<Self>) {
         cx.emit(SidebarEvent::Folds(self.listing.panel.folded.clone()));
@@ -1353,7 +1366,14 @@ impl Sidebar {
         let mut last: Option<Option<String>> = None;
         for line in lines {
             match line {
-                Line::Error(_) | Line::Workspace(_) | Line::Vacant { .. } | Line::Empty(_) => {}
+                // Workspaces with no agent and repositories with none take no room (P5-134).
+                Line::Error(_)
+                | Line::Workspace(_)
+                | Line::Vacant { .. }
+                | Line::Vacancies { .. }
+                | Line::Empty(_)
+                | Line::Idle { .. }
+                | Line::IdleWorkspace { .. } => {}
                 Line::Group(heading) => {
                     let edge = last.as_ref().is_some_and(|last| *last != heading.workspace);
                     if !first && edge {
@@ -2412,9 +2432,13 @@ impl Render for Sidebar {
         // Every agent, those of folded groups too.
         let agents = self.listing.panel.agents.len();
         // Workspaces stay when their agents have all stopped (P5-89): once corral has been read,
-        // they are listed even with no agent at all.
+        // one opened is listed even with no agent at all; the rest lie in the `Idle workspaces`
+        // group at the foot, under `No agents yet` while there is no agent (P5-134).
+        let loaded = self.listing.loaded;
         let listed =
-            agents > 0 || self.listing.loaded && !self.listing.panel.workspaces.list().is_empty();
+            agents > 0 || loaded && lines.iter().any(|line| matches!(line, Line::Workspace(_)));
+        let idle = |line: &Line| matches!(line, Line::Idle { .. } | Line::IdleWorkspace { .. });
+        let shelf = loaded && lines.iter().any(idle);
 
         // The list runs on under the activity panel, and ends the panel's height below its last
         // card (P5-70).
@@ -2488,7 +2512,19 @@ impl Render for Sidebar {
                     grounds.selected,
                 ),
             };
-            list = list.justify_center().child(quiet);
+            list = if shelf {
+                // In the middle of the room the idle workspaces leave above them.
+                list.child(
+                    div()
+                        .flex_1()
+                        .flex()
+                        .flex_col()
+                        .justify_center()
+                        .child(quiet),
+                )
+            } else {
+                list.justify_center().child(quiet)
+            };
         }
         // The cards in an open workspace's well.
         let in_well = grounds.in_well(
@@ -2496,7 +2532,10 @@ impl Render for Sidebar {
             hsla(theme.bg(|t| t.agents_bg), 1.0),
         );
         // A workspace's lines follow its own, and go in its tray; the rest lie in the list.
-        let mut lines = lines.into_iter().filter(|_| listed).enumerate().peekable();
+        let mut lines = (lines.into_iter())
+            .filter(|line| listed || shelf && idle(line))
+            .enumerate()
+            .peekable();
         while let Some((index, line)) = lines.next() {
             let mut inside = Vec::new();
             let (tray, mut line) = match line {
@@ -2511,8 +2550,11 @@ impl Render for Sidebar {
                     None if tray.is_some() => lines.next_if(|(_, line)| match line {
                         Line::Group(heading) => heading.workspace.is_some(),
                         Line::Agent(card) => card.workspace.is_some(),
-                        Line::Vacant { .. } | Line::Empty(_) => true,
-                        Line::Error(_) | Line::Workspace(_) => false,
+                        Line::Vacant { .. } | Line::Vacancies { .. } | Line::Empty(_) => true,
+                        Line::Error(_)
+                        | Line::Workspace(_)
+                        | Line::Idle { .. }
+                        | Line::IdleWorkspace { .. } => false,
                     }),
                     None => None,
                 };
@@ -2542,7 +2584,14 @@ impl Render for Sidebar {
                     }
                     Line::Workspace(_) => continue,
                     Line::Vacant { workspace, repo } => self.vacant(&workspace, Some(repo), cx),
+                    Line::Vacancies {
+                        workspace,
+                        repos,
+                        open,
+                    } => self.vacancies(&workspace, &repos, open, cx),
                     Line::Empty(workspace) => self.vacant(&workspace, None, cx),
+                    Line::Idle { count, folded } => self.idle_heading(count, folded, cx),
+                    Line::IdleWorkspace { name, repos } => self.idle_workspace(&name, repos, cx),
                     Line::Agent(card) => {
                         let on_click = {
                             let card = card.clone();

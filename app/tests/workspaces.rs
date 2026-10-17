@@ -14,6 +14,12 @@ use std::path::{Path, PathBuf};
 
 fn panel(entries: &[(&str, &str, &str)]) -> Panel {
     let mut panel = Panel::default();
+    read(&mut panel, entries);
+    panel
+}
+
+/// corral lists these agents now: name, directory, state.
+fn read(panel: &mut Panel, entries: &[(&str, &str, &str)]) {
     panel.absorb(
         entries
             .iter()
@@ -27,7 +33,6 @@ fn panel(entries: &[(&str, &str, &str)]) -> Panel {
         None,
         100.0,
     );
-    panel
 }
 
 /// Git has told that `cwd` is in the repository whose main worktree is `main`.
@@ -98,8 +103,16 @@ fn shown(panel: &Panel, selected: Option<&str>) -> Vec<String> {
                 heading.showing,
             ),
             Line::Vacant { repo, .. } => format!("  - {repo} No agents"),
+            Line::Vacancies { repos, open, .. } => {
+                let arrow = if open { "v" } else { ">" };
+                format!("  {arrow} {} No agents", repos.join(", "))
+            }
             Line::Empty(_) => "  - No agents".to_owned(),
             Line::Agent(card) => format!("{}{}", inset(&card.workspace), card.name),
+            Line::Idle { count, folded } => {
+                marks(format!("Idle workspaces {count}"), folded, false)
+            }
+            Line::IdleWorkspace { name, repos } => format!("~ {name} {repos}"),
         })
         .collect()
 }
@@ -534,10 +547,11 @@ fn workspaces_come_first_by_name_with_their_groups_and_empty_repositories() {
             "  # jb/ 2 [Working, Idle]",
             "  jb/dev-1",
             "  jb/codex-1",
-            "= Zoo 0 []",
-            "  - No agents",
             "# mesh/ 1 [Idle]",
             "mesh/main",
+            // One with no agent lies at the foot (P5-134).
+            "Idle workspaces 1",
+            "~ Zoo 0",
         ]
     );
     // What a heading's button moves: the whole repository of its name in its workspace; a
@@ -695,7 +709,7 @@ fn a_folded_workspace_stacks_three_of_its_agents_cards_the_active_pane_s_in_fron
                 stack(&["paddock/dev", "paddock/main", "ranch/main"])
             ),
             ("Tuning".to_owned(), stack(&["jb/main"])),
-            ("Vacant".to_owned(), stack(&[])),
+            // One with no agent has no title: it lies at the list's foot (P5-134).
         ]
     );
     assert_eq!(
@@ -920,4 +934,257 @@ fn search_finds_agents_by_their_workspaces_name_and_shows_the_group_as_before() 
     );
     // The row says what it said.
     assert_eq!(found[0].rows[0].detail, "Working · ~/…/paddock");
+}
+
+/// The workspaces with no agent (P5-134): at the list's foot under `Idle workspaces`, by name,
+/// how many repositories each holds; up again as soon as one of their repositories has an agent,
+/// one that goes by its name's prefix too, as they were kept; down again once those stop.
+#[test]
+fn workspaces_with_no_agent_lie_at_the_foot_by_name_and_come_up_with_an_agent() {
+    let mut panel = panel(&[
+        ("paddock/main", "/w/paddock", "idle"),
+        ("mesh/main", "/w/mesh", "idle"),
+    ]);
+    for repo in ["paddock", "mesh"] {
+        let path = format!("/w/{repo}");
+        repository(&mut panel, &path, &path);
+    }
+    workspace(&mut panel.workspaces, "Tools", &["/w/paddock"]);
+    workspace(&mut panel.workspaces, "zeta", &["/w/a", "/w/b", "/w/c"]);
+    workspace(&mut panel.workspaces, "Beta", &["/w/ranch"]);
+    workspace(&mut panel.workspaces, "alpha", &[]);
+    let above = [
+        "= Tools 1 [Idle]",
+        "  # paddock/ 1 [Idle]",
+        "  paddock/main",
+        "# mesh/ 1 [Idle]",
+        "mesh/main",
+    ];
+    assert_eq!(
+        shown(&panel, None),
+        [
+            &above[..],
+            &["Idle workspaces 3", "~ alpha 0", "~ Beta 1", "~ zeta 3"],
+        ]
+        .concat()
+    );
+    // Folded, the group is its heading alone.
+    panel.folded.idle = true;
+    assert_eq!(
+        shown(&panel, None),
+        [&above[..], &["Idle workspaces 3 folded"]].concat()
+    );
+    panel.folded.idle = false;
+    // An agent in one of its repositories, its name's prefix saying so before Git has: up, by
+    // name, folded as it was kept.
+    panel.folded.toggle_workspace("Beta");
+    let with_ranch = [
+        ("paddock/main", "/w/paddock", "idle"),
+        ("mesh/main", "/w/mesh", "idle"),
+        ("ranch/dev", "/w/ranch", "working"),
+    ];
+    read(&mut panel, &with_ranch);
+    let up = [
+        "= Beta 1 [Working] folded",
+        "= Tools 1 [Idle]",
+        "  # paddock/ 1 [Idle]",
+        "  paddock/main",
+        "# mesh/ 1 [Idle]",
+        "mesh/main",
+        "Idle workspaces 2",
+        "~ alpha 0",
+        "~ zeta 3",
+    ];
+    assert_eq!(shown(&panel, None), up);
+    repository(&mut panel, "/w/ranch", "/w/ranch");
+    assert_eq!(shown(&panel, None), up);
+    // Its last agent stopped: down again.
+    read(
+        &mut panel,
+        &[
+            ("paddock/main", "/w/paddock", "idle"),
+            ("mesh/main", "/w/mesh", "idle"),
+        ],
+    );
+    assert_eq!(
+        shown(&panel, None),
+        [
+            &above[..],
+            &["Idle workspaces 3", "~ alpha 0", "~ Beta 1", "~ zeta 3"],
+        ]
+        .concat()
+    );
+    assert!(panel.folded.workspace("Beta"));
+    // With no agent at all, the group is all there is.
+    read(&mut panel, &[]);
+    assert_eq!(
+        shown(&panel, None),
+        [
+            "Idle workspaces 4",
+            "~ alpha 0",
+            "~ Beta 1",
+            "~ Tools 1",
+            "~ zeta 3"
+        ]
+    );
+}
+
+/// Opened from the foot, or just made, a workspace with no agent stays up, open, its repositories
+/// a line each, till its title is clicked: then it goes back down, what is kept folded of it as
+/// it was. Once it has had agents and they stop, it goes down too. None of this is kept: a new
+/// panel, as paddock opened again, has them all at the foot (P5-134).
+#[test]
+fn opened_and_new_workspaces_stay_up_open_till_their_title_sends_them_back() {
+    let mut panel = panel(&[("mesh/main", "/w/mesh", "idle")]);
+    repository(&mut panel, "/w/mesh", "/w/mesh");
+    workspace(&mut panel.workspaces, "Tools", &["/w/ranch", "/w/paddock"]);
+    workspace(&mut panel.workspaces, "Zoo", &[]);
+    panel.folded.toggle_workspace("Tools");
+    panel.raise("Tools");
+    let lines = card::lines(&panel, None, None, &[], None, 100.0);
+    let Line::Workspace(tray) = &lines[0] else {
+        panic!("its title first");
+    };
+    assert!(tray.opened && !tray.folded);
+    assert_eq!(
+        shown(&panel, None),
+        [
+            "= Tools 0 []",
+            "  - paddock No agents",
+            "  - ranch No agents",
+            "# mesh/ 1 [Idle]",
+            "mesh/main",
+            "Idle workspaces 1",
+            "~ Zoo 0",
+        ]
+    );
+    // Opened, it is open; and so it stays once back down.
+    assert!(!panel.folded.workspace("Tools"));
+    // Just made: up too, saying it has nothing.
+    workspace(&mut panel.workspaces, "New", &[]);
+    panel.raise("New");
+    assert_eq!(shown(&panel, None)[..2], ["= New 0 []", "  - No agents"]);
+    // Its title clicked, it goes back down; the other stays up.
+    assert!(panel.lower("New"));
+    assert!(!panel.folded.workspace("New"));
+    assert_eq!(
+        shown(&panel, None),
+        [
+            "= Tools 0 []",
+            "  - paddock No agents",
+            "  - ranch No agents",
+            "# mesh/ 1 [Idle]",
+            "mesh/main",
+            "Idle workspaces 2",
+            "~ New 0",
+            "~ Zoo 0",
+        ]
+    );
+    // An agent started in it: up as any is, then down once it stops.
+    read(
+        &mut panel,
+        &[
+            ("mesh/main", "/w/mesh", "idle"),
+            ("paddock/dev", "/w/paddock", "working"),
+        ],
+    );
+    repository(&mut panel, "/w/paddock", "/w/paddock");
+    assert!(!panel.opened("Tools"));
+    assert_eq!(
+        shown(&panel, None)[..4],
+        [
+            "= Tools 1 [Working]",
+            "  # paddock/ 1 [Working]",
+            "  paddock/dev",
+            "  - ranch No agents",
+        ]
+    );
+    read(&mut panel, &[("mesh/main", "/w/mesh", "idle")]);
+    assert_eq!(
+        shown(&panel, None),
+        [
+            "# mesh/ 1 [Idle]",
+            "mesh/main",
+            "Idle workspaces 3",
+            "~ New 0",
+            "~ Tools 2",
+            "~ Zoo 0",
+        ]
+    );
+    // Made with a repository that has agents: up as any is, not kept up after.
+    workspace(&mut panel.workspaces, "Mesh", &["/w/mesh"]);
+    panel.raise("Mesh");
+    assert!(!panel.opened("Mesh"));
+    // Renamed, an opened one stays up, its line of repositories opened out stays so; removed,
+    // both are forgotten.
+    panel.raise("Zoo");
+    panel.folded.toggle_vacant("Zoo");
+    panel.workspaces.rename("Zoo", "Zed").unwrap();
+    panel.rename_workspace("Zoo", "Zed");
+    assert!(panel.opened("Zed") && !panel.opened("Zoo"));
+    assert!(panel.folded.vacant_open("Zed") && !panel.folded.vacant_open("Zoo"));
+    panel.workspaces.remove("Zed");
+    panel.forget_workspace("Zed");
+    assert!(!panel.opened("Zed") && !panel.folded.vacant_open("Zed"));
+    // paddock opened again: kept in memory alone, so every one with no agent is at the foot.
+    panel.raise("New");
+    let mut again = Panel::default();
+    again.workspaces = panel.workspaces.clone();
+    again.folded = panel.folded.clone();
+    read(&mut again, &[]);
+    assert!(!again.opened("New"));
+    assert_eq!(shown(&again, None)[0], "Idle workspaces 3");
+}
+
+/// In a workspace with agents, two or more repositories with no agent are one line after its
+/// groups, opened out on a click into a line each; one alone is the line it was, among the
+/// groups by name (P5-134).
+#[test]
+fn repositories_with_no_agent_beside_agents_are_one_line_when_two_or_more() {
+    let mut panel = panel(&[("paddock/main", "/w/paddock", "idle")]);
+    repository(&mut panel, "/w/paddock", "/w/paddock");
+    workspace(
+        &mut panel.workspaces,
+        "Tools",
+        &["/w/saddle", "/w/paddock", "/w/ranch", "/w/cairn"],
+    );
+    let groups = [
+        "= Tools 1 [Idle]",
+        "  # paddock/ 1 [Idle]",
+        "  paddock/main",
+    ];
+    assert_eq!(
+        shown(&panel, None),
+        [&groups[..], &["  > cairn, ranch, saddle No agents"]].concat()
+    );
+    panel.folded.toggle_vacant("Tools");
+    assert_eq!(
+        shown(&panel, None),
+        [
+            &groups[..],
+            &[
+                "  v cairn, ranch, saddle No agents",
+                "  - cairn No agents",
+                "  - ranch No agents",
+                "  - saddle No agents",
+            ],
+        ]
+        .concat()
+    );
+    // The workspace folded, none of it shows.
+    panel.folded.toggle_workspace("Tools");
+    assert_eq!(shown(&panel, None), ["= Tools 1 [Idle] folded"]);
+    panel.folded.toggle_workspace("Tools");
+    // One left: as before.
+    panel.workspaces.remove_repo(Path::new("/w/ranch"));
+    panel.workspaces.remove_repo(Path::new("/w/saddle"));
+    assert_eq!(
+        shown(&panel, None),
+        [
+            "= Tools 1 [Idle]",
+            "  - cairn No agents",
+            "  # paddock/ 1 [Idle]",
+            "  paddock/main",
+        ]
+    );
 }

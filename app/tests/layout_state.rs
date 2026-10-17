@@ -61,6 +61,33 @@ fn folded_groups_are_saved_and_a_file_from_before_them_opens_every_group() {
     assert_eq!(saved, Some(layout()));
 }
 
+/// The `Idle workspaces` group folded and a workspace's line of repositories with no agent opened
+/// out are kept with the other folds (P5-134); a file from before them has the group open and
+/// every such line in one.
+#[test]
+fn the_idle_group_and_opened_out_repositories_are_saved_and_older_files_open_the_group() {
+    let temp = common::tempdir();
+    let path = temp.path().join("layout.json");
+    let mut with = layout();
+    with.sidebar_folded.idle = true;
+    with.sidebar_folded.toggle_vacant("Agent tools");
+    let (mut store, _) = Store::open(Some(path.clone()));
+    store.save(&with);
+    let (_, saved) = Store::open(Some(path.clone()));
+    let folds = saved.unwrap().sidebar_folded;
+    assert!(folds.idle);
+    assert!(folds.vacant_open("Agent tools") && !folds.vacant_open("Fine-tuning"));
+    // Written by the paddock before them: the group open, the lines in one.
+    let mut file = serde_json::to_value(layout()).unwrap();
+    file["sidebar_folded"] = serde_json::json!({ "workspaces": ["Agent tools"] });
+    std::fs::write(&path, serde_json::to_vec(&file).unwrap()).unwrap();
+    let (store, saved) = Store::open(Some(path));
+    assert!(store.problem().is_none());
+    let folds = saved.unwrap().sidebar_folded;
+    assert!(folds.workspace("Agent tools"));
+    assert!(!folds.idle && folds.vacant_open.is_empty());
+}
+
 #[test]
 fn an_unchanged_layout_is_not_written_again() {
     let temp = common::tempdir();
