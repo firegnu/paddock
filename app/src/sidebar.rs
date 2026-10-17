@@ -197,7 +197,7 @@ const NAME_SIZE: f32 = 13.0;
 const PREVIEW_SIZE: f32 = 12.5;
 const SECOND_SIZE: f32 = 12.0;
 const NOTE_SIZE: f32 = 11.5;
-const KIND_SIZE: f32 = 11.0;
+const INSTANCE_SIZE: f32 = 10.5;
 /// A group's heading (a repository's line): the name, and the count after it (P5-129, P5-129a:
 /// the name sits with the card's folder and time (`NOTE_SIZE`)).
 const GROUP_NAME_SIZE: f32 = 11.5;
@@ -269,9 +269,11 @@ const AVATAR_LEFT: f32 = PAD + 1.0 + CARD_LEFT;
 /// How long a note of a start or stop that went well stays whole, and then how long it fades.
 const NOTE_HOLD: Duration = Duration::from_secs(4);
 const NOTE_FADE: Duration = Duration::from_millis(600);
-/// A card's icon buttons, Copy, Pause (or Resume) and Stop…, and their corners.
+/// A card's icon buttons, Copy, Pause (or Resume) and Stop…, and their corners; Copy's icon is a
+/// little smaller.
 const CARD_BUTTON: f32 = 24.0;
 const CARD_BUTTON_RADIUS: f32 = 7.0;
+const COPY_ICON: f32 = 0.9;
 /// The arrow after a card's time that opens or closes its details, its corners and its icon's
 /// scale: no taller than the name's line (P5-74).
 const ARROW_BOX: f32 = 18.0;
@@ -2318,7 +2320,7 @@ impl Render for Sidebar {
             };
             let plain = FontFeatures::default();
             let normal = |line: &str, size: f32| width(line, size, FontWeight::NORMAL, &plain);
-            let mono = |line: &str| measure(line, KIND_SIZE, self.mono.clone());
+            let mono = |line: &str| measure(line, INSTANCE_SIZE, self.mono.clone());
             // The words beside the avatar.
             let full = words_width(self.width, &ui);
             let mut lines = self.listing.lines(
@@ -2389,7 +2391,7 @@ impl Render for Sidebar {
                 }
                 // A button for one whose repository it moves; words alone for the rest (P5-105).
                 let button = match card.repo {
-                    Some(_) => column - ui.scale(2.0 * CHIP_X + MARK_GAP + CHEVRON),
+                    Some(_) => column - ui.scale(CHIP_X + MARK_GAP + CHEVRON),
                     None => column,
                 };
                 // Another machine's agents are in no workspace: no cell.
@@ -2401,7 +2403,8 @@ impl Render for Sidebar {
                     );
                 }
                 if let Some(path) = &card.details.path {
-                    card.details.path = Some(card::shorten(path, &|path| mono(path) <= room));
+                    card.details.path =
+                        Some(card::shorten(path, &|path| normal(path, NOTE_SIZE) <= room));
                 }
                 // The instance shares its line with Copy, Pause and Stop….
                 let buttons = ["Copy", "Stop…"]
@@ -3357,13 +3360,15 @@ impl RenderOnce for AgentCard {
                 .child(StyledText::new(text).with_highlights(highlights))
         });
 
-        let (text, colors) = pieces(&theme, &card.place.spans());
-        let place = div()
-            .min_w(px(0.0))
-            .overflow_hidden()
-            .whitespace_nowrap()
-            .text_size(ui.px(NOTE_SIZE))
-            .child(styled(text, &colors));
+        let place = (!card.expanded).then(|| {
+            let (text, colors) = pieces(&theme, &card.place.spans());
+            div()
+                .min_w(px(0.0))
+                .overflow_hidden()
+                .whitespace_nowrap()
+                .text_size(ui.px(NOTE_SIZE))
+                .child(styled(text, &colors))
+        });
 
         // Waiting: answering is one click away.
         let reply = waiting.then(|| {
@@ -3412,7 +3417,7 @@ impl RenderOnce for AgentCard {
             .gap(px(2.0))
             .child(first)
             .children(preview)
-            .child(place)
+            .children(place)
             .children(reply)
             .children(details);
 
@@ -3641,9 +3646,10 @@ struct Buttons {
     workspace: Option<workspaces_view::WorkspaceCell>,
 }
 
-/// The open card under the place line: the branch and changes as chips; the rest in two columns of
-/// cells, a small label over each value; the full path; then the instance with Copy, and Pause (or
-/// Resume) and Stop… at the right; under them the question before pausing an agent in a turn.
+/// The open card under the header: the full path over the branch and changes as chips; the rest in
+/// two columns of cells, a small uppercase label over each value; then the instance with Copy, and
+/// Pause (or Resume) and Stop… at the right; under them the question before pausing an agent in a
+/// turn.
 fn details(theme: &Theme, mono: &Font, ui: &UiFont, card: &Card, buttons: Buttons) -> Div {
     let Buttons {
         copy,
@@ -3653,6 +3659,12 @@ fn details(theme: &Theme, mono: &Font, ui: &UiFont, card: &Card, buttons: Button
         workspace: place,
     } = buttons;
     let fg = |pick: Pick| hsla(theme.fg(pick), 1.0);
+    let (text, dim, dimmer, rule) = (
+        fg(|t| t.agents_text),
+        fg(|t| t.agents_dim),
+        fg(|t| t.agents_dimmer),
+        fg(|t| t.agents_rule),
+    );
     let details = &card.details;
     let chips = details.chips.iter().map(|chip| {
         let (text, colors) = pieces(theme, chip);
@@ -3668,28 +3680,59 @@ fn details(theme: &Theme, mono: &Font, ui: &UiFont, card: &Card, buttons: Button
             .text_size(ui.px(NOTE_SIZE))
             .child(styled(text, &colors))
     });
+    let location = (details.path.is_some() || !details.chips.is_empty()).then(|| {
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(6.0))
+            .children(details.path.clone().map(|path| {
+                div()
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .text_size(ui.px(NOTE_SIZE))
+                    .text_color(dim)
+                    .child(path)
+            }))
+            .when(!details.chips.is_empty(), |body| {
+                body.child(div().flex().flex_wrap().gap(ui.px(5.0)).children(chips))
+            })
+    });
+    let label = |name: &str| {
+        div()
+            .whitespace_nowrap()
+            .text_size(ui.px(CELL_LABEL_SIZE))
+            .text_color(dimmer.opacity(0.8))
+            .child(name.to_ascii_uppercase())
+    };
     let cell = |cell: &card::Cell| {
+        // What follows `·` (how long, the effort, `open here`) is quieter than the main word.
+        let tail = cell
+            .value
+            .find(" · ")
+            .or_else(|| cell.value.find('·'))
+            .map(|from| {
+                (
+                    from..cell.value.len(),
+                    HighlightStyle {
+                        color: Some(dim),
+                        ..HighlightStyle::default()
+                    },
+                )
+            });
         div()
             .flex_1()
             .min_w(px(0.0))
             .flex()
             .flex_col()
-            .gap(px(1.0))
-            .child(
-                div()
-                    .whitespace_nowrap()
-                    .text_size(ui.px(CELL_LABEL_SIZE))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(fg(|t| t.agents_dimmer))
-                    .child(cell.label),
-            )
+            .gap(px(2.0))
+            .child(label(cell.label))
             .child(
                 div()
                     .overflow_hidden()
                     .whitespace_nowrap()
                     .text_size(ui.px(SECOND_SIZE))
-                    .text_color(fg(|t| t.agents_text))
-                    .child(cell.value.clone()),
+                    .text_color(text)
+                    .child(StyledText::new(cell.value.clone()).with_highlights(tail)),
             )
     };
     // The last cell: the workspace, as a button that opens the menu of them; words alone for an
@@ -3702,22 +3745,14 @@ fn details(theme: &Theme, mono: &Font, ui: &UiFont, card: &Card, buttons: Button
             };
             return cell(&words).into_any_element();
         };
-        let text = fg(|t| t.agents_text);
         let (ground, lit) = (text.opacity(0.12), text.opacity(0.18));
         div()
             .flex_1()
             .min_w(px(0.0))
             .flex()
             .flex_col()
-            .gap(px(3.0))
-            .child(
-                div()
-                    .whitespace_nowrap()
-                    .text_size(ui.px(CELL_LABEL_SIZE))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(fg(|t| t.agents_dimmer))
-                    .child("Workspace"),
-            )
+            .gap(px(2.0))
+            .child(label("Workspace"))
             .child(
                 div()
                     .relative()
@@ -3725,15 +3760,17 @@ fn details(theme: &Theme, mono: &Font, ui: &UiFont, card: &Card, buttons: Button
                     .child(
                         div()
                             .id("card-workspace")
-                            .h(ui.px(22.0))
+                            .mx(-ui.px(CHIP_X))
                             .px(ui.px(CHIP_X))
+                            .my(-px(2.0))
+                            .py(px(2.0))
                             .flex()
                             .items_center()
                             .gap(ui.px(MARK_GAP))
                             .rounded(ui.px(6.0))
-                            .bg(if place.open { lit } else { ground })
+                            .when(place.open, |button| button.bg(lit))
                             .cursor_pointer()
-                            .hover(move |style| style.bg(lit))
+                            .hover(move |style| style.bg(if place.open { lit } else { ground }))
                             .on_mouse_down(MouseButton::Left, on_press)
                             // The press opened the menu: its click is not one on the card.
                             .on_click(|_, _, cx| cx.stop_propagation())
@@ -3749,7 +3786,7 @@ fn details(theme: &Theme, mono: &Font, ui: &UiFont, card: &Card, buttons: Button
                                     .data(CHEVRON_DOWN)
                                     .flex_shrink_0()
                                     .size(ui.px(CHEVRON))
-                                    .text_color(fg(|t| t.agents_dim)),
+                                    .text_color(dim),
                             ),
                     )
                     .children(place.menu),
@@ -3766,24 +3803,15 @@ fn details(theme: &Theme, mono: &Font, ui: &UiFont, card: &Card, buttons: Button
             .unwrap_or_else(|| div().flex_1().into_any_element());
         cells = cells.child(div().flex().gap(ui.px(CELL_GAP)).child(left).child(right));
     }
-    let path = details.path.clone().map(|path| {
-        div()
-            .overflow_hidden()
-            .whitespace_nowrap()
-            .font(mono.clone())
-            .text_size(ui.px(KIND_SIZE))
-            .text_color(fg(|t| t.agents_dimmer))
-            .child(path)
-    });
     // An icon button with its hover text, quiet until hovered; what it looks like then is the
     // caller's. Made each frame from its motion's state.
     let action = |id: &'static str, tip: &'static str| {
         let tip = Tip {
             text: tip.into(),
             size: ui.px(NOTE_SIZE),
-            color: fg(|t| t.agents_text),
+            color: text,
             background: hsla(theme.bg(|t| t.agents_bg), 1.0),
-            border: fg(|t| t.agents_rule),
+            border: rule,
         };
         let (size, radius) = (ui.px(CARD_BUTTON), ui.px(CARD_BUTTON_RADIUS));
         move |on_click: OnClick| {
@@ -3801,17 +3829,20 @@ fn details(theme: &Theme, mono: &Font, ui: &UiFont, card: &Card, buttons: Button
         }
     };
     let scale = ui.scale(1.0);
-    let dim = fg(|t| t.agents_dim);
+    let copy_scale = ui.scale(COPY_ICON);
     let instance = details.instance.clone().map(|instance| {
         div()
             .flex_shrink_0()
             .whitespace_nowrap()
             .font(mono.clone())
-            .text_size(ui.px(KIND_SIZE))
-            .text_color(fg(|t| t.agents_dim))
+            .text_size(ui.px(INSTANCE_SIZE))
+            .text_color(dimmer)
             .child(instance)
     });
     let last = div()
+        .pt(px(8.0))
+        .border_t_1()
+        .border_color(rule)
         .flex()
         .items_center()
         .gap(ui.px(MARK_GAP))
@@ -3820,20 +3851,25 @@ fn details(theme: &Theme, mono: &Font, ui: &UiFont, card: &Card, buttons: Button
             // It nudges as the pointer comes in, and turns to a green tick for a moment once it
             // has copied.
             let button = action("copy", "Copy instance ID");
-            let (ground, green) = (fg(|t| t.agents_text).opacity(0.08), fg(|t| t.agents_green));
+            let (ground, green) = (text.opacity(0.08), fg(|t| t.agents_green));
             motion::hover_motion("copy-motion", motion::COPY, move |hover| {
                 let (icon, pose, opacity) = motion::copy(hover);
-                let ink = if icon == Icon::Copied { green } else { dim };
+                let ink = if icon == Icon::Copied { green } else { dimmer };
                 button(copy)
                     .hover(move |style| style.bg(ground))
-                    .child(footer_icon::posed(icon, pose, ink.opacity(opacity), scale))
+                    .child(footer_icon::posed(
+                        icon,
+                        pose,
+                        ink.opacity(opacity),
+                        copy_scale,
+                    ))
             })
         }))
         .child(div().flex_1())
         .child({
             // Its bars dip together as the pointer comes in; a paused agent's triangle slides the
             // way it plays.
-            let lit = fg(|t| t.agents_text).opacity(0.08);
+            let lit = text.opacity(0.08);
             if card.paused {
                 let button = action("resume", "Resume agent");
                 motion::hover_motion("resume-motion", motion::SHIFT, move |hover| {
@@ -3890,11 +3926,7 @@ fn details(theme: &Theme, mono: &Font, ui: &UiFont, card: &Card, buttons: Button
                 .cursor_pointer()
                 .child(label)
         };
-        let (text, rule, yellow) = (
-            fg(|t| t.agents_text),
-            fg(|t| t.agents_rule),
-            fg(|t| t.agents_yellow),
-        );
+        let yellow = fg(|t| t.agents_yellow);
         div()
             .flex()
             .flex_wrap()
@@ -3934,14 +3966,14 @@ fn details(theme: &Theme, mono: &Font, ui: &UiFont, card: &Card, buttons: Button
     });
     div()
         .mt(px(8.0))
+        .pt(px(10.0))
+        .border_t_1()
+        .border_color(rule)
         .flex()
         .flex_col()
-        .gap(px(10.0))
-        .when(!details.chips.is_empty(), |body| {
-            body.child(div().flex().flex_wrap().gap(ui.px(5.0)).children(chips))
-        })
+        .gap(px(12.0))
+        .children(location)
         .child(cells)
-        .children(path)
         .child(last)
         .children(question)
 }

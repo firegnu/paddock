@@ -418,7 +418,7 @@ fn git_chips(s: &Summary) -> Vec<Chip> {
         && untracked > 0
     {
         clean = false;
-        chips.push(vec![(format!("?{untracked}"), Ink::Dimmer)]);
+        chips.push(vec![(format!("{untracked} untracked"), Ink::Dimmer)]);
     }
     if let Some((ahead, _)) = &s.ahead
         && *ahead > 0
@@ -451,11 +451,14 @@ pub struct Details {
     pub instance: Option<String>,
 }
 
-/// `origin` is when what the card's age counts began.
+/// `origin` is when what the card's age counts began; `preview_names_tool` whether the preview line
+/// already names `a.last_tool`.
+#[allow(clippy::too_many_arguments)]
 fn details(
     a: &Agent,
     status: Status,
     origin: Option<f64>,
+    preview_names_tool: bool,
     git: Option<&Option<Summary>>,
     here: bool,
     home: Option<&str>,
@@ -464,10 +467,15 @@ fn details(
     let cell = |label, value: String| Cell { label, value };
     let mut cells = Vec::new();
     let word = look(status).label;
-    let state = match (status, &a.last_tool) {
-        (Status::Working | Status::Stalled, Some(tool)) => format!("{word} · {tool}"),
+    let mut state = match (status, &a.last_tool) {
+        (Status::Working | Status::Stalled, Some(tool)) if !preview_names_tool => {
+            format!("{word} · {tool}")
+        }
         _ => word.to_owned(),
     };
+    if let Some(origin) = origin {
+        state = format!("{state} · {}", how_long(now - origin));
+    }
     cells.push(cell("Status", state));
     let label = |key: &str| {
         a.labels
@@ -487,30 +495,20 @@ fn details(
             model.join(" · ")
         },
     ));
-    if let Some(origin) = origin {
-        let label = match status {
-            Status::Idle => "Idle for",
-            Status::Paused => "Paused for",
-            Status::Waiting => "Waiting for",
-            _ => "This turn",
-        };
-        cells.push(cell(label, how_long(now - origin)));
-    }
     if let Some(started) = a.started {
         cells.push(cell("Up", how_long(now - started)));
     }
-    let windows = match a.attached {
-        0 => "none".to_owned(),
-        n => n.to_string(),
-    };
-    cells.push(cell(
-        "Windows",
-        if here {
-            format!("{windows} · open here")
-        } else {
-            windows
-        },
-    ));
+    if a.attached > 0 {
+        let windows = a.attached.to_string();
+        cells.push(cell(
+            "Windows",
+            if here {
+                format!("{windows} · open here")
+            } else {
+                windows
+            },
+        ));
+    }
     if let Some(source) = &a.last_input_source {
         let who = match source.as_str() {
             "human" => "You",
@@ -947,6 +945,18 @@ fn card(
         Status::Working | Status::Waiting | Status::Error => Some(look.color),
         _ => None,
     };
+    let preview = preview(a, status, title(a, prefix), panel.reply(a, now));
+    let preview_names_tool = matches!(preview, Some(Preview::Busy { tool: Some(_), .. }));
+    let details = details(
+        a,
+        status,
+        origin,
+        preview_names_tool,
+        git,
+        is_here,
+        home,
+        now,
+    );
     Card {
         name: a.name.clone(),
         group: panel.group(a).to_owned(),
@@ -965,9 +975,9 @@ fn card(
             .map(str::to_owned),
         time: short_time(origin.map(|v| now - v)),
         time_color,
-        preview: preview(a, status, title(a, prefix), panel.reply(a, now)),
+        preview,
         place,
-        details: details(a, status, origin, git, is_here, home, now),
+        details,
         look,
         short,
         instance: a.instance.clone(),
@@ -1223,8 +1233,7 @@ mod tests {
         // How long it has been paused, in the dim default.
         assert_eq!(busy.time, "45s");
         assert!(busy.time_color.is_none());
-        assert_eq!(busy.details.cells[0].value, "Paused");
-        assert_eq!(busy.details.cells[2].label, "Paused for");
+        assert_eq!(busy.details.cells[0].value, "Paused · 45s");
         // The group's bar puts them after the idle.
         let Line::Group(heading) = &lines[0] else {
             panic!()
@@ -1709,13 +1718,15 @@ mod tests {
                 .map(|cell| (cell.label, cell.value.clone()))
                 .collect()
         };
-        assert_eq!(chips(card), ["⎇ p2d-render", "+25 -3", "?3", "↑2 to push"]);
+        assert_eq!(
+            chips(card),
+            ["⎇ p2d-render", "+25 -3", "3 untracked", "↑2 to push"]
+        );
         assert_eq!(
             cells(card),
             [
-                ("Status", "Working · Bash".into()),
+                ("Status", "Working · 4m 12s".into()),
                 ("Model", "opus · high".into()),
-                ("This turn", "4m 12s".into()),
                 ("Up", "22m".into()),
                 ("Windows", "1 · open here".into()),
                 ("Last input", "You · 2m ago".into()),
@@ -1727,12 +1738,7 @@ mod tests {
         assert!(chips(cards[1]).is_empty());
         assert_eq!(
             cells(cards[1]),
-            [
-                ("Status", "Idle".into()),
-                ("Model", "—".into()),
-                ("Idle for", "57s".into()),
-                ("Windows", "none".into()),
-            ]
+            [("Status", "Idle · 57s".into()), ("Model", "—".into()),]
         );
         assert_eq!(cards[1].details.path.as_deref(), Some("/w/p/b"));
         let clean = Summary {
