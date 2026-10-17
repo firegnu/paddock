@@ -4,9 +4,9 @@
 
 ## 现在在哪
 
-- **进行中：P5-124**（远程机器上开 agent，简单版）：派给 `paddock/dev-remote-start-1`（Claude Code，opus[1m] / high），worktree `../paddock-worktrees/p5-124-remote-start`、编译目录 `.target/p5-124-remote-start`；主控挂了做完提醒。样稿在 `docs/设计稿/P5-124-远程开agent/`（画布「P5-124 远程开 agent 样稿」）。5090 上的测试 agent `paddock/test-pi` 用户 10-17 自己关了（在远端开 pi 要经远端 `zsh -l` 跑 `$HOME/.local/bin/corral start`，非交互 ssh 找不到 nvm 下的 pi）。ranch 的 R12 草稿（派活规则和路由策略）主控提交在 ranch 本地 main、没推送，用户说自己处理。工作区里未提交的草稿是 P5-54、P5-106、P5-111、P5-115、P5-120、P5-125（看板 DRAFT，有意留，不要 `git add -A`）。
-- `~/Applications/paddock.app` 是 main 合并 P5-130 后的版本（10-17 01:51 装，含 P5-126、P5-128、P5-129、P5-129a 仓库名 11.5pt、P5-130 胶囊提醒记号、切换栏胶囊改淡、右侧栏说明卡居中、P5-127；11.5pt、P5-130 用户还没看，其余用户看过；本机 Apple Development 证书签名）。
-- 已合并：第一至第三阶段、迁移 M0–M3、P4-1～P4-3、P5-1～P5-80、P5-82、P5-85～P5-89、P5-90、P5-90a、P5-91～P5-105、P5-107～P5-110、P5-112～P5-114、P5-114a、P5-116～P5-118、P5-118a、P5-119、P5-121、P5-121a、P5-122、P5-123、P5-126、P5-127、P5-128、P5-129、P5-129a、P5-130、P5-131a（P5-95b 已被 P5-95c 撤；P5-131b 是 agy 做的比较落选，不合并）。P5-83 已收尾（讨论记录）；P5-84、P5-81 不做；P5-52 只查明原因、改法用户暂不定。
+- **没有进行中的活**：没有任务 worktree。5090 上的测试 agent `paddock/test-pi` 用户 10-17 自己关了（在远端开 pi 要经远端 `zsh -l` 跑 `$HOME/.local/bin/corral start`，非交互 ssh 找不到 nvm 下的 pi）。ranch 的 R12 草稿（派活规则和路由策略）主控提交在 ranch 本地 main、没推送，用户说自己处理。工作区里未提交的草稿是 P5-54、P5-106、P5-111、P5-115、P5-120、P5-125（看板 DRAFT，有意留，不要 `git add -A`）。
+- `~/Applications/paddock.app` 是 main 合并 P5-124 后的版本（10-17 12:29 装，含 P5-124 远程开 agent（用户还没看）、P5-126、P5-128、P5-129、P5-129a 仓库名 11.5pt、P5-130 胶囊提醒记号、切换栏胶囊改淡、右侧栏说明卡居中、P5-127；11.5pt、P5-130 用户还没看，其余用户看过；本机 Apple Development 证书签名）。
+- 已合并：第一至第三阶段、迁移 M0–M3、P4-1～P4-3、P5-1～P5-80、P5-82、P5-85～P5-89、P5-90、P5-90a、P5-91～P5-105、P5-107～P5-110、P5-112～P5-114、P5-114a、P5-116～P5-118、P5-118a、P5-119、P5-121、P5-121a、P5-122、P5-123、P5-124、P5-126、P5-127、P5-128、P5-129、P5-129a、P5-130、P5-131a（P5-95b 已被 P5-95c 撤；P5-131b 是 agy 做的比较落选，不合并）。P5-83 已收尾（讨论记录）；P5-84、P5-81 不做；P5-52 只查明原因、改法用户暂不定。
 - **远程机器（P5-90 甲）**：用户本机 `~/.config/paddock/config.toml` 已加一台 `[[machines]]`（名字 `5090`，ssh 别名在本机配置里，不进仓库）；只有 P5-90 之后的版本认这一项，旧版会报配置错。远端 corral 用 `$HOME/.local/bin/corral`（ranch R10 部署）。
 - 重新打包安装：在 `app/` 下 `cargo build --release`，再 `cargo run --release --example bundle -- --install`（编译目录 `.target/main`）。打包默认选本机 Apple Development 身份，可用 `PADDOCK_SIGN_IDENTITY` 指定；退回 ad-hoc 时会提示授权会失效。
 - **paddock ctl 已部署**：`~/.local/bin/paddock` 链到 app 里的程序，重新打包后不用重建；技能正文改了要重跑 `paddock install-skills`（装在 `~/.claude/skills/paddock`、`~/.agents/skills/paddock`、`~/.gemini/config/skills/paddock`），已开着的 agent 要重开才看到。
@@ -27,9 +27,8 @@
 1. **P5-54** Browser 选中元素、Changes 选中 diff 写上要怎么改后送给 agent（优先：高，草稿）。主控提议（用户还没表态）：样稿主控自己做；实现拆成 P5-54a Changes、P5-54b Browser（WKWebView 注入 JS 加 WKScriptMessageHandler，代码库里还没有），a 合并后再派 b；测试只用假 corral。下次从列出待定问题开始。
 2. **P5-106 看板加 loop**（草稿）：五个待定问题列在草稿里，等用户想好再定范围和验收。
 3. **P5-120 委派的 agent 放进 sandbox**（草稿）：五个待定问题在草稿里（先调研还是直接做、放哪一层、管到什么程度、哪些 agent、用什么做），等用户定。
-4. **P5-124 远程机器上开 agent（简单版）**（优先：高）：进行中，见上；做完主控审查（改行为，不做交叉审查），合并后装新版给用户看。
-5. **P5-125 递归自我改进（RSI）**（草稿）：五个待定问题在草稿里（改什么、素材、多久回头看、谁批、要不要界面），等用户定。
-6. 以后：Changes 第二步（行上评论发给 agent、暂存、撤销，可能和 P5-54a 合并考虑）；Kanban 能拖来纠正（排在后面）。
+4. **P5-125 递归自我改进（RSI）**（草稿）：五个待定问题在草稿里（改什么、素材、多久回头看、谁批、要不要界面），等用户定。
+5. 以后：Changes 第二步（行上评论发给 agent、暂存、撤销，可能和 P5-54a 合并考虑）；Kanban 能拖来纠正（排在后面）。
 
 ## 用户用到时顺带看（不用决定、不挡任何事）
 
@@ -40,6 +39,7 @@
 - P5-91 workspace：收起时一摞的层次和间距、叠卡的大小和歪的角度、只有 1 个和没有 agent 的 workspace 收起的样子；展开时槽的深浅；浅色主题；透出系统材质时槽里卡片的亮度；界面字号调大、侧栏拖窄时。
 - P5-89 仓库收起和 workspace：点仓库小标题收起和展开、悬停才出的箭头；`New Workspace…` 浮层里 `Choose folder…` 回来以后浮层还在不在；中文输入法下起名字（选字时的 Return 归不归输入法）；workspace 标题上的 `⋯` 菜单（就地改名、`Add repositories…`、点两次的 `Remove workspace`）、卡片详情里的 `Workspace` 一格；左侧栏收成窄条时的分隔线和悬停说明；界面字号调大、侧栏拖窄时挤不挤。
 - P5-118、P5-118a Cairn 的 Ledger 页：靠左小胶囊切换和凸起框的样子、条目点开、右侧栏最窄 426 和字号调大时挤不挤。
+- P5-124 远程开 agent（主控没起窗口看过，也没在 5090 上真起过）：切到 5090 后底部菜单 `New Agent…`、⇧⌘N、胶囊右键 `New Agent on 5090…`；对话框里 pi、omp 查得出来不（经远端登录 shell）、目录默认 `~`、最近目录、名字留空用 `<目录末段>/<种类>`；起好后窗格里 attach；目录不存在时错误显示在框里；精致四条（对齐、悬停焦点等状态、Tab／←→／⌘↩／Esc、出错时不跳）。在 5090 上照规矩只开 pi、omp。
 - P5-121a Cairn 切换（凹槽外框、实心胶囊）：主控没起窗口看过，浅色主题是按规则推的，要看一眼。
 - P5-121 Cairn 的 Lessons 页（第三颗胶囊）：要等旁路模型记下第一条经验才有内容；用户选了不往真实的账里手工加。
 - P5-119 Settings › Instructions：六家切换、Markdown 显示、Edit／Review changes…／Save 和备份、Create file；编辑、保存按用户的话没有测试，也没人点过，第一次保存建议先在不要紧的那家（如 pi）试。
