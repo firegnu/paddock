@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Cairn lessons compact</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+.well{display:inline-flex;padding:3px;border-radius:999px;background:rgba(0,0,0,.28);box-shadow:inset 0 1px 2px rgba(0,0,0,.45);border:1px solid rgba(223,233,229,.10)}
+.p{display:flex;align-items:center;gap:6px;height:22px;padding:0 11px;border-radius:999px;font-size:12px;color:#b4c3bf}
+.p.on{background:#5fd3b0;color:#0b1a16;font-weight:600}
+.n{font-size:11px;opacity:.75}
+.filter{display:flex;align-items:center;gap:7px;height:28px;padding:0 9px;border-radius:7px;background:rgba(0,0,0,.25);border:1px solid rgba(223,233,229,.12);font-size:12px;color:#6b7f7a}
+.gh{display:flex;align-items:center;gap:7px;padding:12px 8px 6px;font-size:12px;font-weight:600;color:#eef5f2}
+.cnt{padding:0 7px;border-radius:999px;background:rgba(223,233,229,.08);font-weight:400;font-size:11.5px;color:#8a9e99}
+.sort{margin-left:auto;font-weight:400;font-size:11px;color:#6b7f7a}
+.box{border-radius:10px;border:1px solid rgba(223,233,229,.10);background:#152322;box-shadow:0 1px 0 rgba(255,255,255,.03) inset,0 2px 6px rgba(0,0,0,.35);overflow:hidden}
+.row{display:flex;align-items:center;gap:8px;height:30px;padding:0 10px;border-top:1px solid rgba(223,233,229,.06);font-size:12.5px}
+.row:first-child{border-top:0}
+.no{width:28px;flex:none;text-align:right;font-family:'JetBrains Mono','SF Mono',Menlo,monospace;font-size:11.5px;color:#6b7f7a}
+.t{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#dfe9e5}
+.d{flex:none;font-size:11px;color:#6b7f7a}
+.open{background:rgba(95,211,176,.06)}
+.detail{padding:2px 10px 10px 46px;font-size:12px;line-height:1.55;color:#b4c3bf;display:flex;flex-direction:column;gap:6px}
+.facts{display:grid;grid-template-columns:52px 1fr;gap:2px 8px;font-size:11px;color:#6b7f7a}
+code{font-family:'JetBrains Mono','SF Mono',Menlo,monospace;font-size:11px;color:#dfe9e5;background:rgba(223,233,229,.07);border-radius:3px;padding:0 3px}
+</style>
+</helmet>
+<div style="width: 440px; height: 780px; box-sizing: border-box; background: #0f1817; font-family: -apple-system, 'SF Pro Text', 'Helvetica Neue', sans-serif; color: #dfe9e5; font-size: 13px; display: flex; flex-direction: column; overflow: hidden">
+  <div style="padding: 14px 16px 8px; display: flex; flex-direction: column; gap: 8px">
+    <div class="well"><span class="p">Notes</span><span class="p">Ledger <span class="n">49</span></span><span class="p on">Lessons <span class="n">6</span></span></div>
+    <label class="filter"><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><circle cx="5" cy="5" r="3.6" fill="none" stroke="currentColor" stroke-width="1.4"></circle><path d="M8 8l2.6 2.6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"></path></svg>Filter 6 lessons<span style="margin-left: auto; font-size: 11px">⌘F</span></label>
+  </div>
+  <div style="padding: 0 8px; flex: 1; overflow: hidden">
+    <div class="gh">Lessons <span class="cnt">6</span><span class="sort">Newest first</span></div>
+    <div class="box">
+      <div class="open">
+        <div class="row"><span class="no">#54</span><span class="t" style="color: #eef5f2; font-weight: 500">远程 agent 探测和启动要走交互登录 shell</span><span class="d">Oct 17</span></div>
+        <div class="detail"><div>当远程 agent 装在 nvm 或写入 <code>~/.zshrc</code> 等交互 rc 时，使用 <code>exec "${SHELL:-/bin/sh}" -l -i -c '…'</code>，否则 <code>zsh -l -c</code> 找不到；保留超时以防 rc 自动进入 tmux 等流程。</div><div class="facts"><span>Added</span><span>Oct 17, 2026 at 13:02 · Claude</span><span>Given</span><span>to the next session</span></div></div>
+      </div>
+      <div class="row"><span class="no">#51</span><span class="t">远程 agent 集成测试不要用本机真实登录 shell</span><span class="d">Oct 17</span></div>
+      <div class="row"><span class="no">#41</span><span class="t">非交互 ssh 调远端 corral 用绝对路径</span><span class="d">Oct 16</span></div>
+      <div class="row"><span class="no">#40</span><span class="t">远程 corral attach 必须经真实终端</span><span class="d">Oct 16</span></div>
+      <div class="row"><span class="no">#38</span><span class="t">验证 JEV 路由时只真实调用一次</span><span class="d">Oct 16</span></div>
+      <div class="row"><span class="no">#35</span><span class="t">corral send 的确认与防重发</span><span class="d">Oct 16</span></div>
+    </div>
+    <div style="padding: 14px 8px; font-size: 11.5px; line-height: 1.5; color: #6b7f7a">Same rows as the Ledger: one line each, click to read. One group, so nothing to fold. At 60 lessons this list is about 1,800 px instead of 6,000.</div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":440,"height":780}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>
