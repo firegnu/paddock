@@ -3713,6 +3713,19 @@ impl PaddockWindow {
         self.close(gone, window, cx);
     }
 
+    /// Every live PTY, including tabs and machines that are not on show.
+    pub fn take_sessions_for_quit(&self, cx: &mut Context<Self>) -> Vec<crate::pty::Session> {
+        self.panes
+            .values()
+            .chain(
+                (0..self.seats.len())
+                    .filter_map(|seat| self.seats.parked(seat))
+                    .flat_map(|seat| seat.panes.values()),
+            )
+            .flat_map(|pane| pane.update(cx, |view, _| view.take_sessions_for_quit()))
+            .collect()
+    }
+
     /// Whether paddock may quit: yes when nothing runs in the shells, else as answered.
     pub fn confirm_quit(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Task<bool> {
         // This Mac's shells, whichever machine is on show: another machine has none.

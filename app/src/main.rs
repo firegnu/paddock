@@ -281,7 +281,8 @@ fn main() -> Result<()> {
             .expect("open window");
         windows::set_main(main, cx);
         let quitting = ui_control.clone();
-        cx.on_app_quit(move |_| {
+        cx.on_app_quit(move |cx| {
+            windows::shutdown_panes(cx);
             // Drop unlinks the registration and joins bounded transport workers.
             quitting.borrow_mut().take();
             async {}

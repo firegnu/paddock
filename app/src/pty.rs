@@ -206,7 +206,7 @@ impl Session {
                 }
                 self.signal_groups(libc::SIGHUP);
             } else {
-                self.signal(libc::SIGINT);
+                self.signal(libc::SIGHUP);
             }
             self.stopping = Some(Instant::now());
         }
@@ -260,6 +260,15 @@ impl Drop for Session {
         }
     }
 }
+
+/// Starts every pane's hangup before dropping any: their three-second deadlines overlap.
+pub fn shutdown(mut sessions: Vec<Session>) {
+    for session in &mut sessions {
+        let _ = session.interrupt();
+    }
+    drop(sessions);
+}
+
 /// The processes whose parent is `parent`.
 fn children(parent: libc::pid_t) -> Vec<libc::pid_t> {
     let mut pids = [0 as libc::pid_t; 256];
@@ -289,6 +298,106 @@ fn pty_size(size: Size) -> PtySize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn ignoring(signals: &str) -> Session {
+        let script = format!("trap '' {signals}; printf '\\033]2;ready\\007'; exec /bin/sleep 30");
+        let command = ["/bin/zsh", "-f", "-c", &script].map(str::to_owned);
+        let session = Session::spawn(&command, None, Size { rows: 24, cols: 80 }).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while session.screen.lock().unwrap().title() != Some("ready") {
+            assert!(Instant::now() < deadline, "child did not install its traps");
+            thread::sleep(Duration::from_millis(10));
+        }
+        session
+    }
+
+    #[test]
+    fn dropping_a_command_that_ignores_sigint_hangs_up_promptly() {
+        let session = ignoring("INT");
+        let start = Instant::now();
+        drop(session);
+        let elapsed = start.elapsed();
+        assert!(elapsed < Duration::from_secs(1), "drop took {elapsed:?}");
+    }
+
+    #[test]
+    fn quitting_commands_that_ignore_sigint_hangs_up_promptly() {
+        let sessions = (0..3).map(|_| ignoring("INT")).collect();
+        let start = Instant::now();
+        shutdown(sessions);
+        let elapsed = start.elapsed();
+        assert!(elapsed < Duration::from_secs(1), "quit took {elapsed:?}");
+    }
+
+    #[test]
+    fn quitting_stubborn_commands_shares_one_kill_deadline() {
+        let sessions = (0..3).map(|_| ignoring("INT HUP")).collect();
+        let start = Instant::now();
+        shutdown(sessions);
+        let elapsed = start.elapsed();
+        assert!(
+            elapsed >= Duration::from_secs(3),
+            "killed early: {elapsed:?}"
+        );
+        assert!(elapsed < Duration::from_secs(5), "quit took {elapsed:?}");
+    }
+
+    #[test]
+    fn dropping_a_command_that_ignores_sighup_keeps_the_three_second_kill_fallback() {
+        let session = ignoring("INT HUP");
+        let start = Instant::now();
+        drop(session);
+        let elapsed = start.elapsed();
+        assert!(
+            elapsed >= Duration::from_secs(3),
+            "killed early: {elapsed:?}"
+        );
+        assert!(elapsed < Duration::from_secs(5), "drop took {elapsed:?}");
+    }
+
+    #[test]
+    fn quitting_an_already_exited_command_does_not_wait() {
+        let command = ["/bin/zsh", "-f", "-c", "exit 7"].map(str::to_owned);
+        let mut session = Session::spawn(&command, None, Size { rows: 24, cols: 80 }).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !session.poll_exit().unwrap() {
+            assert!(Instant::now() < deadline, "child did not exit");
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(session.exit_code(), Some(7));
+        let start = Instant::now();
+        shutdown(vec![session]);
+        let elapsed = start.elapsed();
+        assert!(elapsed < Duration::from_secs(1), "quit took {elapsed:?}");
+    }
+
+    #[test]
+    fn dropping_a_shell_still_ends_its_foreground_job_group() {
+        let session = shell();
+        session.send(b"/bin/sleep 30\n".to_vec()).unwrap();
+        assert_eq!(settled(&session, &["sleep"]), ["sleep"]);
+        let group = session.master.process_group_leader().unwrap();
+        assert!(group > 1);
+        assert_ne!(Some(group as u32), session.child.process_id());
+        let start = Instant::now();
+        drop(session);
+        let elapsed = start.elapsed();
+        assert!(elapsed < Duration::from_secs(1), "drop took {elapsed:?}");
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            // SAFETY: signal 0 only checks this test's own PTY job group; it sends no signal.
+            if unsafe { libc::kill(-group, 0) } == -1
+                && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
+            {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "shell's job group is still alive"
+            );
+            thread::sleep(Duration::from_millis(10));
+        }
+    }
 
     /// zsh without the user's startup files, interactive so it runs jobs in their own groups.
     fn shell() -> Session {

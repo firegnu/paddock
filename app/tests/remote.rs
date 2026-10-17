@@ -76,7 +76,7 @@ case "$1" in
     ;;
   send) printf '%s\0%s\0' "$2" "$3" >> "$root/sent"; echo '{{"ok":true}}' ;;
   attach)
-    trap 'exit 0' INT
+    trap 'exit 0' HUP
     printf READY
     while :; do sleep 1 & wait $!; done
     ;;
