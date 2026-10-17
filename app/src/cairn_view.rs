@@ -7,27 +7,28 @@
 //! a box of their own and the others by day; a session opens in place to its note in full, read
 //! when it is first opened, and to its earlier notes, and at the foot the exact text the next
 //! session receives unfolds, drawn as Markdown. Where the notes are read, the project's ledger is
-//! too, on a page of its own the switch under the hooks turns to: its entries by kind, each kind in
-//! a raised box, one opening in place to its text. A repository that has not adopted cairn offers
-//! Adopt, which asks first; nothing else here changes anything (DESIGN §13 P5-55, P5-79, P5-110,
-//! P5-118).
+//! too, on a page of its own the switch under the hooks turns to: its entries by kind, one line
+//! each, each kind in a raised box that folds, one opening in place to its text, and a filter over
+//! them. A repository that has not adopted cairn offers Adopt, which asks first; nothing else here
+//! changes anything (DESIGN §13 P5-55, P5-79, P5-110, P5-118, P5-133).
 use crate::{
     activity::local_offset,
     cairn::{
-        self, Adopting, Body, Entry, Fired, Found, Full, Group, LESSONS, Ledger, Note, Notes, Read,
-        Records, Session,
+        self, Adopting, Body, Entry, Fired, Folds, Found, Full, Group, LESSONS, Ledger, Note,
+        Notes, Read, Records, Session,
     },
     card,
     fonts::UiFont,
     footer_icon::{self, Icon},
-    kind_icon, markdown, raised, sunk,
+    kind_icon, markdown, menu, raised, sunk,
+    text_input::{self, Changed, TextInput},
     theme::Theme,
     view::hsla,
 };
 use gpui::{
-    AnyElement, ClickEvent, Context, Div, Font, FontStyle, FontWeight, HighlightStyle, Hsla,
-    IntoElement, Render, Stateful, StyledText, Task, UnderlineStyle, Window, div, prelude::*, px,
-    relative,
+    AnyElement, ClickEvent, Context, Div, Entity, FocusHandle, Focusable, Font, FontStyle,
+    FontWeight, HighlightStyle, Hsla, IntoElement, MouseButton, Render, Stateful, StyledText,
+    Subscription, Task, UnderlineStyle, Window, div, prelude::*, px, relative,
 };
 use std::{
     collections::HashMap,
@@ -70,6 +71,11 @@ const NO: f32 = 28.0;
 const ENTRY_INDENT: f32 = INDENT + NO + 8.0;
 /// The arrows that fold a note and the exact text.
 const ARROW: f32 = 10.0;
+/// The filter's edge while nothing is typed and the ground of its clear button, in the text
+/// colour; the ground of the words it finds in a title, in the yellow.
+const FILTER_EDGE: f32 = 0.12;
+const CLEAR: f32 = 0.12;
+const LIT: f32 = 0.28;
 
 /// Which of its pages the tab shows where cairn keeps a ledger.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -163,11 +169,44 @@ pub struct CairnView {
     page: Page,
     /// The ledger entry that is open, by its id.
     entry: Option<String>,
+    /// The tab's own hold on the keyboard, which a click in it takes: ⌘F then goes to the filter
+    /// of the page shown, not to a pane.
+    focus: FocusHandle,
+    /// The filters over the ledger's page and the lessons', each kept while the pane stays in the
+    /// repository (P5-133).
+    ledger_filter: Entity<TextInput>,
+    lessons_filter: Entity<TextInput>,
+    _typed: [Subscription; 2],
+    /// Which of the ledger's groups are open in each repository, and the file they are kept in.
+    folds: Folds,
+    folds_path: Option<PathBuf>,
+}
+
+/// A filter's colours.
+fn input_colors(theme: &Theme) -> text_input::Colors {
+    text_input::Colors {
+        text: hsla(theme.fg(|t| t.agents_text), 1.0),
+        placeholder: hsla(theme.fg(|t| t.agents_dimmer), 1.0),
+        cursor: hsla(theme.fg(|t| t.focus), 1.0),
+        selection: hsla(theme.fg(|t| t.focus), 0.3),
+    }
 }
 
 impl CairnView {
-    pub fn new(theme: Rc<Theme>, mono: Font) -> Self {
+    pub fn new(theme: Rc<Theme>, mono: Font, cx: &mut Context<Self>) -> Self {
+        let colors = input_colors(&theme);
+        let ledger_filter = cx.new(|cx| TextInput::new("", "Filter entries", colors, cx));
+        let lessons_filter = cx.new(|cx| TextInput::new("", "Filter lessons", colors, cx));
+        let _typed = [&ledger_filter, &lessons_filter]
+            .map(|input| cx.subscribe(input, |_, _, _: &Changed, cx| cx.notify()));
+        let folds_path = cairn::folds_path();
         CairnView {
+            focus: cx.focus_handle(),
+            ledger_filter,
+            lessons_filter,
+            _typed,
+            folds: folds_path.as_deref().map(Folds::load).unwrap_or_default(),
+            folds_path,
             colors: Colors::of(&theme),
             theme,
             mono,
@@ -208,6 +247,10 @@ impl CairnView {
         }
         if !Rc::ptr_eq(&frame.theme, &self.theme) {
             self.colors = Colors::of(&frame.theme);
+            let colors = input_colors(&frame.theme);
+            for input in [&self.ledger_filter, &self.lessons_filter] {
+                input.update(cx, |input, cx| input.set_colors(colors, cx));
+            }
             self.theme = frame.theme;
             changed = true;
         }
@@ -261,8 +304,8 @@ impl CairnView {
     }
 
     /// A read came back: drawn when it differs, and a confirmation card that is not about what
-    /// it shows closes. In another repository than the last, what was open folds and the list is
-    /// a page again.
+    /// it shows closes. In another repository than the last, what was open folds, the list is
+    /// a page again and the filters are emptied.
     fn accept(&mut self, read: Read, cx: &mut Context<Self>) {
         if let Read::Found(found) = &read
             && found.repo != self.repo
@@ -275,6 +318,9 @@ impl CairnView {
             self.full.clear();
             self.exact = false;
             self.entry = None;
+            for input in [&self.ledger_filter, &self.lessons_filter] {
+                input.update(cx, |input, cx| input.set_text("", cx));
+            }
         }
         let repo = match &read {
             Read::Found(Found {
@@ -286,8 +332,100 @@ impl CairnView {
         let closed = self.adopting.follow(repo);
         if closed || self.read.as_ref() != Some(&read) {
             self.read = Some(read);
+            self.placeholders(cx);
             cx.notify();
         }
+    }
+
+    /// What the empty filters say: how many entries and lessons there are to filter.
+    fn placeholders(&mut self, cx: &mut Context<Self>) {
+        let Some(Read::Found(Found {
+            ledger: Some(Ledger::Groups(groups)),
+            ..
+        })) = &self.read
+        else {
+            return;
+        };
+        let (book, lessons) = split(groups);
+        let say = |n: usize, one: &str, many: &str| {
+            format!("Filter {n} {}", if n == 1 { one } else { many })
+        };
+        let entries = book.iter().map(|group| group.entries.len()).sum();
+        let ledger = say(entries, "entry", "entries");
+        let lessons = say(
+            lessons.map_or(0, |group| group.entries.len()),
+            "lesson",
+            "lessons",
+        );
+        self.ledger_filter
+            .update(cx, |input, cx| input.set_placeholder(ledger, cx));
+        self.lessons_filter
+            .update(cx, |input, cx| input.set_placeholder(lessons, cx));
+    }
+
+    /// The filter over `page`, the ledger's or the lessons'.
+    fn filter_of(&self, page: Page) -> Option<&Entity<TextInput>> {
+        match page {
+            Page::Notes => None,
+            Page::Ledger => Some(&self.ledger_filter),
+            Page::Lessons => Some(&self.lessons_filter),
+        }
+    }
+
+    /// The filter of the page shown, where it is drawn: on a page with entries to filter.
+    fn shown_filter(&self) -> Option<&Entity<TextInput>> {
+        let Some(Read::Found(Found {
+            ledger: Some(Ledger::Groups(groups)),
+            ..
+        })) = &self.read
+        else {
+            return None;
+        };
+        let (book, lessons) = split(groups);
+        let any = match self.page {
+            Page::Notes => false,
+            Page::Ledger => !book.is_empty(),
+            Page::Lessons => lessons.is_some(),
+        };
+        any.then(|| self.filter_of(self.page)).flatten()
+    }
+
+    /// ⌘F while the keyboard is in the tab: the filter of the page shown takes it, what it holds
+    /// selected.
+    fn find(&mut self, _: &menu::Find, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(input) = self.shown_filter() else {
+            return;
+        };
+        window.focus(&input.read(cx).focus_handle(cx), cx);
+        cx.defer_in(window, |_, window, cx| {
+            window.dispatch_action(Box::new(text_input::SelectAll), cx)
+        });
+    }
+
+    /// Esc while the keyboard is in the tab, or the filter's ×: the filter of the page shown is
+    /// emptied.
+    fn clear_filter(&mut self, _: &menu::CloseFind, _: &mut Window, cx: &mut Context<Self>) {
+        if let Some(input) = self.filter_of(self.page)
+            && !input.read(cx).text().is_empty()
+        {
+            input.update(cx, |input, cx| input.set_text("", cx));
+            cx.notify();
+        }
+    }
+
+    /// One of the ledger's groups was clicked: it folds, or opens, in this repository, and stays
+    /// so when paddock opens again.
+    fn fold(&mut self, group: &'static str, cx: &mut Context<Self>) {
+        let Some(repo) = self.repo.clone() else {
+            return;
+        };
+        let open = self.folds.open(&repo, group);
+        self.folds.set(&repo, group, !open);
+        // A small file, written at once so that two clicks in a row cannot land out of order.
+        if let Some(path) = &self.folds_path {
+            let _ = self.folds.save(path);
+        }
+        cx.notify();
     }
 
     /// Adopt on the confirmation card: `cairn adopt` in the directory shown, in the background,
@@ -409,10 +547,15 @@ impl Render for CairnView {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let ui = UiFont::get(cx);
         let c = self.colors;
+        // A click anywhere in the tab gives it the keyboard; ⌘F and Esc are its filter's there.
         let root = div()
             .size_full()
             .flex()
             .flex_col()
+            .track_focus(&self.focus)
+            .key_context(menu::FIND)
+            .on_action(cx.listener(Self::find))
+            .on_action(cx.listener(Self::clear_filter))
             .text_color(c.text)
             .text_size(ui.px(13.0));
         let rule = || {
@@ -1372,16 +1515,112 @@ impl CairnView {
         }
     }
 
-    /// Entries, scrolling: how many the next session is not given if any, then each kind under its
-    /// name in a raised box; the lessons, one kind with the switch to name it, in the box alone.
+    /// The filter over a page's entries, under the switch: a well with a magnifier, the field, and
+    /// `⌘F`; with something typed, its edge in the accent, how many of `total` it finds, and ×
+    /// to clear it. A click anywhere in it puts the keyboard in the field.
+    fn filter(
+        &self,
+        input: &Entity<TextInput>,
+        found: usize,
+        total: usize,
+        ui: &UiFont,
+        cx: &mut Context<Self>,
+    ) -> Div {
+        let c = self.colors;
+        let typed = !input.read(cx).text().trim().is_empty();
+        let well = sunk::well(c.ground, c.ground.l >= 0.5, c.text);
+        let field = input.read(cx).focus_handle(cx);
+        let small = || {
+            div()
+                .flex_shrink_0()
+                .whitespace_nowrap()
+                .text_size(ui.px(11.0))
+        };
+        div()
+            .flex_shrink_0()
+            .flex()
+            .items_center()
+            .gap(ui.px(7.0))
+            .mx(ui.px(16.0))
+            .mt(ui.px(10.0))
+            .h(ui.px(28.0))
+            .px(ui.px(9.0))
+            .rounded(ui.px(7.0))
+            .bg(well.ground)
+            .border_1()
+            .border_color(if typed {
+                c.accent
+            } else {
+                c.text.opacity(FILTER_EDGE)
+            })
+            .text_size(ui.px(12.0))
+            .cursor_text()
+            .on_mouse_down(MouseButton::Left, move |_, window, cx| {
+                window.focus(&field, cx);
+                // Not the tab's own hold, which would take the keyboard back.
+                window.prevent_default();
+            })
+            .child(footer_icon::icon(
+                Icon::Search,
+                if typed { c.muted } else { c.dim },
+                ui.scale(12.0 / footer_icon::SIZE),
+            ))
+            .child(div().flex_1().min_w(px(0.0)).child(input.clone()))
+            .map(|row| {
+                if typed {
+                    row.child(
+                        small()
+                            .text_color(c.muted)
+                            .child(format!("{found} of {total}")),
+                    )
+                    .child(
+                        div()
+                            .id("cairn-filter-clear")
+                            .flex_shrink_0()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .size(ui.px(16.0))
+                            .rounded_full()
+                            .bg(c.text.opacity(CLEAR))
+                            .text_size(ui.px(11.0))
+                            .text_color(c.muted)
+                            .cursor_pointer()
+                            .hover(move |style| style.text_color(c.title))
+                            .child("\u{d7}")
+                            .on_click(cx.listener(|view, _: &ClickEvent, window, cx| {
+                                view.clear_filter(&menu::CloseFind, window, cx)
+                            })),
+                    )
+                } else {
+                    row.child(small().text_color(c.dim).child("\u{2318}F"))
+                }
+            })
+    }
+
+    /// A page's entries under their filter: how many the next session is not given if any, then
+    /// each kind under its name, one that folds, in a raised box; the lessons, one kind with the
+    /// switch to name it, in the box alone. While a filter is typed, only what it finds, in the
+    /// kinds it finds them in, each of those open, or that it finds nothing.
     fn entries(
         &self,
         groups: &[&Group],
         lessons: bool,
         ui: &UiFont,
         cx: &mut Context<Self>,
-    ) -> Stateful<Div> {
+    ) -> Div {
         let c = self.colors;
+        let input = if lessons {
+            &self.lessons_filter
+        } else {
+            &self.ledger_filter
+        };
+        let query = input.read(cx).text().trim().to_owned();
+        let typed = !query.is_empty();
+        let shown = cairn::filter(groups, &query);
+        let total = groups.iter().map(|group| group.entries.len()).sum();
+        let found = shown.iter().map(|(_, hits)| hits.len()).sum();
+        let filter = self.filter(input, found, total, ui, cx);
         let left_out = groups
             .iter()
             .flat_map(|group| &group.entries)
@@ -1414,20 +1653,43 @@ impl CairnView {
             .pb(ui.px(16.0))
             .when(lessons, |list| list.pt(ui.px(12.0)));
         let mut nth = 0;
-        for group in groups {
-            list = list.when(!lessons, |list| {
-                list.child(
+        for (at, (group, hits)) in shown.iter().enumerate() {
+            let name = group.name;
+            // The lessons are one group, always open; a kind of the ledger is open as the user
+            // left it in this repository, and while filtering whenever it has what was found.
+            let open = lessons
+                || typed
+                || self
+                    .repo
+                    .as_deref()
+                    .is_none_or(|repo| self.folds.open(repo, name));
+            if !lessons {
+                let count = if typed {
+                    format!("{} of {}", hits.len(), group.entries.len())
+                } else {
+                    group.entries.len().to_string()
+                };
+                list = list.child(
                     div()
+                        .id(("cairn-group", at))
                         .flex()
                         .items_center()
-                        .gap(ui.px(8.0))
+                        .gap(ui.px(7.0))
                         .pt(ui.px(14.0))
                         .px(ui.px(8.0))
-                        .pb(ui.px(7.0))
+                        .pb(ui.px(if open { 7.0 } else { 0.0 }))
                         .text_size(ui.px(12.0))
                         .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(c.title)
-                        .child(group.name)
+                        .text_color(if open { c.title } else { c.text })
+                        .child(
+                            div()
+                                .flex_shrink_0()
+                                .w(ui.px(10.0))
+                                .text_size(ui.px(9.0))
+                                .text_color(c.muted)
+                                .child(if open { "\u{25be}" } else { "\u{25b8}" }),
+                        )
+                        .child(name)
                         .child(
                             div()
                                 .px(ui.px(7.0))
@@ -1436,10 +1698,21 @@ impl CairnView {
                                 .font_weight(FontWeight::NORMAL)
                                 .text_size(ui.px(11.5))
                                 .text_color(c.muted)
-                                .child(group.entries.len().to_string()),
-                        ),
-                )
-            });
+                                .child(count),
+                        )
+                        // While filtering the groups stay as they were left; clearing it shows them so.
+                        .when(!typed, |head| {
+                            head.cursor_pointer()
+                                .hover(move |style| style.text_color(c.title))
+                                .on_click(cx.listener(move |view, _: &ClickEvent, _, cx| {
+                                    view.fold(name, cx)
+                                }))
+                        }),
+                );
+            }
+            if !open {
+                continue;
+            }
             let mut rows = div()
                 .flex()
                 .flex_col()
@@ -1449,8 +1722,8 @@ impl CairnView {
                 .bg(raised.face)
                 .shadow(raised.shadows.clone())
                 .overflow_hidden();
-            for (at, entry) in group.entries.iter().enumerate() {
-                let row = self.entry(entry, nth, ui, cx);
+            for (at, entry) in hits.iter().enumerate() {
+                let row = self.entry(entry, nth, &query, ui, cx);
                 rows = rows.child(if at == 0 {
                     row
                 } else {
@@ -1460,31 +1733,69 @@ impl CairnView {
             }
             list = list.child(rows);
         }
+        if typed && found == 0 {
+            let what = if lessons { "lessons" } else { "entries" };
+            list = list.child(
+                div()
+                    .pt(ui.px(14.0))
+                    .px(ui.px(8.0))
+                    .text_size(ui.px(12.5))
+                    .line_height(relative(1.5))
+                    .text_color(c.muted)
+                    .child(format!("No {what} match \u{201c}{query}\u{201d}")),
+            );
+        }
         div()
-            .id(if lessons {
-                "cairn-lessons"
-            } else {
-                "cairn-ledger"
-            })
             .flex_1()
             .min_h(px(0.0))
-            .overflow_y_scroll()
             .flex()
             .flex_col()
-            .children(head)
-            .child(list)
+            .child(filter)
+            .child(
+                div()
+                    .id(if lessons {
+                        "cairn-lessons"
+                    } else {
+                        "cairn-ledger"
+                    })
+                    .flex_1()
+                    .min_h(px(0.0))
+                    .overflow_y_scroll()
+                    .flex()
+                    .flex_col()
+                    .children(head)
+                    .child(list),
+            )
     }
 
-    /// One ledger entry: its number and title, and two quiet lines of its text; open, its text in
-    /// full and the facts about it. The title of one the next session is not given is quiet too.
-    fn entry(&self, entry: &Entry, nth: usize, ui: &UiFont, cx: &mut Context<Self>) -> Div {
+    /// One ledger entry, one line: its number, its title cut short to fit, what `query` found in
+    /// it lit, and the day it was added; open, its text in full and the facts about it. The title
+    /// of one the next session is not given is quiet.
+    fn entry(
+        &self,
+        entry: &Entry,
+        nth: usize,
+        query: &str,
+        ui: &UiFont,
+        cx: &mut Context<Self>,
+    ) -> Div {
         let c = self.colors;
         let open = self.entry.as_deref() == Some(entry.id.as_str());
         let body = entry.body.as_deref().filter(|body| !body.trim().is_empty());
         let id = entry.id.clone();
+        let lit = HighlightStyle {
+            color: Some(c.title),
+            background_color: Some(c.yellow.opacity(LIT)),
+            ..HighlightStyle::default()
+        };
+        let title = StyledText::new(entry.title.clone()).with_highlights(
+            cairn::found(&entry.title, query)
+                .into_iter()
+                .map(|range| (range, lit)),
+        );
         let line = div()
             .flex()
-            .items_start()
+            .items_center()
             .gap(ui.px(8.0))
             .min_w(px(0.0))
             .child(
@@ -1511,6 +1822,9 @@ impl CairnView {
                 div()
                     .flex_1()
                     .min_w(px(0.0))
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .text_ellipsis()
                     .text_size(ui.px(12.5))
                     .line_height(ui.px(18.0))
                     .map(|title| match (open, entry.given) {
@@ -1518,27 +1832,24 @@ impl CairnView {
                         (false, true) => title.text_color(c.text),
                         (false, false) => title.text_color(c.muted),
                     })
-                    .child(entry.title.clone()),
+                    .child(title),
+            )
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .whitespace_nowrap()
+                    .text_size(ui.px(11.0))
+                    .text_color(c.dim)
+                    .child(entry.day.clone()),
             );
         let head = div()
             .id(("cairn-entry", nth))
             .flex()
             .flex_col()
-            .gap(ui.px(2.0))
             .px(ui.px(10.0))
-            .py(ui.px(7.0))
+            .py(ui.px(6.0))
             .cursor_pointer()
             .child(line)
-            .children(body.filter(|_| !open).map(|body| {
-                let body = body.split_whitespace().collect::<Vec<_>>().join(" ");
-                div()
-                    .pl(ui.px(ENTRY_INDENT))
-                    .text_size(ui.px(12.0))
-                    .line_height(relative(1.5))
-                    .text_color(c.muted)
-                    .line_clamp(2)
-                    .child(self.words(&body))
-            }))
             .on_click(cx.listener(move |view, _: &ClickEvent, _, cx| {
                 view.entry = if view.entry.as_deref() == Some(id.as_str()) {
                     None
