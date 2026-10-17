@@ -996,8 +996,9 @@ impl CairnView {
     /// One session, by its note: when that was saved, how long ago for one of today's, how many
     /// earlier ones it has, who saved it and on which branch, and its line; open, what `details`
     /// has in place of the line. One the next session is given (`next`) has its line under the
-    /// time, wrapped in full (P5-137a), and its day before the time when that is not today; the
-    /// others have one line of it beside the time, cut short.
+    /// time, wrapped and kept to its first two lines, the rest hidden without an ellipsis
+    /// (P5-137a), and its day before the time when that is not today; the others have one line of
+    /// it beside the time, cut short.
     fn session(
         &self,
         session: &Session,
@@ -1095,7 +1096,13 @@ impl CairnView {
             .cursor_pointer()
             .child(line)
             .when(next, |head| {
-                head.children(summary().map(|summary| summary.pl(ui.px(INDENT))))
+                head.children(summary().map(|summary| {
+                    summary
+                        .pl(ui.px(INDENT))
+                        // Two lines of its size and line height; the rest is hidden (P5-137a).
+                        .max_h(ui.px(12.5 * 1.5 * 2.0))
+                        .overflow_hidden()
+                }))
             })
             .on_click(cx.listener(move |view, _: &ClickEvent, _, cx| view.toggle(&id, cx)));
         div()

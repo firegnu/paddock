@@ -81,3 +81,9 @@
 ### 踩过的坑
 - 一开始按“英文路径 + 普通折行”复现，怎么量都不超出，差点以为改不出来；换成中文摘要（含路径）后才复现，原因是 GPUI 逐字估算在 CJK 回退字上少算。
 - 先写的那版 `cairn_view` 改动把 `summary()` 的 `text_ellipsis()` 删掉后，Earlier 行的容器上并没有 `text_ellipsis()`，会变成“不换行也不带 …”地硬切；已把省略号补到容器上并量过（114pt 的框里截到 109.4pt、带 `…`）。
+
+### 返工（10-17 用户定）
+- 用户定：不要整段显示，Next session 的摘要仍然最多两行。摘要照常整段换行（不用 `line_clamp`、也不用 `text_ellipsis`，避开 GPUI 中文截断估窄的毛病），把摘要容器的高度上限设成正好两行（字号 12.5、行高 1.5，按现有 `ui.px` 缩放算），`overflow_hidden`，第三行起藏掉；第二行末尾不加 `…`（用户接受）。
+- 改了什么：`app/src/cairn_view.rs` 的 `session()` 里，Next session 的摘要加了 `.max_h(ui.px(12.5 * 1.5 * 2.0)).overflow_hidden()`（37.5 点 × `ui` 缩放），仍不加 `text_ellipsis`、不用 `line_clamp`；Earlier 行那处 `text_ellipsis` 的改动保留。`session()` 的文档注释和 `docs/DESIGN.md` P5-110 那句同步改成“整段换行、只露前两行、多的藏起来、不加 `…`”。
+- 验证：只跑了 `git diff --check`、`cargo test --all-targets`、`cargo clippy --all-targets -- -D warnings`、`cargo fmt --check` 各一次，全部通过；没开窗口、没截图。两行高度和行高的算法一致（12.5 × 1.5 × 2 = 37.5 点，再乘界面缩放的同一个系数）。
+- 测试第一次全量跑时 `tests/remote.rs` 的 `a_machine_that_hangs_or_fails_never_holds_this_macs_agents_back` 超时失败，单独重跑通过，再全量重跑 27 个测试目标全绿；和这次的时间无关改动，按偶发处理。
