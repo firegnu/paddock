@@ -334,9 +334,7 @@ impl NewAgentView {
         let mut form = Form::new(seed.start_in.unwrap_or(seed.project), place);
         form.set_names(seed.names);
         form.set_lists(models::load(&config.agent_models));
-        // Opens set as a regular Claude agent at its deepest model and normal effort.
-        form.pick_tool(Tool::Claude);
-        form.regular = true;
+        form.open(&presets);
         let recent_path = new_agent::recent_path();
         let recent = recent_path
             .as_deref()
