@@ -4,7 +4,7 @@
 
 ## 现在在哪
 
-- **没有进行中的活**：没有任务 worktree。5090 上的测试 agent `paddock/test-pi` 用户 10-17 自己关了（在远端开 pi 要经远端 `zsh -l` 跑 `$HOME/.local/bin/corral start`，非交互 ssh 找不到 nvm 下的 pi）。ranch 的 R12 草稿（派活规则和路由策略）主控提交在 ranch 本地 main、没推送，用户说自己处理。工作区里未提交的草稿是 P5-54、P5-106、P5-111、P5-115、P5-120、P5-125（看板 DRAFT，有意留，不要 `git add -A`）。
+- **进行中**：P5-134（空 workspace 收到列表末尾的 `Idle workspaces`、workspace 里没 agent 的仓库合成一行）派给 `paddock/dev-idle-workspaces-1`（Claude Code opus[1m] / high），worktree `../paddock-worktrees/p5-134-idle-workspaces`、编译目录 `.target/p5-134-idle-workspaces`。5090 上的测试 agent `paddock/test-pi` 用户 10-17 自己关了（在远端开 pi 要经远端 `zsh -l` 跑 `$HOME/.local/bin/corral start`，非交互 ssh 找不到 nvm 下的 pi）。ranch 的 R12 草稿（派活规则和路由策略）主控提交在 ranch 本地 main、没推送，用户说自己处理。工作区里未提交的草稿是 P5-54、P5-106、P5-111、P5-115、P5-120、P5-125（看板 DRAFT，有意留，不要 `git add -A`）。
 - `~/Applications/paddock.app` 是 main 合并 P5-133 后的版本（10-17 14:19 装，含 P5-133 Cairn 的 Ledger、Lessons 一行一条、分组可收起、过滤框（用户还没看）、P5-132 Cairn 的 Lessons 新的在上、P5-124 远程开 agent、P5-124a 远程空侧栏的 New Agent 按钮、P5-124b 远程走交互登录 shell 找得到 pi、P5-124c 远程对话框自己配命令（用户还没看）、P5-126、P5-128、P5-129、P5-129a 仓库名 11.5pt、P5-130 胶囊提醒记号、切换栏胶囊改淡、右侧栏说明卡居中、P5-127；11.5pt、P5-130 用户还没看，其余用户看过；本机 Apple Development 证书签名）。
 - 已合并：第一至第三阶段、迁移 M0–M3、P4-1～P4-3、P5-1～P5-80、P5-82、P5-85～P5-89、P5-90、P5-90a、P5-91～P5-105、P5-107～P5-110、P5-112～P5-114、P5-114a、P5-116～P5-118、P5-118a、P5-119、P5-121、P5-121a、P5-122、P5-123、P5-124、P5-124a、P5-124b、P5-124c、P5-126、P5-127、P5-128、P5-129、P5-129a、P5-130、P5-131a、P5-132、P5-133（P5-95b 已被 P5-95c 撤；P5-131b 是 agy 做的比较落选，不合并）。P5-83 已收尾（讨论记录）；P5-84、P5-81 不做；P5-52 只查明原因、改法用户暂不定。
 - **远程机器（P5-90 甲）**：用户本机 `~/.config/paddock/config.toml` 已加一台 `[[machines]]`（名字 `5090`，ssh 别名在本机配置里，不进仓库）；只有 P5-90 之后的版本认这一项，旧版会报配置错。远端 corral 用 `$HOME/.local/bin/corral`（ranch R10 部署）。
