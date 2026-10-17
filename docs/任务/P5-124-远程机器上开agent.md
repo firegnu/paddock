@@ -93,3 +93,11 @@
 - 集成测试先用真的 `/bin/sh -l` 当远端登录 shell，它会读本机的 `/etc/profile`（path_helper 把本机的 PATH 带进来），结果“找到”了本机装的 codex；改成假登录 shell 脚本，只读假 HOME 里的 `.profile`，顺便也验证了用的是 `$SHELL -l -c`。
 - 假 profile 打印的问候混进了错误原文；改成有 corral JSON 时只显示 JSON。
 - 用 perl 批量替换 window.rs 时，`|` 作分隔符让转义的 `\|` 变成了“或”，把第一行文档注释里的 `row` 替换掉了；看 diff 发现后恢复成原文，其余替换核对过。
+
+## 主控审查
+
+2026-10-17，paddock/main。结论：可以合并。
+- 看了 diff：只动了任务里的文件，「不要做」一件没碰；`remote_start.rs` 两层引号（`command_line` 再整句 `quote` 交给 `$SHELL -l -c`）、`~` 用连接时拿到的远端 HOME 展开，测试里带 `$(…)`、反引号、`;`、单双引号的目录和名字原样到达 corral；本机 New Agent 那条路径没改，New Shell、New Workspace 照旧走 `Switch to This Mac`。
+- 重跑：`cargo test --all-targets` 全过（lib 584，加各集成测试，含新的 `tests/remote_start.rs`），`cargo clippy --all-targets -- -D warnings`、`cargo fmt --check`、`git diff --check` 干净。
+- 对方的取舍：查种类改成每种各查一次、仍是一次远端调用——同意；只在 corral 报 `bad_cwd` 时目录框标红——同意；没连上时用快捷键、菜单栏要 New Agent，侧栏写 `Can't start an agent on <机器> now: <短状态>`，胶囊右键那一行不变灰、点了切过去后也写这句——同意（任务没写，主控定）；新标签、分屏面板进来的照那里的位置摆——同意；每次打开是新对话框、还在起的那个关掉后再要会回到它——同意。
+- 界面画法、深浅主题、字号缩放、键盘和输入法没有测试、没人看过，留给用户实际看。对方在 `/tmp/claude-501/p.txt` 留了一个空文件（仓库外、无害）。
