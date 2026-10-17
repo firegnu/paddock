@@ -27,7 +27,7 @@ pub enum Icon {
     NewWorkspace,
     /// A filled square.
     Stop,
-    /// A filled square filling most of the box, as heavy as `Copy` beside it: a card's Stop….
+    /// A stroked rounded square, as heavy as `Pause` beside it: a card's Stop….
     StopAgent,
     /// Two rounded squares, one behind and up to the left of the other: copy.
     Copy,
@@ -240,8 +240,8 @@ fn shapes(icon: Icon, pose: Pose, bounds: Bounds<Pixels>, scale: f32) -> Vec<Pat
                 Pose::Press { scale, radius } => (scale, radius),
                 _ => (1.0, 2.5),
             };
-            let (min, max) = (7.0 - 5.25 * size, 7.0 + 5.25 * size);
-            let mut square = PathBuilder::fill();
+            let (min, max) = (7.0 - 4.25 * size, 7.0 + 4.25 * size);
+            let mut square = stroke();
             rounded_rect(
                 &mut square,
                 at(min, min),
