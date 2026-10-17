@@ -119,6 +119,8 @@ pub enum SidebarEvent {
 /// What a machine's capsule menu offers (P5-123).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MachineAsk {
+    /// Its New Agent dialog, the machine on show (P5-124).
+    NewAgent,
     /// Settings › Machines, its name as a field.
     Rename,
     Hide,
@@ -1654,8 +1656,9 @@ impl Sidebar {
         })
     }
 
-    /// Another machine's capsule menu (P5-123): Rename… and Remove… go on in Settings › Machines,
-    /// Hide hides it at once; Machines Settings… opens that page.
+    /// Another machine's capsule menu (P5-123): New Agent on it first (P5-124), which shows it and
+    /// opens its New Agent dialog; Rename… and Remove… go on in Settings › Machines, Hide hides it
+    /// at once; Machines Settings… opens that page.
     fn machine_menu(
         &self,
         id: &str,
@@ -1663,7 +1666,8 @@ impl Sidebar {
         ui: &UiFont,
         cx: &mut Context<Self>,
     ) -> gpui::Stateful<Div> {
-        let (rename, hide, remove, settings) = (
+        let (new_agent, rename, hide, remove, settings) = (
+            Self::machine_ask(id, MachineAsk::NewAgent, cx),
             Self::machine_ask(id, MachineAsk::Rename, cx),
             Self::machine_ask(id, MachineAsk::Hide, cx),
             Self::machine_ask(id, MachineAsk::Remove, cx),
@@ -1677,6 +1681,15 @@ impl Sidebar {
             .min_w(ui.px(MACHINE_MENU.0))
             .max_w(ui.px(MACHINE_MENU.1))
             .mt(ui.px(4.0))
+            .child(
+                row(
+                    "machine-new-agent",
+                    format!("New Agent on {name}…"),
+                    crate::popover::Tone::Plain,
+                )
+                .on_click(new_agent),
+            )
+            .child(crate::popover::rule(theme, ui))
             .child(
                 row(
                     "machine-rename",
@@ -2443,7 +2456,7 @@ impl Render for Sidebar {
                     None,
                     grounds.selected,
                 ),
-                // New agents start on this Mac only for now (DESIGN §13 P5-90).
+                // Another machine's agents start from the menu or its capsule menu (P5-124).
                 (_, Some(link)) => quiet(
                     &theme,
                     &ui,

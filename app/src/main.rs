@@ -235,6 +235,7 @@ fn main() -> Result<()> {
         cx.set_global(paddock::fonts::UiFont::from_config(&config));
         cx.bind_keys(menu::bindings());
         cx.bind_keys(paddock::text_input::bindings());
+        cx.bind_keys(paddock::remote_agent_view::bindings());
         cx.on_action(|_: &menu::Quit, cx| windows::quit(cx));
         // Opening or raising a window reads it from App; wait until this event's window is back.
         cx.on_action(|_: &menu::OpenSettings, cx| cx.defer(windows::open_settings));

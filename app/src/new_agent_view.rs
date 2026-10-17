@@ -289,7 +289,7 @@ fn input_colors(theme: &Theme) -> text_input::Colors {
 
 /// The main window's commands that would change what lies under the panel or open another
 /// panel over it: while the panel has the keys they do nothing.
-fn hold_main_window(panel: Div) -> Div {
+pub(crate) fn hold_main_window(panel: Div) -> Div {
     macro_rules! hold {
         ($panel:expr, $($action:ident),*) => {
             $panel$(.on_action(|_: &menu::$action, _, _| {}))*

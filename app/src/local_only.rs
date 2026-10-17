@@ -1,15 +1,15 @@
 //! What starts on This Mac alone while another machine is on show (DESIGN §13 P5-90, P5-122): a
-//! new agent, a shell and a workspace. The sidebar's menu has them off, `This Mac` at their right;
-//! asked for another way (a shortcut, the menu bar, the new tab panel), the sidebar says so in
-//! neutral words with `Switch to This Mac`, which shows This Mac and then does what was asked. The
-//! window does the switching and the doing (`window.rs`); the rules live here.
+//! shell and a workspace. The sidebar's menu has them off, `This Mac` at their right; asked for
+//! another way (a shortcut, the menu bar, the new tab panel), the sidebar says so in neutral words
+//! with `Switch to This Mac`, which shows This Mac and then does what was asked. A new agent starts
+//! on the machine on show (P5-124), in a slim dialog of its own there, once that machine answers.
+//! The window does the switching and the doing (`window.rs`); the rules live here.
 
 /// Seat 0, as the window's seats have it.
 pub const THIS_MAC: usize = 0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Only {
-    NewAgent,
     NewShell,
     NewWorkspace,
 }
@@ -18,7 +18,6 @@ impl Only {
     /// What the sidebar says while another machine is on show.
     pub fn hint(self) -> &'static str {
         match self {
-            Only::NewAgent => "New agents start on This Mac.",
             Only::NewShell => "Shells open on This Mac.",
             Only::NewWorkspace => "Workspaces are on This Mac.",
         }
@@ -62,12 +61,38 @@ pub fn menu_row(seat: usize) -> (bool, Option<&'static str>) {
     }
 }
 
+/// Where New Agent starts with machine `seat` on show (P5-124).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NewAgent {
+    /// This Mac's New Agent panel, as ever.
+    Here,
+    /// The slim dialog for that machine, which starts the agent there.
+    There(usize),
+}
+
+pub fn new_agent(seat: usize) -> NewAgent {
+    match seat {
+        THIS_MAC => NewAgent::Here,
+        seat => NewAgent::There(seat),
+    }
+}
+
+/// New Agent in the sidebar's menu with machine `seat` on show, `waiting` its short status while
+/// it does not answer (`Connecting…`, `Can't sign in`): whether it can be chosen, and what its
+/// right says when it cannot. This Mac's, and another machine's that answers, show the shortcut.
+pub fn new_agent_row(seat: usize, waiting: Option<String>) -> (bool, Option<String>) {
+    match waiting {
+        Some(words) if seat != THIS_MAC => (false, Some(words)),
+        _ => (true, None),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::seating::Seating;
 
-    const ALL: [Only; 3] = [Only::NewAgent, Only::NewShell, Only::NewWorkspace];
+    const ALL: [Only; 2] = [Only::NewShell, Only::NewWorkspace];
 
     #[test]
     fn on_this_mac_they_go_as_ever_and_the_menu_has_them_on() {
@@ -75,6 +100,8 @@ mod tests {
             assert_eq!(ask(THIS_MAC, only), Ask::Go);
         }
         assert_eq!(menu_row(THIS_MAC), (true, None));
+        assert_eq!(new_agent(THIS_MAC), NewAgent::Here);
+        assert_eq!(new_agent_row(THIS_MAC, None), (true, None));
     }
 
     #[test]
@@ -84,7 +111,24 @@ mod tests {
         }
         assert_eq!(menu_row(1), (false, Some("This Mac")));
         assert_eq!(menu_row(2), (false, Some("This Mac")));
-        assert_eq!(Only::NewAgent.hint(), "New agents start on This Mac.");
+        assert_eq!(Only::NewShell.hint(), "Shells open on This Mac.");
+    }
+
+    /// P5-124: New Agent no longer offers `Switch to This Mac` there; it starts on that machine,
+    /// on in the menu with its shortcut while it answers, off with its short status while not.
+    #[test]
+    fn on_another_machine_a_new_agent_starts_there_once_it_answers() {
+        assert_eq!(new_agent(1), NewAgent::There(1));
+        assert_eq!(new_agent(2), NewAgent::There(2));
+        assert_eq!(new_agent_row(1, None), (true, None));
+        assert_eq!(
+            new_agent_row(1, Some("Connecting…".into())),
+            (false, Some("Connecting…".into()))
+        );
+        assert_eq!(
+            new_agent_row(2, Some("Can't sign in".into())),
+            (false, Some("Can't sign in".into()))
+        );
     }
 
     /// `Switch to This Mac`: the window takes the steps as the switcher's choice and the asking do,
