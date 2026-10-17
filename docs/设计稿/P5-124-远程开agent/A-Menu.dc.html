@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Remote view actions menu</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+.well{display:flex;padding:3px;border-radius:999px;background:rgba(0,0,0,.28);box-shadow:inset 0 1px 2px rgba(0,0,0,.45);border:1px solid rgba(223,233,229,.10)}
+.p{flex:1;display:flex;align-items:center;justify-content:center;gap:6px;height:24px;border-radius:999px;font-size:12.5px;color:#dfe9e5}
+.p.on{background:#5fd3b0;color:#0b1a16;font-weight:600}
+.dot{width:6px;height:6px;border-radius:3px;background:#7fd99a;flex:none}
+.card{display:flex;align-items:center;gap:8px;height:30px;padding:0 8px;border-radius:7px;font-size:12.5px;color:#b4c3bf}
+.menu{width:252px;box-sizing:border-box;padding:5px;border-radius:10px;background:#182524;border:1px solid rgba(223,233,229,.12);box-shadow:0 14px 36px rgba(0,0,0,.45)}
+.row{display:flex;align-items:center;gap:9px;height:28px;padding:0 9px;border-radius:6px;font-size:12.5px}
+.row i{width:13px;height:13px;border-radius:3px;border:1.5px solid currentColor;opacity:.75;flex:none}
+.row .k{margin-left:auto;font-size:11px;color:#8a9e99;font-family:'SF Mono',Menlo,monospace}
+.row.off{color:#5d706c}
+.row.off i{opacity:.5}
+.row.off .k{color:#5d706c;font-family:inherit}
+.menu hr{border:0;border-top:1px solid rgba(223,233,229,.07);margin:4px 2px}
+</style>
+</helmet>
+<div style="width: 420px; height: 360px; box-sizing: border-box; padding: 20px; background: #0a1110; font-family: -apple-system, 'SF Pro Text', 'Helvetica Neue', sans-serif; color: #dfe9e5; font-size: 13px">
+  <div style="width: 300px; height: 320px; box-sizing: border-box; background: #0c1514; border: 1px solid rgba(223,233,229,.12); border-radius: 10px; padding: 10px 8px; position: relative; display: flex; flex-direction: column; gap: 4px">
+    <div class="well"><span class="p">This Mac</span><span class="p on">5090 <span class="dot" style="background: #0b1a16"></span><span style="font-size: 11px">3</span></span></div>
+    <div style="font-size: 11px; font-weight: 600; color: #6b7f7a; padding: 8px 8px 2px">ranch</div>
+    <div class="card"><span class="dot"></span>ranch/pi</div>
+    <div class="card"><span class="dot" style="background: #e6c26a"></span>ranch/omp</div>
+    <div class="menu" style="position: absolute; left: 8px; bottom: 40px">
+      <div class="row" style="background: rgba(95,211,176,.12); color: #eef5f2"><i></i>New Agent…<span class="k">⇧⌘N</span></div>
+      <div class="row off"><i></i>New Shell<span class="k">This Mac</span></div>
+      <div class="row off"><i></i>New Workspace…<span class="k">This Mac</span></div>
+      <hr>
+      <div class="row"><i></i>Stop ranch/pi</div>
+      <div class="row"><i></i>Pause ranch/pi</div>
+    </div>
+    <div style="position: absolute; left: 8px; bottom: 8px; width: 24px; height: 24px; border-radius: 6px; background: rgba(223,233,229,.10); display: flex; align-items: center; justify-content: center; font-size: 15px; color: #dfe9e5">+</div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":420,"height":360}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>
