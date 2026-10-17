@@ -1,12 +1,15 @@
-//! Starting an agent on another machine (DESIGN §13 P5-124), the simple way: the kind, the
-//! directory and the name, nothing else. What runs there goes through the user's own login shell
-//! there (`$SHELL -l -i -c`), as an agent installed under nvm or the like is found only there; every
-//! word the user typed is quoted as [`crate::remote::quote`] has it. `~` is that machine's home, as
-//! it said on connecting, never this Mac's. Nothing here runs on the UI thread.
+//! Starting an agent on another machine (DESIGN §13 P5-124), the simple way: the kind, its
+//! command, the directory and the name, nothing else. What runs there goes through the user's own
+//! login shell there (`$SHELL -l -i -c`), as an agent installed under nvm or the like is found only
+//! there; every word the user typed is quoted as [`crate::remote::quote`] has it. `~` is that
+//! machine's home, as it said on connecting, never this Mac's. The command is the kind's own or
+//! one the user wrote (P5-124c); what started is kept for that machine in [`Commands`]. Nothing
+//! here runs on the UI thread.
 use crate::{
     new_agent::{Started, Tool, suggest_prefix},
     remote::{Link, command_line, quote},
 };
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
     collections::BTreeMap,
@@ -68,8 +71,49 @@ pub fn look(link: &Link) -> Result<Vec<Tool>, String> {
 /// Which field a problem is about.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Field {
+    Command,
     Dir,
     Name,
+}
+
+/// What is started: one of the kinds found there, its command as written; or one of the user's
+/// own, known by its command alone.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Agent {
+    Kind(Tool),
+    Custom,
+}
+
+/// The words of a command, split as a shell would (quotes and all), as on this Mac's New Agent;
+/// else why not.
+pub fn check_command(command: &str) -> Result<Vec<String>, String> {
+    if command.chars().any(char::is_control) {
+        return Err("Command can't hold control characters".into());
+    }
+    match shell_words::split(command) {
+        Err(_) => Err("Command has an unclosed quote".into()),
+        Ok(words) if words.first().is_none_or(|word| word.is_empty()) => {
+            Err("Command is required".into())
+        }
+        Ok(words) => Ok(words),
+    }
+}
+
+/// The name a command of the user's own goes by: its first word's last part, as a name's prefix
+/// is made (`~/bin/my-agent --fast` is `my-agent`); none for a command that cannot be read.
+pub fn custom_name(command: &str) -> Option<String> {
+    let words = check_command(command).ok()?;
+    Some(suggest_prefix(&words[0]))
+}
+
+/// The kind among those `found` there that a command of the user's own called `name` is.
+pub fn found_kind(name: &str, found: &[Tool]) -> Option<Tool> {
+    found.iter().copied().find(|tool| tool.kind() == name)
+}
+
+/// Whether `command` says something else than `tool`'s own, word for word.
+pub fn edited(command: &str, tool: Tool) -> bool {
+    shell_words::split(command).ok() != shell_words::split(tool.command()).ok()
 }
 
 /// The directory as typed: a full path, `~` or `~/…`, else why not.
@@ -92,17 +136,22 @@ pub fn check_dir(dir: &str) -> Result<(), String> {
 
 /// The directory there: `~` and `~/…` under `home`, that machine's home.
 pub fn expand(dir: &str, home: &str) -> String {
-    let dir = dir.trim();
-    match dir.strip_prefix('~') {
+    tilde(dir.trim(), home)
+}
+
+/// `word` with a leading `~` or `~/` as `home`, as a shell has it.
+fn tilde(word: &str, home: &str) -> String {
+    match word.strip_prefix('~') {
         Some(rest) if rest.is_empty() || rest.starts_with('/') => format!("{home}{rest}"),
-        _ => dir.to_owned(),
+        _ => word.to_owned(),
     }
 }
 
-/// The name used when none is typed: the directory's last part (`home` for `~`), then the kind.
-/// corral is asked for a free one like it (`--unique`), and says which.
-pub fn default_name(dir: &str, tool: Tool) -> String {
-    format!("{}/{}", name_prefix(dir), tool.kind())
+/// The name used when none is typed: the directory's last part (`home` for `~`), then the kind or
+/// the name of the user's own command (`agent`). corral is asked for a free one like it
+/// (`--unique`), and says which.
+pub fn default_name(dir: &str, agent: &str) -> String {
+    format!("{}/{agent}", name_prefix(dir))
 }
 
 /// The part of [`default_name`] before the `/`.
@@ -137,7 +186,9 @@ pub fn check_name(name: &str) -> Result<(), String> {
 /// What the dialog asks for.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Request {
-    pub tool: Tool,
+    pub agent: Agent,
+    /// As typed, split as [`check_command`] does.
+    pub command: String,
     /// As typed: `~` not yet that machine's home.
     pub dir: String,
     /// As typed; empty for [`default_name`].
@@ -147,6 +198,9 @@ pub struct Request {
 impl Request {
     /// The first problem, by field.
     pub fn problem(&self) -> Option<(Field, String)> {
+        if let Err(problem) = check_command(&self.command) {
+            return Some((Field::Command, problem));
+        }
         if let Err(problem) = check_dir(&self.dir) {
             return Some((Field::Dir, problem));
         }
@@ -158,16 +212,27 @@ impl Request {
         None
     }
 
+    /// What the agent goes by in [`default_name`]: the kind, or the name of the user's own command;
+    /// none while that command cannot be read.
+    pub fn agent_name(&self) -> Option<String> {
+        match self.agent {
+            Agent::Kind(tool) => Some(tool.kind().to_owned()),
+            Agent::Custom => custom_name(&self.command),
+        }
+    }
+
     /// The name corral is asked for.
     pub fn name(&self) -> String {
         match self.name.trim() {
-            "" => default_name(&self.dir, self.tool),
+            "" => default_name(&self.dir, &self.agent_name().unwrap_or_default()),
             _ => self.name.clone(),
         }
     }
 
     /// The command for ssh: `corral start` through the login shell there, its directory under
-    /// `home`, that machine's home.
+    /// `home`, that machine's home, then each word of the command as it was split, a word's
+    /// leading `~` that home too, as corral runs the words as they come, with no shell. Only a
+    /// request with no [`Request::problem`] is started.
     pub fn command(&self, corral: &str, home: &str) -> String {
         let mut words = vec![
             corral.to_owned(),
@@ -180,7 +245,8 @@ impl Request {
             "role=regular".into(),
             "--".into(),
         ];
-        words.extend(self.tool.command().split_whitespace().map(str::to_owned));
+        let typed = check_command(&self.command).unwrap_or_default();
+        words.extend(typed.iter().map(|word| tilde(word, home)));
         login(&command_line(&words))
     }
 }
@@ -204,6 +270,12 @@ impl Failure {
 /// Runs [`Request::command`] there with the corral and home it found on connecting; blocks, so
 /// call it off the UI thread.
 pub fn start(link: &Link, request: &Request) -> Result<Started, Failure> {
+    if let Some((field, text)) = request.problem() {
+        return Err(Failure {
+            text,
+            field: Some(field),
+        });
+    }
     let snapshot = link.snapshot();
     let label = link.label();
     let corral = snapshot
@@ -308,19 +380,185 @@ impl RecentDirs {
     }
 
     pub fn save(&self, path: &Path) -> std::io::Result<()> {
-        if let Some(dir) = path.parent() {
-            std::fs::create_dir_all(dir)?;
-        }
-        let bytes = serde_json::to_vec_pretty(&self.0).map_err(std::io::Error::other)?;
-        let temporary = path.with_extension("json.saving");
-        std::fs::write(&temporary, bytes)?;
-        std::fs::rename(&temporary, path)
+        save_json(&self.0, path)
     }
+}
+
+/// Writes `value` to `path` whole: to a file beside it first, then in its place.
+fn save_json(value: &impl Serialize, path: &Path) -> std::io::Result<()> {
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    let bytes = serde_json::to_vec_pretty(value).map_err(std::io::Error::other)?;
+    let temporary = path.with_extension("json.saving");
+    std::fs::write(&temporary, bytes)?;
+    std::fs::rename(&temporary, path)
 }
 
 /// Where they are kept, beside the layout and this Mac's recent projects.
 pub fn recent_path() -> Option<PathBuf> {
     crate::layout_state::default_path().map(|path| path.with_file_name("recent-remote-dirs.json"))
+}
+
+/// One of the user's own commands kept for a machine, a capsule of its own in the dialog.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Custom {
+    /// As [`custom_name`] has it.
+    pub name: String,
+    pub command: String,
+}
+
+impl Custom {
+    /// The kind whose icon it wears: the one its name is (`amp`), if any.
+    pub fn kind(&self) -> Option<Tool> {
+        Tool::ALL.into_iter().find(|tool| tool.kind() == self.name)
+    }
+}
+
+/// What is kept for one machine.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+struct Kept {
+    /// The commands of the kinds found there as edited, by kind (`pi`).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    edited: BTreeMap<String, String>,
+    /// The user's own commands, in the order first started.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    custom: Vec<String>,
+}
+
+impl Kept {
+    fn is_empty(&self) -> bool {
+        self.edited.is_empty() && self.custom.is_empty()
+    }
+}
+
+/// The commands that started there, each machine's apart (by its `name`): a found kind's as
+/// edited, and the user's own. Only what corral started is kept ([`Commands::remember`]).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Commands(BTreeMap<String, Kept>);
+
+impl Commands {
+    /// As kept at `path`; none when there are none or they cannot be read.
+    pub fn load(path: &Path) -> Self {
+        std::fs::read(path)
+            .ok()
+            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+            .map(Self)
+            .unwrap_or_default()
+    }
+
+    pub fn save(&self, path: &Path) -> std::io::Result<()> {
+        save_json(&self.0, path)
+    }
+
+    /// `tool`'s command on `machine`: as edited there, else its own.
+    pub fn command(&self, machine: &str, tool: Tool) -> String {
+        self.0
+            .get(machine)
+            .and_then(|kept| kept.edited.get(tool.kind()))
+            .cloned()
+            .unwrap_or_else(|| tool.command().to_owned())
+    }
+
+    /// The user's own commands on `machine`, in order; of two by the same name, the later in the
+    /// earlier's place.
+    pub fn customs(&self, machine: &str) -> Vec<Custom> {
+        let mut customs: Vec<Custom> = Vec::new();
+        for command in self.0.get(machine).map_or(&[][..], |kept| &kept.custom) {
+            let Some(name) = custom_name(command) else {
+                continue;
+            };
+            let custom = Custom {
+                name,
+                command: command.clone(),
+            };
+            match customs.iter_mut().find(|known| known.name == custom.name) {
+                Some(known) => *known = custom,
+                None => customs.push(custom),
+            }
+        }
+        customs
+    }
+
+    /// The user's own commands on `machine` that get a capsule beside the kinds `found` there: not
+    /// one named as a kind found, which is kept all the same for when that kind is not found.
+    pub fn shown(&self, machine: &str, found: &[Tool]) -> Vec<Custom> {
+        let mut customs = self.customs(machine);
+        customs.retain(|custom| found_kind(&custom.name, found).is_none());
+        customs
+    }
+
+    /// What `request` started on `machine`: a kind's command as edited, or forgotten when it is
+    /// the kind's own again; or the user's own, in place of one by the same name, else last. The
+    /// user's own named as a kind `found` there this time is that kind's, as if written on its
+    /// capsule.
+    pub fn remember(&mut self, machine: &str, request: &Request, found: &[Tool]) {
+        let command = request.command.trim().to_owned();
+        let agent = match request.agent {
+            Agent::Custom => custom_name(&command)
+                .and_then(|name| found_kind(&name, found))
+                .map_or(Agent::Custom, Agent::Kind),
+            kind => kind,
+        };
+        let kept = self.0.entry(machine.to_owned()).or_default();
+        match agent {
+            Agent::Kind(tool) if edited(&command, tool) => {
+                kept.edited.insert(tool.kind().to_owned(), command);
+            }
+            Agent::Kind(tool) => {
+                kept.edited.remove(tool.kind());
+            }
+            Agent::Custom => {
+                if let Some(name) = custom_name(&command) {
+                    let same = |known: &String| custom_name(known).as_deref() == Some(&*name);
+                    match kept.custom.iter().position(same) {
+                        Some(at) => kept.custom[at] = command,
+                        None => kept.custom.push(command),
+                    }
+                }
+            }
+        }
+        self.tidy(machine);
+    }
+
+    /// Forgets the user's own command called `name` on `machine`.
+    pub fn forget(&mut self, machine: &str, name: &str) {
+        if let Some(kept) = self.0.get_mut(machine) {
+            kept.custom
+                .retain(|command| custom_name(command).as_deref() != Some(name));
+        }
+        self.tidy(machine);
+    }
+
+    fn tidy(&mut self, machine: &str) {
+        if self.0.get(machine).is_some_and(Kept::is_empty) {
+            self.0.remove(machine);
+        }
+    }
+}
+
+/// What a start leaves for `machine`: when corral started it, its directory first among the recent
+/// ones and its command kept; after a failure, nothing. Whether anything was kept.
+pub fn keep(
+    outcome: &Result<Started, Failure>,
+    machine: &str,
+    request: &Request,
+    found: &[Tool],
+    recent: &mut RecentDirs,
+    commands: &mut Commands,
+) -> bool {
+    if outcome.is_err() {
+        return false;
+    }
+    recent.remember(machine, &request.dir);
+    commands.remember(machine, request, found);
+    true
+}
+
+/// Where they are kept: beside the recent directories, in a file of their own.
+pub fn commands_path() -> Option<PathBuf> {
+    crate::layout_state::default_path()
+        .map(|path| path.with_file_name("remote-agent-commands.json"))
 }
 
 #[cfg(test)]
@@ -348,7 +586,8 @@ mod tests {
     #[test]
     fn it_starts_through_the_login_shell_there_every_typed_word_as_written() {
         let request = Request {
-            tool: Tool::Codex,
+            agent: Agent::Kind(Tool::Codex),
+            command: Tool::Codex.command().into(),
             dir: "~/my dir/it's $(rm -rf ~); `id` \"q\"".into(),
             name: "p/it's;$x".into(),
         };
@@ -378,7 +617,8 @@ mod tests {
         assert_eq!(expand(" ~/x/y ", "/home/me"), "/home/me/x/y");
         assert_eq!(expand("/srv/a", "/home/me"), "/srv/a");
         let request = |dir: &str| Request {
-            tool: Tool::Pi,
+            agent: Agent::Kind(Tool::Pi),
+            command: Tool::Pi.command().into(),
             dir: dir.into(),
             name: String::new(),
         };
@@ -395,7 +635,8 @@ mod tests {
     fn an_empty_name_is_the_directorys_last_part_and_the_kind() {
         let named = |dir: &str, tool, name: &str| {
             Request {
-                tool,
+                agent: Agent::Kind(tool),
+                command: tool.command().into(),
                 dir: dir.into(),
                 name: name.into(),
             }
@@ -410,7 +651,8 @@ mod tests {
         for name in ["", "a/b"] {
             let words = as_run(
                 &Request {
-                    tool: Tool::Pi,
+                    agent: Agent::Kind(Tool::Pi),
+                    command: Tool::Pi.command().into(),
                     dir: "~".into(),
                     name: name.into(),
                 }
@@ -436,7 +678,8 @@ mod tests {
         assert!(check_dir("~root/x").is_err());
         assert!(check_dir("/a\nb").is_err());
         let request = Request {
-            tool: Tool::Pi,
+            agent: Agent::Kind(Tool::Pi),
+            command: Tool::Pi.command().into(),
             dir: "rel".into(),
             name: String::new(),
         };
@@ -452,7 +695,8 @@ mod tests {
             assert!(check_name(bad).is_err(), "{bad}");
         }
         let request = Request {
-            tool: Tool::Pi,
+            agent: Agent::Kind(Tool::Pi),
+            command: Tool::Pi.command().into(),
             dir: "~".into(),
             name: "no slash".into(),
         };
@@ -545,6 +789,277 @@ mod tests {
             recent_path().map(|p| p.file_name().map(ToOwned::to_owned)),
             crate::new_agent::recent_path().map(|p| p.file_name().map(ToOwned::to_owned))
         );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn custom(command: &str) -> Request {
+        Request {
+            agent: Agent::Custom,
+            command: command.into(),
+            dir: "~".into(),
+            name: String::new(),
+        }
+    }
+
+    fn kind(tool: Tool, command: &str) -> Request {
+        Request {
+            agent: Agent::Kind(tool),
+            ..custom(command)
+        }
+    }
+
+    #[test]
+    fn a_command_is_split_as_a_shell_would_then_each_word_quoted_for_there() {
+        let typed = r#"~/bin/my-agent "two words" 'it''s $HOME' a\ b ';' '`id`' "$(touch x)" --cfg ~/c.toml x~/y"#;
+        let words = as_run(&custom(typed).command("/c", "/home/me"));
+        assert_eq!(
+            words[9..],
+            [
+                // A word's leading ~ is that machine's home: corral runs the words with no shell.
+                "/home/me/bin/my-agent",
+                "two words",
+                "its $HOME",
+                "a b",
+                ";",
+                "`id`",
+                "$(touch x)",
+                "--cfg",
+                "/home/me/c.toml",
+                "x~/y",
+            ]
+        );
+        assert_eq!(words[8], "--");
+        // A kind's command as edited goes the same way.
+        let words = as_run(&kind(Tool::Pi, "pi --model 'son net'").command("/c", "/h"));
+        assert_eq!(words[9..], ["pi", "--model", "son net"]);
+    }
+
+    #[test]
+    fn a_command_that_cannot_be_split_or_is_empty_is_a_problem_of_its_own() {
+        for (typed, problem) in [
+            ("amp 'oops", "Command has an unclosed quote"),
+            ("amp \"oops", "Command has an unclosed quote"),
+            ("", "Command is required"),
+            ("   ", "Command is required"),
+            ("''", "Command is required"),
+            ("amp\n--x", "Command can't hold control characters"),
+        ] {
+            assert_eq!(check_command(typed), Err(problem.into()), "{typed:?}");
+            assert_eq!(
+                custom(typed).problem(),
+                Some((Field::Command, problem.into())),
+                "{typed:?}"
+            );
+        }
+        // The command comes first: its row is above the directory's.
+        let request = Request {
+            dir: "rel".into(),
+            ..custom("amp '")
+        };
+        assert_eq!(request.problem().map(|p| p.0), Some(Field::Command));
+        assert_eq!(custom("amp").problem(), None);
+    }
+
+    #[test]
+    fn a_command_with_a_problem_is_not_sent() {
+        let machine = crate::config::Machine {
+            name: "studio".into(),
+            ssh: "me@studio".into(),
+            corral: None,
+            label: None,
+            show: true,
+        };
+        // An ssh that is never run: the problem is found first.
+        let link = Link::with(
+            &machine,
+            "/nonexistent/ssh".into(),
+            Ok("/nonexistent/s".into()),
+        );
+        assert_eq!(
+            start(&link, &custom("")),
+            Err(Failure {
+                text: "Command is required".into(),
+                field: Some(Field::Command),
+            })
+        );
+    }
+
+    #[test]
+    fn a_custom_command_goes_by_its_first_words_last_part() {
+        for (typed, name) in [
+            ("~/bin/my-agent --fast", "my-agent"),
+            ("amp", "amp"),
+            ("/usr/local/bin/amp --x", "amp"),
+            ("'my agent' --x", "my-agent"),
+            ("./run.sh", "run.sh"),
+            ("tools/", "tools"),
+        ] {
+            assert_eq!(custom_name(typed).as_deref(), Some(name), "{typed}");
+        }
+        assert_eq!(custom_name(""), None);
+        assert_eq!(custom_name("a 'b"), None);
+        // An empty name takes it, or the kind, after the directory.
+        assert_eq!(custom("~/bin/my-agent --fast").name(), "home/my-agent");
+        assert_eq!(
+            Request {
+                dir: "~/Develop/ranch".into(),
+                ..kind(Tool::Pi, "pi --model x")
+            }
+            .name(),
+            "ranch/pi"
+        );
+        // The kind's icon when it is a kind's name; none of its own otherwise.
+        let kept = |command: &str| Custom {
+            name: custom_name(command).unwrap(),
+            command: command.into(),
+        };
+        assert_eq!(kept("amp --x").kind(), Some(Tool::Amp));
+        assert_eq!(kept("~/bin/claude").kind(), Some(Tool::Claude));
+        assert_eq!(kept("~/bin/my-agent").kind(), None);
+    }
+
+    #[test]
+    fn a_kinds_command_is_edited_only_when_its_words_differ() {
+        assert!(!edited("pi", Tool::Pi));
+        assert!(!edited("  pi  ", Tool::Pi));
+        assert!(!edited("codex   '--yolo'", Tool::Codex));
+        assert!(edited("codex", Tool::Codex));
+        assert!(edited("pi --model sonnet", Tool::Pi));
+        assert!(edited("", Tool::Pi));
+        assert!(edited("pi '", Tool::Pi));
+    }
+
+    #[test]
+    fn what_started_is_kept_for_that_machine_and_a_kinds_own_again_forgets_the_edit() {
+        let mut kept = Commands::default();
+        assert_eq!(kept.command("5090", Tool::Pi), "pi");
+        assert_eq!(kept.command("5090", Tool::Codex), "codex --yolo");
+        kept.remember("5090", &kind(Tool::Pi, " pi --model sonnet "), &[]);
+        assert_eq!(kept.command("5090", Tool::Pi), "pi --model sonnet");
+        // Each machine apart, each kind apart.
+        assert_eq!(kept.command("studio", Tool::Pi), "pi");
+        assert_eq!(kept.command("5090", Tool::Omp), "omp");
+        // Started with the kind's own again (Reset): the edit is forgotten.
+        kept.remember("5090", &kind(Tool::Pi, "pi"), &[]);
+        assert_eq!(kept.command("5090", Tool::Pi), "pi");
+        assert_eq!(kept, Commands::default());
+    }
+
+    #[test]
+    fn the_users_own_become_capsules_a_later_one_by_the_same_name_in_its_place() {
+        let mut kept = Commands::default();
+        kept.remember("5090", &custom("~/bin/my-agent --fast"), &[]);
+        kept.remember("5090", &custom("amp"), &[]);
+        kept.remember("studio", &custom("goose"), &[]);
+        let names = |kept: &Commands, machine: &str| -> Vec<String> {
+            kept.customs(machine).into_iter().map(|c| c.name).collect()
+        };
+        assert_eq!(names(&kept, "5090"), ["my-agent", "amp"]);
+        assert_eq!(names(&kept, "studio"), ["goose"]);
+        kept.remember("5090", &custom("/opt/my-agent --slow"), &[]);
+        assert_eq!(
+            kept.customs("5090"),
+            [
+                Custom {
+                    name: "my-agent".into(),
+                    command: "/opt/my-agent --slow".into(),
+                },
+                Custom {
+                    name: "amp".into(),
+                    command: "amp".into(),
+                },
+            ]
+        );
+        // Removed from that machine alone, at once.
+        kept.forget("5090", "my-agent");
+        assert_eq!(names(&kept, "5090"), ["amp"]);
+        assert_eq!(names(&kept, "studio"), ["goose"]);
+        kept.forget("5090", "amp");
+        kept.forget("5090", "nothing");
+        assert!(kept.customs("5090").is_empty());
+        // A kind's edit and the user's own sit side by side.
+        kept.remember("studio", &kind(Tool::Omp, "omp --x"), &[]);
+        assert_eq!(names(&kept, "studio"), ["goose"]);
+        assert_eq!(kept.command("studio", Tool::Omp), "omp --x");
+    }
+
+    #[test]
+    fn a_custom_named_as_a_kind_found_there_is_kept_as_that_kinds_edit() {
+        let found = [Tool::Claude, Tool::Pi];
+        let mut kept = Commands::default();
+        kept.remember("5090", &custom("pi --model sonnet"), &found);
+        assert_eq!(kept.command("5090", Tool::Pi), "pi --model sonnet");
+        assert!(kept.customs("5090").is_empty());
+        // A full path is the same kind by name.
+        kept.remember("5090", &custom("/opt/bin/claude --x"), &found);
+        assert_eq!(kept.command("5090", Tool::Claude), "/opt/bin/claude --x");
+        assert!(kept.customs("5090").is_empty());
+        // Its own command again: the edit is forgotten.
+        kept.remember("5090", &custom(" pi "), &found);
+        assert_eq!(kept.command("5090", Tool::Pi), "pi");
+        // Not found this time: a capsule of its own; on another machine, the same.
+        kept.remember("5090", &custom("~/bin/omp --x"), &found);
+        kept.remember("studio", &custom("~/x/pi"), &[]);
+        assert_eq!(kept.command("5090", Tool::Omp), "omp");
+        assert_eq!(kept.customs("5090").len(), 1);
+        assert_eq!(kept.command("studio", Tool::Pi), "pi");
+        assert_eq!(kept.customs("studio")[0].name, "pi");
+    }
+
+    #[test]
+    fn a_capsule_named_as_a_kind_found_there_is_not_drawn_beside_it() {
+        let mut kept = Commands::default();
+        kept.remember("5090", &custom("~/x/pi --fast"), &[]);
+        kept.remember("5090", &custom("~/bin/my-agent"), &[]);
+        let shown = |found: &[Tool]| -> Vec<String> {
+            kept.shown("5090", found)
+                .into_iter()
+                .map(|c| c.name)
+                .collect()
+        };
+        assert_eq!(shown(&[Tool::Pi, Tool::Omp]), ["my-agent"]);
+        // Kept all the same: when pi is not found it is back.
+        assert_eq!(shown(&[Tool::Omp]), ["pi", "my-agent"]);
+        assert_eq!(shown(&[]), ["pi", "my-agent"]);
+        assert_eq!(kept.customs("5090").len(), 2);
+    }
+
+    #[test]
+    fn the_commands_are_kept_in_a_file_of_their_own_and_one_that_cannot_be_read_is_none() {
+        let dir = std::env::temp_dir().join(format!("paddock-commands-{}", std::process::id()));
+        let path = dir.join("remote-agent-commands.json");
+        assert_eq!(Commands::load(&path), Commands::default());
+        let mut kept = Commands::default();
+        kept.remember("5090", &kind(Tool::Pi, "pi --model sonnet"), &[]);
+        kept.remember("5090", &custom("~/bin/my-agent --fast"), &[]);
+        kept.save(&path).unwrap();
+        assert_eq!(Commands::load(&path), kept);
+        // Beside the recent directories, and neither touches the other.
+        let recent_file = dir.join("recent-remote-dirs.json");
+        let mut recent = RecentDirs::default();
+        recent.remember("5090", "~/x");
+        recent.save(&recent_file).unwrap();
+        assert_eq!(Commands::load(&path), kept);
+        assert_eq!(RecentDirs::load(&recent_file), recent);
+        assert_eq!(
+            commands_path().and_then(|p| p.parent().map(ToOwned::to_owned)),
+            recent_path().and_then(|p| p.parent().map(ToOwned::to_owned))
+        );
+        assert_ne!(commands_path(), recent_path());
+        // Broken, or not what is kept: none.
+        for broken in ["{", "[1, 2]", r#"{"5090": {"custom": "not a list"}}"#, ""] {
+            std::fs::write(&path, broken).unwrap();
+            assert_eq!(Commands::load(&path), Commands::default(), "{broken}");
+        }
+        // Written by hand: what cannot be read is passed over, and of two by one name the later.
+        std::fs::write(
+            &path,
+            r#"{"5090": {"custom": ["a 'b", "x --one", "amp", "/bin/x --two"]}}"#,
+        )
+        .unwrap();
+        let customs = Commands::load(&path).customs("5090");
+        let commands: Vec<&str> = customs.iter().map(|c| c.command.as_str()).collect();
+        assert_eq!(commands, ["/bin/x --two", "amp"]);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

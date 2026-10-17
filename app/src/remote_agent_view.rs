@@ -1,10 +1,12 @@
 //! The New Agent dialog for another machine (DESIGN §13 P5-124): over the dimmed window, `New
-//! Agent on <machine>` and three things to fill in, the kind of agent among those that machine's
-//! login shell finds, the directory there (`~` its home) and the name, which may stay empty. Its
-//! rules are [`crate::remote_start`]. Start (⌘↩) runs `corral start` there in the background: success
-//! closes the dialog and the window opens the agent in a pane of that machine; a failure keeps
-//! everything typed, with what came back in the dialog. Tab and ⇧Tab go round the three, ← and →
-//! change the kind, Esc closes.
+//! Agent on <machine>` and four things to fill in, the kind of agent among those that machine's
+//! login shell finds and the user's own kept for it, the command it runs (the kind's, as edited
+//! there, or one the user writes after `+ Custom…`, P5-124c), the directory there (`~` its home)
+//! and the name, which may stay empty. Its rules are [`crate::remote_start`]. Start (⌘↩) runs
+//! `corral start` there in the background: success keeps the command for that machine, closes the
+//! dialog, and the window opens the agent in a pane of that machine; a failure keeps everything
+//! typed, with what came back in the dialog. Tab and ⇧Tab go round the fields, ← and → change the
+//! kind, ⌫ forgets the user's own one chosen, Esc closes.
 use crate::{
     card,
     fonts::UiFont,
@@ -13,7 +15,7 @@ use crate::{
     new_agent_view::hold_main_window,
     popover,
     remote::Link,
-    remote_start::{self, Failure, Field, RecentDirs, Request},
+    remote_start::{self, Agent, Commands, Custom, Failure, Field, RecentDirs, Request},
     sunk,
     text_input::{self, Changed, TextInput},
     theme::Theme,
@@ -28,17 +30,24 @@ use std::{path::PathBuf, rc::Rc, sync::Arc};
 
 /// The key context of the dialog: ⌘↩ starts, Esc closes, Tab and ⇧Tab go round its fields.
 pub const CONTEXT: &str = "PaddockRemoteAgent";
-/// The key context of the kinds while they have the keys: ← and → choose another.
+/// The key context of the kinds while they have the keys: ← and → choose another, ⌫ forgets the
+/// user's own one chosen.
 const KINDS: &str = "PaddockRemoteAgentKinds";
+/// The key context of `Reset to …` while it has the keys: Return or Space click it.
+const RESET: &str = "PaddockRemoteAgentReset";
 
 actions!(
     remote_agent,
     [
-        /// The next of the kind, the directory and the name.
+        /// The next of the kind, the command, the directory and the name.
         NextField,
         PreviousField,
         NextKind,
-        PreviousKind
+        PreviousKind,
+        /// Forgets the user's own command chosen among the kinds.
+        RemoveCustom,
+        /// The command back to the one kept for the kind chosen.
+        ResetCommand
     ]
 );
 
@@ -49,6 +58,10 @@ pub fn bindings() -> Vec<KeyBinding> {
         KeyBinding::new("shift-tab", PreviousField, Some(CONTEXT)),
         KeyBinding::new("right", NextKind, Some(KINDS)),
         KeyBinding::new("left", PreviousKind, Some(KINDS)),
+        KeyBinding::new("backspace", RemoveCustom, Some(KINDS)),
+        KeyBinding::new("delete", RemoveCustom, Some(KINDS)),
+        KeyBinding::new("enter", ResetCommand, Some(RESET)),
+        KeyBinding::new("space", ResetCommand, Some(RESET)),
         KeyBinding::new("cmd-enter", menu::CreateAgent, Some(CONTEXT)),
         KeyBinding::new("escape", menu::Cancel, Some(CONTEXT)),
         KeyBinding::new("cmd-w", menu::CloseWindow, Some(CONTEXT)),
@@ -56,7 +69,7 @@ pub fn bindings() -> Vec<KeyBinding> {
 }
 
 /// Sizes, in points at the base interface size.
-const WIDTH: f32 = 480.0;
+const WIDTH: f32 = 560.0;
 const MARGIN: f32 = 16.0;
 /// The dialog's top edge, as a share of the window's height.
 const TOP: f32 = 0.18;
@@ -71,6 +84,10 @@ const NOTE: f32 = 16.0;
 /// The room a capsule's well keeps around them, and a capsule's height.
 const WELL_PAD: f32 = 2.0;
 const CAPSULE: f32 = 26.0;
+/// The widest a capsule's name gets before it is cut short.
+const CAPSULE_NAME: f32 = 160.0;
+/// The `×` on the user's own capsule.
+const REMOVE: f32 = 14.0;
 /// Start's width: the same for `Start ⌘↩` and `Starting…`, so Cancel never moves.
 const START: f32 = 108.0;
 /// The keyboard focus ring around a field or the kinds.
@@ -78,6 +95,10 @@ const RING: f32 = 3.0;
 const RING_ALPHA: f32 = 0.22;
 /// The tallest the start error gets before it scrolls.
 const ERROR_MOST: f32 = 140.0;
+/// How faint what cannot be clicked is.
+const OFF: f32 = 0.45;
+/// What `Command` says when empty for the user's own.
+const CUSTOM_PLACEHOLDER: &str = "amp, or ~/bin/my-agent --flag";
 
 type Pick = fn(&crate::preset::Theme) -> crate::preset::Color;
 
@@ -103,10 +124,21 @@ enum Kinds {
     Failed(String),
 }
 
-/// One of the three the keyboard goes round.
+/// A capsule among the kinds: one found there, one of the user's own kept for it (by its name),
+/// or `+ Custom…`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum Choice {
+    Kind(Tool),
+    Custom(String),
+    New,
+}
+
+/// One of those the keyboard goes round.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Stop {
     Kinds,
+    Command,
+    Reset,
     Dir,
     Name,
 }
@@ -117,13 +149,22 @@ pub struct RemoteAgentView {
     link: Arc<Link>,
     place: Place,
     kinds: Kinds,
-    tool: Option<Tool>,
+    /// None until the kinds are found or one is clicked.
+    choice: Option<Choice>,
     kinds_focus: FocusHandle,
+    command: Entity<TextInput>,
+    reset_focus: FocusHandle,
     dir: Entity<TextInput>,
     name: Entity<TextInput>,
     recent: RecentDirs,
     recent_path: Option<PathBuf>,
-    /// Why the last Start failed, until the directory or the name changes.
+    commands: Commands,
+    commands_path: Option<PathBuf>,
+    /// This machine's own commands with a capsule: those not named as a kind found there.
+    customs: Vec<Custom>,
+    /// What was typed in `Command` for each capsule left, to come back to while the dialog is open.
+    drafts: Vec<(Choice, String)>,
+    /// Why the last Start failed, until the command, the directory or the name changes.
     failure: Option<Failure>,
     starting: bool,
     _subscriptions: Vec<Subscription>,
@@ -169,9 +210,17 @@ impl RemoteAgentView {
         cx: &mut Context<Self>,
     ) -> Self {
         let colors = input_colors(&theme);
+        let command = cx.new(|cx| TextInput::new("", "", colors, cx).wrapping(false));
         let dir = cx.new(|cx| TextInput::new("~", "~/…", colors, cx).wrapping(false));
         let name = cx.new(|cx| TextInput::new("", "", colors, cx));
         let subscriptions = vec![
+            cx.subscribe(&command, |this, _, _: &Changed, cx| {
+                // Typed before the kinds came: the user's own.
+                if this.choice.is_none() {
+                    this.choice = Some(Choice::New);
+                }
+                this.typed(cx)
+            }),
             cx.subscribe(&dir, |this, _, _: &Changed, cx| this.typed(cx)),
             cx.subscribe(&name, |this, _, _: &Changed, cx| this.typed(cx)),
         ];
@@ -180,18 +229,30 @@ impl RemoteAgentView {
             .as_deref()
             .map(RecentDirs::load)
             .unwrap_or_default();
+        let commands_path = remote_start::commands_path();
+        let commands = commands_path
+            .as_deref()
+            .map(Commands::load)
+            .unwrap_or_default();
+        let customs = commands.shown(&link.name, &[]);
         let mut view = Self {
             theme,
             mono,
             link,
             place,
             kinds: Kinds::Checking,
-            tool: None,
+            choice: None,
             kinds_focus: cx.focus_handle(),
+            command,
+            reset_focus: cx.focus_handle(),
             dir,
             name,
             recent,
             recent_path,
+            commands,
+            commands_path,
+            customs,
+            drafts: Vec::new(),
             failure: None,
             starting: false,
             _subscriptions: subscriptions,
@@ -214,14 +275,15 @@ impl RemoteAgentView {
     /// Settings were saved: their colours and the terminal's font.
     pub fn restyle(&mut self, theme: Rc<Theme>, mono: SharedString, cx: &mut Context<Self>) {
         let colors = input_colors(&theme);
-        for input in [&self.dir, &self.name] {
+        for input in [&self.command, &self.dir, &self.name] {
             input.update(cx, |input, cx| input.set_colors(colors, cx));
         }
         (self.theme, self.mono) = (theme, mono);
         cx.notify();
     }
 
-    /// Asks that machine's login shell which kinds it finds, in the background.
+    /// Asks that machine's login shell which kinds it finds, in the background; then, if none was
+    /// clicked meanwhile, the first capsule is chosen.
     fn look(&mut self, cx: &mut Context<Self>) {
         let link = self.link.clone();
         let task = cx.background_spawn(async move { remote_start::look(&link) });
@@ -229,13 +291,22 @@ impl RemoteAgentView {
             let found = task.await;
             let _ = this.update(cx, |this, cx| {
                 this.kinds = match found {
-                    Ok(kinds) => {
-                        this.tool = kinds.first().copied();
-                        Kinds::Found(kinds)
-                    }
+                    Ok(kinds) => Kinds::Found(kinds),
                     Err(why) => Kinds::Failed(why),
                 };
-                this.follow_name(cx);
+                this.customs = this.commands.shown(&this.link.name, this.found());
+                // One of the user's own clicked meanwhile that is a kind found now: that kind.
+                let hidden = match &this.choice {
+                    Some(Choice::Custom(name)) if this.custom(name).is_none() => {
+                        remote_start::found_kind(name, this.found())
+                    }
+                    _ => None,
+                };
+                if let Some(tool) = hidden {
+                    this.choose(Choice::Kind(tool), cx);
+                } else if this.choice.is_none() {
+                    this.choose(this.capsules()[0].clone(), cx);
+                }
                 cx.notify();
             });
         })
@@ -246,70 +317,207 @@ impl RemoteAgentView {
         hsla(self.theme.fg(pick), 1.0)
     }
 
+    /// The kinds found there this time; none while looking or when it could not be asked.
+    fn found(&self) -> &[Tool] {
+        match &self.kinds {
+            Kinds::Found(kinds) => kinds,
+            _ => &[],
+        }
+    }
+
+    /// The capsules, in order: the kinds found there, the user's own, `+ Custom…`.
+    fn capsules(&self) -> Vec<Choice> {
+        self.found()
+            .iter()
+            .map(|tool| Choice::Kind(*tool))
+            .chain(
+                self.customs
+                    .iter()
+                    .map(|custom| Choice::Custom(custom.name.clone())),
+            )
+            .chain([Choice::New])
+            .collect()
+    }
+
+    fn custom(&self, name: &str) -> Option<&Custom> {
+        self.customs.iter().find(|custom| custom.name == name)
+    }
+
+    /// The command kept for a capsule: a kind's as edited on this machine, the user's own as
+    /// started; none for `+ Custom…`.
+    fn kept_command(&self, choice: &Choice) -> String {
+        match choice {
+            Choice::Kind(tool) => self.commands.command(&self.link.name, *tool),
+            Choice::Custom(name) => self
+                .custom(name)
+                .map(|custom| custom.command.clone())
+                .unwrap_or_default(),
+            Choice::New => String::new(),
+        }
+    }
+
+    fn command_text(&self, cx: &App) -> String {
+        self.command.read(cx).text().to_owned()
+    }
+
     fn request(&self, cx: &App) -> Option<Request> {
+        let agent = match self.choice.as_ref()? {
+            Choice::Kind(tool) => Agent::Kind(*tool),
+            Choice::Custom(_) | Choice::New => Agent::Custom,
+        };
         Some(Request {
-            tool: self.tool?,
+            agent,
+            command: self.command_text(cx),
             dir: self.dir.read(cx).text().to_owned(),
             name: self.name.read(cx).text().to_owned(),
         })
     }
 
-    /// The directory or the name changed: what failed before no longer stands.
+    /// The command, the directory or the name changed: what failed before no longer stands.
     fn typed(&mut self, cx: &mut Context<Self>) {
         self.failure = None;
         self.follow_name(cx);
         cx.notify();
     }
 
-    /// The name used when none is typed, as the empty field shows it: the directory's and the
-    /// kind's, or the directory's alone while the kinds are looked for.
+    /// The name used when none is typed, or none while it cannot be told (no kind yet, or a
+    /// command of the user's own that cannot be read).
     fn default_name(&self, cx: &App) -> Option<String> {
-        let dir = self.dir.read(cx).text();
-        match (&self.kinds, self.tool) {
-            (_, Some(tool)) => Some(remote_start::default_name(dir, tool)),
-            (Kinds::Checking, None) => Some(format!("{}/…", remote_start::name_prefix(dir))),
-            _ => None,
-        }
+        let agent = self.request(cx)?.agent_name()?;
+        Some(remote_start::default_name(self.dir.read(cx).text(), &agent))
     }
 
+    /// The empty name field shows the name it would get, or the directory's part alone.
     fn follow_name(&mut self, cx: &mut Context<Self>) {
-        let shown = self.default_name(cx).unwrap_or_default();
+        let shown = self.default_name(cx).unwrap_or_else(|| {
+            format!("{}/…", remote_start::name_prefix(self.dir.read(cx).text()))
+        });
         self.name
             .update(cx, |name, cx| name.set_placeholder(shown, cx));
     }
 
-    fn choose(&mut self, tool: Tool, window: &mut Window, cx: &mut Context<Self>) {
-        self.tool = Some(tool);
-        window.focus(&self.kinds_focus, cx);
-        self.follow_name(cx);
+    /// Another capsule: what was typed for the one left is kept for coming back to, and the
+    /// command becomes what was typed for this one before, else what is kept for it.
+    fn choose(&mut self, choice: Choice, cx: &mut Context<Self>) {
+        if let Some(left) = self.choice.take() {
+            let typed = self.command_text(cx);
+            self.drafts.retain(|(known, _)| *known != left);
+            self.drafts.push((left, typed));
+        }
+        let text = self
+            .drafts
+            .iter()
+            .find(|(known, _)| *known == choice)
+            .map(|(_, typed)| typed.clone())
+            .unwrap_or_else(|| self.kept_command(&choice));
+        let placeholder = match &choice {
+            Choice::Kind(tool) => tool.command().to_owned(),
+            Choice::Custom(_) => self.kept_command(&choice),
+            Choice::New => CUSTOM_PLACEHOLDER.to_owned(),
+        };
+        self.command.update(cx, |input, cx| {
+            input.set_text(text, cx);
+            input.set_placeholder(placeholder, cx);
+        });
+        self.choice = Some(choice);
+        self.typed(cx);
+    }
+
+    /// A capsule clicked or stepped to: chosen, the keys staying on the kinds, or on `Command`
+    /// for `+ Custom…`, which is to be written.
+    fn pick(&mut self, choice: Choice, window: &mut Window, cx: &mut Context<Self>) {
+        let focus = match choice {
+            Choice::New => self.command.focus_handle(cx),
+            _ => self.kinds_focus.clone(),
+        };
+        if self.choice.as_ref() != Some(&choice) {
+            self.choose(choice, cx);
+        }
+        window.focus(&focus, cx);
         cx.notify();
     }
 
-    /// ← and →: the kind before or after, stopping at either end.
-    fn step_kind(&mut self, by: isize, cx: &mut Context<Self>) {
-        let (Kinds::Found(kinds), Some(tool)) = (&self.kinds, self.tool) else {
+    /// ← and →: the capsule before or after, stopping at either end.
+    fn step_kind(&mut self, by: isize, window: &mut Window, cx: &mut Context<Self>) {
+        if self.starting {
+            return;
+        }
+        let capsules = self.capsules();
+        let next = match self
+            .choice
+            .as_ref()
+            .and_then(|choice| capsules.iter().position(|known| known == choice))
+        {
+            Some(at) => (at as isize + by).clamp(0, capsules.len() as isize - 1) as usize,
+            None => 0,
+        };
+        self.pick(capsules[next].clone(), window, cx);
+    }
+
+    /// Forgets the user's own command `name` on this machine at once; when it was the one chosen,
+    /// the first capsule is chosen instead.
+    fn remove(&mut self, name: String, cx: &mut Context<Self>) {
+        if self.starting {
+            return;
+        }
+        self.commands.forget(&self.link.name, &name);
+        self.customs = self.commands.shown(&self.link.name, self.found());
+        let gone = Choice::Custom(name);
+        self.drafts.retain(|(known, _)| *known != gone);
+        if self.choice.as_ref() == Some(&gone) {
+            self.choice = None;
+            self.choose(self.capsules()[0].clone(), cx);
+        }
+        self.save_commands(cx);
+        cx.notify();
+    }
+
+    /// What `Reset to …` puts back and is called by: the command kept for the capsule chosen,
+    /// when the one typed says something else and is still that capsule's.
+    fn reset_target(&self, cx: &App) -> Option<(String, String)> {
+        let typed = self.command_text(cx);
+        match self.choice.as_ref()? {
+            Choice::Kind(tool) => remote_start::edited(&typed, *tool)
+                .then(|| (tool.command().to_owned(), tool.label().to_owned())),
+            Choice::Custom(name) => {
+                let kept = &self.custom(name)?.command;
+                let same = shell_words::split(&typed).ok() == shell_words::split(kept).ok();
+                (!same && remote_start::custom_name(&typed).as_ref() == Some(name))
+                    .then(|| (kept.clone(), name.clone()))
+            }
+            Choice::New => None,
+        }
+    }
+
+    fn reset(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some((command, _)) = self.reset_target(cx).filter(|_| !self.starting) else {
             return;
         };
-        let at = kinds.iter().position(|kind| *kind == tool).unwrap_or(0) as isize;
-        let next = (at + by).clamp(0, kinds.len() as isize - 1) as usize;
-        self.tool = Some(kinds[next]);
-        self.follow_name(cx);
-        cx.notify();
+        self.command
+            .update(cx, |input, cx| input.set_text(command, cx));
+        // The link goes with the edit: the keys go on to the command.
+        if self.reset_focus.is_focused(window) {
+            window.focus(&self.command.focus_handle(cx), cx);
+        }
+        self.typed(cx);
     }
 
-    /// What Tab goes round: the kinds once there is one to choose, the directory and the name.
-    fn stops(&self) -> Vec<Stop> {
-        let kinds = matches!(&self.kinds, Kinds::Found(kinds) if !kinds.is_empty());
-        let mut stops = vec![Stop::Dir, Stop::Name];
-        if kinds {
-            stops.insert(0, Stop::Kinds);
+    /// What Tab goes round: the kinds, the command, `Reset to …` while it is there, the directory
+    /// and the name.
+    fn stops(&self, cx: &App) -> Vec<Stop> {
+        let mut stops = vec![Stop::Kinds, Stop::Command];
+        if !self.starting && self.reset_target(cx).is_some() {
+            stops.push(Stop::Reset);
         }
+        stops.extend([Stop::Dir, Stop::Name]);
         stops
     }
 
     fn handle(&self, stop: Stop, cx: &App) -> FocusHandle {
         match stop {
             Stop::Kinds => self.kinds_focus.clone(),
+            Stop::Command => self.command.focus_handle(cx),
+            Stop::Reset => self.reset_focus.clone(),
             Stop::Dir => self.dir.focus_handle(cx),
             Stop::Name => self.name.focus_handle(cx),
         }
@@ -317,7 +525,7 @@ impl RemoteAgentView {
 
     /// Tab (`by` 1) and ⇧Tab (-1): the next or the one before, round.
     fn step_field(&mut self, by: isize, window: &mut Window, cx: &mut Context<Self>) {
-        let stops = self.stops();
+        let stops = self.stops(cx);
         let at = stops
             .iter()
             .position(|stop| self.handle(*stop, cx).is_focused(window));
@@ -330,7 +538,8 @@ impl RemoteAgentView {
         cx.notify();
     }
 
-    /// Whether Start can go: a kind, a directory taken and a name taken, and not already going.
+    /// Whether Start can go: a kind, a command, a directory and a name taken, and not already
+    /// going.
     fn can_start(&self, cx: &App) -> bool {
         !self.starting
             && self
@@ -355,9 +564,19 @@ impl RemoteAgentView {
             let result = task.await;
             let _ = this.update(cx, |this, cx| {
                 this.starting = false;
+                let found = this.found().to_vec();
+                if remote_start::keep(
+                    &result,
+                    &this.link.name,
+                    &request,
+                    &found,
+                    &mut this.recent,
+                    &mut this.commands,
+                ) {
+                    this.save_kept(cx);
+                }
                 match result {
                     Ok(started) => {
-                        this.remember(&request.dir, cx);
                         let home = this.link.snapshot().home.unwrap_or_default();
                         cx.emit(RemoteAgentEvent::Started {
                             machine: this.link.name.clone(),
@@ -374,13 +593,25 @@ impl RemoteAgentView {
         .detach();
     }
 
-    /// Puts `dir` first among this machine's recent directories, kept beside the layout.
-    fn remember(&mut self, dir: &str, cx: &mut Context<Self>) {
-        self.recent.remember(&self.link.name, dir);
+    /// What corral started was kept ([`remote_start::keep`]): the recent directories and the
+    /// commands written beside the layout.
+    fn save_kept(&mut self, cx: &mut Context<Self>) {
         if let Some(path) = self.recent_path.clone() {
             let recent = self.recent.clone();
             cx.background_spawn(async move {
                 let _ = recent.save(&path);
+            })
+            .detach();
+        }
+        self.customs = self.commands.shown(&self.link.name, self.found());
+        self.save_commands(cx);
+    }
+
+    fn save_commands(&self, cx: &mut Context<Self>) {
+        if let Some(path) = self.commands_path.clone() {
+            let commands = self.commands.clone();
+            cx.background_spawn(async move {
+                let _ = commands.save(&path);
             })
             .detach();
         }
@@ -408,6 +639,29 @@ impl RemoteAgentView {
                 .bg(color)
                 .into_any_element(),
         }
+    }
+
+    /// The user's own command's icon: the kind's when it is one (`amp`), else a dashed square in
+    /// `color`, in a slot as wide as a kind's icon.
+    fn custom_icon(&self, custom: &Custom, size: f32, color: Hsla, ui: &UiFont) -> AnyElement {
+        if let Some(tool) = custom.kind() {
+            return self.kind_icon(tool, size, ui);
+        }
+        div()
+            .flex_shrink_0()
+            .size(ui.px(size))
+            .flex()
+            .items_center()
+            .justify_center()
+            .child(
+                div()
+                    .size(ui.px(size - 2.0))
+                    .rounded(ui.px(3.0))
+                    .border(ui.px(1.5))
+                    .border_dashed()
+                    .border_color(color),
+            )
+            .into_any_element()
     }
 
     /// A row: its label in the labels' column, centred on the control's first line, and the
@@ -439,18 +693,6 @@ impl RemoteAgentView {
             )
     }
 
-    /// A line of words in place of a control, its first line where a control's is.
-    fn words(&self, words: String, color: Hsla, ui: &UiFont) -> Div {
-        div()
-            .min_h(ui.px(LINE))
-            .py(ui.px((LINE - TEXT_LINE) / 2.0))
-            .line_height(ui.px(TEXT_LINE))
-            .text_size(ui.px(12.5))
-            .text_color(color)
-            .whitespace_normal()
-            .child(words)
-    }
-
     /// The note under a control, in `color`; its room kept when there is none.
     fn note(&self, words: Option<String>, color: Hsla, ui: &UiFont) -> Div {
         div()
@@ -462,84 +704,195 @@ impl RemoteAgentView {
             .children(words)
     }
 
-    /// The kinds that machine has, as capsules in a well; while they are looked for, or when there
-    /// are none, what stands.
-    fn kinds(&self, window: &Window, ui: &UiFont, cx: &mut Context<Self>) -> Div {
-        let label = self.link.label();
-        let (text, bright, accent) = (
+    /// One capsule among the kinds; the user's own with room for its `×`, shown under the pointer
+    /// or while the kinds have the keys and it is the one chosen.
+    fn capsule(
+        &self,
+        index: usize,
+        choice: Choice,
+        kinds_focused: bool,
+        ui: &UiFont,
+        cx: &mut Context<Self>,
+    ) -> Stateful<Div> {
+        let (text, bright, accent, dim) = (
             self.fg(|t| t.agents_text),
             self.fg(|t| t.bright),
             self.fg(|t| t.agents_accent),
-        );
-        let (dim, branch, red) = (
             self.fg(|t| t.agents_dim),
-            self.fg(|t| t.agents_branch),
-            self.fg(|t| t.agents_red),
         );
-        let found = match &self.kinds {
-            Kinds::Checking => return div().child(self.words("Checking…".into(), dim, ui)),
-            Kinds::Failed(why) => {
-                return div().child(self.words(
-                    format!("Couldn't look for agents on {label}: {why}"),
-                    red,
-                    ui,
-                ));
-            }
-            Kinds::Found(kinds) if kinds.is_empty() => {
-                return div().child(self.words(
-                    format!("No Claude, Codex, pi or omp found on {label}."),
-                    branch,
-                    ui,
-                ));
-            }
-            Kinds::Found(kinds) => kinds.clone(),
+        let on = self.choice.as_ref() == Some(&choice);
+        let words = match choice {
+            Choice::New => dim,
+            _ => text,
         };
+        let group: SharedString = format!("remote-kind-{index}").into();
+        let custom = match &choice {
+            Choice::Custom(name) => self.custom(name).cloned(),
+            _ => None,
+        };
+        let pill = div()
+            .id(("remote-kind", index))
+            .group(group.clone())
+            .h(ui.px(CAPSULE))
+            .pl(ui.px(12.0))
+            .pr(ui.px(if custom.is_some() { 6.0 } else { 12.0 }))
+            .flex()
+            .flex_shrink_0()
+            .items_center()
+            .gap(ui.px(6.0))
+            .whitespace_nowrap();
+        let mut pill = sunk::chosen(pill, on, accent, words, bright);
+        let name = |name: String| {
+            div()
+                .min_w(px(0.0))
+                .max_w(ui.px(CAPSULE_NAME))
+                .overflow_hidden()
+                .text_ellipsis()
+                .child(name)
+        };
+        pill = match (&choice, &custom) {
+            (Choice::Kind(tool), _) => pill
+                .child(self.kind_icon(*tool, 14.0, ui))
+                .child(tool.label()),
+            (Choice::Custom(_), Some(custom)) => {
+                let shown = !self.starting && on && kinds_focused;
+                let gone = custom.name.clone();
+                let remove = div()
+                    .id(("remote-kind-remove", index))
+                    .flex_shrink_0()
+                    .size(ui.px(REMOVE))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded(ui.px(4.0))
+                    .text_size(ui.px(11.0))
+                    .line_height(ui.px(REMOVE))
+                    .font_weight(FontWeight::NORMAL)
+                    .child("×");
+                let remove = if self.starting {
+                    remove.invisible()
+                } else {
+                    remove
+                        .bg(text.opacity(0.10))
+                        .text_color(dim)
+                        .cursor_pointer()
+                        .hover(move |style| style.bg(text.opacity(0.18)).text_color(bright))
+                        .active(move |style| style.bg(text.opacity(0.26)))
+                        .map(|remove| {
+                            if shown {
+                                // The kinds have the keys: ⌫ is this `×`.
+                                remove.bg(accent.opacity(0.28)).text_color(bright)
+                            } else {
+                                remove
+                                    .invisible()
+                                    .group_hover(group.clone(), |style| style.visible())
+                            }
+                        })
+                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                            cx.stop_propagation();
+                            this.remove(gone.clone(), cx);
+                        }))
+                };
+                let color = if on { bright } else { text };
+                pill.child(self.custom_icon(custom, 14.0, color, ui))
+                    .child(name(custom.name.clone()))
+                    .child(remove)
+            }
+            _ => pill.child("+ Custom…"),
+        };
+        if self.starting {
+            pill.opacity(OFF).hover(|style| style)
+        } else {
+            pill.cursor_pointer()
+                .active(|style| style.opacity(0.8))
+                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                    this.pick(choice.clone(), window, cx)
+                }))
+        }
+    }
+
+    /// The capsules in a well, wrapping onto more lines when they do not fit; while the kinds are
+    /// looked for, `Checking…` where they will be.
+    fn kinds(&self, window: &Window, ui: &UiFont, cx: &mut Context<Self>) -> Div {
+        let (text, accent, dim) = (
+            self.fg(|t| t.agents_text),
+            self.fg(|t| t.agents_accent),
+            self.fg(|t| t.agents_dim),
+        );
         let ground = popover::ground(&self.theme);
         let well = sunk::well(ground, ground.l >= 0.5, text);
+        let focused = self.kinds_focus.is_focused(window);
         let mut shadows = well.shadows;
-        if self.kinds_focus.is_focused(window) {
+        if focused {
             shadows.push(ring(accent, ui));
         }
         let mut capsules = div()
             .id("remote-kinds")
             .key_context(KINDS)
             .track_focus(&self.kinds_focus)
-            .on_action(cx.listener(|this, _: &NextKind, _, cx| this.step_kind(1, cx)))
-            .on_action(cx.listener(|this, _: &PreviousKind, _, cx| this.step_kind(-1, cx)))
+            .on_action(cx.listener(|this, _: &NextKind, window, cx| this.step_kind(1, window, cx)))
+            .on_action(
+                cx.listener(|this, _: &PreviousKind, window, cx| this.step_kind(-1, window, cx)),
+            )
+            .on_action(cx.listener(|this, _: &RemoveCustom, _, cx| {
+                if let Some(Choice::Custom(name)) = this.choice.clone() {
+                    this.remove(name, cx);
+                }
+            }))
             .flex()
+            .flex_wrap()
+            .min_w(px(0.0))
             .gap(ui.px(2.0))
             .p(ui.px(WELL_PAD))
-            .rounded_full()
+            .rounded(ui.px(CAPSULE / 2.0 + WELL_PAD))
             .bg(well.ground)
             .shadow(shadows)
             .text_size(ui.px(12.5));
-        for (index, tool) in found.into_iter().enumerate() {
-            let on = self.tool == Some(tool);
+        if matches!(self.kinds, Kinds::Checking) {
             capsules = capsules.child(
-                sunk::chosen(
-                    div()
-                        .id(("remote-kind", index))
-                        .h(ui.px(CAPSULE))
-                        .px(ui.px(12.0))
-                        .flex()
-                        .items_center()
-                        .gap(ui.px(6.0))
-                        .cursor_pointer()
-                        .whitespace_nowrap(),
-                    on,
-                    accent,
-                    text,
-                    bright,
-                )
-                .active(|style| style.opacity(0.8))
-                .child(self.kind_icon(tool, 14.0, ui))
-                .child(tool.label())
-                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                    this.choose(tool, window, cx)
-                })),
+                div()
+                    .h(ui.px(CAPSULE))
+                    .px(ui.px(12.0))
+                    .flex()
+                    .items_center()
+                    .whitespace_nowrap()
+                    .text_color(dim)
+                    .child("Checking…"),
             );
         }
-        div().flex().child(capsules)
+        for (index, choice) in self.capsules().into_iter().enumerate() {
+            capsules = capsules.child(self.capsule(index, choice, focused, ui, cx));
+        }
+        div().flex().min_w(px(0.0)).child(capsules)
+    }
+
+    /// What is said under the kinds: where they were found, or why none are there.
+    fn kinds_note(&self, ui: &UiFont) -> Div {
+        let label = self.link.label();
+        let (dimmer, branch, red) = (
+            self.fg(|t| t.agents_dimmer),
+            self.fg(|t| t.agents_branch),
+            self.fg(|t| t.agents_red),
+        );
+        let (words, color) = match &self.kinds {
+            Kinds::Checking => (None, dimmer),
+            Kinds::Failed(why) => (
+                Some(format!("Couldn't look for agents on {label}: {why}")),
+                red,
+            ),
+            Kinds::Found(kinds) if kinds.is_empty() => (
+                Some(format!("No Claude, Codex, pi or omp found on {label}.")),
+                branch,
+            ),
+            Kinds::Found(_) if self.customs.is_empty() => {
+                (Some(format!("Found on {label}.")), dimmer)
+            }
+            Kinds::Found(_) => (
+                Some(format!("Found on {label}, and the ones you added.")),
+                dimmer,
+            ),
+        };
+        self.note(words, color, ui)
     }
 
     /// A field in its frame: the ring while it has the keys, red when it is what failed.
@@ -590,6 +943,108 @@ impl RemoteAgentView {
                 window.focus(&handle, cx)
             })
             .child(div().flex_1().min_w(px(0.0)).child(input.clone()))
+    }
+
+    /// The command, and under it two lines that keep their room as the capsule changes: that it
+    /// runs through the login shell there, then what is wrong with it as typed, that it is edited
+    /// (with `Reset to …`), or what it will be kept as.
+    fn command_control(&self, window: &Window, ui: &UiFont, cx: &mut Context<Self>) -> Div {
+        let label = self.link.label();
+        let (dimmer, accent, red) = (
+            self.fg(|t| t.agents_dimmer),
+            self.fg(|t| t.agents_accent),
+            self.fg(|t| t.agents_red),
+        );
+        let typed = self.command_text(cx);
+        // Empty is not wrong, only not yet startable.
+        let problem = remote_start::check_command(&typed)
+            .err()
+            .filter(|_| !typed.trim().is_empty());
+        let failed = self
+            .failure
+            .as_ref()
+            .is_some_and(|failure| failure.field == Some(Field::Command));
+        let second: Option<AnyElement> = if let Some(problem) = problem.clone() {
+            Some(self.note(Some(problem), red, ui).into_any_element())
+        } else if let Some((_, called)) = self.reset_target(cx) {
+            let focused = self.reset_focus.is_focused(window);
+            let link = div()
+                .id("remote-agent-reset")
+                .track_focus(&self.reset_focus)
+                .key_context(RESET)
+                .on_action(cx.listener(|this, _: &ResetCommand, window, cx| this.reset(window, cx)))
+                .px(ui.px(3.0))
+                .mx(ui.px(-3.0))
+                .rounded(ui.px(4.0))
+                .text_size(ui.px(11.5))
+                .line_height(ui.px(NOTE))
+                .text_color(accent)
+                .whitespace_nowrap()
+                .when(focused, |link| link.shadow(vec![ring(accent, ui)]))
+                .child(format!("Reset to {called}"));
+            let link = if self.starting {
+                link.opacity(OFF)
+            } else {
+                link.cursor_pointer()
+                    .hover(|style| style.underline())
+                    .active(|style| style.opacity(0.7))
+                    .on_click(
+                        cx.listener(|this, _: &ClickEvent, window, cx| this.reset(window, cx)),
+                    )
+            };
+            Some(
+                div()
+                    .flex()
+                    .flex_wrap()
+                    .items_center()
+                    .gap(ui.px(6.0))
+                    .child(self.note(Some(format!("Edited, kept for {label} ·")), dimmer, ui))
+                    .child(link)
+                    .into_any_element(),
+            )
+        } else {
+            let kept_as = match &self.choice {
+                Some(Choice::New) => Some(remote_start::custom_name(&typed)),
+                Some(Choice::Custom(name)) => remote_start::custom_name(&typed)
+                    .filter(|called| called != name)
+                    .map(Some),
+                _ => None,
+            };
+            kept_as.map(|called| {
+                // Named as a kind found there: kept as that kind's command, not a capsule.
+                let found = called
+                    .as_deref()
+                    .and_then(|called| remote_start::found_kind(called, self.found()));
+                let words = match (found, called) {
+                    (Some(tool), _) => format!(
+                        "Once it starts, it is kept as {}'s command for {label}.",
+                        tool.label()
+                    ),
+                    (None, called) => format!(
+                        "Once it starts, {} is kept for {label} next to the others.",
+                        called.as_deref().unwrap_or("it")
+                    ),
+                };
+                self.note(Some(words), dimmer, ui).into_any_element()
+            })
+        };
+        div()
+            .flex()
+            .flex_col()
+            .gap(ui.px(6.0))
+            .child(self.field(&self.command, problem.is_some() || failed, window, ui, cx))
+            .child(
+                div()
+                    .min_h(ui.px(2.0 * NOTE))
+                    .flex()
+                    .flex_col()
+                    .child(self.note(
+                        Some(format!("Runs through your login shell on {label}.")),
+                        dimmer,
+                        ui,
+                    ))
+                    .children(second),
+            )
     }
 
     /// The directory there, what is wrong with it as typed, and the recent ones to click.
@@ -776,7 +1231,7 @@ impl RemoteAgentView {
                     this.create(&menu::CreateAgent, window, cx)
                 }))
         } else {
-            start.opacity(0.45)
+            start.opacity(OFF)
         };
         div()
             .flex()
@@ -862,17 +1317,13 @@ impl Render for RemoteAgentView {
                     ),
             );
 
-        let found = matches!(&self.kinds, Kinds::Found(kinds) if !kinds.is_empty());
         let agent = div()
             .flex()
             .flex_col()
             .gap(ui.px(6.0))
             .child(self.kinds(window, &ui, cx))
-            .child(self.note(
-                found.then(|| format!("Agents found on {label}.")),
-                dimmer,
-                &ui,
-            ));
+            .child(self.kinds_note(&ui));
+        let command = self.command_control(window, &ui, cx);
 
         let dir_text = self.dir.read(cx).text().to_owned();
         let dir_problem = remote_start::check_dir(&dir_text).err();
@@ -886,10 +1337,8 @@ impl Render for RemoteAgentView {
             .flatten();
         let name_note = match (&name_problem, self.default_name(cx)) {
             (Some(problem), _) => (problem.clone(), red),
-            (None, Some(name)) if self.tool.is_some() => {
-                (format!("Leave empty to use {name}."), dimmer)
-            }
-            (None, _) => (
+            (None, Some(name)) => (format!("Leave empty to use {name}."), dimmer),
+            (None, None) => (
                 "Leave empty to name it after the directory and the agent.".to_owned(),
                 dimmer,
             ),
@@ -933,6 +1382,7 @@ impl Render for RemoteAgentView {
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .child(header)
             .child(self.row("Agent", agent, &ui))
+            .child(self.row("Command", command, &ui))
             .child(self.row("Directory", directory, &ui))
             .child(self.row("Name", name, &ui))
             .children(

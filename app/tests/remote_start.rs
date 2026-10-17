@@ -8,7 +8,7 @@ use paddock::{
     config::Machine,
     new_agent::{Started, Tool},
     remote::Link,
-    remote_start::{self, Field, Request},
+    remote_start::{self, Agent, Commands, Field, RecentDirs, Request},
 };
 use std::{
     path::Path,
@@ -174,7 +174,8 @@ fn it_starts_through_the_login_shell_in_that_machines_home_with_the_words_typed(
     let odd = "my dir/it's $(touch pwned); `id` \"q\"";
     std::fs::create_dir_all(Path::new(&studio.home()).join(odd)).unwrap();
     let request = Request {
-        tool: Tool::Codex,
+        agent: Agent::Kind(Tool::Codex),
+        command: Tool::Codex.command().into(),
         dir: format!("~/{odd}"),
         name: "p/it's;$HOME".into(),
     };
@@ -212,7 +213,8 @@ fn it_starts_through_the_login_shell_in_that_machines_home_with_the_words_typed(
 fn an_empty_name_asks_for_the_directory_and_kind_and_corral_says_which() {
     let studio = studio();
     let request = Request {
-        tool: Tool::Pi,
+        agent: Agent::Kind(Tool::Pi),
+        command: Tool::Pi.command().into(),
         dir: "~".into(),
         name: String::new(),
     };
@@ -227,7 +229,8 @@ fn an_empty_name_asks_for_the_directory_and_kind_and_corral_says_which() {
 fn a_directory_not_there_comes_back_as_corral_said_it() {
     let studio = studio();
     let request = Request {
-        tool: Tool::Pi,
+        agent: Agent::Kind(Tool::Pi),
+        command: Tool::Pi.command().into(),
         dir: "~/nope".into(),
         name: String::new(),
     };
@@ -240,4 +243,151 @@ fn a_directory_not_there_comes_back_as_corral_said_it() {
             studio.home()
         )
     );
+}
+
+#[test]
+fn a_command_of_the_users_own_reaches_corral_word_for_word_and_runs_nothing_there() {
+    let studio = studio();
+    let typed = r#"~/bin/my-agent "two words" 'it''s $HOME' ';' 'touch pwned1;' "$(touch pwned2)" '`touch pwned3`' --cfg=x"#;
+    let request = Request {
+        agent: Agent::Custom,
+        command: typed.into(),
+        dir: "~".into(),
+        name: String::new(),
+    };
+    assert!(remote_start::start(&studio.link, &request).is_ok());
+    let asked = studio.nul_separated("started");
+    assert_eq!(asked[0], "home/my-agent");
+    let at = asked.iter().position(|word| word == "--").unwrap();
+    assert_eq!(
+        asked[at + 1..],
+        [
+            &format!("{}/bin/my-agent", studio.home()),
+            "two words",
+            "its $HOME",
+            ";",
+            "touch pwned1;",
+            "$(touch pwned2)",
+            "`touch pwned3`",
+            "--cfg=x",
+        ]
+    );
+    for pwned in ["pwned1", "pwned2", "pwned3"] {
+        assert!(!studio.root().join(pwned).exists(), "{pwned}");
+        assert!(!Path::new(&studio.home()).join(pwned).exists(), "{pwned}");
+    }
+    // Through the user's own login shell there, as the kinds are.
+    assert_eq!(
+        std::fs::read_to_string(studio.root().join("profile")).unwrap(),
+        "yes"
+    );
+}
+
+#[test]
+fn a_kinds_edited_command_is_the_one_started() {
+    let studio = studio();
+    let request = Request {
+        agent: Agent::Kind(Tool::Pi),
+        command: "pi --model 'son net'".into(),
+        dir: "~".into(),
+        name: String::new(),
+    };
+    assert!(remote_start::start(&studio.link, &request).is_ok());
+    let asked = studio.nul_separated("started");
+    assert_eq!(asked[0], "home/pi");
+    assert_eq!(asked[asked.len() - 3..], ["pi", "--model", "son net"]);
+}
+
+#[test]
+fn an_unclosed_quote_is_said_at_once_and_nothing_goes_there() {
+    let studio = studio();
+    let calls = studio.nul_separated("calls").len();
+    for command in ["amp 'oops", ""] {
+        let request = Request {
+            agent: Agent::Custom,
+            command: command.into(),
+            dir: "~".into(),
+            name: String::new(),
+        };
+        let failure = remote_start::start(&studio.link, &request).unwrap_err();
+        assert_eq!(failure.field, Some(Field::Command));
+    }
+    assert_eq!(studio.nul_separated("calls").len(), calls);
+    assert!(!studio.root().join("started").exists());
+}
+
+#[test]
+fn only_what_corral_started_is_kept_for_that_machine() {
+    let studio = studio();
+    let (mut recent, mut commands) = (RecentDirs::default(), Commands::default());
+    let mut request = Request {
+        agent: Agent::Custom,
+        command: "~/bin/my-agent --fast".into(),
+        dir: "~/nope".into(),
+        name: String::new(),
+    };
+    let failed = remote_start::start(&studio.link, &request);
+    assert!(failed.is_err());
+    assert!(!remote_start::keep(
+        &failed,
+        "studio",
+        &request,
+        &[],
+        &mut recent,
+        &mut commands
+    ));
+    assert_eq!(commands, Commands::default());
+    assert_eq!(recent, RecentDirs::default());
+    request.dir = "~".into();
+    let started = remote_start::start(&studio.link, &request);
+    assert!(started.is_ok());
+    assert!(remote_start::keep(
+        &started,
+        "studio",
+        &request,
+        &[],
+        &mut recent,
+        &mut commands
+    ));
+    let customs = commands.customs("studio");
+    assert_eq!(customs.len(), 1);
+    assert_eq!(customs[0].name, "my-agent");
+    assert_eq!(customs[0].command, "~/bin/my-agent --fast");
+    assert_eq!(recent.of("studio"), ["~"]);
+    assert!(commands.customs("5090").is_empty());
+}
+
+#[test]
+fn a_custom_command_named_as_a_kind_found_there_is_kept_as_that_kinds() {
+    let studio = studio();
+    // claude and pi are found on studio; omp is not.
+    let found = remote_start::look(&studio.link).unwrap();
+    let (mut recent, mut commands) = (RecentDirs::default(), Commands::default());
+    let start = |command: &str, recent: &mut RecentDirs, commands: &mut Commands| {
+        let request = Request {
+            agent: Agent::Custom,
+            command: command.into(),
+            dir: "~".into(),
+            name: String::new(),
+        };
+        let outcome = remote_start::start(&studio.link, &request);
+        assert!(outcome.is_ok(), "{command}");
+        remote_start::keep(&outcome, "studio", &request, &found, recent, commands);
+    };
+    start("pi --model sonnet", &mut recent, &mut commands);
+    assert_eq!(commands.command("studio", Tool::Pi), "pi --model sonnet");
+    assert!(commands.customs("studio").is_empty());
+    // Not found there this time: a capsule of its own, as before.
+    start("~/bin/omp --x", &mut recent, &mut commands);
+    assert_eq!(commands.command("studio", Tool::Omp), "omp");
+    let names: Vec<String> = commands
+        .shown("studio", &found)
+        .into_iter()
+        .map(|c| c.name)
+        .collect();
+    assert_eq!(names, ["omp"]);
+    // pi's own again: its edit forgotten, still no capsule.
+    start("pi", &mut recent, &mut commands);
+    assert_eq!(commands.command("studio", Tool::Pi), "pi");
+    assert_eq!(commands.customs("studio").len(), 1);
 }
