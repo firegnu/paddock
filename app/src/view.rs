@@ -427,6 +427,14 @@ impl TerminalView {
         }
     }
 
+    /// Hands live PTYs to the app's quit callback so every pane can hang up before any waits.
+    pub fn take_sessions_for_quit(&mut self) -> impl Iterator<Item = Session> + use<> {
+        self.viewer.cancel_pending();
+        [self.direct.take(), self.viewer.session.take()]
+            .into_iter()
+            .flatten()
+    }
+
     /// Ends what runs here, off the UI thread, and leaves the pane empty: closing a pane or tab,
     /// or moving its agent elsewhere. An attached agent is only let go; it keeps running.
     pub fn close(&mut self, cx: &mut Context<Self>) {

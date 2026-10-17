@@ -1,6 +1,6 @@
 //! From Saddle `tests/viewer.rs` at commit `df1c727`. The fake `corral` programs are shell scripts
 //! instead of Python (Saddle's second test used its `fixtures/corral.py`; this one does only what
-//! that test needs: log each call, hold `status` while `hold-status` exists, attach until SIGINT).
+//! that test needs: log each call, hold `status` while `hold-status` exists, attach until SIGHUP).
 mod common;
 use paddock::{terminal::Size, viewer::Viewer};
 use std::{
@@ -16,7 +16,7 @@ fn choosing_current_agent_again_during_detach_cancels_the_obsolete_switch() {
         "corral",
         r#"#!/bin/sh
 root=$(dirname "$0")
-trap 'sleep 0.1; exit 0' INT
+trap 'sleep 0.1; exit 0' HUP
 echo "$2" >> "$root/events"
 printf READY
 while :; do sleep 1 & wait $!; done
@@ -64,7 +64,7 @@ case "$1" in
     echo "{\"ok\":true,\"name\":\"$2\",\"state\":\"idle\",\"instance\":\"abcdef123\",\"attached\":0}"
     ;;
   attach)
-    trap 'exit 0' INT
+    trap 'exit 0' HUP
     printf READY
     while :; do sleep 1 & wait $!; done
     ;;
@@ -198,7 +198,7 @@ fn an_agent_attached_at_startup_is_known_by_its_instance() {
         r#"#!/bin/sh
 case "$1" in
   status) echo '{"ok":true,"name":"p/start","state":"idle","attached":0,"instance":"i-start"}' ;;
-  attach) trap 'exit 0' INT; printf READY; while :; do sleep 1 & wait $!; done ;;
+  attach) trap 'exit 0' HUP; printf READY; while :; do sleep 1 & wait $!; done ;;
   *) echo '{"ok":false,"error":"unexpected_command"}'; exit 1 ;;
 esac
 "#,

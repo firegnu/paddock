@@ -1,5 +1,6 @@
 //! From Saddle `tests/pty.rs` at commit `df1c727`. The fake programs are shell scripts instead of
-//! Python; they do the same things: raw mode, report the size on SIGWINCH, echo input, note SIGINT;
+//! Python; they do the same things: raw mode, report the size on SIGWINCH, echo input, note SIGHUP
+//! (changed from SIGINT in P5-138);
 //! and for the owned shell, a foreground job in its own process group that notes SIGHUP.
 mod common;
 use alacritty_terminal::grid::Dimensions;
@@ -39,7 +40,7 @@ printf alive > agent-alive
 stty raw -echo
 size() { set -- $(stty size); printf '\r\nSIZE=%sx%s\r\n' "$2" "$1"; }
 trap size WINCH
-trap 'printf SIGINT > detached; exit 0' INT
+trap 'printf SIGHUP > detached; exit 0' HUP
 size
 printf 'READY\r\n'
 # Read in the background so the traps run while waiting for input.
@@ -68,7 +69,7 @@ done
     }
     assert_eq!(
         std::fs::read_to_string(temp.path().join("detached")).unwrap(),
-        "SIGINT"
+        "SIGHUP"
     );
     assert!(temp.path().join("agent-alive").exists());
 }

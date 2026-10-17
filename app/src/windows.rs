@@ -264,6 +264,19 @@ pub fn open_about(cx: &mut App) {
     cx.default_global::<Windows>().about = handle.map(|(handle, _)| handle);
 }
 
+/// Called by `on_app_quit`, before GPUI clears windows, for every way the app can quit.
+pub fn shutdown_panes(cx: &mut App) {
+    let mut sessions = Vec::new();
+    for handle in cx.windows() {
+        if let Some(handle) = handle.downcast::<PaddockWindow>()
+            && let Ok(panes) = handle.update(cx, |view, _, cx| view.take_sessions_for_quit(cx))
+        {
+            sessions.extend(panes);
+        }
+    }
+    crate::pty::shutdown(sessions);
+}
+
 /// Quits, once a value still being typed in Settings is in effect and live shells may end; Cancel
 /// keeps paddock running.
 pub fn quit(cx: &mut App) {
