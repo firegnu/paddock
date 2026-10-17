@@ -332,6 +332,7 @@ fn only_what_corral_started_is_kept_for_that_machine() {
         &failed,
         "studio",
         &request,
+        &[],
         &mut recent,
         &mut commands
     ));
@@ -344,6 +345,7 @@ fn only_what_corral_started_is_kept_for_that_machine() {
         &started,
         "studio",
         &request,
+        &[],
         &mut recent,
         &mut commands
     ));
@@ -353,4 +355,39 @@ fn only_what_corral_started_is_kept_for_that_machine() {
     assert_eq!(customs[0].command, "~/bin/my-agent --fast");
     assert_eq!(recent.of("studio"), ["~"]);
     assert!(commands.customs("5090").is_empty());
+}
+
+#[test]
+fn a_custom_command_named_as_a_kind_found_there_is_kept_as_that_kinds() {
+    let studio = studio();
+    // claude and pi are found on studio; omp is not.
+    let found = remote_start::look(&studio.link).unwrap();
+    let (mut recent, mut commands) = (RecentDirs::default(), Commands::default());
+    let start = |command: &str, recent: &mut RecentDirs, commands: &mut Commands| {
+        let request = Request {
+            agent: Agent::Custom,
+            command: command.into(),
+            dir: "~".into(),
+            name: String::new(),
+        };
+        let outcome = remote_start::start(&studio.link, &request);
+        assert!(outcome.is_ok(), "{command}");
+        remote_start::keep(&outcome, "studio", &request, &found, recent, commands);
+    };
+    start("pi --model sonnet", &mut recent, &mut commands);
+    assert_eq!(commands.command("studio", Tool::Pi), "pi --model sonnet");
+    assert!(commands.customs("studio").is_empty());
+    // Not found there this time: a capsule of its own, as before.
+    start("~/bin/omp --x", &mut recent, &mut commands);
+    assert_eq!(commands.command("studio", Tool::Omp), "omp");
+    let names: Vec<String> = commands
+        .shown("studio", &found)
+        .into_iter()
+        .map(|c| c.name)
+        .collect();
+    assert_eq!(names, ["omp"]);
+    // pi's own again: its edit forgotten, still no capsule.
+    start("pi", &mut recent, &mut commands);
+    assert_eq!(commands.command("studio", Tool::Pi), "pi");
+    assert_eq!(commands.customs("studio").len(), 1);
 }

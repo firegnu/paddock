@@ -106,6 +106,11 @@ pub fn custom_name(command: &str) -> Option<String> {
     Some(suggest_prefix(&words[0]))
 }
 
+/// The kind among those `found` there that a command of the user's own called `name` is.
+pub fn found_kind(name: &str, found: &[Tool]) -> Option<Tool> {
+    found.iter().copied().find(|tool| tool.kind() == name)
+}
+
 /// Whether `command` says something else than `tool`'s own, word for word.
 pub fn edited(command: &str, tool: Tool) -> bool {
     shell_words::split(command).ok() != shell_words::split(tool.command()).ok()
@@ -475,12 +480,28 @@ impl Commands {
         customs
     }
 
+    /// The user's own commands on `machine` that get a capsule beside the kinds `found` there: not
+    /// one named as a kind found, which is kept all the same for when that kind is not found.
+    pub fn shown(&self, machine: &str, found: &[Tool]) -> Vec<Custom> {
+        let mut customs = self.customs(machine);
+        customs.retain(|custom| found_kind(&custom.name, found).is_none());
+        customs
+    }
+
     /// What `request` started on `machine`: a kind's command as edited, or forgotten when it is
-    /// the kind's own again; or the user's own, in place of one by the same name, else last.
-    pub fn remember(&mut self, machine: &str, request: &Request) {
+    /// the kind's own again; or the user's own, in place of one by the same name, else last. The
+    /// user's own named as a kind `found` there this time is that kind's, as if written on its
+    /// capsule.
+    pub fn remember(&mut self, machine: &str, request: &Request, found: &[Tool]) {
         let command = request.command.trim().to_owned();
+        let agent = match request.agent {
+            Agent::Custom => custom_name(&command)
+                .and_then(|name| found_kind(&name, found))
+                .map_or(Agent::Custom, Agent::Kind),
+            kind => kind,
+        };
         let kept = self.0.entry(machine.to_owned()).or_default();
-        match request.agent {
+        match agent {
             Agent::Kind(tool) if edited(&command, tool) => {
                 kept.edited.insert(tool.kind().to_owned(), command);
             }
@@ -522,6 +543,7 @@ pub fn keep(
     outcome: &Result<Started, Failure>,
     machine: &str,
     request: &Request,
+    found: &[Tool],
     recent: &mut RecentDirs,
     commands: &mut Commands,
 ) -> bool {
@@ -529,7 +551,7 @@ pub fn keep(
         return false;
     }
     recent.remember(machine, &request.dir);
-    commands.remember(machine, request);
+    commands.remember(machine, request, found);
     true
 }
 
@@ -912,13 +934,13 @@ mod tests {
         let mut kept = Commands::default();
         assert_eq!(kept.command("5090", Tool::Pi), "pi");
         assert_eq!(kept.command("5090", Tool::Codex), "codex --yolo");
-        kept.remember("5090", &kind(Tool::Pi, " pi --model sonnet "));
+        kept.remember("5090", &kind(Tool::Pi, " pi --model sonnet "), &[]);
         assert_eq!(kept.command("5090", Tool::Pi), "pi --model sonnet");
         // Each machine apart, each kind apart.
         assert_eq!(kept.command("studio", Tool::Pi), "pi");
         assert_eq!(kept.command("5090", Tool::Omp), "omp");
         // Started with the kind's own again (Reset): the edit is forgotten.
-        kept.remember("5090", &kind(Tool::Pi, "pi"));
+        kept.remember("5090", &kind(Tool::Pi, "pi"), &[]);
         assert_eq!(kept.command("5090", Tool::Pi), "pi");
         assert_eq!(kept, Commands::default());
     }
@@ -926,15 +948,15 @@ mod tests {
     #[test]
     fn the_users_own_become_capsules_a_later_one_by_the_same_name_in_its_place() {
         let mut kept = Commands::default();
-        kept.remember("5090", &custom("~/bin/my-agent --fast"));
-        kept.remember("5090", &custom("amp"));
-        kept.remember("studio", &custom("goose"));
+        kept.remember("5090", &custom("~/bin/my-agent --fast"), &[]);
+        kept.remember("5090", &custom("amp"), &[]);
+        kept.remember("studio", &custom("goose"), &[]);
         let names = |kept: &Commands, machine: &str| -> Vec<String> {
             kept.customs(machine).into_iter().map(|c| c.name).collect()
         };
         assert_eq!(names(&kept, "5090"), ["my-agent", "amp"]);
         assert_eq!(names(&kept, "studio"), ["goose"]);
-        kept.remember("5090", &custom("/opt/my-agent --slow"));
+        kept.remember("5090", &custom("/opt/my-agent --slow"), &[]);
         assert_eq!(
             kept.customs("5090"),
             [
@@ -956,9 +978,50 @@ mod tests {
         kept.forget("5090", "nothing");
         assert!(kept.customs("5090").is_empty());
         // A kind's edit and the user's own sit side by side.
-        kept.remember("studio", &kind(Tool::Omp, "omp --x"));
+        kept.remember("studio", &kind(Tool::Omp, "omp --x"), &[]);
         assert_eq!(names(&kept, "studio"), ["goose"]);
         assert_eq!(kept.command("studio", Tool::Omp), "omp --x");
+    }
+
+    #[test]
+    fn a_custom_named_as_a_kind_found_there_is_kept_as_that_kinds_edit() {
+        let found = [Tool::Claude, Tool::Pi];
+        let mut kept = Commands::default();
+        kept.remember("5090", &custom("pi --model sonnet"), &found);
+        assert_eq!(kept.command("5090", Tool::Pi), "pi --model sonnet");
+        assert!(kept.customs("5090").is_empty());
+        // A full path is the same kind by name.
+        kept.remember("5090", &custom("/opt/bin/claude --x"), &found);
+        assert_eq!(kept.command("5090", Tool::Claude), "/opt/bin/claude --x");
+        assert!(kept.customs("5090").is_empty());
+        // Its own command again: the edit is forgotten.
+        kept.remember("5090", &custom(" pi "), &found);
+        assert_eq!(kept.command("5090", Tool::Pi), "pi");
+        // Not found this time: a capsule of its own; on another machine, the same.
+        kept.remember("5090", &custom("~/bin/omp --x"), &found);
+        kept.remember("studio", &custom("~/x/pi"), &[]);
+        assert_eq!(kept.command("5090", Tool::Omp), "omp");
+        assert_eq!(kept.customs("5090").len(), 1);
+        assert_eq!(kept.command("studio", Tool::Pi), "pi");
+        assert_eq!(kept.customs("studio")[0].name, "pi");
+    }
+
+    #[test]
+    fn a_capsule_named_as_a_kind_found_there_is_not_drawn_beside_it() {
+        let mut kept = Commands::default();
+        kept.remember("5090", &custom("~/x/pi --fast"), &[]);
+        kept.remember("5090", &custom("~/bin/my-agent"), &[]);
+        let shown = |found: &[Tool]| -> Vec<String> {
+            kept.shown("5090", found)
+                .into_iter()
+                .map(|c| c.name)
+                .collect()
+        };
+        assert_eq!(shown(&[Tool::Pi, Tool::Omp]), ["my-agent"]);
+        // Kept all the same: when pi is not found it is back.
+        assert_eq!(shown(&[Tool::Omp]), ["pi", "my-agent"]);
+        assert_eq!(shown(&[]), ["pi", "my-agent"]);
+        assert_eq!(kept.customs("5090").len(), 2);
     }
 
     #[test]
@@ -967,8 +1030,8 @@ mod tests {
         let path = dir.join("remote-agent-commands.json");
         assert_eq!(Commands::load(&path), Commands::default());
         let mut kept = Commands::default();
-        kept.remember("5090", &kind(Tool::Pi, "pi --model sonnet"));
-        kept.remember("5090", &custom("~/bin/my-agent --fast"));
+        kept.remember("5090", &kind(Tool::Pi, "pi --model sonnet"), &[]);
+        kept.remember("5090", &custom("~/bin/my-agent --fast"), &[]);
         kept.save(&path).unwrap();
         assert_eq!(Commands::load(&path), kept);
         // Beside the recent directories, and neither touches the other.

@@ -160,7 +160,7 @@ pub struct RemoteAgentView {
     recent_path: Option<PathBuf>,
     commands: Commands,
     commands_path: Option<PathBuf>,
-    /// This machine's own commands, as kept.
+    /// This machine's own commands with a capsule: those not named as a kind found there.
     customs: Vec<Custom>,
     /// What was typed in `Command` for each capsule left, to come back to while the dialog is open.
     drafts: Vec<(Choice, String)>,
@@ -234,7 +234,7 @@ impl RemoteAgentView {
             .as_deref()
             .map(Commands::load)
             .unwrap_or_default();
-        let customs = commands.customs(&link.name);
+        let customs = commands.shown(&link.name, &[]);
         let mut view = Self {
             theme,
             mono,
@@ -294,7 +294,17 @@ impl RemoteAgentView {
                     Ok(kinds) => Kinds::Found(kinds),
                     Err(why) => Kinds::Failed(why),
                 };
-                if this.choice.is_none() {
+                this.customs = this.commands.shown(&this.link.name, this.found());
+                // One of the user's own clicked meanwhile that is a kind found now: that kind.
+                let hidden = match &this.choice {
+                    Some(Choice::Custom(name)) if this.custom(name).is_none() => {
+                        remote_start::found_kind(name, this.found())
+                    }
+                    _ => None,
+                };
+                if let Some(tool) = hidden {
+                    this.choose(Choice::Kind(tool), cx);
+                } else if this.choice.is_none() {
                     this.choose(this.capsules()[0].clone(), cx);
                 }
                 cx.notify();
@@ -307,13 +317,17 @@ impl RemoteAgentView {
         hsla(self.theme.fg(pick), 1.0)
     }
 
+    /// The kinds found there this time; none while looking or when it could not be asked.
+    fn found(&self) -> &[Tool] {
+        match &self.kinds {
+            Kinds::Found(kinds) => kinds,
+            _ => &[],
+        }
+    }
+
     /// The capsules, in order: the kinds found there, the user's own, `+ Custom…`.
     fn capsules(&self) -> Vec<Choice> {
-        let found = match &self.kinds {
-            Kinds::Found(kinds) => kinds.as_slice(),
-            _ => &[],
-        };
-        found
+        self.found()
             .iter()
             .map(|tool| Choice::Kind(*tool))
             .chain(
@@ -447,7 +461,7 @@ impl RemoteAgentView {
             return;
         }
         self.commands.forget(&self.link.name, &name);
-        self.customs = self.commands.customs(&self.link.name);
+        self.customs = self.commands.shown(&self.link.name, self.found());
         let gone = Choice::Custom(name);
         self.drafts.retain(|(known, _)| *known != gone);
         if self.choice.as_ref() == Some(&gone) {
@@ -550,10 +564,12 @@ impl RemoteAgentView {
             let result = task.await;
             let _ = this.update(cx, |this, cx| {
                 this.starting = false;
+                let found = this.found().to_vec();
                 if remote_start::keep(
                     &result,
                     &this.link.name,
                     &request,
+                    &found,
                     &mut this.recent,
                     &mut this.commands,
                 ) {
@@ -587,7 +603,7 @@ impl RemoteAgentView {
             })
             .detach();
         }
-        self.customs = self.commands.customs(&self.link.name);
+        self.customs = self.commands.shown(&self.link.name, self.found());
         self.save_commands(cx);
     }
 
@@ -995,15 +1011,21 @@ impl RemoteAgentView {
                 _ => None,
             };
             kept_as.map(|called| {
-                let what = called.unwrap_or_else(|| "it".into());
-                self.note(
-                    Some(format!(
-                        "Once it starts, {what} is kept for {label} next to the others."
-                    )),
-                    dimmer,
-                    ui,
-                )
-                .into_any_element()
+                // Named as a kind found there: kept as that kind's command, not a capsule.
+                let found = called
+                    .as_deref()
+                    .and_then(|called| remote_start::found_kind(called, self.found()));
+                let words = match (found, called) {
+                    (Some(tool), _) => format!(
+                        "Once it starts, it is kept as {}'s command for {label}.",
+                        tool.label()
+                    ),
+                    (None, called) => format!(
+                        "Once it starts, {} is kept for {label} next to the others.",
+                        called.as_deref().unwrap_or("it")
+                    ),
+                };
+                self.note(Some(words), dimmer, ui).into_any_element()
             })
         };
         div()
