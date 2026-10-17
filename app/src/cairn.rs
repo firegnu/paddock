@@ -581,6 +581,13 @@ fn ledger(
             session,
         });
     }
+    // The lessons newest first, so a new one shows without scrolling (P5-132); the ledger's
+    // kinds keep cairn's order.
+    for group in groups.iter_mut().filter(|group| group.name == LESSONS) {
+        group
+            .entries
+            .sort_by_key(|entry| std::cmp::Reverse(entry.no));
+    }
     groups.retain(|group| !group.entries.is_empty());
     Ledger::Groups(groups)
 }
