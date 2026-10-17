@@ -1,11 +1,11 @@
 //! A well sunk into a ground, and the capsule of a switch set in it (P5-121a): the Cairn tab's
-//! `Notes | Ledger | Lessons` and the left sidebar's machine switcher (P5-122) both have them, and
-//! the capsule shown is drawn the same on either (10-17). The well is the ground with black over
-//! it, less on a light ground; inside, a shadow under its top edge and a dark rim; outside, a
-//! light lip under it and a faint edge in the text colour around it. The capsule shown is filled
-//! faintly with the accent and ringed in it, its words the bright text colour and heavy; one not
-//! shown carries no ring, its words in the text colour, brighter under the pointer. A count in a
-//! capsule goes on a small round tag.
+//! `Notes | Ledger | Lessons` has them. The well is the ground with black over it, less on a light
+//! ground; inside, a shadow under its top edge and a dark rim; outside, a light lip under it and a
+//! faint edge in the text colour around it. The capsule shown is filled faintly with the accent and
+//! ringed in it, its words the bright text colour and heavy; one not shown carries no ring, its
+//! words in the text colour, brighter under the pointer. A count in a capsule goes on a small round
+//! tag. The left sidebar's machine switcher shares the tag alone, and the capsule's fill (P5-122,
+//! P5-139).
 use crate::{
     fonts::UiFont,
     window::{RING_ACTIVE, TAB_RING},
@@ -20,7 +20,8 @@ const WELL_RIM: f32 = 0.45;
 const WELL_LIP: (f32, f32) = (0.07, 0.70);
 const WELL_EDGE: f32 = 0.06;
 /// How much accent fills the capsule shown (10-17: a solid accent was too heavy in the sidebar).
-const SHOWN_FILL: f32 = 0.18;
+/// The machine switcher takes it for its one cell too (P5-139).
+pub const SHOWN_FILL: f32 = 0.18;
 /// A count's ground in the text colour.
 const COUNT: f32 = 0.12;
 
@@ -60,8 +61,8 @@ pub fn well(under: Hsla, light: bool, text: Hsla) -> Well {
 
 /// The capsule of a switch, `on` for the one shown: its ground a faint fill of `accent` ringed in
 /// the accent, its words in `bright` and heavy; one not shown with no ring, its words in `text`,
-/// brighter under the pointer. Both switches draw theirs with this, the sidebar's machine switcher
-/// and the Cairn tab's pages alike (10-17).
+/// brighter under the pointer. The Cairn tab's pages draw theirs with this (10-17); the machine
+/// switcher only takes the fill (P5-139).
 pub fn chosen(
     pill: Stateful<Div>,
     on: bool,

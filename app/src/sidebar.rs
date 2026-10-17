@@ -284,10 +284,9 @@ const PAUSED_OPACITY: f32 = 0.55;
 /// How bright another machine's cards stay while it cannot be read: as last read, dimmed
 /// (DESIGN §13 P5-90).
 const STALE: f32 = 0.5;
-/// The switcher's well (P5-122): the room inside it, and its corners, round on one row of
-/// capsules.
-const WELL_PAD: f32 = 3.0;
-const WELL_RADIUS: f32 = 15.0;
+/// A machine's cell in the switcher (P5-139): its height and corners.
+const SWITCH_CELL: f32 = 24.0;
+const SWITCH_RADIUS: f32 = 7.0;
 /// The widest a machine's name is in its capsule before it is cut short (P5-123).
 const CAPSULE_NAME: f32 = 120.0;
 /// How wide a machine's capsule menu is (P5-123): at least, and at most for a long name.
@@ -1505,21 +1504,22 @@ impl Sidebar {
         }
     }
 
-    /// The switcher over the list, one capsule per machine set in a well, drawn as the Cairn tab's
-    /// switch (P5-121a, P5-122): its name, how many of its agents want the user, and how its
-    /// connection stands, why on hover; the machine on show solid in the accent. Too many for one
-    /// row, they go on in the next. A click shows that machine, and tries one that could not be
-    /// read again. Narrow, on the strip, a column of each machine's first letters. None without
-    /// other machines.
+    /// The switcher over the list, a cell per machine, as wide as its words and from the left,
+    /// in line with the workspaces and cards below (P5-139): its name, how many of its agents want
+    /// the user, and how its connection stands, why on hover; the machine on show on a faint
+    /// accent, no more. Too many for one row, they go on in the next. A click shows that machine,
+    /// and tries one that could not be read again. Narrow, on the strip, a column of each
+    /// machine's first letters. None without other machines.
     fn switcher(&self, narrow: bool, cx: &mut Context<Self>) -> Option<Div> {
         if self.machines.is_empty() {
             return None;
         }
         let ui = UiFont::get(cx);
         let fg = |pick: Pick| hsla(self.theme.fg(pick), 1.0);
-        let (text, dim, amber, red, green) = (
+        let (text, dim, dimmer, amber, red, green) = (
             fg(|t| t.agents_text),
             fg(|t| t.agents_dim),
+            fg(|t| t.agents_dimmer),
             fg(|t| t.agents_yellow),
             fg(|t| t.agents_red),
             fg(|t| t.agents_green),
@@ -1527,17 +1527,13 @@ impl Sidebar {
         let (bright, accent) = (fg(|t| t.bright), fg(|t| t.agents_accent));
         let grounds = self.grounds();
         let selected = grounds.selected;
-        let ground = hsla(self.given.bg(|t| t.agents_bg), 1.0);
-        let well = sunk::well(grounds.base, ground.l >= 0.5, text);
         let mut bar = div().flex_shrink_0().flex();
         bar = if narrow {
             bar.items_center().gap(ui.px(2.0)).flex_col().pb(ui.px(4.0))
         } else {
             bar.flex_wrap()
-                .p(ui.px(WELL_PAD))
-                .rounded(ui.px(WELL_RADIUS))
-                .bg(well.ground)
-                .shadow(well.shadows)
+                .items_center()
+                .gap(ui.px(4.0))
                 .text_size(ui.px(12.5))
         };
         for (index, machine) in self.machines.iter().enumerate() {
@@ -1615,55 +1611,54 @@ impl Sidebar {
                 continue;
             }
             let on = machine.shown;
-            let status_color = if machine.problem { red } else { dim };
+            let status_color = if machine.problem { red } else { dimmer };
             bar = bar.child(
-                sunk::chosen(
-                    div()
-                        .id(("machine", index))
-                        .flex_grow(1.0)
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .gap(ui.px(6.0))
-                        .px(ui.px(14.0))
-                        .py(ui.px(4.0))
-                        .cursor_pointer()
-                        .whitespace_nowrap(),
-                    on,
-                    accent,
-                    text,
-                    bright,
-                )
-                .tooltip(move |_, cx| cx.new(|_| tip.clone()).into())
-                .on_click(on_click)
-                .when_some(press, |pill, press| {
-                    pill.relative().on_mouse_down(MouseButton::Right, press)
-                })
-                .children(hanging)
-                // A long name cut short; the hover note has it whole (P5-123).
-                .child(
-                    div()
-                        .min_w(px(0.0))
-                        .max_w(ui.px(CAPSULE_NAME))
-                        .overflow_hidden()
-                        .text_ellipsis()
-                        .child(machine.name.clone()),
-                )
-                // Another machine answering: a dot; not answering, what stands.
-                .when(index > 0 && machine.status.is_none(), |pill| {
-                    pill.child(div().size(ui.px(6.0)).rounded_full().bg(green))
-                })
-                .children(machine.status.clone().map(|status| {
-                    div()
-                        .text_size(ui.px(11.0))
-                        .font_weight(FontWeight::NORMAL)
-                        .text_color(status_color)
-                        .child(status)
-                }))
-                // Another machine's agents after that, on a count's tag as the Cairn switch
-                // has them (P5-122 rework 1, 3).
-                .children(machine.agents.map(|agents| sunk::count(agents, text, &ui)))
-                .children(attention),
+                div()
+                    .id(("machine", index))
+                    .flex()
+                    .items_center()
+                    .gap(ui.px(6.0))
+                    .h(ui.px(SWITCH_CELL))
+                    .px(ui.px(10.0))
+                    .rounded(ui.px(SWITCH_RADIUS))
+                    .cursor_pointer()
+                    .whitespace_nowrap()
+                    .text_color(if on { bright } else { dim })
+                    .when(on, |cell| {
+                        cell.bg(accent.opacity(sunk::SHOWN_FILL))
+                            .font_weight(FontWeight::MEDIUM)
+                    })
+                    .hover(move |style| style.text_color(bright))
+                    .tooltip(move |_, cx| cx.new(|_| tip.clone()).into())
+                    .on_click(on_click)
+                    .when_some(press, |cell, press| {
+                        cell.relative().on_mouse_down(MouseButton::Right, press)
+                    })
+                    .children(hanging)
+                    // A long name cut short; the hover note has it whole (P5-123).
+                    .child(
+                        div()
+                            .min_w(px(0.0))
+                            .max_w(ui.px(CAPSULE_NAME))
+                            .overflow_hidden()
+                            .text_ellipsis()
+                            .child(machine.name.clone()),
+                    )
+                    // Another machine answering: a dot; not answering, what stands.
+                    .when(index > 0 && machine.status.is_none(), |pill| {
+                        pill.child(div().size(ui.px(6.0)).rounded_full().bg(green))
+                    })
+                    .children(machine.status.clone().map(|status| {
+                        div()
+                            .text_size(ui.px(11.0))
+                            .font_weight(FontWeight::NORMAL)
+                            .text_color(status_color)
+                            .child(status)
+                    }))
+                    // Another machine's agents after that, on a count's tag as the Cairn switch
+                    // has them (P5-122 rework 1, 3).
+                    .children(machine.agents.map(|agents| sunk::count(agents, text, &ui)))
+                    .children(attention),
             );
         }
         Some(if narrow {
@@ -1671,8 +1666,8 @@ impl Sidebar {
         } else {
             div()
                 .flex_shrink_0()
-                .px(ui.px(8.0))
-                .pt(ui.px(4.0))
+                .px(px(PAD))
+                .pt(ui.px(8.0))
                 .pb(ui.px(8.0))
                 .child(bar)
         })
