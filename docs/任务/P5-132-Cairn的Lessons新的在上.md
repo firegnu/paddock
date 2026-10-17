@@ -13,3 +13,11 @@
 ## 怎么算做完
 - 用户选的：“改成新的在上”。
 - 先改 `tests/cairn.rs` 里 Lessons 那条测试的期望（新的在前），确认红，再改到绿；`app/` 下 `cargo test --all-targets`、`cargo clippy --all-targets -- -D warnings`、`cargo fmt --check`、`git diff --check`。
+
+## 完成记录
+
+- 做了什么：`cairn.rs` 读账后把 Lessons 那一组按编号从大到小排（`sort_by_key` + `Reverse`）；State、Open、Conventions、Other 照 cairn 的顺序。
+- 验证：先把 `tests/cairn.rs` 里 `lessons_are_their_own_group_…` 的期望改成新的在前，跑出红（顺序不对），改代码后绿；`app/` 下 `cargo test --all-targets` 全过（lib 594），clippy、fmt、`git diff --check` 干净。没起窗口，样子留给用户看。
+- 拿主意的地方：按编号排而不是按时间排（编号随记下的先后递增，几条同一时刻记下的也排得开）。
+- 没做的事：Ledger 页不动。
+- 踩过的坑：没有。

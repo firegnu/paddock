@@ -1167,9 +1167,11 @@ fn lessons_are_their_own_group_after_the_ledger_and_a_kind_cairn_adds_later_stil
                 name: "Conventions",
                 entries: vec![entry("L1", 1, "别强退 paddock", None, true)],
             },
+            // The lessons newest first, unlike the ledger's kinds (P5-132).
             Group {
                 name: LESSONS,
                 entries: vec![
+                    entry("L3", 3, "GPUI 遮挡时不重画", None, false),
                     entry(
                         "L2",
                         2,
@@ -1177,7 +1179,6 @@ fn lessons_are_their_own_group_after_the_ledger_and_a_kind_cairn_adds_later_stil
                         Some("P5-29r2 合并时被工作区改动挡住过。"),
                         true,
                     ),
-                    entry("L3", 3, "GPUI 遮挡时不重画", None, false),
                 ],
             },
             Group {
