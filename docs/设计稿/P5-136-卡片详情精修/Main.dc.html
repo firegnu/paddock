@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Agent card details</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+a{color:#86c1e6}a:hover{color:#a9d4ef}
+button{font:inherit}
+</style>
+</helmet>
+<div style="width: 900px; height: 1120px; box-sizing: border-box; padding: 40px 44px; background: {{p.page}}; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif; color: {{p.text}}; display: flex; flex-direction: column; gap: 22px">
+
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 52px">
+<div style="font-size: 13px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: {{p.dim}}">Now</div>
+<div style="font-size: 13px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: {{p.accent}}">Proposed</div>
+</div>
+
+<div style="font-size: 12px; color: {{p.dimmer}}">Idle, no window open</div>
+
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 52px; align-items: start">
+
+<!-- NOW · idle -->
+<div style="background: {{p.card}}; border: 1px solid {{p.border}}; border-radius: 14px; padding: 13px 14px 12px; display: flex; gap: 11px">
+<div style="position: relative; width: 38px; height: 38px; flex-shrink: 0">
+<div style="width: 38px; height: 38px; border-radius: 10px; background: #d97757; display: flex; align-items: center; justify-content: center">
+<svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="#fff" stroke-width="2.1" stroke-linecap="round"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4"></path></svg>
+</div>
+<div style="position: absolute; right: -3px; bottom: -3px; width: 11px; height: 11px; border-radius: 50%; background: {{p.green}}; box-shadow: 0 0 0 2.5px {{p.card}}"></div>
+</div>
+<div style="flex: 1; min-width: 0; display: flex; flex-direction: column">
+<div style="display: flex; align-items: baseline; gap: 6px">
+<span style="font-size: 15.5px; font-weight: 500">main</span>
+<span style="font-size: 13px; color: {{p.dim}}">high</span>
+<span style="flex: 1"></span>
+<span style="font-size: 13px; color: {{p.dim}}">2m</span>
+<svg width="13" height="13" viewBox="0 0 12 12" aria-hidden="true" fill="none" stroke="{{p.dim}}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="margin-left: 6px"><path d="M3 7.5L6 4.5l3 3"></path></svg>
+</div>
+<div style="font-size: 13px; color: {{p.dim}}; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">~/Developer/personal_projs/paddock · <span style="color: {{p.dimmer}}">⎇</span> <span style="color: {{p.branch}}">main</span>  ?6</div>
+
+<div style="margin-top: 10px; display: flex; flex-direction: column; gap: 12px">
+<div style="display: flex; gap: 6px; flex-wrap: wrap">
+<span style="height: 25px; padding: 0 9px; display: inline-flex; align-items: center; border-radius: 7px; background: {{p.chip}}; font-size: 13px"><span style="color: {{p.dimmer}}">⎇ </span><span style="color: {{p.branch}}">main</span></span>
+<span style="height: 25px; padding: 0 9px; display: inline-flex; align-items: center; border-radius: 7px; background: {{p.chip}}; font-size: 13px; color: {{p.dimmer}}">?6</span>
+</div>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 14px; row-gap: 11px">
+<div><div style="font-size: 11px; font-weight: 600; color: {{p.dimmer}}">Status</div><div style="font-size: 13.5px; margin-top: 1px">Idle</div></div>
+<div><div style="font-size: 11px; font-weight: 600; color: {{p.dimmer}}">Model</div><div style="font-size: 13.5px; margin-top: 1px">opus[1m] · high</div></div>
+<div><div style="font-size: 11px; font-weight: 600; color: {{p.dimmer}}">Idle for</div><div style="font-size: 13.5px; margin-top: 1px">2m 32s</div></div>
+<div><div style="font-size: 11px; font-weight: 600; color: {{p.dimmer}}">Up</div><div style="font-size: 13.5px; margin-top: 1px">2m 33s</div></div>
+<div><div style="font-size: 11px; font-weight: 600; color: {{p.dimmer}}">Windows</div><div style="font-size: 13.5px; margin-top: 1px">none</div></div>
+<div><div style="font-size: 11px; font-weight: 600; color: {{p.dimmer}}">Workspace</div>
+<div style="margin-top: 3px; display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 9px; border-radius: 7px; background: {{p.pill}}; font-size: 13.5px">My-Harness<svg width="10" height="10" viewBox="0 0 12 12" aria-hidden="true" fill="none" stroke="{{p.dim}}" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4.5L6 7.5l3-3"></path></svg></div></div>
+</div>
+<div style="font-family: 'SF Mono', ui-monospace, Menlo, monospace; font-size: 12.5px; color: {{p.dimmer}}">~/Developer/personal_projs/paddock</div>
+<div style="display: flex; align-items: center; gap: 6px">
+<span style="font-family: 'SF Mono', ui-monospace, Menlo, monospace; font-size: 12.5px; color: {{p.dim}}">936ce2e22e84</span>
+<button aria-label="Copy instance ID" style="width: 26px; height: 26px; border: 0; border-radius: 7px; background: transparent; display: flex; align-items: center; justify-content: center; padding: 0"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="{{p.dim}}" stroke-width="1.4"><rect x="5.5" y="5.5" width="8" height="8" rx="2"></rect><path d="M10.5 3.5V3a1.5 1.5 0 0 0-1.5-1.5H4A1.5 1.5 0 0 0 2.5 3v5A1.5 1.5 0 0 0 4 9.5h.5"></path></svg></button>
+<span style="flex: 1"></span>
+<button aria-label="Pause agent" style="width: 26px; height: 26px; border: 0; border-radius: 7px; background: transparent; display: flex; align-items: center; justify-content: center; padding: 0"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" fill="{{p.dim}}"><rect x="4" y="3" width="2.6" height="10" rx="1"></rect><rect x="9.4" y="3" width="2.6" height="10" rx="1"></rect></svg></button>
+<button aria-label="Stop agent" style="width: 26px; height: 26px; border: 0; border-radius: 7px; background: transparent; display: flex; align-items: center; justify-content: center; padding: 0"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" fill="{{p.stopFill}}"><rect x="2" y="2" width="12" height="12" rx="2.5"></rect></svg></button>
+</div>
+</div>
+</div>
+</div>
+
+<!-- PROPOSED · idle -->
+<div style="background: {{p.card}}; border: 1px solid {{p.border}}; border-radius: 14px; padding: 13px 14px 10px; display: flex; gap: 11px">
+<div style="position: relative; width: 38px; height: 38px; flex-shrink: 0">
+<div style="width: 38px; height: 38px; border-radius: 10px; background: #d97757; display: flex; align-items: center; justify-content: center">
+<svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="#fff" stroke-width="2.1" stroke-linecap="round"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4"></path></svg>
+</div>
+<div style="position: absolute; right: -3px; bottom: -3px; width: 11px; height: 11px; border-radius: 50%; background: {{p.green}}; box-shadow: 0 0 0 2.5px {{p.card}}"></div>
+</div>
+<div style="flex: 1; min-width: 0; display: flex; flex-direction: column">
+<div style="display: flex; align-items: baseline; gap: 6px; min-height: 38px; align-items: center">
+<span style="font-size: 15.5px; font-weight: 500">main</span>
+<span style="font-size: 13px; color: {{p.dim}}">high</span>
+<span style="flex: 1"></span>
+<span style="font-size: 13px; color: {{p.dim}}">2m</span>
+<svg width="13" height="13" viewBox="0 0 12 12" aria-hidden="true" fill="none" stroke="{{p.dim}}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="margin-left: 6px"><path d="M3 7.5L6 4.5l3 3"></path></svg>
+</div>
+
+<div style="margin-top: 8px; padding-top: 12px; border-top: 1px solid {{p.rule}}; display: flex; flex-direction: column; gap: 8px">
+<div style="font-size: 13px; color: {{p.dim}}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">~/Developer/personal_projs/paddock</div>
+<div style="display: flex; gap: 6px; flex-wrap: wrap">
+<span style="height: 24px; padding: 0 8px; display: inline-flex; align-items: center; border-radius: 6px; background: {{p.chip}}; font-size: 12.5px"><span style="color: {{p.dimmer}}">⎇ </span><span style="color: {{p.branch}}">main</span></span>
+<span style="height: 24px; padding: 0 8px; display: inline-flex; align-items: center; border-radius: 6px; background: {{p.chip}}; font-size: 12.5px; color: {{p.dim}}">6 untracked</span>
+</div>
+</div>
+
+<div style="margin-top: 16px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 14px; row-gap: 13px">
+<div><div style="font-size: 10px; font-weight: 500; letter-spacing: 0.07em; text-transform: uppercase; color: {{p.dimmer}}">Status</div><div style="font-size: 13px; margin-top: 3px">Idle <span style="color: {{p.dim}}">· 2m 32s</span></div></div>
+<div><div style="font-size: 10px; font-weight: 500; letter-spacing: 0.07em; text-transform: uppercase; color: {{p.dimmer}}">Model</div><div style="font-size: 13px; margin-top: 3px">opus[1m] <span style="color: {{p.dim}}">· high</span></div></div>
+<div><div style="font-size: 10px; font-weight: 500; letter-spacing: 0.07em; text-transform: uppercase; color: {{p.dimmer}}">Up</div><div style="font-size: 13px; margin-top: 3px">2m 33s</div></div>
+<div><div style="font-size: 10px; font-weight: 500; letter-spacing: 0.07em; text-transform: uppercase; color: {{p.dimmer}}">Workspace</div>
+<div style="font-size: 13px; margin-top: 3px; display: inline-flex; align-items: center; gap: 5px">My-Harness<svg width="9" height="9" viewBox="0 0 12 12" aria-hidden="true" fill="none" stroke="{{p.dim}}" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4.5L6 7.5l3-3"></path></svg></div></div>
+</div>
+
+<div style="margin-top: 14px; padding-top: 8px; border-top: 1px solid {{p.rule}}; display: flex; align-items: center; gap: 4px">
+<span style="font-family: 'SF Mono', ui-monospace, Menlo, monospace; font-size: 12px; color: {{p.dimmer}}">936ce2e22e84</span>
+<button aria-label="Copy instance ID" style="width: 24px; height: 24px; border: 0; border-radius: 6px; background: transparent; display: flex; align-items: center; justify-content: center; padding: 0"><svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="{{p.dimmer}}" stroke-width="1.5"><rect x="5.5" y="5.5" width="8" height="8" rx="2"></rect><path d="M10.5 3.5V3a1.5 1.5 0 0 0-1.5-1.5H4A1.5 1.5 0 0 0 2.5 3v5A1.5 1.5 0 0 0 4 9.5h.5"></path></svg></button>
+<span style="flex: 1"></span>
+<button aria-label="Pause agent" style="width: 26px; height: 26px; border: 0; border-radius: 7px; background: transparent; display: flex; align-items: center; justify-content: center; padding: 0"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" fill="{{p.dim}}"><rect x="4" y="3" width="2.4" height="10" rx="1.1"></rect><rect x="9.6" y="3" width="2.4" height="10" rx="1.1"></rect></svg></button>
+<button aria-label="Stop agent" style="width: 26px; height: 26px; border: 0; border-radius: 7px; background: transparent; display: flex; align-items: center; justify-content: center; padding: 0"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="{{p.dim}}" stroke-width="1.6"><rect x="3.3" y="3.3" width="9.4" height="9.4" rx="2.2"></rect></svg></button>
+</div>
+</div>
+</div>
+</div>
+
+<div style="font-size: 12px; color: {{p.dimmer}}; margin-top: 18px">Working, open in this window, with changes</div>
+
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 52px; align-items: start">
+
+<!-- NOW · working -->
+<div style="background: {{p.card}}; border: 1px solid {{p.border}}; border-radius: 14px; padding: 13px 14px 12px; display: flex; gap: 11px">
+<div style="position: relative; width: 38px; height: 38px; flex-shrink: 0">
+<div style="width: 38px; height: 38px; border-radius: 10px; background: #d97757; display: flex; align-items: center; justify-content: center">
+<svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="#fff" stroke-width="2.1" stroke-linecap="round"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4"></path></svg>
+</div>
+<div style="position: absolute; right: -3px; bottom: -3px; width: 11px; height: 11px; border-radius: 50%; background: {{p.blue}}; box-shadow: 0 0 0 2.5px {{p.card}}"></div>
+</div>
+<div style="flex: 1; min-width: 0; display: flex; flex-direction: column">
+<div style="display: flex; align-items: center; gap: 6px">
+<span style="font-size: 15.5px; font-weight: 500">p2d-render</span>
+<span style="font-size: 13px; color: {{p.dim}}">high</span>
+<span style="width: 7px; height: 7px; border-radius: 50%; border: 1.5px solid {{p.accent}}"></span>
+<span style="flex: 1"></span>
+<span style="font-size: 13px; color: {{p.blue}}">4m</span>
+<svg width="13" height="13" viewBox="0 0 12 12" aria-hidden="true" fill="none" stroke="{{p.dim}}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="margin-left: 6px"><path d="M3 7.5L6 4.5l3 3"></path></svg>
+</div>
+<div style="font-size: 13px; color: {{p.dim}}; margin-top: 3px">Running Bash…</div>
+<div style="font-size: 13px; color: {{p.dim}}; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">~/code/paddock · <span style="color: {{p.dimmer}}">⎇</span> <span style="color: {{p.branch}}">p2d-render</span>  <span style="color: {{p.green}}">+25</span> <span style="color: {{p.red}}">-3</span> ?3 <span style="color: {{p.blue}}">↑2</span></div>
+
+<div style="margin-top: 10px; display: flex; flex-direction: column; gap: 12px">
+<div style="display: flex; gap: 6px; flex-wrap: wrap">
+<span style="height: 25px; padding: 0 9px; display: inline-flex; align-items: center; border-radius: 7px; background: {{p.chip}}; font-size: 13px"><span style="color: {{p.dimmer}}">⎇ </span><span style="color: {{p.branch}}">p2d-render</span></span>
+<span style="height: 25px; padding: 0 9px; display: inline-flex; align-items: center; border-radius: 7px; background: {{p.chip}}; font-size: 13px"><span style="color: {{p.green}}">+25</span> <span style="color: {{p.red}}">-3</span></span>
+<span style="height: 25px; padding: 0 9px; display: inline-flex; align-items: center; border-radius: 7px; background: {{p.chip}}; font-size: 13px; color: {{p.dimmer}}">?3</span>
+<span style="height: 25px; padding: 0 9px; display: inline-flex; align-items: center; border-radius: 7px; background: {{p.chip}}; font-size: 13px; color: {{p.blue}}">↑2 to push</span>
+</div>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 14px; row-gap: 11px">
+<div><div style="font-size: 11px; font-weight: 600; color: {{p.dimmer}}">Status</div><div style="font-size: 13.5px; margin-top: 1px">Working · Bash</div></div>
+<div><div style="font-size: 11px; font-weight: 600; color: {{p.dimmer}}">Model</div><div style="font-size: 13.5px; margin-top: 1px">opus · high</div></div>
+<div><div style="font-size: 11px; font-weight: 600; color: {{p.dimmer}}">This turn</div><div style="font-size: 13.5px; margin-top: 1px">4m 12s</div></div>
+<div><div style="font-size: 11px; font-weight: 600; color: {{p.dimmer}}">Up</div><div style="font-size: 13.5px; margin-top: 1px">22m</div></div>
+<div><div style="font-size: 11px; font-weight: 600; color: {{p.dimmer}}">Windows</div><div style="font-size: 13.5px; margin-top: 1px">1 · open here</div></div>
+<div><div style="font-size: 11px; font-weight: 600; color: {{p.dimmer}}">Last input</div><div style="font-size: 13.5px; margin-top: 1px">You · 2m ago</div></div>
+<div><div style="font-size: 11px; font-weight: 600; color: {{p.dimmer}}">Workspace</div>
+<div style="margin-top: 3px; display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 9px; border-radius: 7px; background: {{p.pill}}; font-size: 13.5px">My-Harness<svg width="10" height="10" viewBox="0 0 12 12" aria-hidden="true" fill="none" stroke="{{p.dim}}" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4.5L6 7.5l3-3"></path></svg></div></div>
+</div>
+<div style="font-family: 'SF Mono', ui-monospace, Menlo, monospace; font-size: 12.5px; color: {{p.dimmer}}">~/code/paddock</div>
+<div style="display: flex; align-items: center; gap: 6px">
+<span style="font-family: 'SF Mono', ui-monospace, Menlo, monospace; font-size: 12.5px; color: {{p.dim}}">b18cda32ce36</span>
+<button aria-label="Copy instance ID" style="width: 26px; height: 26px; border: 0; border-radius: 7px; background: transparent; display: flex; align-items: center; justify-content: center; padding: 0"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="{{p.dim}}" stroke-width="1.4"><rect x="5.5" y="5.5" width="8" height="8" rx="2"></rect><path d="M10.5 3.5V3a1.5 1.5 0 0 0-1.5-1.5H4A1.5 1.5 0 0 0 2.5 3v5A1.5 1.5 0 0 0 4 9.5h.5"></path></svg></button>
+<span style="flex: 1"></span>
+<button aria-label="Pause agent" style="width: 26px; height: 26px; border: 0; border-radius: 7px; background: transparent; display: flex; align-items: center; justify-content: center; padding: 0"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" fill="{{p.dim}}"><rect x="4" y="3" width="2.6" height="10" rx="1"></rect><rect x="9.4" y="3" width="2.6" height="10" rx="1"></rect></svg></button>
+<button aria-label="Stop agent" style="width: 26px; height: 26px; border: 0; border-radius: 7px; background: transparent; display: flex; align-items: center; justify-content: center; padding: 0"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" fill="{{p.stopFill}}"><rect x="2" y="2" width="12" height="12" rx="2.5"></rect></svg></button>
+</div>
+</div>
+</div>
+</div>
+
+<!-- PROPOSED · working -->
+<div style="background: {{p.card}}; border: 1px solid {{p.border}}; border-radius: 14px; padding: 13px 14px 10px; display: flex; gap: 11px">
+<div style="position: relative; width: 38px; height: 38px; flex-shrink: 0">
+<div style="width: 38px; height: 38px; border-radius: 10px; background: #d97757; display: flex; align-items: center; justify-content: center">
+<svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="#fff" stroke-width="2.1" stroke-linecap="round"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4"></path></svg>
+</div>
+<div style="position: absolute; right: -3px; bottom: -3px; width: 11px; height: 11px; border-radius: 50%; background: {{p.blue}}; box-shadow: 0 0 0 2.5px {{p.card}}"></div>
+</div>
+<div style="flex: 1; min-width: 0; display: flex; flex-direction: column">
+<div style="display: flex; align-items: center; gap: 6px">
+<span style="font-size: 15.5px; font-weight: 500">p2d-render</span>
+<span style="font-size: 13px; color: {{p.dim}}">high</span>
+<span style="width: 7px; height: 7px; border-radius: 50%; border: 1.5px solid {{p.accent}}"></span>
+<span style="flex: 1"></span>
+<span style="font-size: 13px; color: {{p.blue}}">4m</span>
+<svg width="13" height="13" viewBox="0 0 12 12" aria-hidden="true" fill="none" stroke="{{p.dim}}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="margin-left: 6px"><path d="M3 7.5L6 4.5l3 3"></path></svg>
+</div>
+<div style="font-size: 13px; color: {{p.dim}}; margin-top: 3px">Running Bash…</div>
+
+<div style="margin-top: 10px; padding-top: 12px; border-top: 1px solid {{p.rule}}; display: flex; flex-direction: column; gap: 8px">
+<div style="font-size: 13px; color: {{p.dim}}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">~/code/paddock</div>
+<div style="display: flex; gap: 6px; flex-wrap: wrap">
+<span style="height: 24px; padding: 0 8px; display: inline-flex; align-items: center; border-radius: 6px; background: {{p.chip}}; font-size: 12.5px"><span style="color: {{p.dimmer}}">⎇ </span><span style="color: {{p.branch}}">p2d-render</span></span>
+<span style="height: 24px; padding: 0 8px; display: inline-flex; align-items: center; border-radius: 6px; background: {{p.chip}}; font-size: 12.5px"><span style="color: {{p.green}}">+25</span> <span style="color: {{p.red}}">−3</span></span>
+<span style="height: 24px; padding: 0 8px; display: inline-flex; align-items: center; border-radius: 6px; background: {{p.chip}}; font-size: 12.5px; color: {{p.dim}}">3 untracked</span>
+<span style="height: 24px; padding: 0 8px; display: inline-flex; align-items: center; border-radius: 6px; background: {{p.chip}}; font-size: 12.5px; color: {{p.blue}}">↑2 to push</span>
+</div>
+</div>
+
+<div style="margin-top: 16px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 14px; row-gap: 13px">
+<div><div style="font-size: 10px; font-weight: 500; letter-spacing: 0.07em; text-transform: uppercase; color: {{p.dimmer}}">Status</div><div style="font-size: 13px; margin-top: 3px">Working <span style="color: {{p.dim}}">· 4m 12s</span></div></div>
+<div><div style="font-size: 10px; font-weight: 500; letter-spacing: 0.07em; text-transform: uppercase; color: {{p.dimmer}}">Model</div><div style="font-size: 13px; margin-top: 3px">opus <span style="color: {{p.dim}}">· high</span></div></div>
+<div><div style="font-size: 10px; font-weight: 500; letter-spacing: 0.07em; text-transform: uppercase; color: {{p.dimmer}}">Up</div><div style="font-size: 13px; margin-top: 3px">22m</div></div>
+<div><div style="font-size: 10px; font-weight: 500; letter-spacing: 0.07em; text-transform: uppercase; color: {{p.dimmer}}">Last input</div><div style="font-size: 13px; margin-top: 3px">You <span style="color: {{p.dim}}">· 2m ago</span></div></div>
+<div><div style="font-size: 10px; font-weight: 500; letter-spacing: 0.07em; text-transform: uppercase; color: {{p.dimmer}}">Windows</div><div style="font-size: 13px; margin-top: 3px">1 <span style="color: {{p.dim}}">· open here</span></div></div>
+<div><div style="font-size: 10px; font-weight: 500; letter-spacing: 0.07em; text-transform: uppercase; color: {{p.dimmer}}">Workspace</div>
+<div style="font-size: 13px; margin-top: 3px; display: inline-flex; align-items: center; gap: 5px">My-Harness<svg width="9" height="9" viewBox="0 0 12 12" aria-hidden="true" fill="none" stroke="{{p.dim}}" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4.5L6 7.5l3-3"></path></svg></div></div>
+</div>
+
+<div style="margin-top: 14px; padding-top: 8px; border-top: 1px solid {{p.rule}}; display: flex; align-items: center; gap: 4px">
+<span style="font-family: 'SF Mono', ui-monospace, Menlo, monospace; font-size: 12px; color: {{p.dimmer}}">b18cda32ce36</span>
+<button aria-label="Copy instance ID" style="width: 24px; height: 24px; border: 0; border-radius: 6px; background: transparent; display: flex; align-items: center; justify-content: center; padding: 0"><svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="{{p.dimmer}}" stroke-width="1.5"><rect x="5.5" y="5.5" width="8" height="8" rx="2"></rect><path d="M10.5 3.5V3a1.5 1.5 0 0 0-1.5-1.5H4A1.5 1.5 0 0 0 2.5 3v5A1.5 1.5 0 0 0 4 9.5h.5"></path></svg></button>
+<span style="flex: 1"></span>
+<button aria-label="Pause agent" style="width: 26px; height: 26px; border: 0; border-radius: 7px; background: transparent; display: flex; align-items: center; justify-content: center; padding: 0"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" fill="{{p.dim}}"><rect x="4" y="3" width="2.4" height="10" rx="1.1"></rect><rect x="9.6" y="3" width="2.4" height="10" rx="1.1"></rect></svg></button>
+<button aria-label="Stop agent" style="width: 26px; height: 26px; border: 0; border-radius: 7px; background: transparent; display: flex; align-items: center; justify-content: center; padding: 0"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="{{p.dim}}" stroke-width="1.6"><rect x="3.3" y="3.3" width="9.4" height="9.4" rx="2.2"></rect></svg></button>
+</div>
+</div>
+</div>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["Dune","Tide","Catppuccin"],"default":"Dune"},"$preview":{"width":900,"height":1120}}'>
+class Component extends DCLogic {
+renderVals() {
+const palettes = {
+Dune: { page: '#1d2221', card: '#2a302f', border: '#3a4140', text: '#e7ecea', branch: '#cfd6d4', dim: '#a2acaa', dimmer: '#879290', rule: 'rgba(231,236,234,0.09)', chip: 'rgba(231,236,234,0.06)', pill: 'rgba(231,236,234,0.12)', stopFill: '#c8cfcd', green: '#9cc98e', red: '#e47a74', blue: '#7ea2ee', accent: '#86c1e6' },
+Tide: { page: '#10151c', card: '#1b232d', border: '#334050', text: '#dce4ee', branch: '#bfcad8', dim: '#8d9db1', dimmer: '#71819a', rule: 'rgba(220,228,238,0.09)', chip: 'rgba(220,228,238,0.06)', pill: 'rgba(220,228,238,0.12)', stopFill: '#b9c4d2', green: '#9cc98e', red: '#e47a74', blue: '#7ea2ee', accent: '#86c1e6' },
+Catppuccin: { page: '#11111b', card: '#1e1e2e', border: '#45475a', text: '#cdd6f4', branch: '#bac2de', dim: '#9399b2', dimmer: '#7f849c', rule: 'rgba(205,214,244,0.09)', chip: 'rgba(205,214,244,0.06)', pill: 'rgba(205,214,244,0.12)', stopFill: '#bac2de', green: '#a6e3a1', red: '#f38ba8', blue: '#89b4fa', accent: '#cba6f7' }
+};
+return { p: palettes[this.props.theme ?? 'Dune'] ?? palettes.Dune };
+}
+}
+</script>
+</body>
+</html>
