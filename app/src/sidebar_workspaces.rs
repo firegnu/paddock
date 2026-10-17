@@ -44,6 +44,14 @@ const PILE_FACE_LIT: f32 = 0.085;
 const PILE_EDGE_LIT: f32 = 0.24;
 const NAME: f32 = 13.0;
 const COUNT: f32 = 11.0;
+/// The `Idle workspaces` group (P5-134): how far its rule is below what is above it, and above
+/// its heading's words; a line of it, and the name on it.
+const IDLE_ABOVE: f32 = 14.0;
+const IDLE_RULE_GAP: f32 = 8.0;
+const IDLE_ROW: f32 = 30.0;
+const IDLE_NAME: f32 = 12.5;
+/// The line of a workspace's repositories with no agent, before the pointer is on it (P5-134).
+const VACANCIES: f32 = 0.75;
 /// The menus, and the panel.
 const GROUP_MENU: f32 = 232.0;
 const AGENT_MENU: f32 = 216.0;
@@ -168,9 +176,9 @@ fn mask(data: &'static [u8], size: Pixels, color: Hsla) -> gpui::Svg {
         .text_color(color)
 }
 
-/// What a workspace holds, faint after its name in a menu.
-fn holds(workspace: &workspaces::Workspace) -> String {
-    match workspace.repos.len() {
+/// What a workspace holds, faint after its name in a menu, or on its line among the idle ones.
+fn holds(repos: usize) -> String {
+    match repos {
         0 => "Empty".to_owned(),
         1 => "1 repo".to_owned(),
         repos => format!("{repos} repos"),
@@ -419,43 +427,22 @@ impl Sidebar {
             folded,
             showing,
             stack,
+            opened,
         } = tray;
         let hover: SharedString = format!("workspace-{name}").into();
-        let menu_open = matches!(
-            &self.floating,
-            Some(Floating::Workspace { name: open, .. }) if *open == name
-        );
-        let renaming = match &self.floating {
-            Some(Floating::Rename {
-                name: renamed,
-                input,
-                ..
-            }) if *renamed == name => Some(input.clone()),
-            _ => None,
-        };
+        let menu_open = self.workspace_menu_open(&name);
+        let renaming = self.renaming(&name);
+        // Opened with no agent, it goes back to the list's foot rather than folding (P5-134).
         let fold = {
             let name = name.clone();
-            cx.listener(move |this, _: &ClickEvent, _, cx| this.fold_workspace(&name, cx))
-        };
-        let options = {
-            let name = name.clone();
-            cx.listener(move |this, event: &MouseDownEvent, window, cx| {
-                cx.stop_propagation();
-                let menu = Floating::Workspace {
-                    name: name.clone(),
-                    removing: false,
-                };
-                this.press_menu(menu, event, window, cx);
+            cx.listener(move |this, _: &ClickEvent, _, cx| {
+                if opened {
+                    this.lower_workspace(&name, cx);
+                } else {
+                    this.fold_workspace(&name, cx);
+                }
             })
         };
-        let tip = Tip {
-            text: "Workspace options".into(),
-            size: ui.px(NOTE_SIZE),
-            color: text,
-            background: hsla(self.theme.bg(|t| t.agents_bg), 1.0),
-            border: fg(|t| t.agents_rule),
-        };
-        let lit = text.opacity(0.12);
         let label = match renaming {
             Some(input) => self.rename_field(&name, input, &ui, cx).into_any_element(),
             None => div()
@@ -523,30 +510,7 @@ impl Sidebar {
                 )
             })
             .child(div().flex_1())
-            .child(
-                div()
-                    .id("workspace-options")
-                    .flex_shrink_0()
-                    .size(ui.px(22.0))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .rounded(ui.px(6.0))
-                    .cursor_pointer()
-                    .hover(move |style| style.bg(lit))
-                    .tooltip(move |_, cx| cx.new(|_| tip.clone()).into())
-                    .on_mouse_down(MouseButton::Left, options)
-                    .map(|button| {
-                        if menu_open {
-                            button.bg(lit)
-                        } else {
-                            button
-                                .opacity(0.0)
-                                .group_hover(hover.clone(), |style| style.opacity(1.0))
-                        }
-                    })
-                    .child(mask(DOTS, ui.px(14.0), text)),
-            )
+            .child(self.options_button(&name, &hover, menu_open, &ui, cx))
             // Folded, how all its agents are doing; open, its groups' bars say.
             .when(folded, |title| title.child(bar_of(&self.theme, &ui, bar)))
             .when(menu_open, |title| {
@@ -631,6 +595,289 @@ impl Sidebar {
             .pb(px(PILE_STEP * depth as f32))
             .children(under)
             .child(top)
+            .into_any_element()
+    }
+
+    /// The workspace's `⋯` menu is open.
+    fn workspace_menu_open(&self, name: &str) -> bool {
+        matches!(
+            &self.floating,
+            Some(Floating::Workspace { name: open, .. }) if open == name
+        )
+    }
+
+    /// The field the workspace's name is in while it is renamed.
+    fn renaming(&self, name: &str) -> Option<Entity<TextInput>> {
+        match &self.floating {
+            Some(Floating::Rename {
+                name: renamed,
+                input,
+                ..
+            }) if renamed == name => Some(input.clone()),
+            _ => None,
+        }
+    }
+
+    /// A workspace's `⋯` (`Workspace options`), shown while the pointer is over what `hover`
+    /// names, or lit while its menu is open: on its title, and on its line among the idle ones.
+    fn options_button(
+        &self,
+        name: &str,
+        hover: &SharedString,
+        menu_open: bool,
+        ui: &UiFont,
+        cx: &mut Context<Self>,
+    ) -> gpui::Stateful<Div> {
+        let text = hsla(self.theme.fg(|t| t.agents_text), 1.0);
+        let options = {
+            let name = name.to_owned();
+            cx.listener(move |this, event: &MouseDownEvent, window, cx| {
+                cx.stop_propagation();
+                let menu = Floating::Workspace {
+                    name: name.clone(),
+                    removing: false,
+                };
+                this.press_menu(menu, event, window, cx);
+            })
+        };
+        let tip = Tip {
+            text: "Workspace options".into(),
+            size: ui.px(NOTE_SIZE),
+            color: text,
+            background: hsla(self.theme.bg(|t| t.agents_bg), 1.0),
+            border: hsla(self.theme.fg(|t| t.agents_rule), 1.0),
+        };
+        let lit = text.opacity(0.12);
+        let hover = hover.clone();
+        div()
+            .id("workspace-options")
+            .flex_shrink_0()
+            .size(ui.px(22.0))
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded(ui.px(6.0))
+            .cursor_pointer()
+            .hover(move |style| style.bg(lit))
+            .tooltip(move |_, cx| cx.new(|_| tip.clone()).into())
+            .on_mouse_down(MouseButton::Left, options)
+            .map(|button| {
+                if menu_open {
+                    button.bg(lit)
+                } else {
+                    button
+                        .opacity(0.0)
+                        .group_hover(hover, |style| style.opacity(1.0))
+                }
+            })
+            .child(mask(DOTS, ui.px(14.0), text))
+    }
+
+    // The workspaces with no agent (P5-134).
+
+    /// A workspace with no agent opened from the list's foot: up, and open.
+    fn raise_workspace(&mut self, name: &str, cx: &mut Context<Self>) {
+        self.listing.panel.raise(name);
+        self.folds_changed(cx);
+    }
+
+    /// An opened workspace with no agent back down to the list's foot, its folds as they were.
+    fn lower_workspace(&mut self, name: &str, cx: &mut Context<Self>) {
+        self.listing.panel.lower(name);
+        cx.notify();
+    }
+
+    /// The heading of the `Idle workspaces` group at the list's foot, `count` of them, under a
+    /// faint rule: as a group's heading, its arrow after the count; a click folds it or opens it.
+    pub(super) fn idle_heading(
+        &self,
+        count: usize,
+        folded: bool,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let ui = UiFont::get(cx);
+        let fg = |pick: Pick| hsla(self.theme.fg(pick), 1.0);
+        let (dim, dimmer) = (fg(|t| t.agents_dim), fg(|t| t.agents_dimmer));
+        let lit = fg(|t| t.agents_text).opacity(0.06);
+        let hover: SharedString = "idle-workspaces".into();
+        let row = div()
+            .id("idle-workspaces")
+            .group(hover.clone())
+            .flex()
+            .items_center()
+            .gap(ui.px(6.0))
+            .px(px(8.0))
+            .py(px(HEADING_Y))
+            .rounded(px(7.0))
+            .cursor_pointer()
+            .hover(move |style| style.bg(lit))
+            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.fold_idle(cx)))
+            .child(
+                div()
+                    .flex()
+                    .items_baseline()
+                    .gap(ui.px(6.0))
+                    .text_size(ui.px(GROUP_NAME_SIZE))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child(
+                        div()
+                            .text_color(dimmer)
+                            .group_hover(hover.clone(), move |style| style.text_color(dim))
+                            .child("Idle workspaces"),
+                    )
+                    .child(
+                        div()
+                            .text_size(ui.px(GROUP_COUNT_SIZE))
+                            .text_color(dimmer.opacity(0.6))
+                            .child(count.to_string()),
+                    ),
+            )
+            .child(
+                mask(
+                    if folded { CHEVRON_RIGHT } else { CHEVRON_DOWN },
+                    ui.px(CHEVRON),
+                    dimmer,
+                )
+                .when(!folded, |arrow| {
+                    arrow
+                        .opacity(0.0)
+                        .group_hover(hover, |style| style.opacity(1.0))
+                }),
+            );
+        // Apart from what is above, the rule a little over its words; down to its first line,
+        // only the gap between lines.
+        div()
+            .mt(px(IDLE_ABOVE - CARD_GAP))
+            .pt(px(IDLE_RULE_GAP - HEADING_Y))
+            .mb(px(-HEADING_Y))
+            .border_t_1()
+            .border_color(self.grounds().rule)
+            .child(row)
+            .into_any_element()
+    }
+
+    /// A workspace with no agent in the `Idle workspaces` group: the hollow sheets, faint, its
+    /// name and how many repositories it holds; lit under the pointer, with its `⋯` (the title's
+    /// menu, `Rename` in this line). A click brings it up, open.
+    pub(super) fn idle_workspace(
+        &self,
+        name: &str,
+        repos: usize,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let ui = UiFont::get(cx);
+        let fg = |pick: Pick| hsla(self.theme.fg(pick), 1.0);
+        let (text, dim, dimmer) = (
+            fg(|t| t.agents_text),
+            fg(|t| t.agents_dim),
+            fg(|t| t.agents_dimmer),
+        );
+        let lit = text.opacity(0.06);
+        let hover: SharedString = format!("idle-{name}").into();
+        let menu_open = self.workspace_menu_open(name);
+        let label = match self.renaming(name) {
+            Some(input) => self.rename_field(name, input, &ui, cx).into_any_element(),
+            None => div()
+                .flex_shrink(1.0)
+                .min_w(px(0.0))
+                .overflow_hidden()
+                .whitespace_nowrap()
+                .text_ellipsis()
+                .text_size(ui.px(IDLE_NAME))
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(dim.blend(text.opacity(0.5)))
+                .child(name.to_owned())
+                .into_any_element(),
+        };
+        let raise = {
+            let name = name.to_owned();
+            cx.listener(move |this, _: &ClickEvent, _, cx| this.raise_workspace(&name, cx))
+        };
+        let holds = div()
+            .flex_shrink_0()
+            .text_size(ui.px(COUNT))
+            .text_color(dimmer)
+            .child(holds(repos));
+        div()
+            .id(ElementId::Name(hover.clone()))
+            .group(hover.clone())
+            .relative()
+            .flex()
+            .items_center()
+            .gap(ui.px(8.0))
+            .h(ui.px(IDLE_ROW))
+            .px(px(8.0))
+            .rounded(px(8.0))
+            .cursor_pointer()
+            .hover(move |style| style.bg(lit))
+            .when(menu_open, |row| row.bg(lit))
+            .on_click(raise)
+            .child(mask(LAYERS, ui.px(13.0), dimmer))
+            .child(label)
+            .child(div().flex_1())
+            .child(holds)
+            .child(self.options_button(name, &hover, menu_open, &ui, cx))
+            .when(menu_open, |row| {
+                row.child(Self::hung(self.workspace_menu(name, &ui, cx), false))
+            })
+            .into_any_element()
+    }
+
+    /// The repositories of `workspace` with no agent, in one faint line after its groups:
+    /// an arrow, their names, `No agents` (P5-134). A click opens them out, a line each, or puts
+    /// them back.
+    pub(super) fn vacancies(
+        &self,
+        workspace: &str,
+        repos: &[String],
+        open: bool,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let ui = UiFont::get(cx);
+        let fg = |pick: Pick| hsla(self.theme.fg(pick), 1.0);
+        let dimmer = fg(|t| t.agents_dimmer);
+        let lit = fg(|t| t.agents_text).opacity(0.06);
+        let on_click = {
+            let workspace = workspace.to_owned();
+            cx.listener(move |this, _: &ClickEvent, _, cx| this.fold_vacant(&workspace, cx))
+        };
+        div()
+            .id(SharedString::from(format!("vacancies-{workspace}")))
+            .flex()
+            .items_center()
+            .gap(ui.px(6.0))
+            .px(px(4.0))
+            .py(px(2.0))
+            .rounded(px(6.0))
+            .cursor_pointer()
+            .opacity(VACANCIES)
+            .hover(move |style| style.bg(lit).opacity(1.0))
+            .on_click(on_click)
+            .text_size(ui.px(GROUP_NAME_SIZE))
+            .child(mask(
+                if open { CHEVRON_DOWN } else { CHEVRON_RIGHT },
+                ui.px(CHEVRON),
+                dimmer,
+            ))
+            .child(
+                div()
+                    .flex_shrink(1.0)
+                    .min_w(px(0.0))
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .text_ellipsis()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(dimmer)
+                    .child(repos.join(", ")),
+            )
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .whitespace_nowrap()
+                    .text_size(ui.px(GROUP_COUNT_SIZE))
+                    .text_color(dimmer.opacity(0.6))
+                    .child("No agents"),
+            )
             .into_any_element()
     }
 
@@ -806,7 +1053,7 @@ impl Sidebar {
         let Some(name) = kept else {
             return;
         };
-        self.listing.panel.folded.rename_workspace(from, &name);
+        self.listing.panel.rename_workspace(from, &name);
         self.folds_changed(cx);
         self.close_floating(window, cx);
     }
@@ -814,7 +1061,7 @@ impl Sidebar {
     /// `Remove workspace`, confirmed: the grouping goes, its members back to the list below.
     fn remove_workspace(&mut self, name: &str, window: &mut Window, cx: &mut Context<Self>) {
         self.edit_workspaces(cx, |all| all.remove(name));
-        self.listing.panel.folded.forget_workspace(name);
+        self.listing.panel.forget_workspace(name);
         self.folds_changed(cx);
         self.close_floating(window, cx);
     }
@@ -922,7 +1169,7 @@ impl Sidebar {
                 .flex_shrink_0()
                 .text_size(ui.px(COUNT))
                 .text_color(faint)
-                .child(holds(workspace));
+                .child(holds(workspace.repos.len()));
             panel = panel.child(
                 self.workspace_row(ui, ("to-workspace", index), &workspace.name, holds)
                     .on_click(on_click),
@@ -1343,16 +1590,25 @@ impl Sidebar {
         // A workspace another window removed meanwhile has no members to set; a name that will
         // not do keeps the panel open.
         let mut done = workspace.is_some();
+        let mut made = None;
         self.edit_workspaces(cx, |all| {
             let name = match (workspace, typed) {
                 (Some(name), _) => Some(name),
-                (None, typed) => all.create(&typed.unwrap_or_default()).ok(),
+                (None, typed) => {
+                    made = all.create(&typed.unwrap_or_default()).ok();
+                    made.clone()
+                }
             };
             if let Some(name) = name {
                 all.set_picked(&name, &picks);
                 done = true;
             }
         });
+        // A new one stays up and open while it has no agent, rather than at the list's foot
+        // (P5-134).
+        if let Some(name) = made {
+            self.raise_workspace(&name, cx);
+        }
         if done {
             self.close_floating(window, cx);
         }

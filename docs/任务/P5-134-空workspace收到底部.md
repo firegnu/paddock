@@ -63,3 +63,33 @@
 
 ## 做完
 在本文件末尾追加「## 完成记录」（在你的分支里提交）：做了什么、验证了什么、拿主意的地方、没做的事、踩过的坑（试了不行换了办法的，工具或环境和预想不一样的；没有就写「没有」）。回复里只写这几样，加上有没有要主控决定的事。命令都在前台跑完，全部做完后，回复最后一行写 DONE。
+
+## 完成记录
+
+### 做了什么
+- `app/src/agents.rs`：`Folds` 加 `idle`（`Idle workspaces` 收着）、`vacant_open`（哪些 workspace 的合成行展开着），改名、删掉时跟着走；默认值时不写进布局文件。`Panel` 加只在内存里的 `opened`（点开的、新建的空 workspace），`raise`（放上来并展开）、`lower`（放回底下，收起状态不动）、`rename_workspace`、`forget_workspace`；每次读到 corral、读到 Git、改名单后，已经有 agent 的从 `opened` 里去掉，这样 agent 全停后它回到底下。
+- `app/src/card.rs`：`Line` 加 `Idle`、`IdleWorkspace`、`Vacancies`，`Tray` 加 `opened`。闲着、没点开的 workspace 进列表最末尾的小组（按名字）；点开的照展开画、不管记着的收起；有 agent 的 workspace 里没 agent 的仓库两个以上合成最后一行，展开时后面逐行。
+- `app/src/sidebar.rs`、`app/src/sidebar_workspaces.rs`：画小组标题（淡分隔线、同仓库小标题的样子）、小组里的行（层叠图标、名字、`Empty`/`1 repo`/`3 repos`、悬停 `⋯` 和同一个菜单、就地改名）、合成行；点行放上来、点放上来的空 workspace 的标题放回底下；新建 workspace 后放上来；改名、删掉跟着走。没有 agent 时 `No agents yet` 在小组上面剩下的地方居中。窄条里这些行都不占地方。`⋯` 按钮抽成 `options_button`，标题和小组里的行共用。
+- `docs/DESIGN.md`：P5-89 那句后注明 P5-134 改了；P5-129a 后加 P5-134 一条。
+
+### 验证了什么
+- 新测试：`app/tests/workspaces.rs` 三条（闲着的进小组、按名字排、小组收起、有 agent（含按前缀跟进来的）回到上面并照记着的收起状态画、agent 停了回到底下、没有 agent 时只剩小组；点开和新建的留在上面并展开、点标题回到底下且收起状态不变、开了 agent 后照常、停了回到底下、建的时候就有 agent 的不留、改名删掉跟着走、新 `Panel`（相当于重开）都在底下；合成行两个以上才合、点开逐行、workspace 收起时都不显示、剩一个时照旧夹在组中间），`app/tests/layout_state.rs` 一条（`idle`、`vacant_open` 存读，旧布局文件当小组展开、合成行收着）。
+- 原有两条测试的期望按新规矩改了：`workspaces_come_first_…` 里空的 `Zoo` 从托盘变成末尾小组里的一行；`a_folded_workspace_stacks_…` 里空的 `Vacant` 不再有标题。其余原有测试不动，`folded_groups_are_saved_…` 的“原样写回”照旧通过（新字段默认值不写）。
+- `git diff --check`；`app/` 下 `cargo test --all-targets`、`cargo clippy --all-targets -- -D warnings`、`cargo fmt --check` 都过了。
+- 没起窗口截图（任务要求），样子留给用户看。
+
+### 拿主意的地方
+- 点开小组里的一行时，它记着的收起状态一并改成展开：不然记着“收着”的 workspace 点开后、里面开了 agent，就会突然收成一摞。点标题放回底下时收起状态照任务不动。
+- `Idle workspaces` 标题照现有仓库小标题的画法：名字、个数、个数后面的箭头（鼠标停上去或收着时出现），没照样稿把箭头放在名字前；小组里的行左边和标题的字对齐（样稿也是图标对着标题名字）。
+- 合成行照样稿：箭头在前，平时 0.75 透明度，鼠标停上去变亮加淡底。
+- 新字段在默认值时不写进布局文件，没有用到时文件和以前一样。
+- 新建时带进来的仓库已有 agent 的，不记进 `opened`（它本来就在上面）。
+- 没有 agent 时 `No agents yet` 放在小组上面剩下的地方居中；corral 还没读到时小组不画，免得开窗口时先在底下出现、读到后又跳上去。
+
+### 没做的事
+- 收起的 workspace 现在一定有 agent，托盘里“收起又没有 agent”时的 `LAYERS_FILLED` 图标实际画不到了，按“不改托盘画法”留着没删。
+- 鼠标停在小组标题上的样子、浅色主题、窄条，样稿没画，照现有仓库小标题的做法，没有另外设计。
+- 测试是先写实现再写的，没有先跑出红。
+
+### 踩过的坑
+没有。

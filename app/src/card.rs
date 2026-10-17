@@ -648,6 +648,9 @@ pub struct Tray {
     /// The agents whose cards its folded title stacks, by name, the front one first (P5-91): the
     /// active pane's when it is one of them, then the others as they are listed, [`MOST`] in all.
     pub stack: Vec<String>,
+    /// Up and open with no agent, as it was opened from the list's foot or just made: a click on
+    /// its title sends it back there rather than folding it (P5-134).
+    pub opened: bool,
 }
 
 /// The most cards a folded workspace's title or a folded group's heading stacks, as a split tab's
@@ -681,9 +684,27 @@ pub enum Line {
         workspace: String,
         repo: String,
     },
+    /// Two or more of them in a workspace with agents, in one line after its groups, their names
+    /// in order (P5-134); `open`, their own lines follow.
+    Vacancies {
+        workspace: String,
+        repos: Vec<String>,
+        open: bool,
+    },
     /// A workspace with nothing to list, by its name.
     Empty(String),
     Agent(Box<Card>),
+    /// The heading of the group at the list's foot of the workspaces with no agent (P5-134), how
+    /// many; their lines follow unless it is folded.
+    Idle {
+        count: usize,
+        folded: bool,
+    },
+    /// A workspace with no agent in that group: its name and how many repositories it has.
+    IdleWorkspace {
+        name: String,
+        repos: usize,
+    },
 }
 
 /// Where a status goes in a group's bar.
@@ -700,7 +721,8 @@ fn bar_rank(status: Status) -> u8 {
 
 /// The panel's lines. `selected` is the active pane's agent and `here` every agent open in this
 /// window; `home` the home directory, written `~`. Text is whole: the drawing fits it to the card.
-/// The workspaces come first, by name, each with its groups; then the groups in none. A folded
+/// The workspaces come first, by name, each with its groups; then the groups in none; then, under
+/// the `Idle workspaces` heading, the workspaces with no agent but those opened (P5-134). A folded
 /// group is its heading alone, a folded workspace its title.
 pub fn lines(
     panel: &Panel,
@@ -804,6 +826,8 @@ fn listed(
     let same_group = |a: &&Agent, b: &&Agent| panel.group(a) == panel.group(b);
     // `ordered` has the workspaces' agents first, a workspace after another.
     let mut rest = &ordered[..];
+    // The workspaces with no agent, but those opened, lie at the list's foot (P5-134).
+    let mut idle = Vec::new();
     for workspace in panel.workspaces.list() {
         let name = workspace.name.as_str();
         let count = rest
@@ -812,7 +836,16 @@ fn listed(
             .count();
         let (agents, after) = rest.split_at(count);
         rest = after;
-        let folded = panel.folded.workspace(name);
+        let opened = agents.is_empty() && panel.opened(name);
+        if agents.is_empty() && !opened {
+            idle.push(Line::IdleWorkspace {
+                name: name.to_owned(),
+                repos: workspace.repos.len(),
+            });
+            continue;
+        }
+        // Opened, it is open whatever is kept of it.
+        let folded = !opened && panel.folded.workspace(name);
         lines.push(Line::Workspace(Tray {
             name: name.to_owned(),
             count,
@@ -820,6 +853,7 @@ fn listed(
             folded,
             showing: showing(agents),
             stack: stacked(agents, selected),
+            opened,
         }));
         if folded && folds {
             continue;
@@ -841,6 +875,22 @@ fn listed(
             workspace: name.to_owned(),
             repo,
         };
+        // Two or more beside agents: one line after its groups, opened out on a click (P5-134).
+        if !agents.is_empty() && vacant.len() > 1 {
+            for agents in agents.chunk_by(same_group) {
+                section(&mut lines, agents, Some(workspace));
+            }
+            let open = panel.folded.vacant_open(name);
+            lines.push(Line::Vacancies {
+                workspace: name.to_owned(),
+                repos: vacant.clone(),
+                open,
+            });
+            if open || !folds {
+                lines.extend(vacant.into_iter().map(empty));
+            }
+            continue;
+        }
         let mut vacant = vacant.into_iter().peekable();
         for agents in agents.chunk_by(same_group) {
             let group = panel.group(agents[0]);
@@ -853,6 +903,16 @@ fn listed(
     }
     for agents in rest.chunk_by(same_group) {
         section(&mut lines, agents, None);
+    }
+    if !idle.is_empty() {
+        let folded = panel.folded.idle;
+        lines.push(Line::Idle {
+            count: idle.len(),
+            folded,
+        });
+        if !folded || !folds {
+            lines.extend(idle);
+        }
     }
     lines
 }
