@@ -594,6 +594,22 @@ impl Form {
         self.regular = preset.role == Role::Regular;
     }
 
+    /// How the form opens: as the first controller preset while the project has no `main` yet;
+    /// otherwise a regular Claude agent at its deepest model and normal effort.
+    pub fn open(&mut self, presets: &[Preset]) {
+        self.pick_tool(Tool::Claude);
+        self.regular = true;
+        if self.names.contains(&format!("{}/main", self.prefix)) {
+            return;
+        }
+        if let Some(preset) = presets
+            .iter()
+            .find(|preset| preset.role == Role::Controller)
+        {
+            self.apply(preset);
+        }
+    }
+
     /// Whether the form is set as `preset` sets it.
     pub fn matches(&self, preset: &Preset) -> bool {
         self.tool == preset.kind
@@ -1192,6 +1208,37 @@ mod tests {
         let saved = form.preset("Mine".into());
         assert_eq!(saved.name, "Mine");
         assert!(form.matches(&saved));
+    }
+
+    #[test]
+    fn it_opens_as_the_controller_preset_unless_the_project_has_a_main() {
+        let presets = default_presets();
+        let lit = |index| {
+            Some(Lit {
+                index,
+                edited: false,
+            })
+        };
+        let mut form = Form::new("/tmp/demo".into(), Place::Current);
+        form.set_names(vec!["demo/claude-1".into(), "other/main".into()]);
+        form.open(&presets);
+        assert!(!form.regular);
+        assert_eq!(form.lit(&presets), lit(0));
+
+        // demo/main is taken: a regular Claude agent, as before, which Developer lights.
+        let mut form = Form::new("/tmp/demo".into(), Place::Current);
+        form.set_names(vec!["demo/main".into()]);
+        form.open(&presets);
+        assert!(form.regular);
+        assert_eq!(form.name, "claude-1");
+        assert_eq!(form.lit(&presets), lit(1));
+
+        // No controller preset: the same.
+        let regular: Vec<Preset> = presets[1..].to_vec();
+        let mut form = Form::new("/tmp/demo".into(), Place::Current);
+        form.open(&regular);
+        assert!(form.regular);
+        assert_eq!(form.lit(&regular), lit(0));
     }
 
     #[test]
