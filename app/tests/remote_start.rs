@@ -32,19 +32,33 @@ printf '%s\0' "$*" >> "$root/calls"
 HOME="$root/home" PATH=/usr/bin:/bin SHELL="$root/login-shell" exec /bin/sh -c "$*"
 "#;
 
-/// The user's shell there, as `$SHELL` names it: notes how it is asked, and as a login shell
-/// (`-l`) reads the profile before the command, which `sh -c` then runs. It stands in for the
-/// user's own `zsh -l`, without this Mac's `/etc/profile`.
+/// The user's shell there, as `$SHELL` names it: notes how it is asked; as a login shell (`-l`)
+/// reads the profile, as an interactive one (`-i`) its rc, before the command, which `sh -c` then
+/// runs. It stands in for the user's own zsh on the 5090, whose nvm is set up in `~/.zshrc`, which
+/// zsh reads only when interactive (P5-124b); and it reads nothing of this Mac's.
 const LOGIN_SHELL: &str = r#"#!/bin/sh
 root=$(dirname "$0")
-printf '%s %s\n' "$1" "$2" >> "$root/logins"
-if [ "$1" = -l ]; then . "$HOME/.profile"; shift; fi
+asked= login= interactive=
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -l) asked="$asked -l"; login=1; shift ;;
+    -i) asked="$asked -i"; interactive=1; shift ;;
+    -c) break ;;
+    *) exit 64 ;;
+  esac
+done
+printf '%s\n' "${asked# }" >> "$root/logins"
+if [ -n "$login" ]; then . "$HOME/.profile"; fi
+if [ -n "$interactive" ]; then . "$HOME/.shrc"; fi
 [ "$1" = -c ] || exit 64
 exec /bin/sh -c "$2"
 "#;
 
-/// The login profile there: a greeting, then the agents' directory on the PATH.
-const PROFILE: &str = "echo 'Welcome to studio'\nPROFILE_RAN=yes\nexport PROFILE_RAN\nPATH=\"$HOME/nvm/bin:$PATH\"\nexport PATH\n";
+/// The login profile there: a greeting.
+const PROFILE: &str = "echo 'Welcome to studio'\nPROFILE_RAN=yes\nexport PROFILE_RAN\n";
+
+/// The rc there, read by an interactive shell: the agents' directory on the PATH, as nvm's.
+const SHRC: &str = "PATH=\"$HOME/nvm/bin:$PATH\"\nexport PATH\n";
 
 /// The fake `corral` there: its version; `start` notes its arguments and whether the login
 /// profile ran, refuses a directory that is not there as corral does, and starts the next free
@@ -100,8 +114,8 @@ impl Fake {
     }
 }
 
-/// `studio` behind the fake ssh, connected; pi and claude installed where only the login profile
-/// looks.
+/// `studio` behind the fake ssh, connected; pi and claude installed where only the rc of an
+/// interactive login shell looks, as nvm's on the 5090.
 fn studio() -> Fake {
     let dir = common::tempdir();
     let root = dir.path().to_path_buf();
@@ -112,6 +126,7 @@ fn studio() -> Fake {
     std::fs::create_dir_all(&bin).unwrap();
     common::script(&bin, "corral", &corral(&root));
     std::fs::write(home.join(".profile"), PROFILE).unwrap();
+    std::fs::write(home.join(".shrc"), SHRC).unwrap();
     let agents = home.join("nvm/bin");
     std::fs::create_dir_all(&agents).unwrap();
     for kind in ["pi", "claude", "amp"] {
@@ -146,10 +161,10 @@ fn the_kinds_offered_are_those_the_login_shell_there_finds() {
         )
         .unwrap();
     assert!(plain.stdout.is_empty());
-    // The user's own shell there, as a login shell.
+    // The user's own shell there, as an interactive login shell.
     assert_eq!(
         std::fs::read_to_string(studio.root().join("logins")).unwrap(),
-        "-l -c\n"
+        "-l -i\n"
     );
 }
 

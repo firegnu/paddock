@@ -1,6 +1,6 @@
 //! Starting an agent on another machine (DESIGN §13 P5-124), the simple way: the kind, the
 //! directory and the name, nothing else. What runs there goes through the user's own login shell
-//! there (`$SHELL -l -c`), as an agent installed under nvm or the like is found only there; every
+//! there (`$SHELL -l -i -c`), as an agent installed under nvm or the like is found only there; every
 //! word the user typed is quoted as [`crate::remote::quote`] has it. `~` is that machine's home, as
 //! it said on connecting, never this Mac's. Nothing here runs on the UI thread.
 use crate::{
@@ -25,10 +25,15 @@ const START: Duration = Duration::from_secs(120);
 /// How many directories are remembered for each machine.
 const RECENT: usize = 5;
 
-/// `inner` run by the login shell of the user there, the shell `$SHELL` names (`sh` when unset):
-/// what its profile puts on the PATH is found.
+/// `inner` run by the shell of the user there, the one `$SHELL` names (`sh` when unset), as an
+/// interactive login shell, its standard input on nothing: what its profile or its rc puts on the
+/// PATH is found, as in a terminal there. zsh reads `~/.zshrc`, where nvm is set up, only when
+/// interactive (P5-124b).
 pub fn login(inner: &str) -> String {
-    format!("exec \"${{SHELL:-/bin/sh}}\" -l -c {}", quote(inner))
+    format!(
+        "exec \"${{SHELL:-/bin/sh}}\" -l -i -c {} </dev/null",
+        quote(inner)
+    )
 }
 
 /// The command that says which of [`KINDS`] the login shell there finds: `command -v` for each,
@@ -334,9 +339,10 @@ mod tests {
     /// The words the login shell there is given, as `sh` reads the command ssh hands it.
     fn as_run(command: &str) -> Vec<String> {
         let words = shell_words::split(command).unwrap();
-        assert_eq!(words[..4], ["exec", "${SHELL:-/bin/sh}", "-l", "-c"]);
-        assert_eq!(words.len(), 5, "{command}");
-        shell_words::split(&words[4]).unwrap()
+        assert_eq!(words[..5], ["exec", "${SHELL:-/bin/sh}", "-l", "-i", "-c"]);
+        assert_eq!(words.len(), 7, "{command}");
+        assert_eq!(words[6], "</dev/null");
+        shell_words::split(&words[5]).unwrap()
     }
 
     #[test]
@@ -347,7 +353,7 @@ mod tests {
             name: "p/it's;$x".into(),
         };
         let command = request.command("/home/me/.local/bin/corral", "/home/me");
-        assert!(command.starts_with("exec \"${SHELL:-/bin/sh}\" -l -c '"));
+        assert!(command.starts_with("exec \"${SHELL:-/bin/sh}\" -l -i -c '"));
         assert_eq!(
             as_run(&command),
             [
@@ -456,7 +462,8 @@ mod tests {
     #[test]
     fn the_kinds_found_are_read_in_order_past_whatever_the_profile_printed() {
         let command = look_command();
-        let inner = &shell_words::split(&command).unwrap()[4];
+        let inner = &shell_words::split(&command).unwrap()[5];
+        assert!(command.starts_with("exec \"${SHELL:-/bin/sh}\" -l -i -c '"));
         assert!(inner.contains("for kind in claude codex pi omp; do"));
         assert!(inner.contains("command -v \"$kind\""));
         assert_eq!(found(b"Welcome to 5090\nomp\npi\n"), [Tool::Pi, Tool::Omp]);
