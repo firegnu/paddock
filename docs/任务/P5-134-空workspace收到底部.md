@@ -93,3 +93,12 @@
 
 ### 踩过的坑
 没有。
+
+## 主控审查
+
+2026-10-17，paddock/main。
+- 看了 diff：只动了 `agents.rs`（`Folds` 加 `idle`、`vacant_open`，`Panel` 加内存里的 `opened`）、`card.rs`（`Line` 加 `Vacancies`、`Idle`、`IdleWorkspace`）、`sidebar.rs`、`sidebar_workspaces.rs`、两份测试和 DESIGN；没改 `workspaces.json` 格式和成员规则，“不要做”里的没做。
+- 重跑 `app/` 下 `cargo test --all-targets`：28 组 763 个全过；`clippy -D warnings`、`fmt --check`、`git diff --check` 通过。
+- 取舍：点开底下那行时一并把它记着的收起状态改成展开——同意（否则点开后一开 agent 会突然收成一摞）；`Idle workspaces` 标题箭头照仓库小标题放在个数后面、悬停或收着时才出——同意（任务写的是“样子同仓库小标题”）；建时就带着有 agent 的仓库的不记成“点开留在上面”、corral 没读到时不画小组、默认值不写进布局文件——同意。`LAYERS_FILLED` 不再画到但留着，照任务不改托盘画法，记一笔，不删。
+- 主控没起窗口看样子：画法、悬停、改名、窄条、浅色主题留给用户实际看。
+结果：一次过
