@@ -87,3 +87,12 @@
 - 改了什么：`app/src/cairn_view.rs` 的 `session()` 里，Next session 的摘要加了 `.max_h(ui.px(12.5 * 1.5 * 2.0)).overflow_hidden()`（37.5 点 × `ui` 缩放），仍不加 `text_ellipsis`、不用 `line_clamp`；Earlier 行那处 `text_ellipsis` 的改动保留。`session()` 的文档注释和 `docs/DESIGN.md` P5-110 那句同步改成“整段换行、只露前两行、多的藏起来、不加 `…`”。
 - 验证：只跑了 `git diff --check`、`cargo test --all-targets`、`cargo clippy --all-targets -- -D warnings`、`cargo fmt --check` 各一次，全部通过；没开窗口、没截图。两行高度和行高的算法一致（12.5 × 1.5 × 2 = 37.5 点，再乘界面缩放的同一个系数）。
 - 测试第一次全量跑时 `tests/remote.rs` 的 `a_machine_that_hangs_or_fails_never_holds_this_macs_agents_back` 超时失败，单独重跑通过，再全量重跑 27 个测试目标全绿；和这次的时间无关改动，按偶发处理。
+
+## 主控审查
+
+- 原因查得对：只在中文摘要上出现，GPUI `line_clamp`+`text_ellipsis` 截断时把中文估窄，最后一行比框宽、右边被切掉；有实测数字撑着。
+- 第一版去掉了两行上限，改了 P5-110 批准过的样子而没先停下问；主控把影响报给用户，用户选“仍两行、整段换行后藏掉第三行起、不加 …”，交回返工一次。
+- 返工 diff：Next session 摘要 `max_h` 两行（12.5 × 1.5 × 2，随界面缩放）加 `overflow_hidden`，摘要块没有上下内边距，高度正好两行；Earlier 一行的 `text_ellipsis` 挪到不换行的容器上；DESIGN P5-110、注释同步。只动了该动的文件，没开窗口。
+- 影响面看得见：看了 diff 和 `git diff --check`，没重跑套件；omp 报全套过（一次 `tests/remote.rs` 超时偶发，单跑和重跑全量都过），记下不追。
+- 没截图，样子留给用户装好后看。
+结果：返工 1 次
