@@ -56,3 +56,39 @@
 
 ## 做完
 在本文件末尾追加「## 完成记录」（在你的分支里提交）：做了什么、验证了什么、拿主意的地方、没做的事、踩过的坑（试了不行换了办法的，工具或环境和预想不一样的；没有就写「没有」）。回复里只写这几样，加上有没有要主控决定的事。命令都在前台跑完，全部做完后，回复最后一行写 DONE。
+
+## 完成记录
+
+### 做了什么
+- `app/src/remote_start.rs`：`Request` 改成 `agent`（`Agent::Kind(种类)` 或 `Agent::Custom`）+ `command`（照打的字）+ 目录 + 名字。`check_command` 照 shell 写法拆词（`shell_words`，同本机 `Form::args`），引号没配对、空、带控制字符时报到 `Field::Command`，排在目录之前；`start` 先查问题，有问题不连远端。拆出的词开头的 `~`、`~/` 换成那台的 HOME 再照 `command_line`/`quote` 引起来，经 P5-124b 的交互登录 shell 跑 `corral start … -- <这些词>`。`custom_name`（第一个词最后一段，按名字前缀的规则）、`edited`（和种类自己的命令逐词比）、`default_name` 改成收胶囊名或种类。新 `Commands`（`remote-agent-commands.json`，在 `recent-remote-dirs.json` 旁边、各是各的文件）：按机器 `name` 记 `edited`、`custom`；`remember`／`forget`／`customs`；`keep` 只在起成功后同时记最近目录和命令。存文件的写法和最近目录共用一个 `save_json`。
+- `app/src/remote_agent_view.rs`：照样稿 F、G 加 Command 行、自己加的胶囊（虚线图标或已知种类的图标、`×`）、`+ Custom…`、`Edited, kept for … · Reset to …`、`Once it starts, … is kept for … next to the others.`、Agent 下那句 `Found on …, and the ones you added.`；凹槽能换行；对话框宽 480 → 560（样稿 F、G 的宽度）；键盘：Tab 走 Agent → Command →（有时）Reset → Directory → Name，←→ 走所有胶囊，选 `+ Custom…` 焦点到 Command，凹槽上 ⌫／Delete 删选中的自己加的那颗，Reset 链接上 Return／Space；`Starting…` 时胶囊、`×`、Reset 变淡不响应。
+- `app/tests/remote_start.rs`：老的三处改成新 `Request`，加四个集成测试。
+- `docs/DESIGN.md` §13 P5-124 后补了 P5-124c 一条。
+
+### 验证了什么
+- 单元测试（`remote_start.rs`，新加 8 个）：拆词后再引号（空格、单双引号、`$`、`;`、反引号原样，`~` 换成远端 HOME，`x~/y` 不动）；引号没配对、空、控制字符报到 Command 上且排在目录前；有问题的请求不发出去；胶囊名的取法和图标；逐词比较算不算改过；记住的规则（按机器分开、改过的记在那一种上、用回自己的命令删掉改过的、同名替换不挪位置、删一颗只删这台的）；状态文件读写、和最近目录互不干扰、坏文件当成空的、手改的读不成的略过。
+- 集成测试（假 ssh、假登录 shell、假 corral，新加 4 个）：自己的命令原样到 corral、远端没执行 `touch`（三种注入写法都没有生成文件）、走了登录 profile；改过的种类命令照样起；引号没配对或空时一次 ssh 都没有发；起失败什么都不记、起成功才记。
+- 为确认测试真能抓错：临时把“起失败也记”和“不换 `~`”两处改坏，对应的单元、集成测试各自变红，改回后全绿。（测试和实现是一起写的，没有先跑出红再写实现，用这个代替。）
+- `git diff --check` 通过；`app/` 下 `cargo test --all-targets` 全过（lib 592 个等，0 失败），`cargo clippy --all-targets -- -D warnings` 无警告，`cargo fmt --check` 通过。
+- 没起窗口、没截图：样子、悬停、键盘、输入法都留给用户实际看。
+
+### 拿主意的地方
+- `~` 换成远端 HOME：corral 直接 exec 这些词、不经 shell（读了 `../ranch` 的 `pen.rs` 确认），样稿占位字就是 `~/bin/my-agent`，不换就起不来。每个词开头的 `~`、`~/` 都换（同 shell 对没加引号的 `~`）；代价是用户特意加引号的 `'~/x'` 也会被换，拆词以后分不出来。
+- Command 下面固定两行（第一行 `Runs through your login shell on …`，第二行是改过／会记成什么／出错原因）：样稿把它们写在一行，但 G 那句在 560 宽里放不下一行，换胶囊时会一行两行来回跳、按钮上下挪，和「不跳」冲突。字照样稿，只是分两行。
+- 对话框宽度跟 F、G 改成 560（C 是 480）。
+- Agent 下那句：有自己加的才写 `, and the ones you added.`，一颗都没加时只写 `Found on <显示名>.`，免得说一句不存在的事。
+- 已知种类的图标按胶囊名认（`/usr/local/bin/amp` 也用 amp 的图标），不只是第一个词正好等于 `amp`。
+- 自己加的胶囊改命令：名字不变算改过（有 `Reset to <名字>`，起成功后替换它）；名字变了起成功后另成一颗，原来那颗留着。
+- 在 `+ Custom…` 里写 `pi --x` 会变成一颗叫 `pi` 的自己加的胶囊，和探测到的 pi 并排（照「自定义的变成一颗胶囊」字面做的，没有改成记到探测到的 pi 上）。
+- 对话框开着时每颗胶囊打过的字各自留着，换回来还在，关掉就没了；没起成功的不记。
+- `×` 的「键盘焦点」做成：凹槽有焦点、选中的正是这颗时 `×` 显示成淡强调色底，按 ⌫／Delete 删掉。`Reset to …` 进了 Tab 顺序（在 Command 和 Directory 之间，只在出现时），任务写的顺序里没有它，不进的话键盘碰不到它。
+- 查种类的时候（`Checking…`）自己加的和 `+ Custom…` 已经能点；这时直接在 Command 里打字就当成 `+ Custom…`。没探测到也没自己加的时默认选 `+ Custom…`（焦点不动）。
+
+### 没做的事
+- 没连任何机器，没跑真实 ssh，没起 paddock 窗口、没截图；没读、没改真实的 `config.toml` 和状态文件。
+- amp、agy 的插件和第一句话照旧不做；Settings 里配命令不做；本机 New Agent 没动。
+- 界面画法（对齐、换行、深浅主题、悬停／按下／焦点的样子、输入法）没有自动测试，留给用户实际看。
+
+### 踩过的坑
+- 一开始误敲了一条带 `cat >` 的命令，在 `paddock-worktrees/` 下生成了一个空文件 `.p5c_patch_unused`，已移到本次会话的临时目录，worktree 外没有留下东西。
+- `cargo test --all-targets <过滤>` 里 lib 测试一红就不跑集成测试了，验证改坏的那一处时改用 `--test remote_start` 单跑。
