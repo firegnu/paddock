@@ -14,3 +14,12 @@
 ## 怎么算做完
 - 用户原话：pi 在那台机器上，要列出来；选了“改成 -l -i”“一起修”。
 - 先改测试：假登录 shell 照 5090 的样子，agent 的目录只在交互时读的 rc 里加进 PATH，确认现在找不到（红），再改到找得到（绿）。`~` 的显示能写测试就写，写不了在完成记录里写清原因和改了什么。`app/` 下 `cargo test --all-targets`、`cargo clippy --all-targets -- -D warnings`、`cargo fmt --check`、`git diff --check`。
+
+## 完成记录
+
+- 做了什么：`remote_start::login` 从 `exec "${SHELL:-/bin/sh}" -l -c '…'` 改成 `exec "${SHELL:-/bin/sh}" -l -i -c '…' </dev/null`（交互登录 shell，标准输入接空），查种类和 `corral start` 都走它；DESIGN §13 P5-124 那条跟着改。
+- 第 2 条（`~` 没画出来）不是 bug：放大截图，`~` 正好被用户画的蓝色箭头盖住；光标在一个字符之后、Name 占位字 `home/claude` 都说明框里有 `~`。没改代码。
+- 验证：先改集成测试的假登录 shell 照 5090 的样子（`-l` 读 profile、`-i` 才读 rc，agent 目录只在 rc 里加进 PATH），改代码前 `the_kinds_offered_are_those_the_login_shell_there_finds` 红（找到 `[]`，期望 `[Claude, Pi]`），改后绿；单元测试跟着改成 `-l -i -c` 和 `</dev/null`。主控在 5090 上只读跑了改后的原样查种类命令，答 claude、codex、pi、omp（没起任何 agent）。`app/` 下 `cargo test --all-targets` 全过（lib 584），clippy、fmt、`git diff --check` 干净。
+- 拿主意的地方：标准输入接 `/dev/null`，免得交互 shell 的 rc 去读 ssh 的输入。
+- 没做的事：amp 照用户“先不列”；自定义命令另开 P5-124c。
+- 踩过的坑：主控本机 `cat` 被别名成 bat，管道里用 `cat -v` 报错，一度误以为是远端交互 shell 的输出。
