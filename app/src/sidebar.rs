@@ -2456,20 +2456,13 @@ impl Render for Sidebar {
                     None,
                     grounds.selected,
                 ),
-                // Another machine's agents start from the menu or its capsule menu (P5-124).
-                (_, Some(link)) => quiet(
+                // Another machine's starts there, in its own dialog (P5-124, P5-124a).
+                (_, remote) => quiet(
                     &theme,
                     &ui,
-                    &format!("No agents on {}", link.label()),
-                    "The agents corral runs there show here.",
-                    None,
-                    None,
-                    grounds.selected,
-                ),
-                (_, None) => quiet(
-                    &theme,
-                    &ui,
-                    "No agents yet",
+                    &remote.as_ref().map_or("No agents yet".into(), |link| {
+                        format!("No agents on {}", link.label())
+                    }),
                     "Start one to see its status and replies here.",
                     Some(Icon::NewAgent),
                     Some(
