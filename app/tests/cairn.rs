@@ -2,8 +2,8 @@
 //! P5-55, P5-79, P5-110, P5-118); never the real one.
 mod common;
 use paddock::cairn::{
-    Adopting, Body, Day, Entry, Fired, Found, Full, Group, LESSONS, Ledger, Note, PAGE, Read,
-    Records, Session, adopt, note, read, shown,
+    self, Adopting, Body, Day, Entry, Fired, Folds, Found, Full, Group, LESSONS, Ledger, Note,
+    OPEN_AT_FIRST, PAGE, Read, Records, Session, adopt, note, read, shown,
 };
 use std::{
     fs,
@@ -974,6 +974,7 @@ fn the_ledger_is_read_beside_the_notes_by_kind_and_marked_where_the_next_session
         title: title.into(),
         body: body.map(Into::into),
         added: "Oct 16, 2026 at 10:12:01".into(),
+        day: "Oct 16".into(),
         updated: None,
         by: "You".into(),
         session: None,
@@ -982,8 +983,8 @@ fn the_ledger_is_read_beside_the_notes_by_kind_and_marked_where_the_next_session
     let groups = vec![
         Group {
             name: "State",
+            // Newest first (P5-133).
             entries: vec![
-                entry("L1", 1, "装着的是 P5-117", Some("本机签名。")),
                 // Not in the text the next session is given.
                 Entry {
                     updated: Some("Oct 16, 2026 at 13:40:09".into()),
@@ -992,6 +993,7 @@ fn the_ledger_is_read_beside_the_notes_by_kind_and_marked_where_the_next_session
                     given: false,
                     ..entry("L5", 5, "cairn 0.5.0 已装", None)
                 },
+                entry("L1", 1, "装着的是 P5-117", Some("本机签名。")),
             ],
         },
         Group {
@@ -1062,7 +1064,7 @@ fn the_ledger_is_read_beside_the_notes_by_kind_and_marked_where_the_next_session
             name: "State",
             entries: vec![Entry {
                 given: false,
-                ..groups[0].entries[0].clone()
+                ..groups[0].entries[1].clone()
             }],
         }]))
     );
@@ -1151,6 +1153,7 @@ fn lessons_are_their_own_group_after_the_ledger_and_a_kind_cairn_adds_later_stil
         title: title.into(),
         body: body.map(Into::into),
         added: "Oct 16, 2026 at 10:12:01".into(),
+        day: "Oct 16".into(),
         updated: None,
         by: "You".into(),
         session: None,
@@ -1186,6 +1189,270 @@ fn lessons_are_their_own_group_after_the_ledger_and_a_kind_cairn_adds_later_stil
                 entries: vec![entry("L4", 4, "以后才有的类", None, false)],
             },
         ]))
+    );
+}
+
+#[test]
+fn each_group_is_newest_first_and_each_entry_dated_by_the_day_it_was_added() {
+    let temp = common::tempdir();
+    let (bin, repo, program) = adopted(temp.path(), &["01A"]);
+    let none = AtomicBool::new(false);
+    let put = |file: &str, text: &str| fs::write(bin.join(file), text).unwrap();
+    put("list.out", &list(0, &[]));
+    put(
+        "show.out",
+        &serde_json::json!({ "text": TEXT, "record_ids": [], "ledger_item_ids": [] }).to_string(),
+    );
+    fn at(created: &str) -> (&str, &str) {
+        (created, created)
+    }
+    // In cairn's order, by kind then number.
+    let items = [
+        item(
+            "S3",
+            3,
+            "state",
+            "三",
+            None,
+            at("2026-10-16T02:12:01Z"),
+            "user",
+        ),
+        // Last year's, on this Mac's clock as on cairn's.
+        item(
+            "S5",
+            5,
+            "state",
+            "五",
+            None,
+            at("2025-11-03T02:00:00Z"),
+            "user",
+        ),
+        // Last year's on cairn's clock, this year's eight hours east.
+        item(
+            "S8",
+            8,
+            "state",
+            "八",
+            None,
+            at("2025-12-31T18:30:00Z"),
+            "user",
+        ),
+        item(
+            "O2",
+            2,
+            "open",
+            "二",
+            None,
+            at("2026-10-09T15:59:59Z"),
+            "user",
+        ),
+        item(
+            "O9",
+            9,
+            "open",
+            "九",
+            None,
+            at("2026-10-09T16:00:00Z"),
+            "user",
+        ),
+        item(
+            "C4",
+            4,
+            "convention",
+            "四",
+            None,
+            at("2026-10-16T02:12:01Z"),
+            "user",
+        ),
+        item(
+            "C6",
+            6,
+            "convention",
+            "六",
+            None,
+            at("2026-10-16T02:12:01Z"),
+            "user",
+        ),
+        item(
+            "D1",
+            1,
+            "decision",
+            "一",
+            None,
+            at("2026-10-16T02:12:01Z"),
+            "user",
+        ),
+        item(
+            "D7",
+            7,
+            "decision",
+            "七",
+            None,
+            at("2026-10-16T02:12:01Z"),
+            "user",
+        ),
+    ];
+    put("ledger.out", &ledger(9, &items));
+    let found = match read(&program, "git", dir(&repo), PAGE, now(), &east, &none) {
+        Read::Found(found) => found,
+        other => panic!("{other:?}"),
+    };
+    let Some(Ledger::Groups(groups)) = found.ledger else {
+        panic!("{:?}", found.ledger);
+    };
+    let shown = groups
+        .iter()
+        .map(|group| {
+            let entries = group.entries.iter();
+            (
+                group.name,
+                entries.map(|e| (e.no, e.day.as_str())).collect(),
+            )
+        })
+        .collect::<Vec<(&str, Vec<_>)>>();
+    assert_eq!(
+        shown,
+        [
+            (
+                "State",
+                vec![(8, "Jan 1"), (5, "Nov 3, 2025"), (3, "Oct 16")]
+            ),
+            ("Open", vec![(9, "Oct 10"), (2, "Oct 9")]),
+            ("Conventions", vec![(6, "Oct 16"), (4, "Oct 16")]),
+            ("Other", vec![(7, "Oct 16"), (1, "Oct 16")]),
+        ]
+    );
+}
+
+/// An entry of the ledger for the filter, with what it does not look at made up.
+fn entry(no: u64, title: &str, body: Option<&str>) -> Entry {
+    Entry {
+        id: format!("L{no}"),
+        no,
+        title: title.into(),
+        body: body.map(Into::into),
+        added: "Oct 16, 2026 at 10:12:01".into(),
+        day: "Oct 16".into(),
+        updated: None,
+        by: "You".into(),
+        session: None,
+        given: true,
+    }
+}
+
+#[test]
+fn the_filter_finds_titles_and_text_apart_from_case_and_leaves_out_groups_it_finds_nothing_in() {
+    let state = Group {
+        name: "State",
+        entries: vec![
+            entry(39, "Linux 实测机已部署 Corral 远程接入环境", None),
+            entry(6, "cairn 0.7.0 已装", Some("本仓库已采用。")),
+            entry(5, "全局 corral、ranch 是 ranch f86d1c2", None),
+        ],
+    };
+    let open = Group {
+        name: "Open",
+        entries: vec![entry(
+            19,
+            "P5-90 卡在 R10",
+            Some("等用户定验收；用 `CORRAL send` 问过。"),
+        )],
+    };
+    let conventions = Group {
+        name: "Conventions",
+        entries: vec![entry(24, "开 agent 前先写任务文件", None)],
+    };
+    let groups = [&state, &open, &conventions];
+    let hits = |query: &str| {
+        cairn::filter(&groups, query)
+            .into_iter()
+            .map(|(group, hits)| {
+                let nos = hits.iter().map(|entry| entry.no).collect::<Vec<_>>();
+                (group.name, nos, group.entries.len())
+            })
+            .collect::<Vec<_>>()
+    };
+    // Nothing typed, or only spaces: everything, every group.
+    let all = vec![
+        ("State", vec![39, 6, 5], 3),
+        ("Open", vec![19], 1),
+        ("Conventions", vec![24], 1),
+    ];
+    assert_eq!(hits(""), all);
+    assert_eq!(hits("  "), all);
+    // By title and by text, apart from case and the spaces round it, in their order; a group
+    // with none is left out, and each says how many it has in all for `<hits> of <all>`.
+    let corral = vec![("State", vec![39, 5], 3), ("Open", vec![19], 1)];
+    assert_eq!(hits("corral"), corral);
+    assert_eq!(hits(" CoRRaL "), corral);
+    // In the text alone.
+    assert_eq!(hits("已采用"), [("State", vec![6], 3)]);
+    // Found nowhere: no group at all.
+    assert_eq!(hits("nowhere"), []);
+    assert!(cairn::matches(&state.entries[1], "仓库"));
+    assert!(!cairn::matches(&state.entries[1], "corral"));
+
+    // Where in the title to light, by its bytes: each place, apart from case.
+    let title = "Corral 托管 corral、CORRAL";
+    let lit = cairn::found(title, "corral")
+        .into_iter()
+        .map(|range| &title[range])
+        .collect::<Vec<_>>();
+    assert_eq!(lit, ["Corral", "corral", "CORRAL"]);
+    assert_eq!(cairn::found("托管交互式 agent", "交互"), vec![6..12]);
+    assert_eq!(cairn::found("aaaa", "aa"), [0..2, 2..4]);
+    assert!(cairn::found("corral", "").is_empty());
+    assert!(cairn::found("corral", "ranch").is_empty());
+}
+
+#[test]
+fn the_groups_start_with_state_alone_open_and_each_repositorys_folds_are_kept_apart() {
+    let temp = common::tempdir();
+    let path = temp.path().join("state/paddock/cairn-folds.json");
+    let (here, there) = (Path::new("/w/paddock"), Path::new("/w/ranch"));
+    // None kept yet: State open, the rest folded, in every repository.
+    let mut folds = Folds::load(&path);
+    assert_eq!(folds, Folds::default());
+    assert_eq!(OPEN_AT_FIRST, "State");
+    let open = |folds: &Folds, repo: &Path| {
+        ["State", "Open", "Conventions", "Other"].map(|group| folds.open(repo, group))
+    };
+    assert_eq!(open(&folds, here), [true, false, false, false]);
+
+    // What the user folds or opens in one repository is that repository's alone.
+    folds.set(here, "State", false);
+    folds.set(here, "Open", true);
+    assert_eq!(open(&folds, here), [false, true, false, false]);
+    assert_eq!(open(&folds, there), [true, false, false, false]);
+    folds.set(there, "Conventions", true);
+    assert_eq!(open(&folds, here), [false, true, false, false]);
+    assert_eq!(open(&folds, there), [true, false, true, false]);
+
+    // Kept on this Mac and read back as they were, the folder made first.
+    folds.save(&path).unwrap();
+    let again = Folds::load(&path);
+    assert_eq!(again, folds);
+    assert_eq!(open(&again, here), [false, true, false, false]);
+    assert_eq!(open(&again, there), [true, false, true, false]);
+
+    // A file that cannot be read is as none kept.
+    for broken in [
+        "",
+        "not json",
+        "[1, 2]",
+        "{\"/w/paddock\": {\"State\": \"yes\"}}",
+    ] {
+        fs::write(&path, broken).unwrap();
+        assert_eq!(Folds::load(&path), Folds::default(), "{broken}");
+    }
+    // Kept beside the layout and the recent directories, in a file of its own.
+    let kept = cairn::folds_path().unwrap();
+    assert_eq!(kept.file_name().unwrap(), "cairn-folds.json");
+    assert_eq!(
+        Some(kept.parent().unwrap()),
+        paddock::remote_start::recent_path()
+            .as_deref()
+            .and_then(Path::parent)
     );
 }
 

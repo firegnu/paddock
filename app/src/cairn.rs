@@ -12,10 +12,11 @@ use crate::{
     card::short_time,
     command, git,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     io::ErrorKind,
+    ops::Range,
     path::{Path, PathBuf},
     sync::atomic::AtomicBool,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
@@ -209,6 +210,9 @@ pub struct Entry {
     pub body: Option<String>,
     /// When it was added, on this machine's clock: `Oct 16, 2026 at 10:12:01`.
     pub added: String,
+    /// The day it was added, short, for its line: `Oct 16`, with the year when that is not this
+    /// year: `Nov 3, 2025` (P5-133).
+    pub day: String,
     /// When it was last changed, written as `added`, if ever since.
     pub updated: Option<String>,
     /// Who added it: `You`, `Claude`, `Codex`, or what cairn calls the agent.
@@ -382,7 +386,7 @@ pub fn read(
             Ok((body, given)) => (
                 body,
                 Some(given.map_or(Ledger::Groups(Vec::new()), |given| {
-                    self::ledger(program, cwd, &given, offset, cancel)
+                    self::ledger(program, cwd, &given, now, offset, cancel)
                 })),
             ),
             Err(trouble) => return trouble.into(),
@@ -525,11 +529,12 @@ const KINDS: [(&str, &str); 4] = [
 ];
 
 /// The project's ledger: `cairn ledger --json` run in `cwd`, the entries in `given` marked as
-/// what the next session is given.
+/// what the next session is given; the days they were added written as of `now`.
 fn ledger(
     program: &str,
     cwd: &str,
     given: &[String],
+    now: SystemTime,
     offset: &dyn Fn(i64) -> i64,
     cancel: &AtomicBool,
 ) -> Ledger {
@@ -555,10 +560,14 @@ fn ledger(
             entries: Vec::new(),
         })
         .collect();
+    let now = now
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |since| since.as_secs() as i64);
     for item in out.items {
-        let (Some(added), Some(updated)) = (
+        let (Some(added), Some(updated), Some(day)) = (
             stamp(&item.created_at, offset),
             stamp(&item.updated_at, offset),
+            short_day(&item.created_at, now, offset),
         ) else {
             return unexpected();
         };
@@ -577,13 +586,14 @@ fn ledger(
             body: item.body,
             updated: (updated != added).then_some(updated),
             added,
+            day,
             by,
             session,
         });
     }
-    // The lessons newest first, so a new one shows without scrolling (P5-132); the ledger's
-    // kinds keep cairn's order.
-    for group in groups.iter_mut().filter(|group| group.name == LESSONS) {
+    // Each group newest first, so a new entry shows without scrolling: the lessons since P5-132,
+    // the ledger's kinds since P5-133.
+    for group in &mut groups {
         group
             .entries
             .sort_by_key(|entry| std::cmp::Reverse(entry.no));
@@ -769,6 +779,128 @@ fn stamp(text: &str, offset: &dyn Fn(i64) -> i64) -> Option<String> {
         of_day % 3600 / 60,
         of_day % 60
     ))
+}
+
+/// The day of a time as cairn writes them, short, on the clock `offset` gives: `Oct 16`, or with
+/// its year when that is not the year of `now` (seconds since 1970): `Nov 3, 2025`.
+fn short_day(text: &str, now: i64, offset: &dyn Fn(i64) -> i64) -> Option<String> {
+    let at = unix(text)? as i64;
+    let (year, month, day) = activity::date((at + offset(at)).div_euclid(DAY));
+    let (this, _, _) = activity::date((now + offset(now)).div_euclid(DAY));
+    let short = format!("{} {day}", MONTHS[month as usize - 1]);
+    Some(if year == this {
+        short
+    } else {
+        format!("{short}, {year}")
+    })
+}
+
+/// Where `query` is in `text` apart from case, as ranges of `text`: each place, none overlapping.
+/// Spaces round the query do not count; with nothing else there is nothing to find (P5-133).
+pub fn found(text: &str, query: &str) -> Vec<Range<usize>> {
+    let query: String = query.trim().chars().flat_map(char::to_lowercase).collect();
+    if query.is_empty() {
+        return Vec::new();
+    }
+    // `text` in small letters, and for each of its bytes where in `text` its letter begins.
+    let mut lower = String::with_capacity(text.len());
+    let mut from = Vec::with_capacity(text.len() + 1);
+    for (at, letter) in text.char_indices() {
+        for small in letter.to_lowercase() {
+            lower.push(small);
+            from.resize(lower.len(), at);
+        }
+    }
+    from.push(text.len());
+    let mut places = Vec::new();
+    let mut start = 0;
+    while let Some(at) = lower[start..].find(&query) {
+        let (begin, end) = (start + at, start + at + query.len());
+        places.push(from[begin]..from[end]);
+        start = end;
+    }
+    places
+}
+
+/// Whether `query` is in the entry's title or its text, apart from case.
+pub fn matches(entry: &Entry, query: &str) -> bool {
+    !found(&entry.title, query).is_empty()
+        || entry
+            .body
+            .as_deref()
+            .is_some_and(|body| !found(body, query).is_empty())
+}
+
+/// What a filter typed over the ledger or the lessons leaves of `groups`: each group with the
+/// entries `query` is in, in their order, those with none left out; all of them while nothing is
+/// typed (P5-133).
+pub fn filter<'a>(groups: &[&'a Group], query: &str) -> Vec<(&'a Group, Vec<&'a Entry>)> {
+    let typed = !query.trim().is_empty();
+    groups
+        .iter()
+        .map(|group| {
+            let hits = group
+                .entries
+                .iter()
+                .filter(|entry| !typed || matches(entry, query))
+                .collect::<Vec<_>>();
+            (*group, hits)
+        })
+        .filter(|(_, hits)| !typed || !hits.is_empty())
+        .collect()
+}
+
+/// The ledger's group open at first; the others start folded (P5-133).
+pub const OPEN_AT_FIRST: &str = "State";
+
+/// Which of the ledger's groups the user has folded or opened, each repository's apart, kept on
+/// this Mac beside the layout so they stay so when paddock opens again (P5-133). A group the user
+/// has not touched is as at first: [`OPEN_AT_FIRST`] open, the others folded.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct Folds(BTreeMap<String, BTreeMap<String, bool>>);
+
+impl Folds {
+    /// As kept at `path`; none when there are none kept or they cannot be read.
+    pub fn load(path: &Path) -> Self {
+        std::fs::read(path)
+            .ok()
+            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+            .unwrap_or_default()
+    }
+
+    /// Whether `group` is open in `repo`.
+    pub fn open(&self, repo: &Path, group: &str) -> bool {
+        self.0
+            .get(repo.to_string_lossy().as_ref())
+            .and_then(|groups| groups.get(group))
+            .copied()
+            .unwrap_or(group == OPEN_AT_FIRST)
+    }
+
+    /// The user opened or folded `group` in `repo`.
+    pub fn set(&mut self, repo: &Path, group: &str, open: bool) {
+        self.0
+            .entry(repo.to_string_lossy().into_owned())
+            .or_default()
+            .insert(group.to_owned(), open);
+    }
+
+    /// Writes them to `path` whole: to a file beside it first, then in its place.
+    pub fn save(&self, path: &Path) -> std::io::Result<()> {
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir)?;
+        }
+        let bytes = serde_json::to_vec_pretty(self).map_err(std::io::Error::other)?;
+        let temporary = path.with_extension("json.saving");
+        std::fs::write(&temporary, bytes)?;
+        std::fs::rename(&temporary, path)
+    }
+}
+
+/// Where the folds are kept: beside the layout and the recent directories, a file of their own.
+pub fn folds_path() -> Option<PathBuf> {
+    crate::layout_state::default_path().map(|path| path.with_file_name("cairn-folds.json"))
 }
 
 /// Who saved a record, from what cairn calls its agent: `local` is none of them, a save by hand

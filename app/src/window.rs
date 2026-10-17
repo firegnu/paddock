@@ -1415,7 +1415,7 @@ impl PaddockWindow {
         cx.subscribe_in(&kanban, window, Self::on_kanban).detach();
         let cairn = {
             let (theme, mono) = (theme.clone(), mono_font(&options));
-            cx.new(|_| CairnView::new(theme, mono))
+            cx.new(|cx| CairnView::new(theme, mono, cx))
         };
         let shown = match &options.launch {
             Launch::Empty => Shown::Empty,
