@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Remote New Agent with an edited command</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+.lab{width:76px;flex:none;font-size:12.5px;color:#8a9e99;padding-top:6px}
+.seg{display:flex;flex-wrap:wrap;gap:4px;padding:3px;border-radius:9px;background:rgba(0,0,0,.28);border:1px solid rgba(223,233,229,.10)}
+.seg button{display:flex;align-items:center;gap:6px;height:26px;padding:0 11px;border-radius:7px;border:0;background:transparent;font:inherit;font-size:12.5px;color:#b4c3bf}
+.seg button.on{background:#5fd3b0;color:#0b1a16;font-weight:600}
+.seg button.hover{background:rgba(223,233,229,.08)}
+.seg button.add{color:#8a9e99}
+.ico{width:12px;height:12px;border-radius:3px;border:1.5px solid currentColor;flex:none}
+.x{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;border-radius:4px;font-size:11px;line-height:1;color:#8a9e99;background:rgba(223,233,229,.10)}
+.field{width:100%;box-sizing:border-box;height:30px;padding:0 10px;border-radius:7px;background:rgba(0,0,0,.25);border:1px solid rgba(223,233,229,.14);font:inherit;font-size:12.5px;color:#eef5f2;font-family:'JetBrains Mono','SF Mono',Menlo,monospace}
+.field.focus{border-color:#5fd3b0;box-shadow:0 0 0 3px rgba(95,211,176,.18)}
+.chip{display:inline-flex;align-items:center;height:22px;padding:0 8px;border-radius:6px;background:rgba(223,233,229,.06);border:1px solid rgba(223,233,229,.10);font-size:11.5px;color:#b4c3bf;font-family:'JetBrains Mono','SF Mono',Menlo,monospace}
+.hint{font-size:11.5px;color:#6b7f7a}
+.link{border:0;background:none;padding:0;font:inherit;font-size:11.5px;color:#5fd3b0}
+.btn{display:inline-flex;align-items:center;gap:8px;height:30px;padding:0 14px;border-radius:8px;background:rgba(223,233,229,.07);border:1px solid rgba(223,233,229,.14);font:inherit;font-size:12.5px;color:#dfe9e5}
+.btn.go{background:#5fd3b0;border-color:#5fd3b0;color:#0b1a16;font-weight:600}
+.btn kbd{font:inherit;font-size:11px;opacity:.7}
+</style>
+</helmet>
+<div style="width: 640px; height: 520px; box-sizing: border-box; padding: 24px; background: #0a1110; font-family: -apple-system, 'SF Pro Text', 'Helvetica Neue', sans-serif; color: #dfe9e5; font-size: 13px; display: flex; align-items: center; justify-content: center">
+  <div style="width: 560px; box-sizing: border-box; padding: 20px 22px; border-radius: 12px; background: #142120; border: 1px solid rgba(223,233,229,.12); box-shadow: 0 20px 50px rgba(0,0,0,.5); display: flex; flex-direction: column; gap: 16px">
+    <div style="display: flex; align-items: baseline; gap: 8px">
+      <div style="font-size: 15px; font-weight: 600; color: #eef5f2">New Agent</div>
+      <div style="font-size: 12.5px; color: #8a9e99">on</div>
+      <div style="display: inline-flex; align-items: center; gap: 5px; height: 20px; padding: 0 8px; border-radius: 999px; background: rgba(95,211,176,.12); color: #5fd3b0; font-size: 12px; font-weight: 600"><span style="width: 6px; height: 6px; border-radius: 3px; background: #7fd99a"></span>5090</div>
+    </div>
+    <div style="display: flex; gap: 10px">
+      <div class="lab">Agent</div>
+      <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px">
+        <div class="seg" style="align-self: flex-start">
+          <button><span class="ico"></span>Claude</button>
+          <button><span class="ico"></span>Codex</button>
+          <button class="on"><span class="ico"></span>pi</button>
+          <button><span class="ico"></span>omp</button>
+          <button class="hover"><span class="ico" style="border-style: dashed"></span>my-agent<span class="x" aria-label="Remove my-agent">×</span></button>
+          <button class="add">+ Custom…</button>
+        </div>
+        <div class="hint">Found on 5090, and the ones you added.</div>
+      </div>
+    </div>
+    <div style="display: flex; gap: 10px">
+      <label class="lab" for="cmd">Command</label>
+      <div style="flex: 1; display: flex; flex-direction: column; gap: 6px">
+        <input id="cmd" class="field focus" value="pi --model sonnet">
+        <div style="display: flex; align-items: center; gap: 6px"><span class="hint">Runs through your login shell on 5090. Edited, kept for 5090 ·</span><button class="link">Reset to pi</button></div>
+      </div>
+    </div>
+    <div style="display: flex; gap: 10px">
+      <label class="lab" for="dir">Directory</label>
+      <div style="flex: 1; display: flex; flex-direction: column; gap: 7px">
+        <input id="dir" class="field" value="~">
+        <div style="display: flex; flex-wrap: wrap; gap: 5px; align-items: center"><span style="font-size: 11px; color: #6b7f7a; margin-right: 2px">Recent</span><span class="chip">~</span><span class="chip">~/Develop/ranch</span></div>
+      </div>
+    </div>
+    <div style="display: flex; gap: 10px">
+      <label class="lab" for="name">Name</label>
+      <div style="flex: 1; display: flex; flex-direction: column; gap: 6px">
+        <input id="name" class="field" placeholder="home/pi">
+        <div class="hint">Leave empty to use home/pi.</div>
+      </div>
+    </div>
+    <div style="display: flex; justify-content: flex-end; gap: 8px; padding-top: 4px">
+      <button class="btn">Cancel</button>
+      <button class="btn go">Start <kbd>⌘↩</kbd></button>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":640,"height":520}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>
