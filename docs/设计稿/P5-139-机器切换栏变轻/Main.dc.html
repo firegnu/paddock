@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>Machine switcher options</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;background:#0b0d0d}
+a{color:#9fd8bd}a:hover{color:#c8f0dc}
+</style>
+</helmet>
+<div style="width: 1640px; height: 560px; box-sizing: border-box; padding: 28px 32px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 28px; background: #0b0d0d; font-family: -apple-system, 'SF Pro Text', 'PingFang SC', system-ui, sans-serif; color: #d9dfde;">
+
+<!-- ===== 现在 ===== -->
+<div style="display: flex; flex-direction: column; gap: 12px;">
+<div style="font-size: 14px; font-weight: 600; color: #e8ecec;">现在</div>
+<div style="font-size: 12px; color: #8b9695; line-height: 1.5; height: 36px;">凹槽 + 胶囊两层轮廓，贴边、粗体、平分整宽</div>
+<div style="width: 360px; height: 420px; box-sizing: border-box; background: {{side}}; border-radius: 10px; padding: 6px 4px; display: flex; flex-direction: column; gap: 14px; overflow: hidden;">
+<div style="height: 34px; border-radius: 17px; background: #0c0f0f; border: 1px solid #2c3333; display: flex; align-items: center; padding: 2px; box-sizing: border-box; gap: 2px;">
+<div style="flex: 1 1 0; height: 28px; border-radius: 14px; background: {{accentSoft}}; border: 1px solid {{accentRing}}; box-sizing: border-box; display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 14.5px; font-weight: 700; color: #eef2f1;">This Mac <span style="font-size: 12px; font-weight: 600; color: {{accent}};">•1</span></div>
+<div style="flex: 1 1 0; height: 28px; display: flex; align-items: center; justify-content: center; gap: 7px; font-size: 14.5px; color: #d3d9d8;">RTX-5090 <span style="width: 7px; height: 7px; border-radius: 4px; background: #7cc98c;"></span></div>
+</div>
+<div style="margin: 0 4px; border-radius: 12px; background: #1b2020; border: 1px solid #2b3232; padding: 12px 12px 14px; display: flex; flex-direction: column; gap: 10px;">
+<div style="display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600;"><span style="color: #8b9695;">⌄</span><span style="color: {{accent}};">◈</span>My-Harness <span style="color: #8b9695; font-weight: 500;">3</span></div>
+<div style="font-size: 12px; color: #8b9695; font-weight: 600;">cairn <span style="font-weight: 500;">1</span></div>
+<div style="border-radius: 10px; background: #222828; border: 1px solid #2f3737; padding: 10px; display: flex; gap: 10px;">
+<div style="width: 34px; height: 34px; border-radius: 8px; background: #d9714f; flex-shrink: 0;"></div>
+<div style="display: flex; flex-direction: column; gap: 4px; min-width: 0;">
+<div style="font-size: 13px;">main <span style="color: #8b9695;">high</span></div>
+<div style="font-size: 12px; color: #b9c1c0; line-height: 1.45;">好，继续观察。我把这次的查询结果记进了 HANDOFF.md…</div>
+<div style="font-size: 11px; color: #7d8887;">~/Developer/personal_projs/cairn · main</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+
+<!-- ===== A ===== -->
+<div style="display: flex; flex-direction: column; gap: 12px;">
+<div style="font-size: 14px; font-weight: 600; color: #e8ecec;">A 原地变轻（推荐）</div>
+<div style="font-size: 12px; color: #8b9695; line-height: 1.5; height: 36px;">和下面的框对齐；不要凹槽外框；普通字号不加粗；按字宽靠左排；选中只一层淡底</div>
+<div style="width: 360px; height: 420px; box-sizing: border-box; background: {{side}}; border-radius: 10px; padding: 8px 4px; display: flex; flex-direction: column; gap: 10px; overflow: hidden;">
+<div style="margin: 0 4px; height: 26px; display: flex; align-items: center; gap: 4px; padding: 0 2px;">
+<div style="height: 24px; padding: 0 10px; border-radius: 7px; background: {{accentSoft}}; display: flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 500; color: #e9eeed;">This Mac <span style="font-size: 11px; color: {{accent}};">•1</span></div>
+<div style="height: 24px; padding: 0 10px; border-radius: 7px; display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: #9aa4a3;">RTX-5090 <span style="width: 6px; height: 6px; border-radius: 3px; background: #7cc98c;"></span><span style="font-size: 10.5px; padding: 0 5px; border-radius: 4px; background: rgba(217,223,222,0.12); color: #b9c1c0;">3</span></div>
+</div>
+<div style="margin: 0 4px; border-radius: 12px; background: #1b2020; border: 1px solid #2b3232; padding: 12px 12px 14px; display: flex; flex-direction: column; gap: 10px;">
+<div style="display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600;"><span style="color: #8b9695;">⌄</span><span style="color: {{accent}};">◈</span>My-Harness <span style="color: #8b9695; font-weight: 500;">3</span></div>
+<div style="font-size: 12px; color: #8b9695; font-weight: 600;">cairn <span style="font-weight: 500;">1</span></div>
+<div style="border-radius: 10px; background: #222828; border: 1px solid #2f3737; padding: 10px; display: flex; gap: 10px;">
+<div style="width: 34px; height: 34px; border-radius: 8px; background: #d9714f; flex-shrink: 0;"></div>
+<div style="display: flex; flex-direction: column; gap: 4px; min-width: 0;">
+<div style="font-size: 13px;">main <span style="color: #8b9695;">high</span></div>
+<div style="font-size: 12px; color: #b9c1c0; line-height: 1.45;">好，继续观察。我把这次的查询结果记进了 HANDOFF.md…</div>
+<div style="font-size: 11px; color: #7d8887;">~/Developer/personal_projs/cairn · main</div>
+</div>
+</div>
+</div>
+<div style="margin: 6px 6px 0; font-size: 11px; color: #6f7a79;">另一台有事等你、重连中：</div>
+<div style="margin: 0 4px; height: 26px; display: flex; align-items: center; gap: 4px; padding: 0 2px;">
+<div style="height: 24px; padding: 0 10px; border-radius: 7px; background: {{accentSoft}}; display: flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 500; color: #e9eeed;">This Mac</div>
+<div style="height: 24px; padding: 0 10px; border-radius: 7px; display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: #9aa4a3;">RTX-5090 <span style="font-size: 11px; color: #7d8887;">Reconnecting in 8s</span><span style="font-size: 10.5px; padding: 0 5px; border-radius: 4px; background: rgba(217,223,222,0.12); color: #b9c1c0;">3</span><span style="font-size: 11px; font-weight: 700; color: #e3a64a;">?2</span></div>
+</div>
+<div style="margin: 6px 6px 0; font-size: 11px; color: #6f7a79;">连不上：</div>
+<div style="margin: 0 4px; height: 26px; display: flex; align-items: center; gap: 4px; padding: 0 2px;">
+<div style="height: 24px; padding: 0 10px; border-radius: 7px; background: {{accentSoft}}; display: flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 500; color: #e9eeed;">This Mac <span style="font-size: 11px; font-weight: 700; color: #e5675c;">!1</span></div>
+<div style="height: 24px; padding: 0 10px; border-radius: 7px; display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: #9aa4a3;">RTX-5090 <span style="font-size: 11px; color: #e5675c;">Can't sign in</span></div>
+</div>
+</div>
+</div>
+
+<!-- ===== B 收起 ===== -->
+<div style="display: flex; flex-direction: column; gap: 12px;">
+<div style="font-size: 14px; font-weight: 600; color: #e8ecec;">B 小菜单（收起）</div>
+<div style="font-size: 12px; color: #8b9695; line-height: 1.5; height: 36px;">和右侧栏 Kanban 的 “paddock ▾” 一个样子；别的机器有事，右边合并成一个记号</div>
+<div style="width: 360px; height: 420px; box-sizing: border-box; background: {{side}}; border-radius: 10px; padding: 8px 4px; display: flex; flex-direction: column; gap: 10px; overflow: hidden;">
+<div style="margin: 0 4px; height: 26px; display: flex; align-items: center; justify-content: space-between; padding: 0 2px;">
+<div style="height: 24px; padding: 0 8px; border-radius: 7px; display: flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 500; color: #dfe5e4;">
+<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="#9aa4a3" stroke-width="1.4" aria-hidden="true"><rect x="2" y="3" width="12" height="8.5" rx="1.5"></rect><path d="M5.5 13.5h5"></path></svg>
+This Mac <span style="font-size: 11px; color: {{accent}};">•1</span>
+<svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="#8b9695" stroke-width="1.4" aria-hidden="true"><path d="M2.5 4l2.5 2.5L7.5 4"></path></svg>
+</div>
+<div style="height: 20px; padding: 0 7px; border-radius: 10px; background: rgba(227,166,74,0.14); display: flex; align-items: center; gap: 5px; font-size: 11px; color: #e3a64a;">RTX-5090 ●2</div>
+</div>
+<div style="margin: 0 4px; border-radius: 12px; background: #1b2020; border: 1px solid #2b3232; padding: 12px 12px 14px; display: flex; flex-direction: column; gap: 10px;">
+<div style="display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600;"><span style="color: #8b9695;">⌄</span><span style="color: {{accent}};">◈</span>My-Harness <span style="color: #8b9695; font-weight: 500;">3</span></div>
+<div style="font-size: 12px; color: #8b9695; font-weight: 600;">cairn <span style="font-weight: 500;">1</span></div>
+<div style="border-radius: 10px; background: #222828; border: 1px solid #2f3737; padding: 10px; display: flex; gap: 10px;">
+<div style="width: 34px; height: 34px; border-radius: 8px; background: #d9714f; flex-shrink: 0;"></div>
+<div style="display: flex; flex-direction: column; gap: 4px; min-width: 0;">
+<div style="font-size: 13px;">main <span style="color: #8b9695;">high</span></div>
+<div style="font-size: 12px; color: #b9c1c0; line-height: 1.45;">好，继续观察。我把这次的查询结果记进了 HANDOFF.md…</div>
+<div style="font-size: 11px; color: #7d8887;">~/Developer/personal_projs/cairn · main</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+
+<!-- ===== B 打开 ===== -->
+<div style="display: flex; flex-direction: column; gap: 12px;">
+<div style="font-size: 14px; font-weight: 600; color: #e8ecec;">B 小菜单（点开）</div>
+<div style="font-size: 12px; color: #8b9695; line-height: 1.5; height: 36px;">每台一行：状态、要你处理的记号；底下进 Machines 设置</div>
+<div style="width: 360px; height: 420px; box-sizing: border-box; background: {{side}}; border-radius: 10px; padding: 8px 4px; display: flex; flex-direction: column; gap: 6px; overflow: hidden;">
+<div style="margin: 0 4px; height: 26px; display: flex; align-items: center; padding: 0 2px;">
+<div style="height: 24px; padding: 0 8px; border-radius: 7px; background: rgba(255,255,255,0.06); display: flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 500; color: #dfe5e4;">
+<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="#9aa4a3" stroke-width="1.4" aria-hidden="true"><rect x="2" y="3" width="12" height="8.5" rx="1.5"></rect><path d="M5.5 13.5h5"></path></svg>
+This Mac <span style="font-size: 11px; color: {{accent}};">•1</span>
+<svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="#8b9695" stroke-width="1.4" aria-hidden="true"><path d="M2.5 4l2.5 2.5L7.5 4"></path></svg>
+</div>
+</div>
+<div style="margin: 0 4px; width: 240px; border-radius: 10px; background: #232929; border: 1px solid #353d3d; box-shadow: 0 10px 28px rgba(0,0,0,0.5); padding: 5px; display: flex; flex-direction: column; gap: 2px; font-size: 12.5px;">
+<div style="height: 28px; padding: 0 8px; border-radius: 6px; background: {{accentSoft}}; display: flex; align-items: center; gap: 8px; color: #eef2f1;"><span style="width: 12px; color: {{accent}};">✓</span><span style="flex: 1 1 auto;">This Mac</span><span style="font-size: 11px; color: {{accent}};">•1</span></div>
+<div style="height: 28px; padding: 0 8px; border-radius: 6px; display: flex; align-items: center; gap: 8px; color: #d3d9d8;"><span style="width: 12px;"></span><span style="flex: 1 1 auto;">RTX-5090</span><span style="font-size: 11px; color: #e3a64a;">●2</span><span style="width: 6px; height: 6px; border-radius: 3px; background: #7cc98c;"></span></div>
+<div style="height: 1px; background: #353d3d; margin: 3px 4px;"></div>
+<div style="height: 28px; padding: 0 8px; border-radius: 6px; display: flex; align-items: center; gap: 8px; color: #9aa4a3;"><span style="width: 12px;"></span>Machines Settings…</div>
+</div>
+</div>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#6fd3a5"},"side":{"editor":"color","default":"#151a1a"},"$preview":{"width":1640,"height":560}}'>
+class Component extends DCLogic {
+renderVals() {
+const accent = this.props.accent ?? '#6fd3a5';
+return {
+accent,
+side: this.props.side ?? '#151a1a',
+accentSoft: 'rgba(111,211,165,0.14)',
+accentRing: 'rgba(111,211,165,0.45)'
+};
+}
+}
+</script>
+</body>
+</html>
