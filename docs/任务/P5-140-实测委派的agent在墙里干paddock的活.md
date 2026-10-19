@@ -28,3 +28,31 @@
 
 ## 怎么算做完
 - 用户原话：“选甲，写草稿吧”。本件交付：实测结果和建议的规矩改动，写在本文件末尾，给用户看。
+
+## 实测结果（paddock/main，10-19）
+测试 agent 都套 `--sandbox dev`、带 `--env CARGO_TARGET_DIR=…/.target/p5-140-fence-test`，在临时 worktree `p5-140-fence-test` 上跑；用完已停。
+
+**Claude Code（`paddock/test-fence`，sonnet）：能干活，有两处卡。**
+
+| 项 | 结果 |
+|---|---|
+| 仓库外编译目录（`--env CARGO_TARGET_DIR`） | 能写（ranch/main 也实测确认：`--env` 会传给 fence 的 check 和 run，必须是绝对路径） |
+| `cargo build`、`clippy -D warnings`、`fmt --check` | 都过 |
+| `cargo test --all-targets --no-fail-fast` | 28 个目标里 4 个有失败，共 18 个测试：`control::transport_tests` 13、`ctl_cli` 3、`agent_shell` 1、`remote` 1。全是测试在写死的 `/tmp/…` 建目录被拒（`app/src/control_tests.rs:5`、`app/tests/ctl_cli.rs:17`、`app/tests/agent_shell.rs:595`、`app/tests/common/mod.rs:47`）；墙里的 `TMPDIR` 是 `~/.cache/fence/tmp/<实例>`。不是代码对错 |
+| 读 `~/.cargo/registry/src` 的 GPUI 源码 | 能 |
+| worktree 里 `git commit` | 能；但每次报 `Unable to create <主仓库>/.git/packed-refs.lock: Operation not permitted`（不挡提交），`git count-objects` 报 `<主仓库>/.git/worktrees/<wt>/refs` 是 garbage |
+| 写主仓库工作区 `docs/任务/` | 被拦（预期） |
+| `corral ls` | 被拦，退出码 127（`~/.local/bin/corral` 在 HOME 禁读里），不是 CONTRACT 说的 6 |
+| 连 github.com | 被拦（预期）；crates.io 通 |
+| 读 `~/.ssh/config`、`~/Documents` | 被拦（预期） |
+
+fence 记录里另有：Claude Code 写 `~/.claude.json` 的锁和临时文件被拦十几次；zsh heredoc 往 `/private/tmp/zsh*` 写临时文件被拦（agent 用 `cat <<EOF` 写多行提交说明会失败）；npm 更新检查被拦（噪音）。
+
+**Codex（`paddock/test-fence-codex`，codex-cli 0.163.0）：起不来。** 两次都是起来 1–2 秒退出码 1（带不带 `--yolo --disable memories` 一样），原因只在终端里、读不到。已交 ranch/main 查。
+
+## 结论和建议（等用户定）
+1. **派出去的 Claude Code 现在就能套墙干 paddock 的活**，前提是起 agent 时加 `--env CARGO_TARGET_DIR=<绝对路径>`。Codex 等 ranch 查清再用；pi、omp 照 R17b 能用；agy、amp 不能套。
+2. **18 个测试在墙里必失败**（写死 `/tmp`）。建议另开一件 paddock 的小活：这几处测试改用 `TMPDIR`（墙里是 `~/.cache/fence/tmp/<实例>`，路径够短，放得下 unix socket），在 `TMPDIR` 太长时才退回 `/tmp`。不建议用 `.fence.toml` 放行整个 `/tmp`。
+3. **交叉审查记录**：墙里写不进主仓库工作区。套墙的审查 agent 改成把意见写在自己 detached 审查 worktree 里的同名文件，主控审完搬回主仓库（或只写在回复里）。
+4. **规矩怎么落**：起 agent 时带 `--env CARGO_TARGET_DIR`，写进 `CLAUDE.md`「独立编译目录」和派活约定（只在套墙时需要，不套墙也无害）。这几条改动等用户同意。
+5. **交给 ranch 的**（已发 ranch/main，不挡 paddock）：Codex 起不来；heredoc 的 `/tmp` 临时文件；`~/.claude.json` 写不了；墙里 `corral` 退出码 127 而不是 6；`packed-refs.lock` 报错和 worktree 下的 `refs` garbage。
