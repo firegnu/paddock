@@ -48,6 +48,9 @@ pub struct Panel {
     /// The last reply read of each agent with the instance it was read from, kept past its spell
     /// for the Inbox (DESIGN §13 P5-87), which shows it while the agent works on.
     last: HashMap<String, (Option<String>, Reply)>,
+    /// Whether fence is there and what its wall stopped for each sandboxed agent (DESIGN §13
+    /// P5-120); this Mac's alone.
+    pub fence: crate::fence::Seen,
 }
 
 /// The groups folded to their heading and the workspaces folded to their title, their cards out

@@ -41,6 +41,16 @@ pub struct Agent {
     pub paused: bool,
     /// When it was paused.
     pub paused_at: Option<f64>,
+    /// The fence profile it runs in (DESIGN §13 P5-120); none without one, or from an older
+    /// corral.
+    pub sandbox: Option<Sandbox>,
+}
+
+/// `sandbox` in `corral ls` and `corral status`: the profile the agent was started in.
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct Sandbox {
+    pub profile: String,
 }
 
 /// Effort explicitly labelled when the agent was delegated; not the runtime's actual effort.

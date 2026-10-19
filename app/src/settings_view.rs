@@ -32,6 +32,8 @@ mod integrations_page;
 mod machines_page;
 #[path = "settings_models.rs"]
 mod models_page;
+#[path = "settings_sandbox.rs"]
+mod sandbox_page;
 
 /// The key context of the Settings window: ⌘W closes.
 pub const CONTEXT: &str = "PaddockSettings";
@@ -92,6 +94,8 @@ pub struct SettingsView {
     instructions: instructions_page::Instructions,
     /// Machines: the name being typed over, and Remove…'s question.
     machines: machines_page::Machines,
+    /// Sandbox: what fence was found to have, and the rules shown.
+    sandbox: sandbox_page::Sandbox,
     /// Where each slider's track was last drawn, for the mouse's place along it.
     tracks: Rc<RefCell<HashMap<String, Bounds<Pixels>>>>,
     focus: FocusHandle,
@@ -371,6 +375,7 @@ impl SettingsView {
             models: Default::default(),
             instructions: Default::default(),
             machines: Default::default(),
+            sandbox: Default::default(),
             tracks: Rc::default(),
             focus: cx.focus_handle(),
             _subscriptions: Vec::new(),
@@ -1162,6 +1167,11 @@ impl SettingsView {
         if page == Page::Machines {
             self.reload(cx);
             self.tick_machines(cx);
+        }
+        if page == Page::Sandbox {
+            self.refresh_sandbox(cx);
+        } else {
+            self.leave_sandbox();
         }
         cx.notify();
     }
@@ -2391,6 +2401,7 @@ impl SettingsView {
                 ]
             }
             Page::Machines => self.machines_page(ui, cx),
+            Page::Sandbox => self.sandbox_page(width, ui, cx),
             Page::Diagnostics => self.diagnostics_page(width, ui),
             // Not a list: it fills the window (`instructions_page`).
             Page::Instructions => Vec::new(),

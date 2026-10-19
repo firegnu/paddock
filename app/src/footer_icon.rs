@@ -103,6 +103,8 @@ pub enum Icon {
     Machine,
     /// A triangle round an exclamation mark: the config file changed on disk.
     Warning,
+    /// A closed padlock: Settings' Sandbox (DESIGN §13 P5-120).
+    Lock,
 }
 
 /// How far an icon's parts are from where they rest, for its hover motion (`motion.rs`), in the
@@ -752,7 +754,63 @@ fn shapes(icon: Icon, pose: Pose, bounds: Bounds<Pixels>, scale: f32) -> Vec<Pat
             circle(&mut dot, at(7.0, 10.1), 0.75 * scale);
             vec![edge, mark, dot]
         }
+        Icon::Lock => {
+            let (body, shackle) = lock_paths(false, &at, scale, stroke);
+            vec![body, shackle]
+        }
     }
+}
+
+/// A padlock's body and shackle, drawn for `SIZE` through `at`; `open`, the shackle lifts off on
+/// its right. `stroke` makes each line; the body is closed, so it can be filled too.
+fn lock_paths(
+    open: bool,
+    at: &dyn Fn(f32, f32) -> Point<Pixels>,
+    scale: f32,
+    stroke: impl Fn() -> PathBuilder,
+) -> (PathBuilder, PathBuilder) {
+    let mut body = stroke();
+    rounded_rect(&mut body, at(2.75, 6.25), at(11.25, 12.5), 1.5 * scale);
+    let mut shackle = stroke();
+    let r = px(2.4 * scale);
+    shackle.move_to(at(4.6, 6.25));
+    shackle.line_to(at(4.6, 4.25));
+    if open {
+        // About a quarter turn short of the right leg.
+        shackle.arc_to(point(r, r), px(0.0), false, true, at(9.2, 3.25));
+    } else {
+        shackle.arc_to(point(r, r), px(0.0), false, true, at(9.4, 4.25));
+        shackle.line_to(at(9.4, 6.25));
+    }
+    (body, shackle)
+}
+
+/// A padlock `size` points square in `color`, closed or `open`, its body filled with `fill`
+/// when there is one: the sandbox's mark (DESIGN §13 P5-120).
+pub fn lock(open: bool, color: Hsla, fill: Option<Hsla>, size: f32) -> impl IntoElement {
+    canvas(
+        |_, _, _| {},
+        move |bounds, _, window, _| {
+            let scale = size / SIZE;
+            let at = |x: f32, y: f32| bounds.origin + point(px(x * scale), px(y * scale));
+            // A little heavier than the toolbar's lines: it is drawn small.
+            let weight = px(LINE * 1.25 * scale);
+            if let Some(fill) = fill {
+                let (body, _) = lock_paths(open, &at, scale, PathBuilder::fill);
+                if let Ok(body) = body.build() {
+                    window.paint_path(body, fill);
+                }
+            }
+            let (body, shackle) = lock_paths(open, &at, scale, || PathBuilder::stroke(weight));
+            for path in [body, shackle] {
+                if let Ok(path) = path.build() {
+                    window.paint_path(path, color);
+                }
+            }
+        },
+    )
+    .flex_shrink_0()
+    .size(px(size))
 }
 
 /// The point `(x, y)` turned clockwise by `degrees` about `pivot`.

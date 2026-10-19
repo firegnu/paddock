@@ -20,6 +20,7 @@ pub mod corral;
 pub mod damage;
 pub mod diagnostics;
 pub mod diff;
+pub mod fence;
 pub mod find;
 pub mod fonts;
 pub mod footer_icon;
