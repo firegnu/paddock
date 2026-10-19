@@ -11,8 +11,8 @@ use alacritty_terminal::{
     vte::ansi::{
         Attr, CharsetIndex, ClearMode, Color, CursorShape, CursorStyle, Handler, Hyperlink,
         KeyboardModes, KeyboardModesApplyBehavior, LineClearMode, Mode, ModifyOtherKeys,
-        NamedColor, PrivateMode, Processor, Rgb, ScpCharPath, ScpUpdateMode, StandardCharset,
-        TabulationClearMode,
+        NamedColor, NamedPrivateMode, PrivateMode, Processor, Rgb, ScpCharPath, ScpUpdateMode,
+        StandardCharset, TabulationClearMode,
     },
 };
 use cursor_icon::CursorIcon;
@@ -61,7 +61,7 @@ impl Screen {
         let (tx, events) = mpsc::channel();
         let replies = Events(tx);
         Self {
-            term: Term::new(Default::default(), &size, replies.clone()),
+            term: Term::new(config(), &size, replies.clone()),
             parser: Processor::new(),
             events,
             replies,
@@ -114,6 +114,36 @@ impl Screen {
     pub fn title(&self) -> Option<&str> {
         self.title.as_deref().filter(|title| !title.is_empty())
     }
+    /// The colour the cursor is drawn in: what the program set (OSC 12), or else the theme's.
+    pub fn cursor_color(&self) -> palette::Rgb {
+        palette::resolve(
+            Color::Named(NamedColor::Cursor),
+            self.term.colors(),
+            &self.theme.get(),
+        )
+    }
+    /// Whether the program leaves the cursor blinking.
+    pub fn cursor_blinks(&self) -> bool {
+        self.term.cursor_style().blinking
+    }
+}
+
+/// The terminal's settings: the cursor blinks unless the program asks for a steady one with
+/// `CSI Ps SP q` (P5-143c1). `CSI ? 12 h/l` (blinking on and off) is not heeded: xterm's terminfo,
+/// which programs here read, sends `CSI ? 12 l` with every `cnorm`, and any curses program would
+/// stop the blinking for good.
+fn config() -> alacritty_terminal::term::Config {
+    alacritty_terminal::term::Config {
+        default_cursor_style: CursorStyle {
+            shape: CursorShape::Block,
+            blinking: true,
+        },
+        ..Default::default()
+    }
+}
+
+fn blinking_mode(mode: &PrivateMode) -> bool {
+    matches!(mode, PrivateMode::Named(NamedPrivateMode::BlinkingCursor))
 }
 
 /// What palette entry `index` (OSC 4's 0–255, then OSC 10–12's foreground, background and cursor)
@@ -284,10 +314,17 @@ impl Handler for Answering<'_> {
     fn report_mode(&mut self, mode: Mode) {
         Handler::report_mode(&mut *self.term, mode);
     }
+    // `CSI ? 12 h/l` is left out: see [`config`].
     fn set_private_mode(&mut self, mode: PrivateMode) {
+        if blinking_mode(&mode) {
+            return;
+        }
         Handler::set_private_mode(&mut *self.term, mode);
     }
     fn unset_private_mode(&mut self, mode: PrivateMode) {
+        if blinking_mode(&mode) {
+            return;
+        }
         Handler::unset_private_mode(&mut *self.term, mode);
     }
     fn report_private_mode(&mut self, mode: PrivateMode) {
@@ -578,5 +615,35 @@ mod tests {
             String::from_utf8(replies).unwrap(),
             "\x1b]4;1;rgb:1212/3434/5656\x07\x1b]4;1;rgb:6565/4343/2121\x07"
         );
+    }
+
+    /// OSC 12 sets the colour the cursor is drawn in; OSC 112 gives it back to the theme (P5-143c1).
+    #[test]
+    fn the_cursor_is_drawn_in_the_colour_the_program_set() {
+        let mut screen = themed();
+        assert_eq!(screen.cursor_color(), THEME.cursor);
+        screen.process(b"\x1b]12;rgb:12/34/56\x07");
+        assert_eq!(screen.cursor_color(), (0x12, 0x34, 0x56));
+        screen.process(b"\x1b]112\x07");
+        assert_eq!(screen.cursor_color(), THEME.cursor);
+    }
+
+    /// The cursor blinks unless the program asks for a steady one with `CSI 2/4/6 SP q`; `CSI 0 SP q`
+    /// gives the default back. `CSI ? 12 l` is not heeded: xterm's terminfo sends it with every
+    /// `cnorm`, so any curses program would stop the blinking for good (P5-143c1).
+    #[test]
+    fn the_cursor_blinks_unless_the_program_asks_for_a_steady_one() {
+        let mut screen = Screen::new(Size { rows: 4, cols: 20 });
+        assert!(screen.cursor_blinks());
+        screen.process(b"\x1b[?12l\x1b[?25h");
+        assert!(screen.cursor_blinks(), "cnorm keeps it blinking");
+        screen.process(b"\x1b[2 q");
+        assert!(!screen.cursor_blinks());
+        screen.process(b"\x1b[5 q");
+        assert!(screen.cursor_blinks());
+        screen.process(b"\x1b[6 q");
+        assert!(!screen.cursor_blinks());
+        screen.process(b"\x1b[0 q");
+        assert!(screen.cursor_blinks());
     }
 }

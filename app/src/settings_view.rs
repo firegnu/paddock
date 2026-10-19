@@ -219,6 +219,8 @@ const GENERAL: [(&str, &[&str]); 4] = [
             "line_height",
             "font_fallbacks",
             "open_files_with",
+            "blink_cursor",
+            "animate_cursor",
         ],
     ),
     ("Mascot", &["mascot_enabled", "mascot"]),
