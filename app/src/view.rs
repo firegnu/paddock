@@ -8,6 +8,7 @@ mod edge;
 mod file_drop;
 mod glide;
 pub mod links;
+mod marks;
 mod notice;
 mod press;
 
@@ -232,6 +233,8 @@ struct FindBar {
     input: Entity<TextInput>,
     /// The last search found nothing.
     missed: bool,
+    /// The selection is the match this bar found, drawn in yellow, until the mouse selects.
+    found: bool,
     _subscription: Subscription,
 }
 
@@ -955,6 +958,7 @@ impl TerminalView {
                 self.find = Some(FindBar {
                     input: input.clone(),
                     missed: false,
+                    found: false,
                     _subscription: subscription,
                 });
                 input
@@ -997,6 +1001,7 @@ impl TerminalView {
         }
         if let Some(bar) = &mut self.find {
             bar.missed = !query.is_empty() && !found;
+            bar.found |= found;
         }
         cx.notify();
     }
@@ -1296,6 +1301,13 @@ impl TerminalView {
         true
     }
 
+    /// A selection made with the mouse is no longer the find bar's match.
+    fn forget_found(&mut self) {
+        if let Some(bar) = &mut self.find {
+            bar.found = false;
+        }
+    }
+
     /// Does what [`press::Mouse`] says, the mouse at `position`.
     fn act(
         &mut self,
@@ -1317,6 +1329,7 @@ impl TerminalView {
                 return;
             }
             Act::Select(kind, (point, side)) => {
+                self.forget_found();
                 selecting(self, &|selection| {
                     *selection = Some(Selection::new(kind, point, side))
                 });
@@ -1327,6 +1340,7 @@ impl TerminalView {
                 }
             }),
             Act::SelectFrom((at, side), (point, now)) => {
+                self.forget_found();
                 selecting(self, &|selection| {
                     let mut from = Selection::new(SelectionType::Simple, at, side);
                     from.update(point, now);
@@ -1602,6 +1616,8 @@ impl TerminalView {
             tip: None,
             shift: 0.0,
             above: None,
+            marks: Vec::new(),
+            mark: ((0, 0, 0), 0.0),
         };
         let Some(session) = self.session() else {
             // Without a session, the viewer's own message comes first: a hint or why the last one
@@ -1687,8 +1703,12 @@ impl TerminalView {
         // Part of a line down, the row above the first shows over them.
         frame.shift = self.shift();
         let first = if frame.shift > 0.0 { -1 } else { 0 };
+        if let Some(range) = &selection {
+            frame.marks = marks::spans(term, range, first, rows, cols);
+            frame.mark = marks::fill(&theme, self.find.as_ref().is_some_and(|bar| bar.found));
+        }
         for y in first..i32::from(rows) {
-            let mut cells = rows::read(term, y, cols, &theme, selection.as_ref());
+            let mut cells = rows::read(term, y, cols, &theme);
             if let Some(link) = &link {
                 let line = Line(y - offset);
                 for (x, cell) in cells.iter_mut().enumerate() {
@@ -1866,6 +1886,10 @@ pub struct Frame {
     shift: f32,
     /// Then, the row above the first, showing over them.
     above: Option<(Vec<Span>, Vec<Run>)>,
+    /// The selection or the find bar's match: each row's first column and the one past its last,
+    /// drawn over the backgrounds in `mark`'s colour and opacity (P5-143d3).
+    marks: Vec<(i32, usize, usize)>,
+    mark: (Rgb, f32),
 }
 
 fn terminal_font(family: &str, fallbacks: &[String]) -> Font {
@@ -2061,6 +2085,7 @@ impl Frame {
                 window.paint_quad(self.rect(x0, self.y(row), x1 - x0, lh, hsla(span.color, 1.0)));
             }
         }
+        self.paint_marks(window);
         // Layered: every drawn line, then every text run, so GPUI batches them together.
         for (row, (_, runs)) in self.lines() {
             for run in runs {
@@ -2084,6 +2109,32 @@ impl Frame {
         }
         self.paint_cursor(window, cx);
         self.paint_tip(width, window, cx);
+    }
+
+    /// The selection or the find bar's match: rows that touch joined into one shape, its corners
+    /// rounded, over the backgrounds and under the text.
+    fn paint_marks(&self, window: &mut Window) {
+        let rows: Vec<_> = self
+            .marks
+            .iter()
+            .map(|&(row, start, end)| (row, self.x(start), self.x(end)))
+            .collect();
+        let (color, opacity) = self.mark;
+        for outline in marks::outlines(&rows, self.metrics.line_height, marks::RADIUS) {
+            let at = |(x, y): (f32, f32)| self.at(x, y);
+            let mut path = PathBuilder::fill();
+            path.move_to(at(outline.start));
+            for step in outline.steps {
+                match step {
+                    marks::Step::Line(x, y) => path.line_to(at((x, y))),
+                    marks::Step::Curve { to, ctrl } => path.curve_to(at(to), at(ctrl)),
+                }
+            }
+            path.close();
+            if let Ok(path) = path.build() {
+                window.paint_path(path, hsla(color, opacity));
+            }
+        }
     }
 
     /// A marked link's address, dark on light, kept inside the pane.
@@ -2428,6 +2479,7 @@ impl TerminalView {
         }
         if let Some(bar) = &mut self.find {
             bar.missed = !found;
+            bar.found |= found;
         }
         cx.notify();
     }

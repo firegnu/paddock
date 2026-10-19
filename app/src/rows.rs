@@ -1,4 +1,4 @@
-//! Splitting one screen row into background spans and text runs. A run keeps one style and only
+//! Splitting one creen row into background spans and text runs. A run keeps one style and only
 //! narrow cells, so it can be shaped with a forced cell width; wide characters and drawn glyphs
 //! are placed on their own column.
 use crate::palette::Rgb;
@@ -244,14 +244,14 @@ mod tests {
     }
 }
 
-/// Reads one visible row out of the parsed grid, resolving colours and the selection highlight.
+/// Reads one visible row out of the parsed grid, resolving colours; the selection is drawn over
+/// the cells (`view/marks.rs`).
 /// Row -1 is the one above the first, shown while the view is part of a line down (P5-143c2).
 pub fn read<T>(
     term: &alacritty_terminal::Term<T>,
     row: i32,
     cols: u16,
     theme: &crate::palette::Theme,
-    selection: Option<&alacritty_terminal::selection::SelectionRange>,
 ) -> Vec<Cell> {
     use crate::palette::{dim, resolve};
     use alacritty_terminal::{
@@ -272,18 +272,16 @@ pub fn read<T>(
         if flags.contains(Flags::INVERSE) {
             std::mem::swap(&mut fg, &mut bg);
         }
-        if selection.is_some_and(|s| s.contains(point)) {
-            bg = theme.selection;
-        }
         if flags.intersects(Flags::DIM) {
             fg = dim(fg);
-        }
-        if flags.contains(Flags::HIDDEN) {
-            fg = bg;
         }
         let mut text = cell.c.to_string();
         if let Some(marks) = cell.zerowidth() {
             text.extend(marks);
+        }
+        // Not drawn at all: in the background colour it would show on a selection.
+        if flags.contains(Flags::HIDDEN) {
+            text = " ".into();
         }
         // A wide character cut by the right edge cannot be drawn whole.
         let wide = flags.contains(Flags::WIDE_CHAR);
@@ -324,7 +322,7 @@ mod parsed {
     fn runs(bytes: &[u8]) -> Vec<Run> {
         let mut screen = Screen::new(Size { rows: 2, cols: 30 });
         screen.process(bytes);
-        split(&read(&screen.term, 0, 30, &THEME, None), THEME.background).1
+        split(&read(&screen.term, 0, 30, &THEME), THEME.background).1
     }
 
     #[test]
@@ -379,12 +377,35 @@ mod parsed {
         let row = {
             let mut screen = Screen::new(Size { rows: 1, cols: 4 });
             screen.process(b"\x1b[9ma\x1b[0;7mb");
-            read(&screen.term, 0, 4, &THEME, None)
+            read(&screen.term, 0, 4, &THEME)
         };
         assert!(row[0].style.strike);
         assert_eq!(
             (row[1].style.fg, row[1].bg),
             (THEME.background, THEME.foreground)
         );
+    }
+
+    /// The selection is drawn over the cells (P5-143d3): a selected cell keeps its background,
+    /// and hidden text stays hidden on it.
+    #[test]
+    fn a_selected_cell_keeps_its_background_and_hidden_text_stays_hidden() {
+        use alacritty_terminal::{
+            index::{Column, Line, Point, Side},
+            selection::{Selection, SelectionType},
+        };
+        let mut screen = Screen::new(Size { rows: 2, cols: 10 });
+        screen.process(b"\x1b[41mred\x1b[0m \x1b[8mhid\x1b[0m");
+        let mut selection = Selection::new(
+            SelectionType::Simple,
+            Point::new(Line(0), Column(0)),
+            Side::Left,
+        );
+        selection.update(Point::new(Line(0), Column(6)), Side::Right);
+        screen.term.selection = Some(selection);
+        let cells = read(&screen.term, 0, 10, &THEME);
+        assert_eq!(cells[0].bg, crate::palette::XTERM[1]);
+        assert_eq!(cells[3].bg, THEME.background);
+        assert_eq!(cells[4].text, " ");
     }
 }
