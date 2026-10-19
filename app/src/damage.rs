@@ -1,6 +1,6 @@
-//! Whether the screen changed since the last frame. Saddle's PTY session processes output on its
-//! own thread and offers no change notification, so the window polls alacritty's damage, which
-//! always includes the cursor cell; a bare cursor that did not move is not a change.
+//! Whether the screen changed since the last frame. The PTY session processes output on its own
+//! thread and rings the pane (`pty::Bell`), which then reads alacritty's damage: it always includes
+//! the cursor cell, and a bare cursor that did not move is not a change.
 use alacritty_terminal::{
     event::EventListener,
     term::{Term, TermDamage},

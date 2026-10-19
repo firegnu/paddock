@@ -109,12 +109,12 @@ paddock 与 Saddle 在代码上完全分开：用到的 Saddle 代码迁入 padd
   - 大量输出不拖慢，约 100–120 帧/秒。
   - 用户实际体验：在 Claude Code 里中文输入和显示正常（10-05）。
 - **原型发现的缺口**（原打算请 Saddle 新增接口；迁移后由 paddock 在自己的代码里解决，按需排期）：
-  1. 没有“有新输出”的通知，原型每 8 ms 轮询。
+  1. ~~没有“有新输出”的通知，原型每 8 ms 轮询~~：P5-143a 改成读线程有输出就唤醒窗格，其余按 100 ms 的低频节拍查。
   2. ~~网格读取与默认配色绑定 ratatui~~：paddock 只用自己的 `rows`、`palette`；M0 未迁 Saddle 的 ratatui 绘制部分。
   3. ~~输入编码函数参数是 crossterm/ratatui 类型~~：M1 已换成 paddock 自己的类型。
   4. `Session::spawn` 不能控制环境变量。用户体验时实际遇到：从 Claude Code 会话里启动原型，窗格中的 Claude Code 继承了 `CLAUDECODE`、`CLAUDE_CODE_CHILD_SESSION`、`CLAUDE_CODE_MESSAGING_*` 等变量，会话记录被关闭。T1 起 paddock 启动时按名单清理 17 个身份变量。
-  5. 写入通道容量 64，可能在极大粘贴时返回 busy。
-  6. 程序向终端查询颜色时，应答的是 xterm 默认值，不是 paddock 主题的调色板。
+  5. ~~写入通道容量 64，可能在极大粘贴时返回 busy~~：P5-143a 改成不限量的队列，按顺序写完，不丢、不报 busy。
+  6. ~~程序向终端查询颜色时，应答的是 xterm 默认值，不是 paddock 主题的调色板~~：P5-143a 改成答程序自己设的颜色，否则答当前主题的终端调色板。
 - **GPUI 方面的发现**：
   - 单独排版的宽字符上自带删除线不显示，原型自己画。
   - 窗口被完全遮挡时暂停绘制。

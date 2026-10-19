@@ -3877,7 +3877,9 @@ version = "0.0.0"
 dependencies = [
  "alacritty_terminal",
  "anyhow",
+ "async-channel",
  "block2 0.6.2",
+ "cursor-icon",
  "gpui-pre",
  "gpui-pre-platform",
  "image",

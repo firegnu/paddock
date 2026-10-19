@@ -1,7 +1,13 @@
 //! The shell / `corral attach` lifecycle of one terminal pane. From Saddle `src/viewer.rs` at
 //! commit `df1c727`, without the `remembered` field that only Saddle's layout saving uses; paddock
-//! added `paused` and `send`, which drops input for a paused agent (DESIGN §13 P5-33).
-use crate::{corral::Client, pty::Session, terminal::Size};
+//! added `paused` and `send`, which drops input for a paused agent (DESIGN §13 P5-33), and the
+//! pane's colours and bell its sessions start with (P5-143a).
+use crate::{
+    corral::Client,
+    palette,
+    pty::{Ring, Session},
+    terminal::Size,
+};
 use anyhow::Result;
 use std::{
     sync::{
@@ -82,6 +88,10 @@ pub struct Viewer {
     /// Stops the check before the attach under way: set once that attach is no longer wanted.
     cancel: Arc<AtomicBool>,
     spawning: Option<(u64, String, JoinHandle<Result<Session>>)>,
+    /// The pane's colours, shared with its sessions and the ones starting.
+    pub theme: palette::Shared,
+    /// Rung when a spawn is done, for the pane to take its session at once.
+    pub ring: Option<Ring>,
 }
 impl Viewer {
     /// Attaches with this Mac's `corral`.
@@ -104,6 +114,8 @@ impl Viewer {
             watching_since: None,
             spawning: None,
             shell: None,
+            theme: palette::Shared::default(),
+            ring: None,
             metadata: AgentMetadata::default(),
             exit_code: None,
             paused: false,
@@ -310,11 +322,12 @@ impl Viewer {
             let elsewhere = Arc::new(AtomicBool::new(false));
             self.elsewhere = elsewhere.clone();
             let cancel = Arc::new(AtomicBool::new(false));
+            let theme = self.theme.clone();
             self.cancel = cancel.clone();
             self.spawning = Some((
                 self.generation,
                 name,
-                thread::spawn(move || {
+                spawn_ringing(self.ring.clone(), move || {
                     // Another machine's pane holds its connection while it runs (P5-123).
                     let (command, hold) = match &client.remote {
                         None => (
@@ -348,7 +361,7 @@ impl Viewer {
                         elsewhere.store(attached, Ordering::Relaxed);
                     }
                     anyhow::ensure!(!cancel.load(Ordering::Relaxed), "attach cancelled");
-                    let mut session = Session::spawn(&command, None, size)?;
+                    let mut session = Session::spawn(&command, None, size, theme)?;
                     if let Some(hold) = hold {
                         session.keep(hold);
                     }
@@ -366,11 +379,12 @@ impl Viewer {
             let env = shell.env.clone();
             let agent_shell = shell.agent_shell;
             let corral = self.client.program.clone();
+            let theme = self.theme.clone();
             let size = size.unwrap_or(Size { rows: 24, cols: 80 });
             self.spawning = Some((
                 self.generation,
                 String::new(),
-                thread::spawn(move || {
+                spawn_ringing(self.ring.clone(), move || {
                     let (command, env) = if agent_shell {
                         let dir = crate::control::runtime_dir()?
                             .join(format!("agent-shell-{}", std::process::id()));
@@ -388,7 +402,7 @@ impl Viewer {
                     } else {
                         (command, env)
                     };
-                    Session::spawn_shell(&command, &cwd, size, &env)
+                    Session::spawn_shell(&command, &cwd, size, &env, theme)
                 }),
             ));
         }
@@ -459,8 +473,12 @@ impl Viewer {
         if self.paused {
             return Ok(false);
         }
-        session.send(bytes)?;
+        session.send(bytes);
         Ok(true)
+    }
+    /// New colours for the pane: its sessions, the ones starting too, are told them from now on.
+    pub fn set_theme(&self, theme: palette::Theme) {
+        self.theme.set(theme);
     }
     pub fn shell_live(&self) -> bool {
         self.shell
@@ -489,6 +507,20 @@ impl Viewer {
             "disconnected"
         }
     }
+}
+/// Runs `work` on a thread of its own and rings `ring` once it is done, for the pane to take the
+/// session at once.
+fn spawn_ringing(
+    ring: Option<Ring>,
+    work: impl FnOnce() -> Result<Session> + Send + 'static,
+) -> JoinHandle<Result<Session>> {
+    thread::spawn(move || {
+        let done = work();
+        if let Some(ring) = ring {
+            ring.changed();
+        }
+        done
+    })
 }
 impl Drop for Viewer {
     fn drop(&mut self) {
@@ -617,6 +649,7 @@ mod tests {
                     &["/bin/sh".into(), "-c".into(), script],
                     None,
                     Size { rows: 10, cols: 40 },
+                    palette::Shared::default(),
                 )?;
                 // Running, so that letting it go is seen to end it.
                 written_pid(&written);
@@ -647,6 +680,7 @@ mod tests {
                     &["/bin/sh".into(), "-c".into(), "exit 7".into()],
                     None,
                     size,
+                    palette::Shared::default(),
                 )?;
                 let deadline = Instant::now() + Duration::from_secs(3);
                 while !session.poll_exit()? {
@@ -666,5 +700,85 @@ mod tests {
         assert_eq!(viewer.exit_code, Some(7));
         assert!(viewer.session.is_none());
         assert!(viewer.showing.is_none());
+    }
+
+    /// A shell done starting rings the pane, which takes it at once rather than on its next tick.
+    #[test]
+    fn a_spawn_done_rings_the_pane() {
+        let bell = crate::pty::Bell::new();
+        let rings = bell.receiver();
+        let size = Size { rows: 10, cols: 40 };
+        let mut viewer = Viewer::new("unused".to_owned());
+        viewer.ring = Some(bell.for_changes());
+        viewer.start_shell(Shell {
+            program: "/bin/sh".into(),
+            cwd: std::env::temp_dir().display().to_string(),
+            state: "starting",
+            exit_code: None,
+            env: Vec::new(),
+            agent_shell: false,
+        });
+        viewer.tick(size).unwrap();
+        assert!(viewer.session.is_none());
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while rings.try_recv().is_err() {
+            assert!(Instant::now() < deadline, "the spawn did not ring");
+            thread::sleep(Duration::from_millis(5));
+        }
+        assert!(bell.take_changed());
+        // The ring comes as the worker returns; its thread ends right after.
+        while !viewer.spawning.as_ref().unwrap().2.is_finished() {
+            assert!(Instant::now() < deadline);
+            thread::yield_now();
+        }
+        viewer.tick(size).unwrap();
+        assert!(viewer.session.is_some());
+        assert_eq!(viewer.state(), "running");
+    }
+
+    /// Colours changed while a shell is starting: the program asking at once, before the pane
+    /// takes its session, is told the new ones.
+    #[test]
+    fn colours_changed_while_a_shell_starts_are_what_it_is_told_first() {
+        let dir = scratch("theme-while-starting");
+        let (program, out) = (dir.join("shell"), dir.join("out"));
+        let _ = std::fs::remove_file(&out);
+        // The reply is 24 bytes: ESC ] 1 1 ; r g b : 1e1e/1f1f/2020 BEL.
+        std::fs::write(
+            &program,
+            "#!/bin/sh\nstty raw -echo\nsleep 0.3\nprintf '\\033]11;?\\007'\nhead -c 24 > out.part\nmv out.part out\nexec sleep 30\n",
+        )
+        .unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let mut dark = palette::Theme::XTERM;
+        dark.background = (0, 0, 0);
+        let mut light = dark;
+        light.background = (0x1e, 0x1f, 0x20);
+        let size = Size { rows: 10, cols: 40 };
+        let mut viewer = Viewer::new("unused".to_owned());
+        viewer.set_theme(dark);
+        viewer.start_shell(Shell {
+            program: program.display().to_string(),
+            cwd: dir.display().to_string(),
+            state: "starting",
+            exit_code: None,
+            env: Vec::new(),
+            agent_shell: false,
+        });
+        viewer.tick(size).unwrap();
+        assert!(viewer.spawning.is_some());
+        viewer.set_theme(light);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !out.exists() {
+            assert!(Instant::now() < deadline, "the program got no reply");
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(
+            std::fs::read_to_string(&out).unwrap(),
+            "\x1b]11;rgb:1e1e/1f1f/2020\x07"
+        );
+        drop(viewer);
+        let _ = std::fs::remove_dir_all(dir);
     }
 }

@@ -19,7 +19,7 @@ use crate::{
     to_tag::{self, Typing},
 };
 use crate::{
-    pty::Session,
+    pty::{Bell, Session},
     terminal::Size,
     viewer::{AgentMetadata, Shell, Viewer},
 };
@@ -41,6 +41,11 @@ use std::{cell::RefCell, ops::Range, path::PathBuf, rc::Rc, time::Duration, time
 
 /// How long a pane whose attach ended says nothing, while corral is asked whether its agent ended.
 const QUIET: Duration = Duration::from_secs(3);
+
+/// How often a pane looks at what it cannot be told about: whether its program ended, how a spawn
+/// goes, the quiet after an attach and its name tag starting to fade. Output and changes the
+/// pane is told about ring its bell at once.
+const TICK: Duration = Duration::from_millis(100);
 
 /// Shown in a pane with nothing in it.
 const EMPTY_NOTE: &str = "Choose an agent on the left, or open one here with + or Split.";
@@ -166,6 +171,12 @@ pub struct TerminalView {
     /// Since that attach ended by itself, until corral has been asked whether its agent ended
     /// too: the pane, about to close if so, says nothing meanwhile.
     quiet: Option<Instant>,
+    /// Rung by the session shown when output comes, and by what changes what is shown.
+    bell: Bell,
+    /// The session the bell was last handed to, or none.
+    shown: Option<u64>,
+    /// A frame was asked for and is not drawn yet: more output waits for it.
+    frame_pending: bool,
 }
 
 struct FindBar {
@@ -203,6 +214,9 @@ impl TerminalView {
             program: options.corral,
             remote: options.remote,
         });
+        let bell = Bell::new();
+        viewer.set_theme(*theme.terminal());
+        viewer.ring = Some(bell.for_changes());
         let mut direct = None;
         let mut note = String::new();
         let (label, subject) = match options.launch {
@@ -233,7 +247,7 @@ impl TerminalView {
                 (format!("corral attach {name}"), name)
             }
             Launch::Command { argv, cwd } => {
-                match Session::spawn(&argv, cwd.as_deref(), size) {
+                match Session::spawn(&argv, cwd.as_deref(), size, viewer.theme.clone()) {
                     Ok(session) => direct = Some(session),
                     Err(error) => note = format!("{error:#}"),
                 }
@@ -244,17 +258,27 @@ impl TerminalView {
         let focus = cx.focus_handle();
         window.focus(&focus, cx);
         let font = terminal_font(&options.font_family, &options.fallbacks);
+        // Woken by the bell; asleep while nothing rings.
+        let rings = bell.receiver();
+        cx.spawn(async move |this, cx| {
+            while rings.recv().await.is_ok() {
+                if this.update(cx, |view, cx| view.woken(cx)).is_err() {
+                    break;
+                }
+            }
+        })
+        .detach();
         cx.spawn(async move |this, cx| {
             loop {
-                cx.background_executor()
-                    .timer(Duration::from_millis(8))
-                    .await;
+                cx.background_executor().timer(TICK).await;
                 if this.update(cx, |view, cx| view.poll(cx)).is_err() {
                     break;
                 }
             }
         })
         .detach();
+        // The first look, at once.
+        bell.kick();
         Self {
             viewer,
             direct,
@@ -282,12 +306,17 @@ impl TerminalView {
             find: None,
             attaching: false,
             quiet: None,
+            bell,
+            shown: None,
+            frame_pending: false,
         }
     }
 
-    /// New colours from Settings, at once.
+    /// New colours from Settings, at once; a program asking for colours from now on is told them.
     pub fn set_theme(&mut self, theme: Rc<theme::Theme>, cx: &mut Context<Self>) {
         self.theme = theme;
+        // Shared with every session here, the ones starting too.
+        self.viewer.set_theme(*self.theme.terminal());
         cx.notify();
     }
 
@@ -332,6 +361,7 @@ impl TerminalView {
         }
         self.label = format!("corral attach {name}");
         self.subject = name;
+        self.bell.kick();
         cx.notify();
     }
 
@@ -359,6 +389,7 @@ impl TerminalView {
             env,
             agent_shell: false,
         });
+        self.bell.kick();
         cx.notify();
     }
 
@@ -451,6 +482,7 @@ impl TerminalView {
         self.viewer.note = EMPTY_NOTE.into();
         self.label = "empty".into();
         self.subject.clear();
+        self.bell.kick();
         cx.notify();
     }
 
@@ -469,9 +501,13 @@ impl TerminalView {
         read_began: Option<std::time::Instant>,
         cx: &mut Context<Self>,
     ) {
-        let read_only = self.viewer.read_only;
+        let (read_only, lost) = (self.viewer.read_only, self.viewer.lost.is_some());
         if let Err(error) = self.viewer.listed(agents, read_began) {
             self.note = format!("{error:#}");
+        }
+        // A lost attach going again starts at once.
+        if lost && self.viewer.lost.is_none() {
+            self.bell.kick();
         }
         if read_only != self.viewer.read_only {
             cx.notify();
@@ -549,7 +585,44 @@ impl TerminalView {
             && !self.viewer.closed()
     }
 
-    /// Drives the session the way Saddle's main loop does, and repaints when output arrived.
+    /// The bell rang: only output, or something else too.
+    fn woken(&mut self, cx: &mut Context<Self>) {
+        if self.bell.take_changed() {
+            self.poll(cx);
+        } else {
+            self.output(cx);
+        }
+    }
+
+    /// Output came: a frame, unless one is already on its way, which shows it too.
+    fn output(&mut self, cx: &mut Context<Self>) {
+        if !self.frame_pending && self.take_changed() {
+            self.frame_pending = true;
+            cx.notify();
+        }
+    }
+
+    /// Whether the screen changed since the last look; not a bare cursor ([`damage`]).
+    fn take_changed(&self) -> bool {
+        self.session()
+            .is_some_and(|s| damage::take_changed(&mut s.screen.lock().unwrap().term))
+    }
+
+    /// The session shown, when it is new: handed the bell, so the one before rings no more.
+    fn adopt(&mut self) {
+        let id = self.session().map(Session::id);
+        if id == self.shown {
+            return;
+        }
+        self.shown = id;
+        match self.session() {
+            Some(session) => session.set_ring(self.bell.for_session()),
+            None => self.bell.silence(),
+        }
+    }
+
+    /// Drives the session the way Saddle's main loop does, and repaints when output arrived: on
+    /// every [`TICK`] and when the bell rings for a change.
     fn poll(&mut self, cx: &mut Context<Self>) {
         let size = self.size;
         if let Some(session) = &mut self.direct {
@@ -560,7 +633,12 @@ impl TerminalView {
         }
         if self.queued_shell.is_some() && self.viewer.closed() {
             self.viewer.start_shell(self.queued_shell.take().unwrap());
+            // Its spawn begins now, not a tick later.
+            if let Err(error) = self.viewer.tick(size) {
+                self.note = format!("{error:#}");
+            }
         }
+        self.adopt();
         let attaching = self.attaching();
         if self.attaching && !attaching {
             self.quiet = Some(Instant::now());
@@ -576,11 +654,9 @@ impl TerminalView {
         if self.typing.due(Instant::now()) {
             cx.notify();
         }
-        let changed = self
-            .session()
-            .is_some_and(|s| damage::take_changed(&mut s.screen.lock().unwrap().term));
+        self.output(cx);
         let title = format!("{} — {}", self.label, self.state());
-        if changed || title != self.title {
+        if title != self.title {
             self.title = title;
             cx.notify();
         }
@@ -607,7 +683,10 @@ impl TerminalView {
     /// Bytes for the program; the viewer's drop them while its agent is paused.
     fn send(&self, bytes: Vec<u8>) -> anyhow::Result<()> {
         match &self.direct {
-            Some(session) => session.send(bytes),
+            Some(session) => {
+                session.send(bytes);
+                Ok(())
+            }
             None => self.viewer.send(bytes).map(drop),
         }
     }
@@ -1086,6 +1165,8 @@ impl TerminalView {
     /// Sizes the PTY to the pane and copies what is visible out of the locked grid.
     fn build(&mut self, bounds: Bounds<Pixels>, window: &mut Window) -> Frame {
         let started = Instant::now();
+        // This frame shows whatever output came; the next output asks for another.
+        self.frame_pending = false;
         let metrics = self.metrics(window);
         self.origin = bounds.origin;
         let size = grid::grid_size(
@@ -1124,7 +1205,7 @@ impl TerminalView {
             }
             return frame;
         };
-        let screen = session.screen.lock().unwrap();
+        let mut screen = session.screen.lock().unwrap();
         let term = &screen.term;
         let theme = *self.theme.terminal();
         let offset = term.grid().display_offset() as i32;
@@ -1157,6 +1238,8 @@ impl TerminalView {
         }
         // The input method's candidate window follows the cursor even when it is hidden.
         let cursor_cell = (point.column.0 as u16, point.line.0.max(0) as u16);
+        // What changed is drawn now.
+        screen.term.reset_damage();
         drop(screen);
         self.cursor_cell = cursor_cell;
         if let Some(stats) = &self.stats {

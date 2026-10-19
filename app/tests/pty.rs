@@ -53,10 +53,15 @@ while :; do
 done
 "#,
     );
-    let mut session =
-        Session::spawn(&[program], Some(temp.path()), Size { rows: 10, cols: 40 }).unwrap();
+    let mut session = Session::spawn(
+        &[program],
+        Some(temp.path()),
+        Size { rows: 10, cols: 40 },
+        paddock::palette::Shared::default(),
+    )
+    .unwrap();
     wait_for(&session, "READY");
-    session.send(b"hello".to_vec()).unwrap();
+    session.send(b"hello".to_vec());
     wait_for(&session, "INPUT:hello");
     session.resize(Size { rows: 12, cols: 50 }).unwrap();
     wait_for(&session, "SIZE=50x12");
@@ -94,6 +99,7 @@ sh -c 'trap "printf HUP > job-hup; exit 0" HUP; printf "JOB READY\r\n"; while :;
         temp.path(),
         Size { rows: 10, cols: 40 },
         &[],
+        paddock::palette::Shared::default(),
     )
     .unwrap();
     wait_for(&session, "JOB READY");
@@ -128,6 +134,7 @@ fn a_shell_gets_the_identity_paddock_ctl_knows_it_by() {
             ("PADDOCK_INSTANCE".into(), "0123456789abcdef".into()),
             ("PADDOCK_PANE".into(), "7".into()),
         ],
+        paddock::palette::Shared::default(),
     )
     .unwrap();
     wait_for(&session, "ID=0123456789abcdef/7");
