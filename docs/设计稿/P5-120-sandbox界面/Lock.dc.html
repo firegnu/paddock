@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Sandbox lock, more visible</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+.card{background:#252b2a;border:1px solid #363d3c;border-radius:14px;padding:13px 14px 12px;display:flex;gap:11px;position:relative}
+.av{position:relative;width:38px;height:38px;flex:none}
+.av .face{width:38px;height:38px;border-radius:10px;background:#d97757}
+.av .dot{position:absolute;right:-3px;bottom:-3px;width:11px;height:11px;border-radius:50%;background:#7ea2ee;box-shadow:0 0 0 2.5px #252b2a}
+.av .dot.idle{background:#9cc98e}
+.body{flex:1;min-width:0}
+.row1{display:flex;align-items:center;gap:6px}
+.name{font-size:15.5px;font-weight:500}
+.here{width:6px;height:6px;border-radius:50%;border:1.5px solid #86c1e6;box-sizing:border-box}
+.eff{font-size:13px;color:#a2acaa}
+.age{font-size:13px;color:#7ea2ee}
+.line{font-size:13px;color:#a2acaa;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.line b{color:#7ea2ee;font-weight:600;margin-right:6px}
+.path{font-size:13px;color:#a2acaa;margin-top:3px}
+.count{font-size:13px;font-weight:600;color:#e0b84a}
+.label{font-size:12px;font-weight:600;color:#e7ecea;margin-bottom:2px}
+.note{font-size:12px;line-height:1.5;color:#879290;margin-bottom:8px}
+.tip{position:absolute;padding:5px 9px;border-radius:7px;background:#3a4140;font-size:12px;white-space:nowrap;color:#e7ecea}
+</style>
+</helmet>
+<div style="width: 1000px; height: 900px; box-sizing: border-box; padding: 32px 40px; background: #1d2221; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif; color: #e7ecea; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 40px; row-gap: 30px; align-content: start">
+
+<!-- Now -->
+<div>
+  <div class="label">Now</div>
+  <div class="note">12 pt grey outline lock; the yellow count stands out more than the lock.</div>
+  <div class="card">
+    <div class="av"><div class="face"></div><div class="dot"></div></div>
+    <div class="body">
+      <div class="row1"><span class="name">dev-terminal-core</span><span class="here"></span><span class="eff">high</span>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#a2acaa" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" role="img" aria-label="Sandbox dev"><rect x="5" y="11" width="14" height="10" rx="2.2"></rect><path d="M8 11V7.5a4 4 0 0 1 8 0V11"></path></svg>
+        <span class="count">2+</span><span style="flex:1"></span><span class="age">13m</span></div>
+      <div class="line"><b>Bash</b>P5-143a 终端底层三处</div>
+      <div class="path">…/p5-143a-terminal-core · ⎇ p5-143a-…</div>
+    </div>
+  </div>
+</div>
+
+<!-- A -->
+<div>
+  <div class="label">A · Bigger lock in its own colour</div>
+  <div class="note">15 pt, filled, a teal kept for “in a sandbox”; the count follows as now.</div>
+  <div class="card">
+    <div class="av"><div class="face"></div><div class="dot"></div></div>
+    <div class="body">
+      <div class="row1"><span class="name">dev-terminal-core</span><span class="here"></span><span class="eff">high</span>
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="rgba(95,199,181,0.28)" stroke="#5fc7b5" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" role="img" aria-label="Sandbox dev" style="margin-left:1px"><rect x="4.5" y="10.5" width="15" height="11" rx="2.4"></rect><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3" fill="none"></path></svg>
+        <span class="count">2+</span><span style="flex:1"></span><span class="age">13m</span></div>
+      <div class="line"><b>Bash</b>P5-143a 终端底层三处</div>
+      <div class="path">…/p5-143a-terminal-core · ⎇ p5-143a-…</div>
+    </div>
+  </div>
+</div>
+
+<!-- B -->
+<div>
+  <div class="label">B · A small pill: lock, profile, count (recommended)</div>
+  <div class="note">Reads as a tag, says which profile, and holds the count; hover as now. Takes about 60 pt of the name row; the effort gives way first, as today.</div>
+  <div class="card">
+    <div class="av"><div class="face"></div><div class="dot"></div></div>
+    <div class="body">
+      <div class="row1"><span class="name">dev-terminal-core</span><span class="here"></span><span class="eff">high</span>
+        <span role="img" aria-label="Sandbox dev, 2 blocked" style="display:inline-flex;align-items:center;gap:4px;height:19px;padding:0 7px 0 6px;border-radius:6px;background:rgba(95,199,181,0.16);margin-left:2px">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="rgba(95,199,181,0.35)" stroke="#5fc7b5" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4.5" y="10.5" width="15" height="11" rx="2.4"></rect><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3" fill="none"></path></svg>
+          <span style="font-size:12px;font-weight:600;color:#5fc7b5">dev</span>
+          <span style="font-size:12px;font-weight:600;color:#e0b84a">· 2+</span>
+        </span>
+        <span style="flex:1"></span><span class="age">13m</span></div>
+      <div class="line"><b>Bash</b>P5-143a 终端底层三处</div>
+      <div class="path">…/p5-143a-terminal-core · ⎇ p5-143a-…</div>
+    </div>
+    <div class="tip" style="left:200px;top:-28px">Sandbox: dev · 2 blocked in its latest records</div>
+  </div>
+  <div class="card" style="margin-top:10px">
+    <div class="av"><div class="face"></div><div class="dot idle"></div></div>
+    <div class="body">
+      <div class="row1"><span class="name">test-r20-cc</span><span class="eff">medium</span>
+        <span role="img" aria-label="Sandbox dev" style="display:inline-flex;align-items:center;gap:4px;height:19px;padding:0 7px 0 6px;border-radius:6px;background:rgba(95,199,181,0.16);margin-left:2px">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="rgba(95,199,181,0.35)" stroke="#5fc7b5" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4.5" y="10.5" width="15" height="11" rx="2.4"></rect><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3" fill="none"></path></svg>
+          <span style="font-size:12px;font-weight:600;color:#5fc7b5">dev</span>
+        </span>
+        <span style="flex:1"></span><span class="eff">2m</span></div>
+      <div class="line">Nothing blocked: the pill without a count.</div>
+    </div>
+  </div>
+</div>
+
+<!-- C -->
+<div>
+  <div class="label">C · A lock on the agent's icon</div>
+  <div class="note">A teal badge on the icon's upper corner (the status dot keeps the lower one); the name row stays as it is, the count after the effort.</div>
+  <div class="card">
+    <div class="av"><div class="face"></div><div class="dot"></div>
+      <div role="img" aria-label="Sandbox dev" style="position:absolute;right:-5px;top:-5px;width:17px;height:17px;border-radius:50%;background:#5fc7b5;box-shadow:0 0 0 2.5px #252b2a;display:flex;align-items:center;justify-content:center">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="#1d2221" stroke="#1d2221" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4.5" y="11" width="15" height="10.5" rx="2.2"></rect><path d="M8 11V7.5a4 4 0 0 1 8 0V11" fill="none"></path></svg>
+      </div>
+    </div>
+    <div class="body">
+      <div class="row1"><span class="name">dev-terminal-core</span><span class="here"></span><span class="eff">high</span>
+        <span class="count">2+</span><span style="flex:1"></span><span class="age">13m</span></div>
+      <div class="line"><b>Bash</b>P5-143a 终端底层三处</div>
+      <div class="path">…/p5-143a-terminal-core · ⎇ p5-143a-…</div>
+    </div>
+  </div>
+</div>
+
+<!-- Beside a controller -->
+<div style="grid-column: 1 / -1">
+  <div class="label">Beside a controller whose delegates go in a sandbox (P5-141's blue mark, unchanged)</div>
+  <div class="note">The agent's own lock is teal and solid (B); the controller's mark stays a blue arrow into an outline lock, so the two do not read alike. The yellow count's “+” means only its latest records were looked at; the hover text says so.</div>
+  <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:40px">
+    <div class="card">
+      <div class="av"><div class="face"></div><div class="dot idle"></div></div>
+      <div class="body">
+        <div class="row1"><span class="name">main</span><span class="here"></span><span class="eff">high</span>
+          <span role="img" aria-label="Delegates run in sandbox dev" style="display:inline-flex;align-items:center;gap:1px;margin-left:2px">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#86c1e6" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 4v7a4 4 0 0 0 4 4h9M14 11l4 4-4 4"></path></svg>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="rgba(134,193,230,0.2)" stroke="#86c1e6" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2.2"></rect><path d="M8 11V7.5a4 4 0 0 1 8 0V11" fill="none"></path></svg>
+          </span>
+          <span style="flex:1"></span><span class="eff">13m</span></div>
+        <div class="line">P5-143a 已经套墙派出去了…</div>
+        <div class="path">~/…/personal_projs/paddock · ⎇ main</div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="av"><div class="face"></div><div class="dot"></div></div>
+      <div class="body">
+        <div class="row1"><span class="name">dev-terminal-core</span><span class="here"></span><span class="eff">high</span>
+          <span role="img" aria-label="Sandbox dev, 2 blocked" style="display:inline-flex;align-items:center;gap:4px;height:19px;padding:0 7px 0 6px;border-radius:6px;background:rgba(95,199,181,0.16);margin-left:2px">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="rgba(95,199,181,0.35)" stroke="#5fc7b5" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4.5" y="10.5" width="15" height="11" rx="2.4"></rect><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3" fill="none"></path></svg>
+            <span style="font-size:12px;font-weight:600;color:#5fc7b5">dev</span>
+            <span style="font-size:12px;font-weight:600;color:#e0b84a">· 2+</span>
+          </span>
+          <span style="flex:1"></span><span class="age">13m</span></div>
+        <div class="line"><b>Bash</b>P5-143a 终端底层三处</div>
+        <div class="path">…/p5-143a-terminal-core · ⎇ p5-143a-…</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1000,"height":900}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

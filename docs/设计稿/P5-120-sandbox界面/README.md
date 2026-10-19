@@ -13,3 +13,4 @@
 | `DenialsTab.dc.html` | C2（未采用）：同样的列表放在右侧栏第五个标签 |
 | `Settings.dc.html` | D：Settings 新一页 Sandbox，只看：fence 版本状态、档案列表、选种类和目录后显示合并规则（来源层、允许域名、能读能写、不能读写、跳过项、警告） |
 | `Delegates.dc.html` | E（P5-141，用户 10-19 同意）：收起的主控卡片名字后面蓝色“箭头指向锁”标记（悬停 `Agents it starts run in sandbox: dev`）；展开详情多一格 Delegates，点开菜单 Not sandboxed／`dev`，底下说明从下一次派活起生效、已在跑的不变、主控自己不进墙；保存中、corral 拒绝、主控重启后的样子写在图下 |
+| `Lock.dc.html` | F（P5-145，用户 10-19：“选B，展开卡片和New Agent的锁都统一”）：现在的灰锁对照 A 大锁、**B 小胶囊（采用）**淡青绿底，锁、档案名、黄色 `· 2+`，没拦过只有锁和档案名、C 压在图标角上；最下面一排 B 和主控的蓝色 Delegates 标记并排，看两者分不分得开 |
