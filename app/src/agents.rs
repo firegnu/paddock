@@ -51,6 +51,8 @@ pub struct Panel {
     /// Whether fence is there and what its wall stopped for each sandboxed agent (DESIGN §13
     /// P5-120); this Mac's alone.
     pub fence: crate::fence::Seen,
+    /// The controllers' Delegates choices being saved or refused (DESIGN §13 P5-141).
+    pub delegates: crate::delegates::Saves,
 }
 
 /// The groups folded to their heading and the workspaces folded to their title, their cards out

@@ -96,6 +96,9 @@ pub(super) enum Floating {
     Machine(String),
     /// A sandboxed card's Sandbox cell: what fence's wall stopped (P5-120), by the agent's name.
     Denials(String),
+    /// A controller card's Delegates cell: the sandbox for the agents it starts (P5-141), by
+    /// the controller's name.
+    Delegates(String),
 }
 
 impl Floating {
@@ -107,6 +110,7 @@ impl Floating {
             Floating::Workspace { name, .. } => workspace_key(name),
             Floating::Machine(name) => format!("machine {name}"),
             Floating::Denials(name) => format!("denials {name}"),
+            Floating::Delegates(name) => format!("delegates {name}"),
             Floating::Rename { .. } | Floating::Editor(_) => String::new(),
         }
     }

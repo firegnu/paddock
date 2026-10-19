@@ -639,6 +639,9 @@ pub struct Card {
     pub repo: Option<PathBuf>,
     /// Runs in a sandbox (P5-120): a lock after the effort, and a Sandbox cell when open.
     pub sandbox: Option<Sandboxed>,
+    /// A controller's Delegates setting (P5-141): a mark after the effort while collapsed and
+    /// set, and a Delegates cell when open.
+    pub delegates: Option<crate::delegates::Delegates>,
 }
 
 /// Keeps the name readable on a tight first line: while `room(card)` leaves the name less than
@@ -1048,6 +1051,7 @@ fn card(
         workspace: panel.workspace(a).map(str::to_owned),
         repo: panel.repository(a).map(Path::to_path_buf),
         sandbox: sandboxed(panel, a),
+        delegates: crate::delegates::of(a, panel.fence.found.is_some(), &panel.delegates),
     }
 }
 
@@ -1947,5 +1951,37 @@ mod tests {
         };
         assert_eq!(none_seen.count().as_deref(), Some("0+"));
         assert_eq!(none_seen.told(), "0+ blocked ›");
+    }
+
+    #[test]
+    fn a_controller_card_carries_its_delegates_setting_once_fence_is_here() {
+        use crate::fence::{Update, Version};
+        let mut controller = agent("p/main", "idle");
+        controller.labels.insert("role".into(), "controller".into());
+        controller.child_sandbox = Some(Some(crate::corral::Sandbox {
+            profile: "dev".into(),
+        }));
+        let mut regular = agent("p/dev", "idle");
+        regular.child_sandbox = Some(None);
+        let mut panel = panel(vec![controller, regular]);
+        let delegates = |panel: &Panel| {
+            cards(&lines(panel, None, None, &[], None, 100.0))
+                .iter()
+                .map(|card| (card.name.clone(), card.delegates.clone().map(|d| d.value())))
+                .collect::<Vec<_>>()
+        };
+        // No fence here (as on another machine's list): no setting on any card.
+        assert_eq!(
+            delegates(&panel),
+            [("p/dev".to_owned(), None), ("p/main".to_owned(), None)]
+        );
+        panel.fence.absorb(Update::Found(Some(Version::default())));
+        assert_eq!(
+            delegates(&panel),
+            [
+                ("p/dev".to_owned(), None),
+                ("p/main".to_owned(), Some("In sandbox · dev".to_owned()))
+            ]
+        );
     }
 }

@@ -46,6 +46,9 @@ use workspaces_view::Floating;
 #[path = "sidebar_sandbox.rs"]
 mod sandbox_view;
 
+#[path = "sidebar_delegates.rs"]
+mod delegates_view;
+
 /// One machine in the switcher over the list (DESIGN §13 P5-90).
 #[derive(Clone, Debug, PartialEq)]
 pub struct MachineTab {
@@ -642,6 +645,11 @@ pub struct Sidebar {
     fence: Option<crate::fence::Watcher>,
     /// The Blocked popover lists every block, not only the network and file-write ones.
     denials_all: bool,
+    /// The `corral` program, for setting a controller's Delegates (P5-141).
+    corral: String,
+    /// fence's profiles as last read for the Delegates menu, and the read still running.
+    profiles: delegates_view::Read,
+    finding_profiles: Option<crate::fence::Cancel>,
     /// Reads last replies for the cards' previews.
     replies: Replies<Spell>,
     /// The active pane's agent, in this machine's layout.
@@ -736,7 +744,7 @@ impl Sidebar {
                 remote: remote.clone(),
             }),
             poller: match &remote {
-                None => Poller::start(Client::local(corral), refresh),
+                None => Poller::start(Client::local(corral.clone()), refresh),
                 Some(link) => Poller::remote(link.clone()),
             },
             git: remote
@@ -746,6 +754,9 @@ impl Sidebar {
                 .is_none()
                 .then(|| crate::fence::Watcher::start(crate::fence::PROGRAM.into(), FENCE_REFRESH)),
             denials_all: false,
+            corral,
+            profiles: None,
+            finding_profiles: None,
             // Another machine's home is known once it answers.
             home: match &remote {
                 None => std::env::var("HOME").ok(),
@@ -2015,13 +2026,19 @@ impl Sidebar {
         let mut changed = false;
         for (began, update) in self.poller.updates.try_iter().collect::<Vec<_>>() {
             changed = true;
-            if update.is_ok() {
+            let read = update.is_ok();
+            if read {
                 self.read_at = Some(now);
                 self.listed_at = Some(began);
             }
             let looking = looking_at(self.selected.as_deref(), self.on_show);
             if let Some(alive) = self.listing.absorb(update, looking, now) {
                 cx.emit(SidebarEvent::Alive(alive));
+            }
+            if read {
+                // A Delegates pick saved after this read began stands over what it says.
+                let panel = &mut self.listing.panel;
+                panel.delegates.settle(&mut panel.agents, began);
             }
         }
         if let Some(link) = &self.remote {
@@ -2385,6 +2402,9 @@ impl Render for Sidebar {
                                 + width(&count, NOTE_SIZE, FontWeight::SEMIBOLD, &plain);
                         }
                     }
+                    if delegates_mark(card) {
+                        left -= ui.scale(MARK_GAP) + delegates_view::mark_width(&ui);
+                    }
                     left
                 };
                 // The effort gives way before the name gets short; then the name is cut: the age
@@ -2639,6 +2659,10 @@ impl Render for Sidebar {
                             .expanded
                             .then(|| self.sandbox_cell(&card, cx))
                             .flatten();
+                        let delegates = card
+                            .expanded
+                            .then(|| self.delegates_cell(&card, cx))
+                            .flatten();
                         let card_grounds = if card.workspace.is_some() {
                             in_well
                         } else {
@@ -2653,6 +2677,7 @@ impl Render for Sidebar {
                             actions,
                             workspace: place,
                             sandbox,
+                            delegates,
                             grounds: card_grounds,
                         }
                         .into_any_element();
@@ -3163,6 +3188,8 @@ struct AgentCard {
     workspace: Option<workspaces_view::WorkspaceCell>,
     /// The open card's Sandbox cell (P5-120).
     sandbox: Option<sandbox_view::SandboxCell>,
+    /// The open controller card's Delegates cell (P5-141).
+    delegates: Option<delegates_view::DelegatesCell>,
     grounds: Grounds,
     /// It asks whether to pause its agent in a turn.
     asking: bool,
@@ -3178,6 +3205,7 @@ impl RenderOnce for AgentCard {
             actions,
             workspace,
             sandbox,
+            delegates,
             grounds,
             asking,
         } = self;
@@ -3310,6 +3338,11 @@ impl RenderOnce for AgentCard {
                         .child(count)
                 }))
         });
+        // A collapsed controller whose agents start in a sandbox: an arrow into a blue lock.
+        let delegated = delegates_mark(&card)
+            .then(|| card.delegates.as_ref().and_then(|d| d.tip()))
+            .flatten()
+            .map(|words| delegates_view::mark(&theme, &ui, tip(words.into())));
         let age = card
             .time_color
             .map_or(fg(|t| t.agents_dimmer), |pick| fg(pick).opacity(0.8));
@@ -3337,6 +3370,7 @@ impl RenderOnce for AgentCard {
             .children(here)
             .children(effort)
             .children(lock)
+            .children(delegated)
             .child(
                 div()
                     .flex_shrink_0()
@@ -3463,6 +3497,7 @@ impl RenderOnce for AgentCard {
                 asking: asking.then_some((actions.confirm, actions.cancel)),
                 workspace,
                 sandbox,
+                delegates,
             };
             details(&theme, &mono, &ui, &card, buttons)
         });
@@ -3711,6 +3746,13 @@ struct Buttons {
     workspace: Option<workspaces_view::WorkspaceCell>,
     /// The Sandbox cell, for a sandboxed agent: the button that opens what was blocked.
     sandbox: Option<sandbox_view::SandboxCell>,
+    /// The Delegates cell, for a controller: the button that opens its menu (P5-141).
+    delegates: Option<delegates_view::DelegatesCell>,
+}
+
+/// The collapsed card shows the Delegates mark: a controller whose agents start in a sandbox.
+fn delegates_mark(card: &Card) -> bool {
+    !card.expanded && card.delegates.as_ref().is_some_and(|d| d.profile.is_some())
 }
 
 /// The open card under the header: the full path over the branch and changes as chips; the rest in
@@ -3725,6 +3767,7 @@ fn details(theme: &Theme, mono: &Font, ui: &UiFont, card: &Card, buttons: Button
         asking,
         workspace: place,
         sandbox,
+        delegates,
     } = buttons;
     let fg = |pick: Pick| hsla(theme.fg(pick), 1.0);
     let (text, dim, dimmer, rule) = (
@@ -3871,7 +3914,9 @@ fn details(theme: &Theme, mono: &Font, ui: &UiFont, card: &Card, buttons: Button
             .unwrap_or_else(|| div().flex_1().into_any_element());
         cells = cells.child(div().flex().gap(ui.px(CELL_GAP)).child(left).child(right));
     }
-    let cells = cells.children(sandbox.map(|sandbox| sandbox_view::cell(theme, ui, sandbox)));
+    let cells = cells
+        .children(delegates.map(|delegates| delegates_view::cell(theme, ui, delegates)))
+        .children(sandbox.map(|sandbox| sandbox_view::cell(theme, ui, sandbox)));
     // An icon button with its hover text, quiet until hovered; what it looks like then is the
     // caller's. Made each frame from its motion's state.
     let action = |id: &'static str, tip: &'static str| {
