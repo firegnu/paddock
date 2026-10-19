@@ -1,9 +1,32 @@
 use super::*;
 use std::path::Path;
 
+/// A fresh private directory short enough for a control socket's path: under `/tmp`, or under
+/// `TMPDIR` when a sandbox refuses `/tmp` (fence gives agents their own `TMPDIR`). Same rule as
+/// `short_dir` in `tests/common`, which unit tests cannot reach.
 fn directory() -> PathBuf {
-    let path = PathBuf::from("/tmp").join(format!("pc-{}", random_id().unwrap()));
-    fs::DirBuilder::new().mode(0o700).create(&path).unwrap();
+    let name = format!("pc-{}", random_id().unwrap());
+    let make = |base: PathBuf| {
+        let path = base.join(&name);
+        fs::DirBuilder::new()
+            .mode(0o700)
+            .create(&path)
+            .map(|()| path)
+    };
+    let path = match make("/tmp".into()) {
+        Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+            make(std::env::temp_dir())
+        }
+        made => made,
+    }
+    .unwrap_or_else(|error| panic!("cannot make {name} under /tmp or TMPDIR: {error}"));
+    // The tests put at most `/paddock-ctl/<16 hex>.sock` below it; macOS allows under 104 bytes.
+    let length = path.canonicalize().unwrap().as_os_str().len();
+    assert!(
+        length + "/paddock-ctl/0123456789abcdef.sock".len() < 104,
+        "TMPDIR too long for a control socket: {}",
+        path.display()
+    );
     path
 }
 fn message(id: &str, request: Option<&str>, operation: Operation) -> Message {

@@ -3,7 +3,8 @@
 #![allow(dead_code)]
 use std::{
     fs,
-    os::unix::fs::PermissionsExt,
+    io::ErrorKind,
+    os::unix::fs::{DirBuilderExt, PermissionsExt},
     path::{Path, PathBuf},
     sync::atomic::{AtomicUsize, Ordering},
 };
@@ -40,15 +41,35 @@ pub fn tempdir() -> TempDir {
     TempDir(path.canonicalize().unwrap())
 }
 
-/// Like [`tempdir`], under `/tmp`, short enough for a control socket's path.
+/// Like [`tempdir`], short enough for a control socket's path (see [`short_dir`]).
 pub fn short_tempdir() -> TempDir {
-    static NEXT: AtomicUsize = AtomicUsize::new(0);
-    let path = PathBuf::from(format!(
-        "/tmp/pdt-{}-{}",
-        std::process::id(),
-        NEXT.fetch_add(1, Ordering::Relaxed)
-    ));
-    let _ = fs::remove_dir_all(&path);
-    fs::create_dir_all(&path).unwrap();
+    let path = short_dir("pdt", 0o755);
     TempDir(path.canonicalize().unwrap())
+}
+
+/// Makes a fresh directory `<prefix>-<random>` with `mode`, short enough for a control socket's
+/// path: under `/tmp`, or under `TMPDIR` when a sandbox refuses `/tmp` (fence gives agents their
+/// own `TMPDIR`). macOS socket paths hold under 104 bytes, and the tests put at most
+/// `/paddock-ctl/<16 hex>.sock` below this directory.
+pub fn short_dir(prefix: &str, mode: u32) -> PathBuf {
+    let name = format!("{prefix}-{}", paddock::control::random_id().unwrap());
+    let make = |base: PathBuf| {
+        let path = base.join(&name);
+        fs::DirBuilder::new()
+            .mode(mode)
+            .create(&path)
+            .map(|()| path)
+    };
+    let path = match make("/tmp".into()) {
+        Err(error) if error.kind() == ErrorKind::PermissionDenied => make(std::env::temp_dir()),
+        made => made,
+    }
+    .unwrap_or_else(|error| panic!("cannot make {name} under /tmp or TMPDIR: {error}"));
+    let length = path.canonicalize().unwrap().as_os_str().len();
+    assert!(
+        length + "/paddock-ctl/0123456789abcdef.sock".len() < 104,
+        "TMPDIR too long for a control socket: {}",
+        path.display()
+    );
+    path
 }

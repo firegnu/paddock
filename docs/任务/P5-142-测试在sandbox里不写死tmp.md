@@ -29,3 +29,17 @@
 - 不用 `.fence.toml` 或 `~/.fence/local.toml` 放行 `/tmp`（墙会变松）。
 - 不改测试要测的东西，不删测试、不放宽断言、不缩短超时。
 - 不碰用户的 agent；测试 agent 用完就停。
+
+## 实测记录（paddock/main，10-19，还没做完）
+改动在 `156ca33`：4 处辅助函数先在 `/tmp` 建，权限被拒（墙里是 EPERM，Rust 归为 `PermissionDenied`）才退回 `TMPDIR`，建好后检查 `目录 + /paddock-ctl/<16 位>.sock` 不到 104 字节，否则报 `TMPDIR too long for a control socket`。`tests/common` 加 `short_dir`，`ctl_cli`、`agent_shell`、`short_tempdir` 共用；`control_tests.rs` 是单元测试，照同一规则自己写一份。
+
+- 墙外：`cargo test --all-targets` 792 过，clippy、fmt 干净。
+- 墙里（Claude Code `paddock/test-tmp-cc`，`TMPDIR=~/.cache/fence/tmp/<实例>`；Codex `paddock/test-tmp-cx`，`TMPDIR=/tmp/claude`）：两家结果一样。临时目录都能建了；`remote` 1 个、`ctl_cli` 2 个、`control` 1 个由失败变过。**还剩 14 个失败，全是建 unix socket（`UnixListener::bind`／`Server::start_in`）报 `Operation not permitted`**：`control::transport_tests` 12、`ctl_cli` 1（`caller_identity_is_forwarded_before_gui_environment_cleanup`）、`agent_shell` 1（`shim_requests_its_own_pane_handoff_and_waits_for_the_listing_check`）。fence 记录是 `network-bind <TMPDIR>/…/<id>.sock`：dev 档案不许在任何目录建 unix socket（`fence check` 的 `settings.network` 里没有放行 unix socket 的项），和放在哪个目录无关，paddock 改测试解决不了。
+- 另有一个实测时自己造成的坑：给测试 agent 用的编译目录是从 `.target/p5-142-test-tmp` 克隆的，源码没变时 cargo 不重编，集成测试里 `CARGO_BIN_EXE_paddock` 仍指向原目录的 paddock，墙里读不了，`agent_shell` 7 个报退出码 126。agent 在自己的编译目录 `cargo clean -p paddock` 重编后这 7 个都过。P5-141 的 `.fence.toml` 放行整个 `paddock-worktrees/.target` 后也不会再碰到。
+- 测试 agent 已停，`.target/p5-142-cc`、`.target/p5-142-cx` 已删。
+
+## 完成记录（先合并，墙里验收待 ranch）
+- 用户 10-19：“选1，先合并，需求写好转给ranch”。即：剩下 14 个由 ranch 放行墙里建 unix socket（只限 agent 自己的临时目录）来解决，paddock 的改动先合并。
+- 做了什么、验证了什么：见上面「实测记录」。墙外三项全过；墙里临时目录两家都能建了，剩 14 个都是建 unix socket 被拒。
+- 拿主意的地方：退回条件只认权限被拒，别的错误照旧报；`control_tests.rs` 不为共用加公开接口，照同一规则单写；`short_tempdir` 改用随机名（原来用进程号加计数，要先删旧目录），和另外 3 处一致。
+- 没做完的：墙里两家全过这一条，等 ranch 放行、部署后，主控再开两家测试 agent 验一次，结果补在这里，过了再记收尾。

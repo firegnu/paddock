@@ -1,4 +1,5 @@
 //! Runs only the headless CLI, with isolated home and runtime directories.
+mod common;
 use serde_json::{Value, json};
 use std::{
     fs,
@@ -13,10 +14,7 @@ use std::{
 };
 
 fn sandbox() -> PathBuf {
-    let dir =
-        PathBuf::from("/tmp").join(format!("pctl-{}", paddock::control::random_id().unwrap()));
-    fs::DirBuilder::new().mode(0o700).create(&dir).unwrap();
-    dir
+    common::short_dir("pctl", 0o700)
 }
 fn command(home: &std::path::Path) -> Command {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_paddock"));
