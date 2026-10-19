@@ -3,6 +3,7 @@
 //! Saddle's `Viewer` owns the shell / `corral attach` lifecycle and `Session` the PTY and parser,
 //! unchanged. This file only reads the parser's grid, draws it, and turns window input into the
 //! bytes Saddle's `input` module already encodes.
+mod caret;
 mod file_drop;
 pub mod links;
 mod notice;
@@ -37,9 +38,9 @@ use gpui::{
     App, Bounds, ClipboardItem, Context, CursorStyle, DispatchPhase, ElementInputHandler, Entity,
     EntityInputHandler, EventEmitter, ExternalPaths, FocusHandle, Focusable, Font, FontStyle,
     FontWeight, Hsla, KeyDownEvent, ModifiersChangedEvent, MouseButton, MouseDownEvent,
-    MouseMoveEvent, MouseUpEvent, Pixels, Point, Render, Rgba, ScrollDelta, ScrollWheelEvent,
-    SharedString, Subscription, TextAlign, TextRun, UTF16Selection, UnderlineStyle, Window, canvas,
-    div, fill, point, prelude::*, px, size,
+    MouseMoveEvent, MouseUpEvent, PathBuilder, Pixels, Point, Render, Rgba, ScrollDelta,
+    ScrollWheelEvent, SharedString, Subscription, TextAlign, TextRun, UTF16Selection,
+    UnderlineStyle, Window, canvas, div, fill, point, prelude::*, px, size,
 };
 use links::Link;
 use std::{
@@ -146,6 +147,9 @@ pub struct Options {
     pub fallbacks: Vec<String>,
     pub font_size: f32,
     pub line_height: f32,
+    /// Settings' `blink_cursor` and `animate_cursor` (P5-143c1).
+    pub blink_cursor: bool,
+    pub animate_cursor: bool,
     pub stats: bool,
 }
 
@@ -203,6 +207,14 @@ pub struct TerminalView {
     shown: Option<u64>,
     /// A frame was asked for and is not drawn yet: more output waits for it.
     frame_pending: bool,
+    /// The screen was redrawn as a whole since the last frame: the cursor goes straight to its
+    /// place.
+    redrawn: bool,
+    /// The cursor blinking and sliding, and the wait for its next frame.
+    caret: caret::Caret,
+    caret_wake: Option<gpui::Task<()>>,
+    blink_cursor: bool,
+    animate_cursor: bool,
 }
 
 struct FindBar {
@@ -351,6 +363,11 @@ impl TerminalView {
             bell,
             shown: None,
             frame_pending: false,
+            redrawn: false,
+            caret: caret::Caret::default(),
+            caret_wake: None,
+            blink_cursor: options.blink_cursor,
+            animate_cursor: options.animate_cursor,
         }
     }
 
@@ -369,6 +386,13 @@ impl TerminalView {
         self.font_size = px(options.font_size);
         self.line_height_factor = options.line_height;
         self.metrics = None;
+        cx.notify();
+    }
+
+    /// Whether the cursor blinks and slides, from Settings, at once.
+    pub fn set_cursor(&mut self, options: &Options, cx: &mut Context<Self>) {
+        self.blink_cursor = options.blink_cursor;
+        self.animate_cursor = options.animate_cursor;
         cx.notify();
     }
 
@@ -645,9 +669,12 @@ impl TerminalView {
     }
 
     /// Whether the screen changed since the last look; not a bare cursor ([`damage`]).
-    fn take_changed(&self) -> bool {
-        self.session()
-            .is_some_and(|s| damage::take_changed(&mut s.screen.lock().unwrap().term))
+    fn take_changed(&mut self) -> bool {
+        let change = self.session().map_or(damage::Change::None, |s| {
+            damage::take(&mut s.screen.lock().unwrap().term)
+        });
+        self.redrawn |= change == damage::Change::Whole;
+        change != damage::Change::None
     }
 
     /// The session shown, when it is new: handed the bell, so the one before rings no more.
@@ -752,6 +779,8 @@ impl TerminalView {
         if let Err(error) = self.send(bytes) {
             self.note = format!("{error:#}");
         }
+        // Shown solid while typing, blinking once it stops.
+        self.caret.touch(Instant::now());
         cx.notify();
     }
 
@@ -1428,7 +1457,8 @@ impl TerminalView {
             f32::from(bounds.size.height),
             metrics,
         );
-        if (size.rows, size.cols) != (self.size.rows, self.size.cols) {
+        let resized = (size.rows, size.cols) != (self.size.rows, self.size.cols);
+        if resized {
             self.size = size;
             if let Some(session) = self.session_mut() {
                 let _ = session.resize(size);
@@ -1468,6 +1498,9 @@ impl TerminalView {
         // Held apart from `self`, so the link can be shown while the grid is read.
         let shared = session.screen.clone();
         let mut screen = shared.lock().unwrap();
+        // What changed is drawn now.
+        let redrawn = damage::take(&mut screen.term) == damage::Change::Whole || self.redrawn;
+        self.redrawn = false;
         let term = &screen.term;
         let theme = *self.theme.terminal();
         let offset = term.grid().display_offset() as i32;
@@ -1513,14 +1546,24 @@ impl TerminalView {
                 shape: style.shape,
                 text: (cell.c != ' ').then(|| cell.c.to_string()),
                 wide,
+                color: screen.cursor_color(),
+                alpha: 1.0,
+                corners: None,
             });
         }
+        let blinks = screen.cursor_blinks();
         // The input method's candidate window follows the cursor even when it is hidden.
         let cursor_cell = (point.column.0 as u16, point.line.0.max(0) as u16);
-        // What changed is drawn now.
-        screen.term.reset_damage();
         drop(screen);
         self.cursor_cell = cursor_cell;
+        let composing = frame.marked.is_some();
+        let conditions = caret::Conditions {
+            focused,
+            blink: self.blink_cursor && blinks && !composing,
+            slide: self.animate_cursor && !cx.reduce_motion(),
+            snap: redrawn || resized || composing,
+        };
+        self.cursor_motion(&mut frame, conditions, window, cx);
         // The pointer follows on the next frame.
         self.link = link;
         self.look_at_files(cx);
@@ -1531,6 +1574,41 @@ impl TerminalView {
             stats.build_max = stats.build_max.max(spent);
         }
         frame
+    }
+
+    /// How the cursor blinks or slides this frame (`caret`), and when the pane is drawn again for
+    /// it: the next frame while it slides, a timer while it blinks, not at all when it is still.
+    fn cursor_motion(
+        &mut self,
+        frame: &mut Frame,
+        conditions: caret::Conditions,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let now = Instant::now();
+        let target = frame.cursor.as_ref().map(|cursor| caret::Target {
+            cell: (cursor.col, cursor.row),
+            rect: frame.cursor_rect(cursor),
+        });
+        let look = self.caret.frame(target, conditions, now);
+        if let Some(cursor) = &mut frame.cursor {
+            cursor.alpha = look.alpha;
+            cursor.corners = look.corners;
+        }
+        self.caret_wake = match look.next {
+            caret::Next::Idle => None,
+            caret::Next::Frame => {
+                window.request_animation_frame();
+                None
+            }
+            caret::Next::At(when) => {
+                let wait = when.saturating_duration_since(now);
+                Some(cx.spawn(async move |this, cx| {
+                    cx.background_executor().timer(wait).await;
+                    let _ = this.update(cx, |_, cx| cx.notify());
+                }))
+            }
+        };
     }
 }
 
@@ -1585,6 +1663,12 @@ struct Cursor {
     shape: CursorShape,
     text: Option<String>,
     wide: bool,
+    /// What the program set (OSC 12), or else the theme's.
+    color: Rgb,
+    /// How opaque, as it blinks.
+    alpha: f32,
+    /// Mid-slide, its corners in the grid (`caret`).
+    corners: Option<[caret::Corner; 4]>,
 }
 
 /// Everything one paint needs, copied so the grid lock is not held while drawing.
@@ -1654,17 +1738,18 @@ impl Frame {
         text: &str,
         style: &Style,
         color: Rgb,
+        alpha: f32,
         cell: Option<f32>,
         window: &Window,
     ) -> gpui::ShapedLine {
         let run = TextRun {
             len: text.len(),
             font: self.font(style),
-            color: hsla(color, 1.0),
+            color: hsla(color, alpha),
             background_color: None,
             underline: style.underline.then(|| UnderlineStyle {
                 thickness: px(1.0),
-                color: Some(hsla(color, 1.0)),
+                color: Some(hsla(color, alpha)),
                 wavy: false,
             }),
             // Drawn per cell in `text`: GPUI skipped it on lone wide glyphs.
@@ -1678,12 +1763,14 @@ impl Frame {
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn text(
         &self,
         text: &str,
         style: &Style,
         (col, row): (usize, usize),
         cell_wide: bool,
+        alpha: f32,
         window: &mut Window,
         cx: &mut App,
     ) {
@@ -1692,7 +1779,7 @@ impl Frame {
         let (x, y) = (self.x(col), self.y(row));
         if cell_wide {
             // Wide glyphs keep their own advance, centred in their two cells.
-            let shaped = self.shape(text, style, color, None, window);
+            let shaped = self.shape(text, style, color, alpha, None, window);
             let room = self.x(col + 2) - x;
             let inset = ((room - f32::from(shaped.width)) / 2.0).max(0.0);
             let _ = shaped.paint(
@@ -1705,7 +1792,14 @@ impl Frame {
             );
             self.strike(style, color, x, y, room, window);
         } else {
-            let shaped = self.shape(text, style, color, Some(self.metrics.cell_width), window);
+            let shaped = self.shape(
+                text,
+                style,
+                color,
+                alpha,
+                Some(self.metrics.cell_width),
+                window,
+            );
             let _ = shaped.paint(
                 self.at(x, y),
                 line_height,
@@ -1761,10 +1855,10 @@ impl Frame {
             for run in runs {
                 match run {
                     Run::Text { col, text, style } => {
-                        self.text(text, style, (*col, row), false, window, cx)
+                        self.text(text, style, (*col, row), false, 1.0, window, cx)
                     }
                     Run::Wide { col, text, style } => {
-                        self.text(text, style, (*col, row), true, window, cx)
+                        self.text(text, style, (*col, row), true, 1.0, window, cx)
                     }
                     Run::Glyph { .. } => {}
                 }
@@ -1778,12 +1872,12 @@ impl Frame {
                 ..Style::default()
             };
             let lines = note_lines(note, width, |text| {
-                self.shape(text, &style, style.fg, None, window)
+                self.shape(text, &style, style.fg, 1.0, None, window)
                     .width
                     .into()
             });
             for (row, line) in lines.into_iter().enumerate() {
-                let shaped = self.shape(line, &style, style.fg, None, window);
+                let shaped = self.shape(line, &style, style.fg, 1.0, None, window);
                 let y = self.y(self.rows.len().max(1) + row);
                 let _ = shaped.paint(self.at(0.0, y), px(lh), TextAlign::Left, None, window, cx);
             }
@@ -1799,7 +1893,7 @@ impl Frame {
             fg: self.theme.background,
             ..Style::default()
         };
-        let shaped = self.shape(text, &style, style.fg, None, window);
+        let shaped = self.shape(text, &style, style.fg, 1.0, None, window);
         let (pad, lh) = (4.0, self.metrics.line_height);
         let w = f32::from(shaped.width).ceil() + 2.0 * pad;
         let x = self.x(*col).min(width - w).max(0.0);
@@ -1818,6 +1912,20 @@ impl Frame {
         );
     }
 
+    /// Where `cursor` is drawn in its place, by its shape.
+    fn cursor_rect(&self, cursor: &Cursor) -> caret::Rect {
+        let (col, row) = (usize::from(cursor.col), usize::from(cursor.row));
+        let (x, y) = (self.x(col), self.y(row));
+        let w = self.x(col + if cursor.wide { 2 } else { 1 }) - x;
+        let lh = self.metrics.line_height;
+        let (y, w, h) = match cursor.shape {
+            CursorShape::Beam => (y, 2.0, lh),
+            CursorShape::Underline => (y + lh - 2.0, w, 2.0),
+            _ => (y, w, lh),
+        };
+        caret::Rect { x, y, w, h }
+    }
+
     fn paint_cursor(&self, window: &mut Window, cx: &mut App) {
         let Some(cursor) = &self.cursor else {
             return;
@@ -1826,7 +1934,19 @@ impl Frame {
         let (x, y) = (self.x(col), self.y(row));
         let w = self.x(col + if cursor.wide { 2 } else { 1 }) - x;
         let lh = self.metrics.line_height;
-        let color = hsla(self.theme.cursor, 1.0);
+        let color = hsla(cursor.color, cursor.alpha);
+        if let Some(corners) = cursor.corners {
+            // On its way: the four corners, the leading ones ahead.
+            let mut path = PathBuilder::fill();
+            path.add_polygon(&corners.map(|(x, y)| self.at(x, y)), true);
+            if let Ok(path) = path.build() {
+                window.paint_path(path, color);
+            }
+            return;
+        }
+        if cursor.alpha <= 0.0 {
+            return;
+        }
         if let Some(marked) = &self.marked {
             // The composition replaces the cursor: drawn over the grid, underlined.
             let style = Style {
@@ -1834,7 +1954,7 @@ impl Frame {
                 underline: true,
                 ..Style::default()
             };
-            let shaped = self.shape(marked, &style, style.fg, None, window);
+            let shaped = self.shape(marked, &style, style.fg, 1.0, None, window);
             let width = f32::from(shaped.width).ceil();
             window.paint_quad(self.rect(x, y, width, lh, hsla(self.theme.background, 1.0)));
             let _ = shaped.paint(self.at(x, y), px(lh), TextAlign::Left, None, window, cx);
@@ -1853,7 +1973,15 @@ impl Frame {
                         fg: self.theme.background,
                         ..Style::default()
                     };
-                    self.text(text, &style, (col, row), cursor.wide, window, cx);
+                    self.text(
+                        text,
+                        &style,
+                        (col, row),
+                        cursor.wide,
+                        cursor.alpha,
+                        window,
+                        cx,
+                    );
                 }
             }
             (_, false) => {

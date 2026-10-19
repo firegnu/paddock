@@ -41,6 +41,10 @@ pub struct Config {
     /// (`open`), else a command such as `zed` or `code -g`, split at spaces and given
     /// `path:line:column`.
     pub open_files_with: String,
+    /// Whether the terminal cursor blinks, fading out and in, unless the program asks for a
+    /// steady one; and whether it slides to where it goes (P5-143c1).
+    pub blink_cursor: bool,
+    pub animate_cursor: bool,
     /// The New Agent panel's presets; `None` (not written) is the default four.
     pub agent_presets: Option<Vec<crate::new_agent::Preset>>,
     /// `[agent_models]`: the models and efforts New Agent offers for Claude and Codex (P5-100).
@@ -193,6 +197,8 @@ impl Default for Config {
             refresh_ms: 1000,
             corral: "corral".into(),
             open_files_with: String::new(),
+            blink_cursor: true,
+            animate_cursor: true,
             agent_presets: None,
             agent_models: Default::default(),
             sidebar_opacity: None,

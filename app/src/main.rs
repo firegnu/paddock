@@ -212,6 +212,8 @@ fn main() -> Result<()> {
         fallbacks: config.font_fallbacks.clone(),
         font_size: config.font_size,
         line_height: config.line_height,
+        blink_cursor: config.blink_cursor,
+        animate_cursor: config.animate_cursor,
         stats,
     };
     // `--attach NAME`: the instance to attach to, from public corral, so the pane can stand for

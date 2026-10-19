@@ -3353,6 +3353,13 @@ impl PaddockWindow {
                 .update(cx, |browser, cx| browser.set_theme(theme, cx));
         }
         self.open_files_with = config.open_files_with.clone();
+        let cursor = (config.blink_cursor, config.animate_cursor);
+        if cursor != (self.template.blink_cursor, self.template.animate_cursor) {
+            (self.template.blink_cursor, self.template.animate_cursor) = cursor;
+            for view in self.all_panes() {
+                view.update(cx, |view, cx| view.set_cursor(&self.template, cx));
+            }
+        }
         let pet = (config.mascot_enabled, config.mascot);
         if pet != self.pet_setting {
             self.pet_setting = pet;
