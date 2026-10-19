@@ -4,13 +4,14 @@
 
 ## 现在在哪
 
-- **没有进行中的活**：没有任务 worktree。5090 上的测试 agent `paddock/test-pi` 用户 10-17 自己关了（在远端开 pi 要经远端 `zsh -l` 跑 `$HOME/.local/bin/corral start`，非交互 ssh 找不到 nvm 下的 pi）。ranch 的 R12 草稿（派活规则和路由策略）主控提交在 ranch 本地 main、没推送，用户说自己处理。工作区里未提交的草稿是 P5-54、P5-106、P5-111、P5-115、P5-120、P5-125（看板 DRAFT，有意留，不要 `git add -A`）。
-- `~/Applications/paddock.app` 是 main 合并 P5-139 后的版本（10-17 21:50 装，含 P5-139 左侧栏机器切换栏变轻（用户 10-17 看过：“很克制，我觉得还可以”）、P5-138 ⌘Q 退出不再每个 agent 窗格白等 3 秒（用户还没看）、P5-137a Cairn Next session 摘要整段换行、只露前两行、不加 …（用户还没看）、P5-136 卡片展开详情精修（用户还没看）、P5-135 New Agent 默认 Controller、P5-134 空 workspace 收到列表末尾的 `Idle workspaces`、没 agent 的仓库合成一行（用户还没看）、P5-133 Cairn 的 Ledger、Lessons 一行一条、分组可收起、过滤框（用户还没看）、P5-132 Cairn 的 Lessons 新的在上、P5-124 远程开 agent、P5-124a 远程空侧栏的 New Agent 按钮、P5-124b 远程走交互登录 shell 找得到 pi、P5-124c 远程对话框自己配命令（用户还没看）、P5-126、P5-128、P5-129、P5-129a 仓库名 11.5pt、P5-130 胶囊提醒记号、切换栏胶囊改淡、右侧栏说明卡居中、P5-127；11.5pt、P5-130 用户还没看，其余用户看过；本机 Apple Development 证书签名）。
-- 已合并：第一至第三阶段、迁移 M0–M3、P4-1～P4-3、P5-1～P5-80、P5-82、P5-85～P5-89、P5-90、P5-90a、P5-91～P5-105、P5-107～P5-110、P5-112～P5-114、P5-114a、P5-116～P5-118、P5-118a、P5-119、P5-121、P5-121a、P5-122、P5-123、P5-124、P5-124a、P5-124b、P5-124c、P5-126、P5-127、P5-128、P5-129、P5-129a、P5-130、P5-131a、P5-132、P5-133、P5-134、P5-135、P5-136、P5-137a、P5-138、P5-139（P5-137 是 agy 没做完、改由 P5-137a（omp）做，不做；P5-95b 已被 P5-95c 撤；P5-131b 是 agy 做的比较落选，不合并）。P5-83 已收尾（讨论记录）；P5-84、P5-81 不做；P5-52 只查明原因、改法用户暂不定。
+- **没有进行中的活**：没有任务 worktree。5090 上的测试 agent `paddock/test-pi` 用户 10-17 自己关了（在远端开 pi 要经远端 `zsh -l` 跑 `$HOME/.local/bin/corral start`，非交互 ssh 找不到 nvm 下的 pi）。ranch 的 R12 草稿（派活规则和路由策略）主控提交在 ranch 本地 main、没推送，用户说自己处理。工作区里未提交的草稿是 P5-54、P5-106、P5-111、P5-115、P5-125、P5-140、P5-141（看板 DRAFT，有意留，不要 `git add -A`）。
+- `~/Applications/paddock.app` 是 main 合并 P5-120 后的版本（10-19 13:23 装，含 P5-120 sandbox 界面（用户还没看）；之前 10-17 21:50 那版含 P5-139 左侧栏机器切换栏变轻（用户 10-17 看过：“很克制，我觉得还可以”）、P5-138 ⌘Q 退出不再每个 agent 窗格白等 3 秒（用户还没看）、P5-137a Cairn Next session 摘要整段换行、只露前两行、不加 …（用户还没看）、P5-136 卡片展开详情精修（用户还没看）、P5-135 New Agent 默认 Controller、P5-134 空 workspace 收到列表末尾的 `Idle workspaces`、没 agent 的仓库合成一行（用户还没看）、P5-133 Cairn 的 Ledger、Lessons 一行一条、分组可收起、过滤框（用户还没看）、P5-132 Cairn 的 Lessons 新的在上、P5-124 远程开 agent、P5-124a 远程空侧栏的 New Agent 按钮、P5-124b 远程走交互登录 shell 找得到 pi、P5-124c 远程对话框自己配命令（用户还没看）、P5-126、P5-128、P5-129、P5-129a 仓库名 11.5pt、P5-130 胶囊提醒记号、切换栏胶囊改淡、右侧栏说明卡居中、P5-127；11.5pt、P5-130 用户还没看，其余用户看过；本机 Apple Development 证书签名）。
+- 已合并：第一至第三阶段、迁移 M0–M3、P4-1～P4-3、P5-1～P5-80、P5-82、P5-85～P5-89、P5-90、P5-90a、P5-91～P5-105、P5-107～P5-110、P5-112～P5-114、P5-114a、P5-116～P5-118、P5-118a、P5-119、P5-121、P5-121a、P5-122、P5-123、P5-124、P5-124a、P5-124b、P5-124c、P5-126、P5-127、P5-128、P5-129、P5-129a、P5-130、P5-131a、P5-132、P5-133、P5-134、P5-135、P5-136、P5-137a、P5-138、P5-139、P5-120（P5-137 是 agy 没做完、改由 P5-137a（omp）做，不做；P5-95b 已被 P5-95c 撤；P5-131b 是 agy 做的比较落选，不合并）。P5-83 已收尾（讨论记录）；P5-84、P5-81 不做；P5-52 只查明原因、改法用户暂不定。
 - **远程机器（P5-90 甲）**：用户本机 `~/.config/paddock/config.toml` 已加一台 `[[machines]]`（名字 `5090`，ssh 别名在本机配置里，不进仓库）；只有 P5-90 之后的版本认这一项，旧版会报配置错。远端 corral 用 `$HOME/.local/bin/corral`（ranch R10 部署）。
 - 重新打包安装：在 `app/` 下 `cargo build --release`，再 `cargo run --release --example bundle -- --install`（编译目录 `.target/main`）。打包默认选本机 Apple Development 身份，可用 `PADDOCK_SIGN_IDENTITY` 指定；退回 ad-hoc 时会提示授权会失效。
 - **paddock ctl 已部署**：`~/.local/bin/paddock` 链到 app 里的程序，重新打包后不用重建；技能正文改了要重跑 `paddock install-skills`（装在 `~/.claude/skills/paddock`、`~/.agents/skills/paddock`、`~/.gemini/config/skills/paddock`），已开着的 agent 要重开才看到。
 - 全局 `~/.local/bin/corral`、`ranch` 是 ranch `f86d1c2`（R8 接入 agy 之后）。amp 插件（ranch R6）、agy 插件（`~/.gemini/config/plugins/corral`）在本机装着，用户定留着；两家的真图标放在本机 `~/.config/paddock/icons/`，不进仓库。
+- **fence（sandbox 的墙）**：ranch R17b，10-19 部署（`~/.local/bin/fence`，ranch `versions/7fbb76d`），只有内置档案 `dev`；Claude Code、Codex、pi、omp 能套，amp、agy 不能；5090 没装。paddock 只调 `fence --version/profiles/check/denials` 和 `corral start --sandbox`（P5-120）。
 - **cairn 0.5.0 加了“项目的账”**：10-16 照本文件起了 29 条（`cairn ledger` 看，`cairn ledger log` 看旁路模型每笔改动和依据）；和本文件并行用一周左右，看自动记得准不准，之后由用户定本文件和 AGENTS.md 里维护它的规矩删不删，这期间都照旧。面板展示 P5-118 已合并（Cairn 标签 `Notes | Ledger` 切换，只读）。cairn 0.6.0（10-16 装）加了经验沉淀（kind `lesson`），P5-121 加了第三颗 `Lessons`。cairn 0.7.0（10-17 装）：数据库版本 5（加 `ledger_runs`，0.6.x 读不了，退回要换回备份），每次记账留一行结果（`cairn ledger runs`），`status` 末尾多“最近记账的会话”；DESIGN §7.1 已有字段没变，面板不用改；`status --json` 的 `ledger.recent_sessions` 不在公开约定里，面板要用先请 cairn 写进约定。
 - **cairn**（没什么可接续的会话不写记录）：Claude Code（`~/.claude/settings.json` 4 个 hook）和 Codex（`~/.codex/hooks.json` 4 处，直接启动的 Codex 要用户到 `/hooks` 里信任）都装了；本仓库已 `adopt`。接续摘要由 cairn 后台写，主控不用每回合 `cairn save`，用户要留记录时才存。paddock 调用的 cairn 命令（`status --json`、`show [<ID>] --json`、`list --json`、`adopt`）是 cairn DESIGN §7.1 的公开约定。退回：`cairn unadopt`；卸掉：`cairn uninstall --agent claude|codex`。
 - 上下文：`AGENTS.md`（规矩，含「开发方式」里的看板约定）、`docs/DESIGN.md`（§13 是界面改版的全部决定和用户原话）、`docs/背景与决策记录.md`、`docs/设计稿/`、`docs/调研/`。
@@ -26,7 +27,7 @@
 
 1. **P5-54** Browser 选中元素、Changes 选中 diff 写上要怎么改后送给 agent（优先：高，草稿）。主控提议（用户还没表态）：样稿主控自己做；实现拆成 P5-54a Changes、P5-54b Browser（WKWebView 注入 JS 加 WKScriptMessageHandler，代码库里还没有），a 合并后再派 b；测试只用假 corral。下次从列出待定问题开始。
 2. **P5-106 看板加 loop**（草稿）：五个待定问题列在草稿里，等用户想好再定范围和验收。
-3. **P5-120 委派的 agent 放进 sandbox**（草稿）：五个待定问题在草稿里（先调研还是直接做、放哪一层、管到什么程度、哪些 agent、用什么做），等用户定。
+3. **派出去的 agent 套 sandbox**：用户 10-19 要的效果是 ranch、paddock 默认都不套，在 paddock 里给主控勾上后它之后派出去的才套、随时能改，选了“设置由 corral 自己保存”的做法甲。**P5-140**（草稿，用户说可以做）先实测委派的 agent 在墙里能不能干 paddock 的活（编译目录在仓库外、交叉审查记录写在主仓库工作区，两处可能卡住）；**P5-141**（草稿）主控卡片上的勾，要等 ranch 加公开命令（需求写成 ranch 任务交给 ranch/main 做）。
 4. **P5-125 递归自我改进（RSI）**（草稿）：五个待定问题在草稿里（改什么、素材、多久回头看、谁批、要不要界面），等用户定。
 5. 以后：Changes 第二步（行上评论发给 agent、暂存、撤销，可能和 P5-54a 合并考虑）；Kanban 能拖来纠正（排在后面）。
 
@@ -41,6 +42,7 @@
 - P5-118、P5-118a Cairn 的 Ledger 页：靠左小胶囊切换和凸起框的样子、条目点开、右侧栏最窄 426 和字号调大时挤不挤。
 - P5-133 Cairn 的 Ledger、Lessons（主控没起窗口看过）：一行一条和右边日期、组头点了收起（默认只开 State，重开 paddock 还记得）、过滤框（命中高亮、`N of M`、`×`、Esc）、⌘F 要先在 Cairn 标签里点一下才进过滤框；**要定**：点 Cairn 标签后键盘离开终端，回终端要再点一下，接不接受。
 - P5-134 左侧栏（主控没起窗口看过）：agent 全停的 workspace 收到列表末尾 `Idle workspaces` 小组、点一行回到上面展开、点标题送回底下；有 agent 的 workspace 里两个以上没 agent 的仓库合成一行、点开逐行；悬停 `⋯`、就地改名、浅色主题、窄条。
+- P5-120 sandbox 界面（Claude Code 做，主控没起窗口看过）：New Agent 皇冠左边的锁（选 `dev`、Codex 的警告、Controller 时变灰、检查没过 Start 灰）；预设记住 sandbox；套墙 agent 卡片的小锁和黄色数字、展开后 Sandbox 一格、被拦记录浮窗（`Network & writes`／`All`）；Settings › Sandbox 只看。退回旧版 paddock 前要去掉配置里预设的 `sandbox` 字段，否则旧版读不了配置。
 - P5-135 New Agent 打开时：项目还没有 main 亮 Controller、已有 main 亮 Developer。
 - P5-136 卡片展开后的详情（agy 做，主控没起窗口看过）：展开时不画位置行、路径和小药丸在详情第一段、两条细分隔线、格子少了（Status 带时长、Windows 为 0 不出现）、标签小号大写、Workspace 无常驻底色、Stop 描边；格子标签 9.5 号再淡一档，看会不会太淡。agy 这次 corral 状态一直报 `starting`、没留 reply（插件没报状态），完成靠用户告知。
 - P5-137a Cairn 摘要（omp 做，主控没起窗口看过）：Next session 摘要不再用 GPUI 的两行截断（中文被估窄、右边被切），改成整段换行、框高两行、多的藏起来、第二行末尾没有 `…`。同类“中文 + 最多几行”的截断在看板标题、收件箱可能也有，用户 10-17：“先不查了”。
