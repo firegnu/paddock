@@ -42,10 +42,39 @@
   3. 墙外三项检查（`cargo test --all-targets`、`clippy -D warnings`、`fmt --check`）照旧全过。
 
 ## 在哪里干活
-- worktree：`/Users/firegnu/Developer/personal_projs/paddock-worktrees/p5-141-child-sandbox`，分支 `p5-141-child-sandbox`（开工时从 main 建）。
-- 编译：`CARGO_TARGET_DIR=$HOME/Developer/personal_projs/paddock-worktrees/.target/p5-141-child-sandbox`。
+- worktree：`/Users/firegnu/Developer/personal_projs/paddock-worktrees/p5-141-child-sandbox`，分支 `p5-141-child-sandbox`（已从 main 建好）。
+- 编译：`CARGO_TARGET_DIR=$HOME/Developer/personal_projs/paddock-worktrees/.target/p5-141-child-sandbox`（已从 `.target/main` 克隆），每条 cargo 命令前都加。
 
 ## 规矩
 - paddock 只调 `corral`、`fence` 公开命令；不读 corral、fence 的内部文件；不改 ranch。
 - 不对用户的主控调 `corral child-sandbox` 设值（查可以）；实测用自己开的测试主控 `paddock/test-<名字>`（它得是 `--label role=controller` 才有这一格，所以这次不用 `role=test`，靠名字认），它派出去的也只用 `paddock/test-*`，用完都 `corral stop`。
 - 界面文字英文。
+
+## 派活补充（paddock/main，10-19 派出前写）
+用户 10-19：“开始做P5-141(我理解这都是界面的活）”。是的：除了仓库顶层一个 `.fence.toml`，都是 paddock 界面和 `corral.rs` 的解析；ranch 不动。
+
+### 先读
+- 本文件全部；样稿 `docs/设计稿/P5-120-sandbox界面/Delegates.dc.html`（E）和同目录 `README.md` 最后一行。
+- ranch `docs/CONTRACT.md`「`corral child-sandbox NAME [<档案> | --clear]`（R18）」一节（只读，路径 `../ranch/docs/CONTRACT.md`），以及 `ls`／`status` 里 `child_sandbox` 字段的说明。
+- `docs/DESIGN.md` §13 P5-120 一条（卡片锁、Sandbox 一格、被拦记录浮窗的做法，本件照它的风格）、P5-74／P5-136（卡片展开详情）。
+- 代码：`app/src/corral.rs`（`Agent`、`Sandbox`、`role()`）、`app/src/card.rs`（`Sandboxed`、展开详情的格子）、`app/src/sidebar.rs`（fence `Watcher`、卡片怎么拿到 fence 状态）、`app/src/sidebar_sandbox.rs`（P5-120 的浮窗）、`app/src/fence.rs`（`profiles`）、`app/src/new_agent_view.rs`（P5-120 的档案菜单写法）、`app/src/command.rs`（起子进程一律走这里，共用 `spawn_guard`）、`app/src/popover.rs`。
+
+### 补充说明
+- 菜单的档案列表照 P5-120 New Agent 的写法从 `fence profiles` 来；fence 没找到时这一格不出现。
+- 调 `corral child-sandbox` 在后台跑，不卡界面；结果出来后马上刷新这一张卡（不用等下一轮 `corral ls`），但以 `corral ls` 为准。
+- `corral` 输出里缺 `child_sandbox` 字段（老 corral）时不显示这一格；为 `null` 时显示 `Not sandboxed`。
+- 在 `docs/DESIGN.md` §13 P5-120 那条后面加一条 P5-141，写定下的样子和行为（照本文件和样稿 E）。
+- `.fence.toml` 加好后，用 `fence check --profile dev --kind claude --cwd <你的 worktree>`（只读的公开命令）确认可写目录里有 `paddock-worktrees/.target`，把相关几行写进完成记录。
+- 测试用合成数据和假 `corral` 脚本（照 `sidebar.rs`、`new_agent_view.rs` 现有测试的做法），覆盖：解析三种情况（缺字段、`null`、有档案）、设和清各拼出什么命令、corral 报错时显示原文且设定不变、非 Controller 和远程不出现。
+
+### 不要做
+- 不改 ranch（包括 fence、corral 的代码和文档）；不读 `~/.fence/`、`~/.corral/` 下的文件，只调 `fence`、`corral` 公开命令。
+- 不对 `corral ls` 里的任何 agent 调 `corral child-sandbox` 设值或清除（只读查询也不需要）；不 `corral start`、`stop`、`send`、`keys`，不 attach。真实链路的实测由主控做。
+- 不起 paddock 窗口、不截图，不用脚本模拟按键或鼠标。
+- 不改 New Agent、paddock ctl、看板等别处；不给非 Controller 的 agent 加这个设置。
+- 不改 `gpui-pre-*` 依赖，不加依赖。不用 Python；命令里不用 `rm`；不用 `sh -c` 包长命令；前台命令别带等标准输入的东西。
+- 不按项目名或路径批量杀进程（`pkill -f paddock` 这类）。
+- 不合并到 main，不推送。只在 `p5-141-child-sandbox` 上提交，提交说明用中文、首行以 `P5-141：` 开头。
+
+### 做完
+跑 `cargo test --all-targets`、`cargo clippy --all-targets -- -D warnings`、`cargo fmt --check`（都在 `app/` 下，带上面的 `CARGO_TARGET_DIR`）。在本文件末尾追加「## 完成记录」（在你的分支里提交）：做了什么、验证了什么、拿主意的地方、没做的事、踩过的坑（没有就写「没有」）。回复里只写这几样，加上有没有要主控决定的事。命令都在前台跑完，全部做完后，回复最后一行写 DONE。
