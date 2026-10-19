@@ -1,12 +1,14 @@
 //! The terminal parser and its replies to terminal queries. From Saddle `src/terminal.rs` at
 //! commit `df1c727`, without `Screen::render`/`color` (they draw into a ratatui buffer) and the
 //! `history` field that only Saddle's history mode uses; paddock keeps the title the program sets,
-//! for its pane's header (DESIGN §13 P5-59).
+//! for its pane's header (DESIGN §13 P5-59), and answers colour queries with the pane's theme
+//! (P5-143a).
+use crate::palette;
 use alacritty_terminal::{
     Term,
     event::{Event, EventListener},
     grid::Dimensions,
-    vte::ansi::{Processor, Rgb},
+    vte::ansi::{Color, NamedColor, Processor, Rgb},
 };
 use std::sync::mpsc::{self, Receiver, Sender};
 
@@ -39,6 +41,8 @@ pub struct Screen {
     events: Receiver<Event>,
     /// What the program last set as the terminal's title, for its pane's header (P5-59).
     title: Option<String>,
+    /// The colours the pane draws with: what a program asking for a colour it has not set is told.
+    theme: palette::Theme,
 }
 impl Screen {
     pub fn new(size: Size) -> Self {
@@ -48,7 +52,12 @@ impl Screen {
             parser: Processor::new(),
             events,
             title: None,
+            theme: palette::Theme::XTERM,
         }
+    }
+    /// The colours the pane draws with, for the answers to colour queries from now on.
+    pub fn set_theme(&mut self, theme: palette::Theme) {
+        self.theme = theme;
     }
     pub fn process(&mut self, bytes: &[u8]) -> Vec<u8> {
         self.parser.advance(&mut self.term, bytes);
@@ -64,7 +73,7 @@ impl Screen {
                         cell_height: 0,
                     })
                 }
-                Event::ColorRequest(index, format) => format(default_rgb(index)),
+                Event::ColorRequest(index, format) => format(self.color(index)),
                 Event::Title(title) => {
                     self.title = Some(title);
                     continue;
@@ -79,6 +88,18 @@ impl Screen {
         }
         replies
     }
+    /// What palette entry `index` (OSC 4's 0–255, then OSC 10–12's foreground, background and
+    /// cursor) is as the pane draws it: what the program set there, or else the theme's.
+    fn color(&self, index: usize) -> Rgb {
+        let color = match index {
+            0..=255 => Color::Indexed(index as u8),
+            257 => Color::Named(NamedColor::Background),
+            258 => Color::Named(NamedColor::Cursor),
+            _ => Color::Named(NamedColor::Foreground),
+        };
+        let (r, g, b) = palette::resolve(color, self.term.colors(), &self.theme);
+        Rgb { r, g, b }
+    }
     pub fn resize(&mut self, size: Size) {
         self.term.resize(size);
     }
@@ -86,41 +107,6 @@ impl Screen {
     pub fn title(&self) -> Option<&str> {
         self.title.as_deref().filter(|title| !title.is_empty())
     }
-}
-
-fn default_rgb(index: usize) -> Rgb {
-    let (r, g, b) = match index {
-        0..=15 => [
-            (0, 0, 0),
-            (205, 0, 0),
-            (0, 205, 0),
-            (205, 205, 0),
-            (0, 0, 238),
-            (205, 0, 205),
-            (0, 205, 205),
-            (229, 229, 229),
-            (127, 127, 127),
-            (255, 0, 0),
-            (0, 255, 0),
-            (255, 255, 0),
-            (92, 92, 255),
-            (255, 0, 255),
-            (0, 255, 255),
-            (255, 255, 255),
-        ][index],
-        16..=231 => {
-            let n = index - 16;
-            let c = [0, 95, 135, 175, 215, 255];
-            (c[n / 36], c[n / 6 % 6], c[n % 6])
-        }
-        232..=255 => {
-            let v = 8 + (index as u8 - 232) * 10;
-            (v, v, v)
-        }
-        257 => (0, 0, 0),
-        _ => (229, 229, 229),
-    };
-    Rgb { r, g, b }
 }
 
 #[cfg(test)]
@@ -138,5 +124,114 @@ mod tests {
         // An empty title takes it back.
         screen.process(b"\x1b]2;\x07");
         assert_eq!(screen.title(), None);
+    }
+
+    const THEME: palette::Theme = palette::Theme {
+        ansi: [
+            (1, 2, 3),
+            (0x11, 0x22, 0x33),
+            (5, 6, 7),
+            (8, 9, 10),
+            (11, 12, 13),
+            (14, 15, 16),
+            (17, 18, 19),
+            (20, 21, 22),
+            (23, 24, 25),
+            (26, 27, 28),
+            (29, 30, 31),
+            (32, 33, 34),
+            (35, 36, 37),
+            (38, 39, 40),
+            (41, 42, 43),
+            (0xfa, 0xfb, 0xfc),
+        ],
+        foreground: (0xd0, 0xd1, 0xd2),
+        background: (0x1e, 0x1f, 0x20),
+        cursor: (0xc0, 0xc1, 0xc2),
+        selection: (60, 60, 60),
+    };
+
+    fn themed() -> Screen {
+        let mut screen = Screen::new(Size { rows: 4, cols: 20 });
+        screen.set_theme(THEME);
+        screen
+    }
+
+    fn reply(screen: &mut Screen, query: &[u8]) -> String {
+        String::from_utf8(screen.process(query)).unwrap()
+    }
+
+    #[test]
+    fn colour_queries_are_answered_with_the_panes_theme() {
+        let mut screen = themed();
+        assert_eq!(
+            reply(&mut screen, b"\x1b]11;?\x07"),
+            "\x1b]11;rgb:1e1e/1f1f/2020\x07"
+        );
+        assert_eq!(
+            reply(&mut screen, b"\x1b]10;?\x1b\\"),
+            "\x1b]10;rgb:d0d0/d1d1/d2d2\x1b\\"
+        );
+        assert_eq!(
+            reply(&mut screen, b"\x1b]12;?\x07"),
+            "\x1b]12;rgb:c0c0/c1c1/c2c2\x07"
+        );
+        assert_eq!(
+            reply(&mut screen, b"\x1b]4;1;?\x07"),
+            "\x1b]4;1;rgb:1111/2222/3333\x07"
+        );
+        assert_eq!(
+            reply(&mut screen, b"\x1b]4;15;?\x07"),
+            "\x1b]4;15;rgb:fafa/fbfb/fcfc\x07"
+        );
+        // Past the 16 basic colours, the standard xterm 256-colour palette.
+        assert_eq!(
+            reply(&mut screen, b"\x1b]4;21;?\x07"),
+            "\x1b]4;21;rgb:0000/0000/ffff\x07"
+        );
+        assert_eq!(
+            reply(&mut screen, b"\x1b]4;232;?\x07"),
+            "\x1b]4;232;rgb:0808/0808/0808\x07"
+        );
+    }
+
+    #[test]
+    fn a_colour_the_program_set_is_answered_until_it_resets_it() {
+        let mut screen = themed();
+        screen.process(b"\x1b]4;1;rgb:12/34/56\x07\x1b]11;rgb:01/02/03\x07");
+        assert_eq!(
+            reply(&mut screen, b"\x1b]4;1;?\x07"),
+            "\x1b]4;1;rgb:1212/3434/5656\x07"
+        );
+        assert_eq!(
+            reply(&mut screen, b"\x1b]11;?\x07"),
+            "\x1b]11;rgb:0101/0202/0303\x07"
+        );
+        screen.process(b"\x1b]104;1\x07\x1b]111\x07");
+        assert_eq!(
+            reply(&mut screen, b"\x1b]4;1;?\x07"),
+            "\x1b]4;1;rgb:1111/2222/3333\x07"
+        );
+        assert_eq!(
+            reply(&mut screen, b"\x1b]11;?\x07"),
+            "\x1b]11;rgb:1e1e/1f1f/2020\x07"
+        );
+    }
+
+    #[test]
+    fn after_a_theme_change_queries_are_answered_with_the_new_theme() {
+        let mut screen = themed();
+        let mut light = THEME;
+        light.background = (0xf0, 0xf1, 0xf2);
+        light.ansi[1] = (0x44, 0x55, 0x66);
+        screen.set_theme(light);
+        assert_eq!(
+            reply(&mut screen, b"\x1b]11;?\x07"),
+            "\x1b]11;rgb:f0f0/f1f1/f2f2\x07"
+        );
+        assert_eq!(
+            reply(&mut screen, b"\x1b]4;1;?\x07"),
+            "\x1b]4;1;rgb:4444/5555/6666\x07"
+        );
     }
 }

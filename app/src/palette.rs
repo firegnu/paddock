@@ -19,6 +19,15 @@ pub struct Theme {
 }
 
 impl Theme {
+    /// xterm's own colours, for a terminal not handed a theme yet.
+    pub const XTERM: Theme = Theme {
+        ansi: XTERM,
+        foreground: (229, 229, 229),
+        background: (0, 0, 0),
+        cursor: (229, 229, 229),
+        selection: (0, 0, 0),
+    };
+
     /// A palette entry as this theme shows it before any program changes it.
     pub fn indexed(&self, index: u8) -> Rgb {
         match index {

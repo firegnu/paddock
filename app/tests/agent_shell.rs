@@ -80,6 +80,7 @@ impl Fixture {
                 cols: 160,
             },
             &[],
+            paddock::palette::Theme::XTERM,
         )
         .unwrap()
     }
@@ -344,6 +345,7 @@ exit 2
             cols: 160,
         },
         &[],
+        paddock::palette::Theme::XTERM,
     )
     .unwrap();
     let deadline = Instant::now() + Duration::from_secs(5);
@@ -351,9 +353,7 @@ exit 2
         assert!(Instant::now() < deadline);
         thread::sleep(Duration::from_millis(10));
     }
-    session
-        .send(b"claude; printf '%s' \"$?\" > status; printf READY > after\n".to_vec())
-        .unwrap();
+    session.send(b"claude; printf '%s' \"$?\" > status; printf READY > after\n".to_vec());
     while !nested.join("after").exists() {
         assert!(
             Instant::now() < deadline,
@@ -458,6 +458,7 @@ fn agent_shell_hooks_survive_rc_path_changes_without_changing_plain_shells() {
                     cols: 160,
                 },
                 &[],
+                paddock::palette::Theme::XTERM,
             )
             .unwrap();
             let deadline = Instant::now() + Duration::from_secs(5);
@@ -466,23 +467,19 @@ fn agent_shell_hooks_survive_rc_path_changes_without_changing_plain_shells() {
                 thread::sleep(Duration::from_millis(10));
             }
             if agent_shell {
-                session
-                    .send(
-                        format!(
-                            "export PATH='{1}:{0}:{0}:/usr/bin:/bin'\n",
-                            dir.join("bin").display(),
-                            f.real.display()
-                        )
-                        .into_bytes(),
+                session.send(
+                    format!(
+                        "export PATH='{1}:{0}:{0}:/usr/bin:/bin'\n",
+                        dir.join("bin").display(),
+                        f.real.display()
                     )
-                    .unwrap();
+                    .into_bytes(),
+                );
             }
-            session
-                .send(
-                    b"command -v claude > found; printf '%s' \"${FROM_ZSHENV:-bash}\" > sourced\n"
-                        .to_vec(),
-                )
-                .unwrap();
+            session.send(
+                b"command -v claude > found; printf '%s' \"${FROM_ZSHENV:-bash}\" > sourced\n"
+                    .to_vec(),
+            );
             while !fs::read_to_string(f.home.path().join("sourced")).is_ok_and(|s| !s.is_empty()) {
                 assert!(Instant::now() < deadline, "shell command did not finish");
                 thread::sleep(Duration::from_millis(10));
