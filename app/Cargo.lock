@@ -3879,6 +3879,7 @@ dependencies = [
  "anyhow",
  "async-channel",
  "block2 0.6.2",
+ "cursor-icon",
  "gpui-pre",
  "gpui-pre-platform",
  "image",

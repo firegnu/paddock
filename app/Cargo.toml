@@ -32,6 +32,9 @@ toml_edit = "0.25"
 unicode-segmentation = "1"
 # Waking a terminal pane when its session has new output (already in the lock through GPUI).
 async-channel = "2.5"
+# The mouse pointer shape in the terminal parser's `Handler`, which `terminal.rs` forwards whole
+# (already in the lock through alacritty_terminal's vte).
+cursor-icon = { version = "1.2", default-features = false }
 # Display widths for the Agents panel's monospace lines (already in the lock through GPUI).
 unicode-width = "0.2"
 toml = "1"

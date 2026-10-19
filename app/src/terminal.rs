@@ -8,8 +8,14 @@ use alacritty_terminal::{
     Term,
     event::{Event, EventListener},
     grid::Dimensions,
-    vte::ansi::{Color, NamedColor, Processor, Rgb},
+    vte::ansi::{
+        Attr, CharsetIndex, ClearMode, Color, CursorShape, CursorStyle, Handler, Hyperlink,
+        KeyboardModes, KeyboardModesApplyBehavior, LineClearMode, Mode, ModifyOtherKeys,
+        NamedColor, PrivateMode, Processor, Rgb, ScpCharPath, ScpUpdateMode, StandardCharset,
+        TabulationClearMode,
+    },
 };
+use cursor_icon::CursorIcon;
 use std::sync::mpsc::{self, Receiver, Sender};
 
 #[derive(Clone, Copy)]
@@ -39,12 +45,12 @@ pub struct Screen {
     pub term: Term<Events>,
     parser: Processor,
     events: Receiver<Event>,
+    /// Where colour replies go, in turn with the terminal's other replies.
+    replies: Events,
     /// What the program last set as the terminal's title, for its pane's header (P5-59).
     title: Option<String>,
     /// The colours the pane draws with: what a program asking for a colour it has not set is told.
     theme: palette::Shared,
-    /// The last byte parsed was ESC: a `\` now ends an OSC.
-    after_esc: bool,
 }
 impl Screen {
     pub fn new(size: Size) -> Self {
@@ -53,36 +59,24 @@ impl Screen {
     /// `theme`: the pane's colours, read when a program asks for one.
     pub fn with_theme(size: Size, theme: palette::Shared) -> Self {
         let (tx, events) = mpsc::channel();
+        let replies = Events(tx);
         Self {
-            term: Term::new(Default::default(), &size, Events(tx)),
+            term: Term::new(Default::default(), &size, replies.clone()),
             parser: Processor::new(),
             events,
+            replies,
             title: None,
             theme,
-            after_esc: false,
         }
     }
-    /// Parses `bytes` and returns the replies to the queries in them. Cut after each OSC's end
-    /// (BEL, or ST: ESC `\`, the ESC maybe in the read before), so each query is answered as the
-    /// colours are right then, however the PTY split its output.
     pub fn process(&mut self, bytes: &[u8]) -> Vec<u8> {
+        let mut answering = Answering {
+            term: &mut self.term,
+            theme: &self.theme,
+            replies: &self.replies,
+        };
+        self.parser.advance(&mut answering, bytes);
         let mut replies = Vec::new();
-        let mut start = 0;
-        for (at, &byte) in bytes.iter().enumerate() {
-            let ends = byte == 0x07 || (byte == b'\\' && self.after_esc);
-            self.after_esc = byte == 0x1b;
-            if ends {
-                self.advance(&bytes[start..=at], &mut replies);
-                start = at + 1;
-            }
-        }
-        if start < bytes.len() {
-            self.advance(&bytes[start..], &mut replies);
-        }
-        replies
-    }
-    fn advance(&mut self, bytes: &[u8], replies: &mut Vec<u8>) {
-        self.parser.advance(&mut self.term, bytes);
         for event in self.events.try_iter() {
             let reply = match event {
                 Event::PtyWrite(text) => text,
@@ -94,7 +88,11 @@ impl Screen {
                         cell_height: 0,
                     })
                 }
-                Event::ColorRequest(index, format) => format(self.color(index)),
+                // `Answering` answers colour queries itself; this only stays in case the terminal
+                // asks some other way, answered with the colour as it is now.
+                Event::ColorRequest(index, format) => {
+                    format(color_at(&self.term, &self.theme.get(), index))
+                }
                 Event::Title(title) => {
                     self.title = Some(title);
                     continue;
@@ -107,18 +105,7 @@ impl Screen {
             };
             replies.extend_from_slice(reply.as_bytes());
         }
-    }
-    /// What palette entry `index` (OSC 4's 0–255, then OSC 10–12's foreground, background and
-    /// cursor) is as the pane draws it: what the program set there, or else the theme's.
-    fn color(&self, index: usize) -> Rgb {
-        let color = match index {
-            0..=255 => Color::Indexed(index as u8),
-            257 => Color::Named(NamedColor::Background),
-            258 => Color::Named(NamedColor::Cursor),
-            _ => Color::Named(NamedColor::Foreground),
-        };
-        let (r, g, b) = palette::resolve(color, self.term.colors(), &self.theme.get());
-        Rgb { r, g, b }
+        replies
     }
     pub fn resize(&mut self, size: Size) {
         self.term.resize(size);
@@ -126,6 +113,254 @@ impl Screen {
     /// The title the program last set for the terminal (OSC 0 or 2), when it set one.
     pub fn title(&self) -> Option<&str> {
         self.title.as_deref().filter(|title| !title.is_empty())
+    }
+}
+
+/// What palette entry `index` (OSC 4's 0–255, then OSC 10–12's foreground, background and cursor)
+/// is as the pane draws it: what the program set there, or else the theme's.
+fn color_at(term: &Term<Events>, theme: &palette::Theme, index: usize) -> Rgb {
+    let color = match index {
+        0..=255 => Color::Indexed(index as u8),
+        257 => Color::Named(NamedColor::Background),
+        258 => Color::Named(NamedColor::Cursor),
+        _ => Color::Named(NamedColor::Foreground),
+    };
+    let (r, g, b) = palette::resolve(color, term.colors(), theme);
+    Rgb { r, g, b }
+}
+
+/// Hands everything the parser finds to `Term`, except colour queries, which it answers the
+/// moment the parser reaches them: with the colours as they are then, even in the middle of one
+/// OSC 4 or of a synchronized update the parser holds back and parses at its end (P5-143a).
+///
+/// Every `Handler` method has an empty default, so one left out here would quietly stop working.
+/// When upgrading vte or alacritty_terminal, check this again against vte's `pub trait Handler`
+/// and alacritty_terminal's `impl Handler for Term`: every method forwarded, only
+/// `dynamic_color_sequence` answered here.
+struct Answering<'a> {
+    term: &'a mut Term<Events>,
+    theme: &'a palette::Shared,
+    replies: &'a Events,
+}
+
+impl Handler for Answering<'_> {
+    /// As `Term` words its reply, with the colour as it is now.
+    fn dynamic_color_sequence(&mut self, prefix: String, index: usize, terminator: &str) {
+        let color = color_at(self.term, &self.theme.get(), index);
+        self.replies.send_event(Event::PtyWrite(format!(
+            "\x1b]{};rgb:{1:02x}{1:02x}/{2:02x}{2:02x}/{3:02x}{3:02x}{4}",
+            prefix, color.r, color.g, color.b, terminator
+        )));
+    }
+    fn set_title(&mut self, a0: Option<String>) {
+        Handler::set_title(&mut *self.term, a0);
+    }
+    fn set_cursor_style(&mut self, a0: Option<CursorStyle>) {
+        Handler::set_cursor_style(&mut *self.term, a0);
+    }
+    fn set_cursor_shape(&mut self, shape: CursorShape) {
+        Handler::set_cursor_shape(&mut *self.term, shape);
+    }
+    fn input(&mut self, c: char) {
+        Handler::input(&mut *self.term, c);
+    }
+    fn goto(&mut self, line: i32, col: usize) {
+        Handler::goto(&mut *self.term, line, col);
+    }
+    fn goto_line(&mut self, line: i32) {
+        Handler::goto_line(&mut *self.term, line);
+    }
+    fn goto_col(&mut self, col: usize) {
+        Handler::goto_col(&mut *self.term, col);
+    }
+    fn insert_blank(&mut self, a0: usize) {
+        Handler::insert_blank(&mut *self.term, a0);
+    }
+    fn move_up(&mut self, a0: usize) {
+        Handler::move_up(&mut *self.term, a0);
+    }
+    fn move_down(&mut self, a0: usize) {
+        Handler::move_down(&mut *self.term, a0);
+    }
+    fn identify_terminal(&mut self, intermediate: Option<char>) {
+        Handler::identify_terminal(&mut *self.term, intermediate);
+    }
+    fn device_status(&mut self, a0: usize) {
+        Handler::device_status(&mut *self.term, a0);
+    }
+    fn move_forward(&mut self, col: usize) {
+        Handler::move_forward(&mut *self.term, col);
+    }
+    fn move_backward(&mut self, col: usize) {
+        Handler::move_backward(&mut *self.term, col);
+    }
+    fn move_down_and_cr(&mut self, row: usize) {
+        Handler::move_down_and_cr(&mut *self.term, row);
+    }
+    fn move_up_and_cr(&mut self, row: usize) {
+        Handler::move_up_and_cr(&mut *self.term, row);
+    }
+    fn put_tab(&mut self, count: u16) {
+        Handler::put_tab(&mut *self.term, count);
+    }
+    fn backspace(&mut self) {
+        Handler::backspace(&mut *self.term);
+    }
+    fn carriage_return(&mut self) {
+        Handler::carriage_return(&mut *self.term);
+    }
+    fn linefeed(&mut self) {
+        Handler::linefeed(&mut *self.term);
+    }
+    fn bell(&mut self) {
+        Handler::bell(&mut *self.term);
+    }
+    fn substitute(&mut self) {
+        Handler::substitute(&mut *self.term);
+    }
+    fn newline(&mut self) {
+        Handler::newline(&mut *self.term);
+    }
+    fn set_horizontal_tabstop(&mut self) {
+        Handler::set_horizontal_tabstop(&mut *self.term);
+    }
+    fn scroll_up(&mut self, a0: usize) {
+        Handler::scroll_up(&mut *self.term, a0);
+    }
+    fn scroll_down(&mut self, a0: usize) {
+        Handler::scroll_down(&mut *self.term, a0);
+    }
+    fn insert_blank_lines(&mut self, a0: usize) {
+        Handler::insert_blank_lines(&mut *self.term, a0);
+    }
+    fn delete_lines(&mut self, a0: usize) {
+        Handler::delete_lines(&mut *self.term, a0);
+    }
+    fn erase_chars(&mut self, a0: usize) {
+        Handler::erase_chars(&mut *self.term, a0);
+    }
+    fn delete_chars(&mut self, a0: usize) {
+        Handler::delete_chars(&mut *self.term, a0);
+    }
+    fn move_backward_tabs(&mut self, count: u16) {
+        Handler::move_backward_tabs(&mut *self.term, count);
+    }
+    fn move_forward_tabs(&mut self, count: u16) {
+        Handler::move_forward_tabs(&mut *self.term, count);
+    }
+    fn save_cursor_position(&mut self) {
+        Handler::save_cursor_position(&mut *self.term);
+    }
+    fn restore_cursor_position(&mut self) {
+        Handler::restore_cursor_position(&mut *self.term);
+    }
+    fn clear_line(&mut self, mode: LineClearMode) {
+        Handler::clear_line(&mut *self.term, mode);
+    }
+    fn clear_screen(&mut self, mode: ClearMode) {
+        Handler::clear_screen(&mut *self.term, mode);
+    }
+    fn clear_tabs(&mut self, mode: TabulationClearMode) {
+        Handler::clear_tabs(&mut *self.term, mode);
+    }
+    fn set_tabs(&mut self, interval: u16) {
+        Handler::set_tabs(&mut *self.term, interval);
+    }
+    fn reset_state(&mut self) {
+        Handler::reset_state(&mut *self.term);
+    }
+    fn reverse_index(&mut self) {
+        Handler::reverse_index(&mut *self.term);
+    }
+    fn terminal_attribute(&mut self, attr: Attr) {
+        Handler::terminal_attribute(&mut *self.term, attr);
+    }
+    fn set_mode(&mut self, mode: Mode) {
+        Handler::set_mode(&mut *self.term, mode);
+    }
+    fn unset_mode(&mut self, mode: Mode) {
+        Handler::unset_mode(&mut *self.term, mode);
+    }
+    fn report_mode(&mut self, mode: Mode) {
+        Handler::report_mode(&mut *self.term, mode);
+    }
+    fn set_private_mode(&mut self, mode: PrivateMode) {
+        Handler::set_private_mode(&mut *self.term, mode);
+    }
+    fn unset_private_mode(&mut self, mode: PrivateMode) {
+        Handler::unset_private_mode(&mut *self.term, mode);
+    }
+    fn report_private_mode(&mut self, mode: PrivateMode) {
+        Handler::report_private_mode(&mut *self.term, mode);
+    }
+    fn set_scrolling_region(&mut self, top: usize, bottom: Option<usize>) {
+        Handler::set_scrolling_region(&mut *self.term, top, bottom);
+    }
+    fn set_keypad_application_mode(&mut self) {
+        Handler::set_keypad_application_mode(&mut *self.term);
+    }
+    fn unset_keypad_application_mode(&mut self) {
+        Handler::unset_keypad_application_mode(&mut *self.term);
+    }
+    fn set_active_charset(&mut self, a0: CharsetIndex) {
+        Handler::set_active_charset(&mut *self.term, a0);
+    }
+    fn configure_charset(&mut self, a0: CharsetIndex, a1: StandardCharset) {
+        Handler::configure_charset(&mut *self.term, a0, a1);
+    }
+    fn set_color(&mut self, a0: usize, a1: Rgb) {
+        Handler::set_color(&mut *self.term, a0, a1);
+    }
+    fn reset_color(&mut self, a0: usize) {
+        Handler::reset_color(&mut *self.term, a0);
+    }
+    fn clipboard_store(&mut self, a0: u8, a1: &[u8]) {
+        Handler::clipboard_store(&mut *self.term, a0, a1);
+    }
+    fn clipboard_load(&mut self, a0: u8, a1: &str) {
+        Handler::clipboard_load(&mut *self.term, a0, a1);
+    }
+    fn decaln(&mut self) {
+        Handler::decaln(&mut *self.term);
+    }
+    fn push_title(&mut self) {
+        Handler::push_title(&mut *self.term);
+    }
+    fn pop_title(&mut self) {
+        Handler::pop_title(&mut *self.term);
+    }
+    fn text_area_size_pixels(&mut self) {
+        Handler::text_area_size_pixels(&mut *self.term);
+    }
+    fn text_area_size_chars(&mut self) {
+        Handler::text_area_size_chars(&mut *self.term);
+    }
+    fn set_hyperlink(&mut self, a0: Option<Hyperlink>) {
+        Handler::set_hyperlink(&mut *self.term, a0);
+    }
+    fn set_mouse_cursor_icon(&mut self, a0: CursorIcon) {
+        Handler::set_mouse_cursor_icon(&mut *self.term, a0);
+    }
+    fn report_keyboard_mode(&mut self) {
+        Handler::report_keyboard_mode(&mut *self.term);
+    }
+    fn push_keyboard_mode(&mut self, mode: KeyboardModes) {
+        Handler::push_keyboard_mode(&mut *self.term, mode);
+    }
+    fn pop_keyboard_modes(&mut self, to_pop: u16) {
+        Handler::pop_keyboard_modes(&mut *self.term, to_pop);
+    }
+    fn set_keyboard_mode(&mut self, mode: KeyboardModes, behavior: KeyboardModesApplyBehavior) {
+        Handler::set_keyboard_mode(&mut *self.term, mode, behavior);
+    }
+    fn set_modify_other_keys(&mut self, mode: ModifyOtherKeys) {
+        Handler::set_modify_other_keys(&mut *self.term, mode);
+    }
+    fn report_modify_other_keys(&mut self) {
+        Handler::report_modify_other_keys(&mut *self.term);
+    }
+    fn set_scp(&mut self, char_path: ScpCharPath, update_mode: ScpUpdateMode) {
+        Handler::set_scp(&mut *self.term, char_path, update_mode);
     }
 }
 
@@ -318,5 +553,30 @@ mod tests {
                 assert_eq!(replies_in_parts(&stream, &[st + 1]), want, "ESC, \\ apart");
             }
         }
+    }
+
+    /// Inside a synchronized update the parser holds the bytes back and parses them all at its end:
+    /// still each query is answered as the colour was right then.
+    #[test]
+    fn a_query_inside_a_synchronized_update_is_answered_as_the_colour_was_then() {
+        let mut screen = Screen::new(Size { rows: 4, cols: 20 });
+        let replies = screen.process(
+            b"\x1b[?2026h\x1b]4;1;rgb:12/34/56\x07\x1b]4;1;?\x07\x1b]104;1\x07\x1b]4;1;?\x07\x1b[?2026l",
+        );
+        assert_eq!(
+            String::from_utf8(replies).unwrap(),
+            "\x1b]4;1;rgb:1212/3434/5656\x07\x1b]4;1;rgb:cdcd/0000/0000\x07"
+        );
+    }
+
+    /// One OSC 4 that sets and asks in turn: each ask is told the colour as set just before it.
+    #[test]
+    fn sets_and_queries_in_one_osc_4_are_answered_in_turn() {
+        let mut screen = Screen::new(Size { rows: 4, cols: 20 });
+        let replies = screen.process(b"\x1b]4;1;rgb:12/34/56;1;?;1;rgb:65/43/21;1;?\x07");
+        assert_eq!(
+            String::from_utf8(replies).unwrap(),
+            "\x1b]4;1;rgb:1212/3434/5656\x07\x1b]4;1;rgb:6565/4343/2121\x07"
+        );
     }
 }
