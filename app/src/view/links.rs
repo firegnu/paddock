@@ -1515,4 +1515,56 @@ mod tests {
             "{missing:#}"
         );
     }
+
+    /// A shell that has `cd` somewhere: what it writes there is from there, not from where it was
+    /// opened (P5-143d1).
+    #[test]
+    fn a_shell_s_relative_paths_are_from_where_it_has_gone_to() {
+        use std::{thread, time::Duration, time::Instant};
+        let tree = Tree::new("cd");
+        let opened = std::env::temp_dir();
+        let command = ["/bin/zsh", "-f", "-i"].map(str::to_owned);
+        let size = Size { rows: 8, cols: 80 };
+        let session = crate::pty::Session::spawn_shell(
+            &command,
+            &opened,
+            size,
+            &[],
+            crate::palette::Shared::default(),
+        )
+        .unwrap();
+        let work = tree.work().canonicalize().unwrap();
+        session.send(
+            format!("cd '{}'; clear; printf 'src/main.rs\\n'\n", work.display()).into_bytes(),
+        );
+        let first_line = || {
+            let screen = session.screen.lock().unwrap();
+            let row = &screen.term.grid()[Line(0)];
+            (0..11).map(|x| row[Column(x)].c).collect::<String>()
+        };
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while first_line() != "src/main.rs" || session.current_dir().as_deref() != Some(&work) {
+            assert!(Instant::now() < deadline, "the shell did not get there");
+            thread::sleep(Duration::from_millis(20));
+        }
+        let at = |base: Option<PathBuf>| {
+            let place = Place {
+                base,
+                ..tree.place()
+            };
+            let screen = session.screen.lock().unwrap();
+            match find(&screen.term, p(0, 3), Some(&place))? {
+                Found::Ready(link) => Some(link.target),
+                Found::Check(candidate) => {
+                    check(&candidate, &|path| path.exists()).map(|l| l.target)
+                }
+            }
+        };
+        assert_eq!(
+            at(session.current_dir()),
+            tree.file(work.join("src/main.rs"), None, None)
+        );
+        // From where it was opened, there is nothing.
+        assert_eq!(at(Some(opened)), None);
+    }
 }

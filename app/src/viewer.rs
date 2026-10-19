@@ -485,6 +485,13 @@ impl Viewer {
             .as_ref()
             .is_some_and(|s| matches!(s.state, "starting" | "running"))
     }
+    /// The directory the running shell is in now; `None` without one, or before it has said.
+    pub fn shell_dir(&self) -> Option<std::path::PathBuf> {
+        match &self.session {
+            Some(session) if self.shell_live() => session.current_dir(),
+            _ => None,
+        }
+    }
     /// What runs in the shell besides the shell itself, by name; empty at its prompt, or without
     /// a running shell.
     pub fn shell_programs(&self) -> Vec<String> {
@@ -780,5 +787,42 @@ mod tests {
         );
         drop(viewer);
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// A running shell's directory is where it has `cd` to, not where it was opened.
+    #[test]
+    fn a_running_shell_is_where_it_has_gone_to() {
+        let (start, there) = (scratch("dir-start"), scratch("dir-there"));
+        let there = there.canonicalize().unwrap();
+        let size = Size { rows: 10, cols: 40 };
+        let mut viewer = Viewer::new("unused".to_owned());
+        viewer.start_shell(Shell {
+            program: "/bin/sh".into(),
+            cwd: start.display().to_string(),
+            state: "starting",
+            exit_code: None,
+            env: Vec::new(),
+            agent_shell: false,
+        });
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while viewer.session.is_none() {
+            assert!(Instant::now() < deadline, "the shell did not start");
+            viewer.tick(size).unwrap();
+            thread::sleep(Duration::from_millis(10));
+        }
+        viewer
+            .send(format!("cd '{}'\n", there.display()).into_bytes())
+            .unwrap();
+        while viewer.shell_dir().as_deref() != Some(there.as_path()) {
+            assert!(
+                Instant::now() < deadline,
+                "still in {:?}",
+                viewer.shell_dir()
+            );
+            thread::sleep(Duration::from_millis(20));
+        }
+        drop(viewer);
+        let _ = std::fs::remove_dir_all(start);
+        let _ = std::fs::remove_dir_all(there);
     }
 }
