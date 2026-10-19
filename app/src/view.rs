@@ -1134,9 +1134,21 @@ impl TerminalView {
         ))
     }
 
-    /// The pane's directory, which relative paths written in it are from: a shell's, as it was
-    /// opened (paddock does not follow `cd`), an agent's, or a command's.
+    /// The directory this pane's running shell is in now, for a shell opened from the pane; `None`
+    /// for anything else, and for a shell that has not yet said.
+    pub fn shell_dir(&self) -> Option<PathBuf> {
+        self.queued_shell
+            .is_none()
+            .then(|| self.viewer.shell_dir())
+            .flatten()
+    }
+
+    /// The pane's directory, which relative paths written in it are from: a shell's, where it is now
+    /// (else where it was opened), an agent's, or a command's.
     fn directory(&self) -> Option<PathBuf> {
+        if let Some(now) = self.shell_dir() {
+            return Some(now);
+        }
         let shell = self.queued_shell.as_ref().or(self.viewer.shell.as_ref());
         let dir = match shell {
             Some(shell) => shell.cwd.clone(),

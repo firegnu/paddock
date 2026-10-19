@@ -9,7 +9,7 @@ use anyhow::{Context, Result};
 use portable_pty::{Child, CommandBuilder, MasterPty, PtySize, native_pty_system};
 use std::{
     io::{Read, Write},
-    path::Path,
+    path::{Path, PathBuf},
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, AtomicU64, Ordering},
@@ -125,6 +125,8 @@ pub struct Session {
     exited: bool,
     exit_code: Option<u32>,
     shell: bool,
+    /// Where the shell was when it last wrote something, as the thread that reads the PTY saw.
+    dir: Arc<Mutex<Option<PathBuf>>>,
     groups: Vec<i32>,
     /// Let go once the child has ended (P5-123: an attached pane's hold on its machine's
     /// connection).
@@ -207,6 +209,12 @@ impl Session {
         let reply = input.clone();
         let ring: Arc<Mutex<Option<Ring>>> = Arc::default();
         let rings = ring.clone();
+        // A shell's directory, read where its output is, off the UI thread: after a `cd`, its prompt.
+        let dir: Arc<Mutex<Option<PathBuf>>> = Arc::default();
+        let (shell_pid, dirs) = (
+            env.is_some().then(|| child.process_id()).flatten(),
+            dir.clone(),
+        );
         thread::spawn(move || {
             let mut bytes = [0; 4096];
             loop {
@@ -214,6 +222,10 @@ impl Session {
                     Ok(0) => break,
                     Ok(n) => {
                         let replies = output.lock().unwrap().process(&bytes[..n]);
+                        if let Some(now) = shell_pid.and_then(|pid| process_dir(pid as libc::pid_t))
+                        {
+                            *dirs.lock().unwrap() = Some(now);
+                        }
                         // Queued after what was typed before; never waits for it.
                         if !replies.is_empty() {
                             let _ = reply.send(replies);
@@ -243,6 +255,7 @@ impl Session {
             exited: false,
             exit_code: None,
             shell: env.is_some(),
+            dir,
             groups: Vec::new(),
             _kept: None,
         })
@@ -283,6 +296,14 @@ impl Session {
     }
     pub fn running(&self) -> bool {
         !self.exited && !self.is_stopping()
+    }
+    /// The directory the shell is in now, as it last was when it wrote something (so after a `cd`,
+    /// by its next prompt); `None` before that, and for a session that is not a shell or is ending.
+    pub fn current_dir(&self) -> Option<PathBuf> {
+        if !self.shell || !self.running() {
+            return None;
+        }
+        self.dir.lock().unwrap().clone()
     }
     /// What runs in this shell besides the shell itself, by name: the program in the foreground,
     /// then the shell's background jobs, which end with it too. Empty at the prompt, and for a
@@ -414,6 +435,31 @@ fn process_name(pid: libc::pid_t) -> Option<String> {
     // SAFETY: the buffer is as long as said; the call returns how many bytes it wrote.
     let length = unsafe { libc::proc_name(pid, name.as_mut_ptr().cast(), name.len() as u32) };
     (length > 0).then(|| String::from_utf8_lossy(&name[..length as usize]).into_owned())
+}
+
+/// A process's current directory; `None` once it has ended.
+fn process_dir(pid: libc::pid_t) -> Option<PathBuf> {
+    // SAFETY: plain data, all zeroes being a valid value.
+    let mut info: libc::proc_vnodepathinfo = unsafe { std::mem::zeroed() };
+    let size = std::mem::size_of_val(&info) as libc::c_int;
+    // SAFETY: the buffer is `size` long; the call returns how many bytes it wrote.
+    let wrote = unsafe {
+        libc::proc_pidinfo(
+            pid,
+            libc::PROC_PIDVNODEPATHINFO,
+            0,
+            (&raw mut info).cast(),
+            size,
+        )
+    };
+    if wrote != size {
+        return None;
+    }
+    // SAFETY: the path is a C string in `MAXPATHLEN` bytes, as 32 arrays of 32.
+    let bytes: &[u8; 1024] = unsafe { &*(&raw const info.pvi_cdir.vip_path).cast() };
+    let path = std::ffi::CStr::from_bytes_until_nul(bytes).ok()?.to_bytes();
+    use std::os::unix::ffi::OsStrExt;
+    (!path.is_empty()).then(|| PathBuf::from(std::ffi::OsStr::from_bytes(path)))
 }
 
 fn pty_size(size: Size) -> PtySize {
@@ -585,6 +631,33 @@ mod tests {
         assert!(settled(&session, &[]).is_empty());
     }
 
+    /// The shell's directory once it is `want`, or after five seconds whatever it is then.
+    fn settled_dir(session: &Session, want: &Path) -> Option<PathBuf> {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let now = session.current_dir();
+            if now.as_deref() == Some(want) || Instant::now() > deadline {
+                return now;
+            }
+            thread::sleep(Duration::from_millis(50));
+        }
+    }
+
+    #[test]
+    fn a_shell_tells_the_directory_it_has_gone_to() {
+        let session = shell();
+        let start = std::env::temp_dir().canonicalize().unwrap();
+        assert_eq!(settled_dir(&session, &start), Some(start));
+        let there = scratch("cd-there");
+        std::fs::create_dir_all(&there).unwrap();
+        let there = there.canonicalize().unwrap();
+        session.send(format!("cd '{}'\n", there.display()).into_bytes());
+        assert_eq!(settled_dir(&session, &there), Some(there.clone()));
+        session.send(b"cd /\n".to_vec());
+        assert_eq!(settled_dir(&session, Path::new("/")), Some("/".into()));
+        let _ = std::fs::remove_dir(there);
+    }
+
     /// A scratch file of the test's own.
     fn scratch(name: &str) -> std::path::PathBuf {
         std::env::temp_dir().join(format!("paddock-pty-{name}-{}", std::process::id()))
@@ -706,5 +779,6 @@ mod tests {
         .unwrap();
         thread::sleep(Duration::from_millis(300));
         assert!(session.running_programs().is_empty());
+        assert_eq!(session.current_dir(), None);
     }
 }

@@ -2580,6 +2580,32 @@ impl PaddockWindow {
         .detach();
     }
 
+    /// Where a shell opened from a pane starts: the directory that pane's shell is in now, while it is
+    /// still there; else where ⌘N starts one.
+    fn start_dir(current: Option<PathBuf>, fallback: &str) -> String {
+        match current {
+            Some(dir) if dir.is_dir() => dir.display().to_string(),
+            _ => fallback.to_owned(),
+        }
+    }
+
+    /// Where a shell opened now from the active pane starts ([`Self::start_dir`]).
+    fn shell_cwd(&self, cx: &gpui::App) -> String {
+        let active = self.panes.get(&self.workspace.active_pane());
+        let current = active.and_then(|view| view.read(cx).shell_dir());
+        Self::start_dir(current, &self.new_shell.cwd)
+    }
+
+    /// A shell opened from the active pane, in its shell's directory as it is now.
+    fn shell_from_active(&self, cx: &gpui::App) -> Launch {
+        Launch::Shell {
+            agent_shell: false,
+            program: self.new_shell.program.clone(),
+            cwd: self.shell_cwd(cx),
+            env: Vec::new(),
+        }
+    }
+
     fn shell(&self) -> Launch {
         Launch::Shell {
             agent_shell: false,
@@ -3401,7 +3427,7 @@ impl PaddockWindow {
             view.update(cx, |v, cx| v.start_shell(program, cwd, env, cx));
         } else {
             let pane = self.workspace.new_tab(Shown::Shell);
-            let view = self.view(pane, self.shell(), window, cx);
+            let view = self.view(pane, self.shell_from_active(cx), window, cx);
             self.panes.insert(pane, view);
         }
         self.focus_active(window, cx);
@@ -3644,12 +3670,12 @@ impl PaddockWindow {
         self.popup = None;
         self.chooser = Chooser::default();
         let (shown, launch) = match &choice {
-            Choice::Shell => (Shown::Shell, self.shell()),
+            Choice::Shell => (Shown::Shell, self.shell_from_active(cx)),
             Choice::AgentShell => (
                 Shown::Shell,
                 Launch::Shell {
                     program: self.new_shell.program.clone(),
-                    cwd: self.new_shell.cwd.clone(),
+                    cwd: self.shell_cwd(cx),
                     env: Vec::new(),
                     agent_shell: true,
                 },
@@ -7450,6 +7476,19 @@ impl Render for PaddockWindow {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_shell_opened_from_a_shell_starts_where_that_one_is_while_it_is_there() {
+        let fallback = "/where/paddock/started";
+        let here = std::env::temp_dir();
+        assert_eq!(
+            PaddockWindow::start_dir(Some(here.clone()), fallback),
+            here.display().to_string()
+        );
+        let gone = here.join(format!("paddock-gone-{}", std::process::id()));
+        assert_eq!(PaddockWindow::start_dir(Some(gone), fallback), fallback);
+        assert_eq!(PaddockWindow::start_dir(None, fallback), fallback);
+    }
 
     fn listed(name: &str, state: &str, instance: &str) -> Agent {
         Agent {
