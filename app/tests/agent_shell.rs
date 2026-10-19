@@ -591,11 +591,7 @@ fn shim_requests_its_own_pane_handoff_and_waits_for_the_listing_check() {
             let _ = fs::remove_dir_all(&self.0);
         }
     }
-    let base = Runtime(PathBuf::from(format!(
-        "/tmp/pad-as-{}",
-        paddock::control::random_id().unwrap()
-    )));
-    fs::create_dir(&base.0).unwrap();
+    let base = Runtime(common::short_dir("pad-as", 0o700));
     fs::set_permissions(&base.0, fs::Permissions::from_mode(0o700)).unwrap();
     let runtime = base.0.join("paddock-ctl");
     fs::create_dir(&runtime).unwrap();
