@@ -5,6 +5,7 @@
 //! bytes Saddle's `input` module already encodes.
 mod file_drop;
 pub mod links;
+mod notice;
 mod press;
 
 use crate::{
@@ -57,9 +58,6 @@ const QUIET: Duration = Duration::from_secs(3);
 /// goes, the quiet after an attach and its name tag starting to fade. Output and changes the
 /// pane is told about ring its bell at once.
 const TICK: Duration = Duration::from_millis(100);
-
-/// How long a pane says why a link did not open.
-const NOTICE: Duration = Duration::from_secs(5);
 
 /// Shown in a pane with nothing in it.
 const EMPTY_NOTE: &str = "Choose an agent on the left, or open one here with + or Split.";
@@ -184,7 +182,7 @@ pub struct TerminalView {
     /// What is under the mouse as far as the files have been looked at, off the UI thread.
     hover: links::Hover,
     /// A few words over the pane's bottom, for a while: why a link did not open.
-    notice: Option<(String, Instant)>,
+    notice: Option<notice::Notice>,
     /// Cursor cell of the last frame, for the input method's candidate window.
     cursor_cell: (u16, u16),
     /// When the pane was typed in, for its name tag (`to_tag`).
@@ -335,7 +333,10 @@ impl TerminalView {
             mouse: press::Mouse::default(),
             pointer: None,
             link: None,
-            hover: links::Hover::new(std::sync::Arc::new(|path: &Path| path.exists())),
+            hover: links::Hover::new(
+                std::sync::Arc::new(|path: &Path| path.exists()),
+                links::thread,
+            ),
             notice: None,
             cursor_cell: (0, 0),
             typing: Typing::default(),
@@ -1112,28 +1113,23 @@ impl TerminalView {
     /// Starts a look at the files under the mouse on a thread of its own, when one is due; when
     /// it comes back, the link shows if the mouse is still over it.
     fn look_at_files(&mut self, cx: &mut Context<Self>) {
-        let Some(job) = self.hover.job() else {
+        let Some(look) = self.hover.start() else {
             return;
         };
-        let (sent, came) = async_channel::bounded(1);
-        let started = std::thread::Builder::new()
-            .name("paddock-links".into())
-            .spawn(move || {
-                let _ = sent.send_blocking(job.run());
-            });
-        if started.is_err() {
-            return;
-        }
         cx.spawn(async move |this, cx| {
-            if let Ok((candidate, link)) = came.recv().await {
-                let _ = this.update(cx, |view, cx| {
-                    if view.hover.checked(candidate, link) && view.pointer.is_some() {
-                        view.link = view.hover.link();
-                        cx.notify();
+            let answer = look.answer.recv().await;
+            let _ = this.update(cx, |view, cx| {
+                match answer {
+                    Ok((candidate, link)) => {
+                        if view.hover.checked(candidate, link) && view.pointer.is_some() {
+                            view.link = view.hover.link();
+                            cx.notify();
+                        }
                     }
-                    view.look_at_files(cx);
-                });
-            }
+                    Err(_) => view.hover.lost(look.candidate),
+                }
+                view.look_at_files(cx);
+            });
         })
         .detach();
     }
@@ -1177,15 +1173,11 @@ impl TerminalView {
         }
     }
 
-    /// A few words over the pane's bottom, gone after [`NOTICE`]: why a link did not open, seen
-    /// where it was clicked whatever the sidebar shows.
+    /// A few words over the pane's bottom, for [`notice::NOTICE`] once the pane shows: why a link
+    /// did not open, seen where it was clicked whatever the sidebar shows, and not missed while
+    /// another tab or machine is shown.
     pub fn say(&mut self, text: String, cx: &mut Context<Self>) {
-        self.notice = Some((text, Instant::now()));
-        cx.spawn(async move |this, cx| {
-            cx.background_executor().timer(NOTICE).await;
-            let _ = this.update(cx, |_, cx| cx.notify());
-        })
-        .detach();
+        self.notice = Some(notice::Notice::new(text));
         cx.notify();
     }
 
@@ -1890,14 +1882,21 @@ impl Render for TerminalView {
         let focus = self.focus.clone();
         let stats = self.stats.clone();
         let drop_highlight = hsla(self.theme.fg(|t| t.focus), 0.08);
-        if self
-            .notice
-            .as_ref()
-            .is_some_and(|(_, since)| since.elapsed() >= NOTICE)
-        {
+        // Only a shown pane is drawn: its notice's time starts here, and a repaint then ends it.
+        let mut first = false;
+        let notice = self.notice.as_mut().and_then(|notice| {
+            first = !notice.seen();
+            notice.drawn(Instant::now()).map(str::to_owned)
+        });
+        if notice.is_none() {
             self.notice = None;
+        } else if first {
+            cx.spawn(async move |this, cx| {
+                cx.background_executor().timer(notice::NOTICE).await;
+                let _ = this.update(cx, |_, cx| cx.notify());
+            })
+            .detach();
         }
-        let notice = self.notice.as_ref().map(|(text, _)| text.clone());
         div()
             .relative()
             .size_full()

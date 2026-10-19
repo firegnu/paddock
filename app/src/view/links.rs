@@ -11,11 +11,16 @@ use alacritty_terminal::{
 };
 use anyhow::{Context as _, Result, bail};
 use std::{
-    io::Read,
-    os::unix::fs::PermissionsExt,
+    io::{ErrorKind, Read},
+    os::{fd::AsRawFd, unix::fs::PermissionsExt},
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
-    sync::{Arc, Mutex, mpsc},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+        mpsc,
+    },
+    thread::JoinHandle,
     time::Duration,
 };
 
@@ -155,15 +160,37 @@ pub fn check(candidate: &Candidate, exists: &dyn Fn(&Path) -> bool) -> Option<Li
 /// Whether something is at a path, asked off the UI thread.
 pub type Exists = Arc<dyn Fn(&Path) -> bool + Send + Sync>;
 
+/// Starts `work` on a thread of its own; an error when none can be had.
+pub type Spawn = fn(Box<dyn FnOnce() + Send>) -> std::io::Result<()>;
+
+/// A look's own thread, named for it.
+pub fn thread(work: Box<dyn FnOnce() + Send>) -> std::io::Result<()> {
+    std::thread::Builder::new()
+        .name("paddock-links".into())
+        .spawn(work)
+        .map(drop)
+}
+
+/// A look under way: what it is at, and where its answer comes. The answer channel closes with
+/// nothing on it when the look ended without one.
+pub struct Look {
+    pub candidate: Candidate,
+    pub answer: async_channel::Receiver<(Candidate, Option<Link>)>,
+}
+
 /// What the mouse is over in one pane while ⌘ is held: a web address at once, a path only once
 /// another thread found something there. One look at the files goes on at a time; what it found
 /// is kept until ⌘ is let go, and an answer for what the mouse has left shows nothing.
 pub struct Hover {
     exists: Exists,
+    spawn: Spawn,
     /// What the mouse is over, when it needs a look at the files.
     current: Option<Candidate>,
     /// A look is under way.
     looking: bool,
+    /// What the mouse is still over though its look could not start or ended without an answer:
+    /// not looked at again until the mouse has been over something else.
+    lost: Option<Candidate>,
     known: Vec<(Candidate, Option<Link>)>,
 }
 
@@ -184,18 +211,20 @@ impl Job {
 const KNOWN: usize = 32;
 
 impl Hover {
-    pub fn new(exists: Exists) -> Self {
+    pub fn new(exists: Exists, spawn: Spawn) -> Self {
         Self {
             exists,
+            spawn,
             current: None,
             looking: false,
+            lost: None,
             known: Vec::new(),
         }
     }
 
     /// What shows for what [`find`] found: a web address at once; a path once found there.
     pub fn show(&mut self, found: Option<Found>) -> Option<Link> {
-        match found {
+        let link = match found {
             Some(Found::Ready(link)) => {
                 self.current = None;
                 Some(link)
@@ -208,7 +237,11 @@ impl Hover {
                 self.current = None;
                 None
             }
+        };
+        if self.lost != self.current {
+            self.lost = None;
         }
+        link
     }
 
     /// The link the mouse is over, as far as the files have been looked at.
@@ -222,7 +255,10 @@ impl Hover {
     /// way (which may never come back, from a disk that does not answer).
     pub fn job(&mut self) -> Option<Job> {
         let current = self.current.as_ref()?;
-        if self.looking || self.known.iter().any(|(known, _)| known == current) {
+        if self.looking
+            || self.lost.as_ref() == Some(current)
+            || self.known.iter().any(|(known, _)| known == current)
+        {
             return None;
         }
         self.looking = true;
@@ -230,6 +266,32 @@ impl Hover {
             candidate: current.clone(),
             exists: self.exists.clone(),
         })
+    }
+
+    /// The look to start now, on a thread of its own, as [`Hover::job`] says; `None` too when no
+    /// thread could be had.
+    pub fn start(&mut self) -> Option<Look> {
+        let job = self.job()?;
+        let candidate = job.candidate.clone();
+        let (sent, answer) = async_channel::bounded(1);
+        let started = (self.spawn)(Box::new(move || {
+            let _ = sent.send_blocking(job.run());
+        }));
+        if started.is_err() {
+            self.lost(candidate);
+            return None;
+        }
+        Some(Look { candidate, answer })
+    }
+
+    /// A look could not start or ended without an answer: none is under way, and what it was at
+    /// is looked at again once the mouse has been over something else. One that does not come
+    /// back stays under way.
+    pub fn lost(&mut self, candidate: Candidate) {
+        self.looking = false;
+        if self.current.as_ref() == Some(&candidate) {
+            self.lost = Some(candidate);
+        }
     }
 
     /// A look came back; true when it is for what the mouse is over.
@@ -247,6 +309,7 @@ impl Hover {
     /// come and go.
     pub fn forget(&mut self) {
         self.current = None;
+        self.lost = None;
         self.known.clear();
     }
 }
@@ -604,8 +667,9 @@ pub fn opener(
 }
 
 /// Why a file is not opened with the app macOS picks, which for these would run something: an
-/// app or another bundle, a script, an installer or a shortcut, or an executable file. Looked at
-/// where it really is, through symbolic links; a folder's `x` is not taken for executable.
+/// app or another bundle, a script, an installer or a shortcut, a Finder alias, or an executable
+/// file. Looked at where it really is, through symbolic links; a folder's `x` is not taken for
+/// executable.
 pub fn refusal(path: &Path) -> Option<&'static str> {
     let Ok(real) = std::fs::canonicalize(path) else {
         return Some("it is no longer there");
@@ -626,7 +690,29 @@ pub fn refusal(path: &Path) -> Option<&'static str> {
     if RUNS.contains(&extension.as_str()) {
         return Some("it is a script, an installer or a shortcut, which would run something");
     }
+    match is_alias(&real) {
+        Some(false) => {}
+        Some(true) => return Some("it is a Finder alias, which opens what it points to"),
+        None => return Some("macOS couldn't say whether it is an alias"),
+    }
     (meta.permissions().mode() & 0o111 != 0).then_some("it is an executable file, which would run")
+}
+
+/// Whether `real` (no symbolic link) is a Finder alias, which macOS opens by opening what it points
+/// to; `None` when the file system couldn't say. An alias has no extension of its own, so the file
+/// system is asked; nothing is resolved or mounted.
+fn is_alias(real: &Path) -> Option<bool> {
+    use objc2_foundation::{NSString, NSURL, NSURLIsAliasFileKey};
+    objc2::rc::autoreleasepool(|_| {
+        let url = NSURL::fileURLWithPath(&NSString::from_str(&real.to_string_lossy()));
+        let mut value = None;
+        // SAFETY: the value for this key is an `NSNumber`, read with `boolValue`.
+        let asked = unsafe { url.getResourceValue_forKey_error(&mut value, NSURLIsAliasFileKey) };
+        match (asked, value) {
+            (Ok(()), Some(value)) => Some(unsafe { objc2::msg_send![&*value, boolValue] }),
+            _ => None,
+        }
+    })
 }
 
 /// Folders macOS opens as one thing, an app or what an app loads; any with `Contents/Info.plist`
@@ -701,28 +787,12 @@ pub fn launch(program: &str, args: &[String]) -> Result<Child> {
 /// Waits for `child` on this thread: an error when it ended other than with success, with the
 /// start of what it said.
 pub fn finish(mut child: Child, program: &str) -> Result<()> {
-    let said = Arc::new(Mutex::new(Vec::new()));
-    let (done, ended) = mpsc::channel::<()>();
-    if let Some(mut stderr) = child.stderr.take() {
-        let said = said.clone();
-        // Read to its end, so that it never waits on a full pipe; only the start kept.
-        let _ = std::thread::Builder::new()
-            .name("paddock-open-stderr".into())
-            .spawn(move || {
-                let mut buffer = [0; 4096];
-                while let Ok(read @ 1..) = stderr.read(&mut buffer) {
-                    let mut said = said.lock().unwrap();
-                    let room = SAID.saturating_sub(said.len());
-                    said.extend_from_slice(&buffer[..read.min(room)]);
-                }
-                let _ = done.send(());
-            });
-    }
+    let said = Said::read(child.stderr.take());
     let status = child
         .wait()
         .with_context(|| format!("couldn't wait for {program}"))?;
     // What it left behind may keep its standard error open: what came so far is enough.
-    let _ = ended.recv_timeout(Duration::from_millis(200));
+    let said = said.take(GRACE);
     if status.success() {
         return Ok(());
     }
@@ -730,7 +800,6 @@ pub fn finish(mut child: Child, program: &str) -> Result<()> {
         Some(code) => format!("{program} exited with status {code}"),
         None => format!("{program} exited on a signal"),
     };
-    let said = said.lock().unwrap();
     let said = String::from_utf8_lossy(&said);
     let said = said.trim();
     if said.is_empty() {
@@ -741,6 +810,86 @@ pub fn finish(mut child: Child, program: &str) -> Result<()> {
 
 /// How much of what an opener says on standard error is kept, in bytes.
 const SAID: usize = 2000;
+
+/// How long what an opener says may still come after it ended.
+const GRACE: Duration = Duration::from_millis(200);
+
+/// What a child says on standard error, read on its own thread so that the child never waits on
+/// a full pipe; only the start kept. Read to its end, or until [`Said::take`] stops it.
+struct Said {
+    said: Arc<Mutex<Vec<u8>>>,
+    ended: mpsc::Receiver<()>,
+    stop: Arc<AtomicBool>,
+    thread: Option<JoinHandle<()>>,
+}
+
+/// How long the reading waits for more before looking whether it is to stop.
+const LISTEN: i32 = 20;
+
+impl Said {
+    fn read<R: Read + AsRawFd + Send + 'static>(from: Option<R>) -> Said {
+        let said = Arc::new(Mutex::new(Vec::new()));
+        let stop = Arc::new(AtomicBool::new(false));
+        let (done, ended) = mpsc::channel::<()>();
+        let thread = from.and_then(|mut stderr| {
+            let (said, stop) = (said.clone(), stop.clone());
+            std::thread::Builder::new()
+                .name("paddock-open-stderr".into())
+                .spawn(move || {
+                    let mut buffer = [0; 4096];
+                    // Waits for more only a little at a time, so that a stop is seen even while
+                    // what the child left behind holds the pipe open and says nothing.
+                    let mut ready = libc::pollfd {
+                        fd: stderr.as_raw_fd(),
+                        events: libc::POLLIN,
+                        revents: 0,
+                    };
+                    while !stop.load(Ordering::Relaxed) {
+                        // SAFETY: one `pollfd`, for a descriptor `stderr` keeps open.
+                        match unsafe { libc::poll(&mut ready, 1, LISTEN) } {
+                            0 => continue,
+                            1.. => {}
+                            _ if std::io::Error::last_os_error().kind()
+                                == ErrorKind::Interrupted =>
+                            {
+                                continue;
+                            }
+                            _ => break,
+                        }
+                        match stderr.read(&mut buffer) {
+                            Ok(0) => break,
+                            Ok(read) => {
+                                let mut said = said.lock().unwrap();
+                                let room = SAID.saturating_sub(said.len());
+                                said.extend_from_slice(&buffer[..read.min(room)]);
+                            }
+                            Err(error) if error.kind() == ErrorKind::Interrupted => {}
+                            Err(_) => break,
+                        }
+                    }
+                    let _ = done.send(());
+                })
+                .ok()
+        });
+        Said {
+            said,
+            ended,
+            stop,
+            thread,
+        }
+    }
+
+    /// What was said, once it ended or `grace` went by; the reading is over when this returns,
+    /// whoever still holds the pipe open.
+    fn take(mut self, grace: Duration) -> Vec<u8> {
+        let _ = self.ended.recv_timeout(grace);
+        self.stop.store(true, Ordering::Relaxed);
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+        self.said.lock().unwrap().clone()
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -1103,7 +1252,7 @@ mod tests {
         {
             let (screen, place) = (screen.clone(), place.clone());
             std::thread::spawn(move || {
-                let mut hover = Hover::new(exists);
+                let mut hover = Hover::new(exists, thread);
                 let shown = look(&screen, p(0, 3), Some(&place), &mut hover);
                 let job = hover.job();
                 let _ = sent.send((hover, shown, job));
@@ -1147,6 +1296,53 @@ mod tests {
         hover.forget();
         assert_eq!(look(&screen, p(0, 3), Some(&place), &mut hover), None);
         assert!(hover.job().is_some());
+    }
+
+    #[test]
+    fn a_look_that_could_not_start_or_ended_without_an_answer_is_tried_on_the_next_hover() {
+        let tree = Tree::new("lost");
+        let s = screen(80, "src/main.rs ./notes.txt");
+        let found = |col| find(&s.term, p(0, col), Some(&tree.place()));
+        let exists: Exists = Arc::new(|path: &Path| path.exists());
+        // No thread to be had: nothing under way, but not tried again frame after frame over the
+        // same path.
+        let mut hover = Hover::new(exists.clone(), |_| Err(std::io::Error::other("no threads")));
+        hover.show(found(3));
+        assert!(hover.start().is_none());
+        hover.show(found(3));
+        assert!(hover.job().is_none());
+        // The next hover tries again: over another path, or off it and back.
+        hover.show(found(15));
+        assert!(hover.job().is_some(), "over another path");
+        let mut hover = Hover::new(exists.clone(), |_| Err(std::io::Error::other("no threads")));
+        hover.show(found(3));
+        assert!(hover.start().is_none());
+        hover.show(None);
+        hover.show(found(3));
+        assert!(hover.job().is_some(), "off and back");
+        // A look that ended without an answer, as from a thread that died: the same.
+        let mut hover = Hover::new(exists.clone(), |work| {
+            drop(work);
+            Ok(())
+        });
+        hover.show(found(3));
+        let look = hover.start().expect("a look");
+        assert!(look.answer.recv_blocking().is_err());
+        hover.lost(look.candidate);
+        hover.show(found(3));
+        assert!(hover.job().is_none());
+        hover.show(found(15));
+        assert!(hover.job().is_some(), "over another path");
+        // One that is only slow, as on a disk that hangs, is still under way: none else starts.
+        let mut hover = Hover::new(exists, |work| {
+            std::mem::forget(work);
+            Ok(())
+        });
+        hover.show(found(3));
+        let _slow = hover.start().expect("a look");
+        hover.show(None);
+        hover.show(found(15));
+        assert!(hover.job().is_none());
     }
 
     #[test]
@@ -1206,6 +1402,78 @@ mod tests {
             format!("{error:#}").contains("false exited with status 1"),
             "{error:#}"
         );
+    }
+
+    /// A Finder alias at `at` to `to`, as Finder makes one.
+    fn alias(to: &Path, at: &Path) {
+        use objc2_foundation::{NSString, NSURL, NSURLBookmarkCreationOptions};
+        objc2::rc::autoreleasepool(|_| {
+            let to = NSURL::fileURLWithPath(&NSString::from_str(&to.to_string_lossy()));
+            let at = NSURL::fileURLWithPath(&NSString::from_str(&at.to_string_lossy()));
+            let data = to
+                .bookmarkDataWithOptions_includingResourceValuesForKeys_relativeToURL_error(
+                    NSURLBookmarkCreationOptions::SuitableForBookmarkFile,
+                    None,
+                    None,
+                )
+                .unwrap();
+            NSURL::writeBookmarkData_toURL_options_error(&data, &at, 0).unwrap();
+        });
+    }
+
+    #[test]
+    fn a_finder_alias_is_not_opened_with_the_app_macos_picks_whatever_its_name() {
+        let tree = Tree::new("alias");
+        let app = tree.0.join("work/Tool.app/Contents");
+        std::fs::create_dir_all(&app).unwrap();
+        tree.touch("work/Tool.app/Contents/Info.plist");
+        let app = app.parent().unwrap().to_owned();
+        // A document's name, no x: only what is in it says it is an alias.
+        let readme = tree.0.join("work/readme.txt");
+        alias(&app, &readme);
+        let mode = std::fs::metadata(&readme).unwrap().permissions().mode();
+        assert_eq!(mode & 0o111, 0);
+        assert!(refusal(&readme).is_some_and(|why| why.contains("alias")));
+        // An alias to a document is refused too: what it points to is not looked at.
+        let note = tree.0.join("work/note");
+        alias(&tree.work().join("notes.txt"), &note);
+        assert!(refusal(&note).is_some());
+        let error = open_file("", &readme, None, None).unwrap_err();
+        assert!(format!("{error:#}").contains("alias"), "{error:#}");
+        // Documents and folders still open; a command set in Settings gets the alias anyway.
+        for path in [tree.work().join("notes.txt"), tree.work().join("src")] {
+            assert_eq!(refusal(&path), None, "{}", path.display());
+        }
+        assert!(open_file("true", &readme, None, None).is_ok());
+    }
+
+    #[test]
+    fn what_an_opener_leaves_holding_its_standard_error_does_not_keep_the_reading_going() {
+        use std::io::{ErrorKind, Write};
+        // Read while the writer goes on: all of it comes, the start kept.
+        let (reader, mut writer) = std::io::pipe().unwrap();
+        let said = Said::read(Some(reader));
+        writer.write_all(b"oops").unwrap();
+        writer.write_all(&[b'x'; 3 * SAID]).unwrap();
+        drop(writer);
+        let said = said.take(GRACE);
+        assert_eq!(said.len(), SAID);
+        assert!(said.starts_with(b"oops"));
+        // The writing end kept open, as by what an opener left behind: once the grace is over
+        // what came is there, and the reading has ended, its end of the pipe closed.
+        let (reader, mut writer) = std::io::pipe().unwrap();
+        let said = Said::read(Some(reader));
+        writer.write_all(b"oops").unwrap();
+        let started = std::time::Instant::now();
+        assert_eq!(said.take(GRACE), b"oops");
+        assert!(started.elapsed() < Duration::from_secs(2));
+        let closed = (0..100).any(|_| {
+            std::thread::sleep(Duration::from_millis(10));
+            writer
+                .write_all(b"more")
+                .is_err_and(|error| error.kind() == ErrorKind::BrokenPipe)
+        });
+        assert!(closed, "still read after the grace");
     }
 
     /// `script` run by `sh`, as a file's opener.
