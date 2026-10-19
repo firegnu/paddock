@@ -12,3 +12,4 @@
 | `Denials.dc.html` | C1（**采用**）：从卡片弹出的浮窗，标题 Blocked、agent 名和档案；`Network & writes` / `All` 切换；每行时间、类型签、目标、原文细节；底下一句文件拦截可能不全 |
 | `DenialsTab.dc.html` | C2（未采用）：同样的列表放在右侧栏第五个标签 |
 | `Settings.dc.html` | D：Settings 新一页 Sandbox，只看：fence 版本状态、档案列表、选种类和目录后显示合并规则（来源层、允许域名、能读能写、不能读写、跳过项、警告） |
+| `Delegates.dc.html` | E（P5-141，用户 10-19 同意）：收起的主控卡片名字后面蓝色“箭头指向锁”标记（悬停 `Agents it starts run in sandbox: dev`）；展开详情多一格 Delegates，点开菜单 Not sandboxed／`dev`，底下说明从下一次派活起生效、已在跑的不变、主控自己不进墙；保存中、corral 拒绝、主控重启后的样子写在图下 |

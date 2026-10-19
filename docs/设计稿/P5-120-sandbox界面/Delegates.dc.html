@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Controller delegates in sandbox</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+button{font:inherit;color:inherit;cursor:pointer}
+</style>
+</helmet>
+<div style="width: 1000px; height: 700px; box-sizing: border-box; padding: 36px 40px; background: #1d2221; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif; color: #e7ecea; display: grid; grid-template-columns: 380px minmax(0, 1fr); column-gap: 40px; align-items: start; position: relative">
+
+<!-- left: collapsed controllers -->
+<div style="display: flex; flex-direction: column; gap: 10px">
+  <div style="font-size: 12px; color: #879290; margin-bottom: 4px">Collapsed: a controller whose delegates go in a sandbox carries a small arrow-into-lock mark</div>
+
+  <div style="background: #2a302f; border: 1px solid #3a4140; border-radius: 14px; padding: 13px 14px 12px; display: flex; gap: 11px; position: relative">
+    <div style="position: relative; width: 38px; height: 38px; flex: none"><div style="width: 38px; height: 38px; border-radius: 10px; background: #d97757"></div><div style="position: absolute; right: -3px; bottom: -3px; width: 11px; height: 11px; border-radius: 50%; background: #9cc98e; box-shadow: 0 0 0 2.5px #2a302f"></div></div>
+    <div style="flex: 1; min-width: 0">
+      <div style="display: flex; align-items: center; gap: 6px">
+        <span style="font-size: 15.5px; font-weight: 500">main</span>
+        <span style="font-size: 13px; color: #a2acaa">high</span>
+        <span role="img" aria-label="Delegates run in sandbox dev" style="display: inline-flex; align-items: center; gap: 1px; margin-left: 2px">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#86c1e6" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 4v7a4 4 0 0 0 4 4h9M14 11l4 4-4 4"></path></svg>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="rgba(134,193,230,0.2)" stroke="#86c1e6" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2.2"></rect><path d="M8 11V7.5a4 4 0 0 1 8 0V11" fill="none"></path></svg>
+        </span>
+        <span style="flex: 1"></span>
+        <span style="font-size: 13px; color: #a2acaa">2m</span>
+      </div>
+      <div style="font-size: 13px; color: #a2acaa; margin-top: 3px">Idle</div>
+    </div>
+    <div style="position: absolute; left: 110px; top: -26px; padding: 5px 9px; border-radius: 7px; background: #3a4140; font-size: 12px; white-space: nowrap">Agents it starts run in sandbox: dev</div>
+  </div>
+
+  <div style="background: #2a302f; border: 1px solid #3a4140; border-radius: 14px; padding: 13px 14px 12px; display: flex; gap: 11px">
+    <div style="position: relative; width: 38px; height: 38px; flex: none"><div style="width: 38px; height: 38px; border-radius: 10px; background: #d97757"></div><div style="position: absolute; right: -3px; bottom: -3px; width: 11px; height: 11px; border-radius: 50%; background: #9cc98e; box-shadow: 0 0 0 2.5px #2a302f"></div></div>
+    <div style="flex: 1; min-width: 0">
+      <div style="display: flex; align-items: center; gap: 6px">
+        <span style="font-size: 15.5px; font-weight: 500">cairn/main</span>
+        <span style="font-size: 13px; color: #a2acaa">high</span>
+        <span style="flex: 1"></span>
+        <span style="font-size: 13px; color: #a2acaa">9m</span>
+      </div>
+      <div style="font-size: 13px; color: #a2acaa; margin-top: 3px">Idle · not set: no mark, like today</div>
+    </div>
+  </div>
+
+  <div style="background: #2a302f; border: 1px solid #3a4140; border-radius: 14px; padding: 13px 14px 12px; display: flex; gap: 11px">
+    <div style="position: relative; width: 38px; height: 38px; flex: none"><div style="width: 38px; height: 38px; border-radius: 10px; background: #d97757"></div><div style="position: absolute; right: -3px; bottom: -3px; width: 11px; height: 11px; border-radius: 50%; background: #7ea2ee; box-shadow: 0 0 0 2.5px #2a302f"></div></div>
+    <div style="flex: 1; min-width: 0">
+      <div style="display: flex; align-items: center; gap: 6px">
+        <span style="font-size: 15.5px; font-weight: 500">dev-p5-142</span>
+        <span style="font-size: 13px; color: #a2acaa">high</span>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#a2acaa" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" role="img" aria-label="Sandbox dev" style="margin-left: 2px"><rect x="5" y="11" width="14" height="10" rx="2.2"></rect><path d="M8 11V7.5a4 4 0 0 1 8 0V11"></path></svg>
+        <span style="flex: 1"></span>
+        <span style="font-size: 13px; color: #7ea2ee">1m</span>
+      </div>
+      <div style="font-size: 13px; color: #a2acaa; margin-top: 3px">The agent main started: its own lock (P5-120)</div>
+    </div>
+  </div>
+</div>
+
+<!-- right: expanded controller with menu -->
+<div style="display: flex; flex-direction: column; gap: 10px; position: relative">
+  <div style="font-size: 12px; color: #879290; margin-bottom: 4px">Expanded: one more field, Delegates; click to pick, any time. Only on controllers, on this Mac, with fence there.</div>
+  <div style="width: 400px; background: #2a302f; border: 1px solid #3a4140; border-radius: 14px; padding: 13px 14px 10px; display: flex; gap: 11px">
+    <div style="position: relative; width: 38px; height: 38px; flex: none"><div style="width: 38px; height: 38px; border-radius: 10px; background: #d97757"></div><div style="position: absolute; right: -3px; bottom: -3px; width: 11px; height: 11px; border-radius: 50%; background: #9cc98e; box-shadow: 0 0 0 2.5px #2a302f"></div></div>
+    <div style="flex: 1; min-width: 0; display: flex; flex-direction: column">
+      <div style="display: flex; align-items: center; gap: 6px; min-height: 38px">
+        <span style="font-size: 15.5px; font-weight: 500">main</span>
+        <span style="font-size: 13px; color: #a2acaa">high</span>
+        <span style="flex: 1"></span>
+        <span style="font-size: 13px; color: #a2acaa">2m</span>
+      </div>
+      <div style="margin-top: 8px; padding-top: 12px; border-top: 1px solid rgba(231,236,234,0.09); font-size: 13px; color: #a2acaa">~/Developer/personal_projs/paddock</div>
+      <div style="margin-top: 16px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 14px; row-gap: 13px">
+        <div><div style="font-size: 10px; font-weight: 500; letter-spacing: 0.07em; text-transform: uppercase; color: #879290">Status</div><div style="font-size: 13px; margin-top: 3px">Idle <span style="color: #a2acaa">· 2m</span></div></div>
+        <div><div style="font-size: 10px; font-weight: 500; letter-spacing: 0.07em; text-transform: uppercase; color: #879290">Model</div><div style="font-size: 13px; margin-top: 3px">opus[1m] <span style="color: #a2acaa">· high</span></div></div>
+        <div style="grid-column: 1 / -1">
+          <div style="font-size: 10px; font-weight: 500; letter-spacing: 0.07em; text-transform: uppercase; color: #879290">Delegates</div>
+          <button aria-haspopup="menu" aria-expanded="true" style="margin-top: 3px; display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 9px; border: 0; border-radius: 7px; background: rgba(231,236,234,0.12); font-size: 13px">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="rgba(134,193,230,0.2)" stroke="#86c1e6" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2.2"></rect><path d="M8 11V7.5a4 4 0 0 1 8 0V11" fill="none"></path></svg>
+            In sandbox <span style="color: #a2acaa">· dev</span>
+            <svg width="9" height="9" viewBox="0 0 12 12" aria-hidden="true" fill="none" stroke="#a2acaa" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4.5L6 7.5l3-3"></path></svg>
+          </button>
+        </div>
+      </div>
+      <div style="margin-top: 14px; padding-top: 8px; border-top: 1px solid rgba(231,236,234,0.09); font-family: 'SF Mono', ui-monospace, Menlo, monospace; font-size: 12px; color: #879290">0b289cf19d49</div>
+    </div>
+  </div>
+
+  <!-- the menu -->
+  <div role="menu" aria-label="Delegates" style="position: absolute; left: 60px; top: 278px; width: 360px; box-sizing: border-box; padding: 6px; border-radius: 12px; background: #2f3635; border: 1px solid rgba(255,255,255,0.10); box-shadow: 0 18px 50px rgba(0,0,0,0.55); display: flex; flex-direction: column; gap: 2px">
+    <div style="padding: 8px 10px 6px; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #879290">Agents main starts</div>
+    <button role="menuitemradio" aria-checked="false" style="display: flex; gap: 10px; align-items: flex-start; padding: 8px 10px; border: 0; border-radius: 8px; background: transparent; text-align: left">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#879290" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-top: 1px; flex: none"><rect x="5" y="11" width="14" height="10" rx="2.2"></rect><path d="M8 11V7.5a4 4 0 0 1 7.6-1.7"></path></svg>
+      <span style="flex: 1; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 13px">Not sandboxed</span><span style="font-size: 12px; color: #879290">As today.</span></span>
+    </button>
+    <button role="menuitemradio" aria-checked="true" style="display: flex; gap: 10px; align-items: flex-start; padding: 8px 10px; border: 0; border-radius: 8px; background: rgba(134,193,230,0.12); text-align: left">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="rgba(134,193,230,0.22)" stroke="#86c1e6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-top: 1px; flex: none"><rect x="5" y="11" width="14" height="10" rx="2.2"></rect><path d="M8 11V7.5a4 4 0 0 1 8 0V11" fill="none"></path></svg>
+      <span style="flex: 1; display: flex; flex-direction: column; gap: 3px"><span style="display: flex; align-items: center; gap: 6px"><span style="font-size: 13px; font-weight: 500">dev</span><span style="font-size: 11px; color: #879290">built in</span></span><span style="font-size: 12px; line-height: 1.5; color: #a2acaa">在工作目录里改代码、编译、测试、提交；HOME 默认不可读。Codex 在 macOS 开启 trustd，会削弱网络隔离</span></span>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#86c1e6" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-top: 2px; flex: none"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg>
+    </button>
+    <div style="margin: 4px 4px 0; padding: 9px 8px 6px; border-top: 1px solid rgba(255,255,255,0.07); font-size: 12px; line-height: 1.5; color: #879290">From its next start on. Agents already running stay as they are; main itself stays outside.</div>
+  </div>
+
+  <div style="position: absolute; left: 0; top: 520px; width: 520px; display: flex; flex-direction: column; gap: 8px; font-size: 12px; line-height: 1.6; color: #879290">
+    <div>While saving: the field reads “Saving…”. corral refuses (fence check failed, fence missing, main restarted meanwhile): the field turns red with corral's code and message, word for word, and keeps the old setting.</div>
+    <div>main restarted: the setting is gone with that run; the field follows <span style="font-family: 'SF Mono', ui-monospace, Menlo, monospace">corral ls</span> and reads Not sandboxed again.</div>
+  </div>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1000,"height":700}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>
