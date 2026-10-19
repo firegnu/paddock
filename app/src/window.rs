@@ -2528,32 +2528,54 @@ impl PaddockWindow {
             sidebar.read(cx).refresh()
         })
         .detach();
-        cx.subscribe_in(&view, window, |this, _, OpenLink(target), window, cx| {
-            this.open_link(target, window, cx)
+        cx.subscribe_in(&view, window, |this, pane, OpenLink(target), window, cx| {
+            this.open_link(pane, target, window, cx)
         })
         .detach();
         view
     }
 
-    /// A link ⌘-clicked in a terminal: a web address in the right sidebar's Browser, a file with
-    /// what Settings says, in the background; when that fails, the sidebar says so.
-    fn open_link(&mut self, target: &links::Target, window: &mut Window, cx: &mut Context<Self>) {
+    /// A link ⌘-clicked in `pane`: a web address in the right sidebar's Browser, a file with what
+    /// Settings says, on a thread of its own, which waits for the opener however long it takes;
+    /// when it does not open, the pane says why.
+    fn open_link(
+        &mut self,
+        pane: &Entity<TerminalView>,
+        target: &links::Target,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let (path, line, column) = match target {
             links::Target::Url(url) => return self.browse(url.clone(), false, window, cx),
             links::Target::File { path, line, column } => (path.clone(), *line, *column),
         };
-        let (program, args) = links::opener(&self.open_files_with, &path, line, column);
-        let sidebar = self.sidebar.clone();
-        cx.spawn(async move |this, cx| {
-            let result = cx
-                .background_spawn(async move { links::open(&program, &args) })
-                .await;
-            if let Err(error) = result {
-                let text = format!("Couldn't open {}: {error:#}", path.display());
-                let _ = this.update(cx, |_, cx| {
-                    sidebar.update(cx, |sidebar, cx| sidebar.note(text, true, cx))
-                });
-            }
+        let setting = self.open_files_with.clone();
+        let name = path.file_name().map_or_else(
+            || path.display().to_string(),
+            |name| name.to_string_lossy().into(),
+        );
+        let (sent, came) = async_channel::bounded(1);
+        let started = std::thread::Builder::new()
+            .name("paddock-open".into())
+            .spawn(move || {
+                let _ = sent.send_blocking(links::open_file(&setting, &path, line, column));
+            });
+        let pane = pane.downgrade();
+        if let Err(error) = started {
+            let _ = pane.update(cx, |pane, cx| {
+                pane.say(format!("Couldn't open {name}: {error}"), cx)
+            });
+            return;
+        }
+        cx.spawn(async move |_, cx| {
+            let why = match came.recv().await {
+                Ok(Ok(())) => return,
+                Ok(Err(error)) => format!("{error:#}"),
+                Err(_) => "the opener stopped before saying".into(),
+            };
+            let _ = pane.update(cx, |pane, cx| {
+                pane.say(format!("Couldn't open {name}: {why}"), cx)
+            });
         })
         .detach();
     }

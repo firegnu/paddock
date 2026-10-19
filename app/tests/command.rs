@@ -1,5 +1,5 @@
 //! Concurrent command calls must not keep each other's pipes open.
-use paddock::command;
+use paddock::{command, view::links};
 use std::{
     sync::{
         Barrier,
@@ -13,7 +13,8 @@ use std::{
 fn a_concurrent_long_lived_child_does_not_hold_another_calls_pipes() {
     // Repeat the overlap: on macOS the interval between pipe() and CLOEXEC is tiny.
     for round in 0..512 {
-        let ready = Barrier::new(9);
+        // Eight slow commands, two slow file openers (P5-143b) and the call measured.
+        let ready = Barrier::new(11);
         let stop = AtomicBool::new(false);
         let output = thread::scope(|scope| {
             let slow: Vec<_> = (0..8)
@@ -21,6 +22,14 @@ fn a_concurrent_long_lived_child_does_not_hold_another_calls_pipes() {
                     scope.spawn(|| {
                         ready.wait();
                         command::run("/bin/sleep", &["30"], None, Duration::from_secs(5), &stop)
+                    })
+                })
+                .collect();
+            let openers: Vec<_> = (0..2)
+                .map(|_| {
+                    scope.spawn(|| {
+                        ready.wait();
+                        links::launch("/bin/sleep", &["30".into()]).unwrap()
                     })
                 })
                 .collect();
@@ -39,6 +48,11 @@ fn a_concurrent_long_lived_child_does_not_hold_another_calls_pipes() {
             stop.store(true, Ordering::Relaxed);
             for slow in slow {
                 assert!(slow.join().unwrap().is_err());
+            }
+            for opener in openers {
+                let mut child = opener.join().unwrap();
+                child.kill().unwrap();
+                assert!(links::finish(child, "sleep").is_err());
             }
             assert!(
                 elapsed < Duration::from_secs(1),

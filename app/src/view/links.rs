@@ -1,5 +1,8 @@
 //! Links in a terminal's output (P5-143b): what is under the mouse while ⌘ is held, and how a
-//! file found there is opened. Only the cells around the mouse are read, never the whole screen.
+//! file found there is opened. Only the cells around the mouse are read, never the whole screen,
+//! and never the file system on the UI thread: [`find`] reads the grid alone and says which paths
+//! to look for; [`Hover`] hands that look to another thread ([`Job`]) and keeps what it found.
+use crate::terminal::Screen;
 use alacritty_terminal::{
     Term,
     grid::Dimensions,
@@ -8,8 +11,12 @@ use alacritty_terminal::{
 };
 use anyhow::{Context as _, Result, bail};
 use std::{
+    io::Read,
+    os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
-    process::{Command, Stdio},
+    process::{Child, Command, Stdio},
+    sync::{Arc, Mutex, mpsc},
+    time::Duration,
 };
 
 /// What a link opens.
@@ -31,6 +38,8 @@ pub struct Link {
     pub start: Point,
     pub end: Point,
     pub target: Target,
+    /// What the program marked it with (OSC 8), shown by it: the text can say something else.
+    pub uri: Option<String>,
 }
 
 impl Link {
@@ -39,15 +48,29 @@ impl Link {
     }
 }
 
-/// Where the paths written in a pane are on this Mac.
-pub struct Files<'a> {
+/// Where the paths written in a pane are on this Mac. Another machine's pane has none.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Place {
     /// What a relative path is relative to: the pane's directory.
-    pub base: Option<&'a Path>,
+    pub base: Option<PathBuf>,
     /// What `~/` stands for.
-    pub home: Option<&'a Path>,
-    /// Whether something is at a path; only a path something is at is a link.
-    pub exists: &'a dyn Fn(&Path) -> bool,
+    pub home: Option<PathBuf>,
+    /// This Mac's name, which a `file://` link may name.
+    pub host: Option<String>,
 }
+
+/// What is under the mouse, as far as the grid says.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Found {
+    /// A web address: a link at once.
+    Ready(Link),
+    /// Paths: a link once something is found at one of them ([`check`]).
+    Check(Candidate),
+}
+
+/// The links that may be under the mouse, best first: the first whose path something is at is.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Candidate(Vec<Link>);
 
 /// How far either way from the mouse a link is looked for, in cells.
 const REACH: usize = 2048;
@@ -55,32 +78,189 @@ const REACH: usize = 2048;
 /// Ends a web address or a path: full-width punctuation, as around addresses in Chinese text.
 const FULL_WIDTH: &str = "，。、；：！？（）【】《》「」『』“”‘’⟨⟩";
 
-/// The link under `point`: one the program marked (OSC 8), else a web address, else a path
-/// something is at. `files`: none for another machine's pane, whose paths are not this Mac's.
-pub fn at<T>(term: &Term<T>, point: Point, files: Option<&Files>) -> Option<Link> {
+/// This Mac's name, as `file://` links from its programs (`ls --hyperlink`) write it.
+pub fn this_host() -> Option<String> {
+    static HOST: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+    HOST.get_or_init(|| {
+        let mut name = [0u8; 256];
+        // SAFETY: the buffer is as long as said, and the name in it ends with a NUL.
+        let ok = unsafe { libc::gethostname(name.as_mut_ptr().cast(), name.len()) } == 0;
+        let end = name.iter().position(|&b| b == 0)?;
+        ok.then(|| String::from_utf8(name[..end].to_vec()).ok())
+            .flatten()
+            .filter(|name| !name.is_empty())
+    })
+    .clone()
+}
+
+/// What is under `point`: a link the program marked (OSC 8), else a web address, else paths. Reads
+/// the grid alone. `place`: none for another machine's pane, whose paths are not this Mac's.
+pub fn find<T>(term: &Term<T>, point: Point, place: Option<&Place>) -> Option<Found> {
+    if point.column.0 >= term.columns()
+        || point.line.0 >= term.screen_lines() as i32
+        || point.line < term.topmost_line()
+    {
+        return None;
+    }
     let point = on_char(term, point)?;
-    if let Some(link) = marked(term, point, files.is_some()) {
-        return Some(link);
+    if let Some(found) = marked(term, point, place) {
+        return found;
     }
     let (cells, here) = around(term, point, |cell| {
         !cell.c.is_whitespace() && cell.c != '\0'
     });
-    if cells.is_empty() {
+    // Each cell's whole text, combining marks too, and which cell each character is in.
+    let (mut chars, mut owner, mut at) = (Vec::new(), Vec::new(), 0);
+    for (index, (_, text)) in cells.iter().enumerate() {
+        if index == here {
+            at = chars.len();
+        }
+        for c in text.chars() {
+            chars.push(c);
+            owner.push(index);
+        }
+    }
+    if chars.is_empty() {
         return None;
     }
-    let chars: Vec<char> = cells.iter().map(|(_, c)| *c).collect();
-    let (range, target) = match url_in(&chars, here) {
-        Some(range) => {
-            let url = chars[range.clone()].iter().collect();
-            (range, Target::Url(url))
-        }
-        None => path_in(&chars, here, files?)?,
-    };
-    Some(Link {
-        start: cells[range.start].0,
-        end: cells[range.end - 1].0,
+    let link = |range: std::ops::Range<usize>, target| Link {
+        start: cells[owner[range.start]].0,
+        end: cells[owner[range.end - 1]].0,
         target,
-    })
+        uri: None,
+    };
+    if let Some(range) = url_in(&chars, at) {
+        let url = chars[range.clone()].iter().collect();
+        return Some(Found::Ready(link(range, Target::Url(url))));
+    }
+    let tries: Vec<Link> = path_in(&chars, at, place?)
+        .into_iter()
+        .map(|(range, target)| link(range, target))
+        .collect();
+    (!tries.is_empty()).then_some(Found::Check(Candidate(tries)))
+}
+
+/// The first of `candidate`'s links that something is at, as `exists` says: off the UI thread.
+pub fn check(candidate: &Candidate, exists: &dyn Fn(&Path) -> bool) -> Option<Link> {
+    candidate
+        .0
+        .iter()
+        .find(|link| match &link.target {
+            Target::File { path, .. } => exists(path),
+            Target::Url(_) => true,
+        })
+        .cloned()
+}
+
+/// Whether something is at a path, asked off the UI thread.
+pub type Exists = Arc<dyn Fn(&Path) -> bool + Send + Sync>;
+
+/// What the mouse is over in one pane while ⌘ is held: a web address at once, a path only once
+/// another thread found something there. One look at the files goes on at a time; what it found
+/// is kept until ⌘ is let go, and an answer for what the mouse has left shows nothing.
+pub struct Hover {
+    exists: Exists,
+    /// What the mouse is over, when it needs a look at the files.
+    current: Option<Candidate>,
+    /// A look is under way.
+    looking: bool,
+    known: Vec<(Candidate, Option<Link>)>,
+}
+
+/// One look at the files, to run off the UI thread.
+pub struct Job {
+    candidate: Candidate,
+    exists: Exists,
+}
+
+impl Job {
+    pub fn run(self) -> (Candidate, Option<Link>) {
+        let link = check(&self.candidate, &*self.exists);
+        (self.candidate, link)
+    }
+}
+
+/// How many looks a pane keeps.
+const KNOWN: usize = 32;
+
+impl Hover {
+    pub fn new(exists: Exists) -> Self {
+        Self {
+            exists,
+            current: None,
+            looking: false,
+            known: Vec::new(),
+        }
+    }
+
+    /// What shows for what [`find`] found: a web address at once; a path once found there.
+    pub fn show(&mut self, found: Option<Found>) -> Option<Link> {
+        match found {
+            Some(Found::Ready(link)) => {
+                self.current = None;
+                Some(link)
+            }
+            Some(Found::Check(candidate)) => {
+                self.current = Some(candidate);
+                self.link()
+            }
+            None => {
+                self.current = None;
+                None
+            }
+        }
+    }
+
+    /// The link the mouse is over, as far as the files have been looked at.
+    pub fn link(&self) -> Option<Link> {
+        let current = self.current.as_ref()?;
+        let (_, link) = self.known.iter().find(|(known, _)| known == current)?;
+        link.clone()
+    }
+
+    /// The look to start now: at what the mouse is over, unless known or another look is under
+    /// way (which may never come back, from a disk that does not answer).
+    pub fn job(&mut self) -> Option<Job> {
+        let current = self.current.as_ref()?;
+        if self.looking || self.known.iter().any(|(known, _)| known == current) {
+            return None;
+        }
+        self.looking = true;
+        Some(Job {
+            candidate: current.clone(),
+            exists: self.exists.clone(),
+        })
+    }
+
+    /// A look came back; true when it is for what the mouse is over.
+    pub fn checked(&mut self, candidate: Candidate, link: Option<Link>) -> bool {
+        self.looking = false;
+        if self.known.len() >= KNOWN {
+            self.known.remove(0);
+        }
+        let current = self.current.as_ref() == Some(&candidate);
+        self.known.push((candidate, link));
+        current
+    }
+
+    /// ⌘ let go or the mouse gone: nothing is over, and what was found is forgotten, as files
+    /// come and go.
+    pub fn forget(&mut self) {
+        self.current = None;
+        self.known.clear();
+    }
+}
+
+/// The link under `point` of a pane's screen as far as known now. The screen is locked only to
+/// read the grid; the files are looked at elsewhere ([`Hover::job`]).
+pub fn look(
+    screen: &Mutex<Screen>,
+    point: Point,
+    place: Option<&Place>,
+    hover: &mut Hover,
+) -> Option<Link> {
+    let found = find(&screen.lock().unwrap().term, point, place);
+    hover.show(found)
 }
 
 /// `point` as the cell with its character: a wide character's second column is its first; the
@@ -119,21 +299,30 @@ fn after<T>(term: &Term<T>, point: Point) -> Option<Point> {
     (wraps && point.line < term.bottommost_line()).then(|| Point::new(point.line + 1i32, Column(0)))
 }
 
-/// The characters next to each other around `point` while `keep` holds, across wrapped rows, at
-/// most [`REACH`] either way, with where each is; and which of them is at `point`.
+/// A cell's text: its character and the combining marks on it.
+fn text(cell: &Cell) -> String {
+    let mut text = cell.c.to_string();
+    if let Some(marks) = cell.zerowidth() {
+        text.extend(marks);
+    }
+    text
+}
+
+/// The cells next to each other around `point` while `keep` holds, across wrapped rows, at most
+/// [`REACH`] either way, with where each is and its text; and which of them is at `point`.
 fn around<T>(
     term: &Term<T>,
     point: Point,
     keep: impl Fn(&Cell) -> bool,
-) -> (Vec<(Point, char)>, usize) {
+) -> (Vec<(Point, String)>, usize) {
     let grid = term.grid();
     if !keep(&grid[point]) {
         return (Vec::new(), 0);
     }
     let spacer = Flags::WIDE_CHAR_SPACER | Flags::LEADING_WIDE_CHAR_SPACER;
-    let mut back = Vec::new();
+    let mut cells = Vec::new();
     let mut at = point;
-    while back.len() < REACH {
+    while cells.len() < REACH {
         let Some(previous) = before(term, at) else {
             break;
         };
@@ -145,13 +334,13 @@ fn around<T>(
         if !keep(cell) {
             break;
         }
-        back.push((at, cell.c));
+        cells.push((at, text(cell)));
     }
-    let here = back.len();
-    back.reverse();
-    back.push((point, grid[point].c));
+    let here = cells.len();
+    cells.reverse();
+    cells.push((point, text(&grid[point])));
     let mut at = point;
-    while back.len() < here + 1 + REACH {
+    while cells.len() < here + 1 + REACH {
         let Some(next) = after(term, at) else {
             break;
         };
@@ -163,36 +352,63 @@ fn around<T>(
         if !keep(cell) {
             break;
         }
-        back.push((at, cell.c));
+        cells.push((at, text(cell)));
     }
-    (back, here)
+    (cells, here)
 }
 
-/// The link the program marked at `point` with OSC 8, over every cell it marked the same way: a
-/// web address, or with `files`, a `file://` one. Others (`mailto:` and so on) are left alone.
-fn marked<T>(term: &Term<T>, point: Point, files: bool) -> Option<Link> {
+/// What the link the program marked at `point` with OSC 8 is, over every cell it marked the same
+/// way: a web address, or on this Mac a `file://` one to look for. `None` when nothing is marked
+/// there or with what paddock does not open (`mailto:` and so on): the text is looked at then.
+/// `Some(None)` for a `file://` link that is not one: another machine's, or not written right.
+fn marked<T>(term: &Term<T>, point: Point, place: Option<&Place>) -> Option<Option<Found>> {
     let mark = term.grid()[point].hyperlink()?;
     let uri = mark.uri();
-    let target = if scheme(uri, "http://") || scheme(uri, "https://") {
-        Target::Url(uri.to_owned())
-    } else if files && scheme(uri, "file://") {
-        // `file://host/path`: the host is this Mac's, as only this Mac's panes get here.
-        let rest = &uri["file://".len()..];
-        let path = &rest[rest.find('/')?..];
-        Target::File {
-            path: PathBuf::from(unescape(path)),
+    let web = scheme(uri, "http://") || scheme(uri, "https://");
+    if !web && !scheme(uri, "file://") {
+        return None;
+    }
+    let (cells, _) = around(term, point, |cell| cell.hyperlink().as_ref() == Some(&mark));
+    let link = |target| Link {
+        start: cells[0].0,
+        end: cells[cells.len() - 1].0,
+        target,
+        uri: Some(uri.to_owned()),
+    };
+    if web {
+        return Some(Some(Found::Ready(link(Target::Url(uri.to_owned())))));
+    }
+    let found = place.and_then(|place| {
+        let path = file_uri(uri, place.host.as_deref())?;
+        let target = Target::File {
+            path,
             line: None,
             column: None,
-        }
-    } else {
-        return None;
+        };
+        Some(Found::Check(Candidate(vec![link(target)])))
+    });
+    Some(found)
+}
+
+/// The path of a `file://` URI naming this Mac (no host, `localhost` or `host`), its path alone
+/// decoded; none for anything else, or an escape that is not one.
+fn file_uri(uri: &str, host: Option<&str>) -> Option<PathBuf> {
+    let rest = &uri["file://".len()..];
+    let (authority, rest) = rest.split_at(rest.find('/')?);
+    let bare = |name: &str| {
+        let name = name.trim_end_matches('.').to_ascii_lowercase();
+        name.strip_suffix(".local").unwrap_or(&name).to_owned()
     };
-    let (cells, _) = around(term, point, |cell| cell.hyperlink().as_ref() == Some(&mark));
-    Some(Link {
-        start: cells.first()?.0,
-        end: cells.last()?.0,
-        target,
-    })
+    let here = authority.is_empty()
+        || authority.eq_ignore_ascii_case("localhost")
+        || host.is_some_and(|host| !host.is_empty() && bare(host) == bare(authority));
+    if !here {
+        return None;
+    }
+    // The query and the fragment are not part of the file.
+    let path = rest.split(['?', '#']).next()?;
+    let path = unescape(path)?;
+    (!path.contains('\0')).then(|| PathBuf::from(path))
 }
 
 /// `uri` starts with `prefix`, the scheme in any case.
@@ -201,28 +417,26 @@ fn scheme(uri: &str, prefix: &str) -> bool {
         .is_some_and(|start| start.eq_ignore_ascii_case(prefix))
 }
 
-/// `%XX` in a URI's path as the bytes they stand for.
-fn unescape(path: &str) -> String {
+/// `%XX` in a URI's path as the bytes they stand for; none for a `%` not followed by two hex
+/// digits, or bytes that are not UTF-8 text.
+fn unescape(path: &str) -> Option<String> {
     let bytes = path.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;
     while i < bytes.len() {
-        let hex = bytes
-            .get(i + 1..i + 3)
-            .and_then(|hex| std::str::from_utf8(hex).ok())
-            .and_then(|hex| u8::from_str_radix(hex, 16).ok());
-        match (bytes[i], hex) {
-            (b'%', Some(byte)) => {
-                out.push(byte);
-                i += 3;
+        if bytes[i] == b'%' {
+            let hex = std::str::from_utf8(bytes.get(i + 1..i + 3)?).ok()?;
+            if !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
+                return None;
             }
-            (byte, _) => {
-                out.push(byte);
-                i += 1;
-            }
+            out.push(u8::from_str_radix(hex, 16).ok()?);
+            i += 3;
+        } else {
+            out.push(bytes[i]);
+            i += 1;
         }
     }
-    String::from_utf8_lossy(&out).into_owned()
+    String::from_utf8(out).ok()
 }
 
 fn starts(chars: &[char], at: usize, prefix: &str) -> bool {
@@ -300,12 +514,14 @@ fn path_char(c: char) -> bool {
     !"\"'`()[]{}<>|,;=".contains(c) && !FULL_WIDTH.contains(c)
 }
 
-/// The path in `chars` over `here` that something is at, with a line and column after it:
-/// `/…`, `~/…`, or relative to the pane's directory with a `/` in it (`./…`, `../…`,
-/// `src/main.rs`). A word and a colon before it (`warning:src/main.rs:3`) are not part of it.
-fn path_in(chars: &[char], here: usize, files: &Files) -> Option<(std::ops::Range<usize>, Target)> {
+/// The paths in `chars` over `here`, with a line and column after them, best first: `/…`,
+/// `~/…`, or relative to the pane's directory with a `/` in it (`./…`, `../…`, `src/main.rs`).
+/// A word and a colon before one (`warning:src/main.rs:3`) are tried without too. Which is a
+/// link depends on what is there ([`check`]).
+fn path_in(chars: &[char], here: usize, place: &Place) -> Vec<(std::ops::Range<usize>, Target)> {
+    let mut tries = Vec::new();
     if !path_char(chars[here]) {
-        return None;
+        return tries;
     }
     let mut start = here;
     while start > 0 && path_char(chars[start - 1]) {
@@ -323,7 +539,7 @@ fn path_in(chars: &[char], here: usize, files: &Files) -> Option<(std::ops::Rang
         end -= 1;
     }
     if here >= end {
-        return None;
+        return tries;
     }
     let colons = (start..here).filter(|&i| chars[i] == ':').map(|i| i + 1);
     for from in std::iter::once(start).chain(colons) {
@@ -333,25 +549,18 @@ fn path_in(chars: &[char], here: usize, files: &Files) -> Option<(std::ops::Rang
             continue;
         }
         let full = if let Some(rest) = path.strip_prefix("~/") {
-            files.home.map(|home| home.join(rest))
+            place.home.as_ref().map(|home| home.join(rest))
         } else if path.starts_with('/') {
             Some(PathBuf::from(path))
         } else {
-            files.base.map(|base| base.join(path))
+            place.base.as_ref().map(|base| base.join(path))
         };
-        let Some(full) = full.map(|full| full.components().collect::<PathBuf>()) else {
-            continue;
-        };
-        if (files.exists)(&full) {
-            let target = Target::File {
-                path: full,
-                line,
-                column,
-            };
-            return Some((from..end, target));
+        if let Some(full) = full {
+            let path = full.components().collect();
+            tries.push((from..end, Target::File { path, line, column }));
         }
     }
-    None
+    tries
 }
 
 /// `path:line:column`, `path:line` or `path`.
@@ -394,28 +603,144 @@ pub fn opener(
     (program, args)
 }
 
-/// Runs `program` with `args`, found on paddock's `PATH`; an error when it cannot start or ends
-/// other than with success.
-pub fn open(program: &str, args: &[String]) -> Result<()> {
-    let output = Command::new(program)
+/// Why a file is not opened with the app macOS picks, which for these would run something: an
+/// app or another bundle, a script, an installer or a shortcut, or an executable file. Looked at
+/// where it really is, through symbolic links; a folder's `x` is not taken for executable.
+pub fn refusal(path: &Path) -> Option<&'static str> {
+    let Ok(real) = std::fs::canonicalize(path) else {
+        return Some("it is no longer there");
+    };
+    let Ok(meta) = std::fs::metadata(&real) else {
+        return Some("it is no longer there");
+    };
+    let extension = real
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(str::to_ascii_lowercase)
+        .unwrap_or_default();
+    if meta.is_dir() {
+        let bundle =
+            BUNDLES.contains(&extension.as_str()) || real.join("Contents/Info.plist").exists();
+        return bundle.then_some("it is an app or another bundle, which would run");
+    }
+    if RUNS.contains(&extension.as_str()) {
+        return Some("it is a script, an installer or a shortcut, which would run something");
+    }
+    (meta.permissions().mode() & 0o111 != 0).then_some("it is an executable file, which would run")
+}
+
+/// Folders macOS opens as one thing, an app or what an app loads; any with `Contents/Info.plist`
+/// is taken for one too.
+const BUNDLES: &[&str] = &[
+    "app",
+    "appex",
+    "bundle",
+    "framework",
+    "plugin",
+    "prefpane",
+    "saver",
+    "kext",
+    "xpc",
+    "qlgenerator",
+    "mdimporter",
+    "osax",
+    "service",
+    "action",
+    "workflow",
+    "scptd",
+    "pkg",
+    "mpkg",
+];
+
+/// Files the app macOS picks for them runs, or opens something else with: scripts and Terminal
+/// settings, Automator, installers, Java, and Finder's shortcuts.
+const RUNS: &[&str] = &[
+    "command",
+    "tool",
+    "terminal",
+    "workflow",
+    "scpt",
+    "applescript",
+    "pkg",
+    "mpkg",
+    "jar",
+    "fileloc",
+    "inetloc",
+    "webloc",
+];
+
+/// Opens `path` with the Settings' `open_files_with` and waits for it, so off the UI thread:
+/// with the app macOS picks (empty), only what [`refusal`] lets through, looked at again now.
+pub fn open_file(setting: &str, path: &Path, line: Option<u32>, column: Option<u32>) -> Result<()> {
+    if !path.exists() {
+        bail!("it is no longer there");
+    }
+    if setting.trim().is_empty()
+        && let Some(why) = refusal(path)
+    {
+        bail!("{why}");
+    }
+    let (program, args) = opener(setting, path, line, column);
+    let child = launch(&program, &args)?;
+    finish(child, &program)
+}
+
+/// Starts `program` with `args`, found on paddock's `PATH`: nothing to read, what it prints
+/// dropped, what it says on standard error kept for [`finish`].
+pub fn launch(program: &str, args: &[String]) -> Result<Child> {
+    let mut command = Command::new(program);
+    command
         .args(args)
         .stdin(Stdio::null())
-        .output()
-        .with_context(|| format!("couldn't run {program}"))?;
-    if !output.status.success() {
-        let said = String::from_utf8_lossy(&output.stderr);
-        let said = said.trim();
-        let status = match output.status.code() {
-            Some(code) => format!("{program} exited with status {code}"),
-            None => format!("{program} exited on a signal"),
-        };
-        if said.is_empty() {
-            bail!("{status}");
-        }
-        bail!("{status}: {said}");
-    }
-    Ok(())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped());
+    // Under paddock's spawn lock (P5-126), let go of before anything waits.
+    crate::command::start(&mut command).with_context(|| format!("couldn't run {program}"))
 }
+
+/// Waits for `child` on this thread: an error when it ended other than with success, with the
+/// start of what it said.
+pub fn finish(mut child: Child, program: &str) -> Result<()> {
+    let said = Arc::new(Mutex::new(Vec::new()));
+    let (done, ended) = mpsc::channel::<()>();
+    if let Some(mut stderr) = child.stderr.take() {
+        let said = said.clone();
+        // Read to its end, so that it never waits on a full pipe; only the start kept.
+        let _ = std::thread::Builder::new()
+            .name("paddock-open-stderr".into())
+            .spawn(move || {
+                let mut buffer = [0; 4096];
+                while let Ok(read @ 1..) = stderr.read(&mut buffer) {
+                    let mut said = said.lock().unwrap();
+                    let room = SAID.saturating_sub(said.len());
+                    said.extend_from_slice(&buffer[..read.min(room)]);
+                }
+                let _ = done.send(());
+            });
+    }
+    let status = child
+        .wait()
+        .with_context(|| format!("couldn't wait for {program}"))?;
+    // What it left behind may keep its standard error open: what came so far is enough.
+    let _ = ended.recv_timeout(Duration::from_millis(200));
+    if status.success() {
+        return Ok(());
+    }
+    let status = match status.code() {
+        Some(code) => format!("{program} exited with status {code}"),
+        None => format!("{program} exited on a signal"),
+    };
+    let said = said.lock().unwrap();
+    let said = String::from_utf8_lossy(&said);
+    let said = said.trim();
+    if said.is_empty() {
+        bail!("{status}");
+    }
+    bail!("{status}: {said}");
+}
+
+/// How much of what an opener says on standard error is kept, in bytes.
+const SAID: usize = 2000;
 
 #[cfg(test)]
 mod tests {
@@ -437,9 +762,12 @@ mod tests {
         Some(Target::Url(text.into()))
     }
 
-    /// The link at `point` in a pane on another machine: no files.
+    /// The link at `point` in a pane on another machine: no files, so known at once.
     fn web(screen: &Screen, point: Point) -> Option<Link> {
-        at(&screen.term, point, None)
+        match find(&screen.term, point, None)? {
+            Found::Ready(link) => Some(link),
+            Found::Check(candidate) => panic!("files looked for: {candidate:?}"),
+        }
     }
 
     #[test]
@@ -539,18 +867,32 @@ mod tests {
         fn work(&self) -> PathBuf {
             self.0.join("work")
         }
+        /// This Mac's pane in the folder, on a Mac named `mac.local`.
+        fn place(&self) -> Place {
+            Place {
+                base: Some(self.work()),
+                home: Some(self.0.join("home")),
+                host: Some("Mac.local".into()),
+            }
+        }
+        /// The link at `point`, once the files have been looked at.
         fn link(&self, screen: &Screen, point: Point) -> Option<Link> {
-            let (base, home) = (self.work(), self.0.join("home"));
-            let exists = |path: &Path| path.exists();
-            let files = Files {
-                base: Some(&base),
-                home: Some(&home),
-                exists: &exists,
-            };
-            at(&screen.term, point, Some(&files))
+            match find(&screen.term, point, Some(&self.place()))? {
+                Found::Ready(link) => Some(link),
+                Found::Check(candidate) => check(&candidate, &|path| path.exists()),
+            }
         }
         fn file(&self, path: PathBuf, line: Option<u32>, column: Option<u32>) -> Option<Target> {
             Some(Target::File { path, line, column })
+        }
+    }
+
+    impl Tree {
+        /// An empty file at `path` under the folder.
+        fn touch(&self, path: &str) -> PathBuf {
+            let path = self.0.join(path);
+            std::fs::write(&path, "").unwrap();
+            path
         }
     }
 
@@ -641,16 +983,14 @@ mod tests {
             web(&s, p(0, 4)).unwrap().target,
             url("https://real.example/").unwrap()
         );
-        // A file, on this Mac only.
+        // A file, on this Mac only, named by its name in any case.
         let tree = Tree::new("osc8");
-        let s = screen(
-            60,
-            "\x1b]8;;file://mac.local/tmp/a%20b.txt\x1b\\a b\x1b]8;;\x1b\\",
-        );
-        assert_eq!(
-            tree.link(&s, p(0, 2)).map(|link| link.target),
-            tree.file(PathBuf::from("/tmp/a b.txt"), None, None)
-        );
+        let notes = tree.work().join("notes.txt");
+        let uri = format!("file://mac.LOCAL{}", notes.display());
+        let s = screen(200, &format!("\x1b]8;;{uri}\x1b\\a b\x1b]8;;\x1b\\"));
+        let link = tree.link(&s, p(0, 2)).unwrap();
+        assert_eq!(Some(link.target), tree.file(notes, None, None));
+        assert_eq!(link.uri, Some(uri));
         assert_eq!(web(&s, p(0, 0)), None);
     }
 
@@ -677,13 +1017,233 @@ mod tests {
     }
 
     #[test]
-    fn a_command_that_fails_or_is_missing_says_so() {
-        assert!(open("true", &[]).is_ok());
-        let failed = open("false", &[]).unwrap_err();
-        assert!(format!("{failed:#}").contains("exit"), "{failed:#}");
-        let missing = open("paddock-no-such-command", &[]).unwrap_err();
+    fn a_marked_file_is_this_macs_with_its_path_alone_and_must_be_there() {
+        let tree = Tree::new("uri");
+        let work = tree.work();
+        let spaced = tree.touch("work/a b.txt");
+        let hashed = tree.touch("work/x#y.txt");
+        let notes = work.join("notes.txt");
+        let marked = |uri: String| {
+            let s = screen(60, &format!("\x1b]8;;{uri}\x1b\\name\x1b]8;;\x1b\\"));
+            tree.link(&s, p(0, 1)).map(|link| link.target)
+        };
+        let w = work.display();
+        assert_eq!(
+            marked(format!("file://{w}/notes.txt")),
+            tree.file(notes.clone(), None, None)
+        );
+        assert_eq!(
+            marked(format!("file://localhost{w}/notes.txt")),
+            tree.file(notes.clone(), None, None)
+        );
+        assert_eq!(
+            marked(format!("file://{w}/a%20b.txt")),
+            tree.file(spaced, None, None)
+        );
+        // An escaped `#` is in the name; a bare one starts the fragment, as `?` the query.
+        assert_eq!(
+            marked(format!("file://{w}/x%23y.txt")),
+            tree.file(hashed, None, None)
+        );
+        assert_eq!(
+            marked(format!("file://{w}/notes.txt#L10")),
+            tree.file(notes.clone(), None, None)
+        );
+        assert_eq!(
+            marked(format!("file://{w}/notes.txt?a=1")),
+            tree.file(notes.clone(), None, None)
+        );
+        // Another machine's file, an escape that is not one, bytes that are not text, and a
+        // file that is not there: no link.
+        for uri in [
+            format!("file://other.example{w}/notes.txt"),
+            format!("file://{w}/notes%zz.txt"),
+            format!("file://{w}/notes%ff.txt"),
+            format!("file://{w}/gone.txt"),
+        ] {
+            assert_eq!(marked(uri.clone()), None, "{uri}");
+        }
+    }
+
+    #[test]
+    fn combining_marks_are_part_of_a_path_or_an_address() {
+        let tree = Tree::new("marks");
+        let accented = tree.touch("work/cafe\u{301}.txt");
+        tree.touch("work/cafe.txt");
+        let s = screen(60, "./cafe\u{301}.txt https://example.com/cafe\u{301}");
+        assert_eq!(
+            tree.link(&s, p(0, 3)).map(|link| link.target),
+            tree.file(accented, None, None)
+        );
+        assert_eq!(
+            web(&s, p(0, 15)).unwrap().target,
+            url("https://example.com/cafe\u{301}").unwrap()
+        );
+    }
+
+    #[test]
+    fn files_are_looked_at_off_the_ui_thread_and_a_late_answer_does_not_cover_a_newer_one() {
+        let tree = Tree::new("hover");
+        let screen = Arc::new(Mutex::new(screen(
+            80,
+            "src/main.rs https://example.com ./notes.txt",
+        )));
+        let main = tree.work().join("src/main.rs");
+        let notes = tree.work().join("notes.txt");
+        // Files that are not answered for until let go, as on a disk that hangs.
+        let (go, gate) = mpsc::channel::<()>();
+        let gate = Mutex::new(gate);
+        let exists: Exists = Arc::new(move |path: &Path| {
+            let _ = gate.lock().unwrap().recv();
+            path.exists()
+        });
+        let place = tree.place();
+        // Looking does not wait for the files, nor keep the screen locked.
+        let (sent, looked) = mpsc::channel();
+        {
+            let (screen, place) = (screen.clone(), place.clone());
+            std::thread::spawn(move || {
+                let mut hover = Hover::new(exists);
+                let shown = look(&screen, p(0, 3), Some(&place), &mut hover);
+                let job = hover.job();
+                let _ = sent.send((hover, shown, job));
+            });
+        }
+        let (mut hover, shown, job) = looked
+            .recv_timeout(Duration::from_secs(2))
+            .expect("looking waited for the files");
+        assert!(screen.try_lock().is_ok());
+        // Not a link until something is found there.
+        assert_eq!(shown, None);
+        let job = job.expect("a look to start");
+        let first = std::thread::spawn(move || job.run());
+        // A web address shows at once, files or not.
+        let web = look(&screen, p(0, 15), Some(&place), &mut hover).unwrap();
+        assert_eq!(web.target, url("https://example.com").unwrap());
+        assert!(hover.job().is_none());
+        // Over another path meanwhile: one look at a time.
+        assert_eq!(look(&screen, p(0, 36), Some(&place), &mut hover), None);
+        assert!(hover.job().is_none());
+        drop(go);
+        let (candidate, found) = first.join().unwrap();
+        assert_eq!(
+            found.as_ref().map(|link| &link.target),
+            tree.file(main.clone(), None, None).as_ref()
+        );
+        // The answer for the first path does not show over the second.
+        assert!(!hover.checked(candidate, found));
+        assert_eq!(hover.link(), None);
+        let (candidate, found) = hover.job().expect("the second path's turn").run();
+        assert!(hover.checked(candidate, found));
+        assert_eq!(
+            hover.link().map(|link| link.target),
+            tree.file(notes, None, None)
+        );
+        // Back over the first: known, not looked at again.
+        let shown = look(&screen, p(0, 3), Some(&place), &mut hover);
+        assert_eq!(shown.map(|link| link.target), tree.file(main, None, None));
+        assert!(hover.job().is_none());
+        // ⌘ let go: forgotten, looked at again next time.
+        hover.forget();
+        assert_eq!(look(&screen, p(0, 3), Some(&place), &mut hover), None);
+        assert!(hover.job().is_some());
+    }
+
+    #[test]
+    fn what_would_run_is_not_opened_with_the_app_macos_picks() {
+        use std::os::unix::fs::symlink;
+        let tree = Tree::new("refuse");
+        let dir = |path: &str| {
+            let path = tree.0.join(path);
+            std::fs::create_dir_all(&path).unwrap();
+            path
+        };
+        let executable = |path: &str| {
+            let path = tree.touch(path);
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+            path
+        };
+        let app = dir("work/Tool.app");
+        let bundle = dir("work/Thing/Contents");
+        tree.touch("work/Thing/Contents/Info.plist");
+        let bundle = bundle.parent().unwrap().to_owned();
+        let refused = [
+            app.clone(),
+            bundle,
+            tree.touch("work/run.command"),
+            tree.touch("work/setup.PKG"),
+            tree.touch("work/script.scpt"),
+            tree.touch("work/script.applescript"),
+            tree.touch("work/shell.terminal"),
+            tree.touch("work/thing.tool"),
+            dir("work/Flow.workflow"),
+            executable("work/tool"),
+        ];
+        let link = tree.0.join("work/link.txt");
+        symlink(&app, &link).unwrap();
+        for path in refused.iter().chain([&link]) {
+            assert!(refusal(path).is_some(), "{}", path.display());
+        }
+        // Documents, folders (their x is not executable) and what is gone are left alone here.
+        for path in [
+            tree.work().join("notes.txt"),
+            tree.work().join("src"),
+            tree.0.join("home/docs/a.md"),
+        ] {
+            assert_eq!(refusal(&path), None, "{}", path.display());
+        }
+        // Refused before anything runs, saying why; a command set in Settings gets it anyway.
+        let error = open_file("", &app, None, None).unwrap_err();
+        assert!(format!("{error:#}").contains("app"), "{error:#}");
+        let error = open_file("", &tree.work().join("gone.txt"), None, None).unwrap_err();
         assert!(
-            format!("{missing:#}").contains("paddock-no-such-command"),
+            format!("{error:#}").contains("no longer there"),
+            "{error:#}"
+        );
+        assert!(open_file("true", &app, Some(3), None).is_ok());
+        let error = open_file("false -g", &tree.work().join("notes.txt"), None, None).unwrap_err();
+        assert!(
+            format!("{error:#}").contains("false exited with status 1"),
+            "{error:#}"
+        );
+    }
+
+    /// `script` run by `sh`, as a file's opener.
+    fn sh(script: &str) -> Result<()> {
+        let args = ["-c".to_owned(), script.to_owned()];
+        finish(launch("/bin/sh", &args)?, "sh")
+    }
+
+    #[test]
+    fn an_opener_is_waited_for_and_says_how_it_failed_in_a_few_words() {
+        let started = std::time::Instant::now();
+        assert!(sh("sleep 0.3").is_ok());
+        assert!(started.elapsed() >= Duration::from_millis(300));
+        let error = sh("sleep 0.2; echo cannot open that >&2; exit 3").unwrap_err();
+        assert_eq!(
+            format!("{error:#}"),
+            "sh exited with status 3: cannot open that"
+        );
+        // A lot said: only its start is kept, and it does not stall the opener.
+        let error = sh("yes 'too much' | head -c 200000 >&2; exit 1").unwrap_err();
+        let said = format!("{error:#}");
+        assert!(
+            said.starts_with("sh exited with status 1: too much"),
+            "{}",
+            &said[..80]
+        );
+        assert!(said.len() < 3000, "{} bytes", said.len());
+        // Done when it ends, even if something it left behind keeps its standard error open.
+        let started = std::time::Instant::now();
+        assert!(sh("sleep 5 >/dev/null & exit 0").is_ok());
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "{:?}",
+            started.elapsed()
+        );
+        let missing = launch("paddock-no-such-command", &[]).unwrap_err();
+        assert!(
+            format!("{missing:#}").contains("couldn't run paddock-no-such-command"),
             "{missing:#}"
         );
     }
