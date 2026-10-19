@@ -239,6 +239,13 @@ pub fn fields() -> Vec<Field> {
             false,
         ),
         field(
+            "minimum_contrast",
+            "Keep text legible",
+            Page::General,
+            Kind::Bool,
+            false,
+        ),
+        field(
             "sidebar_opacity",
             "Sidebar opacity",
             Page::General,
@@ -296,6 +303,7 @@ fn shown(config: &Config, key: &str) -> String {
         "blink_cursor" => config.blink_cursor.to_string(),
         "animate_cursor" => config.animate_cursor.to_string(),
         "smooth_scroll" => config.smooth_scroll.to_string(),
+        "minimum_contrast" => config.minimum_contrast.to_string(),
         "sidebar_opacity" => config
             .sidebar_opacity
             .map(|p| p.to_string())
@@ -1184,6 +1192,25 @@ mod tests {
         assert!(Config::default().smooth_scroll);
     }
 
+    /// Text too close to its background is made legible unless Settings turn it off (P5-143e).
+    #[test]
+    fn legible_text_is_on_by_default_and_can_be_turned_off() {
+        let draft = Draft::new(Some(FILE.into())).unwrap();
+        assert_eq!(draft.value("minimum_contrast"), "true");
+        let field = fields()
+            .into_iter()
+            .find(|f| f.key == "minimum_contrast")
+            .unwrap();
+        assert_eq!(field.label, "Keep text legible");
+        assert_eq!((field.page, field.kind), (Page::General, Kind::Bool));
+        let mut draft = Draft::new(Some(FILE.into())).unwrap();
+        draft.set("minimum_contrast", "false");
+        let (text, restart) = written(&draft);
+        assert!(restart.is_empty(), "{restart:?}");
+        assert!(!Config::parse(&text).unwrap().minimum_contrast);
+        assert!(Config::default().minimum_contrast);
+    }
+
     #[test]
     fn the_refresh_interval_sits_with_the_corral_command_on_agents() {
         let fields = fields();
@@ -1195,7 +1222,7 @@ mod tests {
                 .collect()
         };
         assert_eq!(on(Page::Agents), ["refresh_ms", "corral"]);
-        assert_eq!(on(Page::General).len(), 15);
+        assert_eq!(on(Page::General).len(), 16);
         assert!(!on(Page::General).contains(&"refresh_ms"));
         assert_eq!(
             Page::ALL.map(Page::label),

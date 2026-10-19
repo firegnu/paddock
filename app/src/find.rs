@@ -79,6 +79,70 @@ fn select<T: EventListener>(term: &mut Term<T>, found: Match) {
     term.scroll_to_point(*found.end());
 }
 
+/// The most matches counted (P5-143e): past it the find bar says so instead of counting on.
+pub const MOST: usize = 10_000;
+
+/// `query` as find takes it, made once to look with again and again; none for an empty one.
+pub fn pattern(query: &str) -> Option<RegexSearch> {
+    if query.is_empty() {
+        return None;
+    }
+    RegexSearch::new(&literal(query)).ok()
+}
+
+/// The matches from `from` to `to`, in order, at most `limit`.
+pub fn between<T>(
+    term: &Term<T>,
+    regex: &mut RegexSearch,
+    from: Point,
+    to: Point,
+    limit: usize,
+) -> Vec<Match> {
+    let mut found = Vec::new();
+    let mut origin = from;
+    while found.len() < limit {
+        let Some(next) = term.regex_search_right(regex, origin, to) else {
+            break;
+        };
+        if *next.start() < origin {
+            break;
+        }
+        let end = *next.end();
+        found.push(next);
+        if end >= to {
+            break;
+        }
+        origin = end.add(term, Boundary::Grid, 1);
+    }
+    found
+}
+
+/// How many matches `term` keeps, oldest first, which of them is `current` (from 1), and whether
+/// there are more than [`MOST`].
+pub fn tally<T>(
+    term: &Term<T>,
+    regex: &mut RegexSearch,
+    current: Option<&Match>,
+) -> (Option<usize>, usize, bool) {
+    let top = Point::new(term.topmost_line(), Column(0));
+    let bottom = Point::new(term.bottommost_line(), term.last_column());
+    let mut all = between(term, regex, top, bottom, MOST + 1);
+    let more = all.len() > MOST;
+    all.truncate(MOST);
+    let which = current.and_then(|current| all.iter().position(|m| m == current));
+    (which.map(|i| i + 1), all.len(), more)
+}
+
+/// What the find bar says of the matches (`tally`): `3/17`; `?/17` when the selection is not one
+/// of them (the mouse moved it); `3/10000+` past [`MOST`]; none without any.
+pub fn label((which, total, more): (Option<usize>, usize, bool)) -> Option<String> {
+    if total == 0 {
+        return None;
+    }
+    let which = which.map_or_else(|| "?".to_owned(), |which| which.to_string());
+    Some(format!("{which}/{total}{}", if more { "+" } else { "" }))
+}
+
 /// A match the command palette lists: where it is, and the line it is on.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Hit {
@@ -356,5 +420,86 @@ mod tests {
         let mut none = screen("nothing");
         assert!(!reveal(&mut none.term, "alpha", &found[0]));
         assert!(none.term.selection.is_none());
+    }
+
+    #[test]
+    fn every_match_is_counted_and_the_current_one_numbered_from_the_oldest() {
+        let mut s = screen("alpha 0\r\nbeta\r\nalpha 2\r\ngamma\r\nalpha 4\r\ndelta\r\nend");
+        assert!(pattern("").is_none());
+        let mut regex = pattern("alpha").unwrap();
+        assert_eq!(tally(&s.term, &mut regex, None), (None, 3, false));
+        // ⌘F takes the newest: the third of three.
+        assert!(find(&mut s.term, "alpha", Find::First));
+        let range = s
+            .term
+            .selection
+            .as_ref()
+            .unwrap()
+            .to_range(&s.term)
+            .unwrap();
+        let current = range.start..=range.end;
+        assert_eq!(
+            tally(&s.term, &mut regex, Some(&current)),
+            (Some(3), 3, false)
+        );
+        assert!(find(&mut s.term, "alpha", Find::Older));
+        let range = s
+            .term
+            .selection
+            .as_ref()
+            .unwrap()
+            .to_range(&s.term)
+            .unwrap();
+        let current = range.start..=range.end;
+        assert_eq!(
+            tally(&s.term, &mut regex, Some(&current)),
+            (Some(2), 3, false)
+        );
+    }
+
+    #[test]
+    fn the_matches_between_two_points_and_no_more_than_asked() {
+        let s = screen("ab ab ab\r\nxx ab\r\n");
+        let mut regex = pattern("ab").unwrap();
+        let from = Point::new(Line(0), Column(0));
+        let to = Point::new(Line(1), Column(19));
+        let found = between(&s.term, &mut regex, from, to, 10);
+        let starts: Vec<_> = found
+            .iter()
+            .map(|m| (m.start().line.0, m.start().column.0))
+            .collect();
+        assert_eq!(starts, [(0, 0), (0, 3), (0, 6), (1, 3)]);
+        assert_eq!(between(&s.term, &mut regex, from, to, 2).len(), 2);
+        // Only the second row.
+        let found = between(&s.term, &mut regex, Point::new(Line(1), Column(0)), to, 10);
+        assert_eq!(found.len(), 1);
+    }
+
+    #[test]
+    fn past_the_most_it_says_there_are_more() {
+        let mut s = Screen::new(Size { rows: 4, cols: 20 });
+        let text = "x".repeat(20).repeat(30);
+        s.process(text.as_bytes());
+        let mut regex = pattern("x").unwrap();
+        let (_, total, more) = tally(&s.term, &mut regex, None);
+        assert!(total <= MOST && total > 0);
+        assert!(!more);
+        // Count with a smaller ceiling the same way.
+        let all = between(
+            &s.term,
+            &mut regex,
+            Point::new(s.term.topmost_line(), Column(0)),
+            Point::new(s.term.bottommost_line(), s.term.last_column()),
+            usize::MAX,
+        );
+        assert_eq!(all.len(), total);
+    }
+
+    #[test]
+    fn the_bar_says_which_of_how_many() {
+        assert_eq!(label((Some(3), 17, false)).as_deref(), Some("3/17"));
+        assert_eq!(label((None, 17, false)).as_deref(), Some("?/17"));
+        assert_eq!(label((Some(1), MOST, true)).as_deref(), Some("1/10000+"));
+        assert_eq!(label((None, 0, false)), None);
     }
 }

@@ -48,6 +48,9 @@ pub struct Config {
     /// Whether the history scrolls by the pixel, a wheel's notch sliding into place, rather than by
     /// the line (P5-143c2).
     pub smooth_scroll: bool,
+    /// Whether text a program drew too close to its background is moved just far enough from it
+    /// to read (P5-143e).
+    pub minimum_contrast: bool,
     /// The New Agent panel's presets; `None` (not written) is the default four.
     pub agent_presets: Option<Vec<crate::new_agent::Preset>>,
     /// `[agent_models]`: the models and efforts New Agent offers for Claude and Codex (P5-100).
@@ -203,6 +206,7 @@ impl Default for Config {
             blink_cursor: true,
             animate_cursor: true,
             smooth_scroll: true,
+            minimum_contrast: true,
             agent_presets: None,
             agent_models: Default::default(),
             sidebar_opacity: None,

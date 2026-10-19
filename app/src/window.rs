@@ -41,7 +41,7 @@ use crate::{
     text_input::{self, Changed, TextInput},
     theme::{Theme, Translucency},
     to_tag,
-    view::{AttachEnded, Launch, OpenLink, Options, TerminalView, hsla, links},
+    view::{AttachEnded, Launch, OpenLink, Options, TerminalView, hsla, links, zoom},
     viewer::AgentMetadata,
     windows,
 };
@@ -3392,6 +3392,12 @@ impl PaddockWindow {
                 view.update(cx, |view, cx| view.set_smooth_scroll(&self.template, cx));
             }
         }
+        if config.minimum_contrast != self.template.minimum_contrast {
+            self.template.minimum_contrast = config.minimum_contrast;
+            for view in self.all_panes() {
+                view.update(cx, |view, cx| view.set_minimum_contrast(&self.template, cx));
+            }
+        }
         let pet = (config.mascot_enabled, config.mascot);
         if pet != self.pet_setting {
             self.pet_setting = pet;
@@ -3843,6 +3849,22 @@ impl PaddockWindow {
             let _ = this.update(cx, |this, _| this.asking = false);
             quit
         })
+    }
+
+    /// ⌘+ and ⌘- (`by` 1 and -1), ⌘0 (0): every terminal pane's font a step larger or smaller, or
+    /// back to Settings' size; the step and its limits are the terminal's (`view::zoom`).
+    fn zoom_font(&mut self, by: i32, cx: &mut Context<Self>) {
+        let steps = match by {
+            0 => 0,
+            by => zoom::step(self.template.font_size, self.template.zoom, by),
+        };
+        if steps == self.template.zoom {
+            return;
+        }
+        self.template.zoom = steps;
+        for view in self.all_panes() {
+            view.update(cx, |view, cx| view.set_font(&self.template, cx));
+        }
     }
 
     fn toggle_zoom(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -7433,6 +7455,11 @@ impl Render for PaddockWindow {
             .on_action(
                 cx.listener(|this, _: &menu::ZoomPane, window, cx| this.toggle_zoom(window, cx)),
             )
+            .on_action(cx.listener(|this, _: &menu::IncreaseFontSize, _, cx| this.zoom_font(1, cx)))
+            .on_action(
+                cx.listener(|this, _: &menu::DecreaseFontSize, _, cx| this.zoom_font(-1, cx)),
+            )
+            .on_action(cx.listener(|this, _: &menu::ResetFontSize, _, cx| this.zoom_font(0, cx)))
             .on_action(
                 cx.listener(|this, _: &menu::NextTab, window, cx| this.cycle_tab(true, window, cx)),
             )
