@@ -3360,6 +3360,12 @@ impl PaddockWindow {
                 view.update(cx, |view, cx| view.set_cursor(&self.template, cx));
             }
         }
+        if config.smooth_scroll != self.template.smooth_scroll {
+            self.template.smooth_scroll = config.smooth_scroll;
+            for view in self.all_panes() {
+                view.update(cx, |view, cx| view.set_smooth_scroll(&self.template, cx));
+            }
+        }
         let pet = (config.mascot_enabled, config.mascot);
         if pet != self.pet_setting {
             self.pet_setting = pet;

@@ -5,6 +5,7 @@
 //! bytes Saddle's `input` module already encodes.
 mod caret;
 mod file_drop;
+mod glide;
 pub mod links;
 mod notice;
 mod press;
@@ -35,11 +36,11 @@ use alacritty_terminal::{
     vte::ansi::CursorShape,
 };
 use gpui::{
-    App, Bounds, ClipboardItem, Context, CursorStyle, DispatchPhase, ElementInputHandler, Entity,
-    EntityInputHandler, EventEmitter, ExternalPaths, FocusHandle, Focusable, Font, FontStyle,
-    FontWeight, Hsla, KeyDownEvent, ModifiersChangedEvent, MouseButton, MouseDownEvent,
-    MouseMoveEvent, MouseUpEvent, PathBuilder, Pixels, Point, Render, Rgba, ScrollDelta,
-    ScrollWheelEvent, SharedString, Subscription, TextAlign, TextRun, UTF16Selection,
+    App, Bounds, ClipboardItem, ContentMask, Context, CursorStyle, DispatchPhase,
+    ElementInputHandler, Entity, EntityInputHandler, EventEmitter, ExternalPaths, FocusHandle,
+    Focusable, Font, FontStyle, FontWeight, Hsla, KeyDownEvent, ModifiersChangedEvent, MouseButton,
+    MouseDownEvent, MouseMoveEvent, MouseUpEvent, PathBuilder, Pixels, Point, Render, Rgba,
+    ScrollDelta, ScrollWheelEvent, SharedString, Subscription, TextAlign, TextRun, UTF16Selection,
     UnderlineStyle, Window, canvas, div, fill, point, prelude::*, px, size,
 };
 use links::Link;
@@ -150,6 +151,8 @@ pub struct Options {
     /// Settings' `blink_cursor` and `animate_cursor` (P5-143c1).
     pub blink_cursor: bool,
     pub animate_cursor: bool,
+    /// Settings' `smooth_scroll` (P5-143c2).
+    pub smooth_scroll: bool,
     pub stats: bool,
 }
 
@@ -215,6 +218,11 @@ pub struct TerminalView {
     caret_wake: Option<gpui::Task<()>>,
     blink_cursor: bool,
     animate_cursor: bool,
+    /// The history scrolled by the pixel, and a wheel's slide (P5-143c2); Settings' `smooth_scroll`.
+    glide: glide::Glide,
+    smooth_scroll: bool,
+    /// Device pixels to a pixel, as the last frame was drawn.
+    scale: f32,
 }
 
 struct FindBar {
@@ -368,6 +376,9 @@ impl TerminalView {
             caret_wake: None,
             blink_cursor: options.blink_cursor,
             animate_cursor: options.animate_cursor,
+            glide: glide::Glide::default(),
+            smooth_scroll: options.smooth_scroll,
+            scale: 1.0,
         }
     }
 
@@ -386,6 +397,8 @@ impl TerminalView {
         self.font_size = px(options.font_size);
         self.line_height_factor = options.line_height;
         self.metrics = None;
+        // Pixels past a line of the old height.
+        self.glide.stop();
         cx.notify();
     }
 
@@ -393,6 +406,16 @@ impl TerminalView {
     pub fn set_cursor(&mut self, options: &Options, cx: &mut Context<Self>) {
         self.blink_cursor = options.blink_cursor;
         self.animate_cursor = options.animate_cursor;
+        cx.notify();
+    }
+
+    /// Whether the history scrolls by the pixel, from Settings, at once: turned off, the view goes
+    /// to its whole line.
+    pub fn set_smooth_scroll(&mut self, options: &Options, cx: &mut Context<Self>) {
+        self.smooth_scroll = options.smooth_scroll;
+        if !self.smooth_scroll {
+            self.glide.stop();
+        }
         cx.notify();
     }
 
@@ -776,6 +799,7 @@ impl TerminalView {
             screen.term.selection = None;
             screen.term.scroll_display(ViewScroll::Bottom);
         }
+        self.glide.stop();
         if let Err(error) = self.send(bytes) {
             self.note = format!("{error:#}");
         }
@@ -827,7 +851,8 @@ impl TerminalView {
             (first..cols).all(|col| to_tag::blank(grid[line][Column(usize::from(col))].c))
         };
         let on = to_tag::free_row(row, free)?;
-        Some(to_tag::top_on(on, line_height, tag))
+        // With the rows, part of a line down.
+        Some(to_tag::top_on(on, line_height, tag) + self.shift())
     }
 
     fn paste(&mut self, text: &str, cx: &mut Context<Self>) {
@@ -961,6 +986,10 @@ impl TerminalView {
             Some(session) => find::find(&mut session.screen.lock().unwrap().term, &query, how),
             None => false,
         };
+        // A match is shown on whole lines.
+        if found {
+            self.glide.stop();
+        }
         if let Some(bar) = &mut self.find {
             bar.missed = !query.is_empty() && !found;
         }
@@ -975,6 +1004,7 @@ impl TerminalView {
             screen.term.selection = None;
             screen.term.scroll_display(ViewScroll::Bottom);
         }
+        self.glide.stop();
         window.focus(&self.focus, cx);
         cx.notify();
     }
@@ -1075,6 +1105,11 @@ impl TerminalView {
         self.cell_at(position, offset)
     }
 
+    /// How far down the rows are drawn, the view part of a line further back (P5-143c2).
+    fn shift(&self) -> f32 {
+        self.glide.shift(self.scale)
+    }
+
     /// [`Self::locate`] with the view scrolled `offset` lines back, for a caller holding the grid.
     fn cell_at(
         &self,
@@ -1087,14 +1122,13 @@ impl TerminalView {
             f32::from(position.y - self.origin.y),
             metrics,
             self.size,
+            self.shift(),
         );
-        let point = GridPoint::new(
-            Line(i32::from(row) - offset as i32),
-            Column(usize::from(col)),
-        );
+        let point = GridPoint::new(Line(row - offset as i32), Column(usize::from(col)));
         Some((
             col,
-            row,
+            // The program is told of the rows it has, from the first.
+            row.max(0) as u16,
             point,
             if right { Side::Right } else { Side::Left },
         ))
@@ -1378,6 +1412,13 @@ impl TerminalView {
         let Some(metrics) = self.metrics else {
             return;
         };
+        let mode = self.mode();
+        // A paused agent takes no wheel either: the view scrolls its history.
+        let goes = glide::wheel_goes(mode, event.modifiers.shift, self.paused());
+        if goes == glide::Wheel::History && self.smooth_scroll {
+            self.glide_by(event.delta, metrics.line_height, cx);
+            return;
+        }
         let delta = match event.delta {
             ScrollDelta::Lines(lines) => lines.y,
             ScrollDelta::Pixels(pixels) => f32::from(pixels.y) / metrics.line_height,
@@ -1387,10 +1428,7 @@ impl TerminalView {
             return;
         }
         use crate::input::MouseEventKind as K;
-        let mode = self.mode();
-        // A paused agent takes no wheel either: the view scrolls its history.
-        let paused = self.paused();
-        if mode.intersects(TermMode::MOUSE_MODE) && !event.modifiers.shift && !paused {
+        if goes == glide::Wheel::Program {
             let kind = if lines > 0 {
                 K::ScrollUp
             } else {
@@ -1399,7 +1437,7 @@ impl TerminalView {
             for _ in 0..lines.unsigned_abs().min(20) {
                 self.report_mouse(kind, event.position, event.modifiers, cx);
             }
-        } else if mode.contains(TermMode::ALT_SCREEN | TermMode::ALTERNATE_SCROLL) && !paused {
+        } else if goes == glide::Wheel::Arrows {
             // Full-screen programs without mouse reporting scroll with arrow keys.
             let arrow: &[u8] = match (lines > 0, mode.contains(TermMode::APP_CURSOR)) {
                 (true, true) => b"\x1bOA",
@@ -1416,6 +1454,38 @@ impl TerminalView {
                 .unwrap()
                 .term
                 .scroll_display(ViewScroll::Delta(lines));
+            cx.notify();
+        }
+    }
+
+    /// The history by the pixel (`glide`): the trackpad's pixels, its momentum among them, move
+    /// the view at once; a wheel's lines slide there, frame by frame (`build`), unless the system
+    /// asks for less motion.
+    fn glide_by(&mut self, delta: ScrollDelta, line: f32, cx: &mut Context<Self>) {
+        let Some(shared) = self.session().map(|session| session.screen.clone()) else {
+            return;
+        };
+        let by = match delta {
+            ScrollDelta::Pixels(pixels) => f32::from(pixels.y),
+            ScrollDelta::Lines(lines) if !cx.reduce_motion() => {
+                self.glide.wheel(lines.y * line, Instant::now());
+                cx.notify();
+                return;
+            }
+            ScrollDelta::Lines(lines) => lines.y * line,
+        };
+        let mut screen = shared.lock().unwrap();
+        let grid = screen.term.grid();
+        let (lines, history) = (grid.display_offset(), grid.history_size());
+        let shift = self.shift();
+        let to = self.glide.drag(lines, by, history, line);
+        if to != lines {
+            screen
+                .term
+                .scroll_display(ViewScroll::Delta(to as i32 - lines as i32));
+        }
+        // Pushed on past either end, nothing to draw anew.
+        if to != lines || self.shift() != shift {
             cx.notify();
         }
     }
@@ -1451,6 +1521,7 @@ impl TerminalView {
         self.frame_pending = false;
         let metrics = self.metrics(window);
         self.origin = bounds.origin;
+        self.scale = window.scale_factor();
         self.bounds = bounds;
         let size = grid::grid_size(
             f32::from(bounds.size.width),
@@ -1483,6 +1554,8 @@ impl TerminalView {
             focused,
             note: (!self.note.is_empty()).then(|| self.note.clone()),
             tip: None,
+            shift: 0.0,
+            above: None,
         };
         let Some(session) = self.session() else {
             // Without a session, the viewer's own message comes first: a hint or why the last one
@@ -1498,6 +1571,20 @@ impl TerminalView {
         // Held apart from `self`, so the link can be shown while the grid is read.
         let shared = session.screen.clone();
         let mut screen = shared.lock().unwrap();
+        // A wheel's slide goes on, frame by frame, until it is there.
+        let grid = screen.term.grid();
+        let (lines, history) = (grid.display_offset(), grid.history_size());
+        let (to, sliding) = self
+            .glide
+            .frame(lines, history, metrics.line_height, Instant::now());
+        if to != lines {
+            screen
+                .term
+                .scroll_display(ViewScroll::Delta(to as i32 - lines as i32));
+        }
+        if sliding {
+            window.request_animation_frame();
+        }
         // What changed is drawn now.
         let redrawn = damage::take(&mut screen.term) == damage::Change::Whole || self.redrawn;
         self.redrawn = false;
@@ -1516,17 +1603,25 @@ impl TerminalView {
             .and_then(|(.., point, _)| links::find(term, point, place.as_ref()));
         let link = self.hover.show(found);
         frame.tip = link.as_ref().and_then(|link| tip(link, offset, rows));
-        for y in 0..rows {
+        // Part of a line down, the row above the first shows over them.
+        frame.shift = self.shift();
+        let first = if frame.shift > 0.0 { -1 } else { 0 };
+        for y in first..i32::from(rows) {
             let mut cells = rows::read(term, y, cols, &theme, selection.as_ref());
             if let Some(link) = &link {
-                let line = Line(i32::from(y) - offset);
+                let line = Line(y - offset);
                 for (x, cell) in cells.iter_mut().enumerate() {
                     if link.contains(GridPoint::new(line, Column(x))) {
                         cell.style.underline = true;
                     }
                 }
             }
-            frame.rows.push(rows::split(&cells, theme.background));
+            let row = rows::split(&cells, theme.background);
+            if y < 0 {
+                frame.above = Some(row);
+            } else {
+                frame.rows.push(row);
+            }
         }
         let point = term.grid().cursor.point;
         let style = term.cursor_style();
@@ -1686,6 +1781,10 @@ pub struct Frame {
     note: Option<String>,
     /// Where a link the program marked really goes, shown at a row and column by it.
     tip: Option<(usize, usize, String)>,
+    /// How far down the rows are drawn, under a line, the view scrolled by the pixel (P5-143c2).
+    shift: f32,
+    /// Then, the row above the first, showing over them.
+    above: Option<(Vec<Span>, Vec<Run>)>,
 }
 
 fn terminal_font(family: &str, fallbacks: &[String]) -> Font {
@@ -1712,11 +1811,13 @@ impl Frame {
     fn x(&self, col: usize) -> f32 {
         (col as f32 * self.metrics.cell_width).floor()
     }
-    fn y(&self, row: usize) -> f32 {
+    /// A row's top, -1 for the one above the first; as if the view were on its whole line.
+    fn y(&self, row: i32) -> f32 {
         row as f32 * self.metrics.line_height
     }
+    /// Where a point of the grid is drawn: `shift` down.
     fn at(&self, x: f32, y: f32) -> Point<Pixels> {
-        point(self.origin.x + px(x), self.origin.y + px(y))
+        point(self.origin.x + px(x), self.origin.y + px(y + self.shift))
     }
     fn rect(&self, x: f32, y: f32, w: f32, h: f32, color: Hsla) -> gpui::PaintQuad {
         fill(Bounds::new(self.at(x, y), size(px(w), px(h))), color)
@@ -1768,7 +1869,7 @@ impl Frame {
         &self,
         text: &str,
         style: &Style,
-        (col, row): (usize, usize),
+        (col, row): (usize, i32),
         cell_wide: bool,
         alpha: f32,
         window: &mut Window,
@@ -1819,7 +1920,7 @@ impl Frame {
         }
     }
 
-    fn glyph(&self, c: char, color: Rgb, col: usize, row: usize, window: &mut Window) {
+    fn glyph(&self, c: char, color: Rgb, col: usize, row: i32, window: &mut Window) {
         let (x, y) = (self.x(col), self.y(row));
         let w = self.x(col + 1) - x;
         // Rows are already whole pixels when the line height is.
@@ -1835,23 +1936,59 @@ impl Frame {
         }
     }
 
+    /// The rows drawn, by row: the one above the first, when it shows, as -1.
+    fn lines(&self) -> impl Iterator<Item = (i32, &(Vec<Span>, Vec<Run>))> {
+        let rows = self.rows.iter().enumerate();
+        let above = self.above.iter().map(|row| (-1, row));
+        above.chain(rows.map(|(row, line)| (row as i32, line)))
+    }
+
     fn paint(&self, width: f32, window: &mut Window, cx: &mut App) {
         let lh = self.metrics.line_height;
-        for (row, (spans, _)) in self.rows.iter().enumerate() {
+        // Part of a line down, what is past the grid's edges is cut off.
+        let mask = self.above.is_some().then(|| ContentMask {
+            bounds: Bounds::new(
+                self.origin,
+                size(px(width), px(self.rows.len() as f32 * lh)),
+            ),
+        });
+        window.with_content_mask(mask, |window| self.paint_grid(width, window, cx));
+        if let Some(note) = &self.note {
+            let style = Style {
+                fg: self.note_color,
+                ..Style::default()
+            };
+            let lines = note_lines(note, width, |text| {
+                self.shape(text, &style, style.fg, 1.0, None, window)
+                    .width
+                    .into()
+            });
+            for (row, line) in lines.into_iter().enumerate() {
+                let shaped = self.shape(line, &style, style.fg, 1.0, None, window);
+                let y = self.origin.y + px(self.y((self.rows.len().max(1) + row) as i32));
+                let at = point(self.origin.x, y);
+                let _ = shaped.paint(at, px(lh), TextAlign::Left, None, window, cx);
+            }
+        }
+    }
+
+    fn paint_grid(&self, width: f32, window: &mut Window, cx: &mut App) {
+        let lh = self.metrics.line_height;
+        for (row, (spans, _)) in self.lines() {
             for span in spans {
                 let (x0, x1) = (self.x(span.col), self.x(span.col + span.len));
                 window.paint_quad(self.rect(x0, self.y(row), x1 - x0, lh, hsla(span.color, 1.0)));
             }
         }
         // Layered: every drawn line, then every text run, so GPUI batches them together.
-        for (row, (_, runs)) in self.rows.iter().enumerate() {
+        for (row, (_, runs)) in self.lines() {
             for run in runs {
                 if let Run::Glyph { col, c, color } = run {
                     self.glyph(*c, *color, *col, row, window);
                 }
             }
         }
-        for (row, (_, runs)) in self.rows.iter().enumerate() {
+        for (row, (_, runs)) in self.lines() {
             for run in runs {
                 match run {
                     Run::Text { col, text, style } => {
@@ -1866,22 +2003,6 @@ impl Frame {
         }
         self.paint_cursor(window, cx);
         self.paint_tip(width, window, cx);
-        if let Some(note) = &self.note {
-            let style = Style {
-                fg: self.note_color,
-                ..Style::default()
-            };
-            let lines = note_lines(note, width, |text| {
-                self.shape(text, &style, style.fg, 1.0, None, window)
-                    .width
-                    .into()
-            });
-            for (row, line) in lines.into_iter().enumerate() {
-                let shaped = self.shape(line, &style, style.fg, 1.0, None, window);
-                let y = self.y(self.rows.len().max(1) + row);
-                let _ = shaped.paint(self.at(0.0, y), px(lh), TextAlign::Left, None, window, cx);
-            }
-        }
     }
 
     /// A marked link's address, dark on light, kept inside the pane.
@@ -1897,7 +2018,7 @@ impl Frame {
         let (pad, lh) = (4.0, self.metrics.line_height);
         let w = f32::from(shaped.width).ceil() + 2.0 * pad;
         let x = self.x(*col).min(width - w).max(0.0);
-        let y = self.y(*row);
+        let y = self.y(*row as i32);
         window.paint_quad(
             self.rect(x, y, w, lh, hsla(self.theme.foreground, 0.92))
                 .corner_radii(px(3.0)),
@@ -1914,7 +2035,7 @@ impl Frame {
 
     /// Where `cursor` is drawn in its place, by its shape.
     fn cursor_rect(&self, cursor: &Cursor) -> caret::Rect {
-        let (col, row) = (usize::from(cursor.col), usize::from(cursor.row));
+        let (col, row) = (usize::from(cursor.col), i32::from(cursor.row));
         let (x, y) = (self.x(col), self.y(row));
         let w = self.x(col + if cursor.wide { 2 } else { 1 }) - x;
         let lh = self.metrics.line_height;
@@ -1930,7 +2051,7 @@ impl Frame {
         let Some(cursor) = &self.cursor else {
             return;
         };
-        let (col, row) = (usize::from(cursor.col), usize::from(cursor.row));
+        let (col, row) = (usize::from(cursor.col), i32::from(cursor.row));
         let (x, y) = (self.x(col), self.y(row));
         let w = self.x(col + if cursor.wide { 2 } else { 1 }) - x;
         let lh = self.metrics.line_height;
@@ -2178,7 +2299,7 @@ impl EntityInputHandler for TerminalView {
         let (col, row) = self.cursor_cell;
         let origin = point(
             self.origin.x + px((f32::from(col) * metrics.cell_width).floor()),
-            self.origin.y + px(f32::from(row) * metrics.line_height),
+            self.origin.y + px(f32::from(row) * metrics.line_height + self.shift()),
         );
         Some(Bounds::new(
             origin,
@@ -2221,6 +2342,9 @@ impl TerminalView {
             Some(session) => find::reveal(&mut session.screen.lock().unwrap().term, query, hit),
             None => false,
         };
+        if found {
+            self.glide.stop();
+        }
         if let Some(bar) = &mut self.find {
             bar.missed = !found;
         }

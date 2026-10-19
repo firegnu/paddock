@@ -221,6 +221,7 @@ const GENERAL: [(&str, &[&str]); 4] = [
             "open_files_with",
             "blink_cursor",
             "animate_cursor",
+            "smooth_scroll",
         ],
     ),
     ("Mascot", &["mascot_enabled", "mascot"]),
