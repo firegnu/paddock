@@ -62,7 +62,6 @@ struct Slide {
 
 impl Glide {
     /// Pixels past the whole lines, toward older output.
-    #[cfg(test)]
     pub fn pixels(&self) -> f32 {
         self.pixels
     }
