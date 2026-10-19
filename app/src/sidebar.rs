@@ -664,6 +664,8 @@ pub struct Sidebar {
     note: Option<Note>,
     /// Collapsed to the narrow strip.
     collapsed: bool,
+    /// Sliding to the strip or back, how far folded (P5-148a): the window says each frame.
+    fold: Option<f32>,
     /// The menu of actions is open: its button stays lit.
     menu_open: bool,
     /// The card asking whether to pause its agent in a turn, until the mouse leaves it.
@@ -771,6 +773,7 @@ impl Sidebar {
             here: Vec::new(),
             note: None,
             collapsed: false,
+            fold: None,
             menu_open: false,
             asking: None,
             frosted: false,
@@ -839,6 +842,12 @@ impl Sidebar {
             self.collapsed = collapsed;
             cx.notify();
         }
+    }
+
+    /// Sliding between the list and the strip, `fold` of the way to the strip, or still (`None`)
+    /// (P5-148a). Drawn with the window, which says it each frame.
+    pub fn set_fold(&mut self, fold: Option<f32>) {
+        self.fold = fold;
     }
 
     /// The activity panel folded to one line, as the layout saved it.
@@ -947,11 +956,9 @@ impl Sidebar {
     ) -> Div {
         let ui = UiFont::get(cx);
         let keep = |_: &MouseDownEvent, _: &mut Window, cx: &mut App| cx.stop_propagation();
-        let gap = ui.px(if self.collapsed {
-            TOGGLE_GAP
-        } else {
-            TITLE_GAP
-        });
+        // Sliding to the strip or back, it keeps the expanded row, the rest of it fading (P5-148a).
+        let strip = self.collapsed && self.fold.is_none();
+        let gap = ui.px(if strip { TOGGLE_GAP } else { TITLE_GAP });
         let row = div()
             .flex_1()
             .min_w(px(0.0))
@@ -962,7 +969,7 @@ impl Sidebar {
                 self.collapse_button(self.collapsed, cx)
                     .map(move |button| button.mr(gap).on_mouse_down(MouseButton::Left, keep)),
             );
-        if self.collapsed {
+        if strip {
             return row;
         }
         let fg = |pick: Pick| hsla(self.theme.fg(pick), 1.0);
@@ -1030,42 +1037,52 @@ impl Sidebar {
         let pause_all = pause_all.map(|button| {
             button.map(move |button| button.mr(pause_gap).on_mouse_down(MouseButton::Left, keep))
         });
-        row.child(
-            div()
-                .flex_shrink_0()
-                .flex()
-                .items_center()
-                .gap(ui.px(COUNT_GAP))
-                .child(
-                    div()
-                        .text_size(ui.px(TITLE_SIZE))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(fg(|t| t.agents_text))
-                        .child("Agents"),
-                )
-                .when(agents > 0, |title| {
-                    title.child(
+        // All after the button, put in `into`; sliding, it fades together as one.
+        let fill = move |into: Div| {
+            into.child(
+                div()
+                    .flex_shrink_0()
+                    .flex()
+                    .items_center()
+                    .gap(ui.px(COUNT_GAP))
+                    .child(
                         div()
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .h(ui.px(COUNT_HEIGHT))
-                            .min_w(ui.px(COUNT_HEIGHT))
-                            .px(ui.px(COUNT_X))
-                            .rounded(ui.px(COUNT_HEIGHT / 2.0))
-                            .bg(fg(|t| t.agents_text).opacity(0.08))
-                            .text_size(ui.px(COUNT_SIZE))
-                            .line_height(ui.px(COUNT_HEIGHT))
-                            .font_features(tabular())
-                            .text_color(fg(|t| t.agents_dim))
-                            .child(agents.to_string()),
+                            .text_size(ui.px(TITLE_SIZE))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(fg(|t| t.agents_text))
+                            .child("Agents"),
                     )
-                }),
-        )
-        .child(div().flex_1())
-        .children(new_workspace)
-        .children(pause_all)
-        .child(bell.map(move |bell| bell.on_mouse_down(MouseButton::Left, keep)))
+                    .when(agents > 0, |title| {
+                        title.child(
+                            div()
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .h(ui.px(COUNT_HEIGHT))
+                                .min_w(ui.px(COUNT_HEIGHT))
+                                .px(ui.px(COUNT_X))
+                                .rounded(ui.px(COUNT_HEIGHT / 2.0))
+                                .bg(fg(|t| t.agents_text).opacity(0.08))
+                                .text_size(ui.px(COUNT_SIZE))
+                                .line_height(ui.px(COUNT_HEIGHT))
+                                .font_features(tabular())
+                                .text_color(fg(|t| t.agents_dim))
+                                .child(agents.to_string()),
+                        )
+                    }),
+            )
+            .child(div().flex_1())
+            .children(new_workspace)
+            .children(pause_all)
+            .child(bell.map(move |bell| bell.on_mouse_down(MouseButton::Left, keep)))
+        };
+        match self.fold {
+            None => fill(row),
+            Some(folded) => row.child(
+                fill(div().flex_1().min_w(px(0.0)).h_full().flex().items_center())
+                    .opacity(1.0 - folded),
+            ),
+        }
     }
 
     /// The button for every agent, before the bell and in the strip under it: it pauses them all
@@ -1354,6 +1371,35 @@ impl Sidebar {
             )
             .on_click(on_click)
         })
+    }
+
+    /// Sliding between the list and the strip (P5-148a), `folded` of the way to the strip: as wide
+    /// as it has got, the list fading out over the strip fading in as it folds, and back as it
+    /// unfolds, each laid out as when still and cut where the sidebar ends.
+    fn folding(&mut self, folded: f32, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        let rail = UiFont::get(cx).scale(RAIL);
+        let list = self.expanded(window, cx);
+        let strip = self.rail(window, cx);
+        let layer = |id: &'static str, width: f32, shown: f32, child: AnyElement| {
+            div()
+                .id(id)
+                .absolute()
+                .top_0()
+                .left_0()
+                .h_full()
+                .w(px(width))
+                .opacity(shown)
+                .child(child)
+        };
+        div()
+            .flex_shrink_0()
+            .relative()
+            .h_full()
+            .w(px(self.width + (rail - self.width) * folded))
+            .overflow_hidden()
+            .child(layer("folding-list", self.width, 1.0 - folded, list))
+            .child(layer("folding-strip", rail, folded, strip))
+            .into_any_element()
     }
 
     /// The collapsed strip: the bell, the button for every agent and `New Workspace…`, then a tile
@@ -2313,9 +2359,18 @@ fn show(card: &Card, cx: &mut Context<Sidebar>) {
 impl Render for Sidebar {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.tidy_delegates(window, cx);
-        if self.collapsed {
-            return self.rail(window, cx);
+        match self.fold {
+            Some(folded) => self.folding(folded, window, cx),
+            None if self.collapsed => self.rail(window, cx),
+            None => self.expanded(window, cx),
         }
+    }
+}
+
+impl Sidebar {
+    /// Expanded: the switcher, the list of agents, and at its foot the activity panel and the
+    /// footer.
+    fn expanded(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let ui = UiFont::get(cx);
         let theme = self.theme.clone();
         let grounds = self.grounds();

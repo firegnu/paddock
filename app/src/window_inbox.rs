@@ -61,7 +61,7 @@ pub(super) struct Inbox {
     sending: HashSet<Who>,
 }
 
-struct Open {
+pub(super) struct Open {
     list: inbox::Open,
     /// The reply box.
     input: Entity<TextInput>,
@@ -195,6 +195,7 @@ impl PaddockWindow {
             cx.notify();
         });
         let list = inbox::Open::of(&self.inbox_sources(cx), now());
+        self.let_go(Some(Popup::Attention));
         self.palette = None;
         self.chooser = Chooser::default();
         self.inbox.open = Some(Open {
@@ -224,11 +225,19 @@ impl PaddockWindow {
         if open.focus.is_focused(window) || field.is_focused(window) {
             self.focus_active(window, cx);
         }
+        self.keep_leaving_inbox(open);
     }
 
-    /// Closed by `close_popup`, which gives the keys back itself.
+    /// Closed by `close_popup`, which gives the keys back itself: kept while it fades out.
     pub(super) fn forget_inbox(&mut self) {
-        self.inbox.open = None;
+        if let Some(open) = self.inbox.open.take() {
+            self.keep_leaving_inbox(open);
+        }
+    }
+
+    /// The open panel put in place of `open`, as when one fading out is drawn (P5-148a).
+    pub(super) fn swap_inbox(&mut self, open: &mut Option<Open>) {
+        std::mem::swap(&mut self.inbox.open, open);
     }
 
     /// The agents were read again: what was sent goes once its answer is read, the list takes

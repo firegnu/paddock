@@ -168,6 +168,8 @@ pub struct RemoteAgentView {
     failure: Option<Failure>,
     starting: bool,
     _subscriptions: Vec<Subscription>,
+    /// How far below its place the panel is drawn, as it comes in; the window says (P5-148a).
+    rise: f32,
 }
 
 impl EventEmitter<RemoteAgentEvent> for RemoteAgentView {}
@@ -200,6 +202,11 @@ fn ring(accent: Hsla, ui: &UiFont) -> BoxShadow {
 }
 
 impl RemoteAgentView {
+    /// Drawn `rise` points below its place, as it comes in over the window (P5-148a).
+    pub fn set_rise(&mut self, rise: f32) {
+        self.rise = rise;
+    }
+
     /// For machine `link`, opening the agent at `place`: its home as the directory, and the kinds
     /// looked for there at once.
     pub fn new(
@@ -256,6 +263,7 @@ impl RemoteAgentView {
             failure: None,
             starting: false,
             _subscriptions: subscriptions,
+            rise: 0.0,
         };
         view.look(cx);
         view.follow_name(cx);
@@ -1414,7 +1422,7 @@ impl Render for RemoteAgentView {
         .flex()
         .flex_col()
         .items_center()
-        .pt(px(top))
+        .pt(px(top + self.rise))
         .px(px(margin))
         .child(panel);
         // Only the dialog takes clicks while it is open; a click on the dimmed window closes it.
