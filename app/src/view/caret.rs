@@ -76,6 +76,18 @@ pub enum Next {
     At(Instant),
 }
 
+impl Next {
+    /// Whichever of the two wants the pane drawn first (P5-143e: the cursor and what fades).
+    pub fn sooner(self, other: Next) -> Next {
+        match (self, other) {
+            (Next::Frame, _) | (_, Next::Frame) => Next::Frame,
+            (Next::At(a), Next::At(b)) => Next::At(a.min(b)),
+            (Next::At(at), Next::Idle) | (Next::Idle, Next::At(at)) => Next::At(at),
+            (Next::Idle, Next::Idle) => Next::Idle,
+        }
+    }
+}
+
 /// How the cursor is drawn this frame.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Look {
@@ -476,5 +488,20 @@ mod tests {
         let look = caret.frame(Some(at(20, 0)), snap, start + ms(110));
         assert_eq!(look.corners, None);
         assert_ne!(look.next, Next::Frame);
+    }
+
+    #[test]
+    fn the_sooner_of_two_wakes() {
+        let now = Instant::now();
+        let (early, late) = (
+            now + Duration::from_millis(100),
+            now + Duration::from_millis(500),
+        );
+        assert_eq!(Next::Idle.sooner(Next::Idle), Next::Idle);
+        assert_eq!(Next::Idle.sooner(Next::At(late)), Next::At(late));
+        assert_eq!(Next::At(late).sooner(Next::Idle), Next::At(late));
+        assert_eq!(Next::At(late).sooner(Next::At(early)), Next::At(early));
+        assert_eq!(Next::At(early).sooner(Next::Frame), Next::Frame);
+        assert_eq!(Next::Frame.sooner(Next::Idle), Next::Frame);
     }
 }

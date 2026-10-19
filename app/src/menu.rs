@@ -68,6 +68,10 @@ actions!(
         FocusAddress,
         /// The Browser loads its page again (⌘R).
         ReloadPage,
+        /// Every terminal pane's font a step larger or smaller, or back to Settings' size (P5-143e).
+        IncreaseFontSize,
+        DecreaseFontSize,
+        ResetFontSize,
     ]
 );
 
@@ -123,6 +127,10 @@ pub fn bindings() -> Vec<KeyBinding> {
         KeyBinding::new("cmd-p", Search, None),
         KeyBinding::new("cmd-shift-p", CommandPalette, None),
         KeyBinding::new("cmd-shift-enter", ZoomPane, None),
+        KeyBinding::new("cmd-=", IncreaseFontSize, None),
+        KeyBinding::new("cmd-+", IncreaseFontSize, None),
+        KeyBinding::new("cmd--", DecreaseFontSize, None),
+        KeyBinding::new("cmd-0", ResetFontSize, None),
         KeyBinding::new("cmd-f", Find, None),
         KeyBinding::new("cmd-g", FindNext, None),
         KeyBinding::new("cmd-shift-g", FindPrevious, None),
@@ -234,6 +242,10 @@ pub fn menus(fold: bool, by_name: bool, collapsed: bool, right_open: bool) -> Ve
             ),
             MenuItem::separator(),
             MenuItem::action("Zoom Pane", ZoomPane),
+            MenuItem::separator(),
+            MenuItem::action("Increase Font Size", IncreaseFontSize),
+            MenuItem::action("Decrease Font Size", DecreaseFontSize),
+            MenuItem::action("Reset Font Size", ResetFontSize),
         ]),
         Menu::new("Agent").items([
             MenuItem::action("New Agent…", NewAgent),
@@ -449,15 +461,16 @@ mod tests {
                 .map(|item| matches!(item, MenuItem::Action { checked: true, .. }))
                 .collect()
         };
-        // Fold, Sort, New Workspace…, the two sidebars, a separator and Zoom Pane; the last five
-        // are never ticked.
+        // Fold, Sort, New Workspace…, the two sidebars, a separator and Zoom Pane, a separator and
+        // the three font sizes (P5-143e); the last nine are never ticked.
+        let rest = [false; 9];
         assert_eq!(
             view(true, false),
-            [true, false, false, false, false, false, false]
+            [[true, false].as_slice(), &rest].concat()
         );
         assert_eq!(
             view(false, true),
-            [false, true, false, false, false, false, false]
+            [[false, true].as_slice(), &rest].concat()
         );
         // The sidebar items say what they will do; the right one comes after the left.
         let item =

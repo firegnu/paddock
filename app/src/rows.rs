@@ -305,6 +305,13 @@ pub fn read<T>(
     cells
 }
 
+/// Each cell's text kept `min` apart from its own background (`palette::legible`).
+pub fn legible(cells: &mut [Cell], min: f32) {
+    for cell in cells {
+        cell.style.fg = crate::palette::legible(cell.style.fg, cell.bg, min);
+    }
+}
+
 #[cfg(test)]
 mod parsed {
     use super::*;
@@ -407,5 +414,29 @@ mod parsed {
         assert_eq!(cells[0].bg, crate::palette::XTERM[1]);
         assert_eq!(cells[3].bg, THEME.background);
         assert_eq!(cells[4].text, " ");
+    }
+
+    #[test]
+    fn text_too_close_to_its_own_background_is_made_legible_and_the_rest_left_alone() {
+        use crate::palette::{MIN_CONTRAST, contrast};
+        let mut screen = Screen::new(Size { rows: 1, cols: 10 });
+        // Dark grey on black, black on red, plain, and hidden-by-colour (the same both ways).
+        screen.process(b"\x1b[38;2;40;40;40ma\x1b[0;30;41mb\x1b[0mc\x1b[38;2;0;0;0md");
+        let mut cells = read(&screen.term, 0, 10, &THEME);
+        let before: Vec<_> = cells.iter().map(|cell| cell.style.fg).collect();
+        legible(&mut cells, MIN_CONTRAST);
+        assert_ne!(cells[0].style.fg, before[0]);
+        assert!(contrast(cells[0].style.fg, cells[0].bg) >= MIN_CONTRAST);
+        assert_eq!(
+            cells[2].style.fg, before[2],
+            "plain text is far enough already"
+        );
+        assert_eq!(
+            cells[3].style.fg, cells[3].bg,
+            "the background's own colour is meant"
+        );
+        for cell in &cells[..3] {
+            assert!(contrast(cell.style.fg, cell.bg) >= MIN_CONTRAST);
+        }
     }
 }

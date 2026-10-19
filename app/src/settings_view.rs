@@ -222,6 +222,7 @@ const GENERAL: [(&str, &[&str]); 4] = [
             "blink_cursor",
             "animate_cursor",
             "smooth_scroll",
+            "minimum_contrast",
         ],
     ),
     ("Mascot", &["mascot_enabled", "mascot"]),

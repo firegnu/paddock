@@ -5,12 +5,15 @@
 //! bytes Saddle's `input` module already encodes.
 mod caret;
 mod edge;
+mod fade;
 mod file_drop;
+mod gauge;
 mod glide;
 pub mod links;
 mod marks;
 mod notice;
 mod press;
+pub mod zoom;
 
 use crate::{
     damage,
@@ -34,7 +37,7 @@ use alacritty_terminal::{
     grid::{Dimensions, Scroll as ViewScroll},
     index::{Column, Line, Point as GridPoint, Side},
     selection::{Selection, SelectionType},
-    term::{TermMode, cell::Flags},
+    term::{TermMode, cell::Flags, search::RegexSearch},
     vte::ansi::CursorShape,
 };
 use gpui::{
@@ -155,6 +158,10 @@ pub struct Options {
     pub animate_cursor: bool,
     /// Settings' `smooth_scroll` (P5-143c2).
     pub smooth_scroll: bool,
+    /// Steps larger (or smaller, below 0) than `font_size`, ⌘+ and ⌘- for this run (`zoom`).
+    pub zoom: i32,
+    /// Settings' `minimum_contrast` (P5-143e).
+    pub minimum_contrast: bool,
     pub stats: bool,
 }
 
@@ -227,7 +234,24 @@ pub struct TerminalView {
     edge: Option<(edge::Edge, Point<Pixels>)>,
     /// Device pixels to a pixel, as the last frame was drawn.
     scale: f32,
+    /// Text too close to its background made legible (P5-143e).
+    minimum_contrast: bool,
+    /// The history's position bar, and how far back the view was when it was last drawn.
+    gauge: fade::Fade,
+    gauge_at: f32,
+    /// The grid's size, for a moment as the pane is resized; the pane has been laid out before.
+    sized: fade::Fade,
+    size_text: String,
+    laid_out: bool,
+    /// The "New output" pill showed in the last render.
+    pill: bool,
 }
+
+/// How long the position bar and the size show after the last change, then how long they fade.
+const SHOWN: Duration = Duration::from_millis(800);
+const FADING: Duration = Duration::from_millis(300);
+/// The most of the find bar's other matches drawn in view.
+const OTHERS_IN_VIEW: usize = 1000;
 
 struct FindBar {
     input: Entity<TextInput>,
@@ -235,6 +259,10 @@ struct FindBar {
     missed: bool,
     /// The selection is the match this bar found, drawn in yellow, until the mouse selects.
     found: bool,
+    /// The query made into a search once, for the other matches in view and the count.
+    regex: Option<(String, RegexSearch)>,
+    /// Which match the selection is, of how many, more than counted (`find::tally`).
+    tally: Option<(Option<usize>, usize, bool)>,
     _subscription: Subscription,
 }
 
@@ -348,7 +376,7 @@ impl TerminalView {
             subject,
             focus,
             font,
-            font_size: px(options.font_size),
+            font_size: px(zoom::size(options.font_size, options.zoom)),
             line_height_factor: options.line_height,
             metrics: None,
             size,
@@ -387,6 +415,13 @@ impl TerminalView {
             edge: None,
             smooth_scroll: options.smooth_scroll,
             scale: 1.0,
+            minimum_contrast: options.minimum_contrast,
+            gauge: fade::Fade::new(SHOWN, FADING),
+            gauge_at: 0.0,
+            sized: fade::Fade::new(SHOWN, FADING),
+            size_text: String::new(),
+            laid_out: false,
+            pill: false,
         }
     }
 
@@ -398,11 +433,12 @@ impl TerminalView {
         cx.notify();
     }
 
-    /// A new font, size or line height from Settings, at once: the next frame measures the cells
-    /// again and resizes the PTY, as dragging the window does.
+    /// A new font, size or line height from Settings, or the size a step larger or smaller (⌘+,
+    /// ⌘-, ⌘0), at once: the next frame measures the cells again and resizes the PTY, as dragging
+    /// the window does.
     pub fn set_font(&mut self, options: &Options, cx: &mut Context<Self>) {
         self.font = terminal_font(&options.font_family, &options.fallbacks);
-        self.font_size = px(options.font_size);
+        self.font_size = px(zoom::size(options.font_size, options.zoom));
         self.line_height_factor = options.line_height;
         self.metrics = None;
         // Pixels past a line of the old height.
@@ -424,6 +460,12 @@ impl TerminalView {
         if !self.smooth_scroll {
             self.glide.stop();
         }
+        cx.notify();
+    }
+
+    /// Whether text too close to its background is made legible, from Settings, at once.
+    pub fn set_minimum_contrast(&mut self, options: &Options, cx: &mut Context<Self>) {
+        self.minimum_contrast = options.minimum_contrast;
         cx.notify();
     }
 
@@ -959,6 +1001,8 @@ impl TerminalView {
                     input: input.clone(),
                     missed: false,
                     found: false,
+                    regex: None,
+                    tally: None,
                     _subscription: subscription,
                 });
                 input
@@ -1003,7 +1047,32 @@ impl TerminalView {
             bar.missed = !query.is_empty() && !found;
             bar.found |= found;
         }
+        self.recount(cx);
         cx.notify();
+    }
+
+    /// The find bar's query made into a search again if it changed, and its matches counted
+    /// through the whole history, the selection numbered among them (P5-143e).
+    fn recount(&mut self, cx: &mut Context<Self>) {
+        let screen = self.session().map(|session| session.screen.clone());
+        let Some(bar) = &mut self.find else { return };
+        let query = bar.input.read(cx).text().to_owned();
+        if bar.regex.as_ref().is_none_or(|(made, _)| *made != query) {
+            bar.regex = find::pattern(&query).map(|regex| (query, regex));
+        }
+        bar.tally = match (&mut bar.regex, screen) {
+            (Some((_, regex)), Some(screen)) => {
+                let screen = screen.lock().unwrap();
+                let term = &screen.term;
+                let current = term
+                    .selection
+                    .as_ref()
+                    .and_then(|selection| selection.to_range(term))
+                    .map(|range| range.start..=range.end);
+                Some(find::tally(term, regex, current.as_ref()))
+            }
+            _ => None,
+        };
     }
 
     /// Esc or ×: the bar goes, the view returns to the bottom and the keys to the terminal.
@@ -1089,6 +1158,22 @@ impl TerminalView {
                         .child("No match"),
                 )
             })
+            // Which of how many: not the selection's number once the mouse has moved it.
+            .when_some(
+                bar.tally
+                    .filter(|_| !bar.missed)
+                    .and_then(|(which, total, more)| {
+                        find::label((which.filter(|_| bar.found), total, more))
+                    }),
+                |row, count| {
+                    row.child(
+                        div()
+                            .flex_shrink_0()
+                            .text_color(fg(|t| t.muted))
+                            .child(count),
+                    )
+                },
+            )
             .child(button("find-older", "↑").on_click(
                 cx.listener(|this, _, window, cx| this.find_next(&menu::FindNext, window, cx)),
             ))
@@ -1589,6 +1674,12 @@ impl TerminalView {
             metrics,
         );
         let resized = (size.rows, size.cols) != (self.size.rows, self.size.cols);
+        let before = self.laid_out.then_some((self.size.cols, self.size.rows));
+        self.laid_out = true;
+        if let Some(text) = gauge::size_label(before, (size.cols, size.rows)) {
+            self.size_text = text;
+            self.sized.poke(Instant::now());
+        }
         if resized {
             self.size = size;
             if let Some(session) = self.session_mut() {
@@ -1618,6 +1709,10 @@ impl TerminalView {
             above: None,
             marks: Vec::new(),
             mark: ((0, 0, 0), 0.0),
+            others: Vec::new(),
+            other: ((0, 0, 0), 0.0),
+            gauge: None,
+            size_label: None,
         };
         let Some(session) = self.session() else {
             // Without a session, the viewer's own message comes first: a hint or why the last one
@@ -1630,6 +1725,12 @@ impl TerminalView {
             }
             return frame;
         };
+        // With a grid only: its fade is woken with the cursor's (`cursor_motion`).
+        let now = Instant::now();
+        let alpha = self.sized.alpha(now);
+        if alpha > 0.0 {
+            frame.size_label = Some((self.size_text.clone(), alpha));
+        }
         // Held apart from `self`, so the link can be shown while the grid is read.
         let shared = session.screen.clone();
         let mut screen = shared.lock().unwrap();
@@ -1685,6 +1786,13 @@ impl TerminalView {
         // What changed is drawn now.
         let redrawn = damage::take(&mut screen.term) == damage::Change::Whole || self.redrawn;
         self.redrawn = false;
+        // Back at the bottom, what came is seen; the "New output" pill follows on the next frame.
+        if screen.term.grid().display_offset() == 0 {
+            screen.seen();
+        }
+        if screen.pushed() != self.pill {
+            window.request_animation_frame();
+        }
         let term = &screen.term;
         let theme = *self.theme.terminal();
         let offset = term.grid().display_offset() as i32;
@@ -1704,11 +1812,66 @@ impl TerminalView {
         frame.shift = self.shift();
         let first = if frame.shift > 0.0 { -1 } else { 0 };
         if let Some(range) = &selection {
-            frame.marks = marks::spans(term, range, first, rows, cols);
+            frame.marks = marks::spans(term, |p| range.contains(p), first, rows, cols);
             frame.mark = marks::fill(&theme, self.find.as_ref().is_some_and(|bar| bar.found));
+        }
+        // The find bar's other matches in view, fainter (P5-143e).
+        if let Some((_, regex)) = self.find.as_mut().and_then(|bar| bar.regex.as_mut())
+            && rows > 0
+            && cols > 0
+        {
+            let top = Line(first - offset).max(term.topmost_line());
+            let from = GridPoint::new(top, Column(0));
+            let to = GridPoint::new(
+                Line(i32::from(rows) - 1 - offset),
+                Column(usize::from(cols) - 1),
+            );
+            for found in find::between(term, regex, from, to, OTHERS_IN_VIEW) {
+                let current = selection.as_ref().is_some_and(|range| {
+                    (range.start, range.end) == (*found.start(), *found.end())
+                });
+                if current {
+                    continue;
+                }
+                let (start, end) = (found.start().line.0 + offset, found.end().line.0 + offset);
+                let last = (end + 1).min(i32::from(rows)) as u16;
+                frame.others.push(marks::spans(
+                    term,
+                    |p| found.contains(&p),
+                    start.max(first),
+                    last,
+                    cols,
+                ));
+            }
+            frame.other = marks::others(&theme);
+        }
+        // Scrolled back, a bar at the right edge says where; it fades once the view stays put
+        // (P5-143e). Not in a full-screen program, which has no history.
+        let alt = term.mode().contains(TermMode::ALT_SCREEN);
+        let back = if alt {
+            0.0
+        } else {
+            offset as f32 + frame.shift / metrics.line_height
+        };
+        if back != self.gauge_at {
+            self.gauge_at = back;
+            if back > 0.0 {
+                self.gauge.poke(now);
+            } else {
+                self.gauge.hide();
+            }
+        }
+        let alpha = self.gauge.alpha(now);
+        if alpha > 0.0 {
+            let height = f32::from(bounds.size.height);
+            frame.gauge = gauge::thumb(back, term.grid().history_size(), rows, height)
+                .map(|(top, length)| (top, length, alpha));
         }
         for y in first..i32::from(rows) {
             let mut cells = rows::read(term, y, cols, &theme);
+            if self.minimum_contrast {
+                rows::legible(&mut cells, crate::palette::MIN_CONTRAST);
+            }
             if let Some(link) = &link {
                 let line = Line(y - offset);
                 for (x, cell) in cells.iter_mut().enumerate() {
@@ -1791,7 +1954,12 @@ impl TerminalView {
             cursor.alpha = look.alpha;
             cursor.corners = look.corners;
         }
-        self.caret_wake = match look.next {
+        // The position bar and the size fade on the same wake (P5-143e).
+        let next = look
+            .next
+            .sooner(self.gauge.next(now))
+            .sooner(self.sized.next(now));
+        self.caret_wake = match next {
             caret::Next::Idle => None,
             caret::Next::Frame => {
                 window.request_animation_frame();
@@ -1890,6 +2058,14 @@ pub struct Frame {
     /// drawn over the backgrounds in `mark`'s colour and opacity (P5-143d3).
     marks: Vec<(i32, usize, usize)>,
     mark: (Rgb, f32),
+    /// The find bar's other matches in view, each its own shape, in `other` (P5-143e).
+    others: Vec<Vec<(i32, usize, usize)>>,
+    other: (Rgb, f32),
+    /// The position bar's thumb, scrolled back: its top and length down the grid, how strongly
+    /// it shows.
+    gauge: Option<(f32, f32, f32)>,
+    /// The grid's size as the pane is resized, and how strongly it shows.
+    size_label: Option<(String, f32)>,
 }
 
 fn terminal_font(family: &str, fallbacks: &[String]) -> Font {
@@ -2075,6 +2251,49 @@ impl Frame {
                 let _ = shaped.paint(at, px(lh), TextAlign::Left, None, window, cx);
             }
         }
+        self.paint_gauge(width, window);
+        self.paint_size(width, window, cx);
+    }
+
+    /// The history's position bar: a thin rounded thumb in the margin right of the grid.
+    fn paint_gauge(&self, width: f32, window: &mut Window) {
+        let Some((top, length, alpha)) = self.gauge else {
+            return;
+        };
+        let bounds = Bounds::new(
+            point(self.origin.x + px(width + 1.0), self.origin.y + px(top)),
+            size(px(4.0), px(length)),
+        );
+        let color = hsla(self.theme.foreground, 0.4 * alpha);
+        window.paint_quad(fill(bounds, color).corner_radii(px(2.0)));
+    }
+
+    /// The grid's size, `120×40`, in the middle of the pane, dark on light like a link's address.
+    fn paint_size(&self, width: f32, window: &mut Window, cx: &mut App) {
+        let Some((text, alpha)) = &self.size_label else {
+            return;
+        };
+        let style = Style {
+            fg: self.theme.background,
+            ..Style::default()
+        };
+        let shaped = self.shape(text, &style, style.fg, *alpha, None, window);
+        let (pad, lh) = (8.0, self.metrics.line_height);
+        let (w, h) = (f32::from(shaped.width).ceil() + 2.0 * pad, lh + 4.0);
+        let x = ((width - w) / 2.0).max(0.0);
+        let y = ((self.rows.len() as f32 * lh - h) / 2.0).max(0.0);
+        let at = |x: f32, y: f32| point(self.origin.x + px(x), self.origin.y + px(y));
+        let bounds = Bounds::new(at(x, y), size(px(w), px(h)));
+        let color = hsla(self.theme.foreground, 0.92 * alpha);
+        window.paint_quad(fill(bounds, color).corner_radii(px(5.0)));
+        let _ = shaped.paint(
+            at(x + pad, y + 2.0),
+            px(lh),
+            TextAlign::Left,
+            None,
+            window,
+            cx,
+        );
     }
 
     fn paint_grid(&self, width: f32, window: &mut Window, cx: &mut App) {
@@ -2085,7 +2304,10 @@ impl Frame {
                 window.paint_quad(self.rect(x0, self.y(row), x1 - x0, lh, hsla(span.color, 1.0)));
             }
         }
-        self.paint_marks(window);
+        for others in &self.others {
+            self.paint_marks(others, self.other, window);
+        }
+        self.paint_marks(&self.marks, self.mark, window);
         // Layered: every drawn line, then every text run, so GPUI batches them together.
         for (row, (_, runs)) in self.lines() {
             for run in runs {
@@ -2111,15 +2333,14 @@ impl Frame {
         self.paint_tip(width, window, cx);
     }
 
-    /// The selection or the find bar's match: rows that touch joined into one shape, its corners
+    /// The selection or a find bar's match: rows that touch joined into one shape, its corners
     /// rounded, over the backgrounds and under the text.
-    fn paint_marks(&self, window: &mut Window) {
-        let rows: Vec<_> = self
-            .marks
+    fn paint_marks(&self, spans: &[(i32, usize, usize)], look: (Rgb, f32), window: &mut Window) {
+        let rows: Vec<_> = spans
             .iter()
             .map(|&(row, start, end)| (row, self.x(start), self.x(end)))
             .collect();
-        let (color, opacity) = self.mark;
+        let (color, opacity) = look;
         for outline in marks::outlines(&rows, self.metrics.line_height, marks::RADIUS) {
             let at = |(x, y): (f32, f32)| self.at(x, y);
             let mut path = PathBuilder::fill();
@@ -2263,6 +2484,10 @@ impl Render for TerminalView {
         let focus = self.focus.clone();
         let stats = self.stats.clone();
         let drop_highlight = hsla(self.theme.fg(|t| t.focus), 0.08);
+        // Output came while scrolled back; `build` asks again once that changes.
+        self.pill = self
+            .session()
+            .is_some_and(|session| session.screen.lock().unwrap().pushed());
         // Only a shown pane is drawn: its notice's time starts here, and a repaint then ends it.
         let mut first = false;
         let notice = self.notice.as_mut().and_then(|notice| {
@@ -2337,6 +2562,52 @@ impl Render for TerminalView {
             )
             .children(self.find.as_ref().map(|bar| self.find_bar(bar, cx)))
             .children(notice.map(|text| self.notice_bar(text, cx)))
+            .when(self.pill, |pane| pane.child(self.new_output(cx)))
+    }
+}
+
+impl TerminalView {
+    /// Output came while the view is scrolled back (P5-143e): a pill over the pane's bottom that
+    /// goes back there.
+    fn new_output(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let ui = crate::fonts::UiFont::get(cx);
+        let highlight = hsla(self.theme.bg(|t| t.agent_selected), 1.0);
+        div()
+            .absolute()
+            .bottom(px(12.0))
+            .left_0()
+            .right_0()
+            .flex()
+            .justify_center()
+            .child(
+                div()
+                    .id("new-output")
+                    .px(px(10.0))
+                    .py(px(3.0))
+                    .rounded_full()
+                    .border_1()
+                    .border_color(hsla(self.theme.fg(|t| t.focus), 1.0))
+                    .bg(hsla(self.theme.bg(|t| t.agents_bg), 1.0))
+                    .hover(move |style| style.bg(highlight))
+                    .shadow_md()
+                    .cursor_pointer()
+                    .text_size(ui.px(12.0))
+                    .text_color(hsla(self.theme.fg(|t| t.agents_text), 1.0))
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .on_click(cx.listener(|this, _, _, cx| this.back_to_bottom(cx)))
+                    .child("↓ New output"),
+            )
+    }
+
+    /// The view back at the bottom, what came there seen.
+    fn back_to_bottom(&mut self, cx: &mut Context<Self>) {
+        if let Some(session) = self.session() {
+            let mut screen = session.screen.lock().unwrap();
+            screen.term.scroll_display(ViewScroll::Bottom);
+            screen.seen();
+        }
+        self.glide.stop();
+        cx.notify();
     }
 }
 
@@ -2481,6 +2752,7 @@ impl TerminalView {
             bar.missed = !found;
             bar.found |= found;
         }
+        self.recount(cx);
         cx.notify();
     }
 }

@@ -6,7 +6,6 @@ use alacritty_terminal::{
     Term,
     grid::Dimensions,
     index::{Column, Line, Point},
-    selection::SelectionRange,
     term::cell::Flags,
 };
 
@@ -16,12 +15,14 @@ pub const RADIUS: f32 = 4.0;
 pub const OPACITY: f32 = 0.6;
 /// How opaque the find bar's match is, in the theme's yellow.
 pub const FOUND_OPACITY: f32 = 0.33;
+/// How opaque the find bar's other matches are, in the same yellow (P5-143e).
+pub const OTHERS_OPACITY: f32 = 0.14;
 
-/// The cells `range` covers on the rows shown, `first` (-1 while the view is part of a line down)
-/// to `rows`: each row's first column and the one past its last.
+/// The cells `covers` takes in on the rows shown (a selection, a match), `first` (-1 while the
+/// view is part of a line down) to `rows`: each row's first column and the one past its last.
 pub fn spans<T>(
     term: &Term<T>,
-    range: &SelectionRange,
+    covers: impl Fn(Point) -> bool,
     first: i32,
     rows: u16,
     cols: u16,
@@ -31,7 +32,7 @@ pub fn spans<T>(
     let mut spans = Vec::new();
     for row in first..i32::from(rows) {
         let line = Line(row - offset);
-        let covered = |&col: &usize| range.contains(Point::new(line, Column(col)));
+        let covered = |&col: &usize| covers(Point::new(line, Column(col)));
         if let Some(mut start) = (0..cols).find(covered) {
             let mut end = (start..cols)
                 .rev()
@@ -73,6 +74,11 @@ pub fn fill(theme: &crate::palette::Theme, found: bool) -> ((u8, u8, u8), f32) {
     } else {
         (lifted(theme.selection, theme.background, OPACITY), OPACITY)
     }
+}
+
+/// The find bar's other matches: the current one's yellow, fainter (P5-143e).
+pub fn others(theme: &crate::palette::Theme) -> ((u8, u8, u8), f32) {
+    (theme.ansi[11], OTHERS_OPACITY)
 }
 
 /// A step of an outline.
@@ -206,7 +212,7 @@ mod tests {
         selection.update(Point::new(Line(to.0), Column(to.1)), Side::Right);
         term.selection = Some(selection);
         let range = term.selection.as_ref().unwrap().to_range(term).unwrap();
-        spans(term, &range, 0, 4, 12)
+        spans(term, |p| range.contains(p), 0, 4, 12)
     }
 
     #[test]
@@ -262,8 +268,11 @@ mod tests {
         selection.update(Point::new(Line(-1), Column(1)), Side::Right);
         term.selection = Some(selection);
         let range = term.selection.as_ref().unwrap().to_range(term).unwrap();
-        assert_eq!(spans(term, &range, -1, 2, 8), [(-1, 0, 8), (0, 0, 2)]);
-        assert_eq!(spans(term, &range, 0, 2, 8), [(0, 0, 2)]);
+        assert_eq!(
+            spans(term, |p| range.contains(p), -1, 2, 8),
+            [(-1, 0, 8), (0, 0, 2)]
+        );
+        assert_eq!(spans(term, |p| range.contains(p), 0, 2, 8), [(0, 0, 2)]);
     }
 
     #[test]
@@ -376,5 +385,19 @@ mod tests {
         let shapes = outlines(&[(0, 30.0, 100.0), (1, 0.0, 100.0)], H, RADIUS);
         assert_eq!(shapes.len(), 1);
         assert_eq!(shapes[0].steps.len(), 2 * 6);
+    }
+
+    #[test]
+    fn a_match_across_a_wrapped_line_and_the_others_fainter() {
+        let mut screen = Screen::new(Size { rows: 4, cols: 12 });
+        screen.process(b"0123456789abcdef");
+        let found = Point::new(Line(0), Column(9))..=Point::new(Line(1), Column(1));
+        assert_eq!(
+            spans(&screen.term, |p| found.contains(&p), 0, 4, 12),
+            [(0, 9, 12), (1, 0, 2)]
+        );
+        let theme = crate::palette::Theme::XTERM;
+        assert_eq!(others(&theme), (theme.ansi[11], OTHERS_OPACITY));
+        const { assert!(OTHERS_OPACITY < FOUND_OPACITY) };
     }
 }

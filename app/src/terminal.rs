@@ -49,6 +49,8 @@ pub struct Screen {
     replies: Events,
     /// What the program last set as the terminal's title, for its pane's header (P5-59).
     title: Option<String>,
+    /// Output pushed the view on while it was scrolled back, not seen since (P5-143e).
+    pushed: bool,
     /// The colours the pane draws with: what a program asking for a colour it has not set is told.
     theme: palette::Shared,
 }
@@ -66,16 +68,22 @@ impl Screen {
             events,
             replies,
             title: None,
+            pushed: false,
             theme,
         }
     }
     pub fn process(&mut self, bytes: &[u8]) -> Vec<u8> {
+        // Scrolled back, the view stays on what it shows as output pushes lines up: further back.
+        let back = self.term.grid().display_offset();
         let mut answering = Answering {
             term: &mut self.term,
             theme: &self.theme,
             replies: &self.replies,
         };
         self.parser.advance(&mut answering, bytes);
+        if back > 0 && self.term.grid().display_offset() > back {
+            self.pushed = true;
+        }
         let mut replies = Vec::new();
         for event in self.events.try_iter() {
             let reply = match event {
@@ -109,6 +117,14 @@ impl Screen {
     }
     pub fn resize(&mut self, size: Size) {
         self.term.resize(size);
+    }
+    /// Output came while the view was scrolled back, and it has not been back at the bottom since.
+    pub fn pushed(&self) -> bool {
+        self.pushed && self.term.grid().display_offset() > 0
+    }
+    /// The view is at the bottom: what came has been seen.
+    pub fn seen(&mut self) {
+        self.pushed = false;
     }
     /// The title the program last set for the terminal (OSC 0 or 2), when it set one.
     pub fn title(&self) -> Option<&str> {
@@ -645,5 +661,28 @@ mod tests {
         assert!(!screen.cursor_blinks());
         screen.process(b"\x1b[0 q");
         assert!(screen.cursor_blinks());
+    }
+
+    #[test]
+    fn output_while_scrolled_back_is_told_until_the_view_is_back_at_the_bottom() {
+        use alacritty_terminal::grid::Scroll;
+        let mut screen = Screen::new(Size { rows: 4, cols: 20 });
+        for i in 0..20 {
+            screen.process(format!("line {i}\r\n").as_bytes());
+        }
+        // At the bottom, output is seen as it comes.
+        assert!(!screen.pushed());
+        screen.term.scroll_display(Scroll::Delta(3));
+        assert!(!screen.pushed(), "scrolling is not output");
+        // A program redrawing its own line pushes nothing up.
+        screen.process(b"\rspinner");
+        assert!(!screen.pushed());
+        screen.process(b"\r\nmore\r\n");
+        assert!(screen.pushed());
+        // Back at the bottom.
+        screen.term.scroll_display(Scroll::Bottom);
+        screen.seen();
+        screen.term.scroll_display(Scroll::Delta(3));
+        assert!(!screen.pushed());
     }
 }
