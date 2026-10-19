@@ -41,7 +41,7 @@ use crate::{
     text_input::{self, Changed, TextInput},
     theme::{Theme, Translucency},
     to_tag,
-    view::{AttachEnded, Launch, Options, TerminalView, hsla},
+    view::{AttachEnded, Launch, OpenLink, Options, TerminalView, hsla, links},
     viewer::AgentMetadata,
     windows,
 };
@@ -1234,6 +1234,8 @@ pub struct PaddockWindow {
     menu_state: Option<(bool, bool, bool, bool)>,
     /// The pet as configured: shown, and which.
     pet_setting: (bool, crate::pet::Pet),
+    /// What a file ⌘-clicked in a terminal opens with (`open_files_with`; P5-143b).
+    open_files_with: String,
     /// A close or quit question is showing.
     asking: bool,
     /// The Inbox: its list and reply box while it is open, and what was typed and sent in it.
@@ -1448,6 +1450,7 @@ impl PaddockWindow {
                 .then(|| cx.new(|cx| PetView::new(config.mascot, cx))),
             menu_state: None,
             pet_setting: (config.mascot_enabled, config.mascot),
+            open_files_with: config.open_files_with.clone(),
             asking: false,
             inbox: inbox_panel::Inbox::default(),
             chooser: Chooser::default(),
@@ -2525,7 +2528,34 @@ impl PaddockWindow {
             sidebar.read(cx).refresh()
         })
         .detach();
+        cx.subscribe_in(&view, window, |this, _, OpenLink(target), window, cx| {
+            this.open_link(target, window, cx)
+        })
+        .detach();
         view
+    }
+
+    /// A link ⌘-clicked in a terminal: a web address in the right sidebar's Browser, a file with
+    /// what Settings says, in the background; when that fails, the sidebar says so.
+    fn open_link(&mut self, target: &links::Target, window: &mut Window, cx: &mut Context<Self>) {
+        let (path, line, column) = match target {
+            links::Target::Url(url) => return self.browse(url.clone(), false, window, cx),
+            links::Target::File { path, line, column } => (path.clone(), *line, *column),
+        };
+        let (program, args) = links::opener(&self.open_files_with, &path, line, column);
+        let sidebar = self.sidebar.clone();
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_spawn(async move { links::open(&program, &args) })
+                .await;
+            if let Err(error) = result {
+                let text = format!("Couldn't open {}: {error:#}", path.display());
+                let _ = this.update(cx, |_, cx| {
+                    sidebar.update(cx, |sidebar, cx| sidebar.note(text, true, cx))
+                });
+            }
+        })
+        .detach();
     }
 
     fn shell(&self) -> Launch {
@@ -3300,6 +3330,7 @@ impl PaddockWindow {
             self.browser
                 .update(cx, |browser, cx| browser.set_theme(theme, cx));
         }
+        self.open_files_with = config.open_files_with.clone();
         let pet = (config.mascot_enabled, config.mascot);
         if pet != self.pet_setting {
             self.pet_setting = pet;

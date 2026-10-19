@@ -211,6 +211,13 @@ pub fn fields() -> Vec<Field> {
             false,
         ),
         field(
+            "open_files_with",
+            "Open files with",
+            Page::General,
+            Kind::Text,
+            false,
+        ),
+        field(
             "sidebar_opacity",
             "Sidebar opacity",
             Page::General,
@@ -264,6 +271,7 @@ fn shown(config: &Config, key: &str) -> String {
         "line_height" => number(f64::from(config.line_height)),
         "theme" => config.theme.clone().unwrap_or_else(|| "dune".into()),
         "corral" => config.corral.clone(),
+        "open_files_with" => config.open_files_with.clone(),
         "sidebar_opacity" => config
             .sidebar_opacity
             .map(|p| p.to_string())
@@ -1100,6 +1108,20 @@ mod tests {
     }
 
     #[test]
+    fn what_files_open_with_is_empty_by_default_and_saved_as_written() {
+        let draft = Draft::new(Some(FILE.into())).unwrap();
+        assert_eq!(draft.value("open_files_with"), "");
+        assert!(!draft.modified("open_files_with"));
+        let mut draft = Draft::new(Some(FILE.into())).unwrap();
+        draft.set("open_files_with", " code -g ");
+        let (text, restart) = written(&draft);
+        assert!(text.contains("open_files_with = \"code -g\"\n"), "{text}");
+        assert!(restart.is_empty(), "{restart:?}");
+        assert_eq!(Config::parse(&text).unwrap().open_files_with, "code -g");
+        assert_eq!(Config::default().open_files_with, "");
+    }
+
+    #[test]
     fn the_refresh_interval_sits_with_the_corral_command_on_agents() {
         let fields = fields();
         let on = |page| -> Vec<&str> {
@@ -1110,7 +1132,7 @@ mod tests {
                 .collect()
         };
         assert_eq!(on(Page::Agents), ["refresh_ms", "corral"]);
-        assert_eq!(on(Page::General).len(), 11);
+        assert_eq!(on(Page::General).len(), 12);
         assert!(!on(Page::General).contains(&"refresh_ms"));
         assert_eq!(
             Page::ALL.map(Page::label),

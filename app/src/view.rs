@@ -4,6 +4,7 @@
 //! unchanged. This file only reads the parser's grid, draws it, and turns window input into the
 //! bytes Saddle's `input` module already encodes.
 mod file_drop;
+pub mod links;
 
 use crate::{
     damage,
@@ -20,10 +21,11 @@ use crate::{
 };
 use crate::{
     pty::{Bell, Session},
-    terminal::Size,
+    terminal::{Events, Size},
     viewer::{AgentMetadata, Shell, Viewer},
 };
 use alacritty_terminal::{
+    Term,
     grid::{Dimensions, Scroll as ViewScroll},
     index::{Column, Line, Point as GridPoint, Side},
     selection::{Selection, SelectionType},
@@ -31,13 +33,22 @@ use alacritty_terminal::{
     vte::ansi::CursorShape,
 };
 use gpui::{
-    App, Bounds, ClipboardItem, Context, ElementInputHandler, Entity, EntityInputHandler,
-    EventEmitter, ExternalPaths, FocusHandle, Focusable, Font, FontStyle, FontWeight, Hsla,
-    KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point, Render,
-    Rgba, ScrollDelta, ScrollWheelEvent, SharedString, Subscription, TextAlign, TextRun,
-    UTF16Selection, UnderlineStyle, Window, canvas, div, fill, point, prelude::*, px, size,
+    App, Bounds, ClipboardItem, Context, CursorStyle, DispatchPhase, ElementInputHandler, Entity,
+    EntityInputHandler, EventEmitter, ExternalPaths, FocusHandle, Focusable, Font, FontStyle,
+    FontWeight, Hsla, KeyDownEvent, ModifiersChangedEvent, MouseButton, MouseDownEvent,
+    MouseMoveEvent, MouseUpEvent, Pixels, Point, Render, Rgba, ScrollDelta, ScrollWheelEvent,
+    SharedString, Subscription, TextAlign, TextRun, UTF16Selection, UnderlineStyle, Window, canvas,
+    div, fill, point, prelude::*, px, size,
 };
-use std::{cell::RefCell, ops::Range, path::PathBuf, rc::Rc, time::Duration, time::Instant};
+use links::{Files, Link};
+use std::{
+    cell::RefCell,
+    ops::Range,
+    path::{Path, PathBuf},
+    rc::Rc,
+    time::Duration,
+    time::Instant,
+};
 
 /// How long a pane whose attach ended says nothing, while corral is asked whether its agent ended.
 const QUIET: Duration = Duration::from_secs(3);
@@ -72,9 +83,75 @@ fn note_lines(note: &str, width: f32, mut measure: impl FnMut(&str) -> f32) -> V
     lines
 }
 
+/// What a left press starts.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Start {
+    /// On a link with ⌘ held: opened when let go there, a selection if dragged away.
+    Link,
+    /// Told to the program, which asked for the mouse.
+    Report,
+    Select(SelectionType),
+}
+
+/// `on_link`: ⌘ is held over a link; `reports`: the program asked for the mouse and may have it
+/// (its agent is not paused).
+fn start(on_link: bool, clicks: usize, shift: bool, reports: bool) -> Start {
+    if on_link && clicks == 1 {
+        return Start::Link;
+    }
+    if !shift && reports {
+        return Start::Report;
+    }
+    Start::Select(selection_kind(clicks))
+}
+
+/// A double click selects a word, a triple click a line.
+fn selection_kind(clicks: usize) -> SelectionType {
+    match clicks {
+        2 => SelectionType::Semantic,
+        3.. => SelectionType::Lines,
+        _ => SelectionType::Simple,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn without_command_a_press_selects_or_goes_to_the_program_as_before() {
+        // `on_link` is only ever true with ⌘ held.
+        assert_eq!(
+            start(false, 1, false, false),
+            Start::Select(SelectionType::Simple)
+        );
+        assert_eq!(
+            start(false, 2, false, false),
+            Start::Select(SelectionType::Semantic)
+        );
+        assert_eq!(
+            start(false, 3, false, false),
+            Start::Select(SelectionType::Lines)
+        );
+        assert_eq!(start(false, 1, false, true), Start::Report);
+        assert_eq!(
+            start(false, 1, true, true),
+            Start::Select(SelectionType::Simple)
+        );
+    }
+
+    #[test]
+    fn command_on_a_link_opens_it_and_tells_the_program_nothing() {
+        assert_eq!(start(true, 1, false, false), Start::Link);
+        assert_eq!(start(true, 1, false, true), Start::Link);
+        assert_eq!(start(true, 1, true, true), Start::Link);
+        // A double or triple click selects as without ⌘.
+        assert_eq!(
+            start(true, 2, false, false),
+            Start::Select(SelectionType::Semantic)
+        );
+        assert_eq!(start(true, 2, false, true), Start::Report);
+    }
 
     #[test]
     fn empty_note_wraps_at_words_to_fit_the_pane() {
@@ -141,6 +218,10 @@ pub struct TerminalView {
     viewer: Viewer,
     /// Set only for `Launch::Command`; the viewer stays idle then.
     direct: Option<Session>,
+    /// The directory `Launch::Command` ran in, for the paths it writes.
+    direct_cwd: Option<PathBuf>,
+    /// On another machine: the paths written here are not this Mac's.
+    remote: bool,
     /// A shell to start once the previous session has ended.
     queued_shell: Option<Shell>,
     label: String,
@@ -152,11 +233,17 @@ pub struct TerminalView {
     metrics: Option<Metrics>,
     size: Size,
     origin: Point<Pixels>,
+    /// Where the grid was drawn last.
+    bounds: Bounds<Pixels>,
     theme: Rc<theme::Theme>,
     ime: Composition,
     scroll: Scroll,
-    /// A left press that started a selection, or one reported to the program.
+    /// A left press that started a selection, one reported to the program, or one on a link.
     pressed: Option<Press>,
+    /// Where the mouse is over the grid while ⌘ is held (P5-143b).
+    pointer: Option<Point<Pixels>>,
+    /// The link under it, underlined, the pointer a hand.
+    link: Option<Link>,
     /// Cursor cell of the last frame, for the input method's candidate window.
     cursor_cell: (u16, u16),
     /// When the pane was typed in, for its name tag (`to_tag`).
@@ -186,10 +273,16 @@ struct FindBar {
     _subscription: Subscription,
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, PartialEq)]
 enum Press {
     Select,
     Reported,
+    /// With ⌘ on `link`, at `at`: opened when let go there, a selection from `at` if dragged off.
+    Link {
+        link: Link,
+        at: GridPoint,
+        side: Side,
+    },
 }
 
 #[derive(Default)]
@@ -210,6 +303,8 @@ impl TerminalView {
         cx: &mut Context<Self>,
     ) -> Self {
         let size = Size { rows: 24, cols: 80 };
+        let remote = options.remote.is_some();
+        let mut direct_cwd = None;
         let mut viewer = Viewer::with(crate::corral::Client {
             program: options.corral,
             remote: options.remote,
@@ -247,6 +342,7 @@ impl TerminalView {
                 (format!("corral attach {name}"), name)
             }
             Launch::Command { argv, cwd } => {
+                direct_cwd = cwd.clone();
                 match Session::spawn(&argv, cwd.as_deref(), size, viewer.theme.clone()) {
                     Ok(session) => direct = Some(session),
                     Err(error) => note = format!("{error:#}"),
@@ -282,6 +378,8 @@ impl TerminalView {
         Self {
             viewer,
             direct,
+            direct_cwd,
+            remote,
             queued_shell: None,
             label,
             subject,
@@ -292,10 +390,13 @@ impl TerminalView {
             metrics: None,
             size,
             origin: Point::default(),
+            bounds: Bounds::default(),
             theme,
             ime: Composition::default(),
             scroll: Scroll::default(),
             pressed: None,
+            pointer: None,
+            link: None,
             cursor_cell: (0, 0),
             typing: Typing::default(),
             note,
@@ -968,13 +1069,6 @@ impl TerminalView {
 
     /// The grid cell under a window position, and the grid point counting the scrolled view.
     fn locate(&self, position: Point<Pixels>) -> Option<(u16, u16, GridPoint, Side)> {
-        let metrics = self.metrics?;
-        let (col, row, right) = grid::cell_at(
-            f32::from(position.x - self.origin.x),
-            f32::from(position.y - self.origin.y),
-            metrics,
-            self.size,
-        );
         let offset = self
             .session()?
             .screen
@@ -983,6 +1077,22 @@ impl TerminalView {
             .term
             .grid()
             .display_offset();
+        self.cell_at(position, offset)
+    }
+
+    /// [`Self::locate`] with the view scrolled `offset` lines back, for a caller holding the grid.
+    fn cell_at(
+        &self,
+        position: Point<Pixels>,
+        offset: usize,
+    ) -> Option<(u16, u16, GridPoint, Side)> {
+        let metrics = self.metrics?;
+        let (col, row, right) = grid::cell_at(
+            f32::from(position.x - self.origin.x),
+            f32::from(position.y - self.origin.y),
+            metrics,
+            self.size,
+        );
         let point = GridPoint::new(
             Line(i32::from(row) - offset as i32),
             Column(usize::from(col)),
@@ -993,6 +1103,83 @@ impl TerminalView {
             point,
             if right { Side::Right } else { Side::Left },
         ))
+    }
+
+    /// The pane's directory, which relative paths written in it are from: a shell's, as it was
+    /// opened (paddock does not follow `cd`), an agent's, or a command's.
+    fn directory(&self) -> Option<PathBuf> {
+        let shell = self.queued_shell.as_ref().or(self.viewer.shell.as_ref());
+        let dir = match shell {
+            Some(shell) => shell.cwd.clone(),
+            None if self.direct.is_some() => return self.direct_cwd.clone(),
+            None => self.viewer.target_metadata().cwd.clone()?,
+        };
+        let home = std::env::var_os("HOME").map(PathBuf::from);
+        Some(match (dir.strip_prefix('~'), home) {
+            (Some(""), Some(home)) => home,
+            (Some(rest), Some(home)) if rest.starts_with('/') => home.join(&rest[1..]),
+            _ => PathBuf::from(dir),
+        })
+    }
+
+    /// The link at `point` of `term`, the pane's grid: another machine's pane has no file links.
+    fn link_in(&self, term: &Term<Events>, point: GridPoint) -> Option<Link> {
+        if point.column.0 >= term.columns() || point.line.0 >= term.screen_lines() as i32 {
+            return None;
+        }
+        let (base, home) = (
+            self.directory(),
+            std::env::var_os("HOME").map(PathBuf::from),
+        );
+        let exists = |path: &Path| path.exists();
+        let files = Files {
+            base: base.as_deref(),
+            home: home.as_deref(),
+            exists: &exists,
+        };
+        links::at(term, point, (!self.remote).then_some(&files))
+    }
+
+    /// The link under a window position, as the grid is now.
+    fn link_at(&self, position: Point<Pixels>) -> Option<Link> {
+        if !self.bounds.contains(&position) {
+            return None;
+        }
+        let screen = self.session()?.screen.lock().unwrap();
+        let offset = screen.term.grid().display_offset();
+        let (.., point, _) = self.cell_at(position, offset)?;
+        self.link_in(&screen.term, point)
+    }
+
+    /// The mouse at `position`, ⌘ held or not: with it, the link there is underlined and the
+    /// pointer a hand; without it, or off the grid, nothing is.
+    fn hover(&mut self, position: Point<Pixels>, command: bool, cx: &mut Context<Self>) {
+        let pointer = (command && self.bounds.contains(&position)).then_some(position);
+        let link = pointer.and_then(|position| self.link_at(position));
+        if pointer != self.pointer || link != self.link {
+            (self.pointer, self.link) = (pointer, link);
+            cx.notify();
+        }
+    }
+
+    /// ⌘ pressed or let go over the pane with the keyboard.
+    fn modifiers_changed(
+        &mut self,
+        event: &ModifiersChangedEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.pressed.is_none() {
+            self.hover(window.mouse_position(), event.modifiers.platform, cx);
+        }
+    }
+
+    /// The mouse went off the grid.
+    fn left(&mut self, cx: &mut Context<Self>) {
+        if self.pointer.is_some() || self.link.is_some() {
+            (self.pointer, self.link) = (None, None);
+            cx.notify();
+        }
     }
 
     /// Reports a mouse event through `input::encode_mouse` when the program asked for the mouse,
@@ -1033,7 +1220,19 @@ impl TerminalView {
     fn mouse_down(&mut self, event: &MouseDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         window.focus(&self.focus, cx);
         use crate::input::{MouseButton as B, MouseEventKind as K};
-        if !event.modifiers.shift
+        let link = if event.modifiers.platform {
+            self.link_at(event.position)
+        } else {
+            None
+        };
+        let reports = self.mode().intersects(TermMode::MOUSE_MODE) && !self.paused();
+        let plan = start(
+            link.is_some(),
+            event.click_count,
+            event.modifiers.shift,
+            reports,
+        );
+        if plan == Start::Report
             && self.report_mouse(K::Down(B::Left), event.position, event.modifiers, cx)
         {
             self.pressed = Some(Press::Reported);
@@ -1042,10 +1241,19 @@ impl TerminalView {
         let Some((.., point, side)) = self.locate(event.position) else {
             return;
         };
-        let kind = match event.click_count {
-            2 => SelectionType::Semantic,
-            3.. => SelectionType::Lines,
-            _ => SelectionType::Simple,
+        let kind = match (plan, link) {
+            (Start::Link, Some(link)) => {
+                (self.pointer, self.link) = (Some(event.position), Some(link.clone()));
+                self.pressed = Some(Press::Link {
+                    link,
+                    at: point,
+                    side,
+                });
+                cx.notify();
+                return;
+            }
+            (Start::Select(kind), _) => kind,
+            _ => selection_kind(event.click_count),
         };
         if let Some(session) = self.session() {
             session.screen.lock().unwrap().term.selection = Some(Selection::new(kind, point, side));
@@ -1056,9 +1264,23 @@ impl TerminalView {
 
     fn mouse_move(&mut self, event: &MouseMoveEvent, _: &mut Window, cx: &mut Context<Self>) {
         use crate::input::{MouseButton as B, MouseEventKind as K};
-        match (self.pressed, event.pressed_button) {
+        match (self.pressed.clone(), event.pressed_button) {
             (Some(Press::Reported), Some(MouseButton::Left)) => {
                 self.report_mouse(K::Drag(B::Left), event.position, event.modifiers, cx);
+            }
+            (Some(Press::Link { at, side, .. }), Some(MouseButton::Left)) => {
+                // Dragged off the cell it was pressed on: a selection from there, as without ⌘.
+                if let Some((.., point, now)) = self.locate(event.position)
+                    && point != at
+                    && let Some(session) = self.session()
+                {
+                    let mut selection = Selection::new(SelectionType::Simple, at, side);
+                    selection.update(point, now);
+                    session.screen.lock().unwrap().term.selection = Some(selection);
+                    self.pressed = Some(Press::Select);
+                    self.left(cx);
+                    cx.notify();
+                }
             }
             (Some(Press::Select), Some(MouseButton::Left)) => {
                 if let Some((.., point, side)) = self.locate(event.position)
@@ -1071,8 +1293,11 @@ impl TerminalView {
                     cx.notify();
                 }
             }
-            (None, None) if self.mode().contains(TermMode::MOUSE_MOTION) => {
-                self.report_mouse(K::Moved, event.position, event.modifiers, cx);
+            (None, None) => {
+                self.hover(event.position, event.modifiers.platform, cx);
+                if self.mode().contains(TermMode::MOUSE_MOTION) {
+                    self.report_mouse(K::Moved, event.position, event.modifiers, cx);
+                }
             }
             _ => {}
         }
@@ -1084,6 +1309,7 @@ impl TerminalView {
             Some(Press::Reported) => {
                 self.report_mouse(K::Up(B::Left), event.position, event.modifiers, cx);
             }
+            Some(Press::Link { link, .. }) => cx.emit(OpenLink(link.target)),
             Some(Press::Select) => {
                 if let Some(session) = self.session() {
                     let mut screen = session.screen.lock().unwrap();
@@ -1169,6 +1395,7 @@ impl TerminalView {
         self.frame_pending = false;
         let metrics = self.metrics(window);
         self.origin = bounds.origin;
+        self.bounds = bounds;
         let size = grid::grid_size(
             f32::from(bounds.size.width),
             f32::from(bounds.size.height),
@@ -1181,6 +1408,10 @@ impl TerminalView {
             }
         }
         let focused = self.focus.is_focused(window) && window.is_window_active();
+        // ⌘ let go over a pane without the keyboard, which is not told.
+        if !window.modifiers().platform && self.pressed.is_none() {
+            self.pointer = None;
+        }
         let mut frame = Frame {
             metrics,
             origin: bounds.origin,
@@ -1212,8 +1443,21 @@ impl TerminalView {
         let selection = term.selection.as_ref().and_then(|s| s.to_range(term));
         let rows = size.rows.min(term.screen_lines() as u16);
         let cols = size.cols.min(term.columns() as u16);
+        // Looked for again: output may have moved it, or put one there.
+        let link = self
+            .pointer
+            .and_then(|position| self.cell_at(position, offset as usize))
+            .and_then(|(.., point, _)| self.link_in(term, point));
         for y in 0..rows {
-            let cells = rows::read(term, y, cols, &theme, selection.as_ref());
+            let mut cells = rows::read(term, y, cols, &theme, selection.as_ref());
+            if let Some(link) = &link {
+                let line = Line(i32::from(y) - offset);
+                for (x, cell) in cells.iter_mut().enumerate() {
+                    if link.contains(GridPoint::new(line, Column(x))) {
+                        cell.style.underline = true;
+                    }
+                }
+            }
             frame.rows.push(rows::split(&cells, theme.background));
         }
         let point = term.grid().cursor.point;
@@ -1242,6 +1486,8 @@ impl TerminalView {
         screen.term.reset_damage();
         drop(screen);
         self.cursor_cell = cursor_cell;
+        // The pointer follows on the next frame.
+        self.link = link;
         if let Some(stats) = &self.stats {
             let mut stats = stats.borrow_mut();
             let spent = started.elapsed();
@@ -1256,6 +1502,11 @@ impl TerminalView {
 pub struct AttachEnded;
 
 impl EventEmitter<AttachEnded> for TerminalView {}
+
+/// A link ⌘-clicked in the pane, for the window to open (P5-143b).
+pub struct OpenLink(pub links::Target);
+
+impl EventEmitter<OpenLink> for TerminalView {}
 
 impl Focusable for TerminalView {
     fn focus_handle(&self, _: &App) -> FocusHandle {
@@ -1531,6 +1782,7 @@ impl Render for TerminalView {
         }
         let entity = cx.entity();
         let input = entity.clone();
+        let leave = entity.downgrade();
         let focus = self.focus.clone();
         let stats = self.stats.clone();
         let drop_highlight = hsla(self.theme.fg(|t| t.focus), 0.08);
@@ -1550,7 +1802,11 @@ impl Render for TerminalView {
             .on_mouse_down(MouseButton::Left, cx.listener(Self::mouse_down))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::mouse_up))
             .on_mouse_move(cx.listener(Self::mouse_move))
+            .on_modifiers_changed(cx.listener(Self::modifiers_changed))
             .on_scroll_wheel(cx.listener(Self::scroll_wheel))
+            .when(self.link.is_some(), |pane| {
+                pane.cursor(CursorStyle::PointingHand)
+            })
             .child(
                 canvas(
                     move |bounds, window, cx| {
@@ -1559,6 +1815,13 @@ impl Render for TerminalView {
                     move |bounds, frame: Frame, window, cx| {
                         let started = Instant::now();
                         window.handle_input(&focus, ElementInputHandler::new(bounds, input), cx);
+                        // Off the grid, a link under the mouse is no longer.
+                        let leave = leave.clone();
+                        window.on_mouse_event(move |event: &MouseMoveEvent, phase, _, cx| {
+                            if phase == DispatchPhase::Bubble && !bounds.contains(&event.position) {
+                                let _ = leave.update(cx, |view, cx| view.left(cx));
+                            }
+                        });
                         frame.paint(bounds.size.width.into(), window, cx);
                         if let Some(stats) = stats {
                             stats.borrow_mut().record_paint(started.elapsed());
