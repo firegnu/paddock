@@ -19,11 +19,16 @@ pub fn grid_size(width: f32, height: f32, metrics: Metrics) -> Size {
 }
 
 /// The cell under a point relative to the grid origin, clamped into the grid, and whether the
-/// point is in the cell's right half.
-pub fn cell_at(x: f32, y: f32, metrics: Metrics, size: Size) -> (u16, u16, bool) {
+/// point is in the cell's right half. With the rows drawn `shift` pixels down, under a line
+/// (P5-143c2), the row above the first shows over them: row -1.
+pub fn cell_at(x: f32, y: f32, metrics: Metrics, size: Size, shift: f32) -> (u16, i32, bool) {
     let column = (x / metrics.cell_width).max(0.0);
     let col = (column.floor() as u16).min(size.cols.saturating_sub(1));
-    let row = ((y / metrics.line_height).max(0.0).floor() as u16).min(size.rows.saturating_sub(1));
+    let first = if shift > 0.0 { -1.0 } else { 0.0 };
+    let last = f32::from(size.rows.saturating_sub(1));
+    let row = ((y - shift) / metrics.line_height)
+        .floor()
+        .clamp(first, last) as i32;
     let right = column - f32::from(col) >= 0.5;
     (col, row, right)
 }
@@ -69,10 +74,26 @@ mod tests {
     #[test]
     fn points_map_to_clamped_cells() {
         let size = Size { rows: 10, cols: 20 };
-        assert_eq!(cell_at(0.0, 0.0, M, size), (0, 0, false));
-        assert_eq!(cell_at(13.0, 17.0, M, size), (1, 1, true));
-        assert_eq!(cell_at(-5.0, 1000.0, M, size), (0, 9, false));
-        assert_eq!(cell_at(9999.0, 5.0, M, size), (19, 0, true));
+        assert_eq!(cell_at(0.0, 0.0, M, size, 0.0), (0, 0, false));
+        assert_eq!(cell_at(13.0, 17.0, M, size, 0.0), (1, 1, true));
+        assert_eq!(cell_at(-5.0, 1000.0, M, size, 0.0), (0, 9, false));
+        assert_eq!(cell_at(9999.0, 5.0, M, size, 0.0), (19, 0, true));
+    }
+
+    #[test]
+    fn rows_drawn_part_of_a_line_down_are_found_where_they_show() {
+        let size = Size { rows: 10, cols: 20 };
+        // Half a line down: the top half line is the row above the first.
+        assert_eq!(cell_at(0.0, 0.0, M, size, 8.0), (0, -1, false));
+        assert_eq!(cell_at(0.0, 7.9, M, size, 8.0), (0, -1, false));
+        assert_eq!(cell_at(0.0, 8.0, M, size, 8.0), (0, 0, false));
+        assert_eq!(cell_at(13.0, 25.0, M, size, 8.0), (1, 1, true));
+        // Above the pane, the row that shows at its top; below, the last row.
+        assert_eq!(cell_at(0.0, -40.0, M, size, 8.0), (0, -1, false));
+        assert_eq!(cell_at(0.0, 1000.0, M, size, 8.0), (0, 9, false));
+        assert_eq!(cell_at(0.0, 159.0, M, size, 8.0), (0, 9, false));
+        // Not shifted, there is no row above.
+        assert_eq!(cell_at(0.0, -40.0, M, size, 0.0), (0, 0, false));
     }
 
     #[test]

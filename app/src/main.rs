@@ -214,6 +214,7 @@ fn main() -> Result<()> {
         line_height: config.line_height,
         blink_cursor: config.blink_cursor,
         animate_cursor: config.animate_cursor,
+        smooth_scroll: config.smooth_scroll,
         stats,
     };
     // `--attach NAME`: the instance to attach to, from public corral, so the pane can stand for

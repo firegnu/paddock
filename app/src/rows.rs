@@ -245,9 +245,10 @@ mod tests {
 }
 
 /// Reads one visible row out of the parsed grid, resolving colours and the selection highlight.
+/// Row -1 is the one above the first, shown while the view is part of a line down (P5-143c2).
 pub fn read<T>(
     term: &alacritty_terminal::Term<T>,
-    row: u16,
+    row: i32,
     cols: u16,
     theme: &crate::palette::Theme,
     selection: Option<&alacritty_terminal::selection::SelectionRange>,
@@ -263,7 +264,7 @@ pub fn read<T>(
     let colors = term.colors();
     let mut cells = Vec::with_capacity(usize::from(cols));
     for x in 0..cols {
-        let point = Point::new(Line(i32::from(row) - offset), Column(usize::from(x)));
+        let point = Point::new(Line(row - offset), Column(usize::from(x)));
         let cell = &term.grid()[point];
         let flags = cell.flags;
         let mut fg = resolve(cell.fg, colors, theme);

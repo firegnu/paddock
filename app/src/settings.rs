@@ -232,6 +232,13 @@ pub fn fields() -> Vec<Field> {
             false,
         ),
         field(
+            "smooth_scroll",
+            "Smooth scrolling",
+            Page::General,
+            Kind::Bool,
+            false,
+        ),
+        field(
             "sidebar_opacity",
             "Sidebar opacity",
             Page::General,
@@ -288,6 +295,7 @@ fn shown(config: &Config, key: &str) -> String {
         "open_files_with" => config.open_files_with.clone(),
         "blink_cursor" => config.blink_cursor.to_string(),
         "animate_cursor" => config.animate_cursor.to_string(),
+        "smooth_scroll" => config.smooth_scroll.to_string(),
         "sidebar_opacity" => config
             .sidebar_opacity
             .map(|p| p.to_string())
@@ -1157,6 +1165,25 @@ mod tests {
         assert!(config.blink_cursor && config.animate_cursor);
     }
 
+    /// The history scrolls by the pixel unless Settings turn it off (P5-143c2).
+    #[test]
+    fn smooth_scrolling_is_on_by_default_and_can_be_turned_off() {
+        let draft = Draft::new(Some(FILE.into())).unwrap();
+        assert_eq!(draft.value("smooth_scroll"), "true");
+        let field = fields()
+            .into_iter()
+            .find(|f| f.key == "smooth_scroll")
+            .unwrap();
+        assert_eq!(field.label, "Smooth scrolling");
+        assert_eq!((field.page, field.kind), (Page::General, Kind::Bool));
+        let mut draft = Draft::new(Some(FILE.into())).unwrap();
+        draft.set("smooth_scroll", "false");
+        let (text, restart) = written(&draft);
+        assert!(restart.is_empty(), "{restart:?}");
+        assert!(!Config::parse(&text).unwrap().smooth_scroll);
+        assert!(Config::default().smooth_scroll);
+    }
+
     #[test]
     fn the_refresh_interval_sits_with_the_corral_command_on_agents() {
         let fields = fields();
@@ -1168,7 +1195,7 @@ mod tests {
                 .collect()
         };
         assert_eq!(on(Page::Agents), ["refresh_ms", "corral"]);
-        assert_eq!(on(Page::General).len(), 14);
+        assert_eq!(on(Page::General).len(), 15);
         assert!(!on(Page::General).contains(&"refresh_ms"));
         assert_eq!(
             Page::ALL.map(Page::label),
