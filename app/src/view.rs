@@ -215,7 +215,7 @@ impl TerminalView {
             remote: options.remote,
         });
         let bell = Bell::new();
-        viewer.theme = *theme.terminal();
+        viewer.set_theme(*theme.terminal());
         viewer.ring = Some(bell.for_changes());
         let mut direct = None;
         let mut note = String::new();
@@ -247,7 +247,7 @@ impl TerminalView {
                 (format!("corral attach {name}"), name)
             }
             Launch::Command { argv, cwd } => {
-                match Session::spawn(&argv, cwd.as_deref(), size, *theme.terminal()) {
+                match Session::spawn(&argv, cwd.as_deref(), size, viewer.theme.clone()) {
                     Ok(session) => direct = Some(session),
                     Err(error) => note = format!("{error:#}"),
                 }
@@ -315,11 +315,8 @@ impl TerminalView {
     /// New colours from Settings, at once; a program asking for colours from now on is told them.
     pub fn set_theme(&mut self, theme: Rc<theme::Theme>, cx: &mut Context<Self>) {
         self.theme = theme;
-        let terminal = *self.theme.terminal();
-        self.viewer.theme = terminal;
-        if let Some(session) = self.session() {
-            session.screen.lock().unwrap().set_theme(terminal);
-        }
+        // Shared with every session here, the ones starting too.
+        self.viewer.set_theme(*self.theme.terminal());
         cx.notify();
     }
 
@@ -611,8 +608,7 @@ impl TerminalView {
             .is_some_and(|s| damage::take_changed(&mut s.screen.lock().unwrap().term))
     }
 
-    /// The session shown, when it is new: handed the bell, so the one before rings no more, and
-    /// the pane's colours, which may have changed while it started.
+    /// The session shown, when it is new: handed the bell, so the one before rings no more.
     fn adopt(&mut self) {
         let id = self.session().map(Session::id);
         if id == self.shown {
@@ -620,14 +616,7 @@ impl TerminalView {
         }
         self.shown = id;
         match self.session() {
-            Some(session) => {
-                session
-                    .screen
-                    .lock()
-                    .unwrap()
-                    .set_theme(*self.theme.terminal());
-                session.set_ring(self.bell.for_session());
-            }
+            Some(session) => session.set_ring(self.bell.for_session()),
             None => self.bell.silence(),
         }
     }

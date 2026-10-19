@@ -57,7 +57,7 @@ done
         &[program],
         Some(temp.path()),
         Size { rows: 10, cols: 40 },
-        paddock::palette::Theme::XTERM,
+        paddock::palette::Shared::default(),
     )
     .unwrap();
     wait_for(&session, "READY");
@@ -99,7 +99,7 @@ sh -c 'trap "printf HUP > job-hup; exit 0" HUP; printf "JOB READY\r\n"; while :;
         temp.path(),
         Size { rows: 10, cols: 40 },
         &[],
-        paddock::palette::Theme::XTERM,
+        paddock::palette::Shared::default(),
     )
     .unwrap();
     wait_for(&session, "JOB READY");
@@ -134,7 +134,7 @@ fn a_shell_gets_the_identity_paddock_ctl_knows_it_by() {
             ("PADDOCK_INSTANCE".into(), "0123456789abcdef".into()),
             ("PADDOCK_PANE".into(), "7".into()),
         ],
-        paddock::palette::Theme::XTERM,
+        paddock::palette::Shared::default(),
     )
     .unwrap();
     wait_for(&session, "ID=0123456789abcdef/7");

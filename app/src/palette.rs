@@ -4,6 +4,7 @@ use alacritty_terminal::{
     term::color::Colors,
     vte::ansi::{Color, NamedColor},
 };
+use std::sync::{Arc, Mutex};
 
 pub type Rgb = (u8, u8, u8);
 
@@ -34,6 +35,28 @@ impl Theme {
             0..=15 => self.ansi[usize::from(index)],
             _ => indexed(index),
         }
+    }
+}
+
+/// A pane's colours, shared with every session it runs or is starting: a program asking for a
+/// colour is told them as they are then. The pane changes them in place.
+#[derive(Clone)]
+pub struct Shared(Arc<Mutex<Theme>>);
+impl Shared {
+    pub fn new(theme: Theme) -> Self {
+        Self(Arc::new(Mutex::new(theme)))
+    }
+    pub fn get(&self) -> Theme {
+        *self.0.lock().unwrap()
+    }
+    pub fn set(&self, theme: Theme) {
+        *self.0.lock().unwrap() = theme;
+    }
+}
+/// xterm's own colours, until the pane hands its own.
+impl Default for Shared {
+    fn default() -> Self {
+        Self::new(Theme::XTERM)
     }
 }
 

@@ -42,26 +42,47 @@ pub struct Screen {
     /// What the program last set as the terminal's title, for its pane's header (P5-59).
     title: Option<String>,
     /// The colours the pane draws with: what a program asking for a colour it has not set is told.
-    theme: palette::Theme,
+    theme: palette::Shared,
+    /// The last byte parsed was ESC: a `\` now ends an OSC.
+    after_esc: bool,
 }
 impl Screen {
     pub fn new(size: Size) -> Self {
+        Self::with_theme(size, palette::Shared::default())
+    }
+    /// `theme`: the pane's colours, read when a program asks for one.
+    pub fn with_theme(size: Size, theme: palette::Shared) -> Self {
         let (tx, events) = mpsc::channel();
         Self {
             term: Term::new(Default::default(), &size, Events(tx)),
             parser: Processor::new(),
             events,
             title: None,
-            theme: palette::Theme::XTERM,
+            theme,
+            after_esc: false,
         }
     }
-    /// The colours the pane draws with, for the answers to colour queries from now on.
-    pub fn set_theme(&mut self, theme: palette::Theme) {
-        self.theme = theme;
-    }
+    /// Parses `bytes` and returns the replies to the queries in them. Cut after each OSC's end
+    /// (BEL, or ST: ESC `\`, the ESC maybe in the read before), so each query is answered as the
+    /// colours are right then, however the PTY split its output.
     pub fn process(&mut self, bytes: &[u8]) -> Vec<u8> {
-        self.parser.advance(&mut self.term, bytes);
         let mut replies = Vec::new();
+        let mut start = 0;
+        for (at, &byte) in bytes.iter().enumerate() {
+            let ends = byte == 0x07 || (byte == b'\\' && self.after_esc);
+            self.after_esc = byte == 0x1b;
+            if ends {
+                self.advance(&bytes[start..=at], &mut replies);
+                start = at + 1;
+            }
+        }
+        if start < bytes.len() {
+            self.advance(&bytes[start..], &mut replies);
+        }
+        replies
+    }
+    fn advance(&mut self, bytes: &[u8], replies: &mut Vec<u8>) {
+        self.parser.advance(&mut self.term, bytes);
         for event in self.events.try_iter() {
             let reply = match event {
                 Event::PtyWrite(text) => text,
@@ -86,7 +107,6 @@ impl Screen {
             };
             replies.extend_from_slice(reply.as_bytes());
         }
-        replies
     }
     /// What palette entry `index` (OSC 4's 0–255, then OSC 10–12's foreground, background and
     /// cursor) is as the pane draws it: what the program set there, or else the theme's.
@@ -97,7 +117,7 @@ impl Screen {
             258 => Color::Named(NamedColor::Cursor),
             _ => Color::Named(NamedColor::Foreground),
         };
-        let (r, g, b) = palette::resolve(color, self.term.colors(), &self.theme);
+        let (r, g, b) = palette::resolve(color, self.term.colors(), &self.theme.get());
         Rgb { r, g, b }
     }
     pub fn resize(&mut self, size: Size) {
@@ -152,9 +172,7 @@ mod tests {
     };
 
     fn themed() -> Screen {
-        let mut screen = Screen::new(Size { rows: 4, cols: 20 });
-        screen.set_theme(THEME);
-        screen
+        Screen::with_theme(Size { rows: 4, cols: 20 }, palette::Shared::new(THEME))
     }
 
     fn reply(screen: &mut Screen, query: &[u8]) -> String {
@@ -220,11 +238,13 @@ mod tests {
 
     #[test]
     fn after_a_theme_change_queries_are_answered_with_the_new_theme() {
-        let mut screen = themed();
+        let theme = palette::Shared::new(THEME);
+        let mut screen = Screen::with_theme(Size { rows: 4, cols: 20 }, theme.clone());
         let mut light = THEME;
         light.background = (0xf0, 0xf1, 0xf2);
         light.ansi[1] = (0x44, 0x55, 0x66);
-        screen.set_theme(light);
+        // The pane changes its colours; the screen reads them.
+        theme.set(light);
         assert_eq!(
             reply(&mut screen, b"\x1b]11;?\x07"),
             "\x1b]11;rgb:f0f0/f1f1/f2f2\x07"
@@ -233,5 +253,70 @@ mod tests {
             reply(&mut screen, b"\x1b]4;1;?\x07"),
             "\x1b]4;1;rgb:4444/5555/6666\x07"
         );
+    }
+
+    /// The replies to `stream` read in `parts` (cut at these offsets).
+    fn replies_in_parts(stream: &[u8], cuts: &[usize]) -> String {
+        let mut screen = themed();
+        let mut replies = Vec::new();
+        let mut start = 0;
+        for &cut in cuts.iter().chain(std::iter::once(&stream.len())) {
+            replies.extend(screen.process(&stream[start..cut]));
+            start = cut;
+        }
+        String::from_utf8(replies).unwrap()
+    }
+
+    /// However the PTY splits the output, each query is answered with the colour as it was right
+    /// then: whole, cut after each sequence, cut between every byte (an ESC and its `\` apart).
+    #[test]
+    fn a_query_is_answered_as_the_colour_was_then_however_the_output_is_cut() {
+        let bel: &[&[u8]] = &[
+            b"\x1b]4;1;rgb:12/34/56\x07",
+            b"\x1b]4;1;?\x07",
+            b"\x1b]104;1\x07",
+            b"\x1b]4;1;?\x07",
+            b"\x1b]11;rgb:01/02/03\x07",
+            b"\x1b]11;?\x07",
+            b"\x1b]11;rgb:04/05/06\x07",
+            b"\x1b]11;?\x07",
+            b"\x1b]111\x07",
+            b"\x1b]11;?\x07",
+        ];
+        let st: Vec<Vec<u8>> = bel
+            .iter()
+            .map(|part| {
+                let mut part = part[..part.len() - 1].to_vec();
+                part.extend_from_slice(b"\x1b\\");
+                part
+            })
+            .collect();
+        let want_bel = "\x1b]4;1;rgb:1212/3434/5656\x07\x1b]4;1;rgb:1111/2222/3333\x07\
+                        \x1b]11;rgb:0101/0202/0303\x07\x1b]11;rgb:0404/0505/0606\x07\
+                        \x1b]11;rgb:1e1e/1f1f/2020\x07";
+        let want_st = want_bel.replace('\x07', "\x1b\\");
+        for (parts, want) in [
+            (
+                bel.iter().map(|p| p.to_vec()).collect::<Vec<_>>(),
+                want_bel.to_owned(),
+            ),
+            (st, want_st),
+        ] {
+            let stream: Vec<u8> = parts.concat();
+            let mut each = Vec::new();
+            let mut at = 0;
+            for part in &parts[..parts.len() - 1] {
+                at += part.len();
+                each.push(at);
+            }
+            let every: Vec<usize> = (1..stream.len()).collect();
+            assert_eq!(replies_in_parts(&stream, &each), want, "cut after each");
+            assert_eq!(replies_in_parts(&stream, &every), want, "cut at every byte");
+            assert_eq!(replies_in_parts(&stream, &[]), want, "whole");
+            // An ESC at the end of one read, its `\` and the rest at the start of the next.
+            if let Some(st) = stream.windows(2).position(|w| w == b"\x1b\\") {
+                assert_eq!(replies_in_parts(&stream, &[st + 1]), want, "ESC, \\ apart");
+            }
+        }
     }
 }

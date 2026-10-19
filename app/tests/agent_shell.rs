@@ -80,7 +80,7 @@ impl Fixture {
                 cols: 160,
             },
             &[],
-            paddock::palette::Theme::XTERM,
+            paddock::palette::Shared::default(),
         )
         .unwrap()
     }
@@ -345,7 +345,7 @@ exit 2
             cols: 160,
         },
         &[],
-        paddock::palette::Theme::XTERM,
+        paddock::palette::Shared::default(),
     )
     .unwrap();
     let deadline = Instant::now() + Duration::from_secs(5);
@@ -458,7 +458,7 @@ fn agent_shell_hooks_survive_rc_path_changes_without_changing_plain_shells() {
                     cols: 160,
                 },
                 &[],
-                paddock::palette::Theme::XTERM,
+                paddock::palette::Shared::default(),
             )
             .unwrap();
             let deadline = Instant::now() + Duration::from_secs(5);

@@ -131,12 +131,12 @@ pub struct Session {
     _kept: Option<Box<dyn Send + Sync>>,
 }
 impl Session {
-    /// `theme`: the pane's colours, which the program is told when it asks.
+    /// `theme`: the pane's colours, which the program is told as they are when it asks.
     pub fn spawn(
         command: &[String],
         cwd: Option<&Path>,
         size: Size,
-        theme: palette::Theme,
+        theme: palette::Shared,
     ) -> Result<Self> {
         Self::spawn_owned(command, cwd, size, None, theme)
     }
@@ -145,7 +145,7 @@ impl Session {
         cwd: &Path,
         size: Size,
         env: &[(String, String)],
-        theme: palette::Theme,
+        theme: palette::Shared,
     ) -> Result<Self> {
         Self::spawn_owned(command, Some(cwd), size, Some(env), theme)
     }
@@ -154,7 +154,7 @@ impl Session {
         cwd: Option<&Path>,
         size: Size,
         env: Option<&[(String, String)]>,
-        theme: palette::Theme,
+        theme: palette::Shared,
     ) -> Result<Self> {
         let program = command.first().context("empty terminal command")?;
         let spawning = crate::command::spawn_guard();
@@ -188,9 +188,7 @@ impl Session {
             .with_context(|| format!("starting {program}"))?;
         drop(pair.slave);
         drop(spawning);
-        let mut screen = Screen::new(size);
-        screen.set_theme(theme);
-        let screen = Arc::new(Mutex::new(screen));
+        let screen = Arc::new(Mutex::new(Screen::with_theme(size, theme)));
         // Unbounded: typing, pastes and replies wait their turn, none is turned away. What is
         // left once the program has gone is dropped with the thread.
         let (input, rx) = mpsc::channel::<Vec<u8>>();
@@ -439,7 +437,7 @@ mod tests {
             &command,
             None,
             Size { rows: 24, cols: 80 },
-            palette::Theme::XTERM,
+            palette::Shared::default(),
         )
         .unwrap();
         let deadline = Instant::now() + Duration::from_secs(5);
@@ -501,7 +499,7 @@ mod tests {
             &command,
             None,
             Size { rows: 24, cols: 80 },
-            palette::Theme::XTERM,
+            palette::Shared::default(),
         )
         .unwrap();
         let deadline = Instant::now() + Duration::from_secs(5);
@@ -553,7 +551,7 @@ mod tests {
             &std::env::temp_dir(),
             size,
             &[],
-            palette::Theme::XTERM,
+            palette::Shared::default(),
         )
         .unwrap()
     }
@@ -622,7 +620,7 @@ mod tests {
             &command,
             None,
             Size { rows: 24, cols: 80 },
-            palette::Theme::XTERM,
+            palette::Shared::default(),
         )
         .unwrap();
         let wait_title = |want: &str, within: Duration| {
@@ -661,7 +659,7 @@ mod tests {
             &command,
             None,
             Size { rows: 24, cols: 80 },
-            palette::Theme::XTERM,
+            palette::Shared::default(),
         )
         .unwrap();
         session.set_ring(bell.for_session());
@@ -689,7 +687,7 @@ mod tests {
         let rings = bell.receiver();
         let command = ["/bin/sh", "-c", "sleep 0.3"].map(str::to_owned);
         let size = Size { rows: 24, cols: 80 };
-        let session = Session::spawn(&command, None, size, palette::Theme::XTERM).unwrap();
+        let session = Session::spawn(&command, None, size, palette::Shared::default()).unwrap();
         session.set_ring(bell.for_session());
         assert!(rang(&rings, Duration::from_secs(3)), "the end did not ring");
         assert!(bell.take_changed(), "rang as output only");
@@ -703,7 +701,7 @@ mod tests {
             &command,
             None,
             Size { rows: 24, cols: 80 },
-            palette::Theme::XTERM,
+            palette::Shared::default(),
         )
         .unwrap();
         thread::sleep(Duration::from_millis(300));
