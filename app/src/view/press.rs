@@ -71,6 +71,11 @@ impl Mouse {
         self.pressed.is_some()
     }
 
+    /// A selection is being dragged: not one told to the program, nor a press on a link yet.
+    pub fn selecting(&self) -> bool {
+        matches!(self.pressed, Some(Press::Select | Press::LinkDrag))
+    }
+
     pub fn down(&mut self, down: Down) -> Act {
         if down.clicks <= 1 {
             self.on_link = false;
@@ -153,7 +158,8 @@ impl Mouse {
                     Act::Nothing
                 }
             }
-            Some(Press::LinkDrag) => {
+            // A selection let go off the pane, which hears only what happens over it, ends here.
+            Some(Press::LinkDrag | Press::Select) => {
                 self.pressed = None;
                 Act::EndSelect
             }
@@ -388,5 +394,59 @@ mod tests {
         let_go(&mut mouse, &mut done, 3, true);
         assert_eq!(done.opened(), 0, "{:?}", done.0);
         assert!(!mouse.pressed());
+    }
+
+    fn down(mouse: &mut Mouse, link: bool, reports: bool) -> Act {
+        mouse.down(Down {
+            link: link.then(super::tests::link),
+            command: link,
+            clicks: 1,
+            shift: false,
+            reports,
+            cell: Some(cell(3)),
+        })
+    }
+
+    /// Only a selection being dragged scrolls past an edge (P5-143d2).
+    #[test]
+    fn a_selection_dragged_is_selecting_a_press_told_to_the_program_or_on_a_link_is_not() {
+        let mut mouse = Mouse::default();
+        assert!(!mouse.selecting());
+        down(&mut mouse, false, false);
+        assert!(mouse.selecting());
+        mouse.pane_up();
+        assert!(!mouse.selecting());
+        // The program asked for the mouse.
+        down(&mut mouse, false, true);
+        assert!(!mouse.selecting());
+        mouse.pane_up();
+        // ⌘ on a link: not until it is dragged off it, then a selection.
+        down(&mut mouse, true, false);
+        assert!(!mouse.selecting());
+        mouse.window_move(Some(cell(7)), true, true);
+        assert!(mouse.selecting());
+        mouse.window_up(Some(cell(7)), true);
+        assert!(!mouse.selecting());
+    }
+
+    /// Let go off the pane, which only the window hears: the selection drag ends there too.
+    #[test]
+    fn a_selection_let_go_off_the_pane_ends() {
+        let mut mouse = Mouse::default();
+        down(&mut mouse, false, false);
+        assert_eq!(mouse.window_up(Some(cell(0)), false), Act::EndSelect);
+        assert!(!mouse.pressed());
+        assert_eq!(mouse.pane_up(), Act::Nothing);
+        // A move without the button, its letting go missed.
+        down(&mut mouse, false, false);
+        assert_eq!(
+            mouse.window_move(Some(cell(0)), false, false),
+            Act::EndSelect
+        );
+        assert!(!mouse.pressed());
+        // The window losing the keyboard.
+        down(&mut mouse, false, false);
+        assert_eq!(mouse.cancel(), Act::EndSelect);
+        assert!(!mouse.selecting());
     }
 }

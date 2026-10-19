@@ -4,6 +4,7 @@
 //! unchanged. This file only reads the parser's grid, draws it, and turns window input into the
 //! bytes Saddle's `input` module already encodes.
 mod caret;
+mod edge;
 mod file_drop;
 mod glide;
 pub mod links;
@@ -221,6 +222,8 @@ pub struct TerminalView {
     /// The history scrolled by the pixel, and a wheel's slide (P5-143c2); Settings' `smooth_scroll`.
     glide: glide::Glide,
     smooth_scroll: bool,
+    /// A selection dragged past the top or bottom, and where the mouse is (P5-143d2).
+    edge: Option<(edge::Edge, Point<Pixels>)>,
     /// Device pixels to a pixel, as the last frame was drawn.
     scale: f32,
 }
@@ -325,6 +328,7 @@ impl TerminalView {
             if !window.is_window_active() {
                 let act = this.mouse.cancel();
                 this.act(act, Point::default(), gpui::Modifiers::default(), cx);
+                this.edge = None;
                 this.left(cx);
             }
         })
@@ -377,6 +381,7 @@ impl TerminalView {
             blink_cursor: options.blink_cursor,
             animate_cursor: options.animate_cursor,
             glide: glide::Glide::default(),
+            edge: None,
             smooth_scroll: options.smooth_scroll,
             scale: 1.0,
         }
@@ -1389,6 +1394,7 @@ impl TerminalView {
     fn mouse_up(&mut self, event: &MouseUpEvent, _: &mut Window, cx: &mut Context<Self>) {
         let act = self.mouse.pane_up();
         self.act(act, event.position, event.modifiers, cx);
+        self.edge = None;
     }
 
     /// The mouse moved anywhere in the window: off the grid, a link under it is no longer; a
@@ -1408,6 +1414,7 @@ impl TerminalView {
         let left = event.pressed_button == Some(MouseButton::Left);
         let act = self.mouse.window_move(cell, inside, left);
         self.act(act, event.position, event.modifiers, cx);
+        self.follow_edge(event.position, left, cx);
     }
 
     /// Let go anywhere in the window.
@@ -1418,6 +1425,33 @@ impl TerminalView {
             .map(|(.., point, side)| (point, side));
         let act = self.mouse.window_up(cell, inside);
         self.act(act, event.position, event.modifiers, cx);
+        self.edge = None;
+    }
+
+    /// A selection dragged above or below the grid goes on through the history, frame by frame
+    /// ([`Self::build`]); back over the grid, or let go, it stops (P5-143d2).
+    fn follow_edge(&mut self, position: Point<Pixels>, left: bool, cx: &mut Context<Self>) {
+        let Some(metrics) = self.metrics else {
+            return;
+        };
+        let y = f32::from(position.y - self.bounds.origin.y);
+        let height = f32::from(self.bounds.size.height);
+        let full_screen = self.mode().contains(TermMode::ALT_SCREEN);
+        let selecting = left && self.mouse.selecting();
+        if !edge::wanted(selecting, full_screen, y, height, metrics.line_height) {
+            self.edge = None;
+            return;
+        }
+        match &mut self.edge {
+            Some((edge, at)) => {
+                edge.aim(y, height);
+                *at = position;
+            }
+            None => {
+                self.edge = Some((edge::Edge::new(y, height, Instant::now()), position));
+                cx.notify();
+            }
+        }
     }
 
     fn scroll_wheel(&mut self, event: &ScrollWheelEvent, _: &mut Window, cx: &mut Context<Self>) {
@@ -1583,6 +1617,41 @@ impl TerminalView {
         // Held apart from `self`, so the link can be shown while the grid is read.
         let shared = session.screen.clone();
         let mut screen = shared.lock().unwrap();
+        // A selection dragged past the top or bottom goes on through the history (P5-143d2), its
+        // end on the row under the mouse; not once let go, nor in a full-screen program.
+        if self.edge.is_some()
+            && (!self.mouse.selecting() || screen.term.mode().contains(TermMode::ALT_SCREEN))
+        {
+            self.edge = None;
+        }
+        if let Some((edge, position)) = &mut self.edge {
+            let grid = screen.term.grid();
+            let (lines, history) = (grid.display_offset(), grid.history_size());
+            let (to, going) = edge.frame(
+                &mut self.glide,
+                self.smooth_scroll,
+                lines,
+                history,
+                metrics.line_height,
+                Instant::now(),
+            );
+            let position = *position;
+            if to != lines {
+                screen
+                    .term
+                    .scroll_display(ViewScroll::Delta(to as i32 - lines as i32));
+            }
+            if going {
+                window.request_animation_frame();
+            } else {
+                self.edge = None;
+            }
+            if let Some((.., point, side)) = self.cell_at(position, to)
+                && let Some(selection) = &mut screen.term.selection
+            {
+                selection.update(point, side);
+            }
+        }
         // A wheel's slide goes on, frame by frame, until it is there.
         let grid = screen.term.grid();
         let (lines, history) = (grid.display_offset(), grid.history_size());
