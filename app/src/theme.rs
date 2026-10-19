@@ -552,13 +552,14 @@ mod tests {
             let (ground, sidebar) = (theme.bg(|t| t.bg), theme.bg(|t| t.agents_bg));
             let muted = contrast(theme.fg(|t| t.muted), ground);
             assert!(muted >= 4.5, "{name} muted: {muted:.2}:1 < 4.5:1");
-            let quiet: [(&str, Pick, f64); 8] = [
+            let quiet: [(&str, Pick, f64); 9] = [
                 ("agents_dim", |t| t.agents_dim, 4.5),
                 ("agents_dimmer", |t| t.agents_dimmer, 3.0),
                 ("agents_green", |t| t.agents_green, 4.5),
                 ("agents_red", |t| t.agents_red, 4.5),
                 ("agents_blue", |t| t.agents_blue, 4.5),
                 ("agents_yellow", |t| t.agents_yellow, 4.5),
+                ("agents_sandbox", |t| t.agents_sandbox, 4.5),
                 ("agent_stalled", |t| t.agent_stalled, 4.5),
                 ("agent_starting", |t| t.agent_starting, 4.5),
             ];
@@ -567,6 +568,46 @@ mod tests {
                 assert!(
                     contrast >= least,
                     "{name} {key}: {contrast:.2}:1 < {least}:1"
+                );
+            }
+        }
+    }
+
+    /// The hue of `color`, in degrees.
+    fn hue((r, g, b): Rgb) -> f64 {
+        let [r, g, b] = [r, g, b].map(|c| f64::from(c) / 255.0);
+        let (max, min) = (r.max(g).max(b), r.min(g).min(b));
+        let span = max - min;
+        if span == 0.0 {
+            return 0.0;
+        }
+        let turn = if max == r {
+            ((g - b) / span).rem_euclid(6.0)
+        } else if max == g {
+            (b - r) / span + 2.0
+        } else {
+            (r - g) / span + 4.0
+        };
+        turn * 60.0
+    }
+
+    #[test]
+    fn a_sandboxed_agents_pill_is_apart_from_the_accent_and_the_count() {
+        // The pill sits beside the controller's delegates mark (accent) and holds the yellow
+        // count (P5-145).
+        for preset in Preset::ALL {
+            let name = preset.name();
+            let theme = theme(&format!("theme = \"{name}\"")).unwrap();
+            let sandbox = hue(theme.fg(|t| t.agents_sandbox));
+            for (key, other) in [
+                ("agents_accent", theme.fg(|t| t.agents_accent)),
+                ("agents_yellow", theme.fg(|t| t.agents_yellow)),
+            ] {
+                let turn = (sandbox - hue(other)).abs();
+                let apart = turn.min(360.0 - turn);
+                assert!(
+                    apart >= 30.0,
+                    "{name} agents_sandbox near {key}: {apart:.0}°"
                 );
             }
         }

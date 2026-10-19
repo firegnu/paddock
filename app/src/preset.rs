@@ -73,6 +73,7 @@ pub const AGENTS_RED: Color = Color::Rgb(0xe3, 0x72, 0x64);
 pub const AGENTS_BLUE: Color = Color::Rgb(0x7f, 0xa9, 0xea);
 pub const AGENTS_YELLOW: Color = Color::Rgb(0xd9, 0xb2, 0x5f);
 pub const AGENTS_PURPLE: Color = Color::Rgb(0xa5, 0x8b, 0xdc);
+pub const AGENTS_SANDBOX: Color = Color::Rgb(0x6c, 0xc4, 0xad);
 
 /// How a preset's sidebar column lies over the system's sidebar material (P5-19b): `wash`, how
 /// much of the sidebar's own colour is laid over the material; `lit`, how much of the text colour
@@ -273,6 +274,7 @@ fn tide() -> Theme {
         agents_blue: rgb(0x7ea2ee),
         agents_yellow: rgb(0xdbbd6e),
         agents_purple: rgb(0xa99ae6),
+        agents_sandbox: rgb(0x67c9a5),
         claude: rgb(0xe48c66),
         codex: rgb(0x6fd3c2),
         pi: rgb(0xeef2f7),
@@ -324,6 +326,7 @@ fn lagoon() -> Theme {
         agents_blue: rgb(0x7ea2ee),
         agents_yellow: rgb(0xdbbd6e),
         agents_purple: rgb(0xa99ae6),
+        agents_sandbox: rgb(0x8fd18a),
         claude: rgb(0xe48c66),
         codex: rgb(0x6fd3c2),
         pi: rgb(0xeef5f2),
@@ -378,6 +381,7 @@ fn catppuccin() -> Theme {
         agents_blue: rgb(0x89b4fa),
         agents_yellow: rgb(0xf9e2af),
         agents_purple: rgb(0xb4befe),
+        agents_sandbox: rgb(0x94e2d5),
         claude: rgb(0xfab387),
         codex: rgb(0x94e2d5),
         pi: rgb(0xcdd6f4),
@@ -435,6 +439,7 @@ fn tokyo_night() -> Theme {
         agents_blue: rgb(0x7aa2f7),
         agents_yellow: rgb(0xe0af68),
         agents_purple: rgb(0xbb9af7),
+        agents_sandbox: rgb(0x73daca),
         claude: rgb(0xff9e64),
         codex: rgb(0x73daca),
         pi: rgb(0xc0caf5),
@@ -492,6 +497,7 @@ fn rose_pine() -> Theme {
         agents_blue: rgb(0x9ccfd8),
         agents_yellow: rgb(0xf6c177),
         agents_purple: rgb(0xc4a7e7),
+        agents_sandbox: rgb(0x9ccfd8),
         claude: rgb(0xebbcba),
         codex: rgb(0x9ccfd8),
         pi: rgb(0xe0def4),
@@ -548,6 +554,7 @@ fn kanagawa() -> Theme {
         agents_blue: rgb(0x7e9cd8),
         agents_yellow: rgb(0xdca561),
         agents_purple: rgb(0x957fb8),
+        agents_sandbox: rgb(0x7aa89f),
         claude: rgb(0xffa066),
         codex: rgb(0x7aa89f),
         pi: rgb(0xdcd7ba),
@@ -598,6 +605,8 @@ pub struct Theme {
     pub agents_blue: Color,
     pub agents_yellow: Color,
     pub agents_purple: Color,
+    /// A sandboxed agent's own lock and pill (P5-145), set apart from the accent and yellow.
+    pub agents_sandbox: Color,
     pub claude: Color,
     pub codex: Color,
     pub pi: Color,
@@ -646,6 +655,7 @@ impl Default for Theme {
             agents_blue: AGENTS_BLUE,
             agents_yellow: AGENTS_YELLOW,
             agents_purple: AGENTS_PURPLE,
+            agents_sandbox: AGENTS_SANDBOX,
             claude: Color::Rgb(0xe2, 0x83, 0x5e),
             codex: Color::Rgb(0x79, 0xd4, 0xb4),
             pi: Color::Rgb(0xff, 0xff, 0xff),
@@ -711,7 +721,7 @@ pub fn parse_color(value: &str) -> Result<Color, String> {
 
 impl Theme {
     /// Every configurable color by its `[colors]` key.
-    pub fn named_mut(&mut self) -> [(&'static str, &mut Color); 43] {
+    pub fn named_mut(&mut self) -> [(&'static str, &mut Color); 44] {
         [
             ("bg", &mut self.bg),
             ("overlay", &mut self.overlay),
@@ -750,6 +760,7 @@ impl Theme {
             ("agents_blue", &mut self.agents_blue),
             ("agents_yellow", &mut self.agents_yellow),
             ("agents_purple", &mut self.agents_purple),
+            ("agents_sandbox", &mut self.agents_sandbox),
             ("claude", &mut self.claude),
             ("codex", &mut self.codex),
             ("pi", &mut self.pi),

@@ -303,11 +303,12 @@ impl SettingsView {
 
     /// The profiles, one picked for the rules beside them; this Mac's additions under them.
     fn sandbox_profiles(&self, profiles: &Profiles, ui: &UiFont, cx: &mut Context<Self>) -> Div {
-        let (text, dim, dimmer, accent, red) = (
+        let (text, dim, dimmer, accent, sandbox, red) = (
             self.fg(|t| t.agents_text),
             self.fg(|t| t.agents_dim),
             self.fg(|t| t.agents_dimmer),
             self.fg(|t| t.agents_accent),
+            self.fg(|t| t.agents_sandbox),
             self.fg(|t| t.agents_red),
         );
         let hover = self.faint(0.05);
@@ -329,7 +330,7 @@ impl SettingsView {
             let on = self.sandbox.profile.as_deref() == Some(profile.name.as_str());
             let name = profile.name.clone();
             let (stroke, fill) = if on {
-                (accent, Some(accent.opacity(0.22)))
+                (sandbox, Some(sandbox.opacity(0.22)))
             } else {
                 (dim, None)
             };

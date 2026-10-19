@@ -1084,7 +1084,7 @@ mod tests {
     fn every_colour_has_a_field_in_its_group() {
         let fields = fields();
         let colors: Vec<_> = fields.iter().filter(|f| f.kind == Kind::Color).collect();
-        assert_eq!(colors.len(), 43 + 20);
+        assert_eq!(colors.len(), 44 + 20);
         let groups: Vec<_> = colors.iter().map(|f| f.group).collect();
         let mut order = groups.clone();
         order.dedup();

@@ -110,22 +110,76 @@ pub(super) fn runs(agents: &[Agent]) -> Vec<(String, String)> {
         .collect()
 }
 
-/// The open card's last row, across both columns on a faint accent ground: `SANDBOX` over the
-/// lock, the profile and what was stopped, which opens the Blocked popover.
+/// The sandbox pill (P5-145): its sides, its lock and the gap after each part, its height and
+/// corners, at the base interface size.
+const PILL_LEFT: f32 = 5.0;
+const PILL_RIGHT: f32 = 6.0;
+const PILL_LOCK: f32 = 11.0;
+const PILL_GAP: f32 = 4.0;
+const PILL_HEIGHT: f32 = 18.0;
+const PILL_RADIUS: f32 = 5.0;
+
+/// The count after the profile in the pill: `· 2+`.
+fn pill_count(count: &str) -> String {
+    format!("· {count}")
+}
+
+/// How wide the pill is, `measure` giving a semibold note's width, for the room the name keeps.
+pub(super) fn pill_width(
+    ui: &UiFont,
+    profile: &str,
+    count: Option<&str>,
+    measure: &dyn Fn(&str) -> f32,
+) -> f32 {
+    let count = count.map_or(0.0, |count| {
+        ui.scale(PILL_GAP) + measure(&pill_count(count))
+    });
+    ui.scale(PILL_LEFT + PILL_LOCK + PILL_GAP + PILL_RIGHT) + measure(profile) + count
+}
+
+/// A sandboxed agent's pill (P5-145): a filled lock and the profile in the sandbox colour on a
+/// faint ground of it, and the yellow `count` once something was blocked.
+pub(super) fn pill(theme: &Theme, ui: &UiFont, profile: String, count: Option<String>) -> Div {
+    let sandbox = hsla(theme.fg(|t| t.agents_sandbox), 1.0);
+    let yellow = hsla(theme.fg(|t| t.agents_yellow), 1.0);
+    div()
+        .flex_shrink_0()
+        .h(ui.px(PILL_HEIGHT))
+        .pl(ui.px(PILL_LEFT))
+        .pr(ui.px(PILL_RIGHT))
+        .flex()
+        .items_center()
+        .gap(ui.px(PILL_GAP))
+        .rounded(ui.px(PILL_RADIUS))
+        .bg(sandbox.opacity(0.16))
+        .whitespace_nowrap()
+        .text_size(ui.px(NOTE_SIZE))
+        .font_weight(FontWeight::SEMIBOLD)
+        .child(footer_icon::lock(
+            false,
+            sandbox,
+            Some(sandbox.opacity(0.35)),
+            ui.scale(PILL_LOCK),
+        ))
+        .child(div().text_color(sandbox).child(profile))
+        .children(count.map(|count| div().text_color(yellow).child(pill_count(&count))))
+}
+
+/// The open card's last row, across both columns on a faint sandbox-coloured ground: `SANDBOX`
+/// over the pill and what was stopped, which opens the Blocked popover.
 pub(super) fn cell(theme: &Theme, ui: &UiFont, sandbox: SandboxCell) -> Div {
     let fg = |pick: Pick| hsla(theme.fg(pick), 1.0);
-    let (text, dim, dimmer, accent) = (
-        fg(|t| t.agents_text),
+    let (dim, dimmer, tint) = (
         fg(|t| t.agents_dim),
         fg(|t| t.agents_dimmer),
-        fg(|t| t.agents_accent),
+        fg(|t| t.agents_sandbox),
     );
     let told = if sandbox.counted {
         fg(|t| t.agents_yellow)
     } else {
         dim
     };
-    let (ground, lit) = (accent.opacity(0.07), accent.opacity(0.13));
+    let (ground, lit) = (tint.opacity(0.07), tint.opacity(0.13));
     div().relative().child(
         div()
             .id("card-sandbox")
@@ -157,8 +211,7 @@ pub(super) fn cell(theme: &Theme, ui: &UiFont, sandbox: SandboxCell) -> Div {
                     .whitespace_nowrap()
                     .overflow_hidden()
                     .text_size(ui.px(SECOND_SIZE))
-                    .child(footer_icon::lock(false, dim, None, ui.scale(LOCK)))
-                    .child(div().text_color(text).child(sandbox.profile))
+                    .child(pill(theme, ui, sandbox.profile, None))
                     .child(div().text_color(dimmer).child("·"))
                     .child(div().text_color(told).child(sandbox.told)),
             )
@@ -200,11 +253,11 @@ impl Sidebar {
     ) -> gpui::Stateful<Div> {
         let theme = &*self.theme;
         let fg = |pick: Pick| hsla(theme.fg(pick), 1.0);
-        let (text, dim, dimmer, accent, yellow, red, rule) = (
+        let (text, dim, dimmer, sandbox, yellow, red, rule) = (
             fg(|t| t.agents_text),
             fg(|t| t.agents_dim),
             fg(|t| t.agents_dimmer),
-            fg(|t| t.agents_accent),
+            fg(|t| t.agents_sandbox),
             fg(|t| t.agents_yellow),
             fg(|t| t.agents_red),
             popover::edge_rule(theme),
@@ -273,8 +326,8 @@ impl Sidebar {
             .border_color(rule)
             .child(footer_icon::lock(
                 false,
-                accent,
-                Some(accent.opacity(0.2)),
+                sandbox,
+                Some(sandbox.opacity(0.2)),
                 ui.scale(15.0),
             ))
             .child(
