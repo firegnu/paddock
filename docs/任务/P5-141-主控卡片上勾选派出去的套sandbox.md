@@ -111,3 +111,17 @@
 
 ### 踩过的坑
 - 一开始在 `Saves::answer` 里存好后调 `settle(agents, at)` 想顺手写回卡片，结果同一时刻 `at <= began` 会把刚存的记录当成“已被读取赶上”删掉；写完自查时发现（还没跑测试），改成直接写回那张卡。另外，测试是写完实现后补的，不是先红后绿。
+
+## 主控实测真实链路（paddock/main，10-19，验收第 1 条）
+自开测试主控 `paddock/test-ctl`（脚本，`--label role=controller`），用 `corral child-sandbox` 公开命令（界面点选留给用户）：设 `dev` 后它 `corral start` 出去的 `paddock/test-child-1` 是 `sandbox: {"profile":"dev"}`；`--clear` 后再派的 `paddock/test-child-2` 是 `sandbox: null`；`test-child-1` 仍是 `dev`；`test-ctl` 自己 `sandbox: null`。两个子 agent 已停；`test-ctl` 留到装好后给用户在它卡片上试界面。
+
+## 返工 1（交叉审查，见主仓库 `docs/任务/P5-141-交叉审查.md`「审查意见」）
+主控看过审查意见后定的：
+1. **审查第 2 条（必须改）**：连续两次选择丢掉第一次成功的防闪回记录。照审查的改法：把最近已确认的值及时间和当前这次请求的 Busy／Refused 分开存；新请求开始或失败时，上一笔成功对更早开始的读取仍有保护，读到成功之后开始的读取再清掉。先补回归测试（审查里的顺序：未设 → 设 dev 成功 → 再选另一个 → 保存前的 `null` 读取到达 → 第二次被拒，应显示 `In sandbox · dev` 加拒绝原因；另外覆盖第二次成功、第二次清除），确认红，再改到绿。
+2. **审查第 1 条（主控降为建议改，只做便宜的部分）**：菜单和选择绑定 `(名字, instance)`；`Floating::Delegates` 带上打开时的 instance，列表里这个名字的 instance 变了，菜单作废关掉；点选时这个名字当前列出的 instance 和菜单记的不一样就不调 corral。**不加** `corral status` 预检（仍不是原子的，主控不要）。corral 成功回答里的 instance 和请求的不一样时，照现在的做法丢掉保存状态即可（下一轮 `corral ls` 会照实显示）。补测试：instance 变了以后点选，假 corral 收到的写调用为零。
+3. **审查第 4 条**：成功只认 `ok:true`，且必须有 `instance` 和 `child_sandbox` 两个字段（`child_sandbox` 显式 `null` 合法，缺字段不算清除）；否则按“corral's answer could not be read”拒绝、不改设定。补 `{}`、缺字段的假命令测试。
+4. **审查第 5 条**：只在菜单确实打开时读档案；读的时候先清空旧列表，显示 `Reading fence's profiles…`；关菜单时取消还在跑的读取。
+5. **审查第 6 条**：菜单照 New Agent 档案菜单的做法加最大高度和垂直滚动（不新加通用抽象）。
+6. DESIGN 里 P5-141 那条“红字留到下一次选择”改成“下一次真正发给 corral 的选择”，并按上面 1、2、4、5 改写相应句子。
+
+做完照原「做完」一节跑三项检查，在本文件末尾追加「## 返工 1 完成记录」（同样几样），提交首行 `P5-141：返工 1…`。
