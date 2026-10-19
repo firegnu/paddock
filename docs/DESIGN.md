@@ -32,6 +32,7 @@ paddock 与 Saddle 在代码上完全分开：用到的 Saddle 代码迁入 padd
 | **dispatch 剥离到 ranch（不带遥测），之后再开发 paddock；不要遥测和 Drover**：遥测、Drover 不迁，留在 Saddle 原样不动（不用即可），paddock 路线里的遥测查看页、Drover 暂不需要；插件 SDK 不迁；插件协议这一轮不迁（dispatch 做成 ranch 的命令，用不到它）。用户以后很可能只用 paddock | 用户 10-05：“我要等saddle中的都剥离完了，而且saddle运行和现在一样，再开发paddock”；“那就先不迁移插件sdk和drover。先把插件协议，dispatch以及遥测剥离过去”；看到 M3（遥测连同 dispatch）的规模后：“dispatch能拆出去吗？我现在都不想要遥测和drover了”；“dispatch我觉得要拆出去。这也算是基础功能。后期我极有可能只用paddock。因为tui维护起来还有ui什么的做起来太复杂了” |
 | **砍掉遥测、Drover、插件系统，Saddle 和 paddock 同一起跑线**：Saddle 删掉整个插件系统（宿主、SDK、协议、Drover、Diff、dispatch 插件、示例插件、Plugins 页、`ctl plugin`）和遥测（存储、查看页、开关、`saddle telemetry`、`saddle agent`），对应测试改或删；数据留在磁盘上不删。paddock 路线同样拿掉插件宿主、插件界面、遥测查看页、Drover，以后真需要再重新设计。两个前端都只剩 Agents 面板、终端、设置、ctl，底下用 ranch 的 corral 和 dispatch。`saddle ctl` 保留（去掉 plugin 子命令），`paddock ctl` 照旧 | 用户 10-05：“我想砍saddle的功能……遥测，drover还有插件系统的远吗都干掉。这样dispatch剥离出去之后，saddle和paddock就都处于一样的状态了……遥测和drover也只是我臆想出来的功能……绑定很深的遥测，sdk还有插件以及drover什么的，只是我觉得有用罢了。发不成产品反倒不合适。”作者建议四点（数据留着、paddock 路线也砍、Diff 随插件系统去掉、`saddle ctl` 保留），用户：“可以，四点都按你的建议”；“对应的测试也要改或者删” |
 | **Diff 插件不搬**；以后需要时在 paddock 里原生做（可能内置） | 用户 10-05：“diff插件我觉得不要搬了，diff是照顾tui而生的，现在没必要了，会开发更好的（可能会内置diff）。” |
+| **终端层守住能拆出去的边界**：终端层（`pty.rs`、`terminal.rs`、`input.rs`、`palette.rs`、`rows.rs`、`grid.rs`、`find.rs`、`damage.rs`、`view.rs` 和 `view/`）新加的功能不依赖 paddock 的侧栏、corral、看板、Settings 窗口；和 paddock 的往来走事件（如 `OpenLink`）或传进去的参数（如 `Options`）。已有的绑定（agent 暂停、名字签、`corral` 客户端、远程机器）留到真拆时（P5-146）再理 | 用户 10-20：“还是要把握住一个标准哦，以后也可以拆出来成为一个独立的terminal哦。” |
 
 ## 3. 与 Saddle 的关系
 
