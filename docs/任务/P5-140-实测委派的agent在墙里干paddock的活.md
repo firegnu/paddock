@@ -56,3 +56,9 @@ fence 记录里另有：Claude Code 写 `~/.claude.json` 的锁和临时文件�
 3. **交叉审查记录**：墙里写不进主仓库工作区。套墙的审查 agent 改成把意见写在自己 detached 审查 worktree 里的同名文件，主控审完搬回主仓库（或只写在回复里）。
 4. **规矩怎么落**：起 agent 时带 `--env CARGO_TARGET_DIR`，写进 `CLAUDE.md`「独立编译目录」和派活约定（只在套墙时需要，不套墙也无害）。这几条改动等用户同意。
 5. **交给 ranch 的**（已发 ranch/main，不挡 paddock）：Codex 起不来；heredoc 的 `/tmp` 临时文件；`~/.claude.json` 写不了；墙里 `corral` 退出码 127 而不是 6；`packed-refs.lock` 报错和 worktree 下的 `refs` garbage。
+
+## 补测 Codex（10-19，ranch/main 建好 `~/.fence/local.toml` 之后）
+- 原因（ranch/main 查明）：PATH 上的 `codex` 是 IP Guardian 的包装，先访问 4 个查 IP 的网站，墙里没放行就以退出码 1 拦下。ranch/main 按 R17b 方案建了 `~/.fence/local.toml` 放行它们（用户同意）。
+- `paddock/test-fence-codex`（`codex --yolo --disable memories -m gpt-6-astra`，`--sandbox dev --env CARGO_TARGET_DIR=…`）：仓库外编译目录能写，`cargo build` 过，`cargo test --lib new_agent` 42 过，worktree 里提交成功（同样报 `packed-refs.lock`），写主仓库工作区、连 github.com 被拦。用完已停，worktree、分支、编译目录已删。
+- **注意**：Codex 的命令里看到的 `TMPDIR` 是 `/tmp/claude`，不是 fence 的 `~/.cache/fence/tmp/<实例>`（Claude Code 看到的是后者）。P5-142 退回 `TMPDIR` 时两种都要验。
+- 结论第 1 条更新：Claude Code、Codex 都能套墙干 paddock 的活（起 agent 带 `--env CARGO_TARGET_DIR`）。
