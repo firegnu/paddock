@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>New Agent sandbox states</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+button{font:inherit;color:inherit;cursor:pointer}
+</style>
+</helmet>
+<div style="width: 800px; height: 700px; box-sizing: border-box; padding: 34px 60px; background: #1d2221; font-family: -apple-system, 'SF Pro Text', 'Helvetica Neue', sans-serif; color: #e7ecea; display: flex; flex-direction: column; gap: 22px">
+
+  <!-- 1 default -->
+  <div style="display: flex; flex-direction: column; gap: 8px">
+    <div style="font-size: 12px; color: #879290">1 · Default: no sandbox. The lock sits quietly beside the crown.</div>
+    <div style="height: 58px; box-sizing: border-box; padding: 0 12px 0 14px; border-radius: 14px; background: #262c2b; border: 1px solid rgba(255,255,255,0.08); display: flex; align-items: center; gap: 4px; position: relative">
+      <span style="display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 10px; border-radius: 10px; background: rgba(255,255,255,0.06); font-size: 13px"><span style="width: 18px; height: 18px; border-radius: 5px; background: #d97757"></span>Claude <span style="color: #a2acaa">opus[1m]</span> <span style="color: #dfc07a">high</span></span>
+      <span style="padding: 0 10px; font-size: 13px; color: #a2acaa">paddock</span>
+      <span style="flex: 1"></span>
+      <button aria-label="Sandbox: none" style="width: 32px; height: 32px; border: 0; border-radius: 9px; background: rgba(255,255,255,0.07); display: flex; align-items: center; justify-content: center"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#a2acaa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2.2"></rect><path d="M8 11V7.5a4 4 0 0 1 7.6-1.7"></path></svg></button>
+      <button aria-label="Controller: off" style="width: 32px; height: 32px; border: 0; border-radius: 9px; background: transparent; display: flex; align-items: center; justify-content: center"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#879290" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8l4.5 4L12 5l4.5 7L21 8l-2 11H5z"></path></svg></button>
+      <span style="width: 34px; height: 34px; margin-left: 10px; border-radius: 17px; background: #86c1e6"></span>
+      <div style="position: absolute; right: 64px; top: -30px; padding: 5px 9px; border-radius: 7px; background: #3a4140; font-size: 12px; color: #e7ecea; white-space: nowrap">No sandbox</div>
+    </div>
+  </div>
+
+  <!-- 2 controller -->
+  <div style="display: flex; flex-direction: column; gap: 8px">
+    <div style="font-size: 12px; color: #879290">2 · Controller on: the lock is greyed. Inside the sandbox corral refuses to run, so a controller couldn't hand out work.</div>
+    <div style="height: 58px; box-sizing: border-box; padding: 0 12px 0 14px; border-radius: 14px; background: #262c2b; border: 1px solid rgba(255,255,255,0.08); display: flex; align-items: center; gap: 4px; position: relative">
+      <span style="display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 10px; border-radius: 10px; background: rgba(255,255,255,0.06); font-size: 13px"><span style="width: 18px; height: 18px; border-radius: 5px; background: #d97757"></span>Claude <span style="color: #a2acaa">opus[1m]</span> <span style="color: #dfc07a">high</span></span>
+      <span style="padding: 0 10px; font-size: 13px; color: #a2acaa">paddock</span>
+      <span style="flex: 1"></span>
+      <button aria-label="Sandbox: unavailable for controllers" disabled style="width: 32px; height: 32px; border: 0; border-radius: 9px; background: transparent; display: flex; align-items: center; justify-content: center; opacity: 0.4"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#a2acaa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2.2"></rect><path d="M8 11V7.5a4 4 0 0 1 7.6-1.7"></path></svg></button>
+      <button aria-label="Controller: on" style="width: 32px; height: 32px; border: 0; border-radius: 9px; background: rgba(134,193,230,0.14); display: flex; align-items: center; justify-content: center"><svg width="16" height="16" viewBox="0 0 24 24" fill="rgba(134,193,230,0.25)" stroke="#86c1e6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8l4.5 4L12 5l4.5 7L21 8l-2 11H5z"></path></svg></button>
+      <span style="width: 34px; height: 34px; margin-left: 10px; border-radius: 17px; background: #86c1e6"></span>
+      <div style="position: absolute; right: 30px; top: -30px; padding: 5px 9px; border-radius: 7px; background: #3a4140; font-size: 12px; color: #e7ecea; white-space: nowrap">Controllers can't run in a sandbox: corral is blocked inside it</div>
+    </div>
+  </div>
+
+  <!-- 3 codex warning -->
+  <div style="display: flex; flex-direction: column; gap: 8px">
+    <div style="font-size: 12px; color: #879290">3 · Codex in dev: fence warns, so the lock carries a yellow dot and the warning shows under the bar, word for word.</div>
+    <div style="border-radius: 14px; background: #262c2b; border: 1px solid rgba(255,255,255,0.08)">
+      <div style="height: 56px; box-sizing: border-box; padding: 0 12px 0 14px; display: flex; align-items: center; gap: 4px">
+        <span style="display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 10px; border-radius: 10px; background: rgba(255,255,255,0.06); font-size: 13px"><span style="width: 18px; height: 18px; border-radius: 5px; background: #f2f2f2"></span>Codex <span style="color: #a2acaa">gpt-6-astra</span> <span style="color: #dfc07a">high</span></span>
+        <span style="padding: 0 10px; font-size: 13px; color: #a2acaa">paddock</span>
+        <span style="flex: 1"></span>
+        <button aria-label="Sandbox: dev, 1 warning" style="position: relative; display: flex; align-items: center; gap: 5px; height: 32px; padding: 0 9px 0 8px; border: 0; border-radius: 9px; background: rgba(134,193,230,0.14); font-size: 12.5px; font-weight: 500; color: #86c1e6"><svg width="15" height="15" viewBox="0 0 24 24" fill="rgba(134,193,230,0.22)" stroke="#86c1e6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2.2"></rect><path d="M8 11V7.5a4 4 0 0 1 8 0V11" fill="none"></path></svg>dev<span style="position: absolute; right: 3px; top: 3px; width: 7px; height: 7px; border-radius: 50%; background: #dfc07a; box-shadow: 0 0 0 2px #2f3a3c"></span></button>
+        <button aria-label="Controller: off" style="width: 32px; height: 32px; border: 0; border-radius: 9px; background: transparent; display: flex; align-items: center; justify-content: center"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#879290" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8l4.5 4L12 5l4.5 7L21 8l-2 11H5z"></path></svg></button>
+        <span style="width: 34px; height: 34px; margin-left: 10px; border-radius: 17px; background: #86c1e6"></span>
+      </div>
+      <div style="margin: 0 14px; padding: 9px 2px 11px; border-top: 1px solid rgba(255,255,255,0.06); display: flex; align-items: center; gap: 8px; font-size: 12px; color: #dfc07a">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#dfc07a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4l9 16H3z"></path><path d="M12 10v4M12 17.2v.1"></path></svg>
+        <span>weaker_network_isolation: 削弱网络隔离（com.apple.trustd.agent）</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 4 unsupported or check failed -->
+  <div style="display: flex; flex-direction: column; gap: 8px">
+    <div style="font-size: 12px; color: #879290">4 · Kind fence has no data for (amp, agy): sandbox goes back to None and the lock is greyed. A failed check on a supported kind shows fence's message in red and Start waits.</div>
+    <div style="border-radius: 14px; background: #262c2b; border: 1px solid rgba(255,255,255,0.08)">
+      <div style="height: 56px; box-sizing: border-box; padding: 0 12px 0 14px; display: flex; align-items: center; gap: 4px">
+        <span style="display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 10px; border-radius: 10px; background: rgba(255,255,255,0.06); font-size: 13px"><span style="width: 18px; height: 18px; border-radius: 5px; background: #d97757"></span>Claude <span style="color: #a2acaa">opus[1m]</span> <span style="color: #dfc07a">high</span></span>
+        <span style="padding: 0 10px; font-size: 13px; color: #a2acaa">scratch</span>
+        <span style="flex: 1"></span>
+        <button aria-label="Sandbox: dev, check failed" style="display: flex; align-items: center; gap: 5px; height: 32px; padding: 0 9px 0 8px; border: 0; border-radius: 9px; background: rgba(228,122,116,0.14); font-size: 12.5px; font-weight: 500; color: #e47a74"><svg width="15" height="15" viewBox="0 0 24 24" fill="rgba(228,122,116,0.2)" stroke="#e47a74" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2.2"></rect><path d="M8 11V7.5a4 4 0 0 1 8 0V11" fill="none"></path></svg>dev</button>
+        <button aria-label="Controller: off" style="width: 32px; height: 32px; border: 0; border-radius: 9px; background: transparent; display: flex; align-items: center; justify-content: center"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#879290" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8l4.5 4L12 5l4.5 7L21 8l-2 11H5z"></path></svg></button>
+        <button aria-label="Start" disabled style="width: 34px; height: 34px; margin-left: 10px; border: 0; border-radius: 17px; background: rgba(134,193,230,0.3)"></button>
+      </div>
+      <div style="margin: 0 14px; padding: 9px 2px 11px; border-top: 1px solid rgba(255,255,255,0.06); display: flex; align-items: center; gap: 8px; font-size: 12px; color: #e47a74">
+        <span style="font-family: 'SF Mono', ui-monospace, Menlo, monospace">bad_cwd</span><span style="color: #c9a3a0">[fence's message, as given]</span>
+      </div>
+    </div>
+  </div>
+
+  <div style="font-size: 12px; line-height: 1.6; color: #879290">5 · fence not installed, or a remote machine (5090 has no fence yet): no lock at all; the bar looks exactly like today.</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":800,"height":700}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

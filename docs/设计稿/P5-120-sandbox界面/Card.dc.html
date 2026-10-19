@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Agent cards with sandbox lock</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+button{font:inherit;color:inherit;cursor:pointer}
+a{color:#86c1e6}a:hover{color:#a9d4ef}
+</style>
+</helmet>
+<div style="width: 800px; height: 700px; box-sizing: border-box; padding: 36px 40px; background: #1d2221; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif; color: #e7ecea; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 40px; align-items: start">
+
+<!-- left: collapsed cards -->
+<div style="display: flex; flex-direction: column; gap: 10px">
+  <div style="font-size: 12px; color: #879290; margin-bottom: 4px">Collapsed: a small lock after the effort; a yellow number once something was blocked</div>
+
+  <!-- sandboxed, 3 blocked, working -->
+  <div style="background: #2a302f; border: 1px solid #3a4140; border-radius: 14px; padding: 13px 14px 12px; display: flex; gap: 11px; position: relative">
+    <div style="position: relative; width: 38px; height: 38px; flex: none"><div style="width: 38px; height: 38px; border-radius: 10px; background: #d97757"></div><div style="position: absolute; right: -3px; bottom: -3px; width: 11px; height: 11px; border-radius: 50%; background: #7ea2ee; box-shadow: 0 0 0 2.5px #2a302f"></div></div>
+    <div style="flex: 1; min-width: 0">
+      <div style="display: flex; align-items: center; gap: 6px">
+        <span style="font-size: 15.5px; font-weight: 500">dev-fence-ui</span>
+        <span style="font-size: 13px; color: #a2acaa">high</span>
+        <span aria-label="Sandbox dev, 3 blocked" style="display: inline-flex; align-items: center; gap: 3px; margin-left: 2px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#a2acaa" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2.2"></rect><path d="M8 11V7.5a4 4 0 0 1 8 0V11"></path></svg><span style="font-size: 12px; font-weight: 600; color: #dfc07a">3</span></span>
+        <span style="flex: 1"></span>
+        <span style="font-size: 13px; color: #7ea2ee">4m</span>
+      </div>
+      <div style="font-size: 13px; color: #a2acaa; margin-top: 3px">Running Bash…</div>
+    </div>
+    <div style="position: absolute; left: 140px; top: -26px; padding: 5px 9px; border-radius: 7px; background: #3a4140; font-size: 12px; white-space: nowrap">Sandbox: dev · 3 blocked</div>
+  </div>
+
+  <!-- sandboxed, nothing blocked, idle -->
+  <div style="background: #2a302f; border: 1px solid #3a4140; border-radius: 14px; padding: 13px 14px 12px; display: flex; gap: 11px">
+    <div style="position: relative; width: 38px; height: 38px; flex: none"><div style="width: 38px; height: 38px; border-radius: 10px; background: #f2f2f2"></div><div style="position: absolute; right: -3px; bottom: -3px; width: 11px; height: 11px; border-radius: 50%; background: #9cc98e; box-shadow: 0 0 0 2.5px #2a302f"></div></div>
+    <div style="flex: 1; min-width: 0">
+      <div style="display: flex; align-items: center; gap: 6px">
+        <span style="font-size: 15.5px; font-weight: 500">dev-kanban</span>
+        <span style="font-size: 13px; color: #a2acaa">high</span>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#a2acaa" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-label="Sandbox dev" role="img" style="margin-left: 2px"><rect x="5" y="11" width="14" height="10" rx="2.2"></rect><path d="M8 11V7.5a4 4 0 0 1 8 0V11"></path></svg>
+        <span style="flex: 1"></span>
+        <span style="font-size: 13px; color: #a2acaa">12m</span>
+      </div>
+      <div style="font-size: 13px; color: #a2acaa; margin-top: 3px">Idle</div>
+    </div>
+  </div>
+
+  <!-- no sandbox -->
+  <div style="background: #2a302f; border: 1px solid #3a4140; border-radius: 14px; padding: 13px 14px 12px; display: flex; gap: 11px">
+    <div style="position: relative; width: 38px; height: 38px; flex: none"><div style="width: 38px; height: 38px; border-radius: 10px; background: #d97757"></div><div style="position: absolute; right: -3px; bottom: -3px; width: 11px; height: 11px; border-radius: 50%; background: #9cc98e; box-shadow: 0 0 0 2.5px #2a302f"></div></div>
+    <div style="flex: 1; min-width: 0">
+      <div style="display: flex; align-items: center; gap: 6px">
+        <span style="font-size: 15.5px; font-weight: 500">main</span>
+        <span style="font-size: 13px; color: #a2acaa">high</span>
+        <span style="flex: 1"></span>
+        <span style="font-size: 13px; color: #a2acaa">2m</span>
+      </div>
+      <div style="font-size: 13px; color: #a2acaa; margin-top: 3px">Idle · no sandbox, no lock</div>
+    </div>
+  </div>
+</div>
+
+<!-- right: expanded -->
+<div style="display: flex; flex-direction: column; gap: 10px">
+  <div style="font-size: 12px; color: #879290; margin-bottom: 4px">Expanded: one more field, Sandbox; the count opens the blocked list</div>
+  <div style="background: #2a302f; border: 1px solid #3a4140; border-radius: 14px; padding: 13px 14px 10px; display: flex; gap: 11px">
+    <div style="position: relative; width: 38px; height: 38px; flex: none"><div style="width: 38px; height: 38px; border-radius: 10px; background: #d97757"></div><div style="position: absolute; right: -3px; bottom: -3px; width: 11px; height: 11px; border-radius: 50%; background: #7ea2ee; box-shadow: 0 0 0 2.5px #2a302f"></div></div>
+    <div style="flex: 1; min-width: 0; display: flex; flex-direction: column">
+      <div style="display: flex; align-items: center; gap: 6px; min-height: 38px">
+        <span style="font-size: 15.5px; font-weight: 500">dev-fence-ui</span>
+        <span style="font-size: 13px; color: #a2acaa">high</span>
+        <span style="display: inline-flex; align-items: center; gap: 3px; margin-left: 2px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#a2acaa" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2.2"></rect><path d="M8 11V7.5a4 4 0 0 1 8 0V11"></path></svg><span style="font-size: 12px; font-weight: 600; color: #dfc07a">3</span></span>
+        <span style="flex: 1"></span>
+        <span style="font-size: 13px; color: #7ea2ee">4m</span>
+        <svg width="13" height="13" viewBox="0 0 12 12" aria-hidden="true" fill="none" stroke="#a2acaa" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="margin-left: 6px"><path d="M3 7.5L6 4.5l3 3"></path></svg>
+      </div>
+      <div style="margin-top: 8px; padding-top: 12px; border-top: 1px solid rgba(231,236,234,0.09); display: flex; flex-direction: column; gap: 8px">
+        <div style="font-size: 13px; color: #a2acaa; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">~/Developer/personal_projs/paddock-worktrees/p5-120</div>
+        <div style="display: flex; gap: 6px; flex-wrap: wrap">
+          <span style="height: 24px; padding: 0 8px; display: inline-flex; align-items: center; border-radius: 6px; background: rgba(231,236,234,0.06); font-size: 12.5px"><span style="color: #879290">⎇&nbsp;</span><span style="color: #cfd6d4">p5-120</span></span>
+          <span style="height: 24px; padding: 0 8px; display: inline-flex; align-items: center; border-radius: 6px; background: rgba(231,236,234,0.06); font-size: 12.5px"><span style="color: #9cc98e">+48</span>&nbsp;<span style="color: #e47a74">-6</span></span>
+        </div>
+      </div>
+      <div style="margin-top: 16px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 14px; row-gap: 13px">
+        <div><div style="font-size: 10px; font-weight: 500; letter-spacing: 0.07em; text-transform: uppercase; color: #879290">Status</div><div style="font-size: 13px; margin-top: 3px">Working <span style="color: #a2acaa">· Bash</span></div></div>
+        <div><div style="font-size: 10px; font-weight: 500; letter-spacing: 0.07em; text-transform: uppercase; color: #879290">Model</div><div style="font-size: 13px; margin-top: 3px">opus[1m] <span style="color: #a2acaa">· high</span></div></div>
+        <div><div style="font-size: 10px; font-weight: 500; letter-spacing: 0.07em; text-transform: uppercase; color: #879290">Up</div><div style="font-size: 13px; margin-top: 3px">22m</div></div>
+        <div><div style="font-size: 10px; font-weight: 500; letter-spacing: 0.07em; text-transform: uppercase; color: #879290">Workspace</div><div style="font-size: 13px; margin-top: 3px">My-Harness</div></div>
+        <div style="grid-column: 1 / -1; padding: 9px 10px; margin: 0 -10px; border-radius: 9px; background: rgba(134,193,230,0.07)">
+          <div style="font-size: 10px; font-weight: 500; letter-spacing: 0.07em; text-transform: uppercase; color: #879290">Sandbox</div>
+          <div style="font-size: 13px; margin-top: 3px; display: flex; align-items: center; gap: 6px">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#a2acaa" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2.2"></rect><path d="M8 11V7.5a4 4 0 0 1 8 0V11"></path></svg>
+            dev
+            <span style="color: #879290">·</span>
+            <a href="Denials.dc.html" style="color: #dfc07a; text-decoration: none">3 blocked ›</a>
+          </div>
+        </div>
+      </div>
+      <div style="margin-top: 14px; padding-top: 8px; border-top: 1px solid rgba(231,236,234,0.09); display: flex; align-items: center; gap: 4px">
+        <span style="font-family: 'SF Mono', ui-monospace, Menlo, monospace; font-size: 12px; color: #879290">a41f09c2d7e3</span>
+        <span style="flex: 1"></span>
+        <span style="font-size: 12px; color: #879290">Pause · Stop</span>
+      </div>
+    </div>
+  </div>
+  <div style="font-size: 12px; line-height: 1.6; color: #879290">The number counts only network and file-write blocks; reads and system checks are mostly noise (a one-minute Claude session logs ~445, 47 of them network or write). Nothing counted yet: “dev · nothing blocked”, still clickable.</div>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":800,"height":700}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

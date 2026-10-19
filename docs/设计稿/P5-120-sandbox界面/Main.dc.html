@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>New Agent, sandbox picker open</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+button{font:inherit;color:inherit;cursor:pointer}
+textarea::placeholder{color:#879290}
+</style>
+</helmet>
+<div style="width: 800px; height: 700px; box-sizing: border-box; padding: 40px 60px; background: #1d2221; font-family: -apple-system, 'SF Pro Text', 'Helvetica Neue', sans-serif; color: #e7ecea; position: relative">
+
+  <!-- the New Agent panel -->
+  <div style="width: 680px; border-radius: 16px; background: #262c2b; border: 1px solid rgba(255,255,255,0.08); box-shadow: 0 30px 80px rgba(0,0,0,0.5); display: flex; flex-direction: column">
+    <div style="display: flex; align-items: center; gap: 4px; padding: 14px 14px 0 14px">
+      <button style="display: flex; align-items: center; gap: 7px; height: 30px; padding: 0 12px; border: 0; border-radius: 15px; background: transparent; font-size: 13px; color: #a2acaa"><span style="width: 16px; height: 16px; border-radius: 4px; background: #d97757; display: inline-flex"></span>Controller</button>
+      <button style="display: flex; align-items: center; gap: 7px; height: 30px; padding: 0 12px; border: 0; border-radius: 15px; background: rgba(134,193,230,0.14); font-size: 13px; color: #86c1e6"><span style="width: 16px; height: 16px; border-radius: 4px; background: #d97757; display: inline-flex"></span>Developer</button>
+      <button style="display: flex; align-items: center; gap: 7px; height: 30px; padding: 0 12px; border: 0; border-radius: 15px; background: transparent; font-size: 13px; color: #a2acaa"><span style="width: 16px; height: 16px; border-radius: 4px; background: #f2f2f2; display: inline-flex"></span>Codex builder</button>
+      <button style="display: flex; align-items: center; gap: 7px; height: 30px; padding: 0 12px; border: 0; border-radius: 15px; background: transparent; font-size: 13px; color: #a2acaa"><span style="width: 16px; height: 16px; border-radius: 4px; background: #d97757; display: inline-flex"></span>Quick look</button>
+      <button style="margin-left: auto; height: 30px; padding: 0 10px; border: 0; border-radius: 8px; background: transparent; font-family: 'SF Mono', ui-monospace, Menlo, monospace; font-size: 12px; color: #a2acaa">paddock/<span style="color: #e7ecea">dev-fence-ui</span></button>
+    </div>
+
+    <label for="task" style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Task</label>
+    <textarea id="task" placeholder="What should it work on?" style="margin: 6px 0 0 0; height: 110px; resize: none; border: 0; outline: none; background: transparent; padding: 14px 26px; font: inherit; font-size: 16px; line-height: 1.5; color: #e7ecea">Read docs/任务/P5-120 and do it.</textarea>
+
+    <div style="display: flex; align-items: center; gap: 4px; padding: 8px 12px 12px 14px">
+      <div style="display: flex; align-items: center; height: 34px; border-radius: 10px; background: rgba(255,255,255,0.06)">
+        <button style="display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 9px 0 10px; border: 0; background: transparent; font-size: 13px; font-weight: 500; color: #e7ecea"><span style="width: 18px; height: 18px; border-radius: 5px; background: #d97757; display: inline-flex"></span>Claude<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#879290" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg></button>
+        <span style="width: 1px; height: 16px; background: rgba(255,255,255,0.10)"></span>
+        <button style="display: flex; align-items: center; gap: 6px; height: 34px; padding: 0 10px; border: 0; background: transparent; font-size: 13px; color: #a2acaa">opus[1m]<span style="color: #dfc07a">high</span><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#879290" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg></button>
+      </div>
+      <button style="display: flex; align-items: center; gap: 6px; height: 34px; padding: 0 10px; border: 0; border-radius: 10px; background: transparent; font-size: 13px; color: #a2acaa"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#879290" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path></svg>paddock</button>
+      <div style="margin-left: auto; display: flex; align-items: center; gap: 2px">
+        <button aria-label="Opens in: Split right" style="width: 32px; height: 32px; border: 0; border-radius: 9px; background: transparent; display: flex; align-items: center; justify-content: center"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#a2acaa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2.5"></rect><path d="M12 5h8v14h-8z" fill="#a2acaa" fill-opacity="0.35" stroke="none"></path></svg></button>
+        <!-- NEW: sandbox, on, menu open -->
+        <button aria-label="Sandbox: dev" aria-expanded="true" style="display: flex; align-items: center; gap: 5px; height: 32px; padding: 0 9px 0 8px; border: 0; border-radius: 9px; background: rgba(134,193,230,0.14); box-shadow: inset 0 0 0 1px rgba(134,193,230,0.35); font-size: 12.5px; font-weight: 500; color: #86c1e6"><svg width="15" height="15" viewBox="0 0 24 24" fill="rgba(134,193,230,0.22)" stroke="#86c1e6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2.2"></rect><path d="M8 11V7.5a4 4 0 0 1 8 0V11" fill="none"></path></svg>dev</button>
+        <button aria-label="Controller: off" style="width: 32px; height: 32px; border: 0; border-radius: 9px; background: transparent; display: flex; align-items: center; justify-content: center"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#879290" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8l4.5 4L12 5l4.5 7L21 8l-2 11H5z"></path></svg></button>
+        <span style="width: 1px; height: 16px; margin: 0 6px; background: rgba(255,255,255,0.08)"></span>
+        <button aria-label="Show command" style="width: 32px; height: 32px; border: 0; border-radius: 9px; background: transparent; display: flex; align-items: center; justify-content: center"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#879290" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 7l-5 5 5 5M16 7l5 5-5 5"></path></svg></button>
+        <button aria-label="Start" style="margin-left: 4px; width: 34px; height: 34px; border: 0; border-radius: 17px; background: #86c1e6; display: flex; align-items: center; justify-content: center"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1d2221" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"></path></svg></button>
+      </div>
+    </div>
+  </div>
+
+  <!-- the sandbox menu, anchored under the lock -->
+  <div style="position: absolute; left: 370px; top: 286px; width: 380px; box-sizing: border-box; padding: 6px; border-radius: 12px; background: #2f3635; border: 1px solid rgba(255,255,255,0.10); box-shadow: 0 18px 50px rgba(0,0,0,0.55); display: flex; flex-direction: column; gap: 2px">
+    <div style="padding: 8px 10px 6px; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #879290">Sandbox</div>
+
+    <button style="display: flex; gap: 10px; align-items: flex-start; padding: 8px 10px; border: 0; border-radius: 8px; background: transparent; text-align: left">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#879290" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-top: 1px; flex: none"><rect x="5" y="11" width="14" height="10" rx="2.2"></rect><path d="M8 11V7.5a4 4 0 0 1 7.6-1.7"></path></svg>
+      <span style="flex: 1; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 13px; color: #e7ecea">None</span><span style="font-size: 12px; color: #879290">Runs the way agents run today.</span></span>
+    </button>
+
+    <button style="display: flex; gap: 10px; align-items: flex-start; padding: 8px 10px; border: 0; border-radius: 8px; background: rgba(134,193,230,0.12); text-align: left">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="rgba(134,193,230,0.22)" stroke="#86c1e6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-top: 1px; flex: none"><rect x="5" y="11" width="14" height="10" rx="2.2"></rect><path d="M8 11V7.5a4 4 0 0 1 8 0V11" fill="none"></path></svg>
+      <span style="flex: 1; display: flex; flex-direction: column; gap: 3px">
+        <span style="display: flex; align-items: center; gap: 6px"><span style="font-size: 13px; font-weight: 500; color: #e7ecea">dev</span><span style="font-size: 11px; color: #879290">built in</span></span>
+        <span style="font-size: 12px; line-height: 1.5; color: #a2acaa">在工作目录里改代码、编译、测试、提交；HOME 默认不可读。Codex 在 macOS 开启 trustd，会削弱网络隔离</span>
+      </span>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#86c1e6" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-top: 2px; flex: none"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg>
+    </button>
+
+    <div style="margin: 4px 4px 0; padding: 9px 8px 6px; border-top: 1px solid rgba(255,255,255,0.07); display: flex; align-items: center; gap: 6px; font-size: 12px; color: #879290">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#9cc98e" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg>
+      <span style="flex: 1">Checked for Claude in paddock</span>
+      <a href="Settings.dc.html" style="color: #86c1e6; text-decoration: none">See the rules</a>
+    </div>
+  </div>
+
+  <!-- command preview strip (what Show command would add) -->
+  <div style="position: absolute; left: 60px; bottom: 40px; width: 680px; box-sizing: border-box; padding: 12px 16px; border-radius: 12px; background: #232928; border: 1px dashed rgba(255,255,255,0.10); font-family: 'SF Mono', ui-monospace, Menlo, monospace; font-size: 12px; line-height: 1.6; color: #a2acaa">
+    <div style="font-family: -apple-system, 'SF Pro Text', sans-serif; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #879290; margin-bottom: 4px">Will run</div>
+    corral start paddock/dev-fence-ui <span style="color: #86c1e6">--sandbox dev</span> --cwd ~/Developer/personal_projs/paddock --label model=opus[1m] --label effort=high -- claude --model opus[1m] --effort high
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":800,"height":700}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

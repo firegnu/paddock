@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Settings, Sandbox page</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+button{font:inherit;color:inherit;cursor:pointer}
+a{color:#86c1e6}a:hover{color:#a9d4ef}
+</style>
+</helmet>
+<div style="width: 1120px; height: 820px; box-sizing: border-box; padding: 30px; background: #1d2221; font-family: -apple-system, 'SF Pro Text', 'Helvetica Neue', sans-serif; color: #e7ecea">
+<div style="height: 100%; border-radius: 14px; background: #242a29; border: 1px solid rgba(255,255,255,0.08); display: flex; overflow: hidden">
+
+  <!-- nav -->
+  <nav aria-label="Settings pages" style="width: 190px; flex: none; box-sizing: border-box; padding: 18px 10px; background: #20262a; border-right: 1px solid rgba(255,255,255,0.06); display: flex; flex-direction: column; gap: 2px">
+    <a href="#" style="height: 30px; padding: 0 10px; display: flex; align-items: center; border-radius: 7px; font-size: 13px; color: #a2acaa; text-decoration: none">General</a>
+    <a href="#" style="height: 30px; padding: 0 10px; display: flex; align-items: center; border-radius: 7px; font-size: 13px; color: #a2acaa; text-decoration: none">Appearance</a>
+    <a href="#" style="height: 30px; padding: 0 10px; display: flex; align-items: center; border-radius: 7px; font-size: 13px; color: #a2acaa; text-decoration: none">Agents</a>
+    <a href="#" style="height: 30px; padding: 0 10px; display: flex; align-items: center; border-radius: 7px; font-size: 13px; color: #a2acaa; text-decoration: none">Machines</a>
+    <a href="#" style="height: 30px; padding: 0 10px; display: flex; align-items: center; border-radius: 7px; font-size: 13px; color: #a2acaa; text-decoration: none">Instructions</a>
+    <a href="#" aria-current="page" style="height: 30px; padding: 0 10px; display: flex; align-items: center; border-radius: 7px; background: rgba(134,193,230,0.14); font-size: 13px; color: #86c1e6; text-decoration: none">Sandbox</a>
+    <a href="#" style="height: 30px; padding: 0 10px; display: flex; align-items: center; border-radius: 7px; font-size: 13px; color: #a2acaa; text-decoration: none">Diagnostics</a>
+  </nav>
+
+  <!-- page -->
+  <div style="flex: 1; min-width: 0; padding: 22px 28px; display: flex; flex-direction: column; gap: 18px; overflow: hidden">
+    <div style="display: flex; align-items: center; gap: 10px">
+      <span style="font-size: 18px; font-weight: 600">Sandbox</span>
+      <span style="display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 9px; border-radius: 11px; background: rgba(156,201,142,0.12); font-size: 12px; color: #9cc98e"><span style="width: 6px; height: 6px; border-radius: 3px; background: #9cc98e"></span>fence 0.1.0 ready</span>
+      <span style="font-size: 12px; color: #879290">srt 0.0.80 · node v24.13.1</span>
+      <span style="flex: 1"></span>
+      <span style="font-size: 12px; color: #879290">View only. Profiles are changed in fence, not here.</span>
+    </div>
+
+    <div style="display: flex; gap: 22px; min-height: 0; flex: 1">
+      <!-- profiles -->
+      <div style="width: 250px; flex: none; display: flex; flex-direction: column; gap: 8px">
+        <div style="font-size: 10.5px; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase; color: #879290">Profiles</div>
+        <button aria-pressed="true" style="text-align: left; padding: 11px 12px; border: 1px solid rgba(134,193,230,0.4); border-radius: 10px; background: rgba(134,193,230,0.08); display: flex; flex-direction: column; gap: 5px">
+          <span style="display: flex; align-items: center; gap: 7px"><svg width="13" height="13" viewBox="0 0 24 24" fill="rgba(134,193,230,0.22)" stroke="#86c1e6" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2.2"></rect><path d="M8 11V7.5a4 4 0 0 1 8 0V11" fill="none"></path></svg><span style="font-size: 13.5px; font-weight: 500">dev</span><span style="font-size: 11px; color: #879290">built in</span></span>
+          <span style="font-size: 12px; line-height: 1.55; color: #a2acaa">在工作目录里改代码、编译、测试、提交；HOME 默认不可读。Codex 在 macOS 开启 trustd，会削弱网络隔离</span>
+        </button>
+        <div style="margin-top: 6px; font-size: 12px; line-height: 1.6; color: #879290">Local overrides<br><span style="font-family: 'SF Mono', ui-monospace, Menlo, monospace; color: #a2acaa">~/.fence/local.toml</span> <span>· not created</span></div>
+      </div>
+
+      <!-- merged rules -->
+      <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 14px">
+        <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap">
+          <span style="font-size: 12.5px; color: #a2acaa">Rules for</span>
+          <div style="display: flex; gap: 2px; padding: 2px; border-radius: 8px; background: rgba(0,0,0,0.22)">
+            <button aria-pressed="true" style="height: 26px; padding: 0 10px; border: 0; border-radius: 6px; background: #3a4140; font-size: 12.5px">Claude</button>
+            <button style="height: 26px; padding: 0 10px; border: 0; border-radius: 6px; background: transparent; font-size: 12.5px; color: #a2acaa">Codex</button>
+            <button style="height: 26px; padding: 0 10px; border: 0; border-radius: 6px; background: transparent; font-size: 12.5px; color: #a2acaa">pi</button>
+            <button style="height: 26px; padding: 0 10px; border: 0; border-radius: 6px; background: transparent; font-size: 12.5px; color: #a2acaa">omp</button>
+          </div>
+          <span style="font-size: 12.5px; color: #a2acaa">in</span>
+          <button style="display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border: 0; border-radius: 7px; background: rgba(255,255,255,0.06); font-size: 12.5px">paddock<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#879290" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg></button>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: #879290">
+          <span>Built from</span>
+          <span style="height: 20px; padding: 0 7px; display: inline-flex; align-items: center; border-radius: 5px; background: rgba(255,255,255,0.06); color: #cfd6d4">profile dev</span><span>+</span>
+          <span style="height: 20px; padding: 0 7px; display: inline-flex; align-items: center; border-radius: 5px; background: rgba(255,255,255,0.06); color: #cfd6d4">agent claude</span><span>+</span>
+          <span style="height: 20px; padding: 0 7px; display: inline-flex; align-items: center; border-radius: 5px; background: rgba(255,255,255,0.06); color: #cfd6d4">service anthropic</span>
+          <span style="margin-left: 4px">· no .fence.toml in this repo</span>
+        </div>
+
+        <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px">
+          <section style="padding: 12px 14px; border-radius: 10px; background: rgba(255,255,255,0.035); display: flex; flex-direction: column; gap: 8px">
+            <div style="font-size: 10.5px; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase; color: #879290">Network · allowed</div>
+            <div style="display: flex; flex-wrap: wrap; gap: 5px; font-family: 'SF Mono', ui-monospace, Menlo, monospace; font-size: 11.5px">
+              <span style="padding: 2px 7px; border-radius: 5px; background: rgba(126,162,238,0.12); color: #9db8f2">api.anthropic.com</span>
+              <span style="padding: 2px 7px; border-radius: 5px; background: rgba(126,162,238,0.12); color: #9db8f2">claude.ai</span>
+              <span style="padding: 2px 7px; border-radius: 5px; background: rgba(126,162,238,0.12); color: #9db8f2">platform.claude.com</span>
+              <span style="padding: 2px 7px; border-radius: 5px; background: rgba(126,162,238,0.12); color: #9db8f2">crates.io</span>
+              <span style="padding: 2px 7px; border-radius: 5px; background: rgba(126,162,238,0.12); color: #9db8f2">index.crates.io</span>
+              <span style="padding: 2px 7px; border-radius: 5px; background: rgba(126,162,238,0.12); color: #9db8f2">static.crates.io</span>
+            </div>
+            <div style="font-size: 11.5px; color: #879290">Everything else is blocked.</div>
+          </section>
+          <section style="padding: 12px 14px; border-radius: 10px; background: rgba(255,255,255,0.035); display: flex; flex-direction: column; gap: 6px">
+            <div style="font-size: 10.5px; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase; color: #879290">Can't read</div>
+            <div style="font-family: 'SF Mono', ui-monospace, Menlo, monospace; font-size: 11.5px; color: #ec9a95">~ <span style="font-family: -apple-system, sans-serif; color: #879290">(all of home, except what's allowed)</span></div>
+            <div style="margin-top: 6px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase; color: #879290">Can't write</div>
+            <div style="font-family: 'SF Mono', ui-monospace, Menlo, monospace; font-size: 11.5px; line-height: 1.6; color: #ec9a95">~/.claude/settings.json<br>~/.fence<br>…/paddock/.fence.toml</div>
+          </section>
+          <section style="padding: 12px 14px; border-radius: 10px; background: rgba(255,255,255,0.035); display: flex; flex-direction: column; gap: 6px">
+            <div style="font-size: 10.5px; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase; color: #879290">Can write · 10</div>
+            <div style="font-family: 'SF Mono', ui-monospace, Menlo, monospace; font-size: 11.5px; line-height: 1.6; color: #b9d7a9">~/Developer/personal_projs/paddock<br>~/Developer/personal_projs/paddock/.git<br>~/.cargo/registry · ~/.cargo/git<br>~/.claude<br><span style="color: #879290">temp dir (made at start)</span></div>
+            <button style="align-self: flex-start; padding: 0; border: 0; background: transparent; font-size: 12px; color: #86c1e6">Show all 10</button>
+          </section>
+          <section style="padding: 12px 14px; border-radius: 10px; background: rgba(255,255,255,0.035); display: flex; flex-direction: column; gap: 6px">
+            <div style="font-size: 10.5px; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase; color: #879290">Can read · 18</div>
+            <div style="font-family: 'SF Mono', ui-monospace, Menlo, monospace; font-size: 11.5px; line-height: 1.6; color: #cfd6d4">~/.gitconfig · ~/.config/git<br>~/.cargo/bin · ~/.rustup<br>~/.nvm/versions/node<br>~/Library/Keychains</div>
+            <button style="align-self: flex-start; padding: 0; border: 0; background: transparent; font-size: 12px; color: #86c1e6">Show all 18</button>
+          </section>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: #879290">
+          <div><span style="color: #a2acaa">Skipped</span> · <span style="font-family: 'SF Mono', ui-monospace, Menlo, monospace">${target}</span>: placeholder has no value (git, branch or CARGO_TARGET_DIR not set) · <span style="font-family: 'SF Mono', ui-monospace, Menlo, monospace">~/.cargo/config.toml</span>: read path does not exist</div>
+          <div>Warnings appear here in yellow, word for word (Codex shows weaker_network_isolation).</div>
+        </div>
+      </div>
+    </div>
+
+    <div style="padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.06); font-size: 12px; color: #879290">fence not found: this page says so in one line, and New Agent shows no lock.</div>
+  </div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1120,"height":820}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

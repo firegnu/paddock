@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Blocked list as a popover</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+button{font:inherit;color:inherit;cursor:pointer}
+</style>
+</helmet>
+<div style="width: 800px; height: 700px; box-sizing: border-box; background: #1d2221; font-family: -apple-system, 'SF Pro Text', 'Helvetica Neue', sans-serif; color: #e7ecea; display: flex; position: relative; overflow: hidden">
+
+  <!-- sidebar with the card the list came from -->
+  <div style="width: 250px; flex: none; box-sizing: border-box; padding: 20px 12px; background: #20262a; border-right: 1px solid rgba(255,255,255,0.06); display: flex; flex-direction: column; gap: 8px">
+    <div style="height: 54px; border-radius: 12px; background: #2a302f; border: 1px solid #3a4140; opacity: 0.5"></div>
+    <div style="border-radius: 12px; background: #2a302f; border: 1px solid #86c1e6; box-shadow: 0 0 0 3px rgba(134,193,230,0.15); padding: 11px 12px; display: flex; gap: 9px; align-items: center">
+      <div style="width: 30px; height: 30px; border-radius: 8px; background: #d97757; flex: none"></div>
+      <span style="font-size: 14px; font-weight: 500">dev-fence-ui</span>
+      <span style="display: inline-flex; align-items: center; gap: 3px"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#a2acaa" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2.2"></rect><path d="M8 11V7.5a4 4 0 0 1 8 0V11"></path></svg><span style="font-size: 11.5px; font-weight: 600; color: #dfc07a">3</span></span>
+    </div>
+    <div style="height: 54px; border-radius: 12px; background: #2a302f; border: 1px solid #3a4140; opacity: 0.5"></div>
+  </div>
+
+  <!-- terminal behind -->
+  <div style="flex: 1; padding: 20px 24px; font-family: 'SF Mono', ui-monospace, Menlo, monospace; font-size: 12px; line-height: 1.7; color: #5d6866">
+    ⏺ Bash(git push origin p5-120)<br>
+    &nbsp;&nbsp;⎿ fatal: unable to access 'https://github.com/…': Could not resolve host<br>
+    ⏺ Bash(cat ~/.ssh/config)<br>
+    &nbsp;&nbsp;⎿ cat: /Users/…/.ssh/config: Operation not permitted<br>
+  </div>
+
+  <!-- the popover -->
+  <div role="dialog" aria-label="Blocked in sandbox" style="position: absolute; left: 266px; top: 64px; width: 500px; box-sizing: border-box; border-radius: 14px; background: #2f3635; border: 1px solid rgba(255,255,255,0.10); box-shadow: 0 24px 60px rgba(0,0,0,0.55); display: flex; flex-direction: column">
+    <div style="padding: 14px 16px 12px; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid rgba(255,255,255,0.07)">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="rgba(134,193,230,0.2)" stroke="#86c1e6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2.2"></rect><path d="M8 11V7.5a4 4 0 0 1 8 0V11" fill="none"></path></svg>
+      <span style="font-size: 14px; font-weight: 600">Blocked</span>
+      <span style="font-size: 12.5px; color: #879290">dev-fence-ui · dev</span>
+      <span style="flex: 1"></span>
+      <span style="font-size: 12px; color: #879290">3</span>
+      <button aria-label="Close" style="width: 24px; height: 24px; margin-left: 4px; border: 0; border-radius: 6px; background: transparent; display: flex; align-items: center; justify-content: center"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#a2acaa" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></button>
+    </div>
+
+    <div style="padding: 10px 16px 2px; display: flex; align-items: center; gap: 8px">
+      <div style="display: flex; gap: 2px; padding: 2px; border-radius: 8px; background: rgba(0,0,0,0.2)">
+        <button aria-pressed="true" style="height: 24px; padding: 0 9px; border: 0; border-radius: 6px; background: #3a4140; font-size: 12px; color: #e7ecea">Network &amp; writes <span style="color: #dfc07a; font-weight: 600">3</span></button>
+        <button aria-pressed="false" style="height: 24px; padding: 0 9px; border: 0; border-radius: 6px; background: transparent; font-size: 12px; color: #a2acaa">All <span style="color: #879290">445</span></button>
+      </div>
+      <span style="font-size: 11.5px; color: #879290">All adds reads and system checks, mostly caches</span>
+    </div>
+    <div style="padding: 6px 8px; display: flex; flex-direction: column">
+      <!-- row: newest first -->
+      <div style="display: grid; grid-template-columns: 52px 64px minmax(0, 1fr); column-gap: 10px; padding: 9px 8px; border-radius: 8px">
+        <span style="font-size: 12px; color: #879290; font-variant-numeric: tabular-nums">14:06</span>
+        <span style="align-self: start; justify-self: start; height: 20px; padding: 0 7px; display: inline-flex; align-items: center; border-radius: 5px; background: rgba(126,162,238,0.14); font-size: 11.5px; color: #9db8f2">Network</span>
+        <span style="min-width: 0; display: flex; flex-direction: column; gap: 2px"><span style="font-family: 'SF Mono', ui-monospace, Menlo, monospace; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">github.com:443</span><span style="font-size: 11.5px; color: #879290">not on the allow list</span></span>
+      </div>
+      <div style="display: grid; grid-template-columns: 52px 64px minmax(0, 1fr); column-gap: 10px; padding: 9px 8px; border-radius: 8px; background: rgba(255,255,255,0.04)">
+        <span style="font-size: 12px; color: #879290; font-variant-numeric: tabular-nums">14:03</span>
+        <span style="align-self: start; justify-self: start; height: 20px; padding: 0 7px; display: inline-flex; align-items: center; border-radius: 5px; background: rgba(126,162,238,0.14); font-size: 11.5px; color: #9db8f2">Network</span>
+        <span style="min-width: 0; display: flex; flex-direction: column; gap: 2px"><span style="font-family: 'SF Mono', ui-monospace, Menlo, monospace; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">registry.npmjs.org:443</span><span style="font-size: 11.5px; color: #879290; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">not on the allow list</span></span>
+      </div>
+      <div style="display: grid; grid-template-columns: 52px 64px minmax(0, 1fr); column-gap: 10px; padding: 9px 8px; border-radius: 8px">
+        <span style="font-size: 12px; color: #879290; font-variant-numeric: tabular-nums">13:58</span>
+        <span style="align-self: start; justify-self: start; height: 20px; padding: 0 7px; display: inline-flex; align-items: center; border-radius: 5px; background: rgba(228,122,116,0.14); font-size: 11.5px; color: #ec9a95">Write</span>
+        <span style="min-width: 0; display: flex; flex-direction: column; gap: 2px"><span style="font-family: 'SF Mono', ui-monospace, Menlo, monospace; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">~/Developer/personal_projs/paddock/app/src/card.rs</span><span style="font-size: 11.5px; color: #879290; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">deny file-write-data …/paddock/app/src/card.rs</span></span>
+      </div>
+    </div>
+
+    <div style="margin: 0 16px; padding: 10px 0 13px; border-top: 1px solid rgba(255,255,255,0.07); display: flex; align-items: flex-start; gap: 8px; font-size: 12px; line-height: 1.5; color: #a2acaa">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#a2acaa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-top: 2px; flex: none"><circle cx="12" cy="12" r="9"></circle><path d="M12 11v5M12 8v.1"></path></svg>
+      <span>Network blocks are all here. File blocks may be missing; the agent's terminal shows every one.</span>
+    </div>
+  </div>
+
+  <div style="position: absolute; left: 266px; bottom: 22px; width: 500px; font-size: 12px; line-height: 1.6; color: #879290">Newest first, local time, paths shortened with ~; hover a row for the full path. Opens on Network &amp; writes (the number on the card); All shows reads and “other” too. Empty: “Nothing blocked yet.” fence stopped recording (log full): a last line says so. Refreshes while open.</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":800,"height":700}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>
