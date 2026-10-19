@@ -747,12 +747,16 @@ esac"#;
 
     /// Whether a process numbered `pid` still exists (killed and reaped ones don't).
     fn alive(pid: &str) -> bool {
-        std::process::Command::new("kill")
-            .args(["-0", pid])
-            .stderr(std::process::Stdio::null())
-            .status()
-            .unwrap()
-            .success()
+        crate::command::run(
+            "kill",
+            &["-0", pid],
+            None,
+            Duration::from_secs(5),
+            &AtomicBool::new(false),
+        )
+        .unwrap()
+        .status
+        .success()
     }
 
     #[test]

@@ -145,3 +145,9 @@
 ### 踩过的坑
 - 中途误敲了一个会等标准输入的 `cat >> /tmp/null`（违反“前台命令别带等标准输入的东西”），命令被挂到后台，发现后用 TaskStop 停掉。它在 `/tmp/null` 留了一个空文件；因为不能用 `rm`，没删，留给主控处理。代码没被改动（同一行后面的 perl 没跑）。
 - perl 替换又碰到分隔符冲突（这次是 `#` 和 `#[test]`），改用 Edit。
+
+## 主控审查（paddock/main，10-19）
+- 首轮：看了 `new_agent.rs`、`fence.rs`、New Agent 的检查和启动路径、侧栏 Watcher（只在本机侧栏，远程没有）；重跑 `cargo test --all-targets` 786 过，clippy、fmt 干净。当时认为检查未完成时可点 Start 可接受（corral 会再查），交叉审查定为必须改，采纳。
+- 交叉审查（Codex，`docs/任务/P5-120-交叉审查.md`）：必须改 4、建议改 3、兼容性记录 1，全部交返工 1；复核：8 条已解决，可以合并，新提建议改 1 条（测试辅助 `alive()` 没走共用启动锁）。
+- 那 1 条主控自己改了：`alive()` 改用 `command::run`。重跑 `cargo test --all-targets` 792 过，clippy、fmt、`git diff --check` 干净。
+- 界面的样子、点选、键盘未实测，留给用户装好后看。
