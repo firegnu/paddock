@@ -431,6 +431,11 @@ pub struct Form {
     pub sandbox: Option<String>,
     /// What fence offers; none while it is not known or fence is not there.
     offer: Option<Offer>,
+    /// fence has not answered yet since the form was made: "not known", not "not there".
+    looking: bool,
+    /// A preset's sandbox, picked while fence was still being looked for: taken once fence
+    /// answers and allows it, unless the role, the kind or the sandbox was changed meanwhile.
+    pending: Option<String>,
 }
 
 /// What fence offers New Agent: its profiles' names and the kinds it has data for.
@@ -515,6 +520,8 @@ impl Form {
             models: Lists::default(),
             sandbox: None,
             offer: None,
+            looking: true,
+            pending: None,
         };
         form.follow_name();
         form
@@ -524,6 +531,13 @@ impl Form {
     /// longer allows goes back to none.
     pub fn set_offer(&mut self, offer: Option<Offer>) {
         self.offer = offer;
+        self.looking = false;
+        // A preset picked while looking gets its sandbox now, if fence allows it.
+        if let Some(pending) = self.pending.take()
+            && self.sandbox.is_none()
+        {
+            self.sandbox = Some(pending);
+        }
         self.refit_sandbox();
     }
 
@@ -531,14 +545,45 @@ impl Form {
         self.offer.as_ref()
     }
 
+    /// A preset's sandbox is waiting for fence to answer: Start waits for it too, rather than
+    /// start without it.
+    pub fn sandbox_pending(&self) -> bool {
+        self.pending.is_some()
+    }
+
+    /// The command runs a kind paddock knows, and it is the kind chosen: a program typed by hand
+    /// that paddock can't read as one has no sandbox, as fence's rules are by kind.
+    pub fn runs_kind(&self) -> bool {
+        shell_words::split(&self.command).is_ok_and(|words| read(&words).tool == Some(self.tool))
+    }
+
+    /// The profile it starts in, as the form is now: none for a controller, a command of no
+    /// kind fence knows, or a profile fence doesn't offer.
+    fn sandbox_now(&self) -> Option<&String> {
+        self.sandbox.as_ref().filter(|profile| self.fits(profile))
+    }
+
+    /// `profile` can be had as the form is.
+    fn fits(&self, profile: &str) -> bool {
+        self.regular
+            && self.runs_kind()
+            && self
+                .offer
+                .as_ref()
+                .is_some_and(|offer| offer.allows(profile, self.tool))
+    }
+
     /// Whether a sandbox can be chosen as the form is: fence is there, the agent is regular and
     /// fence has data for its kind.
     pub fn can_sandbox(&self) -> bool {
-        self.regular && self.offer.as_ref().is_some_and(|o| o.supports(self.tool))
+        self.regular
+            && self.runs_kind()
+            && self.offer.as_ref().is_some_and(|o| o.supports(self.tool))
     }
 
     /// Starts it in `profile`, or in none.
     pub fn set_sandbox(&mut self, profile: Option<String>) {
+        self.pending = None;
         self.sandbox = profile;
         self.refit_sandbox();
     }
@@ -546,30 +591,33 @@ impl Form {
     /// A controller, or a regular agent; a controller has no sandbox, as corral is blocked inside
     /// one and it could not hand out work (ranch's answer 1).
     pub fn set_regular(&mut self, regular: bool) {
+        self.pending = None;
         self.regular = regular;
         self.refit_sandbox();
     }
 
-    /// The profile `preset` would start in now: none when fence does not allow it for the kind.
+    /// The profile `preset` would start in now: none when fence does not allow it for the kind;
+    /// while fence is still being looked for, the preset's own (it is waited for).
     fn sandbox_of(&self, preset: &Preset) -> Option<String> {
-        let offer = self.offer.as_ref()?;
-        preset
+        let regular = preset
             .sandbox
             .clone()
-            .filter(|p| preset.role == Role::Regular && offer.allows(p, preset.kind))
+            .filter(|_| preset.role == Role::Regular);
+        if self.looking {
+            return regular;
+        }
+        let offer = self.offer.as_ref()?;
+        regular.filter(|p| offer.allows(p, preset.kind))
     }
 
-    /// Back to no sandbox when the one chosen can't be had as the form now is.
+    /// Back to no sandbox when the one chosen can't be had as the form now is; a preset's waiting
+    /// one goes too once the command is of no kind paddock knows.
     fn refit_sandbox(&mut self) {
-        let fits = |profile: &String| {
-            self.regular
-                && self
-                    .offer
-                    .as_ref()
-                    .is_some_and(|offer| offer.allows(profile, self.tool))
-        };
-        if !self.sandbox.as_ref().is_some_and(fits) {
+        if self.sandbox_now().is_none() {
             self.sandbox = None;
+        }
+        if !self.regular || !self.runs_kind() {
+            self.pending = None;
         }
     }
 
@@ -614,6 +662,7 @@ impl Form {
 
     /// Another kind; the command becomes that kind's own, asking for no model or effort.
     pub fn choose_tool(&mut self, tool: Tool) {
+        self.pending = None;
         self.tool = tool;
         self.model = None;
         self.effort = None;
@@ -692,7 +741,13 @@ impl Form {
             self.ask();
         }
         self.regular = preset.role == Role::Regular;
-        self.sandbox = self.sandbox_of(preset);
+        if self.looking {
+            // Not known yet: waited for, and taken once fence answers.
+            self.sandbox = None;
+            self.pending = self.sandbox_of(preset);
+        } else {
+            self.sandbox = self.sandbox_of(preset);
+        }
     }
 
     /// How the form opens: as the first controller preset while the project has no `main` yet;
@@ -717,7 +772,7 @@ impl Form {
             && self.regular == (preset.role == Role::Regular)
             && (!self.tool.has_models()
                 || (self.model == preset.model && self.effort == preset.effort))
-            && self.sandbox == self.sandbox_of(preset)
+            && self.sandbox.as_ref().or(self.pending.as_ref()) == self.sandbox_of(preset).as_ref()
     }
 
     /// A preset clicked: its settings, and it is the one lit from now on.
@@ -755,7 +810,7 @@ impl Form {
         let index = self.picked_index(presets)?;
         let mut presets = presets.to_vec();
         let mut preset = self.preset(presets[index].name.clone());
-        // Without fence the form can't say: the preset's own sandbox stays.
+        // Without fence, or before it answered, the form can't say: the preset's own stays.
         if self.offer.is_none() && preset.role == Role::Regular {
             preset.sandbox.clone_from(&presets[index].sandbox);
         }
@@ -776,7 +831,7 @@ impl Form {
             } else {
                 Role::Controller
             },
-            sandbox: self.sandbox.clone().filter(|_| self.regular),
+            sandbox: self.sandbox_now().cloned(),
         }
     }
 
@@ -794,9 +849,11 @@ impl Form {
             self.tool = tool;
             self.model = None;
             self.effort = None;
+            self.pending = None;
             self.follow_name();
-            self.refit_sandbox();
         }
+        // Another kind, or a program of no kind paddock knows: the sandbox may go.
+        self.refit_sandbox();
         if let Some(model) = reading.model.filter(|model| !model.is_empty()) {
             self.model = Some(model.into());
         }
@@ -927,7 +984,7 @@ impl Form {
                 args.extend(["--label".into(), format!("{key}={value}")]);
             }
         }
-        if let Some(profile) = self.sandbox.as_ref().filter(|_| self.regular) {
+        if let Some(profile) = self.sandbox_now() {
             args.extend(["--sandbox".into(), profile.clone()]);
         }
         if !self.prompt.is_empty() && self.tool.takes_prompt() {
@@ -1740,6 +1797,95 @@ mod tests {
         form.set_sandbox(Some("dev".into()));
         form.set_offer(None);
         assert_eq!(form.sandbox, None);
+    }
+
+    #[test]
+    fn a_command_paddock_cant_read_as_a_kind_has_no_sandbox() {
+        let sandboxed = |form: &Form| form.args().unwrap().contains(&"--sandbox".to_owned());
+        let mut form = Form::new("/tmp/demo".into(), Place::Current);
+        form.pick_tool(Tool::Claude);
+        form.set_regular(true);
+        form.set_offer(Some(offer(&["dev"])));
+        form.set_sandbox(Some("dev".into()));
+        assert!(sandboxed(&form));
+        // Another program typed by hand: no sandbox, none to choose, and none in the call.
+        form.set_command("my-agent --flag".into());
+        assert_eq!(form.sandbox, None);
+        assert!(!form.can_sandbox());
+        form.set_sandbox(Some("dev".into()));
+        assert_eq!(form.sandbox, None);
+        let args = form.args().unwrap();
+        assert!(!sandboxed(&form));
+        assert_eq!(command(&args), ["my-agent", "--flag"]);
+        // Even set straight on the form, the call leaves it out.
+        form.sandbox = Some("dev".into());
+        assert!(!sandboxed(&form));
+        form.sandbox = None;
+        // Back to Claude: one can be chosen again, but the old one doesn't come back by itself.
+        form.set_command("claude".into());
+        assert!(form.can_sandbox());
+        assert_eq!(form.sandbox, None);
+        assert!(!sandboxed(&form));
+        // A controller's call never has one, however the form got it.
+        form.set_regular(false);
+        form.sandbox = Some("dev".into());
+        assert!(!sandboxed(&form));
+    }
+
+    #[test]
+    fn a_preset_picked_while_fence_is_looked_for_gets_its_sandbox_once_found() {
+        let mut presets = default_presets();
+        presets[1].sandbox = Some("dev".into());
+        let lit = |index, edited| Some(Lit { index, edited });
+        let sandboxed = |form: &Form| form.args().unwrap().contains(&"--sandbox".to_owned());
+        // Picked before fence answered: it waits for it, and Start waits too.
+        let mut form = Form::new("/tmp/demo".into(), Place::Current);
+        form.pick(&presets[1]);
+        assert_eq!(form.sandbox, None);
+        assert!(form.sandbox_pending());
+        assert!(!sandboxed(&form));
+        assert_eq!(form.lit(&presets), lit(1, false));
+        form.set_offer(Some(offer(&["dev"])));
+        assert_eq!(form.sandbox.as_deref(), Some("dev"));
+        assert!(!form.sandbox_pending());
+        assert!(sandboxed(&form));
+        assert_eq!(form.lit(&presets), lit(1, false));
+        let updated = form.update_picked(&presets).unwrap();
+        assert_eq!(updated[1].sandbox.as_deref(), Some("dev"));
+
+        // Changed meanwhile: a controller (and back), another kind, or no sandbox chosen.
+        let changes: [fn(&mut Form); 3] = [
+            |form| {
+                form.set_regular(false);
+                form.set_regular(true);
+            },
+            |form| form.pick_tool(Tool::Codex),
+            |form| form.set_sandbox(None),
+        ];
+        for change in changes {
+            let mut form = Form::new("/tmp/demo".into(), Place::Current);
+            form.pick(&presets[1]);
+            change(&mut form);
+            assert!(!form.sandbox_pending());
+            form.set_offer(Some(offer(&["dev"])));
+            assert_eq!(form.sandbox, None);
+        }
+
+        // fence isn't there after all: none, and Update keeps the preset's own.
+        let mut form = Form::new("/tmp/demo".into(), Place::Current);
+        form.pick(&presets[1]);
+        form.set_offer(None);
+        assert_eq!(form.sandbox, None);
+        assert!(!form.sandbox_pending());
+        assert_eq!(form.lit(&presets), lit(1, false));
+        let updated = form.update_picked(&presets).unwrap();
+        assert_eq!(updated[1].sandbox.as_deref(), Some("dev"));
+        // Found, but without the profile: none.
+        let mut form = Form::new("/tmp/demo".into(), Place::Current);
+        form.pick(&presets[1]);
+        form.set_offer(Some(offer(&["other"])));
+        assert_eq!(form.sandbox, None);
+        assert!(!form.sandbox_pending());
     }
 
     #[test]

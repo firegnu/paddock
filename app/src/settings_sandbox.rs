@@ -8,6 +8,7 @@
 use super::*;
 use crate::fence::{self, Check, Profiles, Refusal, Version};
 use gpui::PathPromptOptions;
+use std::sync::atomic::Ordering;
 
 /// What a check was asked for: the profile, the kind and the folder.
 type Asked = (String, String, String);
@@ -25,6 +26,9 @@ pub(super) struct Sandbox {
     check: Option<(Asked, Option<Result<Check, Refusal>>)>,
     /// Counts the checks asked for: only the latest one's answer is taken.
     asked: u64,
+    /// Stops the look for fence, and the check, still running once they are not wanted.
+    finding: Option<fence::Cancel>,
+    checking: Option<fence::Cancel>,
     /// The folders to choose from: the recently used projects.
     folders: Vec<String>,
     /// The folder list is open.
@@ -64,15 +68,24 @@ impl SettingsView {
             .as_deref()
             .map(crate::new_agent::load_recent)
             .unwrap_or_default();
-        let task = cx.background_spawn(async {
-            match fence::version(fence::PROGRAM) {
+        // A look still running from before is not wanted.
+        let finding = fence::Cancel::default();
+        let flag = finding.flag();
+        let stopped = flag.clone();
+        self.sandbox.finding = Some(finding);
+        let task = cx.background_spawn(async move {
+            match fence::version(fence::PROGRAM, &flag) {
                 None => Found::Missing,
-                Some(version) => Found::Here(version, fence::profiles(fence::PROGRAM)),
+                Some(version) => Found::Here(version, fence::profiles(fence::PROGRAM, &flag)),
             }
         });
         cx.spawn(async move |this, cx| {
             let found = task.await;
             let _ = this.update(cx, |this, cx| {
+                // Stopped for a newer look: its answer is not fence's.
+                if stopped.load(Ordering::Relaxed) {
+                    return;
+                }
                 let state = &mut this.sandbox;
                 if let Found::Here(_, Ok(profiles)) = &found {
                     let profile_gone = !state.profile.as_ref().is_some_and(|p| profiles.has(p));
@@ -106,6 +119,14 @@ impl SettingsView {
         .detach();
     }
 
+    /// Another page: the look for fence and the check still running stop; showing the page again
+    /// looks and checks afresh.
+    pub(super) fn leave_sandbox(&mut self) {
+        self.sandbox.finding = None;
+        self.sandbox.checking = None;
+        self.sandbox.check = None;
+    }
+
     /// Checks what is chosen, unless that is what was last checked.
     fn check_sandbox(&mut self, cx: &mut Context<Self>) {
         let state = &mut self.sandbox;
@@ -123,15 +144,21 @@ impl SettingsView {
         state.asked += 1;
         let number = state.asked;
         state.check = Some((asked.clone(), None));
+        // The check before this one is not wanted: it stops.
+        let checking = fence::Cancel::default();
+        let flag = checking.flag();
+        let stopped = flag.clone();
+        state.checking = Some(checking);
         let task = cx.background_spawn(async move {
             let (profile, kind, folder) = asked;
-            fence::check(fence::PROGRAM, &profile, Some(&kind), Some(&folder))
+            fence::check(fence::PROGRAM, &profile, Some(&kind), Some(&folder), &flag)
         });
         cx.spawn(async move |this, cx| {
             let answer = task.await;
             let _ = this.update(cx, |this, cx| {
                 let state = &mut this.sandbox;
                 if state.asked == number
+                    && !stopped.load(Ordering::Relaxed)
                     && let Some((_, slot)) = &mut state.check
                 {
                     *slot = Some(answer);

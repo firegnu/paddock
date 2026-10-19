@@ -50,15 +50,28 @@ pub(super) fn listed(denials: &Denials, all: bool) -> Vec<&Denial> {
         .collect()
 }
 
+/// What an empty list says: nothing blocked yet; but when fence gave as many records as it was
+/// asked for, only that none of those is listed, as older ones were not read.
+pub(super) fn nothing_listed(denials: Option<&Denials>) -> String {
+    match denials {
+        Some(denials) if denials.capped() => format!(
+            "None among the latest {} records; older ones aren't read.",
+            crate::fence::LIMIT
+        ),
+        _ => "Nothing blocked yet.".into(),
+    }
+}
+
 /// One row as drawn: the time, the type's tag and its kind, what it was after (`~` for home; the
-/// detail when fence did not know), the whole of that for hovering, and the detail under it.
+/// detail when fence did not know), and the detail under it; hovering shows fence's words whole,
+/// as both lines may be cut to the row.
 #[derive(Clone, Debug, PartialEq)]
 pub(super) struct Row {
     pub time: String,
     pub tag: String,
     pub kind: String,
     pub target: String,
-    pub whole: Option<String>,
+    pub whole: String,
     pub detail: Option<String>,
 }
 
@@ -66,12 +79,17 @@ pub(super) fn row(denial: &Denial, home: Option<&str>) -> Row {
     let detail = denial.detail.clone().filter(|detail| !detail.is_empty());
     let (target, whole, detail) = match &denial.target {
         Some(target) => {
-            let shown = card::tilde(target, home);
-            let whole = (shown != *target).then(|| target.clone());
-            (shown, whole, detail)
+            let whole = match &detail {
+                Some(detail) => format!("{target}\n{detail}"),
+                None => target.clone(),
+            };
+            (card::tilde(target, home), whole, detail)
         }
         // Not known: the detail says what it was.
-        None => (detail.clone().unwrap_or_else(|| "—".into()), None, None),
+        None => {
+            let said = detail.unwrap_or_else(|| "—".into());
+            (said.clone(), said, None)
+        }
     };
     Row {
         time: clock_of(denial.t),
@@ -371,7 +389,7 @@ impl Sidebar {
         };
         let body = match read {
             Some(Err(refusal)) => quiet(format!("Couldn't read what was blocked: {refusal}"), red),
-            _ if rows.is_empty() => quiet("Nothing blocked yet.".into(), dim),
+            _ if rows.is_empty() => quiet(nothing_listed(denials), dim),
             _ => {
                 let row_height = ui.scale(ROW);
                 let count = rows.len();
@@ -393,13 +411,13 @@ impl Sidebar {
                             .filter_map(|index| Some((index, rows.get(index)?.clone())))
                             .map(|(index, row)| {
                                 let (ink, ground) = colors.tag(&row.kind);
-                                let tip = row.whole.clone().map(|whole| Tip {
-                                    text: whole.into(),
+                                let tip = Tip {
+                                    text: row.whole.clone().into(),
                                     size: note,
                                     color: tip_colors.0,
                                     background: tip_colors.1,
                                     border: tip_colors.2,
-                                });
+                                };
                                 div()
                                     .id(("denial", index))
                                     .w_full()
@@ -410,9 +428,7 @@ impl Sidebar {
                                     .gap(px(10.0))
                                     .rounded(px(8.0))
                                     .hover(move |style| style.bg(text.opacity(0.04)))
-                                    .when_some(tip, |row, tip| {
-                                        row.tooltip(move |_, cx| cx.new(|_| tip.clone()).into())
-                                    })
+                                    .tooltip(move |_, cx| cx.new(|_| tip.clone()).into())
                                     .child(
                                         div()
                                             .flex_shrink_0()
@@ -606,20 +622,58 @@ mod tests {
             Some("/Users/u"),
         );
         assert_eq!(row.target, "~/w/card.rs");
-        assert_eq!(row.whole.as_deref(), Some("/Users/u/w/card.rs"));
+        assert_eq!(row.whole, "/Users/u/w/card.rs\ndeny file-write-data");
         assert_eq!(row.detail.as_deref(), Some("deny file-write-data"));
         assert_eq!(row.tag, "Write");
         let unknown = super::row(&denial(0.0, "mystery", None, Some("what it was")), None);
         assert_eq!(unknown.target, "what it was");
-        assert_eq!((unknown.whole, unknown.detail), (None, None));
+        assert_eq!(
+            (unknown.whole.as_str(), unknown.detail),
+            ("what it was", None)
+        );
         assert_eq!(unknown.tag, "mystery");
         let network = super::row(
             &denial(0.0, "network", Some("github.com:443"), None),
             Some("/Users/u"),
         );
         assert_eq!(
-            (network.target.as_str(), network.whole),
-            ("github.com:443", None)
+            (network.target.as_str(), network.whole.as_str()),
+            ("github.com:443", "github.com:443")
+        );
+        // Outside home, or a long detail in place of the target: still all there on hover.
+        let far = "/opt/somewhere/very/deep/down/in/a/tree/that/the/row/cuts/short/file.lock";
+        let outside = super::row(
+            &denial(0.0, "file-write", Some(far), None),
+            Some("/Users/u"),
+        );
+        assert_eq!(
+            (outside.target.as_str(), outside.whole.as_str()),
+            (far, far)
+        );
+        let long = "mach-lookup com.apple.something.long.enough.to.be.cut.in.the.row (global-name)";
+        let unnamed = super::row(&denial(0.0, "other", None, Some(long)), None);
+        assert_eq!(
+            (unnamed.target.as_str(), unnamed.whole.as_str()),
+            (long, long)
+        );
+    }
+
+    #[test]
+    fn an_empty_list_of_a_full_read_doesnt_say_nothing_was_blocked() {
+        assert_eq!(nothing_listed(None), "Nothing blocked yet.");
+        let few = Denials {
+            denials: vec![denial(1.0, "file-read", Some("/r"), None)],
+            ..Denials::default()
+        };
+        assert_eq!(nothing_listed(Some(&few)), "Nothing blocked yet.");
+        let full = Denials {
+            denials: vec![denial(1.0, "file-read", Some("/r"), None); crate::fence::LIMIT],
+            ..Denials::default()
+        };
+        assert!(listed(&full, false).is_empty());
+        assert_eq!(
+            nothing_listed(Some(&full)),
+            "None among the latest 5000 records; older ones aren't read."
         );
     }
 

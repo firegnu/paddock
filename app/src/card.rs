@@ -547,10 +547,11 @@ pub struct Sandboxed {
 }
 
 impl Sandboxed {
-    /// The yellow number beside the lock: none while nothing was stopped.
+    /// The yellow number beside the lock: none while nothing was stopped; `0+` when a full read
+    /// had none of them, as older records were not read.
     pub fn count(&self) -> Option<String> {
         match self.blocked? {
-            (0, _) => None,
+            (0, false) => None,
             (n, true) => Some(format!("{n}+")),
             (n, false) => Some(n.to_string()),
         }
@@ -1939,5 +1940,12 @@ mod tests {
             problem: None,
         };
         assert_eq!(capped.count().as_deref(), Some("5000+"));
+        // A full read with none of them counted: older ones may be, so not "nothing".
+        let none_seen = Sandboxed {
+            blocked: Some((0, true)),
+            ..capped
+        };
+        assert_eq!(none_seen.count().as_deref(), Some("0+"));
+        assert_eq!(none_seen.told(), "0+ blocked ›");
     }
 }

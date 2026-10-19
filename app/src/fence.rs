@@ -262,6 +262,24 @@ impl std::fmt::Display for Refusal {
     }
 }
 
+/// Stops the fence calls it was handed to once dropped: whoever asked no longer wants the answer,
+/// so a slow fence is killed and reaped rather than left to run out its time.
+#[derive(Debug, Default)]
+pub struct Cancel(Arc<AtomicBool>);
+
+impl Cancel {
+    /// The flag to hand the calls.
+    pub fn flag(&self) -> Arc<AtomicBool> {
+        self.0.clone()
+    }
+}
+
+impl Drop for Cancel {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::Relaxed);
+    }
+}
+
 /// A value fence said, in words: a string as it is, an object by its `message` (after its code
 /// when it has one), anything else as JSON.
 fn said(value: &Value) -> String {
@@ -303,10 +321,14 @@ fn answer(output: &crate::command::Output) -> Result<Value, Refusal> {
     }
 }
 
-/// Runs `program` with `args` and reads its answer as `T`.
-fn call<T: serde::de::DeserializeOwned>(program: &str, args: &[&str]) -> Result<T, Refusal> {
-    let output = crate::command::run(program, args, None, TIMEOUT, &AtomicBool::new(false))
-        .map_err(|error| Refusal {
+/// Runs `program` with `args` and reads its answer as `T`; `cancel` stops it and reaps it.
+fn call<T: serde::de::DeserializeOwned>(
+    program: &str,
+    args: &[&str],
+    cancel: &AtomicBool,
+) -> Result<T, Refusal> {
+    let output =
+        crate::command::run(program, args, None, TIMEOUT, cancel).map_err(|error| Refusal {
             code: String::new(),
             message: format!("fence did not run: {error:#}"),
         })?;
@@ -318,15 +340,15 @@ fn call<T: serde::de::DeserializeOwned>(program: &str, args: &[&str]) -> Result<
 
 /// fence's version, when it runs and keeps the contract paddock reads; otherwise none, and
 /// paddock offers no sandbox.
-pub fn version(program: &str) -> Option<Version> {
-    call::<Version>(program, &["--version"])
+pub fn version(program: &str, cancel: &AtomicBool) -> Option<Version> {
+    call::<Version>(program, &["--version"], cancel)
         .ok()
         .filter(|version| version.contract == CONTRACT)
 }
 
 /// The profiles, and the kinds fence has data for.
-pub fn profiles(program: &str) -> Result<Profiles, Refusal> {
-    call(program, &["profiles"])
+pub fn profiles(program: &str, cancel: &AtomicBool) -> Result<Profiles, Refusal> {
+    call(program, &["profiles"], cancel)
 }
 
 /// What `profile` comes to for `kind` in `cwd`; refused when it can't be used there.
@@ -335,6 +357,7 @@ pub fn check(
     profile: &str,
     kind: Option<&str>,
     cwd: Option<&str>,
+    cancel: &AtomicBool,
 ) -> Result<Check, Refusal> {
     let mut args = vec!["check", "--profile", profile];
     if let Some(kind) = kind {
@@ -343,12 +366,17 @@ pub fn check(
     if let Some(cwd) = cwd {
         args.extend(["--cwd", cwd]);
     }
-    call(program, &args)
+    call(program, &args, cancel)
 }
 
 /// What the wall stopped in `agent`'s run `instance`, the last [`LIMIT`]; none while fence has no
 /// record of it yet (`not_found`, also for a moment after `corral start`).
-pub fn denials(program: &str, agent: &str, instance: &str) -> Result<Option<Denials>, Refusal> {
+pub fn denials(
+    program: &str,
+    agent: &str,
+    instance: &str,
+    cancel: &AtomicBool,
+) -> Result<Option<Denials>, Refusal> {
     let limit = LIMIT.to_string();
     let args = [
         "denials",
@@ -359,7 +387,7 @@ pub fn denials(program: &str, agent: &str, instance: &str) -> Result<Option<Deni
         "--limit",
         &limit,
     ];
-    match call(program, &args) {
+    match call(program, &args, cancel) {
         Ok(denials) => Ok(Some(denials)),
         Err(refusal) if refusal.code == "not_found" => Ok(None),
         Err(refusal) => Err(refusal),
@@ -408,7 +436,7 @@ impl Watcher {
                 }
                 if looked.is_none_or(|at| at.elapsed() >= LOOK_AGAIN) {
                     looked = Some(Instant::now());
-                    let now = version(&program);
+                    let now = version(&program, &quitting);
                     if now != found {
                         found = now.clone();
                         if tx.send(Update::Found(now)).is_err() {
@@ -421,7 +449,7 @@ impl Watcher {
                         if quitting.load(Ordering::Relaxed) {
                             return;
                         }
-                        let result = denials(&program, agent, instance);
+                        let result = denials(&program, agent, instance, &quitting);
                         let update = Update::Denials {
                             agent: agent.clone(),
                             instance: instance.clone(),
@@ -527,6 +555,9 @@ mod tests {
     use super::*;
     use std::{os::unix::fs::PermissionsExt, path::PathBuf};
 
+    /// Never cancelled.
+    static NO: AtomicBool = AtomicBool::new(false);
+
     /// A fake `fence` in a fresh directory: `script` is its shell body.
     fn fake(name: &str, script: &str) -> (PathBuf, String) {
         let dir = std::env::temp_dir().join(format!(
@@ -553,22 +584,22 @@ mod tests {
             "version",
             r#"echo '{"contract":"1","node":"v24.13.1","ok":true,"srt":"0.0.80","version":"0.1.0"}'"#,
         );
-        let version = version(&program).unwrap();
+        let version = version(&program, &NO).unwrap();
         assert_eq!(version.version, "0.1.0");
         assert_eq!(version.srt.as_deref(), Some("0.0.80"));
         let (_dir, other) = fake(
             "contract",
             r#"echo '{"contract":"2","ok":true,"version":"9"}'"#,
         );
-        assert_eq!(super::version(&other), None);
+        assert_eq!(super::version(&other, &NO), None);
         // Not there at all.
-        assert_eq!(super::version("/nonexistent/fence"), None);
+        assert_eq!(super::version("/nonexistent/fence", &NO), None);
     }
 
     #[test]
     fn profiles_are_read_with_the_kinds_and_unknown_fields_left_alone() {
         let (_dir, program) = fake("profiles", &format!("echo '{PROFILES}'"));
-        let profiles = profiles(&program).unwrap();
+        let profiles = profiles(&program, &NO).unwrap();
         assert_eq!(profiles.profiles.len(), 2);
         assert!(profiles.supports("claude") && profiles.supports("pi"));
         assert!(!profiles.supports("amp") && !profiles.supports("agy"));
@@ -597,19 +628,19 @@ mod tests {
 esac"#
         );
         let (_dir, program) = fake("check", &script);
-        let check = check(&program, "dev", Some("codex"), Some("/w/x")).unwrap();
+        let check = check(&program, "dev", Some("codex"), Some("/w/x"), &NO).unwrap();
         assert_eq!(check.settings.network.allowed_domains, ["chatgpt.com"]);
         assert_eq!(check.settings.filesystem.deny_write, ["/w/x/.fence.toml"]);
         assert_eq!(check.warnings, ["weaker_network_isolation: 削弱网络隔离"]);
         assert_eq!(check.skipped[0].entry, "${target}");
         let tags: Vec<String> = check.layers.iter().map(Layer::tag).collect();
         assert_eq!(tags, ["profile dev", "repo .fence.toml"]);
-        let refusal = super::check(&program, "dev", Some("claude"), Some("/bad")).unwrap_err();
+        let refusal = super::check(&program, "dev", Some("claude"), Some("/bad"), &NO).unwrap_err();
         assert_eq!(refusal.code, "bad_cwd");
         assert_eq!(refusal.message, "no directory: /bad");
         assert_eq!(refusal.to_string(), "bad_cwd: no directory: /bad");
         // Something that is not fence's JSON.
-        let refusal = super::check(&program, "x", None, None).unwrap_err();
+        let refusal = super::check(&program, "x", None, None, &NO).unwrap_err();
         assert_eq!(refusal.code, "");
         assert!(refusal.message.contains("unexpected"), "{refusal}");
     }
@@ -625,14 +656,14 @@ esac"#
 esac"#
         );
         let (_dir, program) = fake("denials", &script);
-        let read = denials(&program, "p/a", "i1").unwrap().unwrap();
+        let read = denials(&program, "p/a", "i1", &NO).unwrap().unwrap();
         assert_eq!(read.denials.len(), 5);
         assert_eq!(read.blocked(), 2);
         assert!(read.truncated && read.running && !read.capped());
         let tags: Vec<String> = read.denials.iter().map(Denial::tag).collect();
         assert_eq!(tags, ["Network", "Read", "Write", "Other", "strange"]);
-        assert_eq!(super::denials(&program, "p/a", "i2"), Ok(None));
-        let refusal = super::denials(&program, "p/b", "i3").unwrap_err();
+        assert_eq!(super::denials(&program, "p/a", "i2", &NO), Ok(None));
+        let refusal = super::denials(&program, "p/b", "i3", &NO).unwrap_err();
         assert_eq!(refusal.code, "usage");
     }
 
@@ -694,5 +725,69 @@ esac"#;
             Some("0.1.0")
         );
         assert_eq!(count(seen.of("p/a", "i1")), Some((1, false)));
+    }
+
+    /// A fake fence that writes its process number next to itself and then hangs.
+    fn stuck(name: &str) -> (PathBuf, String) {
+        fake(name, "echo $$ > \"$(dirname \"$0\")/pid\"\nexec sleep 30")
+    }
+
+    /// The process number `stuck` wrote, once it has.
+    fn stuck_pid(dir: &std::path::Path) -> String {
+        let path = dir.join("pid");
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            let pid = std::fs::read_to_string(&path).unwrap_or_default();
+            if !pid.trim().is_empty() || Instant::now() >= deadline {
+                return pid.trim().to_owned();
+            }
+            thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    /// Whether a process numbered `pid` still exists (killed and reaped ones don't).
+    fn alive(pid: &str) -> bool {
+        std::process::Command::new("kill")
+            .args(["-0", pid])
+            .stderr(std::process::Stdio::null())
+            .status()
+            .unwrap()
+            .success()
+    }
+
+    #[test]
+    fn a_check_no_longer_wanted_stops_at_once() {
+        let (dir, program) = stuck("stuck-check");
+        let cancel = Cancel::default();
+        let flag = cancel.flag();
+        let call = thread::spawn(move || check(&program, "dev", None, None, &flag));
+        let pid = stuck_pid(&dir);
+        assert!(!pid.is_empty());
+        let began = Instant::now();
+        drop(cancel);
+        let answer = call.join().unwrap();
+        assert!(
+            began.elapsed() < Duration::from_secs(3),
+            "{:?}",
+            began.elapsed()
+        );
+        assert!(answer.is_err());
+        assert!(!alive(&pid));
+    }
+
+    #[test]
+    fn dropping_the_watcher_stops_the_fence_it_is_waiting_on() {
+        let (dir, program) = stuck("stuck-watcher");
+        let watcher = Watcher::start(program, Duration::from_millis(50));
+        let pid = stuck_pid(&dir);
+        assert!(!pid.is_empty());
+        let began = Instant::now();
+        drop(watcher);
+        assert!(
+            began.elapsed() < Duration::from_secs(3),
+            "{:?}",
+            began.elapsed()
+        );
+        assert!(!alive(&pid));
     }
 }

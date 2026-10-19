@@ -1170,6 +1170,8 @@ impl SettingsView {
         }
         if page == Page::Sandbox {
             self.refresh_sandbox(cx);
+        } else {
+            self.leave_sandbox();
         }
         cx.notify();
     }

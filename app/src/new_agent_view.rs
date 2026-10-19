@@ -34,7 +34,7 @@ use std::{
     collections::HashMap,
     path::PathBuf,
     rc::Rc,
-    sync::atomic::AtomicBool,
+    sync::atomic::{AtomicBool, Ordering},
     time::Duration,
 };
 
@@ -145,10 +145,11 @@ struct EffortDrag;
 const CHECK_SETTLE: Duration = Duration::from_millis(250);
 
 /// The check of a sandbox profile (P5-120): what it was asked for (profile, kind, directory)
-/// and fence's answer, none while it is being asked.
+/// and fence's answer, none while it is being asked. Replaced or dropped, it stops the call.
 struct SandboxCheck {
     asked: (String, Tool, String),
     answer: Option<Result<fence::Check, fence::Refusal>>,
+    _cancel: fence::Cancel,
 }
 
 impl SandboxCheck {
@@ -162,6 +163,27 @@ impl SandboxCheck {
             _ => &[],
         }
     }
+}
+
+/// Start waits as the form is: a kind that needs a first message without one (agy); a preset's
+/// sandbox while fence is still being looked for; or a sandbox chosen that fence has not yet
+/// passed for the profile, kind and directory as they are now, being asked, refused, or not yet
+/// asked (P5-120). With no sandbox, only the first.
+fn start_waits(form: &Form, check: Option<&SandboxCheck>) -> bool {
+    if !form.can_start() || form.sandbox_pending() {
+        return true;
+    }
+    let Some(profile) = &form.sandbox else {
+        return false;
+    };
+    let now = (profile.clone(), form.tool, form.cwd());
+    !check.is_some_and(|check| check.asked == now && matches!(check.answer, Some(Ok(_))))
+}
+
+/// What ⌘↩ and Start send to `corral`: nothing while Start waits; otherwise the arguments, or
+/// why they can't be made.
+fn launch(form: &Form, check: Option<&SandboxCheck>) -> Option<anyhow::Result<Vec<String>>> {
+    (!start_waits(form, check)).then(|| form.args())
 }
 
 type Pick = fn(&crate::preset::Theme) -> crate::preset::Color;
@@ -254,6 +276,8 @@ pub struct NewAgentView {
     check: Option<SandboxCheck>,
     /// Counts the checks asked for: only the latest one's answer is taken.
     checks_asked: u64,
+    /// Stops the look for fence still running once it is not wanted.
+    finding: Option<fence::Cancel>,
     /// The workspace it was opened from (P5-93).
     workspace: Option<String>,
     error: Option<String>,
@@ -449,6 +473,7 @@ impl NewAgentView {
             sandboxes: None,
             check: None,
             checks_asked: 0,
+            finding: None,
             workspace: seed.workspace,
             error: None,
             focus: cx.focus_handle(),
@@ -478,13 +503,23 @@ impl NewAgentView {
     /// Looks for fence and its profiles in the background (P5-120): without it, or with another
     /// contract, there is no sandbox to choose and no lock.
     fn find_fence(&mut self, cx: &mut Context<Self>) {
-        let task = cx.background_spawn(async {
-            fence::version(fence::PROGRAM)?;
-            fence::profiles(fence::PROGRAM).ok()
+        // A look still running from before is not wanted.
+        let finding = fence::Cancel::default();
+        let flag = finding.flag();
+        let stopped = flag.clone();
+        self.finding = Some(finding);
+        let task = cx.background_spawn(async move {
+            fence::version(fence::PROGRAM, &flag)?;
+            fence::profiles(fence::PROGRAM, &flag).ok()
         });
         cx.spawn(async move |this, cx| {
             let profiles = task.await;
+            // Stopped: its answer is not fence's.
+            if stopped.load(Ordering::Relaxed) {
+                return;
+            }
             let _ = this.update(cx, |this, cx| {
+                this.finding = None;
                 this.form.set_offer(profiles.as_ref().map(Offer::of));
                 this.sandboxes = profiles;
                 // The profiles may have changed: what was checked is checked again.
@@ -512,9 +547,13 @@ impl NewAgentView {
         };
         self.checks_asked += 1;
         let number = self.checks_asked;
+        // Replacing the check before this one stops its call.
+        let cancel = fence::Cancel::default();
+        let flag = cancel.flag();
         self.check = Some(SandboxCheck {
             asked: asked.clone(),
             answer: None,
+            _cancel: cancel,
         });
         cx.spawn(async move |this, cx| {
             if !settle.is_zero() {
@@ -522,17 +561,27 @@ impl NewAgentView {
             }
             // Asked again meanwhile: this one is not wanted.
             let wanted = this.read_with(cx, |this, _| this.checks_asked == number);
-            if !matches!(wanted, Ok(true)) {
+            if !matches!(wanted, Ok(true)) || flag.load(Ordering::Relaxed) {
                 return;
             }
             let (profile, tool, cwd) = asked;
             let answer = cx
-                .background_spawn(async move {
-                    fence::check(fence::PROGRAM, &profile, Some(tool.kind()), Some(&cwd))
+                .background_spawn({
+                    let flag = flag.clone();
+                    async move {
+                        fence::check(
+                            fence::PROGRAM,
+                            &profile,
+                            Some(tool.kind()),
+                            Some(&cwd),
+                            &flag,
+                        )
+                    }
                 })
                 .await;
             let _ = this.update(cx, |this, cx| {
                 if this.checks_asked == number
+                    && !flag.load(Ordering::Relaxed)
                     && let Some(check) = &mut this.check
                 {
                     check.answer = Some(answer);
@@ -543,9 +592,17 @@ impl NewAgentView {
         .detach();
     }
 
-    /// The profile chosen can't be used as the form is: Start waits (P5-120).
-    fn sandbox_refused(&self) -> bool {
-        self.form.sandbox.is_some() && self.check.as_ref().is_some_and(|c| c.failed().is_some())
+    /// Start waits as the form is (see [`start_waits`]); ⌘↩ and the button ask the same.
+    fn start_waits(&self) -> bool {
+        start_waits(&self.form, self.check.as_ref())
+    }
+
+    /// The panel closes: the look for fence and the check still running stop, and opening it
+    /// again looks and checks afresh.
+    fn close(&mut self, cx: &mut Context<Self>) {
+        self.finding = None;
+        self.check = None;
+        cx.emit(NewAgentEvent::Close);
     }
 
     /// Opened again: the agents and their projects as they are now, and from `+` or the split
@@ -780,11 +837,14 @@ impl NewAgentView {
 
     fn create(&mut self, _: &menu::CreateAgent, window: &mut Window, cx: &mut Context<Self>) {
         // agy without its first message: ⌘↩ does nothing, as Start is greyed (P5-88).
-        if self.busy || !self.form.can_start() || self.sandbox_refused() {
+        if self.busy {
             return;
         }
+        let Some(args) = launch(&self.form, self.check.as_ref()) else {
+            return;
+        };
         self.open = None;
-        let args = match self.form.args() {
+        let args = match args {
             Ok(args) => args,
             Err(error) => {
                 match self.form.problem() {
@@ -862,7 +922,7 @@ impl NewAgentView {
         } else if self.open.is_some() {
             self.open = None;
         } else {
-            cx.emit(NewAgentEvent::Close);
+            self.close(cx);
         }
         cx.notify();
     }
@@ -1448,7 +1508,7 @@ impl NewAgentView {
                 ui.scale(16.0),
                 2.4,
             ));
-        let start = if self.busy || !self.form.can_start() || self.sandbox_refused() {
+        let start = if self.busy || self.start_waits() {
             start.opacity(0.5)
         } else {
             start
@@ -1503,10 +1563,12 @@ impl NewAgentView {
             move |_: &mut Window, cx: &mut App| cx.new(|_| tip.clone()).into()
         };
         if !self.form.can_sandbox() {
-            let why = if self.form.regular {
-                format!("fence has no sandbox for {}", tool.label())
-            } else {
+            let why = if !self.form.regular {
                 "Controllers can't run in a sandbox: corral is blocked inside it".to_owned()
+            } else if !self.form.runs_kind() {
+                "No sandbox for this command: fence's rules are by kind".to_owned()
+            } else {
+                format!("fence has no sandbox for {}", tool.label())
             };
             return Some(
                 div()
@@ -3025,9 +3087,7 @@ impl Render for NewAgentView {
                 .on_action(cx.listener(Self::create))
                 .on_action(cx.listener(Self::confirm))
                 .on_action(cx.listener(Self::cancel))
-                .on_action(
-                    cx.listener(|_, _: &menu::CloseWindow, _, cx| cx.emit(NewAgentEvent::Close)),
-                ),
+                .on_action(cx.listener(|this, _: &menu::CloseWindow, _, cx| this.close(cx))),
         )
         .absolute()
         .inset_0()
@@ -3048,7 +3108,7 @@ impl Render for NewAgentView {
             .bg(gpui::black().opacity(0.45))
             .on_mouse_down(
                 MouseButton::Left,
-                cx.listener(|_, _: &MouseDownEvent, _, cx| cx.emit(NewAgentEvent::Close)),
+                cx.listener(|this, _: &MouseDownEvent, _, cx| this.close(cx)),
             )
             .child(panel)
             // It dims the whole window, the Browser's page and all.
@@ -3059,6 +3119,90 @@ impl Render for NewAgentView {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A fake `corral` in a fresh directory that writes a line to `calls` each time it runs and
+    /// says it started the agent.
+    fn fake_corral(name: &str) -> (PathBuf, String) {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!(
+            "paddock-start-{name}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("corral");
+        std::fs::write(
+            &path,
+            "#!/bin/sh\necho \"$*\" >> \"$(dirname \"$0\")/calls\"\necho '{\"ok\":true,\"name\":\"p/x\",\"instance\":\"i1\"}'\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        (dir.clone(), path.display().to_string())
+    }
+
+    #[test]
+    fn start_waits_for_fence_to_pass_the_sandbox_as_the_form_is_now() {
+        let (dir, corral) = fake_corral("gate");
+        let calls = || {
+            std::fs::read_to_string(dir.join("calls"))
+                .unwrap_or_default()
+                .lines()
+                .count()
+        };
+        // Start as ⌘↩ and the button do: corral runs only when there is something to send.
+        let press = |form: &Form, check: Option<&SandboxCheck>| {
+            if let Some(Ok(args)) = launch(form, check) {
+                new_agent::start(&corral, &args).unwrap();
+            }
+        };
+        let check = |form: &Form, answer| SandboxCheck {
+            asked: (form.sandbox.clone().unwrap(), form.tool, form.cwd()),
+            answer,
+            _cancel: fence::Cancel::default(),
+        };
+        let mut form = Form::new("/tmp/demo".into(), Place::Current);
+        form.pick_tool(Tool::Claude);
+        form.set_regular(true);
+        // No sandbox: as before, nothing to wait for.
+        assert!(!start_waits(&form, None));
+        press(&form, None);
+        assert_eq!(calls(), 1);
+        form.set_offer(Some(Offer {
+            profiles: vec!["dev".into()],
+            kinds: vec!["claude".into()],
+        }));
+        form.set_sandbox(Some("dev".into()));
+        // Not asked yet, being asked, refused: Start waits and corral is not run.
+        let refused = Err(fence::Refusal {
+            code: "bad_cwd".into(),
+            message: "no directory".into(),
+        });
+        let waiting = [
+            None,
+            Some(check(&form, None)),
+            Some(check(&form, Some(refused))),
+        ];
+        for check in &waiting {
+            assert!(start_waits(&form, check.as_ref()));
+            press(&form, check.as_ref());
+        }
+        assert_eq!(calls(), 1);
+        // Passed: it goes, in the sandbox.
+        let passed = check(&form, Some(Ok(fence::Check::default())));
+        assert!(!start_waits(&form, Some(&passed)));
+        press(&form, Some(&passed));
+        assert_eq!(calls(), 2);
+        let last = std::fs::read_to_string(dir.join("calls")).unwrap();
+        assert!(last.lines().last().unwrap().contains("--sandbox dev --"));
+        // Another directory since: that pass was for the old one, so it waits again.
+        form.set_project("/tmp/other".into());
+        assert!(start_waits(&form, Some(&passed)));
+        press(&form, Some(&passed));
+        assert_eq!(calls(), 2);
+    }
 
     #[test]
     fn agy_has_no_empty_task_hint_but_other_kinds_keep_it() {

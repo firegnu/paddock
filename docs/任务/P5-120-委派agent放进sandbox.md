@@ -111,3 +111,37 @@
 - 用 perl 的 `s|…|…|` 改含 `|`（闭包、`||`）的代码时替换失败，还把垃圾写到了文件开头，后来改用 Edit 或别的分隔符重做。
 - 中途误跑过一次 `python3 --version`（只是看版本，没用 Python 写或跑任何东西），之后没再用。
 - Settings 多一页后命令面板里一条“Settings 页数为 6”的老断言跟着改成 7。
+
+## 返工 1（交叉审查，见主仓库 `docs/任务/P5-120-交叉审查.md`「审查意见」）
+
+### 改了什么
+- **必须改 1：手改成自定义程序仍带 sandbox。**`Form` 加 `runs_kind()`（Command 解析出的种类就是当前种类）；能不能选锁、选了的留不留、参数里带不带 `--sandbox`、预设存不存，都以“当前确实能套”（`sandbox_now()`：Regular、认得的种类、fence 给了这个档案）为准。`set_command` 每次都重新核对，不再只在种类变化时。自定义程序时锁灰，悬停 `No sandbox for this command: fence's rules are by kind`；改回认得的种类不自动恢复。
+- **必须改 2：检查没出结果就能 Start。**新的 `start_waits()`：选了 sandbox 时，只有当前“档案 + 种类 + 目录”的检查明确通过才放行；没查、正在查（含 250ms 等待）、失败都拦住。另有 `launch()`（等着时不给参数）；Start 按钮和 ⌘↩（`create`）共用。没选 sandbox 时照旧。
+- **必须改 3：fence 还没回答时套用预设会丢 sandbox。**`Form` 分开“还在找 fence”（`looking`）和“没有 fence”；这时套用带 sandbox 的 Regular 预设，选择先记在 `pending` 里：预设不算改过，Start 等着（`sandbox_pending()`），fence 回答且允许时用上；等待期间切 Controller、换种类（菜单或手改命令）、选 None，都以用户的为准、丢掉 pending。fence 最后没找到时照旧不清预设里的值。
+- **必须改 4：Watcher 释放时等满 10 秒。**fence 的四个调用都接一个取消信号，一路传给 `command::run`（照旧经过 `spawn_guard`）；Watcher 把自己的取消信号传进去，释放时正在跑的 fence 被杀掉并回收。
+- **建议改 5：过期检查继续跑。**新增 `fence::Cancel`（丢掉即取消）。New Agent 的检查对象自己带一个，换新检查、回到 None、重新找 fence 时旧的立即停；查找 fence 也带一个。关面板（Esc、⌘W、点外面）时停掉在跑的检查和查找。Settings › Sandbox 同样：换选择停旧检查，重进页面停旧查找，离开这一页两样都停。被停掉的调用的回答不采用（否则被取消的 `--version` 会被当成“没装”）。
+- **建议改 6：浮窗看不到全文。**每行悬停一律显示完整目标和 `detail` 原文（两者都有时分两行），不再只在缩成 `~` 时才有；`target` 为空时悬停显示完整 `detail`。
+- **建议改 7：拿满 5000 条筛完为 0。**卡片数字写 `0+`（悬停 `· 0+ blocked`，Sandbox 格 `0+ blocked ›`）；浮窗空列表在这种情况下说 `None among the latest 5000 records; older ones aren't read.`，没拿满时照旧 `Nothing blocked yet.`。
+- **第 8 条（只记录）：**DESIGN P5-120 那条写明：退回旧版 paddock 之前要先去掉配置里各预设的 `sandbox` 字段（或恢复旧配置备份），否则旧版整个配置读不了、启动报错。
+- DESIGN §13 P5-120 那条按上面各项同步改了。
+
+### 验证了什么
+- 补的测试，改前红、改后绿（都跑过）：
+  - 1：`new_agent::tests::a_command_paddock_cant_read_as_a_kind_has_no_sandbox`。改前在“改成 `my-agent --flag` 后 sandbox 应为 None”处红（实际是 `Some("dev")`）。另外覆盖：不能再选、参数里没有 `--sandbox`、直接往字段写也不进参数、改回 Claude 不恢复、Controller 的参数一定不带（审查指出单删参数层的 Controller 防护原测试抓不到，这里补上了）。
+  - 2：`new_agent_view::tests::start_waits_for_fence_to_pass_the_sandbox_as_the_form_is_now`。用假 corral 记调用次数，走和 ⌘↩、Start 相同的 `launch()`：不选 sandbox 能起；没查、正在查、失败三种状态 corral 调用都是 0；通过后起一次且命令里有 `--sandbox dev --`；之后改目录又拦住、调用数不变。门槛是先改的，所以临时把 `start_waits` 换回旧逻辑（只拦已失败）跑了一次，确认它红（“没查”那一步就红了），再恢复。
+  - 3：`new_agent::tests::a_preset_picked_while_fence_is_looked_for_gets_its_sandbox_once_found`。先 pick 带 dev 的预设、后收到 offer，以及等待期间切 Controller、换种类、选 None、fence 没找到、档案不在等情况。改前在 `sandbox_pending()` 处红：先放了一个永远返回 false 的空函数让测试能编译，红的原因是行为不对，不是编译错误。
+  - 4：`fence::tests::dropping_the_watcher_stops_the_fence_it_is_waiting_on`。假 fence 记下 PID 后卡住；释放 Watcher 要在 3 秒内返回，且那个 PID 已不存在（被杀并回收）。改前红：等了 9.6 秒。
+  - 5：`fence::tests::a_check_no_longer_wanted_stops_at_once`（慢的假 fence，丢掉 `Cancel` 后 3 秒内返回错误、子进程已回收）。这是新接口，没有“改前”可跑。
+  - 6：`sidebar_sandbox` 的行测试补了家目录外的长路径、`target` 为空的长 detail，悬停内容都是全文。
+  - 7：卡片测试补了 `(0, true)` → `0+`／`0+ blocked ›`（改前红：实际是 None）；`an_empty_list_of_a_full_read_doesnt_say_nothing_was_blocked`。
+- `app/` 下 `cargo test --all-targets` 792 个全过，`cargo clippy --all-targets -- -D warnings` 退出码 0，`cargo fmt --check` 通过；`git diff --check` 通过。
+- 没起窗口、没截图、没碰 agent、没用 `--sandbox` 起 agent。
+
+### 拿主意的地方
+- “认得的种类”沿用 New Agent 原有的命令解析（第一个词的程序名是不是六种之一）。所以 `env X=1 claude` 这种包一层的写法也算认不出、不能套。
+- 等 fence 回答时，锁照旧不出现（还没有档案可列）；Start 因 pending 灰着。通常几十毫秒，没另加提示。
+- 卡片的 `0+` 和别的数字一样用黄色。
+
+### 踩过的坑
+- 中途误敲了一个会等标准输入的 `cat >> /tmp/null`（违反“前台命令别带等标准输入的东西”），命令被挂到后台，发现后用 TaskStop 停掉。它在 `/tmp/null` 留了一个空文件；因为不能用 `rm`，没删，留给主控处理。代码没被改动（同一行后面的 perl 没跑）。
+- perl 替换又碰到分隔符冲突（这次是 `#` 和 `#[test]`），改用 Edit。
