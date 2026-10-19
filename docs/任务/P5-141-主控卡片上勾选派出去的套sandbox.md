@@ -125,3 +125,33 @@
 6. DESIGN 里 P5-141 那条“红字留到下一次选择”改成“下一次真正发给 corral 的选择”，并按上面 1、2、4、5 改写相应句子。
 
 做完照原「做完」一节跑三项检查，在本文件末尾追加「## 返工 1 完成记录」（同样几样），提交首行 `P5-141：返工 1…`。
+
+## 返工 1 完成记录
+（2026-10-19，派出的 agent 记。）
+
+### 做了什么
+1. **连续两次选择丢掉防闪回记录（审查第 2 条）**：`delegates.rs` 的 `Saves` 每个主控一条 `Entry`：`confirmed`（corral 最近接受的值和时刻）和 `request`（这次的保存中／被拒）分开存。`begin` 只换 `request`，同一次运行的 `confirmed` 留着；`answer` 成功写 `confirmed`、清 `request`，失败只写 `request`；`settle` 用 `confirmed` 盖住在它之前开始的读取，读到它之后开始的读取才放下 `confirmed`，两样都没了才删这一条；实例变了整条丢掉。
+2. **菜单绑定 (名字, instance)（审查第 1 条，只做便宜的部分）**：`Floating::Delegates { name, instance }`；格子只在实例对得上时画菜单；每次画之前（`tidy_delegates`）列表里这个名字换了实例或不在了，菜单关掉。点选的判断抽成 `delegates::pick`：这个名字列出的实例和菜单记的不一样、正在保存、或和现在一样，都返回 `None`，不调 corral；侧栏照它的结果在后台 `Pick::send`。没加 `corral status` 预检。corral 回答里的 instance 和请求的不一样，照旧丢掉保存状态。
+3. **成功回答从严（审查第 4 条）**：`set_child_sandbox` 只在退出码 0 且 `ok` 为 `true` 时当成功，`ChildSandbox` 的 `instance`（现在是 `String`）和 `child_sandbox`（必须有，可以是 `null`）都是必填，不认识的字段照旧不管；退出码 0 但 `ok` 缺了或不是布尔，按 `corral's answer could not be read: it did not say ok` 拒绝；缺字段按 `corral's answer could not be read: <serde 的原因>` 拒绝；都不改设定。
+4. **档案读取（审查第 5 条）**：只在这个主控的菜单确实刚打开时读 `fence profiles`，读前清空旧列表，菜单显示 `Reading fence's profiles…`；没有 Delegates 菜单开着时（`tidy_delegates`），还在跑的读取停掉（丢掉 `fence::Cancel` 就会让 fence 被停掉、回收）。
+5. **菜单高度（审查第 6 条）**：`max_h` 取窗口高度减上下各 8，`overflow_y_scroll`，照 New Agent 档案菜单的做法，没加通用抽象。
+6. **DESIGN**：P5-141 那条改成“红字留到下一次真正发给 corral 的选择或主控重启”，并补写了 1～5 对应的句子。
+
+### 验证了什么
+- 第 1 条先红后绿：按审查的顺序补 `a_second_choice_keeps_the_first_one_over_older_reads_when_refused`（未设 → 设 dev 成功 → 再选一个 → 保存前的 `null` 读取到达 → 第二次被拒，应显示 `In sandbox · dev` 加拒绝原因），改之前跑是红的（`left: Some(None)`，`right: Some(Some(Sandbox { profile: "dev" }))`），改后变绿。另外补的第二次成功、第二次清除两个方向（`a_second_choice_saved_stands_over_reads_older_than_it`、`a_second_choice_clearing_stands_over_reads_older_than_it`）在旧实现上本来就是绿的，留作覆盖。
+- 第 3 条也先红：`only_a_whole_answer_counts_as_saved`（`{}`、没 `ok`、`ok:"yes"`、缺 `child_sandbox`、缺 `instance` 都应拒绝；完整回答带不认识的字段照常通过），改之前 `{}` 被当成 `Ok(ChildSandbox { instance: None, child_sandbox: None })`，改后绿。
+- 第 2 条：`a_menu_for_a_run_gone_asks_corral_nothing` 用假 corral 记调用：菜单是 i-1 开的、列表已是 i-2 时点选，假 corral 一次也没被调（`calls` 文件不存在），名字不在了、选和现在一样的也不调；对得上的实例调一次（`child-sandbox p/main dev`），保存中再选不发第二次。
+- `app/` 下 `cargo test --all-targets` 805 过 0 失败（比上次多这 5 个），`cargo clippy --all-targets -- -D warnings` 过，`cargo fmt --check` 过（带 `CARGO_TARGET_DIR=…/.target/p5-141-child-sandbox`）。
+- 第 4、5 条（打开时读取、关掉时停、滚动）是界面接线，没有自动测试，也没起窗口，留给用户实看。
+
+### 拿主意的地方
+- 菜单作废的检查放在 `Sidebar::render` 开头（`tidy_delegates`），因为关菜单要 `window` 来还焦点，而轮询的 `poll` 拿不到 `window`；只有菜单真的过期时才调 `close_floating`，平时不做事。
+- “确实打开”按这个名字的 Delegates 菜单在按下前没开、按下后开了来判断（直接从另一个主控的菜单点过来也会重读）。
+- `pick` 只核对实例、是否正在保存、是否和现在一样，没再重查 Controller、fence、字段（主控说只做便宜的部分；格子本身已按这些条件才出现）。
+
+### 没做的事
+- 没加 `corral status` 预检（主控不要）；名字和实例之间的窗口仍在，要彻底挡住得在 ranch 加带期望实例的约定。
+- 打开、关闭、滚动的界面效果没实看。
+
+### 踩过的坑
+- 用 perl 以 `|` 作分隔符做多行替换时，模式里转义的 `\|` 变成了正则的“或”，把 `Agent` 的 `pub error: Option<String>,` 里的 `error` 换掉了；编译前看 diff 发现，已修回（`git diff` 里 `Agent` 结构没有改动）。

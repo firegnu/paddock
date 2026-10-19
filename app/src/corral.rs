@@ -284,10 +284,17 @@ impl Client {
                 })?;
         let value: Value = serde_json::from_slice(&output.stdout)
             .map_err(|_| unanswered("corral did not say how it went".into()))?;
-        if output.status.success() && value.get("ok") != Some(&Value::Bool(false)) {
+        let ok = value.get("ok");
+        if output.status.success() && ok == Some(&Value::Bool(true)) {
+            // What it holds and for which run must both be said: a field left out clears nothing.
             return serde_json::from_value(value).map_err(|error| {
                 unanswered(format!("corral's answer could not be read: {error}"))
             });
+        }
+        if output.status.success() && ok != Some(&Value::Bool(false)) {
+            return Err(unanswered(
+                "corral's answer could not be read: it did not say ok".into(),
+            ));
         }
         let said = |key: &str| value.get(key).and_then(Value::as_str).map(str::to_owned);
         let code = said("error");
@@ -310,12 +317,22 @@ pub fn child_sandbox_args<'a>(name: &'a str, profile: Option<&'a str>) -> [&'a s
 }
 
 /// What `corral child-sandbox` answered: the run of the agent it holds the setting for, and the
-/// setting, none when its agents start outside.
-#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
-#[serde(default)]
+/// setting, none when its agents start outside. Both must be there (`child_sandbox` may be
+/// `null`); other fields are let be.
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 pub struct ChildSandbox {
-    pub instance: Option<String>,
+    pub instance: String,
+    #[serde(deserialize_with = "required")]
     pub child_sandbox: Option<Sandbox>,
+}
+
+/// A field that must be there, though it may be `null`: serde would take one left out as `None`.
+fn required<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer)
 }
 
 /// An agent's last reply: its text as written, and when it was said.
@@ -520,7 +537,7 @@ printf '{"ok":true,"name":"%s","instance":"i-1","child_sandbox":%s}\n' "$2" "$ch
         assert_eq!(
             corral.set_child_sandbox("p/main", Some("dev"), &NO),
             Ok(ChildSandbox {
-                instance: Some("i-1".into()),
+                instance: "i-1".into(),
                 child_sandbox: Some(Sandbox {
                     profile: "dev".into()
                 }),
@@ -529,7 +546,7 @@ printf '{"ok":true,"name":"%s","instance":"i-1","child_sandbox":%s}\n' "$2" "$ch
         assert_eq!(
             corral.set_child_sandbox("p/main", None, &NO),
             Ok(ChildSandbox {
-                instance: Some("i-1".into()),
+                instance: "i-1".into(),
                 child_sandbox: None,
             })
         );
@@ -538,6 +555,53 @@ printf '{"ok":true,"name":"%s","instance":"i-1","child_sandbox":%s}\n' "$2" "$ch
             calls,
             "child-sandbox p/main dev\nchild-sandbox p/main --clear\n"
         );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn only_a_whole_answer_counts_as_saved() {
+        let unreadable = |name: &str, answer: &str| {
+            let (dir, program) = fake(name, &format!("echo '{answer}'"));
+            let got = Client::local(program).set_child_sandbox("p/main", None, &NO);
+            std::fs::remove_dir_all(&dir).unwrap();
+            match got {
+                Err(Refused {
+                    code: None,
+                    message,
+                }) => {
+                    assert!(
+                        message.starts_with("corral's answer could not be read"),
+                        "{answer}: {message}"
+                    )
+                }
+                other => panic!("{answer}: {other:?}"),
+            }
+        };
+        // Exit 0 but not saying it went well, or leaving out what it holds: nothing is cleared.
+        unreadable("cs-empty", "{}");
+        unreadable("cs-no-ok", r#"{"instance":"i-1","child_sandbox":null}"#);
+        unreadable(
+            "cs-ok-text",
+            r#"{"ok":"yes","instance":"i-1","child_sandbox":null}"#,
+        );
+        unreadable(
+            "cs-no-child",
+            r#"{"ok":true,"name":"p/main","instance":"i-1"}"#,
+        );
+        unreadable(
+            "cs-no-instance",
+            r#"{"ok":true,"name":"p/main","child_sandbox":null}"#,
+        );
+        // `null` said is cleared; fields it does not know are let be.
+        let (dir, program) = fake(
+            "cs-whole",
+            r#"echo '{"ok":true,"name":"p/main","instance":"i-1","child_sandbox":null,"new":1}'"#,
+        );
+        let told = Client::local(program)
+            .set_child_sandbox("p/main", None, &NO)
+            .unwrap();
+        assert_eq!(told.child_sandbox, None);
+        assert_eq!(told.instance, "i-1");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

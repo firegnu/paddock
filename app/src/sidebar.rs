@@ -2313,6 +2313,7 @@ fn show(card: &Card, cx: &mut Context<Sidebar>) {
 
 impl Render for Sidebar {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.tidy_delegates(window, cx);
         if self.collapsed {
             return self.rail(window, cx);
         }
@@ -2661,7 +2662,7 @@ impl Render for Sidebar {
                             .flatten();
                         let delegates = card
                             .expanded
-                            .then(|| self.delegates_cell(&card, cx))
+                            .then(|| self.delegates_cell(&card, window, cx))
                             .flatten();
                         let card_grounds = if card.workspace.is_some() {
                             in_well

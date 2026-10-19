@@ -5,8 +5,7 @@
 //! `delegates.rs`'s.
 use super::*;
 use crate::{
-    corral::Sandbox,
-    delegates::Delegates,
+    delegates::{self, Delegates},
     fence::{self, Profiles, Refusal},
     popover,
 };
@@ -20,6 +19,8 @@ const MENU: f32 = 360.0;
 /// The collapsed card's mark: the arrow, the gap after it and the lock.
 const ARROW: f32 = 11.0;
 const ARROW_GAP: f32 = 1.0;
+/// The room the menu leaves above and below it in the window.
+const MARGIN: f32 = 8.0;
 
 /// Into the lock: down, then right.
 const INTO: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M5 4v7a4 4 0 0 0 4 4h9M14 11l4 4-4 4" fill="none" stroke="#000" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>"##;
@@ -168,6 +169,7 @@ impl Sidebar {
     pub(super) fn delegates_cell(
         &self,
         card: &Card,
+        window: &Window,
         cx: &mut Context<Self>,
     ) -> Option<DelegatesCell> {
         if self.remote.is_some() {
@@ -175,14 +177,28 @@ impl Sidebar {
         }
         let delegates = card.delegates.clone()?;
         let ui = UiFont::get(cx);
-        let open = matches!(&self.floating, Some(Floating::Delegates(name)) if *name == card.name);
+        let open = matches!(
+            &self.floating,
+            Some(Floating::Delegates { name, instance })
+                if *name == card.name && *instance == card.instance
+        );
         let on_press = (!delegates.saving).then(|| -> OnPress {
-            let name = card.name.clone();
+            let (name, instance) = (card.name.clone(), card.instance.clone());
             Box::new(
                 cx.listener(move |this, event: &MouseDownEvent, window, cx| {
                     cx.stop_propagation();
-                    this.read_profiles(cx);
-                    this.press_menu(Floating::Delegates(name.clone()), event, window, cx);
+                    let menu = Floating::Delegates {
+                        name: name.clone(),
+                        instance: instance.clone(),
+                    };
+                    let mine = |this: &Self| {
+                        matches!(&this.floating, Some(Floating::Delegates { name: open, .. }) if *open == name)
+                    };
+                    let was = mine(this);
+                    this.press_menu(menu, event, window, cx);
+                    if !was && mine(this) {
+                        this.read_profiles(cx);
+                    }
                 }),
             )
         });
@@ -190,15 +206,41 @@ impl Sidebar {
             open,
             on_press,
             menu: open.then(|| {
-                Self::hung(self.delegates_menu(card, &delegates, &ui, cx), true).into_any_element()
+                Self::hung(self.delegates_menu(card, &delegates, window, &ui, cx), true)
+                    .into_any_element()
             }),
             delegates,
         })
     }
 
-    /// Reads fence's profiles for the menu, off the UI thread; a read still running from before
-    /// is stopped, its answer not taken.
+    /// A Delegates menu is open.
+    fn delegates_open(&self) -> bool {
+        matches!(self.floating, Some(Floating::Delegates { .. }))
+    }
+
+    /// Before drawing: a Delegates menu opened for a run no longer listed under its name closes,
+    /// and with no Delegates menu open a read of fence's profiles still running is stopped.
+    pub(super) fn tidy_delegates(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(Floating::Delegates { name, instance }) = &self.floating {
+            let listed = self
+                .listing
+                .panel
+                .agents
+                .iter()
+                .any(|a| a.name == *name && a.instance == *instance);
+            if !listed {
+                self.close_floating(window, cx);
+            }
+        }
+        if !self.delegates_open() {
+            self.finding_profiles = None;
+        }
+    }
+
+    /// Reads fence's profiles for the menu just opened, off the UI thread, the last ones read
+    /// put away meanwhile; a read still running from before is stopped, its answer not taken.
     fn read_profiles(&mut self, cx: &mut Context<Self>) {
+        self.profiles = None;
         let finding = fence::Cancel::default();
         let flag = finding.flag();
         let stopped = flag.clone();
@@ -225,6 +267,7 @@ impl Sidebar {
         &self,
         card: &Card,
         delegates: &Delegates,
+        window: &Window,
         ui: &UiFont,
         cx: &mut Context<Self>,
     ) -> gpui::Stateful<Div> {
@@ -280,6 +323,9 @@ impl Sidebar {
             .floated(popover::panel(theme, ui), "delegates-menu", cx)
             .w(ui.px(MENU))
             .mt(ui.px(4.0))
+            // Many profiles, or long descriptions: it scrolls rather than run out of the window.
+            .max_h(window.viewport_size().height - ui.px(2.0 * MARGIN))
+            .overflow_y_scroll()
             .whitespace_normal()
             .child(popover::heading(
                 theme,
@@ -287,9 +333,9 @@ impl Sidebar {
                 format!("Agents {} starts", card.name),
             ));
         let pick = |profile: Option<String>| {
-            let name = card.name.clone();
+            let (name, instance) = (card.name.clone(), card.instance.clone());
             cx.listener(move |this, _: &ClickEvent, window, cx| {
-                this.pick_delegates(&name, profile.clone(), window, cx)
+                this.pick_delegates(&name, instance.as_deref(), profile.clone(), window, cx)
             })
         };
         let chosen = delegates.profile.as_deref();
@@ -402,34 +448,28 @@ impl Sidebar {
     fn pick_delegates(
         &mut self,
         name: &str,
+        instance: Option<&str>,
         profile: Option<String>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         self.close_floating(window, cx);
         let panel = &mut self.listing.panel;
-        let Some(agent) = panel.agents.iter().find(|a| a.name == name) else {
+        let Some(pick) =
+            delegates::pick(&panel.agents, &mut panel.delegates, name, instance, profile)
+        else {
             return;
         };
-        let wanted = profile.clone().map(|profile| Sandbox { profile });
-        if panel.delegates.busy(agent) || agent.child_sandbox.as_ref() == Some(&wanted) {
-            return;
-        }
-        panel.delegates.begin(agent);
-        let instance = agent.instance.clone();
         let corral = Client::local(self.corral.clone());
-        let asked = name.to_owned();
-        let task = cx.background_spawn(async move {
-            corral.set_child_sandbox(&asked, profile.as_deref(), &AtomicBool::new(false))
-        });
-        let name = name.to_owned();
+        let asked = pick.clone();
+        let task = cx.background_spawn(async move { asked.send(&corral, &AtomicBool::new(false)) });
         cx.spawn(async move |this, cx| {
             let answer = task.await;
             let _ = this.update(cx, |this, cx| {
                 let panel = &mut this.listing.panel;
                 panel.delegates.answer(
-                    &name,
-                    instance.as_deref(),
+                    &pick.name,
+                    pick.instance.as_deref(),
                     answer,
                     &mut panel.agents,
                     Instant::now(),
