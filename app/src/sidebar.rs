@@ -43,6 +43,9 @@ use std::{
 mod workspaces_view;
 use workspaces_view::Floating;
 
+#[path = "sidebar_sandbox.rs"]
+mod sandbox_view;
+
 /// One machine in the switcher over the list (DESIGN §13 P5-90).
 #[derive(Clone, Debug, PartialEq)]
 pub struct MachineTab {
@@ -133,6 +136,9 @@ pub enum MachineAsk {
 /// How often the agents' worktrees are summarised, as in Saddle.
 const GIT_REFRESH: Duration = Duration::from_secs(5);
 
+/// How often fence is asked what the wall stopped for each sandboxed agent (P5-120).
+const FENCE_REFRESH: Duration = Duration::from_secs(3);
+
 // Sizes, in points at the base interface size.
 /// The list's side padding.
 const PAD: f32 = 10.0;
@@ -182,6 +188,9 @@ const UNREAD_BOX: f32 = 10.0;
 const HERE: f32 = 5.0;
 const HERE_RING: f32 = 1.5;
 const HERE_BOX: f32 = 9.0;
+/// A sandboxed card's lock, and the gap before its number.
+const LOCK: f32 = 12.0;
+const LOCK_GAP: f32 = 3.0;
 /// The open card: between its cells' columns, and a chip's sides.
 const CELL_GAP: f32 = 12.0;
 const CHIP_X: f32 = 7.0;
@@ -629,6 +638,10 @@ pub struct Sidebar {
     machines: Vec<MachineTab>,
     /// None for another machine's agents.
     git: Option<git::Poller>,
+    /// Reads what fence's wall stopped for the sandboxed agents; none for another machine's.
+    fence: Option<crate::fence::Watcher>,
+    /// The Blocked popover lists every block, not only the network and file-write ones.
+    denials_all: bool,
     /// Reads last replies for the cards' previews.
     replies: Replies<Spell>,
     /// The active pane's agent, in this machine's layout.
@@ -729,6 +742,10 @@ impl Sidebar {
             git: remote
                 .is_none()
                 .then(|| git::Poller::start("git".into(), GIT_REFRESH)),
+            fence: remote
+                .is_none()
+                .then(|| crate::fence::Watcher::start(crate::fence::PROGRAM.into(), FENCE_REFRESH)),
+            denials_all: false,
             // Another machine's home is known once it answers.
             home: match &remote {
                 None => std::env::var("HOME").ok(),
@@ -2019,6 +2036,11 @@ impl Sidebar {
             if let Some(git) = &mut self.git {
                 git.watch(self.listing.cwds());
             }
+            if let Some(fence) = &mut self.fence {
+                let runs = sandbox_view::runs(&self.listing.panel.agents);
+                self.listing.panel.fence.keep(&runs);
+                fence.watch(runs);
+            }
             let cwds = self.listing.cwds();
             self.activity.update(cx, |activity, _| activity.watch(cwds));
             self.listing.ask_replies(&self.replies, now);
@@ -2027,6 +2049,12 @@ impl Sidebar {
             for batch in git.updates.try_iter().collect::<Vec<_>>() {
                 changed = true;
                 self.listing.absorb_git(batch);
+            }
+        }
+        if let Some(fence) = &self.fence {
+            for update in fence.updates.try_iter().collect::<Vec<_>>() {
+                changed = true;
+                self.listing.panel.fence.absorb(update);
             }
         }
         if changed && self.remote.is_none() {
@@ -2350,6 +2378,13 @@ impl Render for Sidebar {
                     if let Some(effort) = &card.effort {
                         left -= ui.scale(MARK_GAP) + normal(effort, NOTE_SIZE);
                     }
+                    if let Some(sandbox) = &card.sandbox {
+                        left -= ui.scale(MARK_GAP + LOCK);
+                        if let Some(count) = sandbox.count() {
+                            left -= ui.scale(LOCK_GAP)
+                                + width(&count, NOTE_SIZE, FontWeight::SEMIBOLD, &plain);
+                        }
+                    }
                     left
                 };
                 // The effort gives way before the name gets short; then the name is cut: the age
@@ -2600,6 +2635,10 @@ impl Render for Sidebar {
                         let place = places
                             .remove(&card.name)
                             .map(|place| self.workspace_cell(&card, place, cx));
+                        let sandbox = card
+                            .expanded
+                            .then(|| self.sandbox_cell(&card, cx))
+                            .flatten();
                         let card_grounds = if card.workspace.is_some() {
                             in_well
                         } else {
@@ -2613,6 +2652,7 @@ impl Render for Sidebar {
                             on_click: Box::new(on_click),
                             actions,
                             workspace: place,
+                            sandbox,
                             grounds: card_grounds,
                         }
                         .into_any_element();
@@ -3121,6 +3161,8 @@ struct AgentCard {
     actions: CardActions,
     /// The open card's `Workspace` cell (P5-89).
     workspace: Option<workspaces_view::WorkspaceCell>,
+    /// The open card's Sandbox cell (P5-120).
+    sandbox: Option<sandbox_view::SandboxCell>,
     grounds: Grounds,
     /// It asks whether to pause its agent in a turn.
     asking: bool,
@@ -3135,6 +3177,7 @@ impl RenderOnce for AgentCard {
             on_click,
             actions,
             workspace,
+            sandbox,
             grounds,
             asking,
         } = self;
@@ -3242,6 +3285,31 @@ impl RenderOnce for AgentCard {
                 .text_color(fg(|t| t.agents_dimmer))
                 .child(effort)
         });
+        // Runs in a sandbox: a small lock, with a yellow number once something was blocked.
+        let lock = card.sandbox.as_ref().map(|sandbox| {
+            let tip = tip(sandbox.tip().into());
+            div()
+                .id("sandbox")
+                .flex_shrink_0()
+                .flex()
+                .items_center()
+                .gap(ui.px(LOCK_GAP))
+                .tooltip(move |_, cx| cx.new(|_| tip.clone()).into())
+                .child(footer_icon::lock(
+                    false,
+                    fg(|t| t.agents_dim),
+                    None,
+                    ui.scale(LOCK),
+                ))
+                .children(sandbox.count().map(|count| {
+                    div()
+                        .whitespace_nowrap()
+                        .text_size(ui.px(NOTE_SIZE))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(fg(|t| t.agents_yellow))
+                        .child(count)
+                }))
+        });
         let age = card
             .time_color
             .map_or(fg(|t| t.agents_dimmer), |pick| fg(pick).opacity(0.8));
@@ -3268,6 +3336,7 @@ impl RenderOnce for AgentCard {
             .children(unread)
             .children(here)
             .children(effort)
+            .children(lock)
             .child(
                 div()
                     .flex_shrink_0()
@@ -3393,6 +3462,7 @@ impl RenderOnce for AgentCard {
                 stop: actions.stop,
                 asking: asking.then_some((actions.confirm, actions.cancel)),
                 workspace,
+                sandbox,
             };
             details(&theme, &mono, &ui, &card, buttons)
         });
@@ -3639,6 +3709,8 @@ struct Buttons {
     asking: Option<(OnClick, OnClick)>,
     /// The `Workspace` cell: where the agent is, and the button that opens its menu.
     workspace: Option<workspaces_view::WorkspaceCell>,
+    /// The Sandbox cell, for a sandboxed agent: the button that opens what was blocked.
+    sandbox: Option<sandbox_view::SandboxCell>,
 }
 
 /// The open card under the header: the full path over the branch and changes as chips; the rest in
@@ -3652,6 +3724,7 @@ fn details(theme: &Theme, mono: &Font, ui: &UiFont, card: &Card, buttons: Button
         stop,
         asking,
         workspace: place,
+        sandbox,
     } = buttons;
     let fg = |pick: Pick| hsla(theme.fg(pick), 1.0);
     let (text, dim, dimmer, rule) = (
@@ -3798,6 +3871,7 @@ fn details(theme: &Theme, mono: &Font, ui: &UiFont, card: &Card, buttons: Button
             .unwrap_or_else(|| div().flex_1().into_any_element());
         cells = cells.child(div().flex().gap(ui.px(CELL_GAP)).child(left).child(right));
     }
+    let cells = cells.children(sandbox.map(|sandbox| sandbox_view::cell(theme, ui, sandbox)));
     // An icon button with its hover text, quiet until hovered; what it looks like then is the
     // caller's. Made each frame from its motion's state.
     let action = |id: &'static str, tip: &'static str| {

@@ -10,12 +10,13 @@
 use crate::{
     card,
     config::Config,
+    fence,
     fonts::UiFont,
     footer_icon::{self, Icon},
     kind_icon,
     layout::Direction,
     menu, models,
-    new_agent::{self, Form, Place, Preset, Started, Tool},
+    new_agent::{self, Form, Offer, Place, Preset, Started, Tool},
     popover::{self, Hang},
     right_panel::Tip,
     text_input::{self, Changed, TextInput},
@@ -67,6 +68,8 @@ const PROMPT_MOST: f32 = 280.0;
 const FOOT: f32 = 34.0;
 const MENU: f32 = 280.0;
 const PICKER: f32 = 318.0;
+/// The sandbox menu's width (P5-120).
+const SANDBOX_MENU: f32 = 380.0;
 
 /// The efforts paddock knows, coolest first: one name is as hot for Claude as for Codex.
 const EFFORT_RANKS: [&str; 6] = ["low", "medium", "high", "xhigh", "max", "ultra"];
@@ -138,6 +141,29 @@ struct Motion {
 /// The effort thumb being dragged.
 struct EffortDrag;
 
+/// How long a new directory waits before its sandbox is checked (ranch's answer 5).
+const CHECK_SETTLE: Duration = Duration::from_millis(250);
+
+/// The check of a sandbox profile (P5-120): what it was asked for (profile, kind, directory)
+/// and fence's answer, none while it is being asked.
+struct SandboxCheck {
+    asked: (String, Tool, String),
+    answer: Option<Result<fence::Check, fence::Refusal>>,
+}
+
+impl SandboxCheck {
+    fn failed(&self) -> Option<&fence::Refusal> {
+        self.answer.as_ref()?.as_ref().err()
+    }
+
+    fn warnings(&self) -> &[String] {
+        match &self.answer {
+            Some(Ok(check)) => &check.warnings,
+            _ => &[],
+        }
+    }
+}
+
 type Pick = fn(&crate::preset::Theme) -> crate::preset::Color;
 
 /// What the main window needs to open the panel.
@@ -184,6 +210,8 @@ enum Menu {
     Place,
     /// The presets with no room in the row, from its `+N`.
     Presets,
+    /// The sandbox: none, or one of fence's profiles (P5-120).
+    Sandbox,
 }
 
 pub struct NewAgentView {
@@ -220,6 +248,12 @@ pub struct NewAgentView {
     /// kind was last asked about since the panel opened.
     plugin: Option<crate::integrations::Install>,
     plugin_asked: Option<Tool>,
+    /// fence's profiles once it has been found (P5-120); none without fence, and while looking.
+    sandboxes: Option<fence::Profiles>,
+    /// The check of the profile chosen, for the kind and directory it was asked for.
+    check: Option<SandboxCheck>,
+    /// Counts the checks asked for: only the latest one's answer is taken.
+    checks_asked: u64,
     /// The workspace it was opened from (P5-93).
     workspace: Option<String>,
     error: Option<String>,
@@ -364,6 +398,7 @@ impl NewAgentView {
                 this.sync_name(cx);
                 this.error = None;
                 this.check_plugin(cx);
+                this.recheck(cx);
                 cx.notify();
             }),
             // Typing a prefix moves an untyped name along; show it.
@@ -411,11 +446,15 @@ impl NewAgentView {
             busy: false,
             plugin: None,
             plugin_asked: None,
+            sandboxes: None,
+            check: None,
+            checks_asked: 0,
             workspace: seed.workspace,
             error: None,
             focus: cx.focus_handle(),
             _subscriptions: subscriptions,
         };
+        view.find_fence(cx);
         view.ask_codex(cx);
         view
     }
@@ -434,6 +473,79 @@ impl NewAgentView {
             }
         })
         .detach();
+    }
+
+    /// Looks for fence and its profiles in the background (P5-120): without it, or with another
+    /// contract, there is no sandbox to choose and no lock.
+    fn find_fence(&mut self, cx: &mut Context<Self>) {
+        let task = cx.background_spawn(async {
+            fence::version(fence::PROGRAM)?;
+            fence::profiles(fence::PROGRAM).ok()
+        });
+        cx.spawn(async move |this, cx| {
+            let profiles = task.await;
+            let _ = this.update(cx, |this, cx| {
+                this.form.set_offer(profiles.as_ref().map(Offer::of));
+                this.sandboxes = profiles;
+                // The profiles may have changed: what was checked is checked again.
+                this.check = None;
+                this.recheck(cx);
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// Checks the profile chosen for the kind and directory as they are now, unless that is what
+    /// was last checked: at once for another profile or kind, after [`CHECK_SETTLE`] for another
+    /// directory. With none chosen there is nothing to check.
+    fn recheck(&mut self, cx: &mut Context<Self>) {
+        let Some(profile) = self.form.sandbox.clone() else {
+            self.check = None;
+            return;
+        };
+        let asked = (profile, self.form.tool, self.form.cwd());
+        let settle = match &self.check {
+            Some(check) if check.asked == asked => return,
+            Some(check) if (&check.asked.0, check.asked.1) == (&asked.0, asked.1) => CHECK_SETTLE,
+            _ => Duration::ZERO,
+        };
+        self.checks_asked += 1;
+        let number = self.checks_asked;
+        self.check = Some(SandboxCheck {
+            asked: asked.clone(),
+            answer: None,
+        });
+        cx.spawn(async move |this, cx| {
+            if !settle.is_zero() {
+                cx.background_executor().timer(settle).await;
+            }
+            // Asked again meanwhile: this one is not wanted.
+            let wanted = this.read_with(cx, |this, _| this.checks_asked == number);
+            if !matches!(wanted, Ok(true)) {
+                return;
+            }
+            let (profile, tool, cwd) = asked;
+            let answer = cx
+                .background_spawn(async move {
+                    fence::check(fence::PROGRAM, &profile, Some(tool.kind()), Some(&cwd))
+                })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                if this.checks_asked == number
+                    && let Some(check) = &mut this.check
+                {
+                    check.answer = Some(answer);
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+    }
+
+    /// The profile chosen can't be used as the form is: Start waits (P5-120).
+    fn sandbox_refused(&self) -> bool {
+        self.form.sandbox.is_some() && self.check.as_ref().is_some_and(|c| c.failed().is_some())
     }
 
     /// Opened again: the agents and their projects as they are now, and from `+` or the split
@@ -463,6 +575,8 @@ impl NewAgentView {
         self.plugin = None;
         self.plugin_asked = None;
         self.check_plugin(cx);
+        // fence and its profiles may have changed meanwhile too.
+        self.find_fence(cx);
         cx.notify();
     }
 
@@ -533,6 +647,7 @@ impl NewAgentView {
         self.error = None;
         self.sync_command(cx);
         self.check_plugin(cx);
+        self.recheck(cx);
         cx.notify();
     }
 
@@ -665,7 +780,7 @@ impl NewAgentView {
 
     fn create(&mut self, _: &menu::CreateAgent, window: &mut Window, cx: &mut Context<Self>) {
         // agy without its first message: ⌘↩ does nothing, as Start is greyed (P5-88).
-        if self.busy || !self.form.can_start() {
+        if self.busy || !self.form.can_start() || self.sandbox_refused() {
             return;
         }
         self.open = None;
@@ -1275,6 +1390,7 @@ impl NewAgentView {
         let place = icon_button("chip-place", Some(Menu::Place), place_tip(self.form.place))
             .child(place_icon(self.form.place, dim, ui.scale(16.0)))
             .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.toggle(Menu::Place, cx)));
+        let lock = self.lock_button(ui, cx);
         let controller = !self.form.regular;
         let role = icon_button(
             "chip-role",
@@ -1295,7 +1411,7 @@ impl NewAgentView {
             ui.scale(16.0),
         ))
         .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-            this.form.regular = !this.form.regular;
+            this.form.set_regular(!this.form.regular);
             this.chose(cx);
         }));
         let command = self
@@ -1332,7 +1448,7 @@ impl NewAgentView {
                 ui.scale(16.0),
                 2.4,
             ));
-        let start = if self.busy || !self.form.can_start() {
+        let start = if self.busy || !self.form.can_start() || self.sandbox_refused() {
             start.opacity(0.5)
         } else {
             start
@@ -1361,11 +1477,361 @@ impl NewAgentView {
                     .items_center()
                     .gap(ui.px(2.0))
                     .child(place)
+                    .children(lock)
                     .child(role)
                     .child(seam(16.0, 0.08).mx(ui.px(6.0)))
                     .child(command)
                     .child(start),
             )
+    }
+
+    /// The sandbox's lock, left of the Controller crown (P5-120); none without fence. Quiet and
+    /// open with no sandbox; lit with the profile's name when one is chosen, red when fence's check
+    /// refused it, with a yellow dot when it warned. Greyed, and closed to clicks, for a controller
+    /// or a kind fence has no data for.
+    fn lock_button(&self, ui: &UiFont, cx: &mut Context<Self>) -> Option<Stateful<Div>> {
+        self.sandboxes.as_ref()?;
+        let tool = self.form.tool;
+        let (dim, accent, red, yellow) = (
+            self.fg(|t| t.agents_dim),
+            self.fg(|t| t.agents_accent),
+            self.fg(|t| t.agents_red),
+            self.fg(|t| t.agents_yellow),
+        );
+        let tip = |text: String| {
+            let tip = Tip::new(text, &self.theme, ui);
+            move |_: &mut Window, cx: &mut App| cx.new(|_| tip.clone()).into()
+        };
+        if !self.form.can_sandbox() {
+            let why = if self.form.regular {
+                format!("fence has no sandbox for {}", tool.label())
+            } else {
+                "Controllers can't run in a sandbox: corral is blocked inside it".to_owned()
+            };
+            return Some(
+                div()
+                    .id("chip-sandbox")
+                    .flex_shrink_0()
+                    .size(ui.px(32.0))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .opacity(0.4)
+                    .tooltip(tip(why))
+                    .child(footer_icon::lock(true, dim, None, ui.scale(16.0))),
+            );
+        }
+        let base = self
+            .ghost("chip-sandbox", Some(Menu::Sandbox), ui)
+            .rounded(ui.px(9.0));
+        let button = match &self.form.sandbox {
+            None => base
+                .size(ui.px(32.0))
+                .justify_center()
+                .tooltip(tip("No sandbox".into()))
+                .child(footer_icon::lock(true, dim, None, ui.scale(16.0))),
+            Some(profile) => {
+                let check = self.check.as_ref();
+                let refused = check.and_then(SandboxCheck::failed);
+                let warned = check.is_some_and(|c| !c.warnings().is_empty());
+                let color = if refused.is_some() { red } else { accent };
+                let words = match (refused, warned) {
+                    (Some(refusal), _) => format!("Sandbox: {profile}, {}", refusal.code),
+                    (None, true) => format!("Sandbox: {profile}, with a warning"),
+                    (None, false) => format!("Sandbox: {profile}"),
+                };
+                base.h(ui.px(32.0))
+                    .pl(ui.px(8.0))
+                    .pr(ui.px(9.0))
+                    .gap(ui.px(5.0))
+                    .bg(color.opacity(0.14))
+                    .hover(move |style| style.bg(color.opacity(0.2)))
+                    .text_size(ui.px(12.5))
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(color)
+                    .tooltip(tip(words))
+                    .child(footer_icon::lock(
+                        false,
+                        color,
+                        Some(color.opacity(0.22)),
+                        ui.scale(15.0),
+                    ))
+                    .child(profile.clone())
+                    .when(warned && refused.is_none(), |button| {
+                        button.child(
+                            div()
+                                .absolute()
+                                .top(ui.px(3.0))
+                                .right(ui.px(3.0))
+                                .size(ui.px(7.0))
+                                .rounded_full()
+                                .bg(yellow),
+                        )
+                    })
+            }
+        };
+        Some(
+            button.on_click(
+                cx.listener(|this, _: &ClickEvent, _, cx| this.toggle(Menu::Sandbox, cx)),
+            ),
+        )
+    }
+
+    /// The sandbox's menu (P5-120): None, then each of fence's profiles with where it comes from
+    /// and its description as fence words it, one it could not read marked with why; under them
+    /// how the check went for the kind and directory, and `See the rules`.
+    fn sandbox_rows(&self, ui: &UiFont, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let Some(sandboxes) = &self.sandboxes else {
+            return Vec::new();
+        };
+        let (text, dim, dimmer, accent, red, yellow, green) = (
+            self.fg(|t| t.agents_text),
+            self.fg(|t| t.agents_dim),
+            self.fg(|t| t.agents_dimmer),
+            self.fg(|t| t.agents_accent),
+            self.fg(|t| t.agents_red),
+            self.fg(|t| t.agents_yellow),
+            self.fg(|t| t.agents_green),
+        );
+        let lit = popover::lit(&self.theme);
+        let row = |id: ElementId, lead: AnyElement, title: Div, notes: Vec<Div>, on: bool| {
+            div()
+                .id(id)
+                .flex_shrink_0()
+                .flex()
+                .items_start()
+                .gap(ui.px(10.0))
+                .px(ui.px(10.0))
+                .py(ui.px(8.0))
+                .rounded(ui.px(8.0))
+                .cursor_pointer()
+                .map(|row| {
+                    if on {
+                        row.bg(lit)
+                    } else {
+                        row.hover(move |style| style.bg(lit.opacity(0.7)))
+                    }
+                })
+                .child(div().flex_shrink_0().mt(ui.px(1.0)).child(lead))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w(px(0.0))
+                        .flex()
+                        .flex_col()
+                        .gap(ui.px(3.0))
+                        .child(title)
+                        .children(notes),
+                )
+                .child(
+                    div()
+                        .mt(ui.px(2.0))
+                        .child(popover::tick(&self.theme, ui, on)),
+                )
+        };
+        let note = |words: String, color: Hsla| {
+            div()
+                .text_size(ui.px(12.0))
+                .line_height(relative(1.5))
+                .text_color(color)
+                .child(words)
+        };
+        let chosen = self.form.sandbox.as_deref();
+        let mut rows = vec![
+            popover::heading(&self.theme, ui, "Sandbox").into_any_element(),
+            row(
+                "sandbox-none".into(),
+                footer_icon::lock(true, dimmer, None, ui.scale(16.0)).into_any_element(),
+                div().text_size(ui.px(13.0)).text_color(text).child("None"),
+                vec![note("Runs the way agents run today.".into(), dimmer)],
+                chosen.is_none(),
+            )
+            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.form.set_sandbox(None);
+                this.chose(cx);
+            }))
+            .into_any_element(),
+        ];
+        for (index, profile) in sandboxes.profiles.iter().enumerate() {
+            let on = chosen == Some(profile.name.as_str());
+            let mut notes = Vec::new();
+            if let Some(description) = profile.description.clone().filter(|d| !d.is_empty()) {
+                notes.push(note(description, dim));
+            }
+            if let Some(problem) = profile.problem() {
+                notes.push(note(format!("Can't be read: {problem}"), red));
+            }
+            let mut title = div()
+                .flex()
+                .items_center()
+                .gap(ui.px(6.0))
+                .child(
+                    div()
+                        .text_size(ui.px(13.0))
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(text)
+                        .child(profile.name.clone()),
+                )
+                .child(
+                    div()
+                        .text_size(ui.px(11.0))
+                        .text_color(dimmer)
+                        .child(profile.origin()),
+                );
+            if profile.overrides_builtin {
+                title = title.child(
+                    div()
+                        .text_size(ui.px(11.0))
+                        .text_color(dimmer)
+                        .child("· replaces the built-in one"),
+                );
+            }
+            let name = profile.name.clone();
+            let (stroke, fill) = if on {
+                (accent, Some(accent.opacity(0.22)))
+            } else {
+                (dim, None)
+            };
+            rows.push(
+                row(
+                    ElementId::NamedInteger("sandbox-profile".into(), index as u64),
+                    footer_icon::lock(false, stroke, fill, ui.scale(16.0)).into_any_element(),
+                    title,
+                    notes,
+                    on,
+                )
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    this.form.set_sandbox(Some(name.clone()));
+                    this.chose(cx);
+                }))
+                .into_any_element(),
+            );
+        }
+        // How the check went, and the way to the rules.
+        let place = format!(
+            "{} in {}",
+            self.form.tool.label(),
+            project_name(&self.form.project)
+        );
+        let (mark, words, color): (Option<AnyElement>, String, Hsla) =
+            match (chosen, self.check.as_ref().map(|c| &c.answer)) {
+                (None, _) => (None, String::new(), dimmer),
+                (Some(_), None | Some(None)) => (None, format!("Checking for {place}…"), dimmer),
+                (Some(_), Some(Some(Ok(check)))) if !check.warnings.is_empty() => (
+                    Some(
+                        footer_icon::icon(
+                            Icon::Warning,
+                            yellow,
+                            ui.scale(12.0) / footer_icon::SIZE,
+                        )
+                        .into_any_element(),
+                    ),
+                    format!("Checked for {place}, with a warning"),
+                    dimmer,
+                ),
+                (Some(_), Some(Some(Ok(_)))) => (
+                    Some(stroke_icon(CHECK, false, green, ui.scale(13.0), 2.4).into_any_element()),
+                    format!("Checked for {place}"),
+                    dimmer,
+                ),
+                (Some(_), Some(Some(Err(_)))) => (None, format!("Can't be used for {place}"), red),
+            };
+        rows.push(
+            div()
+                .flex_shrink_0()
+                .mt(ui.px(4.0))
+                .mx(ui.px(4.0))
+                .pt(ui.px(9.0))
+                .px(ui.px(8.0))
+                .pb(ui.px(6.0))
+                .border_t_1()
+                .border_color(popover::edge_rule(&self.theme))
+                .flex()
+                .items_center()
+                .gap(ui.px(6.0))
+                .text_size(ui.px(12.0))
+                .text_color(color)
+                .children(mark)
+                .child(div().flex_1().min_w(px(0.0)).child(words))
+                .child(
+                    div()
+                        .id("sandbox-rules")
+                        .flex_shrink_0()
+                        .text_color(accent)
+                        .cursor_pointer()
+                        .hover(move |style| style.text_color(accent.opacity(0.8)))
+                        .child("See the rules")
+                        .on_click(|_, _, cx| {
+                            let page = crate::settings::Page::Sandbox;
+                            cx.defer(move |cx| crate::windows::open_settings_at(page, cx));
+                        }),
+                )
+                .into_any_element(),
+        );
+        rows
+    }
+
+    /// Under the foot while a profile is chosen (P5-120): fence's warnings in yellow, or why it
+    /// refused the profile in red, each word for word.
+    fn sandbox_notes(&self, ui: &UiFont) -> Option<Div> {
+        self.form.sandbox.as_ref()?;
+        let check = self.check.as_ref()?;
+        let (red, yellow) = (self.fg(|t| t.agents_red), self.fg(|t| t.agents_yellow));
+        let band = div()
+            .flex_shrink_0()
+            .mx(ui.px(14.0))
+            .px(ui.px(2.0))
+            .pt(ui.px(9.0))
+            .pb(ui.px(11.0))
+            .border_t_1()
+            .border_color(popover::edge_rule(&self.theme))
+            .flex()
+            .flex_col()
+            .gap(ui.px(4.0))
+            .text_size(ui.px(12.0));
+        if let Some(refusal) = check.failed() {
+            let mut line = div().flex().items_start().gap(ui.px(8.0)).text_color(red);
+            if !refusal.code.is_empty() {
+                line = line.child(
+                    div()
+                        .flex_shrink_0()
+                        .font_family(self.mono.clone())
+                        .child(refusal.code.clone()),
+                );
+            }
+            let line = line.child(
+                div()
+                    .flex_1()
+                    .min_w(px(0.0))
+                    .text_color(red.opacity(0.8))
+                    .child(refusal.message.clone()),
+            );
+            return Some(band.child(line));
+        }
+        let warnings = check.warnings();
+        if warnings.is_empty() {
+            return None;
+        }
+        Some(
+            band.text_color(yellow)
+                .children(warnings.iter().map(|warning| {
+                    div()
+                        .flex()
+                        .items_start()
+                        .gap(ui.px(8.0))
+                        .child(
+                            div()
+                                .flex_shrink_0()
+                                .mt(ui.px(2.0))
+                                .child(footer_icon::icon(
+                                    Icon::Warning,
+                                    yellow,
+                                    ui.scale(12.0) / footer_icon::SIZE,
+                                )),
+                        )
+                        .child(div().flex_1().min_w(px(0.0)).child(warning.clone()))
+                })),
+        )
     }
 
     /// A row of a list: a tick when it is the one in force, what leads it, the value (in the
@@ -1876,6 +2342,7 @@ impl NewAgentView {
             Menu::Model => (PICKER, Hang::BelowLeft),
             Menu::Presets => (MENU, Hang::BelowRight),
             Menu::Place => (MENU, Hang::BelowRight),
+            Menu::Sandbox => (SANDBOX_MENU, Hang::BelowRight),
             Menu::Project | Menu::Agent => (MENU, Hang::BelowLeft),
         };
         let placed = popover::hang(
@@ -1930,6 +2397,7 @@ impl NewAgentView {
             }
             Menu::Agent => (None, self.kind_rows(ui, cx)),
             Menu::Model => (None, self.model_rows(ui, cx)),
+            Menu::Sandbox => (None, self.sandbox_rows(ui, cx)),
             Menu::Place => {
                 let split = match self.form.place {
                     Place::Split(direction) => Some(direction),
@@ -2052,6 +2520,9 @@ impl NewAgentView {
             .whitespace_normal()
             .when(matches!(menu, Menu::Agent | Menu::Model), |panel| {
                 panel.p(ui.px(8.0)).gap(ui.px(2.0)).rounded(ui.px(14.0))
+            })
+            .when(menu == Menu::Sandbox, |panel| {
+                panel.p(ui.px(6.0)).gap(ui.px(2.0)).rounded(ui.px(12.0))
             })
             .children(title.map(|title| popover::heading(&self.theme, ui, title)))
             .children(rows);
@@ -2516,6 +2987,7 @@ impl Render for NewAgentView {
                     .child(status)
             }))
             .child(self.foot(&ui, cx))
+            .children(self.sandbox_notes(&ui))
             .when(self.show_command, |panel| {
                 panel.child(self.command_block(&ui, window, cx))
             });

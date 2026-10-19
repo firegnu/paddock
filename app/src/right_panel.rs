@@ -16,7 +16,8 @@ use crate::{
     window::{Grounds, NAME_LIFT, RING_ACTIVE, TAB_RING, capsule_grounds},
 };
 use gpui::{
-    AnyElement, App, ClickEvent, Div, FontWeight, Hsla, Pixels, Render, Window, div, prelude::*, px,
+    AnyElement, App, ClickEvent, Div, FontWeight, Hsla, Pixels, Render, SharedString, Window, div,
+    prelude::*, px,
 };
 use serde::{Deserialize, Serialize};
 use std::rc::Rc;
@@ -381,7 +382,7 @@ pub fn placeholder(theme: &Theme, ui: &UiFont, tab: Tab) -> Div {
 /// A button's hover text, here and on the Browser's toolbar.
 #[derive(Clone)]
 pub struct Tip {
-    text: &'static str,
+    text: SharedString,
     size: Pixels,
     color: Hsla,
     background: Hsla,
@@ -389,9 +390,9 @@ pub struct Tip {
 }
 
 impl Tip {
-    pub fn new(text: &'static str, theme: &Theme, ui: &UiFont) -> Self {
+    pub fn new(text: impl Into<SharedString>, theme: &Theme, ui: &UiFont) -> Self {
         Tip {
-            text,
+            text: text.into(),
             size: ui.px(11.5),
             color: hsla(theme.fg(|t| t.agents_text), 1.0),
             background: hsla(theme.bg(|t| t.agents_bg), 1.0),
@@ -413,7 +414,7 @@ impl Render for Tip {
             .shadow_md()
             .text_size(self.size)
             .text_color(self.color)
-            .child(self.text)
+            .child(self.text.clone())
             .child(browser::cover())
     }
 }

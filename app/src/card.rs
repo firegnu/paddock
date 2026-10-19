@@ -535,6 +535,64 @@ fn details(
     }
 }
 
+/// A sandboxed agent's lock (DESIGN §13 P5-120): its profile and how much fence's wall stopped.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Sandboxed {
+    pub profile: String,
+    /// The network and file-write blocks, and whether more may lie past what fence was asked
+    /// for; none before fence has a record of the run.
+    pub blocked: Option<(usize, bool)>,
+    /// Why fence could not say what was stopped.
+    pub problem: Option<String>,
+}
+
+impl Sandboxed {
+    /// The yellow number beside the lock: none while nothing was stopped.
+    pub fn count(&self) -> Option<String> {
+        match self.blocked? {
+            (0, _) => None,
+            (n, true) => Some(format!("{n}+")),
+            (n, false) => Some(n.to_string()),
+        }
+    }
+
+    /// The lock's hover text: `Sandbox: dev`, with `· 3 blocked` once something was.
+    pub fn tip(&self) -> String {
+        match self.count() {
+            Some(count) => format!("Sandbox: {} · {count} blocked", self.profile),
+            None => format!("Sandbox: {}", self.profile),
+        }
+    }
+
+    /// The open card's Sandbox cell after the profile: `3 blocked ›`, `nothing blocked`, or that
+    /// it can't be read.
+    pub fn told(&self) -> String {
+        match (self.count(), &self.problem) {
+            (Some(count), _) => format!("{count} blocked ›"),
+            (None, Some(_)) => "can't read what was blocked".into(),
+            (None, None) => "nothing blocked".into(),
+        }
+    }
+}
+
+/// `a`'s lock, when it runs in a sandbox and fence is there: from what fence last said of the
+/// run.
+fn sandboxed(panel: &Panel, a: &Agent) -> Option<Sandboxed> {
+    let sandbox = a.sandbox.as_ref().filter(|_| panel.fence.found.is_some())?;
+    let read = a
+        .instance
+        .as_deref()
+        .and_then(|instance| panel.fence.of(&a.name, instance));
+    Some(Sandboxed {
+        profile: sandbox.profile.clone(),
+        blocked: crate::fence::count(read),
+        problem: match read {
+            Some(Err(refusal)) => Some(refusal.to_string()),
+            _ => None,
+        },
+    })
+}
+
 /// Everything the panel shows for one agent.
 #[derive(Clone, Debug)]
 pub struct Card {
@@ -578,6 +636,8 @@ pub struct Card {
     /// `Workspace` cell moves, all of it (P5-105). None for one that goes by its name's prefix,
     /// whose cell only says where it is.
     pub repo: Option<PathBuf>,
+    /// Runs in a sandbox (P5-120): a lock after the effort, and a Sandbox cell when open.
+    pub sandbox: Option<Sandboxed>,
 }
 
 /// Keeps the name readable on a tight first line: while `room(card)` leaves the name less than
@@ -986,6 +1046,7 @@ fn card(
         working: a.state.as_deref() == Some("working"),
         workspace: panel.workspace(a).map(str::to_owned),
         repo: panel.repository(a).map(Path::to_path_buf),
+        sandbox: sandboxed(panel, a),
     }
 }
 
@@ -1814,5 +1875,69 @@ mod tests {
         assert_eq!(names(&panel), ["c", "b", "a"]);
         panel.by_name = true;
         assert_eq!(names(&panel), ["a", "b", "c"]);
+    }
+
+    #[test]
+    fn a_sandboxed_card_counts_network_and_writes_once_fence_has_read_its_run() {
+        use crate::fence::{Denial, Denials, Refusal, Update, Version};
+        let mut panel = Panel::default();
+        let mut a = agent("a", "running");
+        a.sandbox = Some(crate::corral::Sandbox {
+            profile: "dev".into(),
+        });
+        // Without fence there is no lock.
+        assert_eq!(sandboxed(&panel, &a), None);
+        panel.fence.absorb(Update::Found(Some(Version::default())));
+        let lock = sandboxed(&panel, &a).unwrap();
+        assert_eq!((lock.count(), lock.tip()), (None, "Sandbox: dev".into()));
+        assert_eq!(lock.told(), "nothing blocked");
+        let denial = |kind: &str| Denial {
+            kind: kind.into(),
+            ..Denial::default()
+        };
+        let read = |kinds: &[&str]| Update::Denials {
+            agent: "a".into(),
+            instance: "abcdef123".into(),
+            result: Ok(Some(Denials {
+                denials: kinds.iter().map(|kind| denial(kind)).collect(),
+                ..Denials::default()
+            })),
+        };
+        panel.fence.absorb(read(&[
+            "network",
+            "file-read",
+            "file-write",
+            "other",
+            "network",
+        ]));
+        let lock = sandboxed(&panel, &a).unwrap();
+        assert_eq!(lock.count().as_deref(), Some("3"));
+        assert_eq!(lock.tip(), "Sandbox: dev · 3 blocked");
+        assert_eq!(lock.told(), "3 blocked ›");
+        // Only reads: nothing counted.
+        panel.fence.absorb(read(&["file-read"]));
+        assert_eq!(sandboxed(&panel, &a).unwrap().told(), "nothing blocked");
+        // A read of another run is not this one's.
+        a.instance = Some("other".into());
+        assert_eq!(sandboxed(&panel, &a).unwrap().blocked, None);
+        a.instance = Some("abcdef123".into());
+        panel.fence.absorb(Update::Denials {
+            agent: "a".into(),
+            instance: "abcdef123".into(),
+            result: Err(Refusal {
+                code: "bad_log".into(),
+                message: "unreadable".into(),
+            }),
+        });
+        let lock = sandboxed(&panel, &a).unwrap();
+        assert_eq!(lock.told(), "can't read what was blocked");
+        assert_eq!(lock.problem.as_deref(), Some("bad_log: unreadable"));
+        // Capped at what fence was asked for: there may be more.
+        let capped = Sandboxed {
+            profile: "dev".into(),
+            blocked: Some((5000, true)),
+            problem: None,
+        };
+        assert_eq!(capped.count().as_deref(), Some("5000+"));
     }
 }

@@ -28,17 +28,20 @@ pub enum Page {
     Machines,
     /// Each agent's global instructions file, read and edited (`instructions.rs`).
     Instructions,
+    /// Read-only: fence's sandbox profiles and the rules they come to (DESIGN §13 P5-120).
+    Sandbox,
     /// Read-only: what paddock runs and how its reads and saves went.
     Diagnostics,
 }
 
 impl Page {
-    pub const ALL: [Page; 6] = [
+    pub const ALL: [Page; 7] = [
         Page::General,
         Page::Appearance,
         Page::Agents,
         Page::Machines,
         Page::Instructions,
+        Page::Sandbox,
         Page::Diagnostics,
     ];
 
@@ -49,6 +52,7 @@ impl Page {
             Page::Agents => "Agents",
             Page::Machines => "Machines",
             Page::Instructions => "Instructions",
+            Page::Sandbox => "Sandbox",
             Page::Diagnostics => "Diagnostics",
         }
     }
@@ -61,6 +65,7 @@ impl Page {
             Page::Agents => Icon::Agent,
             Page::Machines => Icon::Machine,
             Page::Instructions => Icon::Document,
+            Page::Sandbox => Icon::Lock,
             Page::Diagnostics => Icon::Pulse,
         }
     }
@@ -1115,6 +1120,7 @@ mod tests {
                 "Agents",
                 "Machines",
                 "Instructions",
+                "Sandbox",
                 "Diagnostics"
             ]
         );

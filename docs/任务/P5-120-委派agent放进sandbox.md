@@ -74,3 +74,40 @@
 
 ## 做完
 在本文件末尾追加「## 完成记录」（在你的分支里提交）：做了什么、验证了什么、拿主意的地方、没做的事、踩过的坑（没有就写「没有」）。回复里只写这几样，加上有没有要主控决定的事。命令都在前台跑完，全部做完后，回复最后一行写 DONE。
+
+## 完成记录
+
+### 做了什么
+1. **fence 模块**（新 `app/src/fence.rs`）：`version`（只认 `contract` `"1"`）、`profiles`、`check`、`denials`，一行 JSON，不认识的字段不管，错误统一成 `Refusal{code,message}`；走共用的 `command::run`（10 秒超时）。`denials` 的 `not_found` 当“还没有数据”。后台的 `Watcher` 每 3 秒读一遍套墙 agent 的 `denials --limit 5000`，每 60 秒重新找一次 fence；`Seen` 留着最新结果给界面画。
+2. **New Agent**（`new_agent.rs`、`new_agent_view.rs`）：角色按钮左边的锁和档案菜单（None + 各档案：名字、`built in`／`yours`、说明原文、替换内置、读不了的原因；底部检查结果和 `See the rules` 打开 Settings › Sandbox）；选了档案跑 `fence check`，换档案／种类立即、改目录等 250ms；警告黄点 + 底栏下原文，失败红锁 + 错误码和原话、Start 和 ⌘↩ 不能按；Controller 灰锁和说明，切到 Controller 回 None；不支持的种类灰锁回 None；`--sandbox <档案>` 进参数、Will run 可见；corral 回 `sandbox_*` 时把错误码、message 和 fence 的错误原话当启动失败显示。
+3. **预设**：`agent_presets` 多可选 `sandbox`，只存 Regular 的；改锁算改了预设；套用时档案不在／种类不支持回 None。旧配置照读（测试覆盖）。
+4. **卡片**（`card.rs`、`sidebar.rs`）：名字和强度后的暗色小锁、黄色计数、悬停文字；展开后横跨两栏的 Sandbox 格，按下开浮窗；锁和计数的宽度算进名字行余量。
+5. **被拦记录浮窗**（新 `app/src/sidebar_sandbox.rs`，`Floating::Denials`）：标题、名字 · 档案、条数、关闭；`Network & writes`／`All` 切换；每行时间、彩色类型签、`~` 缩短的目标（悬停全路径；`target` 为空显示 `detail`）、`detail`；新的在上；空、读不了、`truncated` 各有一行；随读取刷新；底部固定说明。
+6. **Settings › Sandbox**（新 `app/src/settings_sandbox.rs`，`Page::Sandbox` 在 Instructions 和 Diagnostics 之间，命令面板也能搜到）：版本状态、档案列表、本机补充文件；选档案、种类、目录后显示来源层、允许域名、不能读／写、能写／读（先 5 条可展开）、跳过项、警告；`View only. Profiles are changed in fence, not here.`；没装 fence 一句话。
+7. `docs/DESIGN.md` §13 加了 P5-120 一条（决定和理由）。
+另外：`footer_icon` 加了锁的画法（`Icon::Lock`、`lock()`）；`right_panel::Tip` 文字改成 `SharedString` 以便放动态文字；`corral::Agent` 多 `sandbox` 字段。
+
+### 验证了什么
+- `git diff --check` 通过；`app/` 下 `cargo test --all-targets` 786 个全过，`cargo clippy --all-targets -- -D warnings` 无告警，`cargo fmt --check` 通过。
+- 新测试：fence 解析和调用（假 `fence` 脚本：版本约定号、profiles、check 及其拒绝、denials 和 `not_found`、后台 Watcher 找 fence 并读各实例、fence 消失时清掉记录；没写超时的测试）；New Agent 的 sandbox 规则（Controller、不支持的种类、预设存取和失效、`--sandbox` 位置、corral 的 `sandbox_failed` 文字）；卡片计数／悬停／Sandbox 格文字（含没 fence、读别的实例、读不了、`N+`）；浮窗的排序过滤、行的 `~` 和 `detail` 兜底、本地时间；只读套墙 agent 的实例；Settings 页的路径显示。
+- 拿本机真的 `fence --version`、`fence profiles`、`fence check --profile dev --kind claude --cwd /tmp`（只读）对照过字段，和解析结构一致。
+- 没起 paddock 窗口、没截图；界面样子、点选、键盘留给用户装好后看。
+
+### 拿主意的地方
+- 计数拿满 5000 条（`--limit 5000`）时写 `N+`。
+- 只要 fence 找不到（或约定号不对），卡片也不画锁，即使 corral 说 agent 套着墙——和“没 fence 时任何地方都没有 sandbox 界面”一致。
+- `--sandbox` 放在标签后、`--prompt`／`--` 前，不挪 cwd 在参数中的位置（别的代码按位置取它）。
+- 没装 fence 时套用预设，保留预设里的 sandbox 不清掉，免得一次没找到 fence 就把预设改成“已编辑”。
+- 档案有 `error` 也能选，交给 `fence check` 去拒（拒了 Start 不能按），菜单里标出原因。
+- 浮窗每次打开回到 `Network & writes`；`All` 旁加一句小字 `All adds reads and system checks, mostly caches`。
+- Settings 里 `<运行时才有>` 显示成 `temp dir (made at start)`（界面文字用英文）。
+- 不支持的种类锁的悬停文字 `fence has no sandbox for <Kind>`；锁有警告时悬停 `Sandbox: <档案>, with a warning`。
+
+### 没做的事
+- 照「不要做」：没改 ranch，没做 C2、改档案、退出码 125 的提示、远程 sandbox、paddock ctl／看板开 agent 的路子；没用 `--sandbox` 真起 agent，没碰任何现有 agent。
+- 没做界面实测（不能起窗口），样子和交互待用户看。
+
+### 踩过的坑
+- 用 perl 的 `s|…|…|` 改含 `|`（闭包、`||`）的代码时替换失败，还把垃圾写到了文件开头，后来改用 Edit 或别的分隔符重做。
+- 中途误跑过一次 `python3 --version`（只是看版本，没用 Python 写或跑任何东西），之后没再用。
+- Settings 多一页后命令面板里一条“Settings 页数为 6”的老断言跟着改成 7。
