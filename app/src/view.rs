@@ -9,10 +9,12 @@ mod fade;
 mod file_drop;
 mod gauge;
 mod glide;
+mod hold;
 pub mod links;
 mod marks;
 mod notice;
 mod press;
+pub mod tween;
 pub mod zoom;
 
 use crate::{
@@ -245,6 +247,14 @@ pub struct TerminalView {
     laid_out: bool,
     /// The "New output" pill showed in the last render.
     pill: bool,
+    /// The window is moving the pane's edges: the grid keeps its size until it stops (P5-148a).
+    held: bool,
+    /// How far the find bar has come in, 0 to 1, and with the system's Reduce Motion on as it
+    /// opened, whether it only fades (P5-148a).
+    find_in: tween::Tween,
+    find_still: bool,
+    /// The find bar just closed, fading out where it was: how far below its place that is.
+    find_gone: Option<(FindBar, f32)>,
 }
 
 /// How long the position bar and the size show after the last change, then how long they fade.
@@ -422,7 +432,17 @@ impl TerminalView {
             size_text: String::new(),
             laid_out: false,
             pill: false,
+            held: false,
+            find_in: tween::Tween::at(0.0),
+            find_still: false,
+            find_gone: None,
         }
+    }
+
+    /// The window moves the pane's edges (`held`), or has stopped: meanwhile the grid and the
+    /// program keep their size, and the first frame after fits them to the pane once (P5-148a).
+    pub fn hold_size(&mut self, held: bool) {
+        self.held = held;
     }
 
     /// New colours from Settings, at once; a program asking for colours from now on is told them.
@@ -1005,6 +1025,11 @@ impl TerminalView {
                     tally: None,
                     _subscription: subscription,
                 });
+                // It comes in from where one just closed is fading, which goes.
+                self.find_gone = None;
+                self.find_still = crate::reduce_motion::on();
+                self.find_in
+                    .go(1.0, Instant::now(), tween::POP_IN, tween::POP_CURVE);
                 input
             }
         };
@@ -1077,7 +1102,11 @@ impl TerminalView {
 
     /// Esc or ×: the bar goes, the view returns to the bottom and the keys to the terminal.
     fn close_find(&mut self, _: &menu::CloseFind, window: &mut Window, cx: &mut Context<Self>) {
-        self.find = None;
+        if let Some(bar) = self.find.take() {
+            let now = Instant::now();
+            self.find_gone = Some((bar, self.find_rise(now)));
+            self.find_in.go(0.0, now, tween::POP_OUT, tween::POP_CURVE);
+        }
         if let Some(session) = self.session() {
             let mut screen = session.screen.lock().unwrap();
             screen.term.selection = None;
@@ -1113,7 +1142,22 @@ impl TerminalView {
             )
     }
 
-    fn find_bar(&self, bar: &FindBar, cx: &mut Context<Self>) -> impl IntoElement {
+    /// How far below its place the find bar is drawn at `now`, as it comes in.
+    fn find_rise(&self, now: Instant) -> f32 {
+        if self.find_still {
+            0.0
+        } else {
+            tween::POP_RISE * (1.0 - self.find_in.value(now))
+        }
+    }
+
+    /// The find bar, `shown` from 0 to 1 and `rise` points below its place as it comes or goes.
+    fn find_bar(
+        &self,
+        bar: &FindBar,
+        (shown, rise): (f32, f32),
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
         let fg = |pick: fn(&crate::preset::Theme) -> crate::preset::Color| {
             hsla(self.theme.fg(pick), 1.0)
         };
@@ -1133,7 +1177,8 @@ impl TerminalView {
             .id("find-bar")
             .key_context(menu::FIND)
             .absolute()
-            .top(px(6.0))
+            .top(px(6.0 + rise))
+            .opacity(shown)
             .right(px(14.0))
             .w(px(340.0))
             .flex()
@@ -1668,11 +1713,12 @@ impl TerminalView {
         self.origin = bounds.origin;
         self.scale = window.scale_factor();
         self.bounds = bounds;
-        let size = grid::grid_size(
+        let fits = grid::grid_size(
             f32::from(bounds.size.width),
             f32::from(bounds.size.height),
             metrics,
         );
+        let size = hold::grid(self.held, self.laid_out, self.size, fits);
         let resized = (size.rows, size.cols) != (self.size.rows, self.size.cols);
         let before = self.laid_out.then_some((self.size.cols, self.size.rows));
         self.laid_out = true;
@@ -2503,6 +2549,20 @@ impl Render for TerminalView {
             })
             .detach();
         }
+        // The find bar coming in or going: drawn each frame while it moves, the closed one let go
+        // once it has faded.
+        let now = Instant::now();
+        if self.find_in.next(now) == caret::Next::Frame {
+            window.request_animation_frame();
+        } else if self.find.is_none() {
+            self.find_gone = None;
+        }
+        let shown = self.find_in.value(now);
+        let finding = match (&self.find, &self.find_gone) {
+            (Some(bar), _) => Some((bar, (shown, self.find_rise(now)))),
+            (None, Some((bar, rise))) => Some((bar, (shown, *rise))),
+            (None, None) => None,
+        };
         div()
             .relative()
             .size_full()
@@ -2560,7 +2620,7 @@ impl Render for TerminalView {
                     .inset_0()
                     .drag_over::<ExternalPaths>(move |style, _, _, _| style.bg(drop_highlight)),
             )
-            .children(self.find.as_ref().map(|bar| self.find_bar(bar, cx)))
+            .children(finding.map(|(bar, look)| self.find_bar(bar, look, cx)))
             .children(notice.map(|text| self.notice_bar(text, cx)))
             .when(self.pill, |pane| pane.child(self.new_output(cx)))
     }

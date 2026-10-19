@@ -283,6 +283,8 @@ pub struct NewAgentView {
     error: Option<String>,
     focus: FocusHandle,
     _subscriptions: Vec<Subscription>,
+    /// How far below its place the panel is drawn, as it comes in; the window says (P5-148a).
+    rise: f32,
 }
 
 impl EventEmitter<NewAgentEvent> for NewAgentView {}
@@ -385,6 +387,11 @@ pub(crate) fn hold_main_window(panel: Div) -> Div {
 }
 
 impl NewAgentView {
+    /// Drawn `rise` points below its place, as it comes in over the window (P5-148a).
+    pub fn set_rise(&mut self, rise: f32) {
+        self.rise = rise;
+    }
+
     pub fn new(seed: Seed, place: Place, cx: &mut Context<Self>) -> Self {
         let config_path = crate::config::default_path();
         let config = Config::load(&config_path).unwrap_or_default();
@@ -478,6 +485,7 @@ impl NewAgentView {
             error: None,
             focus: cx.focus_handle(),
             _subscriptions: subscriptions,
+            rise: 0.0,
         };
         view.find_fence(cx);
         view.ask_codex(cx);
@@ -3095,7 +3103,7 @@ impl Render for NewAgentView {
         .flex()
         .flex_col()
         .items_center()
-        .pt(px(top))
+        .pt(px(top + self.rise))
         .px(px(margin))
         .child(panel)
         .child(hints)

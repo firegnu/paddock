@@ -3261,6 +3261,8 @@ pub struct TaskDialog {
     refused: Option<String>,
     writing: bool,
     _subscriptions: Vec<Subscription>,
+    /// How far below its place the panel is drawn, as it comes in; the window says (P5-148a).
+    rise: f32,
 }
 
 /// A task file the dialog edits.
@@ -3302,6 +3304,11 @@ fn input_colors(theme: &Theme) -> text_input::Colors {
 }
 
 impl TaskDialog {
+    /// Drawn `rise` points below its place, as it comes in over the window (P5-148a).
+    pub fn set_rise(&mut self, rise: f32) {
+        self.rise = rise;
+    }
+
     /// For the main worktree `repo`: a new task, offered the next free id, its title taking the
     /// keys; or the task file `edit` names (and whether it is a draft), its body taking the keys.
     pub fn new(
@@ -3393,6 +3400,7 @@ impl TaskDialog {
             refused: None,
             writing: false,
             _subscriptions: subscriptions,
+            rise: 0.0,
         }
     }
 
@@ -4185,7 +4193,7 @@ impl Render for TaskDialog {
             .flex()
             .flex_col()
             .items_center()
-            .pt(px(top))
+            .pt(px(top + self.rise))
             .px(px(margin))
             .child(panel)
             // It dims the whole window, the Browser's page and all.

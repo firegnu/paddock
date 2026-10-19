@@ -327,6 +327,10 @@ enum Spot {
     Pane(PaneId),
     /// The split whose seam comes just before this pane.
     Seam(PaneId),
+    /// The tab's panes, the whole of where they are laid out (P5-148a).
+    Tab,
+    /// A pane's place in the split while it grows to fill the tab or goes back.
+    Slot(PaneId),
 }
 
 /// Every word of `query` in the agent's full name (its project, then its own), ignoring case.
@@ -1315,6 +1319,8 @@ pub struct PaddockWindow {
     switcher_said: (Vec<sidebar::MachineTab>, Vec<crate::attention::Item>),
     /// The switcher counts down to a machine's next try, once there has been a machine.
     ticking: bool,
+    /// What moves: popups coming and going, a pane zoomed, the sidebars, the rim (P5-148a).
+    motion: moving::Motion,
 }
 
 /// A machine's sidebar, layout and panes while another machine is on show (DESIGN §13 P5-90).
@@ -1330,6 +1336,8 @@ struct Seat {
 mod ctl;
 #[path = "window_inbox.rs"]
 mod inbox_panel;
+#[path = "window_motion.rs"]
+mod moving;
 
 impl PaddockWindow {
     pub fn new(
@@ -1431,6 +1439,7 @@ impl PaddockWindow {
             }
             None => (Workspace::new(shown).0, None),
         };
+        let motion = moving::Motion::new(collapsed, right.open);
         let mut this = Self {
             theme,
             sidebar,
@@ -1491,6 +1500,7 @@ impl PaddockWindow {
             seats: Seating::default(),
             switcher_said: Default::default(),
             ticking: false,
+            motion,
         };
         this.seat_machines(config, saved.as_ref(), window, cx);
         // The column shows the material through the window, which is see-through for it.
@@ -2309,6 +2319,7 @@ impl PaddockWindow {
     fn toggle_sidebar(&mut self, cx: &mut Context<Self>) {
         self.collapsed = !self.collapsed;
         if self.popup == Some(Popup::Actions) {
+            self.let_go(None);
             self.popup = None;
         }
         let collapsed = self.collapsed;
@@ -2727,10 +2738,12 @@ impl PaddockWindow {
             } => self.open_new_agent_in(workspace.clone(), start_in.clone(), window, cx),
             SidebarEvent::Attention => self.toggle_inbox(window, cx),
             SidebarEvent::Actions => {
-                self.popup = match self.popup {
+                let popup = match self.popup {
                     Some(Popup::Actions) => None,
                     _ => Some(Popup::Actions),
                 };
+                self.let_go(popup);
+                self.popup = popup;
                 cx.notify();
             }
             SidebarEvent::ToggleCollapse => self.toggle_sidebar(cx),
@@ -2833,6 +2846,7 @@ impl PaddockWindow {
             },
         )
         .detach();
+        self.let_go(Some(Popup::NewTask));
         self.palette = None;
         self.chooser = Chooser::default();
         self.new_task = Some(panel);
@@ -2924,6 +2938,7 @@ impl PaddockWindow {
                 view
             }
         };
+        self.let_go(Some(Popup::NewAgent));
         self.palette = None;
         self.chooser = Chooser::default();
         self.new_task = None;
@@ -2969,6 +2984,7 @@ impl PaddockWindow {
                 view
             }
         };
+        self.let_go(Some(Popup::RemoteAgent));
         self.palette = None;
         self.chooser = Chooser::default();
         self.new_task = None;
@@ -2998,11 +3014,12 @@ impl PaddockWindow {
                 cwd,
                 place,
             } => {
+                if open {
+                    self.let_go(None);
+                    self.popup = None;
+                }
                 if ours {
                     self.remote_agent = None;
-                }
-                if open {
-                    self.popup = None;
                 }
                 // Hidden or removed meanwhile: it runs there, and shows once the machine does.
                 if let Some(seat) = self.machines.seat_of(machine) {
@@ -3461,6 +3478,7 @@ impl PaddockWindow {
         .detach();
         let focus = input.read(cx).focus_handle(cx);
         window.focus(&focus, cx);
+        self.let_go(Some(Popup::NewTab));
         self.palette = None;
         self.chooser = Chooser {
             input: Some(input),
@@ -3487,6 +3505,7 @@ impl PaddockWindow {
             if self.chooser.input.is_some() || self.palette.is_some() {
                 self.focus_active(window, cx);
             }
+            self.let_go(popup);
             self.palette = None;
             self.chooser = Chooser::default();
         }
@@ -3673,6 +3692,7 @@ impl PaddockWindow {
                 return;
             }
         };
+        self.let_go(None);
         self.popup = None;
         self.chooser = Chooser::default();
         let (shown, launch) = match &choice {
@@ -4289,17 +4309,14 @@ impl PaddockWindow {
     }
 
     /// A pane's panel on the frame: the terminal's ground, rounded, with a rim, a step brighter for
-    /// the active pane among several.
-    fn panel(&self, bright: bool) -> Div {
+    /// the active pane among several: `rim` opaque, [`PANEL_RIM_ACTIVE`] or [`PANEL_RIM`], or between
+    /// as it changes (P5-148a).
+    fn panel(&self, rim: f32) -> Div {
         div()
             .rounded(px(PANEL_RADIUS))
             .bg(hsla(self.theme.terminal().background, 1.0))
             .border_1()
-            .border_color(self.fg(|t| t.agents_text).opacity(if bright {
-                PANEL_RIM_ACTIVE
-            } else {
-                PANEL_RIM
-            }))
+            .border_color(self.fg(|t| t.agents_text).opacity(rim))
     }
 
     fn highlight(&self) -> Hsla {
@@ -4389,6 +4406,41 @@ impl PaddockWindow {
         }
     }
 
+    /// The popup open over the window, `hidden` the tabs the `+N` menu lists; one that dims the
+    /// window drawn `rise` points below its place within the dimming (P5-148a).
+    fn dialog(
+        &mut self,
+        hidden: &[usize],
+        rise: f32,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        match self.popup? {
+            Popup::Actions => Some(self.actions_menu(cx).into_any_element()),
+            Popup::Overflow => Some(self.overflow_menu(hidden, window, cx).into_any_element()),
+            Popup::Attention => self
+                .inbox_panel(window, cx)
+                .map(IntoElement::into_any_element),
+            Popup::Palette => self.palette.as_ref().map(|palette| {
+                self.palette_panel(palette, rise, window, cx)
+                    .into_any_element()
+            }),
+            Popup::NewTask => self.new_task.clone().map(|view| {
+                view.update(cx, |view, _| view.set_rise(rise));
+                view.into_any_element()
+            }),
+            Popup::NewAgent => self.new_agent.clone().map(|view| {
+                view.update(cx, |view, _| view.set_rise(rise));
+                view.into_any_element()
+            }),
+            Popup::RemoteAgent => self.remote_agent.clone().map(|view| {
+                view.update(cx, |view, _| view.set_rise(rise));
+                view.into_any_element()
+            }),
+            popup => Some(self.chooser_panel(popup, window, cx).into_any_element()),
+        }
+    }
+
     /// An empty layer that puts the Browser's page where this frame leaves room for it, `open`
     /// saying whether the right sidebar is, `dragging` whether a divider is being dragged. It does
     /// so as it is painted: by then everything drawn over the window, hover texts last, has noted
@@ -4473,7 +4525,7 @@ impl PaddockWindow {
             .filter(|&tab| tab != active)
             .any(|tab| waiting(&tab));
         let room = f32::from(window.viewport_size().width)
-            - bar_left(self.collapsed, full_screen, self.sidebar_width, &ui)
+            - self.bar_left_now(full_screen, &ui)
             - 2.0 * BAR_END
             // Between the tabs, the `+`, the pet's room, the split icon, Search and the right
             // sidebar's switch; the pet's room keeps a little more.
@@ -4821,20 +4873,19 @@ impl PaddockWindow {
         let head = self.sidebar.update(cx, |sidebar, cx| {
             sidebar.head(full_screen, spot, window, cx)
         });
+        // Sliding to the strip or back, the room after the header row goes with it (P5-148a).
+        let (folded, folding) = self.sidebar_fold();
         let left = div()
             .flex_shrink_0()
-            .w(px(bar_left(
-                self.collapsed,
-                full_screen,
-                self.sidebar_width,
-                &ui,
-            )))
+            .w(px(self.bar_left_now(full_screen, &ui)))
             .h_full()
             .flex()
             .items_center()
             .overflow_hidden()
             .pl(px(sidebar::head_start(full_screen)))
-            .when(!self.collapsed, |left| left.pr(px(HEAD_END)))
+            .when(!self.collapsed || folding, |left| {
+                left.pr(px(HEAD_END * (1.0 - folded)))
+            })
             .child(head);
         div()
             .id("title-bar")
@@ -5201,6 +5252,17 @@ impl PaddockWindow {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         match node {
+            // A pane growing to fill the tab or going back is drawn over the split (see
+            // `growing_pane`): its place there is kept and noted (P5-148a).
+            Node::Pane(pane) if self.growing().is_some_and(|(growing, _)| growing == *pane) => {
+                div()
+                    .relative()
+                    .flex_1()
+                    .min_w(px(0.0))
+                    .min_h(px(0.0))
+                    .child(self.spot(Spot::Slot(*pane)))
+                    .into_any_element()
+            }
             Node::Pane(pane) => self.pane(*pane, shown, agents, window, cx),
             Node::Split {
                 axis,
@@ -5390,7 +5452,9 @@ impl PaddockWindow {
         let active = pane == self.workspace.active_pane();
         let header = header_shown(self.workspace.tab().panes().len());
         let background = hsla(self.theme.terminal().background, 1.0);
-        let dim = dimmed(shown, active);
+        // The veil cross-fades as the keys go from pane to pane (P5-148a; `dimmed` at rest).
+        let veil = self.pane_veil(pane);
+        let opacity = self.pane_shown(pane);
         // Around the terminal, keeping it well off the panel's corners (the view adds 6 itself):
         // roomier alone, tighter under a header, whose own height leaves room above.
         let (top, bottom, side) = if header {
@@ -5398,7 +5462,8 @@ impl PaddockWindow {
         } else {
             (8.0, 8.0, 12.0)
         };
-        self.panel(shown > 1 && active)
+        self.panel(self.pane_rim(pane, shown, active))
+            .when(opacity < 1.0, |this| this.opacity(opacity))
             .id(("pane", pane as usize))
             .group(SharedString::from(format!("pane-{pane}")))
             .relative()
@@ -5437,13 +5502,13 @@ impl PaddockWindow {
             .child(self.spot(Spot::Pane(pane)))
             // A veil rather than a frame, rounded as the panel: it takes no clicks, so they reach
             // the terminal.
-            .when(dim, |this| {
+            .when(veil > 0.0, |this| {
                 this.child(
                     div()
                         .absolute()
                         .inset_0()
                         .rounded(px(PANEL_RADIUS))
-                        .bg(background.opacity(DIM)),
+                        .bg(background.opacity(DIM * veil)),
                 )
             })
             .into_any_element()
@@ -6042,6 +6107,7 @@ impl PaddockWindow {
             .detach();
         let focus = input.read(cx).focus_handle(cx);
         window.focus(&focus, cx);
+        self.let_go(Some(Popup::Palette));
         self.palette = Some(Palette {
             input,
             index: 0,
@@ -6278,6 +6344,7 @@ impl PaddockWindow {
     /// Closes the open chooser, list or palette and gives the keys back to the active pane, or to
     /// the Browser's page when it had them as the popup opened.
     fn close_popup(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.let_go(None);
         self.popup = None;
         self.palette = None;
         self.chooser = Chooser::default();
@@ -6344,6 +6411,7 @@ impl PaddockWindow {
     fn palette_panel(
         &self,
         palette: &Palette,
+        rise: f32,
         window: &Window,
         cx: &mut Context<Self>,
     ) -> Stateful<Div> {
@@ -6508,7 +6576,8 @@ impl PaddockWindow {
             .flex()
             .flex_col()
             .items_center()
-            .pt(px(top))
+            // Rising to its place as it comes in (P5-148a).
+            .pt(px(top + rise))
             .px(ui.px(16.0))
             .bg(gpui::black().opacity(0.35))
             .on_mouse_down(
@@ -7150,6 +7219,7 @@ impl Render for PaddockWindow {
         if self.fading() {
             window.request_animation_frame();
         }
+        self.move_on(window, cx);
         // The View menu follows the sidebar.
         let (fold, by_name) = self.sidebar.read(cx).view_state();
         let view_state = (fold, by_name, self.collapsed, self.right.open);
@@ -7164,9 +7234,12 @@ impl Render for PaddockWindow {
         // The switcher, and the bell counting every machine's (DESIGN §13 P5-90); none once the
         // last machine is hidden or removed (P5-123).
         let (tabs, elsewhere) = (self.machine_tabs(cx), self.rung_elsewhere(cx));
+        // Sliding between the list and the strip, it draws both (P5-148a).
+        let (folded, folding) = self.sidebar_fold();
         self.sidebar.update(cx, |sidebar, cx| {
             sidebar.set_machines(tabs, cx);
             sidebar.set_elsewhere(elsewhere, cx);
+            sidebar.set_fold(folding.then_some(folded));
         });
         let ui = UiFont::get(cx);
         // Larger interface sizes make the title bar taller; the traffic lights stay centred on it.
@@ -7178,24 +7251,32 @@ impl Render for PaddockWindow {
         // The system's sidebar material shows under the whole window while it is there (P5-95).
         let frosted = self.frosted();
         self.fit_frost(frosted, window, cx);
-        // The sidebar's own column, material or not.
-        let sidebar_column = sidebar_column(
-            self.collapsed,
-            self.sidebar_width,
-            height,
-            window.viewport_size(),
-            &ui,
-        );
-        // A zoomed pane fills the tab; the split waits underneath.
-        let (root, shown) = match self.workspace.zoomed() {
-            Some(pane) => (Node::Pane(pane), 1),
-            None => {
+        // The sidebar's own column, material or not, as far as it has slid.
+        let sidebar_column = self.sidebar_column_now(height, window.viewport_size(), &ui);
+        // A zoomed pane fills the tab; the split waits underneath. Growing to fill it or going
+        // back, the pane is drawn over the split from its place there, the others fading.
+        let growing = self.growing();
+        let (root, shown) = match (self.workspace.zoomed(), growing) {
+            (Some(pane), None) => (Node::Pane(pane), 1),
+            _ => {
                 let tab = self.workspace.tab();
                 (tab.root.clone(), tab.panes().len())
             }
         };
         let agents = self.sidebar.read(cx).agents();
         let now = now();
+        let tab =
+            div()
+                .relative()
+                .flex()
+                .flex_1()
+                .min_w(px(0.0))
+                .min_h(px(0.0))
+                .child(self.node(&root, shown, &agents, window, cx))
+                .child(self.spot(Spot::Tab))
+                .children(growing.map(|(pane, grown)| {
+                    self.growing_pane(pane, grown, shown, &agents, window, cx)
+                }));
         // The cards stand on the frame, their tops on the title bar's bottom edge, where the pet
         // walks; seams between them, along the right and bottom edges, and after the sidebar or the
         // strip.
@@ -7208,17 +7289,17 @@ impl Render for PaddockWindow {
             .pr(px(CARD_GAP))
             .pb(px(CARD_GAP))
             .pl(px(CARD_GAP))
-            .child(self.node(&root, shown, &agents, window, cx));
-        let right = self
-            .right
-            .open
-            .then(|| self.right.shown(self.right_room(window, cx)));
+            .child(tab);
+        // The right sidebar as wide as it is laid out, while it shows at all, and how far it has
+        // slid out.
+        let (opened, sliding) = self.right_slide();
+        let right = (opened > 0.0).then(|| self.right.shown(self.right_room(window, cx)));
         let dragging = self.resizing.is_some() || self.right.resizing() || self.splitting.is_some();
         let seams = across(
             f32::from(window.viewport_size().width),
-            self.sidebar_shown(&ui),
-            self.collapsed,
-            right,
+            self.sidebar_now(&ui),
+            self.collapsed || folding,
+            right.filter(|_| !sliding),
         );
         // The Changes tab follows the focused pane, and reads only while it shows; another
         // machine's panes it does not read (DESIGN §13 P5-90).
@@ -7289,14 +7370,24 @@ impl Render for PaddockWindow {
                 }),
                 cx.listener(|this, _: &ClickEvent, _, cx| this.toggle_right(cx)),
             );
-            cards = cards.child(
-                self.card()
-                    .flex_shrink_0()
-                    .w(px(width))
-                    .h_full()
-                    .overflow_hidden()
-                    .child(panel),
-            );
+            // Sliding, it is cut where it has got to, its gap coming with it, what it holds laid
+            // out as when it is out.
+            let card = self.card().flex_shrink_0().h_full().overflow_hidden();
+            cards = cards.child(if sliding {
+                card.w(px(width * opened))
+                    .ml(px(-CARD_GAP * (1.0 - opened)))
+                    .child(
+                        div()
+                            .absolute()
+                            .top_0()
+                            .left_0()
+                            .h_full()
+                            .w(px(width - 2.0))
+                            .child(panel),
+                    )
+            } else {
+                card.w(px(width)).child(panel)
+            });
         }
         let body = div()
             .relative()
@@ -7316,26 +7407,9 @@ impl Render for PaddockWindow {
         if self.popup == Some(Popup::Overflow) && hidden.is_empty() {
             self.popup = None;
         }
-        let dialog: Option<AnyElement> = match self.popup {
-            Some(Popup::Actions) => Some(self.actions_menu(cx).into_any_element()),
-            Some(Popup::Overflow) => {
-                Some(self.overflow_menu(&hidden, window, cx).into_any_element())
-            }
-            Some(Popup::Attention) => self
-                .inbox_panel(window, cx)
-                .map(IntoElement::into_any_element),
-            Some(Popup::Palette) => self
-                .palette
-                .as_ref()
-                .map(|palette| self.palette_panel(palette, window, cx).into_any_element()),
-            Some(Popup::NewTask) => self.new_task.clone().map(IntoElement::into_any_element),
-            Some(Popup::NewAgent) => self.new_agent.clone().map(IntoElement::into_any_element),
-            Some(Popup::RemoteAgent) => {
-                self.remote_agent.clone().map(IntoElement::into_any_element)
-            }
-            Some(popup) => Some(self.chooser_panel(popup, window, cx).into_any_element()),
-            None => None,
-        };
+        // One closing fades out under the one on show (P5-148a).
+        let leaving = self.leaving_layer(window.is_fullscreen(), window, cx);
+        let dialog = self.popup_layer(&hidden, window, cx);
         ui.apply(div())
             .relative()
             .size_full()
@@ -7480,6 +7554,9 @@ impl Render for PaddockWindow {
             )
             .child(self.title_bar(&agents, now, window.is_fullscreen(), window, cx))
             .child(body)
+            // Over the panes, under what is drawn over the window.
+            .children(self.rim_layer())
+            .children(leaving)
             .children(dialog)
             // While a divider is dragged the cursor keeps its shape, and nothing under it
             // reacts.
@@ -7496,7 +7573,8 @@ impl Render for PaddockWindow {
                         }),
                 )
             })
-            .child(self.place_page(right.is_some(), dragging))
+            // The page keeps out of the way while the right sidebar slides.
+            .child(self.place_page(right.is_some(), dragging || sliding))
     }
 }
 
