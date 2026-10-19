@@ -41,7 +41,7 @@ use crate::{
     text_input::{self, Changed, TextInput},
     theme::{Theme, Translucency},
     to_tag,
-    view::{AttachEnded, Launch, Options, TerminalView, hsla},
+    view::{AttachEnded, Launch, OpenLink, Options, TerminalView, hsla, links},
     viewer::AgentMetadata,
     windows,
 };
@@ -1234,6 +1234,8 @@ pub struct PaddockWindow {
     menu_state: Option<(bool, bool, bool, bool)>,
     /// The pet as configured: shown, and which.
     pet_setting: (bool, crate::pet::Pet),
+    /// What a file ⌘-clicked in a terminal opens with (`open_files_with`; P5-143b).
+    open_files_with: String,
     /// A close or quit question is showing.
     asking: bool,
     /// The Inbox: its list and reply box while it is open, and what was typed and sent in it.
@@ -1448,6 +1450,7 @@ impl PaddockWindow {
                 .then(|| cx.new(|cx| PetView::new(config.mascot, cx))),
             menu_state: None,
             pet_setting: (config.mascot_enabled, config.mascot),
+            open_files_with: config.open_files_with.clone(),
             asking: false,
             inbox: inbox_panel::Inbox::default(),
             chooser: Chooser::default(),
@@ -2525,7 +2528,56 @@ impl PaddockWindow {
             sidebar.read(cx).refresh()
         })
         .detach();
+        cx.subscribe_in(&view, window, |this, pane, OpenLink(target), window, cx| {
+            this.open_link(pane, target, window, cx)
+        })
+        .detach();
         view
+    }
+
+    /// A link ⌘-clicked in `pane`: a web address in the right sidebar's Browser, a file with what
+    /// Settings says, on a thread of its own, which waits for the opener however long it takes;
+    /// when it does not open, the pane says why.
+    fn open_link(
+        &mut self,
+        pane: &Entity<TerminalView>,
+        target: &links::Target,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let (path, line, column) = match target {
+            links::Target::Url(url) => return self.browse(url.clone(), false, window, cx),
+            links::Target::File { path, line, column } => (path.clone(), *line, *column),
+        };
+        let setting = self.open_files_with.clone();
+        let name = path.file_name().map_or_else(
+            || path.display().to_string(),
+            |name| name.to_string_lossy().into(),
+        );
+        let (sent, came) = async_channel::bounded(1);
+        let started = std::thread::Builder::new()
+            .name("paddock-open".into())
+            .spawn(move || {
+                let _ = sent.send_blocking(links::open_file(&setting, &path, line, column));
+            });
+        let pane = pane.downgrade();
+        if let Err(error) = started {
+            let _ = pane.update(cx, |pane, cx| {
+                pane.say(format!("Couldn't open {name}: {error}"), cx)
+            });
+            return;
+        }
+        cx.spawn(async move |_, cx| {
+            let why = match came.recv().await {
+                Ok(Ok(())) => return,
+                Ok(Err(error)) => format!("{error:#}"),
+                Err(_) => "the opener stopped before saying".into(),
+            };
+            let _ = pane.update(cx, |pane, cx| {
+                pane.say(format!("Couldn't open {name}: {why}"), cx)
+            });
+        })
+        .detach();
     }
 
     fn shell(&self) -> Launch {
@@ -3300,6 +3352,7 @@ impl PaddockWindow {
             self.browser
                 .update(cx, |browser, cx| browser.set_theme(theme, cx));
         }
+        self.open_files_with = config.open_files_with.clone();
         let pet = (config.mascot_enabled, config.mascot);
         if pet != self.pet_setting {
             self.pet_setting = pet;

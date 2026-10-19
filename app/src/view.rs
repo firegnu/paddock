@@ -4,6 +4,9 @@
 //! unchanged. This file only reads the parser's grid, draws it, and turns window input into the
 //! bytes Saddle's `input` module already encodes.
 mod file_drop;
+pub mod links;
+mod notice;
+mod press;
 
 use crate::{
     damage,
@@ -31,13 +34,22 @@ use alacritty_terminal::{
     vte::ansi::CursorShape,
 };
 use gpui::{
-    App, Bounds, ClipboardItem, Context, ElementInputHandler, Entity, EntityInputHandler,
-    EventEmitter, ExternalPaths, FocusHandle, Focusable, Font, FontStyle, FontWeight, Hsla,
-    KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point, Render,
-    Rgba, ScrollDelta, ScrollWheelEvent, SharedString, Subscription, TextAlign, TextRun,
-    UTF16Selection, UnderlineStyle, Window, canvas, div, fill, point, prelude::*, px, size,
+    App, Bounds, ClipboardItem, Context, CursorStyle, DispatchPhase, ElementInputHandler, Entity,
+    EntityInputHandler, EventEmitter, ExternalPaths, FocusHandle, Focusable, Font, FontStyle,
+    FontWeight, Hsla, KeyDownEvent, ModifiersChangedEvent, MouseButton, MouseDownEvent,
+    MouseMoveEvent, MouseUpEvent, Pixels, Point, Render, Rgba, ScrollDelta, ScrollWheelEvent,
+    SharedString, Subscription, TextAlign, TextRun, UTF16Selection, UnderlineStyle, Window, canvas,
+    div, fill, point, prelude::*, px, size,
 };
-use std::{cell::RefCell, ops::Range, path::PathBuf, rc::Rc, time::Duration, time::Instant};
+use links::Link;
+use std::{
+    cell::RefCell,
+    ops::Range,
+    path::{Path, PathBuf},
+    rc::Rc,
+    time::Duration,
+    time::Instant,
+};
 
 /// How long a pane whose attach ended says nothing, while corral is asked whether its agent ended.
 const QUIET: Duration = Duration::from_secs(3);
@@ -141,6 +153,10 @@ pub struct TerminalView {
     viewer: Viewer,
     /// Set only for `Launch::Command`; the viewer stays idle then.
     direct: Option<Session>,
+    /// The directory `Launch::Command` ran in, for the paths it writes.
+    direct_cwd: Option<PathBuf>,
+    /// On another machine: the paths written here are not this Mac's.
+    remote: bool,
     /// A shell to start once the previous session has ended.
     queued_shell: Option<Shell>,
     label: String,
@@ -152,11 +168,21 @@ pub struct TerminalView {
     metrics: Option<Metrics>,
     size: Size,
     origin: Point<Pixels>,
+    /// Where the grid was drawn last.
+    bounds: Bounds<Pixels>,
     theme: Rc<theme::Theme>,
     ime: Composition,
     scroll: Scroll,
-    /// A left press that started a selection, or one reported to the program.
-    pressed: Option<Press>,
+    /// What the left button is doing: selecting, going to the program, or on a link (P5-143b).
+    mouse: press::Mouse,
+    /// Where the mouse is over the grid while ⌘ is held.
+    pointer: Option<Point<Pixels>>,
+    /// The link under it, underlined, the pointer a hand.
+    link: Option<Link>,
+    /// What is under the mouse as far as the files have been looked at, off the UI thread.
+    hover: links::Hover,
+    /// A few words over the pane's bottom, for a while: why a link did not open.
+    notice: Option<notice::Notice>,
     /// Cursor cell of the last frame, for the input method's candidate window.
     cursor_cell: (u16, u16),
     /// When the pane was typed in, for its name tag (`to_tag`).
@@ -186,12 +212,6 @@ struct FindBar {
     _subscription: Subscription,
 }
 
-#[derive(Clone, Copy, PartialEq)]
-enum Press {
-    Select,
-    Reported,
-}
-
 #[derive(Default)]
 struct Stats {
     since: Option<Instant>,
@@ -210,6 +230,8 @@ impl TerminalView {
         cx: &mut Context<Self>,
     ) -> Self {
         let size = Size { rows: 24, cols: 80 };
+        let remote = options.remote.is_some();
+        let mut direct_cwd = None;
         let mut viewer = Viewer::with(crate::corral::Client {
             program: options.corral,
             remote: options.remote,
@@ -247,6 +269,7 @@ impl TerminalView {
                 (format!("corral attach {name}"), name)
             }
             Launch::Command { argv, cwd } => {
+                direct_cwd = cwd.clone();
                 match Session::spawn(&argv, cwd.as_deref(), size, viewer.theme.clone()) {
                     Ok(session) => direct = Some(session),
                     Err(error) => note = format!("{error:#}"),
@@ -277,11 +300,22 @@ impl TerminalView {
             }
         })
         .detach();
+        // A press on a link ends with the window's keyboard.
+        cx.observe_window_activation(window, |this, window, cx| {
+            if !window.is_window_active() {
+                let act = this.mouse.cancel();
+                this.act(act, Point::default(), gpui::Modifiers::default(), cx);
+                this.left(cx);
+            }
+        })
+        .detach();
         // The first look, at once.
         bell.kick();
         Self {
             viewer,
             direct,
+            direct_cwd,
+            remote,
             queued_shell: None,
             label,
             subject,
@@ -292,10 +326,18 @@ impl TerminalView {
             metrics: None,
             size,
             origin: Point::default(),
+            bounds: Bounds::default(),
             theme,
             ime: Composition::default(),
             scroll: Scroll::default(),
-            pressed: None,
+            mouse: press::Mouse::default(),
+            pointer: None,
+            link: None,
+            hover: links::Hover::new(
+                std::sync::Arc::new(|path: &Path| path.exists()),
+                links::thread,
+            ),
+            notice: None,
             cursor_cell: (0, 0),
             typing: Typing::default(),
             note,
@@ -908,6 +950,31 @@ impl TerminalView {
         cx.notify();
     }
 
+    /// Why a link did not open, over the pane's bottom.
+    fn notice_bar(&self, text: String, cx: &mut Context<Self>) -> impl IntoElement {
+        let ui = crate::fonts::UiFont::get(cx);
+        div()
+            .absolute()
+            .bottom(px(10.0))
+            .left(px(10.0))
+            .right(px(10.0))
+            .flex()
+            .justify_center()
+            .child(
+                div()
+                    .px(px(10.0))
+                    .py(px(5.0))
+                    .rounded(px(7.0))
+                    .border_1()
+                    .border_color(hsla(self.theme.fg(|t| t.danger), 1.0))
+                    .bg(hsla(self.theme.bg(|t| t.agents_bg), 1.0))
+                    .shadow_md()
+                    .text_size(ui.px(12.0))
+                    .text_color(hsla(self.theme.fg(|t| t.agents_text), 1.0))
+                    .child(text),
+            )
+    }
+
     fn find_bar(&self, bar: &FindBar, cx: &mut Context<Self>) -> impl IntoElement {
         let fg = |pick: fn(&crate::preset::Theme) -> crate::preset::Color| {
             hsla(self.theme.fg(pick), 1.0)
@@ -968,13 +1035,6 @@ impl TerminalView {
 
     /// The grid cell under a window position, and the grid point counting the scrolled view.
     fn locate(&self, position: Point<Pixels>) -> Option<(u16, u16, GridPoint, Side)> {
-        let metrics = self.metrics?;
-        let (col, row, right) = grid::cell_at(
-            f32::from(position.x - self.origin.x),
-            f32::from(position.y - self.origin.y),
-            metrics,
-            self.size,
-        );
         let offset = self
             .session()?
             .screen
@@ -983,6 +1043,22 @@ impl TerminalView {
             .term
             .grid()
             .display_offset();
+        self.cell_at(position, offset)
+    }
+
+    /// [`Self::locate`] with the view scrolled `offset` lines back, for a caller holding the grid.
+    fn cell_at(
+        &self,
+        position: Point<Pixels>,
+        offset: usize,
+    ) -> Option<(u16, u16, GridPoint, Side)> {
+        let metrics = self.metrics?;
+        let (col, row, right) = grid::cell_at(
+            f32::from(position.x - self.origin.x),
+            f32::from(position.y - self.origin.y),
+            metrics,
+            self.size,
+        );
         let point = GridPoint::new(
             Line(i32::from(row) - offset as i32),
             Column(usize::from(col)),
@@ -993,6 +1069,116 @@ impl TerminalView {
             point,
             if right { Side::Right } else { Side::Left },
         ))
+    }
+
+    /// The pane's directory, which relative paths written in it are from: a shell's, as it was
+    /// opened (paddock does not follow `cd`), an agent's, or a command's.
+    fn directory(&self) -> Option<PathBuf> {
+        let shell = self.queued_shell.as_ref().or(self.viewer.shell.as_ref());
+        let dir = match shell {
+            Some(shell) => shell.cwd.clone(),
+            None if self.direct.is_some() => return self.direct_cwd.clone(),
+            None => self.viewer.target_metadata().cwd.clone()?,
+        };
+        let home = std::env::var_os("HOME").map(PathBuf::from);
+        Some(match (dir.strip_prefix('~'), home) {
+            (Some(""), Some(home)) => home,
+            (Some(rest), Some(home)) if rest.starts_with('/') => home.join(&rest[1..]),
+            _ => PathBuf::from(dir),
+        })
+    }
+
+    /// Where the paths written in the pane are on this Mac; none on another machine.
+    fn place(&self) -> Option<links::Place> {
+        (!self.remote).then(|| links::Place {
+            base: self.directory(),
+            home: std::env::var_os("HOME").map(PathBuf::from),
+            host: links::this_host(),
+        })
+    }
+
+    /// The link under a window position, as far as known now: the grid is read, the files are
+    /// not ([`Self::look_at_files`]).
+    fn link_at(&mut self, position: Point<Pixels>) -> Option<Link> {
+        if !self.bounds.contains(&position) {
+            return None;
+        }
+        let screen = self.session()?.screen.clone();
+        let offset = screen.lock().unwrap().term.grid().display_offset();
+        let (.., point, _) = self.cell_at(position, offset)?;
+        let place = self.place();
+        links::look(&screen, point, place.as_ref(), &mut self.hover)
+    }
+
+    /// Starts a look at the files under the mouse on a thread of its own, when one is due; when
+    /// it comes back, the link shows if the mouse is still over it.
+    fn look_at_files(&mut self, cx: &mut Context<Self>) {
+        let Some(look) = self.hover.start() else {
+            return;
+        };
+        cx.spawn(async move |this, cx| {
+            let answer = look.answer.recv().await;
+            let _ = this.update(cx, |view, cx| {
+                match answer {
+                    Ok((candidate, link)) => {
+                        if view.hover.checked(candidate, link) && view.pointer.is_some() {
+                            view.link = view.hover.link();
+                            cx.notify();
+                        }
+                    }
+                    Err(_) => view.hover.lost(look.candidate),
+                }
+                view.look_at_files(cx);
+            });
+        })
+        .detach();
+    }
+
+    /// The mouse at `position`, ⌘ held or not: with it, the link there is underlined and the
+    /// pointer a hand; without it, or off the grid, nothing is.
+    fn hover(&mut self, position: Point<Pixels>, command: bool, cx: &mut Context<Self>) {
+        let pointer = (command && self.bounds.contains(&position)).then_some(position);
+        let link = match pointer {
+            Some(position) => self.link_at(position),
+            None => {
+                self.hover.forget();
+                None
+            }
+        };
+        self.look_at_files(cx);
+        if pointer != self.pointer || link != self.link {
+            (self.pointer, self.link) = (pointer, link);
+            cx.notify();
+        }
+    }
+
+    /// ⌘ pressed or let go over the pane with the keyboard.
+    fn modifiers_changed(
+        &mut self,
+        event: &ModifiersChangedEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.mouse.pressed() {
+            self.hover(window.mouse_position(), event.modifiers.platform, cx);
+        }
+    }
+
+    /// The mouse went off the grid.
+    fn left(&mut self, cx: &mut Context<Self>) {
+        self.hover.forget();
+        if self.pointer.is_some() || self.link.is_some() {
+            (self.pointer, self.link) = (None, None);
+            cx.notify();
+        }
+    }
+
+    /// A few words over the pane's bottom, for [`notice::NOTICE`] once the pane shows: why a link
+    /// did not open, seen where it was clicked whatever the sidebar shows, and not missed while
+    /// another tab or machine is shown.
+    pub fn say(&mut self, text: String, cx: &mut Context<Self>) {
+        self.notice = Some(notice::Notice::new(text));
+        cx.notify();
     }
 
     /// Reports a mouse event through `input::encode_mouse` when the program asked for the mouse,
@@ -1030,71 +1216,133 @@ impl TerminalView {
         true
     }
 
-    fn mouse_down(&mut self, event: &MouseDownEvent, window: &mut Window, cx: &mut Context<Self>) {
-        window.focus(&self.focus, cx);
-        use crate::input::{MouseButton as B, MouseEventKind as K};
-        if !event.modifiers.shift
-            && self.report_mouse(K::Down(B::Left), event.position, event.modifiers, cx)
-        {
-            self.pressed = Some(Press::Reported);
-            return;
-        }
-        let Some((.., point, side)) = self.locate(event.position) else {
-            return;
+    /// Does what [`press::Mouse`] says, the mouse at `position`.
+    fn act(
+        &mut self,
+        act: press::Act,
+        position: Point<Pixels>,
+        modifiers: gpui::Modifiers,
+        cx: &mut Context<Self>,
+    ) {
+        use press::Act;
+        let selecting = |view: &Self, change: &dyn Fn(&mut Option<Selection>)| {
+            if let Some(session) = view.session() {
+                change(&mut session.screen.lock().unwrap().term.selection);
+            }
         };
-        let kind = match event.click_count {
-            2 => SelectionType::Semantic,
-            3.. => SelectionType::Lines,
-            _ => SelectionType::Simple,
-        };
-        if let Some(session) = self.session() {
-            session.screen.lock().unwrap().term.selection = Some(Selection::new(kind, point, side));
+        match act {
+            Act::Nothing => return,
+            Act::Report(kind) => {
+                self.report_mouse(kind, position, modifiers, cx);
+                return;
+            }
+            Act::Select(kind, (point, side)) => {
+                selecting(self, &|selection| {
+                    *selection = Some(Selection::new(kind, point, side))
+                });
+            }
+            Act::Extend((point, side)) => selecting(self, &|selection| {
+                if let Some(selection) = selection {
+                    selection.update(point, side);
+                }
+            }),
+            Act::SelectFrom((at, side), (point, now)) => {
+                selecting(self, &|selection| {
+                    let mut from = Selection::new(SelectionType::Simple, at, side);
+                    from.update(point, now);
+                    *selection = Some(from);
+                });
+                self.left(cx);
+            }
+            Act::EndSelect => selecting(self, &|selection| {
+                if selection.as_ref().is_some_and(|s| s.is_empty()) {
+                    *selection = None;
+                }
+            }),
+            Act::Open(target) => {
+                cx.emit(OpenLink(target));
+                return;
+            }
         }
-        self.pressed = Some(Press::Select);
         cx.notify();
     }
 
+    fn mouse_down(&mut self, event: &MouseDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        window.focus(&self.focus, cx);
+        let command = event.modifiers.platform;
+        let link = if command {
+            self.link_at(event.position)
+        } else {
+            None
+        };
+        if link.is_some() {
+            (self.pointer, self.link) = (Some(event.position), link.clone());
+        }
+        let down = press::Down {
+            link,
+            command,
+            clicks: event.click_count,
+            shift: event.modifiers.shift,
+            reports: self.mode().intersects(TermMode::MOUSE_MODE) && !self.paused(),
+            cell: self
+                .locate(event.position)
+                .map(|(.., point, side)| (point, side)),
+        };
+        let act = self.mouse.down(down);
+        self.act(act, event.position, event.modifiers, cx);
+    }
+
     fn mouse_move(&mut self, event: &MouseMoveEvent, _: &mut Window, cx: &mut Context<Self>) {
-        use crate::input::{MouseButton as B, MouseEventKind as K};
-        match (self.pressed, event.pressed_button) {
-            (Some(Press::Reported), Some(MouseButton::Left)) => {
-                self.report_mouse(K::Drag(B::Left), event.position, event.modifiers, cx);
-            }
-            (Some(Press::Select), Some(MouseButton::Left)) => {
-                if let Some((.., point, side)) = self.locate(event.position)
-                    && let Some(session) = self.session()
-                {
-                    let mut screen = session.screen.lock().unwrap();
-                    if let Some(selection) = &mut screen.term.selection {
-                        selection.update(point, side);
-                    }
-                    cx.notify();
+        use crate::input::MouseEventKind as K;
+        if !self.mouse.pressed() {
+            if event.pressed_button.is_none() {
+                self.hover(event.position, event.modifiers.platform, cx);
+                if self.mode().contains(TermMode::MOUSE_MOTION) {
+                    self.report_mouse(K::Moved, event.position, event.modifiers, cx);
                 }
             }
-            (None, None) if self.mode().contains(TermMode::MOUSE_MOTION) => {
-                self.report_mouse(K::Moved, event.position, event.modifiers, cx);
-            }
-            _ => {}
+            return;
         }
+        let cell = self
+            .locate(event.position)
+            .map(|(.., point, side)| (point, side));
+        let left = event.pressed_button == Some(MouseButton::Left);
+        let act = self.mouse.pane_move(cell, left);
+        self.act(act, event.position, event.modifiers, cx);
     }
 
     fn mouse_up(&mut self, event: &MouseUpEvent, _: &mut Window, cx: &mut Context<Self>) {
-        use crate::input::{MouseButton as B, MouseEventKind as K};
-        match self.pressed.take() {
-            Some(Press::Reported) => {
-                self.report_mouse(K::Up(B::Left), event.position, event.modifiers, cx);
-            }
-            Some(Press::Select) => {
-                if let Some(session) = self.session() {
-                    let mut screen = session.screen.lock().unwrap();
-                    if screen.term.selection.as_ref().is_some_and(|s| s.is_empty()) {
-                        screen.term.selection = None;
-                    }
-                }
-                cx.notify();
-            }
-            None => {}
+        let act = self.mouse.pane_up();
+        self.act(act, event.position, event.modifiers, cx);
+    }
+
+    /// The mouse moved anywhere in the window: off the grid, a link under it is no longer; a
+    /// press on a link is followed out of the pane too.
+    fn window_move(&mut self, event: &MouseMoveEvent, cx: &mut Context<Self>) {
+        let inside = self.bounds.contains(&event.position);
+        if !inside {
+            self.left(cx);
         }
+        // The grid is only read while a press goes on.
+        if !self.mouse.pressed() {
+            return;
+        }
+        let cell = self
+            .locate(event.position)
+            .map(|(.., point, side)| (point, side));
+        let left = event.pressed_button == Some(MouseButton::Left);
+        let act = self.mouse.window_move(cell, inside, left);
+        self.act(act, event.position, event.modifiers, cx);
+    }
+
+    /// Let go anywhere in the window.
+    fn window_up(&mut self, event: &MouseUpEvent, cx: &mut Context<Self>) {
+        let inside = self.bounds.contains(&event.position);
+        let cell = self
+            .locate(event.position)
+            .map(|(.., point, side)| (point, side));
+        let act = self.mouse.window_up(cell, inside);
+        self.act(act, event.position, event.modifiers, cx);
     }
 
     fn scroll_wheel(&mut self, event: &ScrollWheelEvent, _: &mut Window, cx: &mut Context<Self>) {
@@ -1163,12 +1411,18 @@ impl TerminalView {
     }
 
     /// Sizes the PTY to the pane and copies what is visible out of the locked grid.
-    fn build(&mut self, bounds: Bounds<Pixels>, window: &mut Window) -> Frame {
+    fn build(
+        &mut self,
+        bounds: Bounds<Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Frame {
         let started = Instant::now();
         // This frame shows whatever output came; the next output asks for another.
         self.frame_pending = false;
         let metrics = self.metrics(window);
         self.origin = bounds.origin;
+        self.bounds = bounds;
         let size = grid::grid_size(
             f32::from(bounds.size.width),
             f32::from(bounds.size.height),
@@ -1181,6 +1435,11 @@ impl TerminalView {
             }
         }
         let focused = self.focus.is_focused(window) && window.is_window_active();
+        // ⌘ let go over a pane without the keyboard, which is not told.
+        if !window.modifiers().platform && !self.mouse.pressed() && self.pointer.is_some() {
+            self.pointer = None;
+            self.hover.forget();
+        }
         let mut frame = Frame {
             metrics,
             origin: bounds.origin,
@@ -1193,6 +1452,7 @@ impl TerminalView {
             marked: self.ime.marked().map(str::to_owned),
             focused,
             note: (!self.note.is_empty()).then(|| self.note.clone()),
+            tip: None,
         };
         let Some(session) = self.session() else {
             // Without a session, the viewer's own message comes first: a hint or why the last one
@@ -1205,15 +1465,34 @@ impl TerminalView {
             }
             return frame;
         };
-        let mut screen = session.screen.lock().unwrap();
+        // Held apart from `self`, so the link can be shown while the grid is read.
+        let shared = session.screen.clone();
+        let mut screen = shared.lock().unwrap();
         let term = &screen.term;
         let theme = *self.theme.terminal();
         let offset = term.grid().display_offset() as i32;
         let selection = term.selection.as_ref().and_then(|s| s.to_range(term));
         let rows = size.rows.min(term.screen_lines() as u16);
         let cols = size.cols.min(term.columns() as u16);
+        // Looked for again in the grid, which output may have changed; the files are not looked at
+        // here (`look_at_files`).
+        let place = self.place();
+        let found = self
+            .pointer
+            .and_then(|position| self.cell_at(position, offset as usize))
+            .and_then(|(.., point, _)| links::find(term, point, place.as_ref()));
+        let link = self.hover.show(found);
+        frame.tip = link.as_ref().and_then(|link| tip(link, offset, rows));
         for y in 0..rows {
-            let cells = rows::read(term, y, cols, &theme, selection.as_ref());
+            let mut cells = rows::read(term, y, cols, &theme, selection.as_ref());
+            if let Some(link) = &link {
+                let line = Line(i32::from(y) - offset);
+                for (x, cell) in cells.iter_mut().enumerate() {
+                    if link.contains(GridPoint::new(line, Column(x))) {
+                        cell.style.underline = true;
+                    }
+                }
+            }
             frame.rows.push(rows::split(&cells, theme.background));
         }
         let point = term.grid().cursor.point;
@@ -1242,6 +1521,9 @@ impl TerminalView {
         screen.term.reset_damage();
         drop(screen);
         self.cursor_cell = cursor_cell;
+        // The pointer follows on the next frame.
+        self.link = link;
+        self.look_at_files(cx);
         if let Some(stats) = &self.stats {
             let mut stats = stats.borrow_mut();
             let spent = started.elapsed();
@@ -1252,10 +1534,44 @@ impl TerminalView {
     }
 }
 
+/// Where the address of a link the program marked (OSC 8) shows, and what it says: on the row
+/// under the link, or over it at the bottom of the view, from the link's column; none for other
+/// links or one out of view.
+fn tip(link: &Link, offset: i32, rows: u16) -> Option<(usize, usize, String)> {
+    let uri = link.uri.as_ref()?;
+    let rows = i32::from(rows);
+    let (first, last) = (link.start.line.0 + offset, link.end.line.0 + offset);
+    if last < 0 || first >= rows {
+        return None;
+    }
+    let row = if last + 1 < rows {
+        last + 1
+    } else {
+        (first - 1).max(0)
+    };
+    let col = if first == last {
+        link.start.column.0
+    } else {
+        0
+    };
+    const LONGEST: usize = 120;
+    let mut text = format!("Opens {uri}");
+    if let Some((cut, _)) = text.char_indices().nth(LONGEST) {
+        text.truncate(cut);
+        text.push('…');
+    }
+    Some((row as usize, col, text))
+}
+
 /// The pane's attach to its agent has ended: the agent may have just ended too.
 pub struct AttachEnded;
 
 impl EventEmitter<AttachEnded> for TerminalView {}
+
+/// A link ⌘-clicked in the pane, for the window to open (P5-143b).
+pub struct OpenLink(pub links::Target);
+
+impl EventEmitter<OpenLink> for TerminalView {}
 
 impl Focusable for TerminalView {
     fn focus_handle(&self, _: &App) -> FocusHandle {
@@ -1284,6 +1600,8 @@ pub struct Frame {
     marked: Option<String>,
     focused: bool,
     note: Option<String>,
+    /// Where a link the program marked really goes, shown at a row and column by it.
+    tip: Option<(usize, usize, String)>,
 }
 
 fn terminal_font(family: &str, fallbacks: &[String]) -> Font {
@@ -1453,6 +1771,7 @@ impl Frame {
             }
         }
         self.paint_cursor(window, cx);
+        self.paint_tip(width, window, cx);
         if let Some(note) = &self.note {
             let style = Style {
                 fg: self.note_color,
@@ -1469,6 +1788,34 @@ impl Frame {
                 let _ = shaped.paint(self.at(0.0, y), px(lh), TextAlign::Left, None, window, cx);
             }
         }
+    }
+
+    /// A marked link's address, dark on light, kept inside the pane.
+    fn paint_tip(&self, width: f32, window: &mut Window, cx: &mut App) {
+        let Some((row, col, text)) = &self.tip else {
+            return;
+        };
+        let style = Style {
+            fg: self.theme.background,
+            ..Style::default()
+        };
+        let shaped = self.shape(text, &style, style.fg, None, window);
+        let (pad, lh) = (4.0, self.metrics.line_height);
+        let w = f32::from(shaped.width).ceil() + 2.0 * pad;
+        let x = self.x(*col).min(width - w).max(0.0);
+        let y = self.y(*row);
+        window.paint_quad(
+            self.rect(x, y, w, lh, hsla(self.theme.foreground, 0.92))
+                .corner_radii(px(3.0)),
+        );
+        let _ = shaped.paint(
+            self.at(x + pad, y),
+            px(lh),
+            TextAlign::Left,
+            None,
+            window,
+            cx,
+        );
     }
 
     fn paint_cursor(&self, window: &mut Window, cx: &mut App) {
@@ -1531,9 +1878,25 @@ impl Render for TerminalView {
         }
         let entity = cx.entity();
         let input = entity.clone();
+        let leave = entity.downgrade();
         let focus = self.focus.clone();
         let stats = self.stats.clone();
         let drop_highlight = hsla(self.theme.fg(|t| t.focus), 0.08);
+        // Only a shown pane is drawn: its notice's time starts here, and a repaint then ends it.
+        let mut first = false;
+        let notice = self.notice.as_mut().and_then(|notice| {
+            first = !notice.seen();
+            notice.drawn(Instant::now()).map(str::to_owned)
+        });
+        if notice.is_none() {
+            self.notice = None;
+        } else if first {
+            cx.spawn(async move |this, cx| {
+                cx.background_executor().timer(notice::NOTICE).await;
+                let _ = this.update(cx, |_, cx| cx.notify());
+            })
+            .detach();
+        }
         div()
             .relative()
             .size_full()
@@ -1550,15 +1913,33 @@ impl Render for TerminalView {
             .on_mouse_down(MouseButton::Left, cx.listener(Self::mouse_down))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::mouse_up))
             .on_mouse_move(cx.listener(Self::mouse_move))
+            .on_modifiers_changed(cx.listener(Self::modifiers_changed))
             .on_scroll_wheel(cx.listener(Self::scroll_wheel))
+            .when(self.link.is_some(), |pane| {
+                pane.cursor(CursorStyle::PointingHand)
+            })
             .child(
                 canvas(
                     move |bounds, window, cx| {
-                        entity.update(cx, |view, _| view.build(bounds, window))
+                        entity.update(cx, |view, cx| view.build(bounds, window, cx))
                     },
                     move |bounds, frame: Frame, window, cx| {
                         let started = Instant::now();
                         window.handle_input(&focus, ElementInputHandler::new(bounds, input), cx);
+                        // Anywhere in the window: off the grid a link under the mouse is no
+                        // longer, and a press on a link is followed out of the pane.
+                        let pane = leave.clone();
+                        window.on_mouse_event(move |event: &MouseMoveEvent, phase, _, cx| {
+                            if phase == DispatchPhase::Bubble {
+                                let _ = pane.update(cx, |view, cx| view.window_move(event, cx));
+                            }
+                        });
+                        let pane = leave.clone();
+                        window.on_mouse_event(move |event: &MouseUpEvent, phase, _, cx| {
+                            if phase == DispatchPhase::Bubble && event.button == MouseButton::Left {
+                                let _ = pane.update(cx, |view, cx| view.window_up(event, cx));
+                            }
+                        });
                         frame.paint(bounds.size.width.into(), window, cx);
                         if let Some(stats) = stats {
                             stats.borrow_mut().record_paint(started.elapsed());
@@ -1574,6 +1955,7 @@ impl Render for TerminalView {
                     .drag_over::<ExternalPaths>(move |style, _, _, _| style.bg(drop_highlight)),
             )
             .children(self.find.as_ref().map(|bar| self.find_bar(bar, cx)))
+            .children(notice.map(|text| self.notice_bar(text, cx)))
     }
 }
 

@@ -37,6 +37,10 @@ pub struct Config {
     pub refresh_ms: u64,
     /// The corral program; `--corral` overrides it for one run.
     pub corral: String,
+    /// What a file ⌘-clicked in a terminal opens with (P5-143b): empty for the app macOS picks
+    /// (`open`), else a command such as `zed` or `code -g`, split at spaces and given
+    /// `path:line:column`.
+    pub open_files_with: String,
     /// The New Agent panel's presets; `None` (not written) is the default four.
     pub agent_presets: Option<Vec<crate::new_agent::Preset>>,
     /// `[agent_models]`: the models and efforts New Agent offers for Claude and Codex (P5-100).
@@ -188,6 +192,7 @@ impl Default for Config {
             mascot: crate::pet::Pet::Clawd,
             refresh_ms: 1000,
             corral: "corral".into(),
+            open_files_with: String::new(),
             agent_presets: None,
             agent_models: Default::default(),
             sidebar_opacity: None,

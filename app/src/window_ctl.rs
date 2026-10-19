@@ -336,19 +336,31 @@ impl PaddockWindow {
                 })
             }
             Plan::Browse { url, focus } => {
-                self.right.open = true;
-                self.right.tab = RightTab::Browser;
-                self.browser.update(cx, |browser, cx| {
-                    browser.visit(url.clone(), cx);
-                    if focus {
-                        browser.give_back(window, cx);
-                    }
-                });
-                self.save_layout(cx);
-                cx.notify();
+                self.browse(url.clone(), focus, window, cx);
                 json!({"ok": true, "accepted": true, "state": "complete", "url": url, "focus": focus})
             }
         }
+    }
+
+    /// `url` in the right sidebar's Browser, opened on that tab; with `focus`, the page takes the
+    /// keyboard (`paddock ctl browse --focus`), else the keyboard stays where it is.
+    pub(crate) fn browse(
+        &mut self,
+        url: String,
+        focus: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.right.open = true;
+        self.right.tab = RightTab::Browser;
+        self.browser.update(cx, |browser, cx| {
+            browser.visit(url, cx);
+            if focus {
+                browser.give_back(window, cx);
+            }
+        });
+        self.save_layout(cx);
+        cx.notify();
     }
 
     /// Follows `request` until `pane` shows what it asked for: this revision of the pane and, for

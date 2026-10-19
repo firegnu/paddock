@@ -213,7 +213,13 @@ const GENERAL: [(&str, &[&str]); 4] = [
     ("Translucency", &["sidebar_opacity", "frame_opacity"]),
     (
         "Terminal",
-        &["font", "font_size", "line_height", "font_fallbacks"],
+        &[
+            "font",
+            "font_size",
+            "line_height",
+            "font_fallbacks",
+            "open_files_with",
+        ],
     ),
     ("Mascot", &["mascot_enabled", "mascot"]),
 ];
@@ -239,6 +245,9 @@ fn note(key: &str) -> Option<&'static str> {
     match key {
         "font_fallbacks" => Some("For characters the font lacks, in order"),
         "corral" => Some("--corral overrides it for one run"),
+        "open_files_with" => Some(
+            "For paths ⌘-clicked in a terminal; a command like zed or code -g goes to the line",
+        ),
         _ => None,
     }
 }
@@ -260,6 +269,7 @@ fn reset_label(field: &Field, default: &str) -> String {
         Kind::UiFont => "System",
         Kind::Bool if default == "true" => "on",
         Kind::Bool => "off",
+        _ if default.is_empty() => "default",
         Kind::Pet => PETS
             .iter()
             .find(|(value, _)| *value == default)
@@ -600,6 +610,7 @@ impl SettingsView {
             let text = self.draft.value(&field.key);
             let placeholder = match field.kind {
                 Kind::Color => "#rrggbb, an ANSI name, or default",
+                _ if field.key == "open_files_with" => "The app macOS picks",
                 _ => "",
             };
             let input = cx.new(|cx| TextInput::new(text, placeholder, colors, cx));
