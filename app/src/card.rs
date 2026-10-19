@@ -557,11 +557,16 @@ impl Sandboxed {
         }
     }
 
-    /// The lock's hover text: `Sandbox: dev`, with `· 3 blocked` once something was.
+    /// The lock's hover text: `Sandbox: dev`, with `· 3 blocked` once something was, and what a
+    /// `+` means when only the latest records were read.
     pub fn tip(&self) -> String {
-        match self.count() {
-            Some(count) => format!("Sandbox: {} · {count} blocked", self.profile),
-            None => format!("Sandbox: {}", self.profile),
+        match self.blocked {
+            Some((n, true)) => format!(
+                "Sandbox: {} · {n} blocked in its latest records",
+                self.profile
+            ),
+            Some((n, false)) if n > 0 => format!("Sandbox: {} · {n} blocked", self.profile),
+            _ => format!("Sandbox: {}", self.profile),
         }
     }
 
@@ -1944,6 +1949,11 @@ mod tests {
             problem: None,
         };
         assert_eq!(capped.count().as_deref(), Some("5000+"));
+        // The hover says what the `+` means (P5-145).
+        assert_eq!(
+            capped.tip(),
+            "Sandbox: dev · 5000 blocked in its latest records"
+        );
         // A full read with none of them counted: older ones may be, so not "nothing".
         let none_seen = Sandboxed {
             blocked: Some((0, true)),

@@ -30,7 +30,7 @@ pub(super) fn mark_width(ui: &UiFont) -> f32 {
     ui.scale(ARROW + ARROW_GAP + LOCK)
 }
 
-/// The collapsed card's mark, in the accent's blue (an agent's own lock is grey): an arrow into a
+/// The collapsed card's mark, in the accent (an agent's own sandbox is a pill in its own colour): an arrow into a
 /// lock, its hover text saying what it means.
 pub(super) fn mark(theme: &Theme, ui: &UiFont, tip: Tip) -> impl IntoElement {
     let accent = hsla(theme.fg(|t| t.agents_accent), 1.0);

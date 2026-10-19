@@ -1552,9 +1552,9 @@ impl NewAgentView {
     fn lock_button(&self, ui: &UiFont, cx: &mut Context<Self>) -> Option<Stateful<Div>> {
         self.sandboxes.as_ref()?;
         let tool = self.form.tool;
-        let (dim, accent, red, yellow) = (
+        let (dim, sandbox, red, yellow) = (
             self.fg(|t| t.agents_dim),
-            self.fg(|t| t.agents_accent),
+            self.fg(|t| t.agents_sandbox),
             self.fg(|t| t.agents_red),
             self.fg(|t| t.agents_yellow),
         );
@@ -1596,7 +1596,7 @@ impl NewAgentView {
                 let check = self.check.as_ref();
                 let refused = check.and_then(SandboxCheck::failed);
                 let warned = check.is_some_and(|c| !c.warnings().is_empty());
-                let color = if refused.is_some() { red } else { accent };
+                let color = if refused.is_some() { red } else { sandbox };
                 let words = match (refused, warned) {
                     (Some(refusal), _) => format!("Sandbox: {profile}, {}", refusal.code),
                     (None, true) => format!("Sandbox: {profile}, with a warning"),
@@ -1646,11 +1646,12 @@ impl NewAgentView {
         let Some(sandboxes) = &self.sandboxes else {
             return Vec::new();
         };
-        let (text, dim, dimmer, accent, red, yellow, green) = (
+        let (text, dim, dimmer, accent, sandbox, red, yellow, green) = (
             self.fg(|t| t.agents_text),
             self.fg(|t| t.agents_dim),
             self.fg(|t| t.agents_dimmer),
             self.fg(|t| t.agents_accent),
+            self.fg(|t| t.agents_sandbox),
             self.fg(|t| t.agents_red),
             self.fg(|t| t.agents_yellow),
             self.fg(|t| t.agents_green),
@@ -1750,7 +1751,7 @@ impl NewAgentView {
             }
             let name = profile.name.clone();
             let (stroke, fill) = if on {
-                (accent, Some(accent.opacity(0.22)))
+                (sandbox, Some(sandbox.opacity(0.22)))
             } else {
                 (dim, None)
             };

@@ -191,9 +191,8 @@ const UNREAD_BOX: f32 = 10.0;
 const HERE: f32 = 5.0;
 const HERE_RING: f32 = 1.5;
 const HERE_BOX: f32 = 9.0;
-/// A sandboxed card's lock, and the gap before its number.
+/// The lock in a controller's delegates mark and menu (P5-141).
 const LOCK: f32 = 12.0;
-const LOCK_GAP: f32 = 3.0;
 /// The open card: between its cells' columns, and a chip's sides.
 const CELL_GAP: f32 = 12.0;
 const CHIP_X: f32 = 7.0;
@@ -2397,11 +2396,15 @@ impl Render for Sidebar {
                         left -= ui.scale(MARK_GAP) + normal(effort, NOTE_SIZE);
                     }
                     if let Some(sandbox) = &card.sandbox {
-                        left -= ui.scale(MARK_GAP + LOCK);
-                        if let Some(count) = sandbox.count() {
-                            left -= ui.scale(LOCK_GAP)
-                                + width(&count, NOTE_SIZE, FontWeight::SEMIBOLD, &plain);
-                        }
+                        let semibold =
+                            |text: &str| width(text, NOTE_SIZE, FontWeight::SEMIBOLD, &plain);
+                        left -= ui.scale(MARK_GAP)
+                            + sandbox_view::pill_width(
+                                &ui,
+                                &sandbox.profile,
+                                sandbox.count().as_deref(),
+                                &semibold,
+                            );
                     }
                     if delegates_mark(card) {
                         left -= ui.scale(MARK_GAP) + delegates_view::mark_width(&ui);
@@ -3314,30 +3317,13 @@ impl RenderOnce for AgentCard {
                 .text_color(fg(|t| t.agents_dimmer))
                 .child(effort)
         });
-        // Runs in a sandbox: a small lock, with a yellow number once something was blocked.
+        // Runs in a sandbox: a pill with the profile, and a yellow number once something was
+        // blocked (P5-145).
         let lock = card.sandbox.as_ref().map(|sandbox| {
             let tip = tip(sandbox.tip().into());
-            div()
+            sandbox_view::pill(&theme, &ui, sandbox.profile.clone(), sandbox.count())
                 .id("sandbox")
-                .flex_shrink_0()
-                .flex()
-                .items_center()
-                .gap(ui.px(LOCK_GAP))
                 .tooltip(move |_, cx| cx.new(|_| tip.clone()).into())
-                .child(footer_icon::lock(
-                    false,
-                    fg(|t| t.agents_dim),
-                    None,
-                    ui.scale(LOCK),
-                ))
-                .children(sandbox.count().map(|count| {
-                    div()
-                        .whitespace_nowrap()
-                        .text_size(ui.px(NOTE_SIZE))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(fg(|t| t.agents_yellow))
-                        .child(count)
-                }))
         });
         // A collapsed controller whose agents start in a sandbox: an arrow into a blue lock.
         let delegated = delegates_mark(&card)

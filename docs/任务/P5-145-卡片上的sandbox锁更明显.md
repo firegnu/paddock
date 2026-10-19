@@ -32,3 +32,25 @@
 ## 在哪里干活
 - worktree：`/Users/firegnu/Developer/personal_projs/paddock-worktrees/p5-145-sandbox-pill`，分支 `p5-145-sandbox-pill`（已从 main 建好）。
 - 编译：`CARGO_TARGET_DIR=$HOME/Developer/personal_projs/paddock-worktrees/.target/p5-145-sandbox-pill`（从 `.target/main` 克隆）。
+
+## 完成记录（主控 10-19）
+### 做了什么
+- 主题加 `agents_sandbox`（`preset.rs`：默认 Dune `#6cc4ad`、Tide `#67c9a5`、Lagoon `#8fd18a`、Catppuccin `#94e2d5`、Tokyo Night `#73daca`、Rosé Pine `#9ccfd8`、Kanagawa `#7aa89f`；`[colors]` 里可改，Settings 的颜色页自动多一行）。
+- `sidebar_sandbox.rs` 加 `pill`／`pill_width`：淡底（16%）、圆角，实心小锁（11 点）、档案名（半粗），有条数时接黄色 `· 2+`。收起卡片用它（宽度算进名字那一行的余量，强度照旧先让位）；展开卡片的 Sandbox 一格用不带条数的胶囊，这一格的淡底也从强调色换成 `agents_sandbox`。
+- 悬停文字：拿满一页时 `Sandbox: dev · N blocked in its latest records`，读全了 `Sandbox: dev · N blocked`，没拦过 `Sandbox: dev`。
+- Blocked 浮窗标题的锁、New Agent 底边选了档案的胶囊和档案菜单选中行的锁、Settings › Sandbox 选中档案的锁，从强调色换成 `agents_sandbox`。
+- DESIGN §13 P5-120 的卡片一条改写，另加 P5-145 一条。
+
+### 验证了什么
+- 先红后绿：悬停文字的新断言改前得 `Sandbox: dev · 5000+ blocked`，改后过。
+- 新测试 `a_sandboxed_agents_pill_is_apart_from_the_accent_and_the_count`：每套主题 `agents_sandbox` 和 `agents_accent`、`agents_yellow` 色相至少差 30°（Lagoon 若用青绿会因离强调色太近而不过）；`agents_sandbox` 加进“在侧栏底上读得清”的对比度测试（≥ 4.5:1），七套都过。
+- 三项检查：`cargo test --all-targets` 817 过、0 失败；`clippy --all-targets -D warnings`、`fmt --check` 干净。
+
+### 拿主意的地方
+- 七套主题都是深色，没有浅色主题；任务文件里“浅色主题看得清”这条无从验，靠对比度测试兜底。
+- Lagoon 的强调色本身是青绿，它的 sandbox 色改用浅绿 `#8fd18a`。几套主题的 sandbox 色和 Codex 的种类色相同或很近（都是青绿）；胶囊在名字后面、种类色在头像上，位置分开，没另配。
+- `See the rules` 链接、Settings 选中档案卡片的框和底是“链接／选中”的意思，仍用强调色。
+- 没有交叉审查：只改画法和一个颜色，不碰逻辑。
+
+### 没做的事
+- 没起窗口、没截图：胶囊大小、颜色深浅、侧栏拖窄时的样子留给用户实际看。
