@@ -43,3 +43,8 @@
 - 做了什么、验证了什么：见上面「实测记录」。墙外三项全过；墙里临时目录两家都能建了，剩 14 个都是建 unix socket 被拒。
 - 拿主意的地方：退回条件只认权限被拒，别的错误照旧报；`control_tests.rs` 不为共用加公开接口，照同一规则单写；`short_tempdir` 改用随机名（原来用进程号加计数，要先删旧目录），和另外 3 处一致。
 - 没做完的：墙里两家全过这一条，等 ranch 放行、部署后，主控再开两家测试 agent 验一次，结果补在这里，过了再记收尾。
+
+## 墙里复验（10-19，ranch R20 部署后，`versions/aa3676b`）
+- R20：dev 档案默认放行 agent 自己 `${tmp}` 下的 unix socket（bind、connect），四家墙里的 `TMPDIR` 都是各自的 `~/.cache/fence/tmp/<实例>`。
+- 从 main（`f53ad8e`）开只读 worktree，Claude Code `paddock/test-r20-cc`、Codex `paddock/test-r20-cx` 各套 `--sandbox dev`，各用自己的编译目录，先 `cargo clean -p paddock` 再 `cargo test --all-targets --no-fail-fast`：两家都退出码 0，28 组全 ok，792 过、0 失败（和墙外一样）。Codex 的 `TMPDIR` 已不是 `/tmp/claude`。
+- 墙里两家全过这一条验收做完。测试 agent 已停，验证 worktree、编译目录已删。
