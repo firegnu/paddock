@@ -6,14 +6,15 @@ use crate::{
     diff::{self, File, Kind, Line, Note, Read, Scope, Status},
     fonts::UiFont,
     highlight::{self, Span, Stream, Token},
+    history,
     theme::Theme,
     view::hsla,
 };
 use gpui::{
-    AnyElement, ClickEvent, Context, Div, EventEmitter, Font, FontStyle, FontWeight,
-    HighlightStyle, Hsla, IntoElement, ListAlignment, ListOffset, ListState, PathBuilder, Pixels,
-    Point, Render, ScrollWheelEvent, Stateful, StyledText, Window, canvas, div, list, point,
-    prelude::*, px,
+    AnyElement, ClickEvent, ClipboardItem, Context, Div, DragMoveEvent, EventEmitter, Font,
+    FontStyle, FontWeight, HighlightStyle, Hsla, IntoElement, ListAlignment, ListOffset, ListState,
+    PathBuilder, Pixels, Point, Render, ScrollWheelEvent, Stateful, StyledText, Window, canvas,
+    div, list, point, prelude::*, px, relative,
 };
 use std::{
     collections::{HashMap, HashSet},
@@ -39,6 +40,15 @@ pub const WIDE: f32 = 680.0;
 const TREE: f32 = 230.0;
 /// Lines highlighted ahead of the one drawn, so scrolling finds them done.
 const AHEAD: usize = 48;
+/// One commit row's height.
+const COMMIT_ROW: f32 = 46.0;
+/// The graph's column spacing and the room at either end.
+const LANE: f32 = 12.0;
+const LANE_PAD: f32 = 4.0;
+/// The group a commit row's hover buttons show with.
+const COMMIT_GROUP: &str = "changes-commit";
+/// The drag that resizes the History list and its diff.
+struct HistoryDrag;
 
 /// Whose changes to show: the focused pane's name, its status colour and its directory.
 #[derive(Clone, Debug, PartialEq)]
@@ -70,10 +80,24 @@ impl EventEmitter<Changed> for ChangesView {}
 
 type Key = (String, Scope);
 
+/// What a background read brought back: worktree changes, or commits.
+enum Loaded {
+    Changes(Read),
+    History(history::Read),
+}
+
 struct Pending {
     key: Key,
     cancel: Arc<AtomicBool>,
-    out: Arc<Mutex<Option<Option<Read>>>>,
+    out: Arc<Mutex<Option<Option<Loaded>>>>,
+}
+
+/// One commit's diff being read for the selected row.
+struct CommitPending {
+    key: Key,
+    hash: String,
+    cancel: Arc<AtomicBool>,
+    out: Arc<Mutex<Option<Option<history::DiffRead>>>>,
 }
 
 /// One row of the list.
@@ -311,6 +335,26 @@ pub struct ChangesView {
     /// Side by side when widened; the narrow tab is always unified.
     pub split: bool,
     shown: Option<(Key, Rc<Read>)>,
+    /// The branch's commits, with the key they were read for.
+    history: Option<(Key, Rc<history::Read>)>,
+    /// How many commits the History list asks for; grows by [`history::BATCH`] at its end.
+    history_limit: usize,
+    /// The commits' own list and scroll position.
+    history_list: ListState,
+    /// The commit whose diff the History diff pane shows.
+    history_selected: Option<String>,
+    /// That commit's facts, kept even while new commits push it past the read window.
+    history_commit: Option<history::Commit>,
+    /// A selected commit fell out of the read window and a wider read is on its way.
+    history_seeking: bool,
+    /// A selected commit's diff being read.
+    commit_pending: Option<CommitPending>,
+    /// Why the selected commit's diff could not be read.
+    commit_error: Option<String>,
+    /// Set by the commit list's scroll handler when it reaches its end.
+    history_more: Arc<AtomicBool>,
+    /// The share of the History body the list takes, narrow and widened.
+    history_share: (f32, f32),
     /// The branch and its base, as last read, by directory.
     place: Option<(String, String, Option<String>)>,
     pending: Option<Pending>,
@@ -357,6 +401,16 @@ impl ChangesView {
             }
         })
         .detach();
+        let history_more = Arc::new(AtomicBool::new(false));
+        let history_list = ListState::new(0, ListAlignment::Top, px(400.0));
+        {
+            let more = history_more.clone();
+            history_list.set_scroll_handler(move |event, _, _| {
+                if event.is_scrolled && event.visible_range.end + 4 >= event.count {
+                    more.store(true, Ordering::Relaxed);
+                }
+            });
+        }
         ChangesView {
             program,
             colors: Colors::of(&theme),
@@ -368,6 +422,16 @@ impl ChangesView {
             scope,
             split,
             shown: None,
+            history: None,
+            history_limit: history::BATCH,
+            history_list,
+            history_selected: None,
+            history_commit: None,
+            history_seeking: false,
+            commit_pending: None,
+            commit_error: None,
+            history_more,
+            history_share: (0.42, 0.45),
             place: None,
             pending: None,
             last: None,
@@ -395,8 +459,19 @@ impl ChangesView {
             let new_cwd = frame.follow.as_ref().and_then(|f| f.cwd.clone());
             if old_cwd != new_cwd {
                 self.cancel();
+                self.cancel_commit();
                 self.last = None;
-                // Another worktree: its files are folded and scrolled afresh.
+                // Another worktree: its files are folded and scrolled afresh, and its commits
+                // start from the newest batch again.
+                self.history = None;
+                self.history_limit = history::BATCH;
+                self.history_selected = None;
+                self.history_commit = None;
+                self.history_seeking = false;
+                self.commit_error = None;
+                self.history_more.store(false, Ordering::Relaxed);
+                let old = self.history_list.item_count();
+                self.history_list.splice(0..old, 0);
                 self.folded.clear();
                 self.revealed.clear();
                 self.opened.clear();
@@ -409,6 +484,8 @@ impl ChangesView {
             self.active = frame.active;
             if !self.active {
                 self.cancel();
+                self.cancel_commit();
+                self.history_more.store(false, Ordering::Relaxed);
             } else {
                 self.last = None;
             }
@@ -432,6 +509,7 @@ impl ChangesView {
             // Another interface size: the rows are another height.
             self.wide_at = wide_at;
             self.list.remeasure();
+            self.history_list.remeasure();
             changed = true;
         }
         if self.layout() != self.built {
@@ -464,7 +542,13 @@ impl ChangesView {
         }
     }
 
-    /// Takes a finished read and starts one when due.
+    fn cancel_commit(&mut self) {
+        if let Some(pending) = self.commit_pending.take() {
+            pending.cancel.store(true, Ordering::Relaxed);
+        }
+    }
+
+    /// Takes finished reads and starts the next when due.
     fn tick(&mut self, cx: &mut Context<Self>) {
         if let Some(pending) = &self.pending {
             let done = pending.out.lock().ok().and_then(|mut out| out.take());
@@ -475,7 +559,33 @@ impl ChangesView {
                 if let Some(read) = read
                     && Some(&key) == self.key().as_ref()
                 {
-                    self.accept(key, read, cx);
+                    match read {
+                        Loaded::Changes(read) => self.accept_changes(key, read, cx),
+                        Loaded::History(read) => self.accept_history(key, read, cx),
+                    }
+                }
+            }
+        }
+        if let Some(pending) = &self.commit_pending {
+            let done = pending.out.lock().ok().and_then(|mut out| out.take());
+            if let Some(read) = done {
+                let (key, hash) = (pending.key.clone(), pending.hash.clone());
+                self.commit_pending = None;
+                if Some(&key) == self.key().as_ref()
+                    && self.history_selected.as_deref() == Some(hash.as_str())
+                {
+                    match read {
+                        Some(history::DiffRead::Diff(diff)) => {
+                            self.accept_commit_diff(key, diff, cx)
+                        }
+                        Some(history::DiffRead::Failed(reason)) => {
+                            self.shown = None;
+                            self.commit_error = Some(reason);
+                            self.rebuild();
+                            cx.notify();
+                        }
+                        None => {}
+                    }
                 }
             }
         }
@@ -485,11 +595,33 @@ impl ChangesView {
         let Some(key) = self.key() else {
             return;
         };
-        let shown = self.shown.as_ref().map(|(k, _)| k);
-        let due = shown != Some(&key) || self.last.is_none_or(|last| last.elapsed() >= EVERY);
-        if !due {
+        if self.scope == Scope::History {
+            if self.history_more.swap(false, Ordering::Relaxed) && self.can_load_more(&key) {
+                self.history_limit = self.history_limit.saturating_add(history::BATCH);
+                self.last = None;
+            }
+            let shown = self.history.as_ref().map(|(k, _)| k);
+            let due = shown != Some(&key) || self.last.is_none_or(|last| last.elapsed() >= EVERY);
+            if due {
+                self.read_history(key);
+            }
             return;
         }
+        let shown = self.shown.as_ref().map(|(k, _)| k);
+        let due = shown != Some(&key) || self.last.is_none_or(|last| last.elapsed() >= EVERY);
+        if due {
+            self.read_changes(key);
+        }
+    }
+
+    /// Whether the commits shown are for `key` and Git said there are older ones.
+    fn can_load_more(&self, key: &Key) -> bool {
+        self.history.as_ref().is_some_and(|(shown, read)| {
+            shown == key && matches!(&**read, history::Read::Commits(history) if history.more)
+        })
+    }
+
+    fn read_changes(&mut self, key: Key) {
         let cancel = Arc::new(AtomicBool::new(false));
         let out = Arc::new(Mutex::new(None));
         let (program, (cwd, scope)) = (self.program.clone(), key.clone());
@@ -501,6 +633,25 @@ impl ChangesView {
                 // The grammars load here, off the interface's thread, before the first lines are drawn.
                 highlight::syntaxes();
                 if let Ok(mut out) = put.lock() {
+                    *out = Some(read.map(Loaded::Changes));
+                }
+            });
+        if started.is_ok() {
+            self.pending = Some(Pending { key, cancel, out });
+        }
+    }
+
+    fn read_history(&mut self, key: Key) {
+        let cancel = Arc::new(AtomicBool::new(false));
+        let out = Arc::new(Mutex::new(None));
+        let (program, (cwd, _)) = (self.program.clone(), key.clone());
+        let limit = self.history_limit;
+        let (stop, put) = (cancel.clone(), out.clone());
+        let started = thread::Builder::new()
+            .name("paddock-history".into())
+            .spawn(move || {
+                let read = history::read(&program, &cwd, limit, &stop).map(Loaded::History);
+                if let Ok(mut out) = put.lock() {
                     *out = Some(read);
                 }
             });
@@ -510,7 +661,7 @@ impl ChangesView {
     }
 
     /// A read came back: shown if it differs from what is.
-    fn accept(&mut self, key: Key, read: Read, cx: &mut Context<Self>) {
+    fn accept_changes(&mut self, key: Key, read: Read, cx: &mut Context<Self>) {
         if let Some((shown, old)) = &self.shown
             && *shown == key
             && **old == read
@@ -540,6 +691,267 @@ impl ChangesView {
     fn changes(&self) -> Option<Rc<Read>> {
         let (key, read) = self.shown.as_ref()?;
         (Some(key) == self.key().as_ref()).then(|| read.clone())
+    }
+
+    /// The commits shown, if any.
+    fn history(&self) -> Option<Rc<history::Read>> {
+        let (key, read) = self.history.as_ref()?;
+        (Some(key) == self.key().as_ref()).then(|| read.clone())
+    }
+
+    /// The selected commit's facts, from the last selection or the list as it is now.
+    fn commit_at(&self, hash: &str) -> Option<history::Commit> {
+        if let Some(commit) = &self.history_commit
+            && commit.hash == hash
+        {
+            return Some(commit.clone());
+        }
+        let read = self.history()?;
+        let history::Read::Commits(history) = &*read else {
+            return None;
+        };
+        history
+            .commits
+            .iter()
+            .find(|commit| commit.hash == hash)
+            .cloned()
+    }
+
+    /// A history read came back: the list stays at the commit it was at, unless it was at its
+    /// very top, where the new commits belong.
+    fn accept_history(&mut self, key: Key, read: history::Read, cx: &mut Context<Self>) {
+        if let Some((shown, old)) = &self.history
+            && *shown == key
+            && **old == read
+        {
+            return;
+        }
+        let top = self.history_list.logical_scroll_top();
+        let (anchor, offset, at_top, old_selected, old_newest) = if let Some((shown, old)) =
+            &self.history
+            && *shown == key
+        {
+            let (anchor, old_selected, old_newest) = match &**old {
+                history::Read::Commits(history) => (
+                    history
+                        .commits
+                        .get(top.item_ix)
+                        .map(|commit| commit.hash.clone()),
+                    self.history_selected.as_ref().is_some_and(|selected| {
+                        history
+                            .commits
+                            .iter()
+                            .any(|commit| &commit.hash == selected)
+                    }),
+                    history.commits.first().map(|commit| commit.hash.clone()),
+                ),
+                _ => (None, false, None),
+            };
+            (
+                anchor,
+                top.offset_in_item,
+                top.item_ix == 0 && top.offset_in_item <= px(0.5),
+                old_selected,
+                old_newest,
+            )
+        } else {
+            (None, px(0.0), true, false, None)
+        };
+        match &read {
+            history::Read::Commits(history) => {
+                self.place = Some((key.0.clone(), history.head.clone(), history.base.clone()))
+            }
+            history::Read::NoCommits { head } => {
+                self.place = Some((key.0.clone(), head.clone(), None))
+            }
+            history::Read::NotRepository => self.place = None,
+            history::Read::Failed(_) => {}
+        }
+        let count = match &read {
+            history::Read::Commits(history) => history.commits.len(),
+            _ => 0,
+        };
+        let keep_selected = match &read {
+            history::Read::Commits(history) => self
+                .history_selected
+                .as_ref()
+                .is_some_and(|hash| history.commits.iter().any(|commit| &commit.hash == hash)),
+            // A read that failed may be tried again; the selection stays for then.
+            history::Read::Failed(_) => true,
+            _ => false,
+        };
+        // New commits at the top can push the selected commit past the read window; the next
+        // read asks for as many more as arrived.
+        let new_count = match (&read, old_newest) {
+            (history::Read::Commits(history), Some(newest)) => history
+                .commits
+                .iter()
+                .position(|commit| commit.hash == newest)
+                .unwrap_or(1),
+            _ => 1,
+        };
+        self.history = Some((key, Rc::new(read)));
+        let old = self.history_list.item_count();
+        self.history_list.splice(0..old, count);
+        if at_top {
+            self.history_list.scroll_to(ListOffset::default());
+        } else if let Some(anchor) = anchor {
+            let index = match self.history.as_ref().map(|(_, read)| &**read) {
+                Some(history::Read::Commits(history)) => history
+                    .commits
+                    .iter()
+                    .position(|commit| commit.hash == anchor),
+                _ => None,
+            };
+            match index {
+                Some(index) => self.history_list.scroll_to(ListOffset {
+                    item_ix: index,
+                    offset_in_item: offset,
+                }),
+                None => self.history_list.scroll_to(ListOffset {
+                    item_ix: top.item_ix.min(count.saturating_sub(1)),
+                    offset_in_item: px(0.0),
+                }),
+            }
+        } else {
+            self.history_list.scroll_to(ListOffset::default());
+        }
+        if keep_selected {
+            self.history_seeking = false;
+            if self.history_commit.is_none()
+                && let Some(hash) = self.history_selected.clone()
+            {
+                self.history_commit = self.commit_at(&hash);
+            }
+        } else if self.history_selected.is_some() {
+            let recover = old_selected
+                && !self.history_seeking
+                && matches!(
+                    self.history.as_ref().map(|(_, read)| &**read),
+                    Some(history::Read::Commits(history)) if history.more
+                );
+            if recover {
+                self.history_seeking = true;
+                self.history_limit = self.history_limit.saturating_add(new_count.max(1));
+                self.last = None;
+            } else {
+                self.history_selected = None;
+                self.history_commit = None;
+                self.history_seeking = false;
+                self.cancel_commit();
+                self.commit_error = None;
+                self.shown = None;
+                self.rebuild();
+            }
+        }
+        cx.notify();
+    }
+
+    /// A commit's diff came back: shown, with the file index above it, in place of the last one.
+    fn accept_commit_diff(&mut self, key: Key, diff: history::Diff, cx: &mut Context<Self>) {
+        self.commit_error = None;
+        self.folded.clear();
+        self.revealed.clear();
+        self.opened.clear();
+        self.scroll_x.clear();
+        let changes = diff::Changes {
+            top: diff.top,
+            head: String::new(),
+            base: None,
+            files: diff.files,
+        };
+        self.shown = Some((key, Rc::new(Read::Changes(changes))));
+        self.rebuild();
+        self.list.scroll_to(ListOffset::default());
+        cx.notify();
+    }
+
+    /// A commit row was clicked: its changes read for the diff pane below.
+    fn select_commit(&mut self, hash: String, cx: &mut Context<Self>) {
+        if self.scope != Scope::History || self.history_selected.as_deref() == Some(hash.as_str()) {
+            return;
+        }
+        let Some(commit) = self.commit_at(&hash) else {
+            return;
+        };
+        self.history_selected = Some(hash.clone());
+        self.history_commit = Some(commit);
+        self.history_seeking = false;
+        self.cancel_commit();
+        self.shown = None;
+        self.commit_error = None;
+        self.folded.clear();
+        self.revealed.clear();
+        self.opened.clear();
+        self.scroll_x.clear();
+        self.rebuild();
+        self.list.scroll_to(ListOffset::default());
+        self.load_commit_diff(hash, cx);
+        cx.notify();
+    }
+
+    /// Reads `hash`'s changes against its first parent in the background.
+    fn load_commit_diff(&mut self, hash: String, cx: &mut Context<Self>) {
+        let Some(key) = self.key() else {
+            return;
+        };
+        if key.1 != Scope::History
+            || self
+                .commit_pending
+                .as_ref()
+                .is_some_and(|pending| pending.hash == hash)
+        {
+            return;
+        }
+        let Some((shown, read)) = self.history.clone() else {
+            return;
+        };
+        if shown != key {
+            return;
+        }
+        let history::Read::Commits(history) = &*read else {
+            return;
+        };
+        let Some(commit) = self.commit_at(&hash) else {
+            return;
+        };
+        self.cancel_commit();
+        self.commit_error = None;
+        let cancel = Arc::new(AtomicBool::new(false));
+        let out = Arc::new(Mutex::new(None));
+        let (program, top) = (self.program.clone(), history.top.clone());
+        let (stop, put) = (cancel.clone(), out.clone());
+        let started = thread::Builder::new()
+            .name("paddock-history-diff".into())
+            .spawn(move || {
+                let read = history::diff(&program, &top, &commit, &stop);
+                // The grammars load here, off the interface's thread, before the first lines are drawn.
+                highlight::syntaxes();
+                if let Ok(mut out) = put.lock() {
+                    *out = Some(read);
+                }
+            });
+        if started.is_ok() {
+            self.commit_pending = Some(CommitPending {
+                key,
+                hash,
+                cancel,
+                out,
+            });
+            cx.notify();
+        }
+    }
+
+    fn retry_commit(&mut self, cx: &mut Context<Self>) {
+        let Some(hash) = self.history_selected.clone() else {
+            return;
+        };
+        self.cancel_commit();
+        self.shown = None;
+        self.commit_error = None;
+        self.rebuild();
+        self.load_commit_diff(hash, cx);
+        cx.notify();
     }
 
     /// Where the list is scrolled to: the file at the top, how many rows into it, and how far
@@ -610,7 +1022,8 @@ impl ChangesView {
             && let Read::Changes(changes) = &*read
             && !changes.files.is_empty()
         {
-            if !wide {
+            // The History diff has no file tree beside it, so its index is always above.
+            if !wide || self.scope == Scope::History {
                 self.rows.extend((0..changes.files.len()).map(Row::Index));
             }
             for (f, file) in changes.files.iter().enumerate() {
@@ -634,7 +1047,10 @@ impl ChangesView {
                     continue;
                 }
                 for (h, hunk) in file.hunks.iter().enumerate() {
-                    self.gap_rows(&changes.top, file, f, &gaps, h);
+                    // A commit's unchanged lines are not in the worktree, so they are not opened.
+                    if self.scope != Scope::History {
+                        self.gap_rows(&changes.top, file, f, &gaps, h);
+                    }
                     self.rows.push(Row::Hunk(f, h));
                     if split {
                         self.rows.extend(
@@ -647,7 +1063,9 @@ impl ChangesView {
                             .extend((0..hunk.lines.len()).map(|i| Row::Line(f, h, i)));
                     }
                 }
-                self.gap_rows(&changes.top, file, f, &gaps, file.hunks.len());
+                if self.scope != Scope::History {
+                    self.gap_rows(&changes.top, file, f, &gaps, file.hunks.len());
+                }
                 self.rows.push(Row::Foot(f));
                 self.gaps.push(gaps);
             }
@@ -690,9 +1108,20 @@ impl ChangesView {
         }
         self.scope = scope;
         self.cancel();
+        self.cancel_commit();
         self.last = None;
+        self.history_more.store(false, Ordering::Relaxed);
         self.rebuild();
         self.list.scroll_to(ListOffset::default());
+        if scope == Scope::History
+            && let Some(hash) = self.history_selected.clone()
+            && !self
+                .shown
+                .as_ref()
+                .is_some_and(|(key, _)| Some(key) == self.key().as_ref())
+        {
+            self.load_commit_diff(hash, cx);
+        }
         cx.emit(Changed);
         cx.notify();
     }
@@ -821,7 +1250,12 @@ impl ChangesView {
         let (wide, split) = self.layout();
         let mut width = self.width - 2.0;
         if wide {
-            width -= ui.scale(TREE);
+            width = if self.scope == Scope::History {
+                // The commit list takes its share; no file tree beside the diff.
+                self.width * (1.0 - self.history_share.1.clamp(0.25, 0.7)) - ui.scale(7.0) - 2.0
+            } else {
+                width - ui.scale(TREE)
+            };
         }
         let number = self.number_width(ui, digits);
         let code = if split {
@@ -1608,26 +2042,39 @@ impl Render for ChangesView {
             ));
         };
         let (wide, split) = self.layout();
+        let is_history = self.scope == Scope::History;
         let read = self.changes();
+        let commits = self.history();
         let place = self
             .place
             .as_ref()
             .filter(|(cwd, ..)| Some(cwd) == follow.cwd.as_ref());
         let base = place.and_then(|(_, _, base)| base.clone());
-        let files = match read.as_deref() {
+        let diff_files = match read.as_deref() {
             Some(Read::Changes(changes)) => Some(changes),
             _ => None,
         };
+        // Who, on what branch, and how much changed: the commit diff's counts do not count as
+        // the tab's own changes.
+        let files = if is_history { None } else { diff_files };
         // Not a repository, or no directory to read: no scopes to choose between.
         let repo = follow.cwd.is_some()
-            && match read.as_deref() {
-                Some(Read::NotRepository) => false,
-                Some(_) => true,
-                // Still reading: a repository if the last read here found one.
-                None => place.is_some(),
+            && if is_history {
+                match commits.as_deref() {
+                    Some(history::Read::NotRepository) => false,
+                    Some(_) => true,
+                    // Still reading: a repository if the last read here found one.
+                    None => place.is_some(),
+                }
+            } else {
+                match read.as_deref() {
+                    Some(Read::NotRepository) => false,
+                    Some(_) => true,
+                    None => place.is_some(),
+                }
             };
         // No files: nothing to count or fold.
-        let listed = files.filter(|changes| !changes.files.is_empty());
+        let listed = diff_files.filter(|changes| !changes.files.is_empty());
         // Who, on what branch, and how much changed.
         let who = div()
             .flex()
@@ -1729,6 +2176,11 @@ impl Render for ChangesView {
                     self.scope == Scope::Branch,
                     Box::new(|this, cx| this.set_scope(Scope::Branch, cx)),
                 ),
+                (
+                    "History".into_any_element(),
+                    self.scope == Scope::History,
+                    Box::new(|this, cx| this.set_scope(Scope::History, cx)),
+                ),
             ],
             "changes-scope",
             cx,
@@ -1763,14 +2215,18 @@ impl Render for ChangesView {
                 &ui,
             ))
             .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.fold_all(cx)));
-        let file_count = listed.map(|changes| {
-            let n = changes.files.len();
-            format!(
-                "{} {}",
-                count(n as u32),
-                if n == 1 { "file" } else { "files" }
-            )
-        });
+        let file_count = if is_history {
+            None
+        } else {
+            listed.map(|changes| {
+                let n = changes.files.len();
+                format!(
+                    "{} {}",
+                    count(n as u32),
+                    if n == 1 { "file" } else { "files" }
+                )
+            })
+        };
         let top = if wide {
             let layouts = segment(
                 vec![
@@ -1848,42 +2304,188 @@ impl Render for ChangesView {
                 })
         };
         let rule = div().flex_shrink_0().h(px(1.0)).bg(c.rule);
-        let body: AnyElement = match (follow.cwd.as_ref(), read.as_deref()) {
-            (None, _) => empty(
+        let body: AnyElement = if is_history {
+            self.history_body(follow.cwd.as_deref(), commits.as_deref(), &ui, cx)
+        } else {
+            match (follow.cwd.as_ref(), read.as_deref()) {
+                (None, _) => empty(
+                    Glyph::Folder,
+                    "No directory to read",
+                    "This pane has no working directory",
+                    None,
+                    &c,
+                    &ui,
+                )
+                .into_any_element(),
+                (Some(_), None) => div().flex_1().into_any_element(),
+                (Some(_), Some(Read::NotRepository)) => empty(
+                    Glyph::Folder,
+                    "Not a git repository",
+                    "Changes show for panes inside a repository",
+                    None,
+                    &c,
+                    &ui,
+                )
+                .into_any_element(),
+                (Some(_), Some(Read::NoBase { head })) => empty(
+                    Glyph::Branch,
+                    "No base branch",
+                    if head == "main" {
+                        "main has no upstream to compare with"
+                    } else {
+                        "There is no main branch to compare with"
+                    },
+                    None,
+                    &c,
+                    &ui,
+                )
+                .into_any_element(),
+                (Some(_), Some(Read::Failed(reason))) => {
+                    let retry = div()
+                        .id("changes-retry")
+                        .mt(ui.px(4.0))
+                        .px(ui.px(12.0))
+                        .py(ui.px(4.0))
+                        .rounded(px(6.0))
+                        .border_1()
+                        .border_color(c.rule)
+                        .cursor_pointer()
+                        .text_size(ui.px(12.0))
+                        .text_color(c.text)
+                        .hover(move |s| s.bg(c.selected.opacity(0.6)))
+                        .child("Retry")
+                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.retry(cx)));
+                    empty(
+                        Glyph::Warning,
+                        "Couldn’t read changes",
+                        reason,
+                        Some(retry.into_any_element()),
+                        &c,
+                        &ui,
+                    )
+                    .into_any_element()
+                }
+                (Some(_), Some(Read::Changes(changes))) if changes.files.is_empty() => {
+                    let (title, sub) = match self.scope {
+                        Scope::Uncommitted => (
+                            "No uncommitted changes",
+                            "Working tree matches HEAD".to_owned(),
+                        ),
+                        Scope::Branch => (
+                            "No changes on this branch",
+                            format!(
+                                "Nothing since it left {}",
+                                base.as_deref().unwrap_or("its base")
+                            ),
+                        ),
+                        Scope::History => unreachable!("History is drawn by history_body"),
+                    };
+                    empty(Glyph::Check, title, &sub, None, &c, &ui).into_any_element()
+                }
+                (Some(_), Some(Read::Changes(changes))) => {
+                    let diffs = self.diff_list(changes, &ui, cx);
+                    if wide {
+                        div()
+                            .flex_1()
+                            .min_h(px(0.0))
+                            .flex()
+                            .child(self.tree(changes, &ui, cx))
+                            .child(diffs)
+                            .into_any_element()
+                    } else {
+                        div()
+                            .flex_1()
+                            .min_h(px(0.0))
+                            .flex()
+                            .child(diffs)
+                            .into_any_element()
+                    }
+                }
+            }
+        };
+        root.child(top).child(rule).child(body)
+    }
+}
+
+impl ChangesView {
+    /// The diff list with the current file's header pinned over it.
+    fn diff_list(
+        &mut self,
+        changes: &diff::Changes,
+        ui: &UiFont,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let head = ui.scale(34.0);
+        let pinned = self.pinned(head).map(|(f, shift)| {
+            div()
+                .absolute()
+                .top(px(shift))
+                .left_0()
+                .right_0()
+                .child(self.head(&changes.files[f], f, true, ui, cx))
+        });
+        div()
+            .relative()
+            .flex_1()
+            .min_w(px(0.0))
+            .h_full()
+            .overflow_hidden()
+            .child(
+                list(
+                    self.list.clone(),
+                    cx.processor(|this, ix, window, cx| this.row(ix, window, cx)),
+                )
+                .size_full(),
+            )
+            .children(pinned)
+            .into_any_element()
+    }
+
+    /// The History scope's body: the commits and the selected one's diff.
+    fn history_body(
+        &mut self,
+        cwd: Option<&str>,
+        read: Option<&history::Read>,
+        ui: &UiFont,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let c = self.colors;
+        if cwd.is_none() {
+            return empty(
                 Glyph::Folder,
                 "No directory to read",
                 "This pane has no working directory",
                 None,
                 &c,
-                &ui,
+                ui,
             )
-            .into_any_element(),
-            (Some(_), None) => div().flex_1().into_any_element(),
-            (Some(_), Some(Read::NotRepository)) => empty(
+            .into_any_element();
+        }
+        let Some(read) = read else {
+            return div().flex_1().into_any_element();
+        };
+        match read {
+            history::Read::NotRepository => empty(
                 Glyph::Folder,
                 "Not a git repository",
                 "Changes show for panes inside a repository",
                 None,
                 &c,
-                &ui,
+                ui,
             )
             .into_any_element(),
-            (Some(_), Some(Read::NoBase { head })) => empty(
+            history::Read::NoCommits { .. } => empty(
                 Glyph::Branch,
-                "No base branch",
-                if head == "main" {
-                    "main has no upstream to compare with"
-                } else {
-                    "There is no main branch to compare with"
-                },
+                "No commits yet",
+                "History starts with the first commit",
                 None,
                 &c,
-                &ui,
+                ui,
             )
             .into_any_element(),
-            (Some(_), Some(Read::Failed(reason))) => {
+            history::Read::Failed(reason) => {
                 let retry = div()
-                    .id("changes-retry")
+                    .id("history-retry")
                     .mt(ui.px(4.0))
                     .px(ui.px(12.0))
                     .py(ui.px(4.0))
@@ -1898,77 +2500,632 @@ impl Render for ChangesView {
                     .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.retry(cx)));
                 empty(
                     Glyph::Warning,
-                    "Couldn’t read changes",
+                    "Couldn’t read history",
                     reason,
                     Some(retry.into_any_element()),
                     &c,
-                    &ui,
+                    ui,
                 )
                 .into_any_element()
             }
-            (Some(_), Some(Read::Changes(changes))) if changes.files.is_empty() => {
-                let (title, sub) = match self.scope {
-                    Scope::Uncommitted => (
-                        "No uncommitted changes",
-                        "Working tree matches HEAD".to_owned(),
-                    ),
-                    Scope::Branch => (
-                        "No changes on this branch",
-                        format!(
-                            "Nothing since it left {}",
-                            base.as_deref().unwrap_or("its base")
-                        ),
-                    ),
-                };
-                empty(Glyph::Check, title, &sub, None, &c, &ui).into_any_element()
-            }
-            (Some(_), Some(Read::Changes(changes))) => {
-                let head = ui.scale(34.0);
-                let pinned = self.pinned(head).map(|(f, shift)| {
+            history::Read::Commits(history) if history.commits.is_empty() => empty(
+                Glyph::Branch,
+                "No commits yet",
+                "History starts with the first commit",
+                None,
+                &c,
+                ui,
+            )
+            .into_any_element(),
+            history::Read::Commits(_) => self.history_split(ui, cx),
+        }
+    }
+
+    /// The commits above or beside the selected commit's diff, with a divider between them.
+    fn history_split(&mut self, ui: &UiFont, cx: &mut Context<Self>) -> AnyElement {
+        let (wide, _) = self.layout();
+        let commits = div().size_full().overflow_hidden().child(
+            list(
+                self.history_list.clone(),
+                cx.processor(|this, ix, _, cx| this.commit_row(ix, cx)),
+            )
+            .size_full(),
+        );
+        let diff = self.history_diff(ui, cx);
+        let divider = self.history_divider(wide, ui);
+        if wide {
+            let share = self.history_share.1.clamp(0.25, 0.7);
+            div()
+                .flex_1()
+                .min_h(px(0.0))
+                .flex()
+                .on_drag_move(
+                    cx.listener(|this, event: &DragMoveEvent<HistoryDrag>, _, cx| {
+                        this.drag_history(event, true, cx)
+                    }),
+                )
+                .child(
                     div()
-                        .absolute()
-                        .top(px(shift))
-                        .left_0()
-                        .right_0()
-                        .child(self.head(&changes.files[f], f, true, &ui, cx))
-                });
-                let diffs = div()
-                    .relative()
+                        .flex_shrink_0()
+                        .w(relative(share))
+                        .h_full()
+                        .min_w(px(0.0))
+                        .overflow_hidden()
+                        .child(commits),
+                )
+                .child(divider)
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w(px(0.0))
+                        .h_full()
+                        .overflow_hidden()
+                        .child(diff),
+                )
+                .into_any_element()
+        } else {
+            let share = self.history_share.0.clamp(0.25, 0.75);
+            div()
+                .flex_1()
+                .min_h(px(0.0))
+                .flex()
+                .flex_col()
+                .on_drag_move(
+                    cx.listener(|this, event: &DragMoveEvent<HistoryDrag>, _, cx| {
+                        this.drag_history(event, false, cx)
+                    }),
+                )
+                .child(
+                    div()
+                        .w_full()
+                        .h(relative(share))
+                        .min_h(px(0.0))
+                        .overflow_hidden()
+                        .child(commits),
+                )
+                .child(divider)
+                .child(div().flex_1().min_h(px(0.0)).overflow_hidden().child(diff))
+                .into_any_element()
+        }
+    }
+
+    /// The divider between the commits and their diff: seven points to grab, one to see.
+    fn history_divider(&self, wide: bool, ui: &UiFont) -> Stateful<Div> {
+        let c = self.colors;
+        let line = if wide {
+            div().flex_shrink_0().w(px(1.0)).h_full().bg(c.rule)
+        } else {
+            div().flex_shrink_0().w_full().h(px(1.0)).bg(c.rule)
+        };
+        div()
+            .id(("history-divider", wide as usize))
+            .flex_shrink_0()
+            .when(wide, |d| {
+                d.w(ui.px(7.0))
+                    .h_full()
+                    .flex()
+                    .justify_center()
+                    .cursor_col_resize()
+            })
+            .when(!wide, |d| {
+                d.w_full()
+                    .h(ui.px(7.0))
+                    .flex()
+                    .items_center()
+                    .cursor_row_resize()
+            })
+            .hover(move |s| s.bg(c.accent.opacity(0.12)))
+            .on_drag(HistoryDrag, |_, _, _, cx| cx.new(|_| gpui::EmptyView))
+            .child(line)
+    }
+
+    /// One commit row: its graph, its subject and facts, and the hover actions.
+    fn commit_row(&mut self, ix: usize, cx: &mut Context<Self>) -> AnyElement {
+        let Some(read) = self.history() else {
+            return div().into_any_element();
+        };
+        let history::Read::Commits(history) = &*read else {
+            return div().into_any_element();
+        };
+        let Some(commit) = history.commits.get(ix) else {
+            return div().into_any_element();
+        };
+        let commit = commit.clone();
+        let task = commit
+            .label
+            .id
+            .as_ref()
+            .and_then(|id| history.tasks.get(id))
+            .cloned();
+        let lanes = history.lanes;
+        let ui = UiFont::get(cx);
+        let c = self.colors;
+        let selected = self.history_selected.as_deref() == Some(commit.hash.as_str());
+        let faded = commit.label.wrap_up;
+        let subject_color = if faded { c.dim } else { c.text };
+        let meta_color = if faded { c.faint } else { c.dim };
+        let hash_color = if faded { c.faint } else { c.muted };
+        let subject = div()
+            .flex()
+            .items_center()
+            .gap(ui.px(6.0))
+            .min_w(px(0.0))
+            .overflow_hidden()
+            .whitespace_nowrap();
+        let subject = if let Some(id) = &commit.label.id {
+            subject
+                .child(
+                    div()
+                        .flex_shrink_0()
+                        .flex()
+                        .items_center()
+                        .h(ui.px(16.0))
+                        .px(ui.px(5.0))
+                        .rounded(px(4.0))
+                        .bg(c.faint.opacity(0.5))
+                        .font(self.mono.clone())
+                        .text_size(ui.px(10.0))
+                        .text_color(if faded { c.faint } else { c.muted })
+                        .child(id.clone()),
+                )
+                .when(!commit.label.rest.is_empty(), |d| {
+                    d.child(
+                        div()
+                            .flex_1()
+                            .min_w(px(0.0))
+                            .overflow_hidden()
+                            .text_ellipsis()
+                            .text_color(subject_color)
+                            .child(commit.label.rest.clone()),
+                    )
+                })
+        } else {
+            subject.child(
+                div()
                     .flex_1()
                     .min_w(px(0.0))
-                    .h_full()
                     .overflow_hidden()
-                    .child(
-                        list(
-                            self.list.clone(),
-                            cx.processor(|this, ix, window, cx| this.row(ix, window, cx)),
-                        )
-                        .size_full(),
-                    )
-                    .children(pinned);
-                if wide {
-                    div()
-                        .flex_1()
-                        .min_h(px(0.0))
-                        .flex()
-                        .child(self.tree(changes, &ui, cx))
-                        .child(diffs)
-                        .into_any_element()
-                } else {
-                    div()
-                        .flex_1()
-                        .min_h(px(0.0))
-                        .flex()
-                        .child(diffs)
-                        .into_any_element()
-                }
-            }
+                    .text_ellipsis()
+                    .text_color(subject_color)
+                    .child(commit.subject.clone()),
+            )
         };
-        root.child(top).child(rule).child(body)
+        let sep = || div().flex_shrink_0().text_color(c.faint).child("·");
+        let mut meta = div()
+            .flex()
+            .items_center()
+            .gap(ui.px(4.0))
+            .min_w(px(0.0))
+            .overflow_hidden()
+            .whitespace_nowrap()
+            .text_size(ui.px(11.0))
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .font(self.mono.clone())
+                    .text_color(hash_color)
+                    .child(commit.short.clone()),
+            )
+            .child(sep())
+            .child(
+                div()
+                    .flex_shrink(1.0)
+                    .min_w(px(0.0))
+                    .overflow_hidden()
+                    .text_ellipsis()
+                    .text_color(meta_color)
+                    .child(commit.author.clone()),
+            )
+            .child(sep())
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .text_color(meta_color)
+                    .child(ago(commit.time)),
+            );
+        if commit.parents.len() > 1 {
+            meta = meta
+                .child(sep())
+                .child(div().flex_shrink_0().text_color(meta_color).child("merge"));
+        }
+        let copy_hash = commit.hash.clone();
+        let copy = div()
+            .id(("history-copy", ix))
+            .flex_shrink_0()
+            .flex()
+            .items_center()
+            .h(ui.px(20.0))
+            .px(ui.px(5.0))
+            .rounded(px(4.0))
+            .cursor_pointer()
+            .text_size(ui.px(10.5))
+            .text_color(c.muted)
+            .invisible()
+            .group_hover(COMMIT_GROUP, |style| style.visible())
+            .hover(move |style| style.bg(c.text.opacity(0.08)).text_color(c.text))
+            .child("Copy hash")
+            .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
+                cx.stop_propagation();
+                cx.write_to_clipboard(ClipboardItem::new_string(copy_hash.clone()));
+            }));
+        let mut buttons = div()
+            .flex_shrink_0()
+            .flex()
+            .items_center()
+            .gap(ui.px(2.0))
+            .child(copy);
+        if let Some(path) = task {
+            buttons = buttons.child(
+                div()
+                    .id(("history-task", ix))
+                    .flex_shrink_0()
+                    .flex()
+                    .items_center()
+                    .h(ui.px(20.0))
+                    .px(ui.px(5.0))
+                    .rounded(px(4.0))
+                    .cursor_pointer()
+                    .text_size(ui.px(10.5))
+                    .text_color(c.muted)
+                    .invisible()
+                    .group_hover(COMMIT_GROUP, |style| style.visible())
+                    .hover(move |style| style.bg(c.text.opacity(0.08)).text_color(c.text))
+                    .child("Open task")
+                    .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
+                        cx.stop_propagation();
+                        cx.open_with_system(&path);
+                    })),
+            );
+        }
+        let click_hash = commit.hash.clone();
+        div()
+            .id(("history-commit", ix))
+            .group(COMMIT_GROUP)
+            .relative()
+            .w_full()
+            .h(ui.px(COMMIT_ROW))
+            .flex()
+            .items_center()
+            .gap(ui.px(8.0))
+            .pl(ui.px(6.0))
+            .pr(ui.px(10.0))
+            .when(selected, |d| d.bg(c.accent.opacity(0.12)))
+            .when(!selected, |d| {
+                d.hover(move |style| style.bg(c.text.opacity(0.04)))
+            })
+            .cursor_pointer()
+            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                this.select_commit(click_hash.clone(), cx)
+            }))
+            .child(self.graph_cell(&commit.graph, lanes, selected, faded, &ui))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w(px(0.0))
+                    .flex()
+                    .flex_col()
+                    .gap(ui.px(1.0))
+                    .when(faded, |d| d.opacity(0.62))
+                    .child(subject)
+                    .child(meta),
+            )
+            .child(buttons)
+            .into_any_element()
     }
-}
 
-impl ChangesView {
+    /// The selected commit's subject and facts, above its diff.
+    fn commit_head(&self, commit: &history::Commit, ui: &UiFont) -> Div {
+        let c = self.colors;
+        let sep = || div().flex_shrink_0().text_color(c.faint).child("·");
+        let summary = self.changes().and_then(|read| match &*read {
+            Read::Changes(changes) => {
+                Some((changes.files.len(), changes.added(), changes.deleted()))
+            }
+            _ => None,
+        });
+        let mut facts = div()
+            .flex()
+            .items_center()
+            .gap(ui.px(4.0))
+            .min_w(px(0.0))
+            .overflow_hidden()
+            .whitespace_nowrap()
+            .text_size(ui.px(11.5))
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .font(self.mono.clone())
+                    .text_color(c.muted)
+                    .child(commit.short.clone()),
+            )
+            .child(sep())
+            .child(
+                div()
+                    .flex_shrink(1.0)
+                    .min_w(px(0.0))
+                    .overflow_hidden()
+                    .text_ellipsis()
+                    .text_color(c.dim)
+                    .child(commit.author.clone()),
+            )
+            .child(sep())
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .text_color(c.dim)
+                    .child(ago(commit.time)),
+            );
+        if commit.parents.len() > 1 {
+            facts = facts
+                .child(sep())
+                .child(div().flex_shrink_0().text_color(c.dim).child("merge"));
+        }
+        let mut head = div()
+            .flex_shrink_0()
+            .w_full()
+            .flex()
+            .flex_col()
+            .gap(ui.px(4.0))
+            .px(ui.px(14.0))
+            .pt(ui.px(10.0))
+            .pb(ui.px(8.0))
+            .border_b_1()
+            .border_color(c.rule)
+            .child(
+                div()
+                    .text_size(ui.px(13.0))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(if commit.label.wrap_up { c.dim } else { c.text })
+                    .child(commit.subject.clone()),
+            )
+            .child(facts);
+        if let Some((files, added, deleted)) = summary {
+            head = head.child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(ui.px(8.0))
+                    .text_size(ui.px(11.5))
+                    .text_color(c.dim)
+                    .child(format!(
+                        "{} {}",
+                        count(files as u32),
+                        if files == 1 { "file" } else { "files" }
+                    ))
+                    .child(counts(added, deleted, ui.px(11.5), &c)),
+            );
+        }
+        head
+    }
+
+    /// The selected commit's changes, or a quiet line while there is nothing to show.
+    fn history_diff(&mut self, ui: &UiFont, cx: &mut Context<Self>) -> AnyElement {
+        let c = self.colors;
+        let Some(hash) = self.history_selected.clone() else {
+            return empty(
+                Glyph::Branch,
+                "Select a commit",
+                "Its changes appear here",
+                None,
+                &c,
+                ui,
+            )
+            .into_any_element();
+        };
+        let Some(commit) = self.commit_at(&hash) else {
+            return empty(
+                Glyph::Branch,
+                "Select a commit",
+                "Its changes appear here",
+                None,
+                &c,
+                ui,
+            )
+            .into_any_element();
+        };
+        let mut pane = div().size_full().min_h(px(0.0)).flex().flex_col();
+        pane = pane.child(self.commit_head(&commit, ui));
+        if let Some(reason) = &self.commit_error {
+            let retry = div()
+                .id("history-commit-retry")
+                .mt(ui.px(4.0))
+                .px(ui.px(12.0))
+                .py(ui.px(4.0))
+                .rounded(px(6.0))
+                .border_1()
+                .border_color(c.rule)
+                .cursor_pointer()
+                .text_size(ui.px(12.0))
+                .text_color(c.text)
+                .hover(move |s| s.bg(c.selected.opacity(0.6)))
+                .child("Retry")
+                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.retry_commit(cx)));
+            return pane
+                .child(empty(
+                    Glyph::Warning,
+                    "Couldn’t read this commit",
+                    reason,
+                    Some(retry.into_any_element()),
+                    &c,
+                    ui,
+                ))
+                .into_any_element();
+        }
+        if self
+            .commit_pending
+            .as_ref()
+            .is_some_and(|pending| pending.hash == hash)
+        {
+            return pane.child(reading(ui, &c)).into_any_element();
+        }
+        match self.changes().as_deref() {
+            Some(Read::Changes(changes)) if changes.files.is_empty() => pane
+                .child(
+                    div()
+                        .px(ui.px(14.0))
+                        .py(ui.px(14.0))
+                        .text_size(ui.px(12.0))
+                        .text_color(c.muted)
+                        .child("No changes in this commit."),
+                )
+                .into_any_element(),
+            Some(Read::Changes(changes)) => pane
+                .child(self.diff_list(changes, ui, cx))
+                .into_any_element(),
+            Some(Read::Failed(reason)) => pane
+                .child(empty(
+                    Glyph::Warning,
+                    "Couldn’t read this commit",
+                    reason,
+                    None,
+                    &c,
+                    ui,
+                ))
+                .into_any_element(),
+            _ => pane.child(reading(ui, &c)).into_any_element(),
+        }
+    }
+
+    /// A commit's lanes and dot.
+    fn graph_cell(
+        &self,
+        row: &history::GraphRow,
+        lanes: usize,
+        selected: bool,
+        faded: bool,
+        ui: &UiFont,
+    ) -> Div {
+        let c = self.colors;
+        let pad = ui.scale(LANE_PAD);
+        let gap = ui.scale(LANE);
+        let width = pad * 2.0 + gap * lanes.max(1) as f32;
+        let height = ui.px(COMMIT_ROW);
+        let mid = ui.px(COMMIT_ROW / 2.0);
+        let thickness = ui.scale(1.2);
+        let lines = row.clone();
+        let canvas = canvas(
+            |_, _, _| {},
+            move |bounds, _, window, _| {
+                let x = |lane: usize| pad + lane as f32 * gap + gap / 2.0;
+                let at = |lane: usize, y: Pixels| {
+                    point(bounds.origin.x + px(x(lane)), bounds.origin.y + y)
+                };
+                let color = |lane: usize| if lane == 0 { c.blue } else { c.purple };
+                let mut paint = |path: PathBuilder, lane: usize| {
+                    if let Ok(path) = path.build() {
+                        window.paint_path(path, color(lane));
+                    }
+                };
+                let stroke = || PathBuilder::stroke(px(thickness));
+                for &lane in &lines.top {
+                    if lines.joins.contains(&lane) {
+                        continue;
+                    }
+                    let mut path = stroke();
+                    path.move_to(at(lane, px(0.0)));
+                    let end = if lines.bottom.contains(&lane) {
+                        height
+                    } else {
+                        mid
+                    };
+                    path.line_to(at(lane, end));
+                    paint(path, lane);
+                }
+                for &lane in &lines.joins {
+                    let mut path = stroke();
+                    path.move_to(at(lane, px(0.0)));
+                    path.line_to(at(lane, mid));
+                    path.line_to(at(lines.lane, mid));
+                    paint(path, lane);
+                }
+                for &lane in &lines.forks {
+                    let mut path = stroke();
+                    path.move_to(at(lines.lane, mid));
+                    path.line_to(at(lane, mid));
+                    path.line_to(at(lane, height));
+                    paint(path, lane);
+                }
+                if !lines.top.contains(&lines.lane) && lines.bottom.contains(&lines.lane) {
+                    let mut path = stroke();
+                    path.move_to(at(lines.lane, mid));
+                    path.line_to(at(lines.lane, height));
+                    paint(path, lines.lane);
+                }
+            },
+        )
+        .absolute()
+        .left_0()
+        .top_0()
+        .w(px(width))
+        .h(height);
+        let size = if selected {
+            ui.scale(9.0)
+        } else {
+            ui.scale(5.0)
+        };
+        let color = if selected {
+            c.accent
+        } else if faded {
+            c.dim
+        } else if row.lane == 0 {
+            c.blue
+        } else {
+            c.purple
+        };
+        let x = pad + row.lane as f32 * gap + gap / 2.0;
+        let dot = div()
+            .absolute()
+            .left(px(x - size / 2.0))
+            .top(px(f32::from(mid) - size / 2.0))
+            .size(px(size))
+            .rounded_full()
+            .when(selected, |d| d.bg(color))
+            .when(!selected, |d| d.border_1().border_color(color));
+        div()
+            .relative()
+            .flex_shrink_0()
+            .w(px(width))
+            .h(height)
+            .child(canvas)
+            .child(dot)
+    }
+
+    /// The History divider was dragged: the list's share follows the pointer.
+    fn drag_history(
+        &mut self,
+        event: &DragMoveEvent<HistoryDrag>,
+        wide: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let (pos, origin, size) = if wide {
+            (
+                event.event.position.x,
+                event.bounds.origin.x,
+                event.bounds.size.width,
+            )
+        } else {
+            (
+                event.event.position.y,
+                event.bounds.origin.y,
+                event.bounds.size.height,
+            )
+        };
+        let size = f32::from(size);
+        if size <= 0.0 {
+            return;
+        }
+        let share = (f32::from(pos - origin) / size).clamp(0.25, if wide { 0.7 } else { 0.75 });
+        let target = if wide {
+            &mut self.history_share.1
+        } else {
+            &mut self.history_share.0
+        };
+        if (*target - share).abs() > 0.001 {
+            *target = share;
+            cx.notify();
+        }
+    }
+
     /// The widened tab's file tree: directories, and under them the files, the one at the top of
     /// the diffs selected.
     fn tree(&self, changes: &diff::Changes, ui: &UiFont, cx: &mut Context<Self>) -> Stateful<Div> {
@@ -2046,6 +3203,28 @@ impl ChangesView {
         }
         tree
     }
+}
+
+/// How long before now `time` was, as the cards write ages.
+fn ago(time: i64) -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|since| since.as_secs() as i64)
+        .unwrap_or(0);
+    format!(
+        "{} ago",
+        crate::card::short_time(Some((now - time).max(0) as f64))
+    )
+}
+
+/// The quiet line while a commit's changes are read.
+fn reading(ui: &UiFont, c: &Colors) -> Div {
+    div()
+        .px(ui.px(14.0))
+        .py(ui.px(14.0))
+        .text_size(ui.px(12.0))
+        .text_color(c.dim)
+        .child("Reading commit…")
 }
 
 /// A quiet state in the middle: a faint icon, a line, a fainter line, and maybe a button.
