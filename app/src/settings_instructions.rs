@@ -92,6 +92,15 @@ enum Look {
 }
 
 impl SettingsView {
+    /// The file being edited in the theme's colours, after the theme changed.
+    pub(super) fn recolor_instructions(&mut self, cx: &mut Context<Self>) {
+        let colors = self.input_colors();
+        if let Some(edit) = &self.instructions.edit {
+            edit.input
+                .update(cx, |input, cx| input.set_colors(colors, cx));
+        }
+    }
+
     /// Reads every agent's file again: on showing the page and on coming back to the window. What
     /// is being edited stays; whether its file changed meanwhile is looked at again.
     pub(super) fn refresh_instructions(&mut self) {

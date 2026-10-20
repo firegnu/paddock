@@ -174,6 +174,7 @@ fn input_colors(theme: &Theme) -> text_input::Colors {
         placeholder: hsla(theme.fg(|t| t.agents_dimmer), 1.0),
         cursor: hsla(theme.fg(|t| t.focus), 1.0),
         selection: hsla(theme.fg(|t| t.focus), 0.3),
+        faded: theme.is_faded(),
     }
 }
 

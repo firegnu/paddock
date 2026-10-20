@@ -317,7 +317,7 @@ impl TerminalView {
             remote: options.remote,
         });
         let bell = Bell::new();
-        viewer.set_theme(*theme.terminal());
+        viewer.set_theme(*theme.own_terminal());
         viewer.ring = Some(bell.for_changes());
         let mut direct = None;
         let mut note = String::new();
@@ -469,7 +469,7 @@ impl TerminalView {
     pub fn set_theme(&mut self, theme: Rc<theme::Theme>, cx: &mut Context<Self>) {
         self.theme = theme;
         // Shared with every session here, the ones starting too.
-        self.viewer.set_theme(*self.theme.terminal());
+        self.viewer.set_theme(*self.theme.own_terminal());
         cx.notify();
     }
 
@@ -1140,6 +1140,7 @@ impl TerminalView {
                     placeholder: hsla(self.theme.fg(|t| t.agents_dimmer), 1.0),
                     cursor: hsla(self.theme.fg(|t| t.focus), 1.0),
                     selection: hsla(self.theme.fg(|t| t.focus), 0.3),
+                    faded: self.theme.is_faded(),
                 };
                 let input = cx.new(|cx| TextInput::new("", "Find", colors, cx));
                 // Typing searches again from the bottom of the view.
@@ -2063,9 +2064,14 @@ impl TerminalView {
                 .map(|(top, length)| (top, length, alpha));
         }
         for y in first..i32::from(rows) {
-            let mut cells = rows::read(term, y, cols, &theme);
+            // Read in the colours as set, so a program's own come out as it means them; then, out
+            // of the front, every cell faded alike, its own colours too (P5-162).
+            let mut cells = rows::read(term, y, cols, self.theme.own_terminal());
             if self.minimum_contrast {
                 rows::legible(&mut cells, crate::palette::MIN_CONTRAST);
+            }
+            if self.theme.is_faded() {
+                crate::unfocused::fade_cells(&mut cells);
             }
             if let Some(link) = &link {
                 let line = Line(y - offset);
@@ -2100,7 +2106,11 @@ impl TerminalView {
                 shape: style.shape,
                 text: (cell.c != ' ').then(|| cell.c.to_string()),
                 wide,
-                color: screen.cursor_color(),
+                color: if self.theme.is_faded() {
+                    crate::unfocused::fade(screen.cursor_color())
+                } else {
+                    screen.cursor_color()
+                },
                 alpha: 1.0,
                 corners: None,
             });
@@ -2602,9 +2612,10 @@ impl Frame {
         let (x, y) = (self.x(col), self.y(row));
         let w = self.x(col + if cursor.wide { 2 } else { 1 }) - x;
         let lh = self.metrics.line_height;
-        let (y, w, h) = match cursor.shape {
-            CursorShape::Beam => (y, 2.0, lh),
-            CursorShape::Underline => (y + lh - 2.0, w, 2.0),
+        // Without the keyboard it is the hollow box whatever its shape (`paint_cursor`).
+        let (y, w, h) = match (cursor.shape, self.focused) {
+            (CursorShape::Beam, true) => (y, 2.0, lh),
+            (CursorShape::Underline, true) => (y + lh - 2.0, w, 2.0),
             _ => (y, w, lh),
         };
         caret::Rect { x, y, w, h }
@@ -2645,9 +2656,11 @@ impl Frame {
             window.paint_quad(self.rect(x + width, y, 2.0, lh, color));
             return;
         }
+        // Without the keyboard, whatever its shape, it is the hollow box, so a beam or an underline
+        // shows it too (P5-162).
         match (cursor.shape, self.focused) {
-            (CursorShape::Beam, _) => window.paint_quad(self.rect(x, y, 2.0, lh, color)),
-            (CursorShape::Underline, _) => {
+            (CursorShape::Beam, true) => window.paint_quad(self.rect(x, y, 2.0, lh, color)),
+            (CursorShape::Underline, true) => {
                 window.paint_quad(self.rect(x, y + lh - 2.0, w, 2.0, color))
             }
             (_, true) => {

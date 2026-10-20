@@ -344,6 +344,7 @@ fn input_colors(theme: &Theme) -> text_input::Colors {
         placeholder: hsla(theme.fg(|t| t.agents_dimmer), 1.0),
         cursor: hsla(theme.fg(|t| t.focus), 1.0),
         selection: hsla(theme.fg(|t| t.focus), 0.3),
+        faded: theme.is_faded(),
     }
 }
 
@@ -650,25 +651,29 @@ impl NewAgentView {
         self.busy
     }
 
-    /// Settings were saved: their colours, fonts and presets.
-    pub fn restyle(&mut self, config: &Config, cx: &mut Context<Self>) {
-        if let Ok(theme) = Theme::from_config(config) {
-            self.theme = Rc::new(theme);
-            let colors = input_colors(&self.theme);
-            for input in [
-                &self.prompt,
-                &self.command,
-                &self.prefix,
-                &self.name,
-                &self.preset_name,
-            ] {
-                input.update(cx, |input, cx| input.set_colors(colors, cx));
-            }
-        }
+    /// Settings were saved: their colours (`theme`, the window's), fonts and presets.
+    pub fn restyle(&mut self, theme: Rc<Theme>, config: &Config, cx: &mut Context<Self>) {
+        self.set_theme(theme, cx);
         self.mono = config.font.clone().into();
         self.presets = new_agent::presets(config);
         self.agent_models = config.agent_models.clone();
         self.form.set_lists(models::load(&self.agent_models));
+        cx.notify();
+    }
+
+    /// New colours: the window's, faded or not (P5-162).
+    pub fn set_theme(&mut self, theme: Rc<Theme>, cx: &mut Context<Self>) {
+        let colors = input_colors(&theme);
+        for input in [
+            &self.prompt,
+            &self.command,
+            &self.prefix,
+            &self.name,
+            &self.preset_name,
+        ] {
+            input.update(cx, |input, cx| input.set_colors(colors, cx));
+        }
+        self.theme = theme;
         cx.notify();
     }
 

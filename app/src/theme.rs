@@ -4,6 +4,7 @@
 //! palette.
 use crate::preset::Color;
 use crate::preset::{Frost, Preset, parse_color};
+use crate::unfocused::{fade, fade_palette};
 use crate::{
     config::Config,
     palette::{self, Rgb},
@@ -310,8 +311,13 @@ fn preset(name: &str) -> Result<Preset> {
 
 pub struct Theme {
     saddle: crate::preset::Theme,
-    terminal: palette::Theme,
+    /// The terminal's colours as set: what programs asking are told.
+    own: palette::Theme,
+    /// The terminal's colours as drawn: [`Self::own`] faded while [`Self::faded`].
+    drawn: palette::Theme,
     frost: Frost,
+    /// Out of the front (P5-162): every colour handed out faded.
+    faded: bool,
 }
 
 impl Theme {
@@ -373,20 +379,51 @@ impl Theme {
         }
         Ok(Theme {
             saddle,
-            terminal,
+            own: terminal,
+            drawn: terminal,
             frost: preset.frost(),
+            faded: false,
         })
     }
 
     /// A Saddle interface colour used as text; `Reset` is the terminal's default foreground.
     pub fn fg(&self, pick: fn(&crate::preset::Theme) -> Color) -> palette::Rgb {
-        resolve(&self.terminal, pick(&self.saddle), self.terminal.foreground)
+        self.look(self.set_fg(pick))
     }
 
     /// A Saddle interface colour used as a background; `Reset` is the terminal's default
     /// background.
     pub fn bg(&self, pick: fn(&crate::preset::Theme) -> Color) -> palette::Rgb {
-        resolve(&self.terminal, pick(&self.saddle), self.terminal.background)
+        self.look(resolve(&self.own, pick(&self.saddle), self.own.background))
+    }
+
+    /// [`Self::fg`] as set, not faded.
+    fn set_fg(&self, pick: fn(&crate::preset::Theme) -> Color) -> palette::Rgb {
+        resolve(&self.own, pick(&self.saddle), self.own.foreground)
+    }
+
+    /// `color` as handed out: faded while [`Self::is_faded`].
+    fn look(&self, color: Rgb) -> Rgb {
+        if self.faded { fade(color) } else { color }
+    }
+
+    /// These colours for paddock out of the front, another application in front (DESIGN §13
+    /// P5-162): every colour this hands
+    /// out, the terminal's as drawn too, faded (`unfocused::fade`); the terminal's as programs are
+    /// told them, as set.
+    pub fn faded(&self) -> Theme {
+        Theme {
+            saddle: self.saddle.clone(),
+            own: self.own,
+            drawn: fade_palette(&self.own),
+            frost: self.frost,
+            faded: true,
+        }
+    }
+
+    /// Whether these are the colours for paddock out of the front ([`Self::faded`]).
+    pub fn is_faded(&self) -> bool {
+        self.faded
     }
 
     /// How the sidebar's column lies over the system's sidebar material: the preset's, whatever
@@ -397,9 +434,9 @@ impl Theme {
 
     /// These colours for the sidebar's column over the system's sidebar material: `agents_dim`
     /// and `agents_dimmer`, as `[colors]` leaves them, stepped towards `agents_text` as far as
-    /// [`Self::frost`] says; every other colour as it is.
+    /// [`Self::frost`] says; every other colour as it is. Faded as these are.
     pub fn frosted(&self) -> Theme {
-        let text = self.fg(|t| t.agents_text);
+        let text = self.set_fg(|t| t.agents_text);
         let toward = |(r, g, b): Rgb, share: f32| {
             let step = |from: u8, to: u8| {
                 (f32::from(from) + (f32::from(to) - f32::from(from)) * share).round() as u8
@@ -407,12 +444,14 @@ impl Theme {
             Color::Rgb(step(r, text.0), step(g, text.1), step(b, text.2))
         };
         let mut saddle = self.saddle.clone();
-        saddle.agents_dim = toward(self.fg(|t| t.agents_dim), self.frost.dim);
-        saddle.agents_dimmer = toward(self.fg(|t| t.agents_dimmer), self.frost.dimmer);
+        saddle.agents_dim = toward(self.set_fg(|t| t.agents_dim), self.frost.dim);
+        saddle.agents_dimmer = toward(self.set_fg(|t| t.agents_dimmer), self.frost.dimmer);
         Theme {
             saddle,
-            terminal: self.terminal,
+            own: self.own,
+            drawn: self.drawn,
             frost: self.frost,
+            faded: self.faded,
         }
     }
 
@@ -420,19 +459,25 @@ impl Theme {
     /// step darker, so each panel stands off it (DESIGN §13 P5-59).
     pub fn frame(&self) -> Rgb {
         let darker = |channel: u8| (f32::from(channel) * FRAME).round() as u8;
-        let (r, g, b) = self.terminal.background;
-        (darker(r), darker(g), darker(b))
+        let (r, g, b) = self.own.background;
+        self.look((darker(r), darker(g), darker(b)))
     }
 
-    /// The terminal pane's colours.
+    /// The terminal pane's colours as drawn: faded while [`Self::is_faded`].
     pub fn terminal(&self) -> &palette::Theme {
-        &self.terminal
+        &self.drawn
     }
 
-    /// A `[colors]` key's colour in this theme, as RGB, for swatches.
+    /// The terminal's colours as set, faded or not: what a program asking for them is told.
+    pub fn own_terminal(&self) -> &palette::Theme {
+        &self.own
+    }
+
+    /// A `[colors]` key's colour in this theme, as RGB, for swatches; faded while
+    /// [`Self::is_faded`].
     pub fn color(&self, key: &str) -> Option<Rgb> {
         if let Some(i) = TERMINAL_KEYS.iter().position(|k| *k == key) {
-            let mut terminal = self.terminal;
+            let mut terminal = self.drawn;
             return Some(*terminal_slots(&mut terminal)[i]);
         }
         let mut saddle = self.saddle.clone();
@@ -444,17 +489,17 @@ impl Theme {
         // The terminal's default stands in for an unset colour: its background for backgrounds.
         let background = key.ends_with("bg") || key.ends_with("selected") || key == "overlay";
         let reset = if background {
-            self.terminal.background
+            self.own.background
         } else {
-            self.terminal.foreground
+            self.own.foreground
         };
-        Some(resolve(&self.terminal, color, reset))
+        Some(self.look(resolve(&self.own, color, reset)))
     }
 
     /// A `[colors]` key's value in this theme as the config file writes it.
     pub fn written(&self, key: &str) -> Option<String> {
         if let Some(i) = TERMINAL_KEYS.iter().position(|k| *k == key) {
-            let mut terminal = self.terminal;
+            let mut terminal = self.own;
             let (r, g, b) = *terminal_slots(&mut terminal)[i];
             return Some(format!("#{r:02x}{g:02x}{b:02x}"));
         }
@@ -610,6 +655,53 @@ mod tests {
                     "{name} agents_sandbox near {key}: {apart:.0}°"
                 );
             }
+        }
+    }
+
+    #[test]
+    fn a_faded_theme_hands_out_faded_colours_and_tells_programs_the_ones_set() {
+        use crate::unfocused::{fade, fade_palette};
+        let same = |a: &palette::Theme, b: &palette::Theme| format!("{a:?}") == format!("{b:?}");
+        for preset in Preset::ALL {
+            let name = preset.name();
+            let theme = theme(&format!("theme = \"{name}\"")).unwrap();
+            let faded = theme.faded();
+            assert!(faded.is_faded() && !theme.is_faded(), "{name}");
+            assert_eq!(
+                faded.fg(|t| t.agents_text),
+                fade(theme.fg(|t| t.agents_text))
+            );
+            assert_eq!(faded.bg(|t| t.agents_bg), fade(theme.bg(|t| t.agents_bg)));
+            assert_eq!(faded.fg(|_| Color::Reset), fade(theme.fg(|_| Color::Reset)));
+            assert_eq!(faded.frame(), fade(theme.frame()));
+            assert_eq!(
+                faded.color("agents_yellow"),
+                theme.color("agents_yellow").map(fade)
+            );
+            assert!(
+                same(faded.terminal(), &fade_palette(theme.terminal())),
+                "{name}"
+            );
+            // A program asking for colours is told the ones set, faded or not.
+            assert!(same(faded.own_terminal(), theme.terminal()), "{name}");
+            assert!(same(theme.own_terminal(), theme.terminal()), "{name}");
+            // Frosted, it stays faded, and faded once.
+            let frosted = faded.frosted();
+            assert!(frosted.is_faded());
+            assert_eq!(
+                frosted.fg(|t| t.agents_dim),
+                fade(theme.frosted().fg(|t| t.agents_dim))
+            );
+            // Text still reads on its ground, a little less sharply.
+            let (text, ground) = (theme.fg(|t| t.agents_text), theme.bg(|t| t.agents_bg));
+            let (before, after) = (
+                contrast(text, ground),
+                contrast(faded.fg(|t| t.agents_text), faded.bg(|t| t.agents_bg)),
+            );
+            assert!(
+                after < before && after >= 4.5,
+                "{name}: {before:.2}:1 → {after:.2}:1"
+            );
         }
     }
 

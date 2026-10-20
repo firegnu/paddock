@@ -78,6 +78,7 @@ impl PaddockWindow {
             placeholder: self.fg(|t| t.agents_dimmer),
             cursor: self.fg(|t| t.focus),
             selection: hsla(self.theme.fg(|t| t.focus), 0.3),
+            faded: self.theme.is_faded(),
         };
         let input = cx.new(|cx| TextInput::new("", "Add a note (optional)", colors, cx));
         let typing = cx.subscribe(&input, |this, input, _: &Changed, cx| {

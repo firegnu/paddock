@@ -1224,7 +1224,10 @@ pub fn ended_panes(panes: &[AgentPane], agents: &[Agent]) -> Vec<PaneId> {
 }
 
 pub struct PaddockWindow {
+    /// The colours drawn in: [`Self::chosen`], faded while another application is in front.
     theme: Rc<Theme>,
+    /// The colours Settings chose.
+    chosen: Rc<Theme>,
     sidebar: Entity<Sidebar>,
     workspace: Workspace,
     panes: HashMap<PaneId, Entity<TerminalView>>,
@@ -1452,6 +1455,7 @@ impl PaddockWindow {
         };
         let motion = moving::Motion::new(collapsed, right.open);
         let mut this = Self {
+            chosen: theme.clone(),
             theme,
             sidebar,
             workspace,
@@ -1563,6 +1567,13 @@ impl PaddockWindow {
             }
         })
         .detach();
+        // While another application is in front, the window draws in its colours faded; not
+        // while one of paddock's own windows is over it (P5-162).
+        cx.observe_global_in::<crate::unfocused::Front>(window, |this, _, cx| {
+            this.fade(!crate::unfocused::in_front(cx), cx)
+        })
+        .detach();
+        this.fade(!crate::unfocused::in_front(cx), cx);
         match restored {
             Some(contents) => this.restore(contents, window, cx),
             None => {
@@ -3378,9 +3389,54 @@ impl PaddockWindow {
         )
     }
 
-    /// The colours in use, for the Settings and About windows.
+    /// The colours Settings chose, for the Settings and About windows: never faded.
     pub fn theme(&self) -> Rc<Theme> {
-        self.theme.clone()
+        self.chosen.clone()
+    }
+
+    /// While another application is in front (`away`), the window draws in its colours faded;
+    /// with paddock in front again, as chosen (DESIGN §13 P5-162).
+    fn fade(&mut self, away: bool, cx: &mut Context<Self>) {
+        if away == self.theme.is_faded() {
+            return;
+        }
+        let theme = if away {
+            Rc::new(self.chosen.faded())
+        } else {
+            self.chosen.clone()
+        };
+        self.share_theme(theme, cx);
+    }
+
+    /// Draws in `theme` from now on, everything here that keeps colours told: every machine's
+    /// sidebar and panes, the Browser and the panels open over the window. The Changes, Kanban
+    /// and Cairn tabs take it with each frame.
+    fn share_theme(&mut self, theme: Rc<Theme>, cx: &mut Context<Self>) {
+        self.theme = theme.clone();
+        let width = self.sidebar_width;
+        for sidebar in self.sidebars() {
+            let theme = theme.clone();
+            sidebar.update(cx, |sidebar, cx| sidebar.restyle(theme, width, cx));
+        }
+        for view in self.all_panes() {
+            let theme = theme.clone();
+            view.update(cx, |view, cx| view.set_theme(theme, cx));
+        }
+        let browser = theme.clone();
+        self.browser
+            .update(cx, |view, cx| view.set_theme(browser, cx));
+        if let Some(view) = &self.new_agent {
+            let theme = theme.clone();
+            view.update(cx, |view, cx| view.set_theme(theme, cx));
+        }
+        if let Some(view) = &self.remote_agent {
+            let theme = theme.clone();
+            view.update(cx, |view, cx| view.set_theme(theme, cx));
+        }
+        if let Some(view) = &self.new_task {
+            view.update(cx, |view, cx| view.set_theme(theme, cx));
+        }
+        cx.notify();
     }
 
     /// What Settings saved that takes effect at once: colours, sidebar width, the pet, the
@@ -3420,20 +3476,15 @@ impl PaddockWindow {
         }
         if let Ok(theme) = Theme::from_config(config) {
             let theme = Rc::new(theme);
-            self.theme = theme.clone();
             self.translucency = Translucency::of(config, &theme);
-            let width = config.sidebar_width;
-            self.sidebar_width = width;
-            for sidebar in self.sidebars() {
-                let theme = theme.clone();
-                sidebar.update(cx, |sidebar, cx| sidebar.restyle(theme, width, cx));
-            }
-            for view in self.all_panes() {
-                let theme = theme.clone();
-                view.update(cx, |view, cx| view.set_theme(theme, cx));
-            }
-            self.browser
-                .update(cx, |browser, cx| browser.set_theme(theme, cx));
+            self.sidebar_width = config.sidebar_width;
+            self.chosen = theme;
+            let shown = if self.theme.is_faded() {
+                Rc::new(self.chosen.faded())
+            } else {
+                self.chosen.clone()
+            };
+            self.share_theme(shown, cx);
         }
         self.open_files_with = config.open_files_with.clone();
         let cursor = (config.blink_cursor, config.animate_cursor);
@@ -3468,7 +3519,8 @@ impl PaddockWindow {
         }
         // The New Agent panel follows too, open or closed.
         if let Some(view) = &self.new_agent {
-            view.update(cx, |view, cx| view.restyle(config, cx));
+            let theme = self.theme.clone();
+            view.update(cx, |view, cx| view.restyle(theme, config, cx));
         }
         if let Some(view) = &self.remote_agent {
             let (theme, mono) = (self.theme.clone(), config.font.clone().into());
@@ -3513,6 +3565,7 @@ impl PaddockWindow {
             placeholder: self.fg(|t| t.agents_dimmer),
             cursor: self.fg(|t| t.focus),
             selection: hsla(self.theme.fg(|t| t.focus), 0.3),
+            faded: self.theme.is_faded(),
         };
         let input = cx.new(|cx| TextInput::new("", "Open in a new tab…", colors, cx));
         cx.subscribe(&input, |this, input, _: &Changed, cx| {
@@ -6190,6 +6243,7 @@ impl PaddockWindow {
             placeholder: self.fg(|t| t.agents_dimmer),
             cursor: self.fg(|t| t.focus),
             selection: hsla(self.theme.fg(|t| t.focus), 0.3),
+            faded: self.theme.is_faded(),
         };
         let placeholder = "Search agents, tabs, settings and commands";
         let input = cx.new(|cx| TextInput::new(query.to_owned(), placeholder, colors, cx));

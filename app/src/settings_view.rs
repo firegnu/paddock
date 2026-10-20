@@ -61,7 +61,10 @@ pub enum SettingsEvent {
 }
 
 pub struct SettingsView {
+    /// The colours drawn in: [`Self::chosen`], faded while another application is in front.
     theme: Rc<Theme>,
+    /// The colours saved.
+    chosen: Rc<Theme>,
     path: PathBuf,
     draft: Draft,
     page: Page,
@@ -374,6 +377,7 @@ impl SettingsView {
             ),
         };
         let mut view = Self {
+            chosen: theme.clone(),
             theme,
             path,
             draft,
@@ -417,6 +421,13 @@ impl SettingsView {
             }
         });
         view._subscriptions.push(activation);
+        // While another application is in front, it draws in its colours faded, as the main window
+        // does; not while the main window is over it (P5-162).
+        let front = cx.observe_global_in::<crate::unfocused::Front>(window, |this, _, cx| {
+            this.fade(!crate::unfocused::in_front(cx), cx)
+        });
+        view._subscriptions.push(front);
+        view.fade(!crate::unfocused::in_front(cx), cx);
         view
     }
 
@@ -583,12 +594,57 @@ impl SettingsView {
         self.close_picker(window, cx);
     }
 
+    /// `theme` as this window draws it now: faded while another application is in front (P5-162).
+    fn as_drawn(&self, theme: Theme) -> Theme {
+        if self.theme.is_faded() {
+            theme.faded()
+        } else {
+            theme
+        }
+    }
+
+    /// While another application is in front (`away`), draws in the saved colours faded; with
+    /// paddock in front again, as saved (DESIGN §13 P5-162).
+    fn fade(&mut self, away: bool, cx: &mut Context<Self>) {
+        if away == self.theme.is_faded() {
+            return;
+        }
+        let theme = if away {
+            Rc::new(self.chosen.faded())
+        } else {
+            self.chosen.clone()
+        };
+        self.use_theme(theme, cx);
+    }
+
+    /// Draws in `theme` from now on, every field open told.
+    fn use_theme(&mut self, theme: Rc<Theme>, cx: &mut Context<Self>) {
+        self.theme = theme;
+        let fields = self.draft.fields().to_vec();
+        for field in &fields {
+            let colors = self.colors_for(field);
+            if let Some(input) = self.inputs.get(&field.key) {
+                input.update(cx, |input, cx| input.set_colors(colors, cx));
+            }
+        }
+        let colors = self.input_colors();
+        let picker = self.picker.as_ref().map(|picker| &picker.input);
+        for input in picker.into_iter().chain(&self.adding) {
+            input.update(cx, |input, cx| input.set_colors(colors, cx));
+        }
+        self.recolor_dispatch(cx);
+        self.recolor_machines(cx);
+        self.recolor_instructions(cx);
+        cx.notify();
+    }
+
     fn input_colors(&self) -> text_input::Colors {
         text_input::Colors {
             text: self.fg(|t| t.agents_text),
             placeholder: self.fg(|t| t.agents_dimmer),
             cursor: self.fg(|t| t.focus),
             selection: hsla(self.theme.fg(|t| t.focus), 0.3),
+            faded: self.theme.is_faded(),
         }
     }
 
@@ -892,15 +948,13 @@ impl SettingsView {
             );
         }
         if let Ok(theme) = Theme::from_config(&config) {
-            self.theme = Rc::new(theme);
-            let fields = self.draft.fields().to_vec();
-            for field in &fields {
-                let colors = self.colors_for(field);
-                if let Some(input) = self.inputs.get(&field.key) {
-                    input.update(cx, |input, cx| input.set_colors(colors, cx));
-                }
-            }
-            self.recolor_dispatch(cx);
+            self.chosen = Rc::new(theme);
+            let shown = if self.theme.is_faded() {
+                Rc::new(self.chosen.faded())
+            } else {
+                self.chosen.clone()
+            };
+            self.use_theme(shown, cx);
         }
         cx.emit(SettingsEvent::Saved { config, restart });
         true
@@ -2090,7 +2144,7 @@ impl SettingsView {
         if !fallbacks.is_empty() {
             font.fallbacks = Some(gpui::FontFallbacks::from_fonts(fallbacks));
         }
-        let drafted = self.draft.theme();
+        let drafted = self.draft.theme().map(|theme| self.as_drawn(theme));
         let terminal = drafted.as_ref().unwrap_or(&self.theme).terminal();
         let ansi = |index: usize| hsla(terminal.ansi[index], 1.0);
         let text = hsla(terminal.foreground, 1.0);
@@ -2145,6 +2199,7 @@ impl SettingsView {
             let Ok(theme) = Theme::from_config(&config) else {
                 continue;
             };
+            let theme = self.as_drawn(theme);
             let on = current == value;
             let color = |pick: Pick| hsla(theme.fg(pick), 1.0);
             let bar = |width: f32, height: f32, fill: Hsla| {
@@ -2321,7 +2376,7 @@ impl SettingsView {
             .iter()
             .filter(|f| self.draft.custom(&f.key))
             .collect();
-        let drafted = self.draft.theme();
+        let drafted = self.draft.theme().map(|theme| self.as_drawn(theme));
         let accent = self.fg(|t| t.agents_accent);
         let toggle = if self.all_colors {
             "Show changed".to_owned()

@@ -220,6 +220,7 @@ impl PaddockWindow {
             placeholder: self.fg(|t| t.agents_dimmer),
             cursor: self.fg(|t| t.focus),
             selection: hsla(self.theme.fg(|t| t.focus), 0.3),
+            faded: self.theme.is_faded(),
         };
         let input = cx.new(|cx| TextInput::new("", "", colors, cx).wrapping(true).sending());
         let typing = cx.subscribe(&input, |this, input, _: &Changed, cx| {
