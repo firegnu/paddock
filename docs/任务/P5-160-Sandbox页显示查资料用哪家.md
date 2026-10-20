@@ -51,3 +51,32 @@ Sandbox 页上看得出套墙的 agent 查资料用的是哪一家，以及它�
 
 ## 做完
 三项检查跑完，在本文件末尾追加「## 完成记录」：做了什么、验证了什么（哪些测试先红后绿）、拿主意的地方、没做的事、踩过的坑（试了不行换了办法的、工具或环境的行为和预想不一样的；没有就写「没有」），在你的分支里提交。主控审过后装上给用户看，用户说可以再合并。回复里只写这几样，加上有没有要主控决定的事。命令都在前台跑完，全部做完后，回复最后一行写 DONE。
+
+## 完成记录
+
+- 做了什么：
+  - `app/src/fence.rs`：新增 `Server`（`name`、`source`，读不了时 `error`；`origin()`／`problem()` 和档案同一套说法）；`Profiles` 加 `mcp: Option<Vec<Server>>`，用 `None` 区分老版本 fence 没有这个字段。`Check::search()` 找出 `layers` 里 `source` 为 `mcp` 的项，新增 `Search::words()` 写成 `exa (built in)`。
+  - `app/src/settings_sandbox.rs`：`Profiles` 列表在 `This Mac's additions` 下多一行 `Web search:`，列每家的 `名字 (内置／本机加的)`，读不了的项整段红色写 `can't be read: <原因>`；`Built from` 下多一行 `Web search: exa (built in)`，没接写 `Web search: none`。两行都只在 `profiles` 带 `mcp` 字段时出现。
+  - `docs/DESIGN.md` §13 P5-120 的 Settings › Sandbox 一段补了这两行的说法（P5-160）。
+- 验证了什么：
+  - 先写测试再实现：`web_search_servers_are_listed_and_a_check_says_which_one_it_gives`（合成 `fence profiles`／`fence check` JSON：三台服务器，内置、本机、读不了；`check` 的 `mcp` 层解析成 `exa (built in)`）和 `an_old_fence_has_no_web_search_field_and_a_check_without_one_says_none`（没有 `mcp` 字段是 `None`、明确空数组是 `Some([])`、`layers` 没有 `mcp` 时 `search()` 为空）。实现前跑 `cargo test fence::tests::web_search_servers`，编译报 `no field mcp`／`no method search`（红）；实现后 `cargo test --lib fence::tests` 10 项全过（绿）。
+  - `cargo test --all-targets`：exit 0，各测试目标全过（lib 811 项）。
+  - `cargo clippy --all-targets -- -D warnings`：exit 0。
+  - `cargo fmt --check`：通过。
+  - 另外核对了本机现装 fence 的实际输出：`fence profiles` 有 `"mcp":[{"name":"exa","source":"builtin"}]`，`fence check --profile dev --kind claude` 的 `layers` 末尾有 `{"name":"exa","origin":"builtin","source":"mcp"}`，和解析一致。
+- 拿主意的地方：
+  - `mcp` 用 `Option<Vec<Server>>` 而不是空数组：这样老版本 fence 没有字段时两行都不画，新 fence 明确写 `[]` 时仍能显示 `Web search: none`，满足第 4 条又不把“没接”误当“老版本”。
+  - `check` 的结果行也以 `profiles.mcp` 有没有字段为准来显示，不看 `layers` 里有没有 `mcp` 层；否则老版本 fence 会被写成 `none`。
+  - 多台服务器时 `check` 行用逗号连起来；`Profiles` 列表用 `·` 分隔。措辞照任务给的例子用 `Web search:`。
+  - 读不了的服务器整段红色（`名字 (can't be read: 原因)`），和档案卡片里 `Can't be read: …` 的说法一致。
+- 没做的事：不做测试按钮、不在界面里换服务商、不加依赖、不改 ranch／fence；不起 paddock 窗口、不截图（按任务留给用户看）。
+- 踩过的坑：仓库根目录没有 `Cargo.toml`，清单在 `app/`，第一次在根目录跑 `cargo test` 报 “could not find Cargo.toml”，改到 `app/` 下跑。为满足“先跑红”，先把已写的实现存成补丁撤回，再跑新测试确认编译失败，然后应用补丁跑绿。
+
+## 主控审查
+
+10-20，paddock/main。agent 实际名字是 `paddock/dev-search-1`（omp，默认档，不套墙）。
+- diff 只动了 `fence.rs`（`Server`、`Profiles.mcp: Option<Vec<Server>>`、`Check::search`）、`settings_sandbox.rs`（`Profiles` 下一行列有哪些、`Built from` 下一行写这个档案用哪家）、DESIGN 一句。只读 fence 的 JSON，不碰 `~/.fence`；「不要做」一件没犯。
+- 主控墙外重跑 `cargo test --all-targets`：991 个通过、0 个失败。
+- 对方拿主意的都同意：`mcp` 用 `Option` 区分老 fence 没这个字段（两行都不画）和新 fence 的空数组（写 `none`）。
+- 建议改（不挡合并）：两行开头都是 `Web search:`，一行是 fence 有哪些、一行是这个档案用哪家，用户看着可能分不清；要的话上面那行改成 `Web search servers:`。
+- 已从分支装上，等用户在 Settings › Sandbox 看一眼。
