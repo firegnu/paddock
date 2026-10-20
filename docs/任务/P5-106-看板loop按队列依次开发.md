@@ -170,3 +170,12 @@
 - 照主控的要求，没有重跑全套测试。
 
 **踩过的坑**：没有。
+
+## 主控审查（10-20）
+- 范围：新文件 `kanban_loop.rs` 管 loop 的状态、保存（数据目录 `kanban-loops.json`，不进 git）、对 git 校正、送话条件和判断；`kanban_view.rs` 加 LOOP 组、开关、状态行、Retry／Nudge／Skip，Queued 卡片 `Add to loop`，LOOP 卡片序号和上移下移撤出；`corral.rs` 的 `Client::deliver` 带回 `merged_with_draft`；收件箱加 loop 的提醒；开关开着的仓库每 5 秒在后台推进。没改 ranch、corral，没改看板读 git 的方式和已有按钮。DESIGN §13、AGENTS.md 补了。
+- 第一轮重跑（`.target/p5-106-kanban-loop`）：`cargo test --all-targets` 977 过 0 失败；clippy `-D warnings` 无警告；fmt、`git diff --check` 过。
+- 返工 1：对方指出“主控派出开发 agent 后自己 idle，开发超过 15 分钟就会报卡住”，是任务文件规则漏了；用户 10-20 同意改成“主控和这件的开发 agent 都不在干活才计时”。改后针对测试先红后绿；主控重跑 `kanban` 单元测试 50 个、`tests/kanban_loop.rs` 2 个，都过。
+- 对方的取舍：Skip 已开工的那件后，下一件仍等它收尾（和“上一件没收尾不派新活”一致）：同意；`merged_with_draft` 不交 ranch：同意；不是 loop 送出却开工的那件留在 LOOP 带标记并挡住下一件、送话失败的原因存盘重开后等 Retry、LOOP 空着时开关打不开：同意。
+- 对方违反规矩各一次（跑过 `python3 --version`、用过 `rm -f` 删空临时文件），没有后果，已提醒。
+- 建议改（不挡合并）：后台每 5 秒读一次 git，只在开关开着的仓库跑，用户实测时留意耗电。
+- 结果：返工 1 次
