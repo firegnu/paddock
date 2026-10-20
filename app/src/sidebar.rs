@@ -49,6 +49,10 @@ mod sandbox_view;
 #[path = "sidebar_delegates.rs"]
 mod delegates_view;
 
+#[path = "sidebar_motion.rs"]
+mod cards_motion;
+use cards_motion::{Anchor, CardMotion, Slot};
+
 /// One machine in the switcher over the list (DESIGN §13 P5-90).
 #[derive(Clone, Debug, PartialEq)]
 pub struct MachineTab {
@@ -685,6 +689,8 @@ pub struct Sidebar {
     /// The press that closed a menu, and whose it was: on its own button it does not open it
     /// again.
     dismissed: Option<(gpui::Point<Pixels>, String)>,
+    /// The cards sliding, fading in or out and ringing (P5-154), shared with what draws them.
+    cards: Rc<std::cell::RefCell<CardMotion>>,
     _floating_out: gpui::Subscription,
 }
 
@@ -783,6 +789,7 @@ impl Sidebar {
             floating_focus,
             floating_back: None,
             dismissed: None,
+            cards: Rc::default(),
             _floating_out: floating_out,
         }
     }
@@ -830,6 +837,10 @@ impl Sidebar {
     /// This machine on show in the window, or waiting while another is.
     pub fn set_on_show(&mut self, on_show: bool) {
         self.on_show = on_show;
+        // Shown again, its list is there as it is then.
+        if !on_show {
+            self.cards.borrow_mut().forget();
+        }
         // The offer to switch to This Mac was for while this one showed.
         if !on_show && self.note.as_ref().is_some_and(|note| note.offer.is_some()) {
             self.note = None;
@@ -2361,7 +2372,11 @@ impl Render for Sidebar {
         self.tidy_delegates(window, cx);
         match self.fold {
             Some(folded) => self.folding(folded, window, cx),
-            None if self.collapsed => self.rail(window, cx),
+            None if self.collapsed => {
+                // Drawn open again, the list is there as it is then.
+                self.cards.borrow_mut().forget();
+                self.rail(window, cx)
+            }
             None => self.expanded(window, cx),
         }
     }
@@ -2541,6 +2556,26 @@ impl Sidebar {
             });
             (lines, places, note)
         };
+        // The cards as drawn now, against last frame: which slide, come, go or ring (P5-154).
+        {
+            let cards: Vec<&Card> = (lines.iter())
+                .filter_map(|line| match line {
+                    Line::Agent(card) => Some(&**card),
+                    _ => None,
+                })
+                .collect();
+            let panel = &self.listing.panel;
+            let listed = self.listing.loaded.then(|| {
+                (panel.agents.iter())
+                    .map(|a| (a.name.clone(), panel.shown(a, now)))
+                    .collect()
+            });
+            let mut motion = self.cards.borrow_mut();
+            motion.frame(listed, &cards, panel.by_name, reduce_motion::on(), instant);
+            if motion.fading(instant) {
+                window.request_animation_frame();
+            }
+        }
         // Every agent, those of folded groups too.
         let agents = self.listing.panel.agents.len();
         // Workspaces stay when their agents have all stopped (P5-89): once corral has been read,
@@ -2562,6 +2597,11 @@ impl Sidebar {
         };
         // Another machine that cannot be read: its agents as last read, dimmed.
         let stale = self.remote.is_some() && self.listing.error.is_some();
+        // The cards in an open workspace's well.
+        let in_well = grounds.in_well(
+            workspaces_view::well(&theme, grounds.base, false),
+            hsla(theme.bg(|t| t.agents_bg), 1.0),
+        );
         let mut list = div()
             .id("agents")
             .flex_1()
@@ -2572,7 +2612,9 @@ impl Sidebar {
             .gap(px(CARD_GAP))
             .px(px(PAD))
             .pt(px(2.0))
-            .pb(px(end));
+            .pb(px(end))
+            // The cards whose agents have gone, fading out where they were, under the rest.
+            .children(self.leaving_cards(stale, grounds, in_well));
         // Another machine that cannot be read: the banner over its list, in place of the error's
         // line; not read yet, grey cards (P5-122).
         if let (Some(error), Some(_)) = (&self.listing.error, &self.remote) {
@@ -2638,11 +2680,6 @@ impl Sidebar {
                 list.justify_center().child(quiet)
             };
         }
-        // The cards in an open workspace's well.
-        let in_well = grounds.in_well(
-            workspaces_view::well(&theme, grounds.base, false),
-            hsla(theme.bg(|t| t.agents_bg), 1.0),
-        );
         // A workspace's lines follow its own, and go in its tray; the rest lie in the list.
         let mut lines = (lines.into_iter())
             .filter(|line| listed || shelf && idle(line))
@@ -2727,8 +2764,14 @@ impl Sidebar {
                         } else {
                             grounds
                         };
+                        let name = card.name.clone();
+                        let (shown, ripple) = {
+                            let motion = self.cards.borrow();
+                            (motion.shown(&name), motion.ripple(&name))
+                        };
                         let drawn = AgentCard {
                             asking: self.asking.as_ref() == Some(&card.name),
+                            ripple,
                             card: *card,
                             theme: theme.clone(),
                             mono: self.mono.clone(),
@@ -2740,11 +2783,19 @@ impl Sidebar {
                             grounds: card_grounds,
                         }
                         .into_any_element();
-                        if stale {
-                            div().opacity(STALE).child(drawn).into_any_element()
+                        // Coming in, it fades in where it is laid out.
+                        let drawn = if stale || shown < 1.0 {
+                            let dim = if stale { STALE } else { 1.0 };
+                            div().opacity(dim * shown).child(drawn).into_any_element()
                         } else {
                             drawn
+                        };
+                        Slot {
+                            motion: self.cards.clone(),
+                            name,
+                            card: drawn,
                         }
+                        .into_any_element()
                     }
                 });
                 if tray.is_none() {
@@ -2831,7 +2882,12 @@ impl Sidebar {
                     .flex_col()
                     .children(editor)
                     // Frosted, the list stops at the footer, which shows the material (P5-75).
-                    .child(list.mb(px(list_bottom(&ui, self.frosted))))
+                    .child(Anchor {
+                        motion: self.cards.clone(),
+                        list: list
+                            .mb(px(list_bottom(&ui, self.frosted)))
+                            .into_any_element(),
+                    })
                     // Over the end of the list, which scrolls on its own, down to the sidebar's foot: the
                     // panel, and the footer under it in the panel's see-through ground (P5-70b), or
                     // none on the frosted sidebar (P5-75); the strip has none.
@@ -3252,6 +3308,8 @@ struct AgentCard {
     grounds: Grounds,
     /// It asks whether to pause its agent in a turn.
     asking: bool,
+    /// How far the ring its status dot sends out has gone, while it goes (P5-154).
+    ripple: Option<f32>,
 }
 
 impl RenderOnce for AgentCard {
@@ -3267,6 +3325,7 @@ impl RenderOnce for AgentCard {
             delegates,
             grounds,
             asking,
+            ripple,
         } = self;
         let ui = UiFont::get(cx);
         let fg = |pick: Pick| hsla(theme.fg(pick), 1.0);
@@ -3544,7 +3603,7 @@ impl RenderOnce for AgentCard {
             details(&theme, &mono, &ui, &card, buttons)
         });
 
-        let badge = badge(&theme, &ui, &card, (ground, hovered), &group);
+        let badge = badge(&theme, &ui, &card, (ground, hovered), &group, ripple);
         let avatar = avatar(&theme, &ui, &card, badge).when_some(
             card.brand
                 .as_ref()
@@ -3675,15 +3734,18 @@ fn kind_mark(ui: &UiFont, card: &Card, color: Hsla, letter: f32) -> AnyElement {
 
 /// The status on the avatar's corner, ringed in the card's ground (the second while the card is
 /// hovered): an arc turning while it works, an amber dot softly pulsing while it waits, an orange
-/// `!` when stalled, otherwise a small dot in the status's colour.
+/// `!` when stalled, otherwise a small dot in the status's colour. Its agent just stopped or come
+/// to need you, the dot sends one ring out, `ripple` of the way (P5-154).
 fn badge(
     theme: &Theme,
     ui: &UiFont,
     card: &Card,
     (ground, hovered): (Hsla, Hsla),
     group: &SharedString,
+    ripple: Option<f32>,
 ) -> AnyElement {
     let color = hsla(theme.fg(card.look.color), 1.0);
+    let ring_out = |dot: f32| ripple.map(|went| cards_motion::ripple(color, ui.scale(dot), went));
     // The ring: `inner` points across, `ring` round it, its edge `inset` from the avatar's corner.
     let ring = |inner: f32, ring: f32, inset: f32| {
         div()
@@ -3731,6 +3793,8 @@ fn badge(
         }
         Status::Waiting => {
             let reach = ui.scale(5.0);
+            // Come to need you just now, the ring it sends out once goes over the beat.
+            let rung = ring_out(11.0);
             let dot = div()
                 .size(ui.px(11.0))
                 .rounded_full()
@@ -3743,13 +3807,14 @@ fn badge(
                     move |dot, delta| {
                         // A ring widens and fades over most of the beat, then rests.
                         let out = ease_in_out((delta / 0.7).min(1.0));
-                        dot.shadow(vec![BoxShadow {
+                        let pulse = BoxShadow {
                             color: color.opacity(0.6 * (1.0 - out)),
                             offset: point(px(0.0), px(0.0)),
                             blur_radius: px(0.0),
                             spread_radius: px(reach * out),
                             inset: false,
-                        }])
+                        };
+                        dot.shadow(std::iter::once(pulse).chain(rung.clone()).collect())
                     },
                 );
             ring(11.0, 2.5, -5.5).child(dot).into_any_element()
@@ -3771,7 +3836,13 @@ fn badge(
             )
             .into_any_element(),
         _ => ring(8.0, 2.5, -4.5)
-            .child(div().size(ui.px(8.0)).rounded_full().bg(color))
+            .child(
+                div()
+                    .size(ui.px(8.0))
+                    .rounded_full()
+                    .bg(color)
+                    .when_some(ring_out(8.0), |dot, ring| dot.shadow(vec![ring])),
+            )
             .into_any_element(),
     }
 }
@@ -4239,6 +4310,7 @@ impl RenderOnce for Tile {
                 card,
                 (grounds.base, grounds.base),
                 &group,
+                None,
             ))
     }
 }

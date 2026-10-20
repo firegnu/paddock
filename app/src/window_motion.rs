@@ -1,9 +1,11 @@
 //! The window's things in motion (P5-148a): popups, menus and dialogs fade in as they rise to their
 //! place and fade out quicker where they are; a zoomed pane grows from its place in the split to
 //! fill the tab as the others fade, and goes back the same way; the sidebars slide; the active
-//! pane's rim slides to the pane that takes the keys as the veils over the others cross-fade.
+//! pane's rim slides to the pane that takes the keys as the veils over the others cross-fade; a
+//! tab switched to fades in as it moves over from its side, as a popup rises (P5-154, 1A).
 //! Timings and curves are the approved demo's (1A, 2A, 3B; the sidebars as 2A). With the system's
-//! Reduce Motion on, popups only fade and the veils still cross-fade; the rest is there at once.
+//! Reduce Motion on, popups and a tab switched to only fade and the veils still cross-fade; the
+//! rest is there at once.
 //! While a pane's edges move its terminal keeps its size, fitted once they stop; nothing asks for
 //! frames once all is still.
 use super::*;
@@ -106,6 +108,10 @@ pub(super) struct Motion {
     ring: Option<Ring>,
     /// The panes drawn last frame and how veiled, 0 to 1.
     veils: HashMap<PaneId, Tween>,
+    /// The tab as last drawn, by its machine and id; switched to, which side it comes in from (1
+    /// the right, -1 the left, 0 neither) and how far it has come in.
+    tab: Option<(usize, u64)>,
+    switched: Option<(f32, Tween)>,
     /// When the frame being drawn is: all of it is drawn as of then.
     frame: Instant,
 }
@@ -125,6 +131,8 @@ impl Motion {
             active: None,
             ring: None,
             veils: HashMap::new(),
+            tab: None,
+            switched: None,
             frame: Instant::now(),
         }
     }
@@ -337,6 +345,39 @@ impl Motion {
         self.veils.get(&pane).map_or(0.0, |tween| tween.value(now))
     }
 
+    /// The tab on show: its machine, the tabs' ids in order and where it is among them. Switched
+    /// to from another tab of the same machine still open, it comes in from that tab's side, or
+    /// with `still` only fades in; anything else is there at once.
+    fn switch(&mut self, seat: usize, tabs: &[u64], at: usize, still: bool, now: Instant) {
+        let Some(&id) = tabs.get(at) else {
+            return;
+        };
+        let was = self.tab.replace((seat, id));
+        if was == Some((seat, id)) {
+            return;
+        }
+        let from = was
+            .filter(|(was_seat, _)| *was_seat == seat)
+            .and_then(|(_, was_id)| tabs.iter().position(|&tab| tab == was_id));
+        self.switched = from.map(|from| {
+            let side = if at > from { 1.0 } else { -1.0 };
+            let mut went = Tween::at(0.0);
+            went.go(1.0, now, tween::POP_IN, tween::POP_CURVE);
+            (if still { 0.0 } else { side }, went)
+        });
+    }
+
+    /// The tab on show at `now`: how far it shows, 0 to 1, and how far right of its place.
+    fn tab_look(&self, now: Instant) -> (f32, f32) {
+        match self.switched {
+            Some((side, went)) => {
+                let shown = went.value(now);
+                (shown, side * tween::POP_RISE * (1.0 - shown))
+            }
+            None => (1.0, 0.0),
+        }
+    }
+
     /// The panes' edges move at `now`: the terminals keep their size until they stop.
     fn holding(&self, now: Instant) -> bool {
         self.fold.moving(now) || self.right.moving(now) || self.growing(now).is_some()
@@ -355,6 +396,7 @@ impl Motion {
                 .is_some_and(|leaving| leaving.fade.moving(now))
             || self.ring(now).is_some()
             || self.veils.values().any(|tween| tween.moving(now))
+            || self.switched.is_some_and(|(_, went)| went.moving(now))
     }
 }
 
@@ -416,6 +458,14 @@ impl PaddockWindow {
         self.motion.popup(self.popup, still, now);
         self.motion
             .sides(self.collapsed, self.right.open, still, now);
+        let ids: Vec<u64> = self.workspace.tabs.iter().map(|tab| tab.id).collect();
+        self.motion.switch(
+            self.seats.here(),
+            &ids,
+            self.workspace.active_tab,
+            still,
+            now,
+        );
         let tab = self.workspace.tab();
         let key = TabKey {
             seat: self.seats.here(),
@@ -524,6 +574,12 @@ impl PaddockWindow {
             Some((growing, grown)) if growing != pane => 1.0 - grown,
             _ => 1.0,
         }
+    }
+
+    /// The tab switched to this frame (P5-154): how far it shows, 0 to 1, and how far right of
+    /// its place.
+    pub(super) fn tab_look(&self) -> (f32, f32) {
+        self.motion.tab_look(self.motion.frame)
     }
 
     /// How veiled a pane is, 0 to 1.
@@ -900,6 +956,62 @@ mod tests {
         motion.veils(&[(1, true)], end);
         motion.veils(&[(1, true), (2, true)], end);
         assert_eq!(motion.veil(2, end), 1.0);
+    }
+
+    #[test]
+    fn a_tab_switched_to_fades_in_as_it_moves_over_from_the_side_it_lies_on() {
+        let start = Instant::now();
+        let mut motion = Motion::new(false, false);
+        let tabs = [11, 12, 13];
+        // The first tab drawn is there at once.
+        motion.switch(0, &tabs, 0, false, start);
+        assert_eq!(motion.tab_look(start), (1.0, 0.0));
+        assert!(!motion.moving(start));
+        // To a tab on the right: from 4 points to the right, faded out.
+        motion.switch(0, &tabs, 2, false, start);
+        assert_eq!(motion.tab_look(start), (0.0, tween::POP_RISE));
+        let (shown, shift) = motion.tab_look(start + ms(40));
+        assert!(shown > 0.0 && shown < 1.0, "{shown}");
+        assert!(shift > 0.0 && shift < tween::POP_RISE, "{shift}");
+        assert!(close(shift, tween::POP_RISE * (1.0 - shown)));
+        assert!(motion.moving(start + ms(40)));
+        // In place: still, and no frames.
+        assert_eq!(motion.tab_look(start + ms(120)), (1.0, 0.0));
+        assert!(!motion.moving(start + ms(120)));
+        // To a tab on the left: from the left; another switch on the way starts afresh.
+        let left = start + ms(200);
+        motion.switch(0, &tabs, 1, false, left);
+        assert_eq!(motion.tab_look(left), (0.0, -tween::POP_RISE));
+        let again = left + ms(30);
+        motion.switch(0, &tabs, 2, false, again);
+        assert_eq!(motion.tab_look(again), (0.0, tween::POP_RISE));
+        // The same tab drawn again keeps on.
+        motion.switch(0, &tabs, 2, false, again + ms(10));
+        assert!(motion.tab_look(again + ms(10)).0 > 0.0);
+        assert_eq!(motion.tab_look(again + ms(120)), (1.0, 0.0));
+    }
+
+    #[test]
+    fn a_tab_comes_at_once_on_another_machine_after_its_own_closed_or_with_reduce_motion_fading_only()
+     {
+        let start = Instant::now();
+        let mut motion = Motion::new(false, false);
+        motion.switch(0, &[1, 2], 0, false, start);
+        // Another machine's tabs: at once.
+        motion.switch(1, &[1, 2], 1, false, start);
+        assert_eq!(motion.tab_look(start), (1.0, 0.0));
+        assert!(!motion.moving(start));
+        // The tab shown closed: the one taking its place is there at once.
+        motion.switch(1, &[1], 0, false, start);
+        assert_eq!(motion.tab_look(start), (1.0, 0.0));
+        assert!(!motion.moving(start));
+        // Reduce Motion: it only fades.
+        motion.switch(1, &[1, 3], 1, true, start);
+        let (shown, shift) = motion.tab_look(start + ms(40));
+        assert!(shown > 0.0 && shown < 1.0, "{shown}");
+        assert_eq!(shift, 0.0);
+        assert!(motion.moving(start + ms(40)));
+        assert!(!motion.moving(start + ms(120)));
     }
 
     #[test]

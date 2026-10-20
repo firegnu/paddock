@@ -7338,6 +7338,21 @@ impl Render for PaddockWindow {
         };
         let agents = self.sidebar.read(cx).agents();
         let now = now();
+        // A tab switched to fades in as it moves over from its side, its size kept (P5-154).
+        let content = self.node(&root, shown, &agents, window, cx);
+        let content = match self.tab_look() {
+            (1.0, _) => content,
+            (opacity, shift) => div()
+                .relative()
+                .left(px(shift))
+                .flex()
+                .flex_1()
+                .min_w(px(0.0))
+                .min_h(px(0.0))
+                .opacity(opacity)
+                .child(content)
+                .into_any_element(),
+        };
         let tab =
             div()
                 .relative()
@@ -7345,7 +7360,7 @@ impl Render for PaddockWindow {
                 .flex_1()
                 .min_w(px(0.0))
                 .min_h(px(0.0))
-                .child(self.node(&root, shown, &agents, window, cx))
+                .child(content)
                 .child(self.spot(Spot::Tab))
                 .children(growing.map(|(pane, grown)| {
                     self.growing_pane(pane, grown, shown, &agents, window, cx)
