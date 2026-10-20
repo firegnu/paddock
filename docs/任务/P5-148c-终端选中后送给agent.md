@@ -97,3 +97,10 @@
 - `view::links::tests::a_shell_s_relative_paths_are_from_where_it_has_gone_to` 在墙里单跑、全量都失败（“the shell did not get there”）。P5-148a 的完成记录里记过同一件事：PATH 里 ServBay 的 `clear` 在 `/usr/bin` 前面，不认 `xterm-256color`。照那里的办法 `PATH="/usr/bin:/bin:$PATH"` 跑全量全过。想在基线上核对时 `git stash push -u` 被墙挡（“Cannot save the current status”，写不了主仓库的 stash），没有绕，靠 P5-148a 的记录和 PATH 修正后通过来判断与本件无关。
 - `.target/main` 里只有 10-17 的主程序，没有能直接拿来跑的基线测试程序。
 - 在墙里 `git commit` 成功后 git 还报一句 `Unable to create .../paddock/.git/packed-refs.lock: Operation not permitted`（整理主仓库 refs 被墙挡）；提交本身已落到 `p5-148c-send`，没有处理。
+
+## 主控审查（10-20）
+- 范围：终端层只加工具条和 `SendSelection` 事件（`view/toolbar.rs`、`view.rs`，提示条 `notice.rs` 加成功样式），不认识 corral、侧栏；组装、列表、面板状态在 `send_to.rs`（纯逻辑），面板和送出在 `window_send.rs`，经 `corral::Client::send`（远程走 `machines.link`，同 Inbox）。没动已有的选择、复制、⌘ 点链接、拖选自动滚；没加主题键、依赖。agent 名字实际是 `paddock/dev-send-1`，套 fence `dev` 墙。
+- 要做的五条逐条对过：工具条在松开处、不挡字、该走时走、程序要鼠标时不出；面板列表自己的排第一标 `this pane`、↑↓↩、备注、预览、Send／Cancel／Esc；送出格式（来源行、代码块、备注；围栏比选区里最长的反引号多一个）；成功提示、被拒留住文字和备注；只有一个也列出来。
+- 重跑（墙外，`.target/p5-148c-send`）：`cargo test --all-targets` 945 过 0 失败，和对方报的一致；clippy `-D warnings` 无警告；fmt、`git diff --check` 过。
+- 对方的取舍：工具条在时 Esc 只收起不发给程序、列出没结束的 agent（忙的暂停的也列，送不出按 Inbox 说法写原因）、来源行写全名加 kind、去掉末尾空行、面板关了结果改在窗格底部提示，都同意。
+- 结果：一次过
