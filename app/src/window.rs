@@ -2141,10 +2141,25 @@ impl PaddockWindow {
     }
 
     /// The other machines' rows that ring, for the bell on show: it counts every machine's.
+    /// What the Kanban Loop says rings it too, wherever is on show (P5-106).
     fn rung_elsewhere(&self, cx: &gpui::App) -> Vec<crate::attention::Item> {
+        let looped = self.loop_notices(cx).into_iter().map(|notice| {
+            use crate::attention::{Item, Kind};
+            Item {
+                kind: if notice.needs {
+                    Kind::Waiting
+                } else {
+                    Kind::Reply
+                },
+                agent: None,
+                label: format!("Loop \u{b7} {}", notice.name),
+                note: notice.text,
+            }
+        });
         (0..self.seats.len())
             .filter(|seat| *seat != self.seats.here())
             .flat_map(|seat| self.parts(seat).0.read(cx).ringing())
+            .chain(looped)
             .collect()
     }
 
@@ -2832,6 +2847,11 @@ impl PaddockWindow {
                 self.show_agent(name, metadata, window, cx);
                 self.right.tab = RightTab::Changes;
                 self.save_layout(cx);
+                cx.notify();
+            }
+            // What the Kanban Loop says changed: the Inbox and the bell take it (P5-106).
+            KanbanEvent::Loop => {
+                self.sync_inbox(window, cx);
                 cx.notify();
             }
             KanbanEvent::NewTask { repo } => self.open_new_task(repo.clone(), None, window, cx),
@@ -7405,6 +7425,7 @@ impl Render for PaddockWindow {
             theme: self.theme.clone(),
             mono: mono_font(&self.template),
             agents: self.local_sidebar().read(cx).seen(),
+            corral: self.template.corral.clone(),
         };
         let cairn = cairn_view::Frame {
             cwd: follow.as_ref().map(|f| f.cwd.clone()),

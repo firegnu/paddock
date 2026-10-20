@@ -394,3 +394,56 @@ fn the_last_reply_is_read_while_waiting_too_and_kept_while_the_agent_works_on() 
     assert_eq!(said(&panel, "c/main", 114.0), None);
     assert!(!shown(&panel, 114.0));
 }
+
+#[test]
+fn what_the_kanban_loop_says_has_rows_of_its_own_while_it_says_it() {
+    let panel = panel();
+    let notice = |text: &str, needs: bool| inbox::Notice {
+        repo: "/w/paddock".into(),
+        name: "paddock".into(),
+        text: text.into(),
+        needs,
+    };
+    let stuck = notice("Stuck: P5-1 not wrapped up, controller idle 15m", true);
+    let finished = notice("Loop finished · 2 done", false);
+    let sources = [inbox::Source::here(&panel, None)];
+    let rows = inbox::rows_of(&sources, &[stuck.clone(), finished.clone()], 100.0);
+    let loop_rows: Vec<(usize, Group)> = rows
+        .iter()
+        .enumerate()
+        .filter(|(_, row)| row.notice.is_some())
+        .map(|(at, row)| (at, row.group))
+        .collect();
+    // What needs the user after the agents that do; what is only to be read after the new replies.
+    assert_eq!(loop_rows, [(3, Group::Needs), (5, Group::New)]);
+    assert!(
+        rows.iter()
+            .all(|row| row.notice.is_none() || row.agent.is_none())
+    );
+    // A loop row is not the failed read's, though neither has an agent.
+    let failed = Row {
+        group: Group::Needs,
+        agent: None,
+        machine: None,
+        notice: None,
+    };
+    assert!(!rows[3].same(&failed));
+    // Open, its rows stay while the loop says them, and go once it no longer does.
+    let mut open = Open::of(&sources, &[stuck.clone(), finished.clone()], 100.0);
+    open.select(5);
+    open.refresh_of(&sources, &[stuck.clone(), finished.clone()], 101.0);
+    assert_eq!(
+        open.selected().and_then(|r| r.notice.clone()),
+        Some(finished.clone())
+    );
+    open.refresh_of(&sources, std::slice::from_ref(&finished), 102.0);
+    assert!(
+        open.rows()
+            .iter()
+            .all(|row| row.notice.as_ref() != Some(&stuck))
+    );
+    assert_eq!(
+        open.selected().and_then(|r| r.notice.clone()),
+        Some(finished)
+    );
+}

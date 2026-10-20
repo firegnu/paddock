@@ -98,7 +98,6 @@ pub struct Failed {
     pub why: String,
 }
 
-
 impl Loop {
     /// Whether `id` is in it, handed over or not.
     pub fn has(&self, id: &str) -> bool {
@@ -241,16 +240,17 @@ pub fn settle(lp: &mut Loop, board: &Board) -> Settled {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Stand {
     /// Off: how many tasks are in it, and how its last run finished.
-    Off {
-        tasks: usize,
-        finished: Option<u32>,
-    },
+    Off { tasks: usize, finished: Option<u32> },
     /// No controller is running in the repository.
     NoController,
     /// More than one is.
     Controllers(usize),
     /// corral did not take a handing over: Retry.
-    Failed { id: String, why: String, nudge: bool },
+    Failed {
+        id: String,
+        why: String,
+        nudge: bool,
+    },
     /// The task handed over waits on the user: its `待用户：` line.
     Asks { id: String, asks: String },
     /// The task handed over is not wrapped up, and the controller has idled this long.
@@ -647,11 +647,17 @@ mod tests {
         let idle = main(Status::Idle, 0.0);
         let lp = on(&["P1-1"]);
         // All there: on, one controller, nothing under way, one that can start.
-        assert_eq!(at(&lp, &facts, &[idle.clone()], 100.0), send("P1-1"));
-        // Off.
-        let off = Loop { on: false, ..lp.clone() };
         assert_eq!(
-            at(&off, &facts, &[idle.clone()], 100.0),
+            at(&lp, &facts, std::slice::from_ref(&idle), 100.0),
+            send("P1-1")
+        );
+        // Off.
+        let off = Loop {
+            on: false,
+            ..lp.clone()
+        };
+        assert_eq!(
+            at(&off, &facts, std::slice::from_ref(&idle), 100.0),
             Stand::Off {
                 tasks: 1,
                 finished: None
@@ -674,21 +680,22 @@ mod tests {
         );
         // Something else under way, in each column it can be in, the loop's or not.
         let mut busy = facts.clone();
-        busy.worktrees.push(("/w/wt/P1-2".into(), Some("p1-2".into())));
+        busy.worktrees
+            .push(("/w/wt/P1-2".into(), Some("p1-2".into())));
         assert_eq!(
-            at(&lp, &busy, &[idle.clone()], 100.0),
+            at(&lp, &busy, std::slice::from_ref(&idle), 100.0),
             Stand::Busy { id: "P1-2".into() }
         );
         let mut review = facts.clone();
         review.records.insert("P1-2".into());
         assert_eq!(
-            at(&lp, &review, &[idle.clone()], 100.0),
+            at(&lp, &review, std::slice::from_ref(&idle), 100.0),
             Stand::Busy { id: "P1-2".into() }
         );
         let mut merged = facts.clone();
         merged.merges.insert("P1-2".into(), 50);
         assert_eq!(
-            at(&lp, &merged, &[idle.clone()], 100.0),
+            at(&lp, &merged, std::slice::from_ref(&idle), 100.0),
             Stand::Busy { id: "P1-2".into() }
         );
         // One handed over already, not wrapped up.
@@ -697,16 +704,19 @@ mod tests {
             ..lp.clone()
         };
         assert_eq!(
-            at(&handed, &facts, &[idle.clone()], 100.0),
+            at(&handed, &facts, std::slice::from_ref(&idle), 100.0),
             Stand::Working {
                 id: "P1-2".into(),
                 begun: false
             }
         );
         // Nothing in it that can start.
-        assert_eq!(at(&on(&[]), &facts, &[idle.clone()], 100.0), Stand::Blocked);
+        assert_eq!(
+            at(&on(&[]), &facts, std::slice::from_ref(&idle), 100.0),
+            Stand::Blocked
+        );
         // On its way, or held back after the controller turned it away.
-        let board = board(&facts, &[idle.clone()], 100.0);
+        let board = board(&facts, std::slice::from_ref(&idle), 100.0);
         let agents = [idle];
         assert_eq!(
             look(&lp, &board, &agents, 100.0, &T, None, true),
@@ -739,19 +749,27 @@ mod tests {
         // P1-9 is wrapped up elsewhere for one case below.
         let idle = main(Status::Idle, 0.0);
         let mut lp = on(&["P1-1", "P1-2", "P1-3"]);
-        let b = board(&facts, &[idle.clone()], 100.0);
+        let b = board(&facts, std::slice::from_ref(&idle), 100.0);
         assert!(!settle(&mut lp, &b).changed);
         assert_eq!(lp.tasks, ["P1-1", "P1-2", "P1-3"]);
-        assert_eq!(at(&lp, &facts, &[idle.clone()], 100.0), send("P1-3"));
+        assert_eq!(
+            at(&lp, &facts, std::slice::from_ref(&idle), 100.0),
+            send("P1-3")
+        );
         // Once what it waits for is wrapped up, the first goes first.
         facts.wrapped.insert("P1-9".into(), 99);
-        assert_eq!(at(&lp, &facts, &[idle.clone()], 100.0), send("P1-1"));
+        assert_eq!(
+            at(&lp, &facts, std::slice::from_ref(&idle), 100.0),
+            send("P1-1")
+        );
         // None can start.
         let lp = on(&["P1-2"]);
         assert_eq!(at(&lp, &facts, &[idle], 100.0), Stand::Blocked);
         // A draft never can.
         let mut drafted = facts.clone();
-        drafted.drafts.push(kanban::draft("P1-7-x.md", "# 任务：x\n"));
+        drafted
+            .drafts
+            .push(kanban::draft("P1-7-x.md", "# 任务：x\n"));
         let card = board(&drafted, &[], 0.0)
             .cards(Column::Queued)
             .iter()
@@ -770,11 +788,13 @@ mod tests {
             ..on(&["P1-2", "P1-3"])
         };
         // Under way: nothing else goes.
-        facts.worktrees.push(("/w/wt/P1-1".into(), Some("p1-1".into())));
-        let b = board(&facts, &[idle.clone()], 100.0);
+        facts
+            .worktrees
+            .push(("/w/wt/P1-1".into(), Some("p1-1".into())));
+        let b = board(&facts, std::slice::from_ref(&idle), 100.0);
         assert!(!settle(&mut lp, &b).changed);
         assert_eq!(
-            at(&lp, &facts, &[idle.clone()], 100.0),
+            at(&lp, &facts, std::slice::from_ref(&idle), 100.0),
             Stand::Working {
                 id: "P1-1".into(),
                 begun: true
@@ -782,18 +802,21 @@ mod tests {
         );
         // Merged, not wrapped up: still waits.
         facts.merges.insert("P1-1".into(), 50);
-        let b = board(&facts, &[idle.clone()], 100.0);
+        let b = board(&facts, std::slice::from_ref(&idle), 100.0);
         settle(&mut lp, &b);
         assert_eq!(lp.sent.as_ref().map(|s| s.id.as_str()), Some("P1-1"));
         // Wrapped up: done, and the next goes.
         facts.worktrees.clear();
         facts.wrapped.insert("P1-1".into(), 60);
-        let b = board(&facts, &[idle.clone()], 100.0);
+        let b = board(&facts, std::slice::from_ref(&idle), 100.0);
         let settled = settle(&mut lp, &b);
         assert!(settled.changed);
         assert_eq!(settled.finished, None);
         assert_eq!((lp.sent.clone(), lp.done), (None, 1));
-        assert_eq!(at(&lp, &facts, &[idle.clone()], 100.0), send("P1-2"));
+        assert_eq!(
+            at(&lp, &facts, std::slice::from_ref(&idle), 100.0),
+            send("P1-2")
+        );
         // Dropped counts as wrapped up.
         lp.tasks.retain(|t| t != "P1-2");
         lp.sent = sent("P1-2", 70.0);
@@ -824,7 +847,9 @@ mod tests {
             ..task("P1-1")
         };
         let mut facts = facts(vec![asks, task("P1-2")]);
-        facts.worktrees.push(("/w/wt/P1-1".into(), Some("p1-1".into())));
+        facts
+            .worktrees
+            .push(("/w/wt/P1-1".into(), Some("p1-1".into())));
         let lp = Loop {
             sent: sent("P1-1", 10.0),
             ..on(&["P1-2"])
@@ -851,13 +876,13 @@ mod tests {
         // Idle since before it was handed over: counted from the handing over.
         let idle = main(Status::Idle, 900.0);
         assert_eq!(
-            at(&lp, &facts, &[idle.clone()], 1_899.0),
+            at(&lp, &facts, std::slice::from_ref(&idle), 1_899.0),
             Stand::Working {
                 id: "P1-1".into(),
                 begun: false
             }
         );
-        let stuck = at(&lp, &facts, &[idle.clone()], 1_900.0);
+        let stuck = at(&lp, &facts, std::slice::from_ref(&idle), 1_900.0);
         assert_eq!(
             stuck,
             Stand::Stuck {
@@ -875,11 +900,11 @@ mod tests {
         // Idle again after working: counted from then.
         let again = main(Status::Idle, 1_500.0);
         assert!(matches!(
-            at(&lp, &facts, &[again.clone()], 2_399.0),
+            at(&lp, &facts, std::slice::from_ref(&again), 2_399.0),
             Stand::Working { .. }
         ));
         assert!(matches!(
-            at(&lp, &facts, &[again.clone()], 2_400.0),
+            at(&lp, &facts, std::slice::from_ref(&again), 2_400.0),
             Stand::Stuck { .. }
         ));
         // Nudged: counted from the nudge.
@@ -1005,17 +1030,14 @@ mod tests {
     fn what_leaves_queued_otherwise_than_by_starting_leaves_the_loop() {
         // P1-1 done, P1-2 dropped, P1-3 a draft again, P1-4 gone, P1-5 started otherwise, P1-6
         // queued.
-        let mut facts = facts(vec![
-            task("P1-1"),
-            task("P1-2"),
-            task("P1-5"),
-            task("P1-6"),
-        ]);
+        let mut facts = facts(vec![task("P1-1"), task("P1-2"), task("P1-5"), task("P1-6")]);
         facts.wrapped.insert("P1-1".into(), 1);
         facts.wrapped.insert("P1-2".into(), 2);
         facts.dropped.insert("P1-2".into(), "不做".into());
         facts.drafts.push(kanban::draft("P1-3-x.md", "# 任务：x\n"));
-        facts.worktrees.push(("/w/wt/P1-5".into(), Some("p1-5".into())));
+        facts
+            .worktrees
+            .push(("/w/wt/P1-5".into(), Some("p1-5".into())));
         let mut lp = Loop {
             on: false,
             ..on(&["P1-1", "P1-2", "P1-3", "P1-4", "P1-5", "P1-6"])

@@ -124,6 +124,8 @@ enum Showing {
     ReadFailed(String, String),
     /// An agent corral no longer lists.
     Gone(String),
+    /// What the Kanban Loop says (P5-106).
+    Notice(inbox::Notice),
     Agent(Box<Reading>),
 }
 
@@ -174,6 +176,38 @@ impl PaddockWindow {
             .collect()
     }
 
+    /// What the Kanban Loop says, for the Inbox and the bell (DESIGN §13 P5-106).
+    pub(super) fn loop_notices(&self, cx: &gpui::App) -> Vec<inbox::Notice> {
+        self.kanban.read(cx).loop_notices()
+    }
+
+    /// A row of the loop's: the Inbox closes, and this Mac's right sidebar shows the Kanban,
+    /// turned to that repository; one only to be read is then read.
+    fn open_loop_notice(
+        &mut self,
+        notice: inbox::Notice,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.close_popup(window, cx);
+        if self.seats.here() != local_only::THIS_MAC {
+            self.switch(local_only::THIS_MAC, window, cx);
+        }
+        self.right.open = true;
+        self.right.tab = RightTab::Kanban;
+        self.save_layout(cx);
+        self.kanban.update(cx, |kanban, cx| {
+            kanban.read_notice(&notice);
+            kanban.show_repo(notice.repo, cx);
+        });
+        cx.notify();
+    }
+
+    /// The selected row's, when it is the loop's.
+    fn inbox_notice(&self) -> Option<inbox::Notice> {
+        self.inbox.open.as_ref()?.list.selected()?.notice.clone()
+    }
+
     /// ⇧⌘A and the bell: the Inbox, sorted as things stand and its first row on show; again,
     /// closed.
     pub(super) fn toggle_inbox(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -194,7 +228,7 @@ impl PaddockWindow {
             this.inbox.typed(text, at_end);
             cx.notify();
         });
-        let list = inbox::Open::of(&self.inbox_sources(cx), now());
+        let list = inbox::Open::of(&self.inbox_sources(cx), &self.loop_notices(cx), now());
         self.let_go(Some(Popup::Attention));
         self.palette = None;
         self.chooser = Chooser::default();
@@ -269,7 +303,8 @@ impl PaddockWindow {
         if on.is_some_and(|who| answered.contains(&who)) {
             open.reply.set_offset(point(px(0.0), px(0.0)));
         }
-        open.list.refresh_of(&self.inbox_sources(cx), now);
+        let notices = self.loop_notices(cx);
+        open.list.refresh_of(&self.inbox_sources(cx), &notices, now);
         self.inbox.open = Some(open);
         self.show_inbox_row(window, cx);
     }
@@ -282,15 +317,25 @@ impl PaddockWindow {
         self.show_inbox_row(window, cx);
     }
 
+    /// A click on a row: it is on show; the loop's shows its board.
     fn select_inbox(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(open) = &mut self.inbox.open {
             open.list.select(index);
         }
+        if let Some(notice) = self.inbox_notice() {
+            self.open_loop_notice(notice, window, cx);
+            return;
+        }
         self.show_inbox_row(window, cx);
     }
 
-    /// ↩: the reply sent; for an agent showing a prompt or in error, its pane.
+    /// ↩: the reply sent; for an agent showing a prompt or in error, its pane; for the loop's
+    /// row, its board.
     pub(super) fn act_inbox(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(notice) = self.inbox_notice() {
+            self.open_loop_notice(notice, window, cx);
+            return;
+        }
         match self.inbox_agent(cx) {
             Some((_, _, Status::Waiting | Status::Error)) => self.open_inbox_pane(window, cx),
             Some(_) => self.send_inbox(window, cx),
@@ -564,7 +609,20 @@ impl PaddockWindow {
                 .iter()
                 .map(|s| (s.machine, inbox::ringing(s.panel, s.error, now)))
                 .collect();
+            let notices = self.loop_notices(cx);
             let facts = open.list.rows().iter().filter_map(|row| {
+                // The Kanban Loop's (P5-106): from the repository's name, in the loop's colours.
+                if let Some(notice) = &row.notice {
+                    return Some(RowFacts {
+                        short: "Loop".into(),
+                        project: notice.name.clone(),
+                        kind: None,
+                        dot: if notice.needs { amber } else { accent },
+                        age: None,
+                        line: inbox::line(sources[0].panel, row, None, None, now),
+                        quiet: !notices.contains(notice),
+                    });
+                }
                 let source = sources
                     .iter()
                     .find(|s| s.machine == row.machine.as_deref())?;
@@ -601,7 +659,7 @@ impl PaddockWindow {
                     quiet: row.group != Group::Read && !rings,
                 })
             });
-            let count = ringing.iter().map(|(_, items)| items.len()).sum();
+            let count = ringing.iter().map(|(_, items)| items.len()).sum::<usize>() + notices.len();
             (count, facts.collect())
         };
         let cap = |key: String| {
@@ -847,6 +905,9 @@ impl PaddockWindow {
         let Some(row) = open.list.selected() else {
             return Showing::Nothing;
         };
+        if let Some(notice) = &row.notice {
+            return Showing::Notice(notice.clone());
+        }
         let now = now();
         let Some(sidebar) = self.machine_sidebar(row.machine.as_deref()) else {
             return Showing::Nothing;
@@ -1054,6 +1115,37 @@ impl PaddockWindow {
                     .child(head(name, avatar(None, dimmer), None))
                     .child(div().flex_grow(1.0))
                     .child(foot().child(closed(inbox::composer(None).err().unwrap_or_default())));
+            }
+            Showing::Notice(notice) => {
+                let ink = if notice.needs { amber } else { accent };
+                let (name, words) = (notice.name.clone(), notice.text.clone());
+                let show = cx.listener(move |this, _: &ClickEvent, window, cx| {
+                    this.open_loop_notice(notice.clone(), window, cx)
+                });
+                let header = head(
+                    format!("Loop \u{b7} {name}"),
+                    avatar(None, ink),
+                    Some(about(vec![("Kanban".into(), dimmer)])),
+                )
+                .child(div().flex_1())
+                .child(
+                    div()
+                        .id("inbox-board")
+                        .flex_shrink_0()
+                        .h(ui.px(28.0))
+                        .px(ui.px(10.0))
+                        .flex()
+                        .items_center()
+                        .rounded(ui.px(8.0))
+                        .bg(text.opacity(0.06))
+                        .text_size(ui.px(12.0))
+                        .text_color(branch)
+                        .cursor_pointer()
+                        .hover(move |style| style.bg(text.opacity(0.10)).text_color(text))
+                        .on_click(show)
+                        .child("Show board"),
+                );
+                return column.child(header).child(says(words, ink));
             }
             Showing::Agent(reading) => *reading,
         };

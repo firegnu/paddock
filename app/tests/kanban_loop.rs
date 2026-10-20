@@ -52,9 +52,18 @@ fn tasks_go_one_after_another_and_the_loop_turns_itself_off() {
     let repo = temp.path().join("repo");
     fs::create_dir_all(&repo).unwrap();
     git(&repo, &["init", "-q", "-b", "main"]);
-    for (file, title) in [("P1-1-甲.md", "甲"), ("P1-2-乙.md", "乙"), ("P1-3-丙.md", "丙")] {
+    for (file, title) in [
+        ("P1-1-甲.md", "甲"),
+        ("P1-2-乙.md", "乙"),
+        ("P1-3-丙.md", "丙"),
+    ] {
         let text = format!("# 任务：{title}\n\n依据：x\n");
-        commit(&repo, &format!("docs/任务/{file}"), &text, &format!("任务: {file}"));
+        commit(
+            &repo,
+            &format!("docs/任务/{file}"),
+            &text,
+            &format!("任务: {file}"),
+        );
     }
     // The fake corral answers a send, keeping each argument on a line.
     let calls = temp.path().join("calls");
@@ -131,11 +140,20 @@ fn tasks_go_one_after_another_and_the_loop_turns_itself_off() {
     let mut loops = Loops::load(Some(kept.clone()));
     assert_eq!(loops.get(&key).sent.map(|s| s.id), Some("P1-2".into()));
     assert_eq!(loops.get(&key).tasks, ["P1-1"]);
-    git(&repo, &["commit", "-q", "--allow-empty", "-m", "收尾: P1-2 做完"]);
+    git(
+        &repo,
+        &["commit", "-q", "--allow-empty", "-m", "收尾: P1-2 做完"],
+    );
     assert!(matches!(round(&mut loops, 120.0), Stand::Send { ref id, .. } if id == "P1-1"));
     git(
         &repo,
-        &["commit", "-q", "--allow-empty", "-m", "收尾: P1-1 不做：重复"],
+        &[
+            "commit",
+            "-q",
+            "--allow-empty",
+            "-m",
+            "收尾: P1-1 不做：重复",
+        ],
     );
     // Both wrapped up, one dropped: off, finished, two done.
     let stand = round(&mut loops, 130.0);
@@ -175,7 +193,10 @@ fn what_leaves_queued_in_git_leaves_the_loop_and_a_task_started_otherwise_holds_
         commit(&repo, &format!("docs/任务/{id}-x.md"), &text, id);
     }
     // P1-1 wrapped up, P1-2's file gone, P1-3 started by hand, P1-4 still queued.
-    git(&repo, &["commit", "-q", "--allow-empty", "-m", "收尾: P1-1 做完"]);
+    git(
+        &repo,
+        &["commit", "-q", "--allow-empty", "-m", "收尾: P1-1 做完"],
+    );
     git(&repo, &["rm", "-q", "docs/任务/P1-2-x.md"]);
     git(&repo, &["commit", "-q", "-m", "P1-2 删掉"]);
     git(
