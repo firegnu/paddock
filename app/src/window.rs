@@ -42,7 +42,8 @@ use crate::{
     theme::{Theme, Translucency},
     to_tag,
     view::{
-        AttachEnded, Launch, OpenLink, Options, SignalsChanged, TerminalView, hsla, links, zoom,
+        AttachEnded, Launch, OpenLink, Options, SendSelection, SignalsChanged, TerminalView, hsla,
+        links, zoom,
     },
     viewer::AgentMetadata,
     windows,
@@ -164,6 +165,8 @@ enum Popup {
     NewAgent,
     /// The New Agent dialog for another machine over the dimmed window (P5-124).
     RemoteAgent,
+    /// A terminal's selection to send to an agent, from the selection's bar (P5-148c).
+    Send,
 }
 
 /// What dragging the divider carries: nothing, only that it is the divider.
@@ -1248,6 +1251,8 @@ pub struct PaddockWindow {
     inbox: inbox_panel::Inbox,
     /// The new tab or split panel's field and selected row.
     chooser: Chooser,
+    /// The panel sending a terminal's selection to an agent while it is open (P5-148c).
+    send: Option<send_panel::SendPanel>,
     /// The Kanban tab's task dialog while it is open.
     new_task: Option<Entity<TaskDialog>>,
     /// The New Agent panel, kept with what was typed while it is closed, until it starts an agent.
@@ -1340,6 +1345,8 @@ mod ctl;
 mod inbox_panel;
 #[path = "window_motion.rs"]
 mod moving;
+#[path = "window_send.rs"]
+mod send_panel;
 #[path = "window_signals.rs"]
 mod signals;
 
@@ -1467,6 +1474,7 @@ impl PaddockWindow {
             asking: false,
             inbox: inbox_panel::Inbox::default(),
             chooser: Chooser::default(),
+            send: None,
             new_task: None,
             new_agent: None,
             remote_agent: None,
@@ -2548,6 +2556,12 @@ impl PaddockWindow {
         cx.subscribe_in(&view, window, |this, pane, OpenLink(target), window, cx| {
             this.open_link(pane, target, window, cx)
         })
+        .detach();
+        cx.subscribe_in(
+            &view,
+            window,
+            |this, pane, event: &SendSelection, window, cx| this.open_send(pane, event, window, cx),
+        )
         .detach();
         view
     }
@@ -3692,7 +3706,8 @@ impl PaddockWindow {
                 | Popup::NewTask
                 | Popup::Overflow
                 | Popup::NewAgent
-                | Popup::RemoteAgent,
+                | Popup::RemoteAgent
+                | Popup::Send,
             )
             | None => {
                 return;
@@ -4443,6 +4458,9 @@ impl PaddockWindow {
                 view.update(cx, |view, _| view.set_rise(rise));
                 view.into_any_element()
             }),
+            Popup::Send => self
+                .send_panel(window, cx)
+                .map(IntoElement::into_any_element),
             popup => Some(self.chooser_panel(popup, window, cx).into_any_element()),
         }
     }
@@ -6394,6 +6412,7 @@ impl PaddockWindow {
         self.popup = None;
         self.palette = None;
         self.chooser = Chooser::default();
+        self.send = None;
         self.new_task = None;
         self.forget_inbox();
         if self.browser.read(cx).owner() == Owner::Page {
@@ -6416,6 +6435,7 @@ impl PaddockWindow {
                 self.chooser.list.scroll_to_item(child);
             }
             Some(Popup::Attention) => return self.step_inbox(step, window, cx),
+            Some(Popup::Send) => return self.step_send(step, cx),
             Some(Popup::Palette) => {
                 let Some(palette) = &self.palette else {
                     return;
@@ -6443,6 +6463,7 @@ impl PaddockWindow {
                 self.choose(rows[index].clone(), window, cx)
             }
             Some(Popup::Attention) => self.act_inbox(window, cx),
+            Some(Popup::Send) => self.send_selection(window, cx),
             Some(Popup::Palette) => {
                 if let Some(index) = self.palette.as_ref().map(|palette| palette.index) {
                     self.run_palette_row(index, window, cx)

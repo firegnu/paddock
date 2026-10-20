@@ -68,6 +68,7 @@ pub mod roster;
 pub mod rows;
 pub mod search;
 pub mod seating;
+pub mod send_to;
 pub mod settings;
 pub mod settings_view;
 pub mod sidebar;

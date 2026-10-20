@@ -1,4 +1,5 @@
-//! A few words over a pane's bottom, for a while: why a link did not open.
+//! A few words over a pane's bottom, for a while: why a link did not open, or that a selection
+//! went to an agent (P5-148c).
 
 use std::time::{Duration, Instant};
 
@@ -9,11 +10,29 @@ pub struct Notice {
     text: String,
     /// When it was first drawn: its time runs from then, not while its pane is not shown.
     seen: Option<Instant>,
+    /// It says something went as asked, not that something went wrong.
+    fine: bool,
 }
 
 impl Notice {
     pub fn new(text: String) -> Self {
-        Self { text, seen: None }
+        Self {
+            text,
+            seen: None,
+            fine: false,
+        }
+    }
+
+    /// One saying something went as asked.
+    pub fn fine(text: String) -> Self {
+        Self {
+            fine: true,
+            ..Self::new(text)
+        }
+    }
+
+    pub fn is_fine(&self) -> bool {
+        self.fine
     }
 
     /// Whether it has been drawn yet.

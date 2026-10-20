@@ -15,6 +15,7 @@ mod marks;
 mod notice;
 mod press;
 pub mod signals;
+mod toolbar;
 pub mod tween;
 pub mod zoom;
 
@@ -257,7 +258,17 @@ pub struct TerminalView {
     find_still: bool,
     /// The find bar just closed, fading out where it was: how far below its place that is.
     find_gone: Option<(FindBar, f32)>,
+    /// The bar beside a selection made with the mouse (P5-148c), and with the system's Reduce
+    /// Motion on as it came, whether it only fades.
+    toolbar: toolbar::Toolbar,
+    toolbar_still: bool,
 }
+
+/// The grid's room from the pane's edges.
+const GRID_INSET: f32 = 6.0;
+/// The selection's bar, at the base interface size.
+const TOOLBAR_WIDTH: f32 = 176.0;
+const TOOLBAR_HEIGHT: f32 = 28.0;
 
 /// How long the position bar and the size show after the last change, then how long they fade.
 const SHOWN: Duration = Duration::from_millis(800);
@@ -439,6 +450,8 @@ impl TerminalView {
             find_in: tween::Tween::at(0.0),
             find_still: false,
             find_gone: None,
+            toolbar: toolbar::Toolbar::default(),
+            toolbar_still: false,
         }
     }
 
@@ -897,6 +910,7 @@ impl TerminalView {
             screen.term.selection = None;
             screen.term.scroll_display(ViewScroll::Bottom);
         }
+        self.toolbar.hide();
         self.glide.stop();
         if let Err(error) = self.send(bytes) {
             self.note = format!("{error:#}");
@@ -982,6 +996,62 @@ impl TerminalView {
         screen.term.selection_to_string().filter(|s| !s.is_empty())
     }
 
+    /// The selection's first and last rows as drawn in view (either may be out of it), and
+    /// whether `at`, a point of the grid, is on its first row while it has more than one: let go
+    /// there, it was dragged up. None while nothing is selected.
+    fn selected_rows(&self, at: Option<GridPoint>) -> Option<((i32, i32), bool)> {
+        let screen = self.session()?.screen.lock().unwrap();
+        let term = &screen.term;
+        let range = term
+            .selection
+            .as_ref()
+            .filter(|selection| !selection.is_empty())?
+            .to_range(term)?;
+        let offset = term.grid().display_offset() as i32;
+        let (first, last) = (range.start.line, range.end.line);
+        let up = first != last && at.is_some_and(|at| at.line == first);
+        Some(((first.0 + offset, last.0 + offset), up))
+    }
+
+    /// A press was let go at `position`: one that ended a selection made with the mouse
+    /// (`ended`) brings the selection's bar there, when something stays selected (P5-148c).
+    fn bar_let_go(&mut self, ended: bool, position: Point<Pixels>) {
+        let at = self.locate(position).map(|(.., point, _)| point);
+        let rows = self.selected_rows(at);
+        let at = toolbar::At {
+            x: f32::from(position.x - self.origin.x),
+            below: !rows.is_some_and(|(_, up)| up),
+        };
+        if ended {
+            self.toolbar_still = crate::reduce_motion::on();
+        }
+        self.toolbar
+            .let_go(ended, rows.is_some(), at, Instant::now());
+    }
+
+    /// The bar's Copy: the selection to the clipboard, as ⌘C; the selection stays, the bar goes.
+    fn copy_selection(&mut self, cx: &mut Context<Self>) {
+        if let Some(text) = self.selection_text() {
+            cx.write_to_clipboard(ClipboardItem::new_string(text));
+        }
+        self.toolbar.hide();
+        cx.notify();
+    }
+
+    /// The bar's Send to agent…: the selection and the pane's name to whoever chooses where it
+    /// goes; `at`, the bar in the window, for what opens to hang from.
+    fn send_selection(&mut self, at: Bounds<Pixels>, cx: &mut Context<Self>) {
+        if let Some(text) = self.selection_text() {
+            cx.emit(SendSelection {
+                text,
+                pane: self.subject.clone(),
+                at,
+            });
+        }
+        self.toolbar.hide();
+        cx.notify();
+    }
+
     /// ⌘C: the selection, when there is one. Not while the Browser's page has the keyboard: the
     /// page copies its own.
     fn copy(&mut self, _: &menu::Copy, window: &mut Window, cx: &mut Context<Self>) {
@@ -1015,6 +1085,22 @@ impl TerminalView {
         let keystroke = &event.keystroke;
         // Command shortcuts are menu actions (`menu.rs`); none of them reach the terminal.
         if keystroke.modifiers.platform {
+            return;
+        }
+        // Esc with the selection's bar up lets go of both, and is not the program's (P5-148c).
+        if keystroke.key == "escape"
+            && !keystroke.modifiers.modified()
+            && self
+                .toolbar
+                .keep(self.selected_rows(None).is_some(), true)
+                .is_some()
+        {
+            self.toolbar.hide();
+            if let Some(session) = self.session() {
+                session.screen.lock().unwrap().term.selection = None;
+            }
+            cx.stop_propagation();
+            cx.notify();
             return;
         }
         let application_cursor = self.mode().contains(TermMode::APP_CURSOR);
@@ -1145,9 +1231,15 @@ impl TerminalView {
         cx.notify();
     }
 
-    /// Why a link did not open, over the pane's bottom.
-    fn notice_bar(&self, text: String, cx: &mut Context<Self>) -> impl IntoElement {
+    /// Why a link did not open, over the pane's bottom; edged in red, or for a notice that something
+    /// went as asked (`fine`), as the pane's other pills are.
+    fn notice_bar(&self, text: String, fine: bool, cx: &mut Context<Self>) -> impl IntoElement {
         let ui = crate::fonts::UiFont::get(cx);
+        let edge = if fine {
+            self.theme.fg(|t| t.focus)
+        } else {
+            self.theme.fg(|t| t.danger)
+        };
         div()
             .absolute()
             .bottom(px(10.0))
@@ -1161,7 +1253,7 @@ impl TerminalView {
                     .py(px(5.0))
                     .rounded(px(7.0))
                     .border_1()
-                    .border_color(hsla(self.theme.fg(|t| t.danger), 1.0))
+                    .border_color(hsla(edge, 1.0))
                     .bg(hsla(self.theme.bg(|t| t.agents_bg), 1.0))
                     .shadow_md()
                     .text_size(ui.px(12.0))
@@ -1424,6 +1516,13 @@ impl TerminalView {
         cx.notify();
     }
 
+    /// As [`Self::say`], for something that went as asked: the selection went to an agent
+    /// (P5-148c).
+    pub fn tell(&mut self, text: String, cx: &mut Context<Self>) {
+        self.notice = Some(notice::Notice::fine(text));
+        cx.notify();
+    }
+
     /// Reports a mouse event through `input::encode_mouse` when the program asked for the mouse,
     /// unless its agent is paused: then the mouse selects, as without reporting.
     fn report_mouse(
@@ -1521,6 +1620,7 @@ impl TerminalView {
 
     fn mouse_down(&mut self, event: &MouseDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         window.focus(&self.focus, cx);
+        self.toolbar.hide();
         let command = event.modifiers.platform;
         let link = if command {
             self.link_at(event.position)
@@ -1565,7 +1665,9 @@ impl TerminalView {
 
     fn mouse_up(&mut self, event: &MouseUpEvent, _: &mut Window, cx: &mut Context<Self>) {
         let act = self.mouse.pane_up();
+        let ended = act == press::Act::EndSelect;
         self.act(act, event.position, event.modifiers, cx);
+        self.bar_let_go(ended, event.position);
         self.edge = None;
     }
 
@@ -1596,7 +1698,9 @@ impl TerminalView {
             .locate(event.position)
             .map(|(.., point, side)| (point, side));
         let act = self.mouse.window_up(cell, inside);
+        let ended = act == press::Act::EndSelect;
         self.act(act, event.position, event.modifiers, cx);
+        self.bar_let_go(ended, event.position);
         self.edge = None;
     }
 
@@ -2093,6 +2197,17 @@ pub struct OpenLink(pub links::Target);
 
 impl EventEmitter<OpenLink> for TerminalView {}
 
+/// The selection's bar asked to send it to an agent (P5-148c): the text as selected, the pane's
+/// name as [`TerminalView::subject`] has it, and where the bar is in the window. Who it goes to,
+/// and how, is the window's.
+pub struct SendSelection {
+    pub text: String,
+    pub pane: String,
+    pub at: Bounds<Pixels>,
+}
+
+impl EventEmitter<SendSelection> for TerminalView {}
+
 impl Focusable for TerminalView {
     fn focus_handle(&self, _: &App) -> FocusHandle {
         self.focus.clone()
@@ -2570,7 +2685,10 @@ impl Render for TerminalView {
         let mut first = false;
         let notice = self.notice.as_mut().and_then(|notice| {
             first = !notice.seen();
-            notice.drawn(Instant::now()).map(str::to_owned)
+            let fine = notice.is_fine();
+            notice
+                .drawn(Instant::now())
+                .map(|text| (text.to_owned(), fine))
         });
         if notice.is_none() {
             self.notice = None;
@@ -2590,6 +2708,32 @@ impl Render for TerminalView {
             self.find_gone = None;
         }
         let shown = self.find_in.value(now);
+        // The selection's bar, beside where the mouse let go, while the selection and the keys
+        // stay here (P5-148c).
+        let ui = crate::fonts::UiFont::get(cx);
+        let selected = self.selected_rows(None).map(|(rows, _)| rows);
+        let focused = self.focus.is_focused(window);
+        let bar = self
+            .toolbar
+            .keep(selected.is_some(), focused)
+            .zip(selected)
+            .zip(self.metrics)
+            .and_then(|((at, rows), metrics)| {
+                let bar = (
+                    f32::from(ui.px(TOOLBAR_WIDTH)),
+                    f32::from(ui.px(TOOLBAR_HEIGHT)),
+                );
+                let grid = (
+                    f32::from(self.bounds.size.width),
+                    f32::from(self.bounds.size.height),
+                );
+                toolbar::place(at, rows, metrics.line_height, bar, grid)
+            })
+            .map(|(x, y)| (x, y + self.shift()));
+        let (bar_shown, bar_moving) = self.toolbar.look(now);
+        if bar.is_some() && bar_moving {
+            window.request_animation_frame();
+        }
         let finding = match (&self.find, &self.find_gone) {
             (Some(bar), _) => Some((bar, (shown, self.find_rise(now)))),
             (None, Some((bar, rise))) => Some((bar, (shown, *rise))),
@@ -2599,7 +2743,7 @@ impl Render for TerminalView {
             .relative()
             .size_full()
             .bg(hsla(self.theme.terminal().background, 1.0))
-            .p(px(6.0))
+            .p(px(GRID_INSET))
             .track_focus(&self.focus)
             .key_context("Terminal")
             .on_key_down(cx.listener(Self::key_down))
@@ -2653,12 +2797,78 @@ impl Render for TerminalView {
                     .drag_over::<ExternalPaths>(move |style, _, _, _| style.bg(drop_highlight)),
             )
             .children(finding.map(|(bar, look)| self.find_bar(bar, look, cx)))
-            .children(notice.map(|text| self.notice_bar(text, cx)))
+            .children(notice.map(|(text, fine)| self.notice_bar(text, fine, cx)))
             .when(self.pill, |pane| pane.child(self.new_output(cx)))
+            .children(bar.map(|at| self.selection_bar(at, bar_shown, cx)))
     }
 }
 
 impl TerminalView {
+    /// The selection's bar `at` from the grid's top left, `shown` from 0 to 1 as it fades in and
+    /// rises to its place (P5-148c): Copy, and Send to agent….
+    fn selection_bar(
+        &self,
+        (x, y): (f32, f32),
+        shown: f32,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let ui = crate::fonts::UiFont::get(cx);
+        let rise = if self.toolbar_still {
+            0.0
+        } else {
+            tween::POP_RISE * (1.0 - shown)
+        };
+        let (width, height) = (ui.px(TOOLBAR_WIDTH), ui.px(TOOLBAR_HEIGHT));
+        let at = Bounds {
+            origin: point(self.origin.x + px(x), self.origin.y + px(y)),
+            size: size(width, height),
+        };
+        let lit = crate::popover::lit(&self.theme);
+        let button = |id: &'static str, label: &'static str| {
+            div()
+                .id(id)
+                .h_full()
+                .flex()
+                .items_center()
+                .px(ui.px(8.0))
+                .rounded(ui.px(5.0))
+                .cursor_pointer()
+                .hover(move |style| style.bg(lit))
+                .child(label)
+        };
+        crate::popover::panel(&self.theme, &ui)
+            .id("selection-bar")
+            .absolute()
+            .left(px(GRID_INSET + x))
+            .top(px(GRID_INSET + y + rise))
+            .w(width)
+            .h(height)
+            .opacity(shown)
+            .flex_row()
+            .items_center()
+            .justify_center()
+            .gap(ui.px(2.0))
+            .p(ui.px(3.0))
+            .rounded(ui.px(8.0))
+            .text_size(ui.px(12.0))
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .child(
+                button("selection-copy", "Copy")
+                    .on_click(cx.listener(|this, _, _, cx| this.copy_selection(cx))),
+            )
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .w(px(1.0))
+                    .h(ui.px(14.0))
+                    .bg(crate::popover::edge_rule(&self.theme)),
+            )
+            .child(
+                button("selection-send", "Send to agent…")
+                    .on_click(cx.listener(move |this, _, _, cx| this.send_selection(at, cx))),
+            )
+    }
+
     /// Output came while the view is scrolled back (P5-143e): a pill over the pane's bottom that
     /// goes back there.
     fn new_output(&self, cx: &mut Context<Self>) -> impl IntoElement {
