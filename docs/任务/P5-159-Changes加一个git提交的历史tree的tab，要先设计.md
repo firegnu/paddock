@@ -91,3 +91,12 @@
   - 提交 diff 的 hunk 间空隙如果照 Changes 的做法打开，会读工作区文件；发现后改为 History 不产生这些行。
   - 提交列表行高随界面字号缩放，改字号时要 `history_list.remeasure()`，已补上。
   - `cargo test --all-targets` 时间较长，被工具自动转到后台跑完；结果已收回，没有留下后台任务。
+
+## 主控审查
+
+10-20，paddock/main。agent 实际名字是 `paddock/dev-history-1`（omp，默认档，不套墙）。
+- diff 动了 `history.rs`（新）、`changes.rs`、`diff.rs`（`Scope` 加 `History`）、`lib.rs`、`tests/history.rs`（新）、DESIGN 一段，都在范围里。
+- git 只用了只读命令：`rev-parse`、`log --topo-order`、`diff <第一父> <提交>`，根提交对空树（`hash-object -t tree --stdin` 不带 `-w`，只算 hash 不写库）；后台读法沿用 Changes 的（`git_bounded`、取消标记）。测试里还核了读前后 `.git/index`、`HEAD` 不变。「不要做」一件没犯。
+- 主控墙外重跑 `cargo test --all-targets`：989 个通过、0 个失败。
+- 对方拿主意的都同意：不解析 `git log --graph` 的文字、按父提交自己排线（更稳）；拉宽是「提交列表 | diff」不再套文件树；提交 diff 不画 hunk 之间的 `N unchanged lines`（展开会读工作区，不是提交内容）；详情头只用标题行；主线 `agents_blue`、分支 `agents_purple`（已有颜色键）。
+- 已从分支装上，等用户照第 3 条验收试。
