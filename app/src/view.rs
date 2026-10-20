@@ -1789,7 +1789,9 @@ impl TerminalView {
         };
         let by = match delta {
             ScrollDelta::Pixels(pixels) => f32::from(pixels.y),
-            ScrollDelta::Lines(lines) if !cx.reduce_motion() => {
+            ScrollDelta::Lines(lines)
+                if glide::wheel_slides(self.smooth_scroll, crate::reduce_motion::on()) =>
+            {
                 self.glide.wheel(lines.y * line, Instant::now());
                 cx.notify();
                 return;
@@ -2097,7 +2099,7 @@ impl TerminalView {
         let conditions = caret::Conditions {
             focused,
             blink: self.blink_cursor && blinks && !composing,
-            slide: self.animate_cursor && !cx.reduce_motion(),
+            slide: caret::slides(self.animate_cursor, crate::reduce_motion::on()),
             snap: redrawn || resized || composing,
         };
         self.cursor_motion(&mut frame, conditions, window, cx);

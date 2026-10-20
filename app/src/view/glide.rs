@@ -38,6 +38,13 @@ pub fn wheel_goes(mode: TermMode, shift: bool, paused: bool) -> Wheel {
     }
 }
 
+/// Whether a wheel's lines slide through the view: Settings' smooth scrolling, and the system not
+/// asking for less motion (`reduce_motion::on()`, P5-150). With it on the wheel goes straight by
+/// the line; the trackpad's pixels still move with the fingers.
+pub fn wheel_slides(smooth: bool, still: bool) -> bool {
+    smooth && !still
+}
+
 /// How far a slide has gone at `t` of the way through its time: fast at first, settling in.
 fn ease(t: f32) -> f32 {
     1.0 - (1.0 - t.clamp(0.0, 1.0)).powi(3)
@@ -300,5 +307,13 @@ mod tests {
         assert_eq!(wheel_goes(TermMode::empty(), false, false), Wheel::History);
         // A paused agent's view scrolls its history whatever its program asked for.
         assert_eq!(wheel_goes(mouse | full, false, true), Wheel::History);
+    }
+
+    #[test]
+    fn reduce_motion_makes_a_wheel_jump_by_the_line_instead_of_sliding() {
+        assert!(wheel_slides(true, false), "Settings say smooth");
+        assert!(!wheel_slides(true, true), "the system asks for less motion");
+        assert!(!wheel_slides(false, false), "Settings keep it by the line");
+        assert!(!wheel_slides(false, true));
     }
 }

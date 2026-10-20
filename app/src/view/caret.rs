@@ -65,6 +65,13 @@ pub struct Conditions {
     pub snap: bool,
 }
 
+/// Whether the cursor may slide to where it goes: Settings' `animate_cursor`, and the system not
+/// asking for less motion (`reduce_motion::on()`, P5-150). With it on the cursor goes straight to
+/// its place; it still blinks.
+pub fn slides(animate: bool, still: bool) -> bool {
+    animate && !still
+}
+
 /// When the pane is to be drawn again for the cursor.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Next {
@@ -438,6 +445,24 @@ mod tests {
         assert_eq!(caret.frame(None, lively(), start + ms(10)), Look::STILL);
         let look = caret.frame(Some(at(3, 3)), lively(), start + ms(20));
         assert_eq!(look.corners, None);
+    }
+
+    #[test]
+    fn reduce_motion_makes_the_cursor_jump_instead_of_sliding() {
+        assert!(slides(true, false), "Settings let it slide");
+        assert!(!slides(true, true), "the system asks for less motion");
+        assert!(!slides(false, false), "Settings keep it still");
+        let start = Instant::now();
+        let moved = start + ms(1000);
+        let conditions = Conditions {
+            slide: slides(true, true),
+            ..lively()
+        };
+        let mut caret = Caret::default();
+        caret.frame(Some(at(2, 1)), conditions, start);
+        let look = caret.frame(Some(at(12, 1)), conditions, moved);
+        assert_eq!(look.corners, None, "straight there, no slide");
+        assert_eq!(look.next, Next::At(moved + SHOWN), "it still blinks");
     }
 
     #[test]
