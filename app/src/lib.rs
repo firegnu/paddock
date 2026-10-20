@@ -37,6 +37,7 @@ pub mod input;
 pub mod instructions;
 pub mod integrations;
 pub mod kanban;
+pub mod kanban_loop;
 pub mod kanban_repos;
 pub mod kanban_view;
 pub mod keys;
