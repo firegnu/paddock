@@ -59,3 +59,37 @@
 
 ## 做完
 三项检查跑完，在本文件末尾追加「## 完成记录」：做了什么、验证了什么、拿主意的地方、没做的事、踩过的坑（试了不行换了办法的、工具或墙的行为和预想不一样的；没有就写「没有」），在你的分支里提交。主控审过后装上给用户试，用户说可以再合并。回复里只写这几样，加上有没有要主控决定的事。命令都在前台跑完，全部做完后，回复最后一行写 DONE。
+
+## 完成记录
+
+做了什么：
+- `kanban_loop.rs` 新加 `face(stand, sent, next, timing)` 及 `Face`、`Top`、`Doing`：纯函数，决定框顶是 Now（送出去那一件，`Doing::Sent`／`Agent`／`Says(琥珀色的字)`）、一行字（`Top::Line`，带是否琥珀）还是什么都没有，`NEXT` 线画不画（有 Now 且有排着的才画），标题个数（Now 加排着的）。`Stand::words`、`look`、`settle` 一字没改（收件箱还用 `words`）。
+- `kanban_view.rs` 的 `loop_group` 照样稿 A 重排：标题行去掉 `Needs you` 胶囊和单独的状态行；框里 Now（照普通卡片画，记号是转着的强调色小弧，要你处理时换琥珀色 `!` 圆圈；框边沿用原来的琥珀色）→ `NEXT` 细线 → 排着的（①②③、悬停按钮不变）。Now 标题下一行：`Sent to <主控> · <多久>`；开工后是普通卡片的 agent 行（`footer`）；待用户、卡住、提醒发不出去、没有主控／多个主控是琥珀色一行，卡住下一行 Nudge、Skip，Retry 跟在字后面。没有送出去的那件时，框顶一行淡色小字（`Stand::words`，没有 `On ·`），送失败带 Retry。关着：`Finished · N done. Add queued tasks to run another loop.`／只列 Next／`Add queued tasks to the loop.`。列表（`Place::List`）和五列（`Place::Tile`）共用。
+- `card()` 多一个 `now: Option<Now>` 参数、`id()` 多一个标记参数；各栏里的 `Loop` 标签没动（Now 那张自己不再带标签）。新加 `now_card`、`next_cards` 两个取卡片的小函数；`in_loop` 没动（Queued 栏排除 LOOP 里的卡片、上移下移的位置数都还靠它）。
+- `docs/DESIGN.md` §13 P5-106 补了一条「界面怎么排」。
+
+验证了什么：
+- 针对测试（`kanban_loop::tests`）：`the_box_puts_the_task_handed_over_on_top_or_else_one_line`（关着做完、关着有任务、关着没任务、刚送出、开工、待用户、卡住、提醒送失败、没有主控／多个主控、送失败、等别的活收尾、正在送／重试／没有能开工的，各自框顶是 Now 还是哪一行字、NEXT 线有没有、个数）和 `the_box_follows_the_loop_as_it_stands_on_the_board`（用 `look` 真实算出来的 Stand 走一遍）。两个都过。
+- `cargo clippy --all-targets -- -D warnings`、`cargo fmt --check` 过。
+- `cargo test --all-targets --no-fail-fast`：804 过、1 失败：`view::links::tests::a_shell_s_relative_paths_are_from_where_it_has_gone_to`（起真 zsh pty，5 秒内等不到 shell 的当前目录，"the shell did not get there"）。和本件改的文件无关，应是 dev 墙里起 pty 读 cwd 的环境问题；我没在 main 上对照跑（规矩不让进主仓库目录），请主控在 main 上确认。其余全过。
+- 没起窗口、没截图：画出来什么样留给用户装上实际看。
+
+拿主意的地方：
+- 「关着、还有送出去没收尾的那一件」：规矩没写，我照样让它留在框顶当 Now（行文按它的卡片状态写 Sent／agent 行），因为它还在被 Loop 等着、关着只是不再送下一件。
+- 个数 = Now（有的话）加排着的；以前 `in_loop` 把送出的也算进去，现在 Now 开工后跑到别的栏也还算 1。
+- 开工后那件同时出现在 Now 和下面 In progress 栏（带 `Loop` 标签），悬停时两处都亮。
+- 淡色字：等别的活的行用 muted，关着的两句用 dim。
+- `NEXT` 就按大写字面画。
+
+没做的事：没改 Loop 规则、没动各栏卡片和收件箱；没加主题色键、依赖。
+
+踩过的坑：没有（`cargo fmt` 之外一次编过）。要主控决定的：上面 pty 那条测试要不要在 main 上对照一下。
+
+## 主控审查
+
+10-20，paddock/main。agent 实际名字是 `paddock/dev-loopui-1`（Claude Code sonnet / high，分工表第 8 条试用第 1 件）。
+- diff 只动了 `kanban_loop.rs`（新加 `face`、`Top`、`Doing`，把现有状态映射成框顶放什么、要不要 `NEXT` 线、个数多少；`look`、`settle`、`Stand::words` 没动）、`kanban_view.rs`（`loop_group` 按 `face` 画，Now 那件复用卡片画法，标题下换成 Loop 说的话或 agent 行）、DESIGN §13 一条。Loop 的规则没改，「不要做」一件没犯。
+- 两条新测试覆盖任务列的各种状态。主控墙外重跑 `cargo test --all-targets`：981 个通过、0 个失败；对方在墙里那条 pty 测试（`a_shell_s_relative_paths_are_from_where_it_has_gone_to`）失败是墙里环境的事，墙外过。
+- 对方拿主意的三处都同意：关着但送出去的那件还没收尾时仍放框顶；开工后它同时在 Now 和 In progress 里；等待的说明用淡色字。
+- 建议改（不挡合并）：Now 的小弧一直转（每秒 30 帧），不跟系统“减弱动态效果”；侧栏 Working 的转圈有先例，但 P5-150 定过动效跟这个开关走。要不要改由用户定。
+- 已从分支装上，等用户重开试。
