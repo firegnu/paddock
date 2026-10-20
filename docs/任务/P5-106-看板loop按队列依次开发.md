@@ -2,6 +2,7 @@
 
 2026-10-20，paddock/main 交给 paddock/dev-loop（Claude Code，opus[1m] / high，套 fence `dev` 墙）。
 依据：用户 10-15：“增加一个draft task，kanban加一个loop的功能，enable loop之后，任务从queue中按照一定的次序排队开发（暂时还没想好如何挑能够并行的），这个loop只在kanban和paddock中，不能牵涉到ranch和corral”；用户 10-20 和主控逐条定了做法（见「用户定的」），样稿（claude.ai 上的“Paddock 看板 Loop 样稿”）上选 A。
+待用户：已装上，实测 LOOP（加一两件小任务进 LOOP、打开开关，看它送给主控、收尾后送下一件、做完自己关上）
 路由：重 / 交叉审查不做 / 影响面：碰要害（路由：重（置信 0.97）、要、碰要害；不做交叉审查：用户定主控自己审，不另开交叉审查）
 类型：功能变更
 提示：围绕已确认的使用目标完成变更，优先沿用现有机制。
