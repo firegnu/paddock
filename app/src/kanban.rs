@@ -2355,19 +2355,21 @@ pub fn board(facts: &Facts, agents: &[Seen], now: f64) -> Board {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     #[test]
     fn task_tree_levels_follow_directory_depth() {
         let file = "P5-155-任务.md";
         assert_eq!(
-            super::task_tree_levels(TASKS, file),
+            task_tree_levels(TASKS, file),
             vec![("docs/任务", file), ("docs", "任务"), ("", "docs")]
         );
         assert_eq!(
-            super::task_tree_levels("tasks", file),
+            task_tree_levels("tasks", file),
             vec![("tasks", file), ("", "tasks")]
         );
         assert_eq!(
-            super::task_tree_levels("project/docs/任务", file),
+            task_tree_levels("project/docs/任务", file),
             vec![
                 ("project/docs/任务", file),
                 ("project/docs", "任务"),
@@ -2376,8 +2378,6 @@ mod tests {
             ]
         );
     }
-
-    use super::*;
 
     #[test]
     fn a_batch_of_blobs_is_cut_by_its_heads() {
