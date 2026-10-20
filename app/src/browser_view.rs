@@ -171,6 +171,7 @@ impl BrowserView {
         let shown = scene.page().filter(|_| self.page.is_some());
         if let Some(page) = &mut self.page {
             page.place(shown, window);
+            page.fade(crate::unfocused::native_alpha(window));
         }
         self.showing = match shown {
             _ if !(open && on_browser) => Showing::Away,

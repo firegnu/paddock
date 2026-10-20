@@ -83,6 +83,7 @@ pub mod terminal;
 pub mod text_input;
 pub mod theme;
 pub mod to_tag;
+pub mod unfocused;
 pub mod view;
 pub mod viewer;
 pub mod window;

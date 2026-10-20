@@ -888,6 +888,8 @@ pub struct Page {
     delegate: Retained<Delegate>,
     /// Where it shows; none while hidden.
     shown: Option<NSRect>,
+    /// How opaque it is: less while the window is out of the front ([`Page::fade`]).
+    alpha: f64,
     /// Whether the last search found anything, once it has said, until read.
     found: Rc<Cell<Option<bool>>>,
 }
@@ -927,6 +929,7 @@ impl Page {
             view,
             delegate,
             shown: None,
+            alpha: 1.0,
             found: Rc::default(),
         })
     }
@@ -996,6 +999,14 @@ impl Page {
             None => self.view.setHidden(true),
         }
         self.shown = frame;
+    }
+
+    /// Makes the page `alpha` opaque, for the window out of the front to gray it too (P5-162).
+    pub fn fade(&mut self, alpha: f64) {
+        if alpha != self.alpha {
+            self.view.setAlphaValue(alpha);
+            self.alpha = alpha;
+        }
     }
 
     /// Looks through the page for `query`, ignoring case and going round past either end, and

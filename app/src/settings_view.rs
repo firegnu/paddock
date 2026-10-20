@@ -2728,6 +2728,8 @@ impl Render for SettingsView {
             .child(content)
             .children(self.integrations_confirm(&ui, cx))
             .children(self.machines_confirm(&ui, cx))
+            // Out of the front, it grays like the main window (P5-162).
+            .children(crate::unfocused::veil(window))
     }
 }
 

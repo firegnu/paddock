@@ -7684,6 +7684,8 @@ impl Render for PaddockWindow {
             })
             // The page keeps out of the way while the right sidebar slides.
             .child(self.place_page(right.is_some(), dragging || sliding))
+            // Out of the front, the whole window grays (P5-162).
+            .children(crate::unfocused::veil(window))
     }
 }
 

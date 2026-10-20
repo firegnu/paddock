@@ -2602,9 +2602,10 @@ impl Frame {
         let (x, y) = (self.x(col), self.y(row));
         let w = self.x(col + if cursor.wide { 2 } else { 1 }) - x;
         let lh = self.metrics.line_height;
-        let (y, w, h) = match cursor.shape {
-            CursorShape::Beam => (y, 2.0, lh),
-            CursorShape::Underline => (y + lh - 2.0, w, 2.0),
+        // Without the keyboard it is the hollow box whatever its shape (`paint_cursor`).
+        let (y, w, h) = match (cursor.shape, self.focused) {
+            (CursorShape::Beam, true) => (y, 2.0, lh),
+            (CursorShape::Underline, true) => (y + lh - 2.0, w, 2.0),
             _ => (y, w, lh),
         };
         caret::Rect { x, y, w, h }
@@ -2645,9 +2646,11 @@ impl Frame {
             window.paint_quad(self.rect(x + width, y, 2.0, lh, color));
             return;
         }
+        // Without the keyboard, whatever its shape, it is the hollow box, so a beam or an underline
+        // shows it too (P5-162).
         match (cursor.shape, self.focused) {
-            (CursorShape::Beam, _) => window.paint_quad(self.rect(x, y, 2.0, lh, color)),
-            (CursorShape::Underline, _) => {
+            (CursorShape::Beam, true) => window.paint_quad(self.rect(x, y, 2.0, lh, color)),
+            (CursorShape::Underline, true) => {
                 window.paint_quad(self.rect(x, y + lh - 2.0, w, 2.0, color))
             }
             (_, true) => {
