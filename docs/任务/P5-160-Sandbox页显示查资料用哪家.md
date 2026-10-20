@@ -71,3 +71,12 @@ Sandbox 页上看得出套墙的 agent 查资料用的是哪一家，以及它�
   - 读不了的服务器整段红色（`名字 (can't be read: 原因)`），和档案卡片里 `Can't be read: …` 的说法一致。
 - 没做的事：不做测试按钮、不在界面里换服务商、不加依赖、不改 ranch／fence；不起 paddock 窗口、不截图（按任务留给用户看）。
 - 踩过的坑：仓库根目录没有 `Cargo.toml`，清单在 `app/`，第一次在根目录跑 `cargo test` 报 “could not find Cargo.toml”，改到 `app/` 下跑。为满足“先跑红”，先把已写的实现存成补丁撤回，再跑新测试确认编译失败，然后应用补丁跑绿。
+
+## 主控审查
+
+10-20，paddock/main。agent 实际名字是 `paddock/dev-search-1`（omp，默认档，不套墙）。
+- diff 只动了 `fence.rs`（`Server`、`Profiles.mcp: Option<Vec<Server>>`、`Check::search`）、`settings_sandbox.rs`（`Profiles` 下一行列有哪些、`Built from` 下一行写这个档案用哪家）、DESIGN 一句。只读 fence 的 JSON，不碰 `~/.fence`；「不要做」一件没犯。
+- 主控墙外重跑 `cargo test --all-targets`：991 个通过、0 个失败。
+- 对方拿主意的都同意：`mcp` 用 `Option` 区分老 fence 没这个字段（两行都不画）和新 fence 的空数组（写 `none`）。
+- 建议改（不挡合并）：两行开头都是 `Web search:`，一行是 fence 有哪些、一行是这个档案用哪家，用户看着可能分不清；要的话上面那行改成 `Web search servers:`。
+- 已从分支装上，等用户在 Settings › Sandbox 看一眼。
