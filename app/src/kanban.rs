@@ -1576,6 +1576,16 @@ fn wrap_up_dropped(
     Ok(())
 }
 
+/// The entries to rebuild from the task directory up to the repository root.
+fn task_tree_levels<'a>(mut directory: &'a str, mut name: &'a str) -> Vec<(&'a str, &'a str)> {
+    let mut levels = vec![(directory, name)];
+    while !directory.is_empty() {
+        (directory, name) = directory.rsplit_once('/').unwrap_or(("", directory));
+        levels.push((directory, name));
+    }
+    levels
+}
+
 /// Untracks one queued task on main, leaving its working copy intact. Never pushes.
 pub fn move_to_draft(
     program: &str,
@@ -1606,7 +1616,7 @@ pub fn move_to_draft(
     // Build from HEAD, not the index or working copy. commit --only would put the file
     // back in the commit even after untracking it, because it still exists on disk.
     let mut replacement = None;
-    for (directory, name) in [(TASKS, file), ("docs", "任务"), ("", "docs")] {
+    for (directory, name) in task_tree_levels(TASKS, file) {
         let spec = if directory.is_empty() {
             head.clone()
         } else {
@@ -2345,6 +2355,28 @@ pub fn board(facts: &Facts, agents: &[Seen], now: f64) -> Board {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn task_tree_levels_follow_directory_depth() {
+        let file = "P5-155-任务.md";
+        assert_eq!(
+            super::task_tree_levels(TASKS, file),
+            vec![("docs/任务", file), ("docs", "任务"), ("", "docs")]
+        );
+        assert_eq!(
+            super::task_tree_levels("tasks", file),
+            vec![("tasks", file), ("", "tasks")]
+        );
+        assert_eq!(
+            super::task_tree_levels("project/docs/任务", file),
+            vec![
+                ("project/docs/任务", file),
+                ("project/docs", "任务"),
+                ("project", "docs"),
+                ("", "project")
+            ]
+        );
+    }
+
     use super::*;
 
     #[test]
