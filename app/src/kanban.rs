@@ -1576,6 +1576,99 @@ fn wrap_up_dropped(
     Ok(())
 }
 
+/// Untracks one queued task on main, leaving its working copy intact. Never pushes.
+pub fn move_to_draft(
+    program: &str,
+    repo: &Path,
+    file: &str,
+    cancel: &AtomicBool,
+) -> Result<(), NotChanged> {
+    settled_on_main(program, repo, cancel)?;
+    let path = format!("{TASKS}/{file}");
+    let run = |args: &[&str]| git::git(program, repo, args, cancel).ok_or(NotChanged::NoGit);
+    let tree = run(&["ls-tree", "-z", "--name-only", "HEAD", "--", &path])?;
+    if !tree.status.success() {
+        return Err(NotChanged::NoGit);
+    }
+    let Some(id) = task_id(file).filter(|_| !tree.stdout.is_empty()) else {
+        return Err(NotChanged::NotOnMain(path));
+    };
+    std::fs::metadata(repo.join(&path)).map_err(|_| NotChanged::Gone(path.clone()))?;
+    let head = run(&["rev-parse", "--verify", "HEAD"])?;
+    if !head.status.success() {
+        return Err(NotChanged::NoGit);
+    }
+    let head = String::from_utf8_lossy(&head.stdout).trim().to_owned();
+    let staged = run(&["ls-files", "--stage", "-z", "--", &path])?;
+    if !staged.status.success() {
+        return Err(NotChanged::NoGit);
+    }
+    // Build from HEAD, not the index or working copy. commit --only would put the file
+    // back in the commit even after untracking it, because it still exists on disk.
+    let mut replacement = None;
+    for (directory, name) in [(TASKS, file), ("docs", "任务"), ("", "docs")] {
+        let spec = if directory.is_empty() {
+            head.clone()
+        } else {
+            format!("{head}:{directory}")
+        };
+        let entries = run(&["ls-tree", "-z", &spec])?;
+        if !entries.status.success() {
+            return Err(NotChanged::NoGit);
+        }
+        let mut entries: Vec<u8> = entries
+            .stdout
+            .split(|b| *b == 0)
+            .filter(|entry| !entry.is_empty())
+            .filter(|entry| entry.splitn(2, |b| *b == b'\t').nth(1) != Some(name.as_bytes()))
+            .flat_map(|entry| entry.iter().copied().chain(std::iter::once(0)))
+            .collect();
+        if let Some(tree) = replacement {
+            entries.extend_from_slice(format!("040000 tree {tree}\t{name}\0").as_bytes());
+        }
+        let tree = match git::git_input(program, repo, &["mktree", "-z"], entries, cancel) {
+            Some(out) if out.status.success() => out,
+            failed => return Err(NotChanged::Commit(why_failed(failed))),
+        };
+        replacement = Some(String::from_utf8_lossy(&tree.stdout).trim().to_owned());
+    }
+    let write = |args: &[&str]| match git::git_write(program, repo, args, cancel) {
+        Some(out) if out.status.success() => Ok(out),
+        failed => Err(NotChanged::Commit(why_failed(failed))),
+    };
+    let subject = format!("{id}：退回草稿");
+    let commit = write(&[
+        "commit-tree",
+        &replacement.unwrap(),
+        "-p",
+        &head,
+        "-m",
+        &subject,
+    ])?;
+    let commit = String::from_utf8_lossy(&commit.stdout).trim().to_owned();
+    write(&["update-index", "--force-remove", "--", &path])?;
+    if let Err(why) = write(&[
+        "update-ref",
+        "-m",
+        &format!("commit: {subject}"),
+        "HEAD",
+        &commit,
+        &head,
+    ]) {
+        // Restore this path's original staged entry, including staged edits; never stage
+        // its working copy or disturb any other path.
+        let _ = git::git_input(
+            program,
+            repo,
+            &["update-index", "-z", "--index-info"],
+            staged.stdout,
+            &AtomicBool::new(false),
+        );
+        return Err(why);
+    }
+    Ok(())
+}
+
 /// Queues a draft by committing its task file alone on main. Never pushes.
 pub fn queue_draft(
     program: &str,

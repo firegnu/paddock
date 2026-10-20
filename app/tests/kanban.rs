@@ -1853,6 +1853,103 @@ fn queue_draft_commits_only_the_draft_and_preserves_priority() {
 }
 
 #[test]
+fn move_to_draft_preserves_files_and_other_staging_and_can_queue_again() {
+    use paddock::kanban::{Priority, move_to_draft, queue_draft};
+    let temp = common::tempdir();
+    let (repo, _) = waiting_repo(temp.path(), "move-draft");
+    let cancel = AtomicBool::new(false);
+    let file = "P1-2-排队.md";
+    let path = format!("docs/任务/{file}");
+    commit(&repo, &path, "# 任务：排队\n\n优先：高\n", "task");
+    fs::write(repo.join(&path), "# 任务：排队\n\n优先：高\n\n暂存\n").unwrap();
+    git(&repo, &["add", "--", &path]);
+    let written = "# 任务：排队\n\n优先：高\n\n工作区的改动\n";
+    fs::write(repo.join(&path), written).unwrap();
+    fs::write(repo.join("docs/任务/P1-3-别的.md"), "# 任务：别的\n").unwrap();
+    fs::write(repo.join("staged.txt"), "staged\n").unwrap();
+    git(&repo, &["add", "staged.txt"]);
+    fs::write(repo.join("notes.txt"), "changed\n").unwrap();
+    let head = said(&repo, &["rev-parse", "HEAD"]);
+    assert_eq!(move_to_draft("git", &repo, file, &cancel), Ok(()));
+    assert_eq!(said(&repo, &["rev-parse", "HEAD~1"]), head);
+    assert_eq!(
+        said(&repo, &["log", "-1", "--format=%s"]),
+        "P1-2：退回草稿\n"
+    );
+    assert_eq!(said(&repo, &["ls-tree", "HEAD", "--", &path]), "");
+    assert_eq!(
+        said(&repo, &["show", "--name-only", "--format=", "HEAD"]),
+        format!("{path}\n")
+    );
+    assert_eq!(fs::read_to_string(repo.join(&path)).unwrap(), written);
+    assert_eq!(
+        said(&repo, &["status", "--porcelain", "--untracked-files=all"]),
+        " M notes.txt\nA  staged.txt\n?? docs/任务/P1-2-排队.md\n?? docs/任务/P1-3-别的.md\n"
+    );
+    let Read::Board(facts) = read("git", repo.to_str().unwrap(), &cache(), &cancel) else {
+        panic!("not a board");
+    };
+    let board = board(&facts, &[], 2_000_000_000.0);
+    let draft = board
+        .cards(Column::Queued)
+        .iter()
+        .find(|c| c.id == "P1-2")
+        .unwrap();
+    assert!(draft.draft);
+    assert_eq!(draft.priority, Some(Priority::High));
+    assert_eq!(queue_draft("git", &repo, file, &cancel), Ok(()));
+    assert_eq!(said(&repo, &["show", &format!("HEAD:{path}")]), written);
+    assert_eq!(
+        said(&repo, &["diff", "--cached", "--name-only"]),
+        "staged.txt\n"
+    );
+}
+
+#[test]
+fn move_to_draft_refuses_invalid_state_without_changes() {
+    use paddock::kanban::{NotChanged, move_to_draft};
+    let temp = common::tempdir();
+    let (repo, _) = waiting_repo(temp.path(), "move-refused");
+    let cancel = AtomicBool::new(false);
+    let file = "P1-1-等用户.md";
+    let head = said(&repo, &["rev-parse", "HEAD"]);
+    let index = fs::read(repo.join(".git/index")).unwrap();
+    let written = fs::read(repo.join(WAITING)).unwrap();
+    let status = said(&repo, &["status", "--porcelain", "--untracked-files=all"]);
+    let unchanged = || {
+        assert_eq!(said(&repo, &["rev-parse", "HEAD"]), head);
+        assert_eq!(fs::read(repo.join(".git/index")).unwrap(), index);
+        assert_eq!(fs::read(repo.join(WAITING)).unwrap(), written);
+        assert_eq!(
+            said(&repo, &["status", "--porcelain", "--untracked-files=all"]),
+            status
+        );
+    };
+    git(&repo, &["symbolic-ref", "HEAD", "refs/heads/other"]);
+    git(&repo, &["update-ref", "HEAD", head.trim()]);
+    assert_eq!(
+        move_to_draft("git", &repo, file, &cancel),
+        Err(NotChanged::NotMain(Some("other".into())))
+    );
+    unchanged();
+    git(&repo, &["symbolic-ref", "HEAD", "refs/heads/main"]);
+    for (marker, reason) in [("MERGE_HEAD", "merge"), ("rebase-merge", "rebase")] {
+        fs::write(repo.join(".git").join(marker), &head).unwrap();
+        assert_eq!(
+            move_to_draft("git", &repo, file, &cancel),
+            Err(NotChanged::Busy(reason))
+        );
+        unchanged();
+        fs::remove_file(repo.join(".git").join(marker)).unwrap();
+    }
+    assert_eq!(
+        move_to_draft("git", &repo, "P1-9-没有.md", &cancel),
+        Err(NotChanged::NotOnMain("docs/任务/P1-9-没有.md".into()))
+    );
+    unchanged();
+}
+
+#[test]
 fn queue_draft_refuses_invalid_state_without_changes() {
     use paddock::kanban::{NotChanged, queue_draft};
     let temp = common::tempdir();
