@@ -329,6 +329,85 @@ impl Stand {
     }
 }
 
+/// What is shown under the task handed over, in the Loop's box.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Doing {
+    /// Handed over, not begun yet.
+    Sent,
+    /// Begun: its agent's line, as on any card.
+    Agent,
+    /// Words in amber: it waits on the user, is stuck or its nudge failed, or no one can take it.
+    Says(String),
+}
+
+/// What the Loop's box shows on top.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Top {
+    /// Nothing.
+    Nothing,
+    /// The task handed over and not wrapped up (Now), whichever column it is in.
+    Now(Doing),
+    /// One line of small words where Now would be, amber when the loop waits on the user.
+    Line { words: String, amber: bool },
+}
+
+/// How the Loop's box is laid out (P5-158): Now or a line on top, then Next, the tasks waiting.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Face {
+    pub top: Top,
+    /// Next has its rule and name: there is a Now over the tasks waiting.
+    pub rule: bool,
+    /// What the header counts: Now, if any, and the tasks waiting.
+    pub count: usize,
+}
+
+/// The box for the loop `stand` says: `sent` is whether the task handed over is on the board
+/// and not done, and if so whether it has begun; `next` how many tasks wait in the loop.
+pub fn face(stand: &Stand, sent: Option<bool>, next: usize, timing: &Timing) -> Face {
+    let now = |begun: bool| Top::Now(if begun { Doing::Agent } else { Doing::Sent });
+    let says = |words: String| Top::Now(Doing::Says(words));
+    let top = match (stand, sent) {
+        (Stand::Off { .. }, Some(begun)) => now(begun),
+        (
+            Stand::Off {
+                finished: Some(done),
+                ..
+            },
+            None,
+        ) if next == 0 => Top::Line {
+            words: format!("Finished \u{b7} {done} done. Add queued tasks to run another loop."),
+            amber: false,
+        },
+        (Stand::Off { .. }, None) if next == 0 => Top::Line {
+            words: "Add queued tasks to the loop.".into(),
+            amber: false,
+        },
+        (Stand::Off { .. }, None) => Top::Nothing,
+        (Stand::Working { begun, .. }, Some(_)) => now(*begun),
+        (Stand::Working { .. }, None) => Top::Nothing,
+        (Stand::Asks { asks, .. }, Some(_)) => says(match asks.trim() {
+            "" => "Needs you".to_owned(),
+            asks => format!("Needs you \u{b7} {asks}"),
+        }),
+        (Stand::Stuck { .. }, Some(_)) => says(format!(
+            "Needs you \u{b7} not wrapped up, controller idle {}m",
+            (timing.stuck / 60.0).round()
+        )),
+        (Stand::Failed { nudge: true, .. }, Some(_))
+        | (Stand::NoController | Stand::Controllers(_), Some(_)) => says(stand.words(next, timing)),
+        _ => Top::Line {
+            words: stand.words(next, timing),
+            amber: stand.needs_you(),
+        },
+    };
+    let is_now = matches!(top, Top::Now(_));
+    Face {
+        rule: is_now && next > 0,
+        count: usize::from(is_now) + next,
+        top,
+    }
+}
+
 /// Whether `card` can be started: queued and on main, nothing it waits for, not waiting on the
 /// user.
 pub fn startable(card: &Card) -> bool {
@@ -1275,5 +1354,201 @@ mod tests {
             Delivery::Failed("corral did not say how it went".into())
         );
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    fn line(words: &str, amber: bool) -> Top {
+        Top::Line {
+            words: words.into(),
+            amber,
+        }
+    }
+
+    #[test]
+    fn the_box_puts_the_task_handed_over_on_top_or_else_one_line() {
+        let said = |stand: &Stand, sent: Option<bool>, next: usize| face(stand, sent, next, &T);
+        let id = || "P1-1".to_owned();
+        let busy = |stand: Stand| said(&stand, None, 2);
+        // Off after a run: one line, nothing listed, nothing counted.
+        let finished = Stand::Off {
+            tasks: 0,
+            finished: Some(3),
+        };
+        assert_eq!(
+            said(&finished, None, 0),
+            Face {
+                top: line(
+                    "Finished \u{b7} 3 done. Add queued tasks to run another loop.",
+                    false
+                ),
+                rule: false,
+                count: 0
+            }
+        );
+        // Off with tasks: only Next, no rule, no line, so many counted.
+        let off = Stand::Off {
+            tasks: 2,
+            finished: None,
+        };
+        assert_eq!(
+            said(&off, None, 2),
+            Face {
+                top: Top::Nothing,
+                rule: false,
+                count: 2
+            }
+        );
+        // Off with nothing in it.
+        let empty = Stand::Off {
+            tasks: 0,
+            finished: None,
+        };
+        assert_eq!(
+            said(&empty, None, 0),
+            Face {
+                top: line("Add queued tasks to the loop.", false),
+                rule: false,
+                count: 0
+            }
+        );
+        // Handed over, not begun, then begun: Now, with Next under a rule, and counted with it.
+        for (begun, doing) in [(false, Doing::Sent), (true, Doing::Agent)] {
+            let working = Stand::Working { id: id(), begun };
+            assert_eq!(
+                said(&working, Some(begun), 2),
+                Face {
+                    top: Top::Now(doing.clone()),
+                    rule: true,
+                    count: 3
+                }
+            );
+            // Nothing waiting: Now alone, no rule.
+            assert_eq!(
+                said(&working, Some(begun), 0),
+                Face {
+                    top: Top::Now(doing),
+                    rule: false,
+                    count: 1
+                }
+            );
+        }
+        // Off with one handed over still has it on top.
+        assert_eq!(
+            said(&off, Some(true), 1),
+            Face {
+                top: Top::Now(Doing::Agent),
+                rule: true,
+                count: 2
+            }
+        );
+        // Waiting on the user, stuck, a nudge that failed, no controller: Now with amber words.
+        let amber = |stand: Stand, words: &str| {
+            assert_eq!(
+                said(&stand, Some(true), 1),
+                Face {
+                    top: Top::Now(Doing::Says(words.into())),
+                    rule: true,
+                    count: 2
+                },
+                "{stand:?}"
+            );
+            assert!(stand.needs_you());
+        };
+        amber(
+            Stand::Asks {
+                id: id(),
+                asks: "看样稿".into(),
+            },
+            "Needs you \u{b7} 看样稿",
+        );
+        amber(
+            Stand::Stuck {
+                id: id(),
+                idle: 901.0,
+            },
+            "Needs you \u{b7} not wrapped up, controller idle 15m",
+        );
+        amber(
+            Stand::Failed {
+                id: id(),
+                why: "no such agent".into(),
+                nudge: true,
+            },
+            "Nudge failed: no such agent",
+        );
+        amber(Stand::NoController, "Waiting: no controller");
+        amber(Stand::Controllers(2), "Waiting: more than one controller");
+        // Nothing handed over: one line where Now would be, Next listed with no rule, and only the
+        // tasks waiting counted. Amber when it waits on the user.
+        for (stand, words, amber) in [
+            (Stand::NoController, "Waiting: no controller", true),
+            (
+                Stand::Controllers(2),
+                "Waiting: more than one controller",
+                true,
+            ),
+            (
+                Stand::Failed {
+                    id: id(),
+                    why: "refused".into(),
+                    nudge: false,
+                },
+                "Send failed: refused",
+                true,
+            ),
+            (
+                Stand::Busy { id: "P1-9".into() },
+                "Waiting: P1-9 in progress",
+                false,
+            ),
+            (
+                Stand::Retrying { id: id(), at: 1.0 },
+                "Waiting: controller busy, sending P1-1 again shortly",
+                false,
+            ),
+            (Stand::Sending { id: id() }, "Sending P1-1\u{2026}", false),
+            (
+                Stand::Blocked,
+                "Waiting: nothing in the loop can start yet",
+                false,
+            ),
+        ] {
+            assert_eq!(
+                busy(stand),
+                Face {
+                    top: line(words, amber),
+                    rule: false,
+                    count: 2
+                }
+            );
+        }
+        assert_eq!(
+            busy(send("P1-1")),
+            Face {
+                top: line("Sending P1-1\u{2026}", false),
+                rule: false,
+                count: 2
+            }
+        );
+    }
+
+    #[test]
+    fn the_box_follows_the_loop_as_it_stands_on_the_board() {
+        let facts = facts(vec![task("P1-1"), task("P1-2"), task("P1-3")]);
+        let idle = main(Status::Idle, 0.0);
+        let lp = Loop {
+            sent: sent("P1-1", 10.0),
+            ..on(&["P1-2", "P1-3"])
+        };
+        let stand = at(&lp, &facts, std::slice::from_ref(&idle), 100.0);
+        // On the board, not begun.
+        let shown = face(&stand, Some(false), lp.tasks.len(), &T);
+        assert_eq!(shown.top, Top::Now(Doing::Sent));
+        assert_eq!((shown.rule, shown.count), (true, 3));
+        // No controller on the board and nothing handed over: the line, in amber.
+        let quiet = at(&on(&["P1-2"]), &facts, &[], 100.0);
+        assert_eq!(
+            face(&quiet, None, 1, &T).top,
+            line("Waiting: no controller", true)
+        );
     }
 }

@@ -22,7 +22,7 @@ use crate::{
     footer_icon::{self, Icon},
     inbox,
     kanban::{self, Board, Cache, Card, Column, Doer, Priority, Read, Seen, Tone},
-    kanban_loop::{self, Delivery, Loop, Loops, Stand, Timing},
+    kanban_loop::{self, Delivery, Doing, Loop, Loops, Stand, Timing, Top},
     kanban_repos::{self, Looking, Row},
     kind_icon, markdown, markdown_view, menu, popover, raised,
     right_panel::Tip,
@@ -365,10 +365,20 @@ struct LoopRead {
 enum Slot {
     /// Queued in the LOOP group, at this place from 1.
     At(usize),
-    /// Handed to the controller, not begun: first in the group.
+    /// Handed to the controller, not begun: Now, on top of the group.
     Sent,
     /// Under way, in its own column: marked Loop.
     Under,
+}
+
+/// The task handed over, as the Loop's box draws it on top (P5-158).
+struct Now {
+    /// It has begun: its agent's line goes under its title.
+    agent: bool,
+    /// It waits on the user, or is stuck: its mark is amber.
+    needs: bool,
+    /// What goes under its title otherwise.
+    rows: Vec<AnyElement>,
 }
 
 impl KanbanView {
@@ -1543,6 +1553,29 @@ impl KanbanView {
             .filter_map(queued)
             .collect()
     }
+
+    /// The task `lp` handed over, in whichever column it is until it is wrapped up.
+    fn now_card<'a>(&self, board: &'a Board, lp: &Loop) -> Option<&'a Card> {
+        let sent = lp.sent.as_ref()?;
+        board
+            .columns
+            .iter()
+            .flatten()
+            .find(|card| card.id == sent.id && !card.draft && card.column != Column::Done)
+    }
+
+    /// The queued cards in `lp` not handed over, in their order: the Loop's Next.
+    fn next_cards<'a>(&self, board: &'a Board, lp: &Loop) -> Vec<&'a Card> {
+        lp.tasks
+            .iter()
+            .filter_map(|id| {
+                board
+                    .cards(Column::Queued)
+                    .iter()
+                    .find(|card| card.id == *id && !card.draft)
+            })
+            .collect()
+    }
 }
 
 /// A task the task dialog offers to wait for.
@@ -2230,7 +2263,7 @@ impl KanbanView {
         let mut above = true;
         for card in cards {
             let hovered = self.hovered(card);
-            rows = rows.child(self.card(card, place, ids, !above && !hovered, fit, ui, cx));
+            rows = rows.child(self.card(card, place, ids, !above && !hovered, None, fit, ui, cx));
             above = hovered;
         }
         rows
@@ -2473,9 +2506,11 @@ impl KanbanView {
         cards
     }
 
-    /// The Loop's group over Queued (P5-106): its header, with how many it has and the switch; the
-    /// status line, Needs you in amber, with Retry, or Nudge and Skip, when they apply; and its
-    /// tasks, the one handed over first, the others numbered, in a box as the other groups' are.
+    /// The Loop's group over Queued (P5-106, P5-158): its header, with how many it has and the
+    /// switch; and in a box as the other groups' are, on top the task handed over (Now), wherever
+    /// it is on the board, with what the loop says of it under its title, then Next, the tasks
+    /// waiting, numbered, under a rule. With nothing handed over, one line in Now's place says
+    /// what the loop waits for, in amber when that is the user, with Retry when it can be.
     #[allow(clippy::too_many_arguments)]
     fn loop_group(
         &self,
@@ -2489,7 +2524,14 @@ impl KanbanView {
         let c = self.colors;
         let lp = self.loops.get(&board.repo);
         let stand = self.stand(&board.repo, &lp, board);
-        let cards = self.in_loop(board);
+        let sent = self.now_card(board, &lp);
+        let next = self.next_cards(board, &lp);
+        let face = kanban_loop::face(
+            &stand,
+            sent.map(|card| card.column != Column::Queued),
+            next.len(),
+            &Timing::DEFAULT,
+        );
         let needs = stand.needs_you();
         let inline = place == Place::List;
         let head = div()
@@ -2518,65 +2560,108 @@ impl KanbanView {
                     .text_color(c.bright)
                     .child("Loop"),
             )
-            .child(self.count_pill(cards.len().to_string(), ui))
-            .when(needs, |head| {
-                head.child(
-                    pill(ui)
-                        .h(ui.px(18.0))
-                        .bg(c.yellow.opacity(0.14))
-                        .text_size(ui.px(11.0))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(c.yellow)
-                        .child("Needs you"),
-                )
-            })
+            .child(self.count_pill(face.count.to_string(), ui))
             .child(div().flex_1())
             .child(self.loop_switch(&lp, ui, cx));
-        let words = stand.words(lp.tasks.len(), &Timing::DEFAULT);
-        let tone = if needs {
-            c.yellow
-        } else if lp.on {
-            c.text
-        } else {
-            c.dim
-        };
         let button = |id: &'static str, words: &'static str| {
             answer(id, words, ui)
                 .border_color(c.rule)
                 .text_color(c.text)
                 .hover(move |style| style.bg(c.text.opacity(0.09)))
         };
-        let mut status = asked(ui)
-            .pl(ui.px(if inline { HEAD_X + ARROW + 8.0 } else { 2.0 }))
-            .pr(ui.px(HEAD_X))
-            .pb(ui.px(2.0))
-            .text_size(ui.px(UNDER_SIZE))
-            .child(said(words, tone));
+        let retry = |view: &mut Self, _: &ClickEvent, _: &mut Window, cx: &mut Context<Self>| {
+            view.loop_retry(cx)
+        };
+        let nudge = |view: &mut Self, _: &ClickEvent, _: &mut Window, cx: &mut Context<Self>| {
+            view.nudge(cx)
+        };
+        let skip = |view: &mut Self, _: &ClickEvent, _: &mut Window, cx: &mut Context<Self>| {
+            view.edit_loop(Loop::skip, cx)
+        };
+        // Retry after a failed handing over; Nudge and Skip on a task that is stuck.
+        let mut buttons = Vec::new();
         match &stand {
             Stand::Failed { .. } => {
-                status = status.child(
-                    button("kanban-loop-retry", "Retry")
-                        .on_click(cx.listener(|view, _: &ClickEvent, _, cx| view.loop_retry(cx))),
-                );
+                buttons.push(button("kanban-loop-retry", "Retry").on_click(cx.listener(retry)));
             }
             Stand::Stuck { .. } => {
-                status = status
-                    .child(
-                        button("kanban-loop-nudge", "Nudge")
-                            .on_click(cx.listener(|view, _: &ClickEvent, _, cx| view.nudge(cx))),
-                    )
-                    .child(button("kanban-loop-skip", "Skip").on_click(
-                        cx.listener(|view, _: &ClickEvent, _, cx| view.edit_loop(Loop::skip, cx)),
-                    ));
+                buttons.push(button("kanban-loop-nudge", "Nudge").on_click(cx.listener(nudge)));
+                buttons.push(button("kanban-loop-skip", "Skip").on_click(cx.listener(skip)));
             }
             _ => {}
         }
-        let mut group = div()
-            .flex_shrink_0()
-            .flex()
-            .flex_col()
-            .child(head)
-            .child(status);
+        let stuck = matches!(stand, Stand::Stuck { .. });
+        let top: Option<AnyElement> = match face.top {
+            Top::Nothing => None,
+            Top::Line { words, amber } => Some(
+                asked(ui)
+                    .pl(ui.px(CARD_LEFT))
+                    .pr(ui.px(CARD_RIGHT))
+                    .py(ui.px(CARD_Y))
+                    .text_size(ui.px(UNDER_SIZE))
+                    .child(said(
+                        words,
+                        if amber {
+                            c.yellow
+                        } else if lp.on {
+                            c.muted
+                        } else {
+                            c.dim
+                        },
+                    ))
+                    .children(buttons)
+                    .into_any_element(),
+            ),
+            Top::Now(doing) => sent.map(|card| {
+                let small = || asked(ui).text_size(ui.px(UNDER_SIZE));
+                let (agent, needs, rows) = match doing {
+                    Doing::Agent => (true, false, Vec::new()),
+                    Doing::Sent => {
+                        let to = kanban::controllers_for(&board.repo, &self.agents);
+                        let to = match to.as_slice() {
+                            [one] => one.name.as_str(),
+                            _ => "the controller",
+                        };
+                        let ago = lp
+                            .sent
+                            .as_ref()
+                            .map(|sent| {
+                                format!(" \u{b7} {}", card::short_time(Some(now() - sent.at)))
+                            })
+                            .unwrap_or_default();
+                        let words = format!("Sent to {to}{ago}");
+                        (
+                            false,
+                            false,
+                            vec![small().child(said(words, c.muted)).into_any_element()],
+                        )
+                    }
+                    Doing::Says(words) => {
+                        // Nudge and Skip on a row of their own; Retry after the words.
+                        let (words_row, buttons_row) = if stuck {
+                            (
+                                small().child(said(words, c.yellow)),
+                                small().children(buttons),
+                            )
+                        } else {
+                            (
+                                small().child(said(words, c.yellow)).children(buttons),
+                                small(),
+                            )
+                        };
+                        let mut rows = vec![words_row.into_any_element()];
+                        if stuck {
+                            rows.push(buttons_row.into_any_element());
+                        }
+                        (false, true, rows)
+                    }
+                };
+                let row = Now { agent, needs, rows };
+                self.card(card, place, ids, false, Some(row), fit, ui, cx)
+                    .into_any_element()
+            }),
+        };
+        let mut group = div().flex_shrink_0().flex().flex_col().child(head);
         if let Some(problem) = self.loops.problem() {
             group = group.child(
                 div()
@@ -2586,10 +2671,34 @@ impl KanbanView {
                     .child(problem.to_owned()),
             );
         }
-        if cards.is_empty() {
+        if top.is_none() && next.is_empty() {
             return group;
         }
-        let rows = self.rows(&cards, place, ids, fit, ui, cx);
+        let mut rows = div().flex_shrink_0().flex().flex_col().children(top);
+        if face.rule {
+            rows = rows.child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(ui.px(8.0))
+                    .pl(ui.px(CARD_LEFT))
+                    .pr(ui.px(CARD_RIGHT))
+                    .pt(ui.px(4.0))
+                    .pb(ui.px(2.0))
+                    .child(
+                        div()
+                            .flex_shrink_0()
+                            .text_size(ui.px(10.0))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(c.dim)
+                            .child("NEXT"),
+                    )
+                    .child(div().flex_1().h(px(1.0)).bg(c.text.opacity(RULE))),
+            );
+        }
+        if !next.is_empty() {
+            rows = rows.child(self.rows(&next, place, ids, fit, ui, cx));
+        }
         let rows = if inline {
             let raised = raised::raised(&self.theme, ui);
             rows.p(ui.px(BOX_PAD))
@@ -2705,6 +2814,7 @@ impl KanbanView {
         place: Place,
         ids: f32,
         rule: bool,
+        now: Option<Now>,
         fit: &Fit,
         ui: &UiFont,
         cx: &mut Context<Self>,
@@ -2729,7 +2839,7 @@ impl KanbanView {
                 .child(card.age.clone())
         });
         // Under way from the Loop, in its own column: marked so (P5-106).
-        let looped = (self.slot(card) == Some(Slot::Under)).then(|| {
+        let looped = (now.is_none() && self.slot(card) == Some(Slot::Under)).then(|| {
             pill(ui)
                 .h(ui.px(16.0))
                 .px(ui.px(6.0))
@@ -2794,7 +2904,7 @@ impl KanbanView {
                 .child(card.title.clone())
         }
         .line_height(ui.px(TITLE_LINE));
-        let id = self.id(card, ui);
+        let id = self.id(card, now.as_ref().map(|now| now.needs), ui);
         let head = if inline {
             div()
                 .flex()
@@ -2836,29 +2946,39 @@ impl KanbanView {
                 })
         });
         let small = |row: Div| row.text_size(ui.px(UNDER_SIZE));
-        let below: Vec<AnyElement> = [
-            self.waits(card, under, fit, ui)
-                .map(IntoElement::into_any_element),
-            self.asks(card, under, fit, ui)
-                .map(IntoElement::into_any_element),
-            self.footer(card, place, hovered, under, ring, fit, ui, cx)
-                .map(IntoElement::into_any_element),
-            self.clearing(card, ui, cx)
-                .map(|r| small(r).into_any_element()),
-            self.prioritizing(card, ui, cx)
-                .map(|r| small(r).into_any_element()),
-            self.deleting(card, ui, cx)
-                .map(|r| small(r).into_any_element()),
-            self.dropping(card, ui, cx)
-                .map(|r| small(r).into_any_element()),
-            self.queuing(card, ui, cx)
-                .map(|r| small(r).into_any_element()),
-            self.moving_to_draft(card, ui, cx)
-                .map(|r| small(r).into_any_element()),
-        ]
-        .into_iter()
-        .flatten()
-        .collect();
+        let below: Vec<AnyElement> = if let Some(now) = now {
+            // Now, in the Loop's box: its agent's line once begun, else what the loop says of it.
+            let agent = now
+                .agent
+                .then(|| self.footer(card, place, hovered, under, ring, fit, ui, cx))
+                .flatten()
+                .map(IntoElement::into_any_element);
+            agent.into_iter().chain(now.rows).collect()
+        } else {
+            [
+                self.waits(card, under, fit, ui)
+                    .map(IntoElement::into_any_element),
+                self.asks(card, under, fit, ui)
+                    .map(IntoElement::into_any_element),
+                self.footer(card, place, hovered, under, ring, fit, ui, cx)
+                    .map(IntoElement::into_any_element),
+                self.clearing(card, ui, cx)
+                    .map(|r| small(r).into_any_element()),
+                self.prioritizing(card, ui, cx)
+                    .map(|r| small(r).into_any_element()),
+                self.deleting(card, ui, cx)
+                    .map(|r| small(r).into_any_element()),
+                self.dropping(card, ui, cx)
+                    .map(|r| small(r).into_any_element()),
+                self.queuing(card, ui, cx)
+                    .map(|r| small(r).into_any_element()),
+                self.moving_to_draft(card, ui, cx)
+                    .map(|r| small(r).into_any_element()),
+            ]
+            .into_iter()
+            .flatten()
+            .collect()
+        };
         let below = (!below.is_empty()).then(|| {
             div()
                 .flex()
@@ -3066,7 +3186,7 @@ impl KanbanView {
 
     /// A task's ring (P5-114), then its id, if it has one, in small fixed-width type. The ring
     /// tells when the mouse is on it: Draft on a draft, why on one dropped, otherwise its state.
-    fn id(&self, card: &Card, ui: &UiFont) -> Div {
+    fn id(&self, card: &Card, now: Option<bool>, ui: &UiFont) -> Div {
         let c = self.colors;
         let mark = ring(
             card.column,
@@ -3106,16 +3226,46 @@ impl KanbanView {
                     .into_any_element(),
                 format!("Loop \u{b7} number {n} in line"),
             ),
-            Some(Slot::Sent) => (
+            _ => (self.ring_icon(mark, RING, ui).into_any_element(), words),
+        };
+        // Now, on top of the Loop's box: an arc turning, or an amber ! when it needs the user.
+        let (marked, words) = match now {
+            Some(true) => (
+                div()
+                    .flex_shrink_0()
+                    .size(ui.px(RING))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded_full()
+                    .border_1()
+                    .border_color(c.yellow)
+                    .text_size(ui.px(8.5))
+                    .font_weight(FontWeight::BOLD)
+                    .text_color(c.yellow)
+                    .child("!")
+                    .into_any_element(),
+                "Loop \u{b7} now \u{b7} needs you".to_owned(),
+            ),
+            Some(false) => (
                 svg()
-                    .data(LOOP_ARROWS)
+                    .data(SPIN_ARC)
                     .flex_shrink_0()
                     .size(ui.px(RING))
                     .text_color(c.accent)
+                    .with_animation(
+                        "loop-now",
+                        Animation::new(Duration::from_millis(1100))
+                            .repeat_synced()
+                            .with_max_fps(30.0),
+                        |arc, delta| {
+                            arc.with_transformation(Transformation::rotate(percentage(delta)))
+                        },
+                    )
                     .into_any_element(),
-                "Loop \u{b7} sent to the controller".to_owned(),
+                "Loop \u{b7} now".to_owned(),
             ),
-            _ => (self.ring_icon(mark, RING, ui).into_any_element(), words),
+            None => (marked, words),
         };
         let note = Note::new(words.into(), &self.theme, ui);
         div()
