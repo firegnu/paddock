@@ -84,3 +84,12 @@
 没做的事：没改 Loop 规则、没动各栏卡片和收件箱；没加主题色键、依赖。
 
 踩过的坑：没有（`cargo fmt` 之外一次编过）。要主控决定的：上面 pty 那条测试要不要在 main 上对照一下。
+
+## 主控审查
+
+10-20，paddock/main。agent 实际名字是 `paddock/dev-loopui-1`（Claude Code sonnet / high，分工表第 8 条试用第 1 件）。
+- diff 只动了 `kanban_loop.rs`（新加 `face`、`Top`、`Doing`，把现有状态映射成框顶放什么、要不要 `NEXT` 线、个数多少；`look`、`settle`、`Stand::words` 没动）、`kanban_view.rs`（`loop_group` 按 `face` 画，Now 那件复用卡片画法，标题下换成 Loop 说的话或 agent 行）、DESIGN §13 一条。Loop 的规则没改，「不要做」一件没犯。
+- 两条新测试覆盖任务列的各种状态。主控墙外重跑 `cargo test --all-targets`：981 个通过、0 个失败；对方在墙里那条 pty 测试（`a_shell_s_relative_paths_are_from_where_it_has_gone_to`）失败是墙里环境的事，墙外过。
+- 对方拿主意的三处都同意：关着但送出去的那件还没收尾时仍放框顶；开工后它同时在 Now 和 In progress 里；等待的说明用淡色字。
+- 建议改（不挡合并）：Now 的小弧一直转（每秒 30 帧），不跟系统“减弱动态效果”；侧栏 Working 的转圈有先例，但 P5-150 定过动效跟这个开关走。要不要改由用户定。
+- 已从分支装上，等用户重开试。
