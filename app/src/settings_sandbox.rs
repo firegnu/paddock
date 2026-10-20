@@ -443,6 +443,37 @@ impl SettingsView {
                     ),
             );
         }
+        if let Some(servers) = &profiles.mcp {
+            let mut search = div()
+                .mt(px(6.0))
+                .px(px(4.0))
+                .flex()
+                .flex_wrap()
+                .items_center()
+                .gap(px(6.0))
+                .text_size(ui.px(12.0))
+                .text_color(dimmer)
+                .child("Web search:");
+            if servers.is_empty() {
+                search = search.child(div().text_color(dim).child("none"));
+            }
+            for (index, server) in servers.iter().enumerate() {
+                if index > 0 {
+                    search = search.child("·");
+                }
+                search = search.child(match server.problem() {
+                    Some(problem) => div()
+                        .text_color(red)
+                        .child(format!("{} (can't be read: {problem})", server.name)),
+                    None => div().text_color(dim).child(format!(
+                        "{} ({})",
+                        server.name,
+                        server.origin()
+                    )),
+                });
+            }
+            column = column.child(search);
+        }
         column
     }
 
@@ -611,6 +642,30 @@ impl SettingsView {
             built = built.child("· no .fence.toml in this folder");
         }
         column = column.child(built);
+        // The web search server this profile and kind give the agent.
+        if profiles.mcp.is_some() {
+            let servers = check.search();
+            let words = if servers.is_empty() {
+                "none".to_owned()
+            } else {
+                servers
+                    .iter()
+                    .map(|server| server.words())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            };
+            column = column.child(
+                div()
+                    .flex()
+                    .flex_wrap()
+                    .items_center()
+                    .gap(px(6.0))
+                    .text_size(ui.px(12.0))
+                    .text_color(dimmer)
+                    .child("Web search:")
+                    .child(div().text_color(dim).child(words)),
+            );
+        }
         // The rules, in cards two to a row when there is room.
         let rules = &check.settings;
         let card = |body: Vec<AnyElement>| {

@@ -65,6 +65,29 @@ impl Profile {
     }
 }
 
+/// One web search server `fence profiles` lists (ranch R30): built-in data or this Mac's.
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct Server {
+    pub name: String,
+    /// `builtin` or `user`; another value is shown as it is.
+    pub source: String,
+    /// Present when fence could not read it; the server is still listed.
+    pub error: Option<Value>,
+}
+
+impl Server {
+    /// Where it comes from, in words: `built in`, `yours`, or fence's word.
+    pub fn origin(&self) -> String {
+        origin(&self.source)
+    }
+
+    /// Why fence could not read it, as it said.
+    pub fn problem(&self) -> Option<String> {
+        self.error.as_ref().map(said)
+    }
+}
+
 /// `builtin` or `user` in words; another value as it is.
 pub fn origin(source: &str) -> String {
     match source {
@@ -98,6 +121,9 @@ pub struct Profiles {
     pub profiles: Vec<Profile>,
     pub kinds: Vec<Kind>,
     pub local: Option<Local>,
+    /// The web search servers fence can give an agent; none when fence is too old to list them
+    /// (`mcp` is a newer field, ranch R30).
+    pub mcp: Option<Vec<Server>>,
 }
 
 impl Profiles {
@@ -186,6 +212,39 @@ pub struct Check {
     pub settings: Settings,
     pub skipped: Vec<Skipped>,
     pub warnings: Vec<String>,
+}
+
+/// One web search server a check gives the agent.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Search {
+    pub name: String,
+    /// Where it comes from in words; none when its layer doesn't say.
+    pub origin: Option<String>,
+}
+
+impl Search {
+    /// As words: `exa (built in)`, or the name alone when the layer gave no origin.
+    pub fn words(&self) -> String {
+        match &self.origin {
+            Some(origin) => format!("{} ({origin})", self.name),
+            None => self.name.clone(),
+        }
+    }
+}
+
+impl Check {
+    /// The web search servers this check gives the agent, in the order fence merged them; empty
+    /// when the profile and kind connect none.
+    pub fn search(&self) -> Vec<Search> {
+        self.layers
+            .iter()
+            .filter(|layer| layer.source == "mcp")
+            .map(|layer| Search {
+                name: layer.name.clone().unwrap_or_else(|| layer.tag()),
+                origin: layer.origin.as_deref().map(origin),
+            })
+            .collect()
+    }
 }
 
 /// One thing the wall stopped.
@@ -614,6 +673,50 @@ mod tests {
         let local = profiles.local.unwrap();
         assert!(!local.exists);
         assert_eq!(local.path, "/Users/u/.fence/local.toml");
+    }
+
+    #[test]
+    fn web_search_servers_are_listed_and_a_check_says_which_one_it_gives() {
+        const SERVERS: &str = r#"{"kinds":[],"mcp":[{"name":"exa","source":"builtin"},{"name":"mine","source":"user"},{"name":"broken","source":"user","error":{"error":"invalid_data","message":"bad toml"}}],"ok":true,"profiles":[]}"#;
+        const CHECK: &str = r#"{"ok":true,"profile":"dev","layers":[{"source":"profile","name":"dev","origin":"builtin"},{"source":"mcp","name":"exa","origin":"builtin"}],"settings":{}}"#;
+        let script = format!(
+            r#"case "$1" in
+  profiles) echo '{SERVERS}';;
+  check) echo '{CHECK}';;
+  *) exit 2;;
+esac"#
+        );
+        let (_dir, program) = fake("mcp", &script);
+        let profiles = super::profiles(&program, &NO).unwrap();
+        let servers = profiles.mcp.as_ref().unwrap();
+        assert_eq!(servers.len(), 3);
+        assert_eq!(servers[0].name, "exa");
+        assert_eq!(servers[0].origin(), "built in");
+        assert_eq!(servers[0].problem(), None);
+        assert_eq!(servers[1].origin(), "yours");
+        assert_eq!(
+            servers[2].problem().as_deref(),
+            Some("invalid_data: bad toml")
+        );
+        let check = super::check(&program, "dev", Some("claude"), None, &NO).unwrap();
+        let search: Vec<String> = check.search().iter().map(Search::words).collect();
+        assert_eq!(search, ["exa (built in)"]);
+    }
+
+    #[test]
+    fn an_old_fence_has_no_web_search_field_and_a_check_without_one_says_none() {
+        // Before R30 fence doesn't list the servers at all; the new fence says `[]` for none.
+        let old: Profiles =
+            serde_json::from_str(r#"{"kinds":[],"ok":true,"profiles":[]}"#).unwrap();
+        assert_eq!(old.mcp, None);
+        let new: Profiles =
+            serde_json::from_str(r#"{"kinds":[],"mcp":[],"ok":true,"profiles":[]}"#).unwrap();
+        assert_eq!(new.mcp, Some(Vec::new()));
+        let check: Check = serde_json::from_str(
+            r#"{"layers":[{"name":"dev","origin":"builtin","source":"profile"}],"ok":true,"profile":"dev"}"#,
+        )
+        .unwrap();
+        assert!(check.search().is_empty());
     }
 
     #[test]
