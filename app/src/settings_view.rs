@@ -223,6 +223,7 @@ const GENERAL: [(&str, &[&str]); 4] = [
             "animate_cursor",
             "smooth_scroll",
             "minimum_contrast",
+            "copy_on_select",
         ],
     ),
     ("Mascot", &["mascot_enabled", "mascot"]),

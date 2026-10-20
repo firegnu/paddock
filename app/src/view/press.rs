@@ -13,6 +13,11 @@ use alacritty_terminal::{
 /// A grid cell and which half of it the mouse is on.
 pub type Cell = (Point, Side);
 
+/// Whether releasing a mouse selection should write the clipboard (P5-152).
+pub fn copy_on_select(enabled: bool, ended: bool, selected: bool) -> bool {
+    enabled && ended && selected
+}
+
 /// What the pane does about a mouse event.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Act {
@@ -191,6 +196,40 @@ fn selection_kind(clicks: usize) -> SelectionType {
 mod tests {
     use super::*;
     use alacritty_terminal::index::{Column, Line};
+
+    #[test]
+    fn copy_on_select_only_copies_a_nonempty_selection_when_enabled() {
+        for enabled in [false, true] {
+            for clicks in 1..=3 {
+                for shift in [false, true] {
+                    let mut mouse = Mouse::default();
+                    mouse.down(Down {
+                        link: None,
+                        command: false,
+                        clicks,
+                        shift,
+                        reports: shift,
+                        cell: Some(cell(3)),
+                    });
+                    if clicks == 1 {
+                        mouse.pane_move(Some(cell(7)), true);
+                    }
+                    let ended = mouse.pane_up() == Act::EndSelect;
+                    assert_eq!(copy_on_select(enabled, ended, true), enabled);
+                    assert!(!copy_on_select(enabled, ended, false));
+                    let ended = mouse.window_up(Some(cell(7)), true) == Act::EndSelect;
+                    assert!(!copy_on_select(enabled, ended, true));
+                }
+            }
+            for command in [false, true] {
+                let (mut mouse, mut done) = (Mouse::default(), Done::default());
+                click(&mut mouse, &mut done, 1, command, true, false);
+                for act in done.0 {
+                    assert!(!copy_on_select(enabled, act == Act::EndSelect, true));
+                }
+            }
+        }
+    }
 
     fn cell(col: usize) -> Cell {
         (Point::new(Line(0), Column(col)), Side::Left)

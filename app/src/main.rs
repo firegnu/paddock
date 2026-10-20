@@ -215,6 +215,7 @@ fn main() -> Result<()> {
         blink_cursor: config.blink_cursor,
         animate_cursor: config.animate_cursor,
         smooth_scroll: config.smooth_scroll,
+        copy_on_select: config.copy_on_select,
         zoom: 0,
         minimum_contrast: config.minimum_contrast,
         stats,
