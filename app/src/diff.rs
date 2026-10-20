@@ -30,6 +30,8 @@ pub enum Scope {
     Uncommitted,
     /// Everything since the branch left its base, the uncommitted included.
     Branch,
+    /// The branch's commits, read by `history.rs` rather than here.
+    History,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -240,6 +242,10 @@ pub fn read(program: &str, cwd: &str, scope: Scope, cancel: &AtomicBool) -> Opti
 }
 
 fn read_inner(program: &str, cwd: &str, scope: Scope, cancel: &AtomicBool) -> Read {
+    // The History scope has its own read; this one only knows worktree changes.
+    if scope == Scope::History {
+        return Read::Failed("History is read by history.rs".into());
+    }
     let dir = Path::new(cwd);
     if !dir.is_absolute() || !dir.is_dir() {
         return Read::NotRepository;
@@ -283,6 +289,7 @@ fn read_inner(program: &str, cwd: &str, scope: Scope, cancel: &AtomicBool) -> Re
                 None => return Read::NoBase { head: head_name },
             }
         }
+        Scope::History => unreachable!("History is read by history.rs"),
     };
     // A changed file that needs a blocked filter fails the diff, which then says so.
     let Some(overrides) = git::filter_overrides(program, &top, cancel) else {
@@ -350,7 +357,7 @@ fn read_inner(program: &str, cwd: &str, scope: Scope, cancel: &AtomicBool) -> Re
 }
 
 /// Git's complaint, first line, or its exit status.
-fn failure(output: &crate::command::Output) -> String {
+pub(crate) fn failure(output: &crate::command::Output) -> String {
     let stderr = String::from_utf8_lossy(&output.stderr);
     match stderr.lines().map(str::trim).find(|l| !l.is_empty()) {
         Some(line) => line.to_owned(),

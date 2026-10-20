@@ -30,6 +30,7 @@ pub mod git;
 pub mod glyphs;
 pub mod grid;
 pub mod highlight;
+pub mod history;
 pub mod icon;
 pub mod ime;
 pub mod inbox;

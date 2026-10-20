@@ -58,3 +58,45 @@
 
 ## 做完
 三项检查跑完，在本文件末尾追加「## 完成记录」：做了什么、验证了什么（哪些测试先红后绿）、拿主意的地方、没做的事、踩过的坑（试了不行换了办法的、工具或环境的行为和预想不一样的；没有就写「没有」），在你的分支里提交。主控审过后装上给用户试，用户说可以再合并。回复里只写这几样，加上有没有要主控决定的事。命令都在前台跑完，全部做完后，回复最后一行写 DONE。
+
+## 完成记录
+
+- 做了什么：
+  - `app/src/history.rs`（新）：只用只读 git 命令读 `HEAD` 的提交（`log --topo-order`，含合并进来的分支，不碰别的 ref 和网络），先 200 条、多要一条判断还有没有；自己按父提交算列（第一父提交留在原列，其余父提交依次开新列，线并回提交点）；从说明里认任务编号和收尾提交；扫 `docs/任务/` 建唯一编号到文件的索引；合并/根提交对第一父提交/空树跑 `git diff` 并交给 `diff::parse`。
+  - `app/src/diff.rs`：`Scope` 加 `History`（随布局存成 `"history"`），`diff::read` 不处理 History；`failure` 共享给 history。
+  - `app/src/changes.rs`：Changes 顶部切换加 `History`；History 自己一套后台读取（线程、取消标记、1.5 秒重读、滚到底加 200）；提交列表用单独的 `ListState`，按顶部提交的 hash 还原滚动，正在最顶上时停在新的最上面；选中的提交单独记着事实，新提交把它挤出 200 条窗口时自动加读一次而不是丢掉；提交行画线、圆点、编号胶囊、短 hash/作者/时间/`merge`，收尾提交整行变淡；悬停出 `Copy hash`、`Open task`（唯一任务文件时）；点一行在下面/右边用现有 diff 画法显示，合并对第一父提交，空提交写 `No changes in this commit.`；提交详情头写完整标题行、短 hash、作者、时间、合并标记、文件数和增删；窄面板和拉宽都能拖分隔，默认 42%/45%；空状态、失败重试照 Changes。
+  - `docs/DESIGN.md`：末尾补 P5-159 的设计和实际做法。
+- 验证了什么：
+  - 测试先写先跑红：`history.rs` 的三个单测（认编号、单个合并分叉、两个分支同时开）在 `todo!()` 上失败；实现后转绿。`app/tests/history.rs` 的临时仓库测试在读取接口完成后补上，覆盖提交顺序、`--no-ff` 分叉、octopus 两条分支线、合并对第一父提交、根提交对空树、空提交无 diff、任务文件唯一性、第二批从第 201 条接上，以及读前读后 `.git/index` 和 `HEAD` 不变。
+  - `cargo test --all-targets`：809 个库测试和所有集成测试通过，退出 0。
+  - `cargo clippy --all-targets -- -D warnings`：通过。
+  - `cargo fmt --check`：通过。
+  - 没起窗口、没截图；界面留给用户实际看。
+- 拿主意的地方：
+  - 不解析 `git log --graph` 的文字，用 `--topo-order` 的提交和父提交自己排线；这样列的颜色和选择都好控制，测试也能用合成提交。
+  - 已经读到的范围整段重算（200 → 400 → …），不维护分页状态；页与页的列一致，代价是加载更多时多读一遍已读的提交。
+  - 拉宽后的 History 是「提交列表 | diff」，diff 里用文件索引、unified/Split，不再套一层文件树；这样才符合“左边提交图、右边 diff”，也给 diff 留够宽度。
+  - 提交 diff 不画 hunk 之间的“N unchanged lines”行：打开它需要读提交里的文件内容，读工作区会显示错的版本，所以干脆不提供这个动作。文件头和每个文件自己的 diff 不变。
+  - 分隔比例在本次运行里按窄/宽分开记，不存盘。
+  - 详情头显示完整的标题行（`%s`），不读提交正文；行上的说明和样稿都按标题行理解。
+  - 主线列 0 用 `agents_blue`，其他列用 `agents_purple`；未选中的圆点空心，选中的实心、用 `agents_accent`，底色是 `agents_accent` 12%。
+- 没做的事：
+  - 第 3 条用户实测（切 History 看分叉、点行看 diff、Copy hash、Open task、拉宽左右排）留给用户。
+  - 分隔比例不存进布局；提交正文不显示；不做别的本地/远端分支、提交写操作、行上评论、Send to agent。
+- 踩过的坑：
+  - `kanban::task_id("P5")` 是有效编号（字母加数字），最初单测按“没有数字以外的内容”写错了断言，按 `task_id` 规则改掉。
+  - 在 main 且没有 upstream 时 `head_and_base` 给的 base 是 `None`（同 Branch vs main 的行为），集成测试一开始按 `Some("main")` 写错了。
+  - 测试里的 feature 文件第二次提交是覆盖而不是追加，合并对第一父提交的增行数是 1 不是 2，按实际 git 输出改了断言。
+  - `git log -z --format=…` 的记录分隔是 `\x1e\0`，先用 `od` 看过再写解析，避免按换行拆错。
+  - 提交 diff 的 hunk 间空隙如果照 Changes 的做法打开，会读工作区文件；发现后改为 History 不产生这些行。
+  - 提交列表行高随界面字号缩放，改字号时要 `history_list.remeasure()`，已补上。
+  - `cargo test --all-targets` 时间较长，被工具自动转到后台跑完；结果已收回，没有留下后台任务。
+
+## 主控审查
+
+10-20，paddock/main。agent 实际名字是 `paddock/dev-history-1`（omp，默认档，不套墙）。
+- diff 动了 `history.rs`（新）、`changes.rs`、`diff.rs`（`Scope` 加 `History`）、`lib.rs`、`tests/history.rs`（新）、DESIGN 一段，都在范围里。
+- git 只用了只读命令：`rev-parse`、`log --topo-order`、`diff <第一父> <提交>`，根提交对空树（`hash-object -t tree --stdin` 不带 `-w`，只算 hash 不写库）；后台读法沿用 Changes 的（`git_bounded`、取消标记）。测试里还核了读前后 `.git/index`、`HEAD` 不变。「不要做」一件没犯。
+- 主控墙外重跑 `cargo test --all-targets`：989 个通过、0 个失败。
+- 对方拿主意的都同意：不解析 `git log --graph` 的文字、按父提交自己排线（更稳）；拉宽是「提交列表 | diff」不再套文件树；提交 diff 不画 hunk 之间的 `N unchanged lines`（展开会读工作区，不是提交内容）；详情头只用标题行；主线 `agents_blue`、分支 `agents_purple`（已有颜色键）。
+- 已从分支装上，等用户照第 3 条验收试。
