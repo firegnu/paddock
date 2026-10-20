@@ -2016,13 +2016,22 @@ pub fn agent_for<'a>(task: &Task, agents: &'a [Seen]) -> Option<&'a Seen> {
 /// The repository's controller: an agent labelled `role=controller` working in the main worktree
 /// `repo` or a directory under it, the first of them not exited; none without one.
 pub fn controller_for<'a>(repo: &Path, agents: &'a [Seen]) -> Option<&'a Seen> {
-    agents.iter().find(|a| {
-        a.controller
-            && a.status != Status::Exited
-            && a.cwd
-                .as_deref()
-                .is_some_and(|cwd| Path::new(cwd).starts_with(repo))
-    })
+    controllers_for(repo, agents).into_iter().next()
+}
+
+/// Every controller of the repository whose main worktree is `repo`, as [`controller_for`] tells
+/// one, in the agents' order.
+pub fn controllers_for<'a>(repo: &Path, agents: &'a [Seen]) -> Vec<&'a Seen> {
+    agents
+        .iter()
+        .filter(|a| {
+            a.controller
+                && a.status != Status::Exited
+                && a.cwd
+                    .as_deref()
+                    .is_some_and(|cwd| Path::new(cwd).starts_with(repo))
+        })
+        .collect()
 }
 
 /// Where the task stands, judged from the last column back, the first that holds. When it cannot
@@ -2072,6 +2081,8 @@ pub struct Card {
     pub needs_you: bool,
     /// What its task file's `待用户：` line says the user is waited on for.
     pub asks: Option<String>,
+    /// On a queued card, a draft's too: the task its `依赖：` line names, until that is wrapped up.
+    pub waits: Option<String>,
     /// Wrapped up without being done, and why.
     pub dropped: Option<String>,
     /// Its priority, on a queued card (a draft's too); `None` in the other columns.
@@ -2218,12 +2229,12 @@ pub fn board(facts: &Facts, agents: &[Seen], now: f64) -> Board {
         problems
     };
     // What a queued card, a draft's too, waits for, until that is wrapped up.
-    let waits = |task: &Task| {
+    let waiting = |task: &Task| {
         task.depends
-            .as_ref()
-            .filter(|dep| !facts.wrapped.contains_key(*dep))
-            .map(|dep| (format!("Waits for {dep}"), Tone::Dim))
+            .clone()
+            .filter(|dep| !facts.wrapped.contains_key(dep))
     };
+    let waits = |task: &Task| waiting(task).map(|dep| (format!("Waits for {dep}"), Tone::Dim));
     for task in &facts.tasks {
         let agent = agent_for(task, agents);
         let column = column(task, facts, agent);
@@ -2282,6 +2293,7 @@ pub fn board(facts: &Facts, agents: &[Seen], now: f64) -> Board {
             draft: false,
             needs_you: task.asks.is_some() || doer.is_some_and(|a| a.status == Status::Waiting),
             asks: task.asks.clone(),
+            waits: waiting(task).filter(|_| column == Column::Queued),
             dropped: facts
                 .dropped
                 .get(&task.id)
@@ -2308,6 +2320,7 @@ pub fn board(facts: &Facts, agents: &[Seen], now: f64) -> Board {
             draft: true,
             needs_you: false,
             asks: None,
+            waits: waiting(task),
             dropped: None,
             priority: Some(task.priority),
             problems: problems(task, Column::Queued),

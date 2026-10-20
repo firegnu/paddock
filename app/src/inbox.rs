@@ -37,16 +37,46 @@ impl Group {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Row {
     pub group: Group,
-    /// The agent; `None` for a failed corral read.
+    /// The agent; `None` for a failed corral read and for what the Kanban Loop says.
     pub agent: Option<String>,
     /// The machine it is on, when not this Mac (DESIGN §13 P5-90).
     pub machine: Option<String>,
+    /// What the Kanban Loop says, on its own row (DESIGN §13 P5-106).
+    pub notice: Option<Notice>,
 }
 
 impl Row {
-    /// The same agent, or the same failed read, on the same machine.
+    /// The same agent, or the same failed read, on the same machine; or the same thing the loop
+    /// says.
     pub fn same(&self, other: &Row) -> bool {
-        self.agent == other.agent && self.machine == other.machine
+        self.agent == other.agent && self.machine == other.machine && self.notice == other.notice
+    }
+}
+
+/// What the Kanban Loop tells the user of a repository's loop (DESIGN §13 P5-106): what needs them
+/// (stuck, no controller, a send that failed) while it does, and what is only to be read (finished,
+/// a send that took text already typed in the controller's box) until it is. A click shows that
+/// repository's board.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Notice {
+    /// The repository's main worktree.
+    pub repo: std::path::PathBuf,
+    /// Its name.
+    pub name: String,
+    pub text: String,
+    /// It needs the user, rather than only being for them to read.
+    pub needs: bool,
+}
+
+impl Notice {
+    /// Its row, under `Needs you` or `New replies`.
+    fn row(&self) -> Row {
+        Row {
+            group: if self.needs { Group::Needs } else { Group::New },
+            agent: None,
+            machine: None,
+            notice: Some(self.clone()),
+        }
     }
 }
 
@@ -102,6 +132,7 @@ pub fn rows(panel: &Panel, corral_error: Option<&str>, now: f64) -> Vec<Row> {
             },
             agent: item.agent,
             machine: None,
+            notice: None,
         })
         .collect();
     let mut read: Vec<String> = panel
@@ -116,14 +147,16 @@ pub fn rows(panel: &Panel, corral_error: Option<&str>, now: f64) -> Vec<Row> {
         group: Group::Read,
         agent: Some(name),
         machine: None,
+        notice: None,
     }));
     rows
 }
 
 /// The list over every machine (DESIGN §13 P5-90): group by group, and in a group this Mac's rows
-/// first, then each machine's in the order given, each machine's as [`rows`] has them.
-pub fn rows_of(sources: &[Source], now: f64) -> Vec<Row> {
-    let each: Vec<Vec<Row>> = sources
+/// first, then each machine's in the order given, each machine's as [`rows`] has them; then what
+/// the Kanban Loop says, in the order given (DESIGN §13 P5-106).
+pub fn rows_of(sources: &[Source], notices: &[Notice], now: f64) -> Vec<Row> {
+    let mut each: Vec<Vec<Row>> = sources
         .iter()
         .map(|source| {
             let mut rows = rows(source.panel, source.error, now);
@@ -133,6 +166,7 @@ pub fn rows_of(sources: &[Source], now: f64) -> Vec<Row> {
             rows
         })
         .collect();
+    each.push(notices.iter().map(Notice::row).collect());
     Group::ALL
         .iter()
         .flat_map(|&group| each.iter().flatten().filter(move |row| row.group == group))
@@ -149,13 +183,13 @@ pub struct Open {
 impl Open {
     /// Sorted as things stand, the first row selected.
     pub fn new(panel: &Panel, corral_error: Option<&str>, now: f64) -> Self {
-        Self::of(&[Source::here(panel, corral_error)], now)
+        Self::of(&[Source::here(panel, corral_error)], &[], now)
     }
 
-    /// Over every machine.
-    pub fn of(sources: &[Source], now: f64) -> Self {
+    /// Over every machine, and with what the Kanban Loop says.
+    pub fn of(sources: &[Source], notices: &[Notice], now: f64) -> Self {
         Open {
-            rows: rows_of(sources, now),
+            rows: rows_of(sources, notices, now),
             selected: 0,
         }
     }
@@ -186,13 +220,17 @@ impl Open {
     /// failed read, once corral answers). What is new comes in at the end of its group, a row
     /// moving only to a more urgent one. The selection stays on its row.
     pub fn refresh(&mut self, panel: &Panel, corral_error: Option<&str>, now: f64) {
-        self.refresh_of(&[Source::here(panel, corral_error)], now)
+        self.refresh_of(&[Source::here(panel, corral_error)], &[], now)
     }
 
-    /// [`Self::refresh`] over every machine.
-    pub fn refresh_of(&mut self, sources: &[Source], now: f64) {
-        let fresh = rows_of(sources, now);
+    /// [`Self::refresh`] over every machine, and with what the Kanban Loop says: its rows leave
+    /// once it no longer says them.
+    pub fn refresh_of(&mut self, sources: &[Source], notices: &[Notice], now: f64) {
+        let fresh = rows_of(sources, notices, now);
         let there = |row: &Row| {
+            if let Some(notice) = &row.notice {
+                return notices.contains(notice);
+            }
             let Some(source) = sources.iter().find(|s| s.machine == row.machine.as_deref()) else {
                 return false;
             };
@@ -334,6 +372,14 @@ pub fn line(
         tone,
         sent: None,
     };
+    if let Some(notice) = &row.notice {
+        let tone = if notice.needs {
+            Tone::Waiting
+        } else {
+            Tone::New
+        };
+        return say(&notice.text, tone);
+    }
     let Some(name) = &row.agent else {
         return say(corral_error.unwrap_or("Read failed"), Tone::Problem);
     };

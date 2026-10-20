@@ -10,14 +10,19 @@
 //! committed once confirmed; on a queued card, its priority line, committed the same way or, in a
 //! draft, only written (DESIGN §13 P5-29, P5-60b). A draft can be deleted, its file moved to the
 //! Trash, and a queued task dropped, with the wrap-up commit that says so, a draft's task file
-//! committed before it (P5-86).
+//! committed before it (P5-86). Over Queued, the Loop (P5-106): queued tasks put in it are handed
+//! to the repository's controller one after another with `corral send`, read for in the background
+//! whichever repository the tab shows, or none (`kanban_loop`).
 use crate::{
     activity,
     agents::Status,
     card, changes,
+    corral::Client,
     fonts::UiFont,
     footer_icon::{self, Icon},
+    inbox,
     kanban::{self, Board, Cache, Card, Column, Doer, Priority, Read, Seen, Tone},
+    kanban_loop::{self, Delivery, Loop, Loops, Stand, Timing},
     kanban_repos::{self, Looking, Row},
     kind_icon, markdown, markdown_view, menu, popover, raised,
     right_panel::Tip,
@@ -148,6 +153,11 @@ const PIN: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 
 const TURN_BACK: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M6.5 4L3 7.5 6.5 11M3.5 7.5H10a3 3 0 010 6H8.5" fill="none" stroke="#000" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>"##;
 /// The menu under the repository's name: how wide.
 const MENU_WIDTH: f32 = 276.0;
+/// How often a repository whose loop is on is read for it, whichever the tab shows; and how long
+/// after paddock opens the first is, so that nothing is handed over before the agents are read.
+const LOOP_EVERY: Duration = Duration::from_secs(5);
+/// Two arrows round a circle: the Loop's group and Add to loop.
+const LOOP_ARROWS: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12"><path d="M2.4 6a3.6 3.6 0 0 1 6.2-2.5M9.6 6a3.6 3.6 0 0 1-6.2 2.5" fill="none" stroke="#000" stroke-width="1.3" stroke-linecap="round"/><path d="M8.9 1.5v2.3H6.6M3.1 10.5V8.2h2.3" fill="none" stroke="#000" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>"##;
 
 /// What the window tells the tab every time it draws.
 pub struct Frame {
@@ -164,6 +174,8 @@ pub struct Frame {
     pub mono: Font,
     /// The agents as the left sidebar lists them.
     pub agents: Vec<Seen>,
+    /// The `corral` command, which the Loop hands tasks over with.
+    pub corral: String,
 }
 
 /// What the tab asks of the window.
@@ -183,6 +195,8 @@ pub enum KanbanEvent {
         file: String,
         draft: bool,
     },
+    /// What the Loop tells the Inbox changed ([`KanbanView::loop_notices`]).
+    Loop,
 }
 
 impl EventEmitter<KanbanEvent> for KanbanView {}
@@ -316,6 +330,45 @@ pub struct KanbanView {
     moves: HashMap<String, Clearing>,
     /// The field for why, while a card is asked whether to drop it.
     reason: Option<Reason>,
+    /// The `corral` command, as the window gives it.
+    corral: String,
+    /// Every repository's Loop, as kept.
+    loops: Loops,
+    /// When the tab was made: no loop is read for before [`LOOP_EVERY`] after.
+    began: Instant,
+    /// Each repository whose loop is on, read for it.
+    loop_reads: HashMap<PathBuf, LoopRead>,
+    /// When a task the controller turned away is handed over again, by repository.
+    loop_holds: HashMap<PathBuf, f64>,
+    /// The repositories a task or a nudge is on its way to the controller of.
+    loop_sending: HashSet<PathBuf>,
+    /// Where each loop that is on stands, as last read: its repository's name, and how many wait.
+    loop_stands: HashMap<PathBuf, (String, Stand, usize)>,
+    /// What the loops have to tell that is only to be read, until it is.
+    loop_notes: Vec<inbox::Notice>,
+    /// What the Inbox was last told.
+    loop_told: Vec<inbox::Notice>,
+}
+
+/// A read on its way: what stops it, and where it puts what it read.
+type LoopPending = (Arc<AtomicBool>, Arc<Mutex<Option<Read>>>);
+
+/// A repository read for its loop: the read on its way, and when the last came back.
+#[derive(Default)]
+struct LoopRead {
+    pending: Option<LoopPending>,
+    last: Option<Instant>,
+}
+
+/// Where a card stands in its repository's Loop.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Slot {
+    /// Queued in the LOOP group, at this place from 1.
+    At(usize),
+    /// Handed to the controller, not begun: first in the group.
+    Sent,
+    /// Under way, in its own column: marked Loop.
+    Under,
 }
 
 impl KanbanView {
@@ -373,6 +426,15 @@ impl KanbanView {
             queues: HashMap::new(),
             moves: HashMap::new(),
             reason: None,
+            corral: "corral".into(),
+            loops: Loops::load(kanban_loop::kept_path()),
+            began: Instant::now(),
+            loop_reads: HashMap::new(),
+            loop_holds: HashMap::new(),
+            loop_sending: HashSet::new(),
+            loop_stands: HashMap::new(),
+            loop_notes: Vec::new(),
+            loop_told: Vec::new(),
         }
     }
 
@@ -414,6 +476,7 @@ impl KanbanView {
             self.wide_at = wide_at;
             changed = true;
         }
+        self.corral = frame.corral;
         if frame.agents != self.agents {
             self.agents = frame.agents;
             // The open menu lists their repositories.
@@ -626,6 +689,8 @@ impl KanbanView {
                 }
             }
         }
+        // The loops go on whether the tab shows or not.
+        self.tick_loops(cx);
         if !self.active {
             return;
         }
@@ -675,6 +740,10 @@ impl KanbanView {
             Some(Read::Board(facts)) => Some(kanban::board(facts, &self.agents, now())),
             _ => None,
         };
+        // Its loop as Git now has it, whether on or not.
+        if let Some(board) = &board {
+            self.settle_loop(board);
+        }
         if board == self.board {
             return false;
         }
@@ -1133,6 +1202,346 @@ impl KanbanView {
             }
             None => {}
         }
+    }
+
+    /// The board's loop settled against it, kept when that changed; a finish told to the Inbox.
+    fn settle_loop(&mut self, board: &Board) {
+        let mut lp = self.loops.get(&board.repo);
+        let settled = kanban_loop::settle(&mut lp, board);
+        if settled.changed {
+            self.loops.put(&board.repo, lp);
+        }
+        if let Some(done) = settled.finished {
+            let finished = Stand::Off {
+                tasks: 0,
+                finished: Some(done),
+            };
+            let text = finished.words(0, &Timing::DEFAULT);
+            self.loop_note(&board.repo, &board.name, text);
+        }
+    }
+
+    /// Something only to be read, for the Inbox.
+    fn loop_note(&mut self, repo: &Path, name: &str, text: String) {
+        let notice = inbox::Notice {
+            repo: repo.to_path_buf(),
+            name: name.to_owned(),
+            text,
+            needs: false,
+        };
+        if !self.loop_notes.contains(&notice) {
+            self.loop_notes.push(notice);
+        }
+    }
+
+    /// Reads each repository whose loop is on, every [`LOOP_EVERY`] in the background, and drives
+    /// its loop with what comes back; the Inbox is told when what the loops say changes.
+    fn tick_loops(&mut self, cx: &mut Context<Self>) {
+        let on = self.loops.on();
+        self.loop_reads.retain(|repo, read| {
+            let keep = on.contains(repo);
+            if !keep && let Some((cancel, _)) = &read.pending {
+                cancel.store(true, Ordering::Relaxed);
+            }
+            keep
+        });
+        self.loop_stands.retain(|repo, _| on.contains(repo));
+        let mut boards = Vec::new();
+        if self.began.elapsed() >= LOOP_EVERY {
+            for repo in on {
+                let read = self.loop_reads.entry(repo.clone()).or_default();
+                if let Some((_, out)) = &read.pending
+                    && let Some(done) = out.lock().ok().and_then(|mut out| out.take())
+                {
+                    read.pending = None;
+                    read.last = Some(Instant::now());
+                    if let Read::Board(facts) = done {
+                        boards.push((repo.clone(), facts));
+                    }
+                }
+                if read.pending.is_some() || read.last.is_some_and(|l| l.elapsed() < LOOP_EVERY) {
+                    continue;
+                }
+                let cancel = Arc::new(AtomicBool::new(false));
+                let out = Arc::new(Mutex::new(None));
+                let (stop, put, cache) = (cancel.clone(), out.clone(), self.cache.clone());
+                let dir = repo.to_string_lossy().into_owned();
+                let started = thread::Builder::new()
+                    .name("paddock-kanban-loop".into())
+                    .spawn(move || {
+                        let read = kanban::read("git", &dir, &cache, &stop);
+                        if let Ok(mut out) = put.lock() {
+                            *out = Some(read);
+                        }
+                    });
+                if started.is_ok() {
+                    read.pending = Some((cancel, out));
+                }
+            }
+        }
+        for (repo, facts) in boards {
+            let board = kanban::board(&facts, &self.agents, now());
+            self.drive(&repo, &board, cx);
+        }
+        let told = self.loop_notices();
+        if told != self.loop_told {
+            self.loop_told = told;
+            cx.emit(KanbanEvent::Loop);
+        }
+    }
+
+    /// One turn of `repo`'s loop on `board` read for it: settled, where it stands kept, and what
+    /// it says to hand over handed over.
+    fn drive(&mut self, repo: &Path, board: &Board, cx: &mut Context<Self>) {
+        self.settle_loop(board);
+        let lp = self.loops.get(repo);
+        let stand = self.stand(repo, &lp, board);
+        if let Stand::Send {
+            id,
+            title,
+            file,
+            to,
+        } = &stand
+        {
+            let words = kanban_loop::start_words(id, title, file);
+            self.hand_over(repo, id, words, to, false, cx);
+        }
+        if lp.on {
+            let next = lp.tasks.len();
+            self.loop_stands
+                .insert(repo.to_path_buf(), (board.name.clone(), stand, next));
+        } else {
+            self.loop_stands.remove(repo);
+        }
+        cx.notify();
+    }
+
+    /// Where `repo`'s loop `lp` stands on `board`, now.
+    fn stand(&self, repo: &Path, lp: &Loop, board: &Board) -> Stand {
+        kanban_loop::look(
+            lp,
+            board,
+            &self.agents,
+            now(),
+            &Timing::DEFAULT,
+            self.loop_holds.get(repo).copied(),
+            self.loop_sending.contains(repo),
+        )
+    }
+
+    /// Hands `words` about task `id` to the controller `to` in the background: its start, or
+    /// (`nudge`) a nudge. Taken, it is kept as handed over (or nudged); turned away while the
+    /// controller works or someone types in its pane, a start is tried again after a while;
+    /// anything else waits for Retry.
+    fn hand_over(
+        &mut self,
+        repo: &Path,
+        id: &str,
+        words: String,
+        to: &str,
+        nudge: bool,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.loop_sending.insert(repo.to_path_buf()) {
+            return;
+        }
+        let client = Client::local(self.corral.clone());
+        let to = to.to_owned();
+        let task = cx.background_spawn(async move {
+            kanban_loop::deliver(&client, &to, &words, &AtomicBool::new(false))
+        });
+        let (repo, id, at) = (repo.to_path_buf(), id.to_owned(), now());
+        cx.spawn(async move |this, cx| {
+            let delivery = task.await;
+            let _ = this.update(cx, |view, cx| {
+                view.handed(&repo, id, nudge, at, delivery);
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// How handing over `id` at `at` went, kept in `repo`'s loop; the loop read again soon.
+    fn handed(&mut self, repo: &Path, id: String, nudge: bool, at: f64, delivery: Delivery) {
+        self.loop_sending.remove(repo);
+        let mut lp = self.loops.get(repo);
+        match delivery {
+            Delivery::Taken { merged } => {
+                self.loop_holds.remove(repo);
+                if nudge {
+                    if let Some(sent) = lp.sent.as_mut().filter(|sent| sent.id == id) {
+                        sent.nudged = Some(at);
+                    }
+                } else {
+                    lp.tasks.retain(|task| *task != id);
+                    lp.sent = Some(kanban_loop::Sent {
+                        id: id.clone(),
+                        at,
+                        nudged: None,
+                    });
+                }
+                lp.failed = None;
+                if merged {
+                    let name = kanban_repos::name(repo);
+                    let text = format!(
+                        "Sent {id}; text already typed in the controller's box went in with it"
+                    );
+                    self.loop_note(repo, &name, text);
+                }
+            }
+            // A controller at work is not stuck: a nudge it turns away is let be.
+            Delivery::Later(_) if nudge => {}
+            Delivery::Later(_) => {
+                self.loop_holds
+                    .insert(repo.to_path_buf(), now() + kanban_loop::RETRY);
+            }
+            Delivery::Failed(why) => lp.failed = Some(kanban_loop::Failed { id, nudge, why }),
+        }
+        self.loops.put(repo, lp);
+        self.kick(repo);
+    }
+
+    /// `repo`'s loop read for again at once, and the board too when it shows that repository.
+    fn kick(&mut self, repo: &Path) {
+        if let Some(read) = self.loop_reads.get_mut(repo) {
+            read.last = None;
+        }
+        if self.board.as_ref().is_some_and(|board| board.repo == repo) {
+            self.read_again();
+        }
+    }
+
+    /// The board's loop changed by `edit`, kept, and driven again at once when it changed.
+    fn edit_loop(&mut self, edit: impl FnOnce(&mut Loop) -> bool, cx: &mut Context<Self>) {
+        let Some(repo) = self.board.as_ref().map(|board| board.repo.clone()) else {
+            return;
+        };
+        let mut lp = self.loops.get(&repo);
+        if !edit(&mut lp) {
+            return;
+        }
+        self.loops.put(&repo, lp);
+        self.kick(&repo);
+        cx.notify();
+    }
+
+    /// Retry: a start that failed is tried again on the loop's next turn, a nudge at once.
+    fn loop_retry(&mut self, cx: &mut Context<Self>) {
+        let Some(board) = self.board.clone() else {
+            return;
+        };
+        let lp = self.loops.get(&board.repo);
+        match lp.failed {
+            Some(failed) if failed.nudge => self.nudge(cx),
+            Some(_) => self.edit_loop(|lp| lp.failed.take().is_some(), cx),
+            None => {}
+        }
+    }
+
+    /// Nudge on a stuck task: one more line to the controller, to go on with it or say where it
+    /// is stuck.
+    fn nudge(&mut self, cx: &mut Context<Self>) {
+        let Some(board) = self.board.clone() else {
+            return;
+        };
+        let mut lp = self.loops.get(&board.repo);
+        let controllers = kanban::controllers_for(&board.repo, &self.agents);
+        let (Some(sent), [controller]) = (lp.sent.as_ref(), controllers.as_slice()) else {
+            return;
+        };
+        let (id, to) = (sent.id.clone(), controller.name.clone());
+        lp.failed = None;
+        self.loops.put(&board.repo, lp);
+        self.hand_over(
+            &board.repo,
+            &id,
+            kanban_loop::nudge_words(&id),
+            &to,
+            true,
+            cx,
+        );
+        cx.notify();
+    }
+
+    /// What the loops tell the Inbox: each that is on and waits on the user, by its status line,
+    /// and what is only to be read.
+    pub fn loop_notices(&self) -> Vec<inbox::Notice> {
+        let mut needs: Vec<inbox::Notice> = self
+            .loop_stands
+            .iter()
+            .filter(|(_, (_, stand, _))| stand.needs_you())
+            .map(|(repo, (name, stand, next))| inbox::Notice {
+                repo: repo.clone(),
+                name: name.clone(),
+                text: stand.words(*next, &Timing::DEFAULT),
+                needs: true,
+            })
+            .collect();
+        needs.sort_by(|a, b| a.name.cmp(&b.name).then_with(|| a.repo.cmp(&b.repo)));
+        needs.extend(self.loop_notes.iter().cloned());
+        needs
+    }
+
+    /// The Inbox showed `notice`: one only to be read is read.
+    pub fn read_notice(&mut self, notice: &inbox::Notice) {
+        if !notice.needs {
+            self.loop_notes.retain(|note| note != notice);
+        }
+    }
+
+    /// The board turned to `repo` and kept there, as when picked in the menu: from the Inbox.
+    pub fn show_repo(&mut self, repo: PathBuf, cx: &mut Context<Self>) {
+        self.looking.choose(repo);
+        self.turn(cx);
+    }
+
+    /// Where `card` stands in the board's loop: queued in it, at which place or handed over, or
+    /// under way.
+    fn slot(&self, card: &Card) -> Option<Slot> {
+        let board = self.board.as_ref()?;
+        if card.draft || card.id.is_empty() || card.column == Column::Done {
+            return None;
+        }
+        let lp = self.loops.get(&board.repo);
+        if !lp.has(&card.id) {
+            return None;
+        }
+        if card.column != Column::Queued {
+            return Some(Slot::Under);
+        }
+        if lp.sent.as_ref().is_some_and(|sent| sent.id == card.id) {
+            return Some(Slot::Sent);
+        }
+        let queued = |id: &&String| {
+            board
+                .cards(Column::Queued)
+                .iter()
+                .any(|c| c.id == **id && !c.draft)
+        };
+        let at = lp
+            .tasks
+            .iter()
+            .filter(queued)
+            .position(|id| *id == card.id)?;
+        Some(Slot::At(at + 1))
+    }
+
+    /// The queued cards in the board's loop, as its group lists them: the one handed over first,
+    /// then the others in their order.
+    fn in_loop<'a>(&self, board: &'a Board) -> Vec<&'a Card> {
+        let lp = self.loops.get(&board.repo);
+        let queued = |id: &str| {
+            board
+                .cards(Column::Queued)
+                .iter()
+                .find(|card| card.id == id && !card.draft)
+        };
+        lp.sent
+            .iter()
+            .map(|sent| sent.id.as_str())
+            .chain(lp.tasks.iter().map(String::as_str))
+            .filter_map(queued)
+            .collect()
     }
 }
 
@@ -1763,12 +2172,14 @@ impl KanbanView {
             .pt(ui.px(4.0))
             .px(ui.px(LIST_X))
             .pb(ui.px(16.0));
-        for (n, column) in Column::ALL.into_iter().enumerate() {
+        // The Loop first, over Queued.
+        list = list.child(self.loop_group(board, Place::List, ids, fit, ui, cx));
+        for column in Column::ALL {
             let open = !self.folded.contains(&column);
-            list = list.child(self.group(board, column, open, n == 0, ui, cx));
+            list = list.child(self.group(board, column, open, false, ui, cx));
             // A folded group still shows the tasks that need the user.
-            let shown: Vec<&Card> = board
-                .listed(column, self.all_done)
+            let shown: Vec<&Card> = self
+                .listed(board, column)
                 .into_iter()
                 .filter(|card| open || card.needs_you)
                 .collect();
@@ -1837,7 +2248,7 @@ impl KanbanView {
         cx: &mut Context<Self>,
     ) -> Stateful<Div> {
         let c = self.colors;
-        let empty = board.cards(column).is_empty();
+        let empty = self.listed(board, column).is_empty();
         let mut head = div()
             .id(("kanban-group", column as usize))
             .flex_shrink_0()
@@ -1900,7 +2311,11 @@ impl KanbanView {
                 .flex_col()
                 .px(ui.px(COLUMN_X))
                 .pb(ui.px(8.0));
-            let cards = board.listed(column, self.all_done);
+            // The Loop at the top of Queued.
+            if column == Column::Queued {
+                body = body.child(self.loop_group(board, Place::Tile, 0.0, fit, ui, cx));
+            }
+            let cards = self.listed(board, column);
             body = body.child(self.rows(&cards, Place::Tile, 0.0, fit, ui, cx));
             if column == Column::Done {
                 body = body.children(
@@ -2025,8 +2440,18 @@ impl KanbanView {
             .child(column.label())
     }
 
-    /// How many a group has, in a pill: `3 of 130` while DONE lists its last few.
+    /// How many a group has, in a pill: `3 of 130` while DONE lists its last few; Queued's without
+    /// those in the Loop.
     fn count(&self, board: &Board, column: Column, ui: &UiFont) -> Div {
+        let count = if column == Column::Queued {
+            self.listed(board, column).len().to_string()
+        } else {
+            board.count(column, self.all_done)
+        };
+        self.count_pill(count, ui)
+    }
+
+    fn count_pill(&self, count: String, ui: &UiFont) -> Div {
         let c = self.colors;
         pill(ui)
             .px(ui.px(7.0))
@@ -2034,7 +2459,207 @@ impl KanbanView {
             .text_size(ui.px(11.0))
             .font_weight(FontWeight::MEDIUM)
             .text_color(c.muted)
-            .child(board.count(column, self.all_done))
+            .child(count)
+    }
+
+    /// The cards a group lists ([`Board::listed`]), Queued's without those in the Loop, which has
+    /// its own group over it.
+    fn listed<'a>(&self, board: &'a Board, column: Column) -> Vec<&'a Card> {
+        let mut cards = board.listed(column, self.all_done);
+        if column == Column::Queued {
+            let looped = self.in_loop(board);
+            cards.retain(|card| !looped.iter().any(|l| std::ptr::eq(*l, *card)));
+        }
+        cards
+    }
+
+    /// The Loop's group over Queued (P5-106): its header, with how many it has and the switch; the
+    /// status line, Needs you in amber, with Retry, or Nudge and Skip, when they apply; and its
+    /// tasks, the one handed over first, the others numbered, in a box as the other groups' are.
+    #[allow(clippy::too_many_arguments)]
+    fn loop_group(
+        &self,
+        board: &Board,
+        place: Place,
+        ids: f32,
+        fit: &Fit,
+        ui: &UiFont,
+        cx: &mut Context<Self>,
+    ) -> Div {
+        let c = self.colors;
+        let lp = self.loops.get(&board.repo);
+        let stand = self.stand(&board.repo, &lp, board);
+        let cards = self.in_loop(board);
+        let needs = stand.needs_you();
+        let inline = place == Place::List;
+        let head = div()
+            .flex_shrink_0()
+            .flex()
+            .items_center()
+            .gap(ui.px(8.0))
+            .h(ui.px(26.0))
+            .mt(ui.px(2.0))
+            .px(ui.px(if inline { HEAD_X } else { 2.0 }))
+            .text_size(ui.px(GROUP_SIZE))
+            .when(inline, |head| {
+                head.child(div().flex_shrink_0().w(ui.px(ARROW)))
+            })
+            .child(
+                svg()
+                    .data(LOOP_ARROWS)
+                    .flex_shrink_0()
+                    .size(ui.px(RING))
+                    .text_color(if lp.on { c.accent } else { c.dim }),
+            )
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(c.bright)
+                    .child("Loop"),
+            )
+            .child(self.count_pill(cards.len().to_string(), ui))
+            .when(needs, |head| {
+                head.child(
+                    pill(ui)
+                        .h(ui.px(18.0))
+                        .bg(c.yellow.opacity(0.14))
+                        .text_size(ui.px(11.0))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(c.yellow)
+                        .child("Needs you"),
+                )
+            })
+            .child(div().flex_1())
+            .child(self.loop_switch(&lp, ui, cx));
+        let words = stand.words(lp.tasks.len(), &Timing::DEFAULT);
+        let tone = if needs {
+            c.yellow
+        } else if lp.on {
+            c.text
+        } else {
+            c.dim
+        };
+        let button = |id: &'static str, words: &'static str| {
+            answer(id, words, ui)
+                .border_color(c.rule)
+                .text_color(c.text)
+                .hover(move |style| style.bg(c.text.opacity(0.09)))
+        };
+        let mut status = asked(ui)
+            .pl(ui.px(if inline { HEAD_X + ARROW + 8.0 } else { 2.0 }))
+            .pr(ui.px(HEAD_X))
+            .pb(ui.px(2.0))
+            .text_size(ui.px(UNDER_SIZE))
+            .child(said(words, tone));
+        match &stand {
+            Stand::Failed { .. } => {
+                status = status.child(
+                    button("kanban-loop-retry", "Retry")
+                        .on_click(cx.listener(|view, _: &ClickEvent, _, cx| view.loop_retry(cx))),
+                );
+            }
+            Stand::Stuck { .. } => {
+                status = status
+                    .child(
+                        button("kanban-loop-nudge", "Nudge")
+                            .on_click(cx.listener(|view, _: &ClickEvent, _, cx| view.nudge(cx))),
+                    )
+                    .child(button("kanban-loop-skip", "Skip").on_click(
+                        cx.listener(|view, _: &ClickEvent, _, cx| view.edit_loop(Loop::skip, cx)),
+                    ));
+            }
+            _ => {}
+        }
+        let mut group = div()
+            .flex_shrink_0()
+            .flex()
+            .flex_col()
+            .child(head)
+            .child(status);
+        if let Some(problem) = self.loops.problem() {
+            group = group.child(
+                div()
+                    .px(ui.px(HEAD_X))
+                    .text_size(ui.px(11.5))
+                    .text_color(c.yellow)
+                    .child(problem.to_owned()),
+            );
+        }
+        if cards.is_empty() {
+            return group;
+        }
+        let rows = self.rows(&cards, place, ids, fit, ui, cx);
+        let rows = if inline {
+            let raised = raised::raised(&self.theme, ui);
+            rows.p(ui.px(BOX_PAD))
+                .rounded(ui.px(BOX_RADIUS))
+                .bg(raised.face)
+                .border_1()
+                .border_color(if needs {
+                    c.yellow.opacity(0.4)
+                } else {
+                    raised.edge
+                })
+                .shadow(raised.shadows)
+        } else {
+            rows.pb(ui.px(6.0))
+                .mb(ui.px(4.0))
+                .border_b_1()
+                .border_color(c.rule.opacity(0.6))
+        };
+        group.child(
+            div()
+                .flex_shrink_0()
+                .pt(ui.px(4.0))
+                .pb(ui.px(2.0))
+                .child(rows),
+        )
+    }
+
+    /// The Loop's switch: on, the accent; it cannot be turned on with nothing in the loop.
+    fn loop_switch(&self, lp: &Loop, ui: &UiFont, cx: &mut Context<Self>) -> Stateful<Div> {
+        let c = self.colors;
+        let on = lp.on;
+        let can = on || lp.can_turn_on();
+        let words = if on {
+            "Turn the loop off: the task under way is still finished"
+        } else if can {
+            "Turn the loop on: hands the tasks to the controller one by one"
+        } else {
+            "Add queued tasks to the loop first"
+        };
+        let tip = Tip::new(words, &self.theme, ui);
+        let knob = div()
+            .absolute()
+            .top(ui.px(2.0))
+            .size(ui.px(11.0))
+            .rounded_full()
+            .bg(if on { c.ground } else { c.muted })
+            .map(|knob| {
+                if on {
+                    knob.right(ui.px(2.0))
+                } else {
+                    knob.left(ui.px(2.0))
+                }
+            });
+        div()
+            .id("kanban-loop-switch")
+            .relative()
+            .flex_shrink_0()
+            .w(ui.px(26.0))
+            .h(ui.px(15.0))
+            .rounded_full()
+            .bg(if on { c.accent } else { c.text.opacity(0.14) })
+            .when(!can, |track| track.opacity(0.5))
+            .when(can, |track| track.cursor_pointer())
+            .tooltip(move |_, cx| cx.new(|_| tip.clone()).into())
+            .child(knob)
+            .on_click(
+                cx.listener(move |view, _: &ClickEvent, _, cx| {
+                    view.edit_loop(|lp| lp.turn(!on), cx)
+                }),
+            )
     }
 
     /// The width inside a card's padding, in the narrow list or a widened column, that its texts
@@ -2103,12 +2728,24 @@ impl KanbanView {
                 .text_color(c.dim)
                 .child(card.age.clone())
         });
+        // Under way from the Loop, in its own column: marked so (P5-106).
+        let looped = (self.slot(card) == Some(Slot::Under)).then(|| {
+            pill(ui)
+                .h(ui.px(16.0))
+                .px(ui.px(6.0))
+                .bg(c.accent.opacity(0.14))
+                .text_size(ui.px(10.5))
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(c.accent)
+                .child("Loop")
+        });
         let end = div()
             .flex_shrink_0()
             .h(ui.px(TITLE_LINE))
             .flex()
             .items_center()
             .gap(ui.px(END_GAP))
+            .children(looped)
             .children(self.warning(card, ui))
             .children(age);
         let title = if done {
@@ -2450,6 +3087,36 @@ impl KanbanView {
         } else {
             card.column.label().to_owned()
         };
+        // In the Loop's group, its place there instead, or that it was handed over (P5-106).
+        let (marked, words) = match self.slot(card) {
+            Some(Slot::At(n)) => (
+                div()
+                    .flex_shrink_0()
+                    .size(ui.px(RING))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded_full()
+                    .border_1()
+                    .border_color(c.accent)
+                    .text_size(ui.px(8.5))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(c.accent)
+                    .child(n.to_string())
+                    .into_any_element(),
+                format!("Loop \u{b7} number {n} in line"),
+            ),
+            Some(Slot::Sent) => (
+                svg()
+                    .data(LOOP_ARROWS)
+                    .flex_shrink_0()
+                    .size(ui.px(RING))
+                    .text_color(c.accent)
+                    .into_any_element(),
+                "Loop \u{b7} sent to the controller".to_owned(),
+            ),
+            _ => (self.ring_icon(mark, RING, ui).into_any_element(), words),
+        };
         let note = Note::new(words.into(), &self.theme, ui);
         div()
             .flex_shrink_0()
@@ -2463,7 +3130,7 @@ impl KanbanView {
                     .flex_shrink_0()
                     .flex()
                     .items_center()
-                    .child(self.ring_icon(mark, RING, ui))
+                    .child(marked)
                     .tooltip(move |_, cx| cx.new(|_| note.clone()).into()),
             )
             .children((!card.id.is_empty()).then(|| {
@@ -2896,6 +3563,85 @@ impl KanbanView {
                 .text_color(c.muted)
                 .into_any_element()
         };
+        // The Loop's (P5-106): a queued task on main is added to its end, unless it waits for
+        // another; in it, moved and taken out, the one handed over taken out while not begun.
+        let queued = card.column == Column::Queued && !card.draft && !card.id.is_empty();
+        if queued && let Some(board) = &self.board {
+            let id = card.id.clone();
+            match self.slot(card) {
+                None => {
+                    if let Some(waits) = &card.waits {
+                        let tip = Tip::new(format!("Waits for {waits}"), &theme, ui);
+                        bar = bar.child(
+                            div()
+                                .id("kanban-loop-add")
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .size(ui.px(size))
+                                .opacity(0.4)
+                                .tooltip(move |_, cx| cx.new(|_| tip.clone()).into())
+                                .child(drawn(LOOP_ARROWS)),
+                        );
+                    } else {
+                        bar = bar.child(
+                            glyph("kanban-loop-add", drawn(LOOP_ARROWS), "Add to loop").on_click(
+                                cx.listener(move |view, _: &ClickEvent, _, cx| {
+                                    cx.stop_propagation();
+                                    view.edit_loop(|lp| lp.add(&id), cx);
+                                }),
+                            ),
+                        );
+                    }
+                }
+                Some(slot @ (Slot::At(_) | Slot::Sent)) => {
+                    let places = self
+                        .in_loop(board)
+                        .iter()
+                        .filter(|card| matches!(self.slot(card), Some(Slot::At(_))))
+                        .count();
+                    if let Slot::At(n) = slot {
+                        for (up, show, name, words, data) in [
+                            (true, n > 1, "kanban-loop-up", "Move up", CHEVRON_UP),
+                            (
+                                false,
+                                n < places,
+                                "kanban-loop-down",
+                                "Move down",
+                                CHEVRON_DOWN,
+                            ),
+                        ] {
+                            if !show {
+                                continue;
+                            }
+                            let id = id.clone();
+                            bar = bar.child(glyph(name, drawn(data), words).on_click(cx.listener(
+                                move |view, _: &ClickEvent, _, cx| {
+                                    cx.stop_propagation();
+                                    view.edit_loop(|lp| lp.shift(&id, up), cx);
+                                },
+                            )));
+                        }
+                    }
+                    let icon =
+                        footer_icon::icon(Icon::Close, c.muted, ui.scale(11.0 / footer_icon::SIZE));
+                    bar = bar.child(
+                        glyph(
+                            "kanban-loop-remove",
+                            icon.into_any_element(),
+                            "Remove from loop",
+                        )
+                        .on_click(cx.listener(
+                            move |view, _: &ClickEvent, _, cx| {
+                                cx.stop_propagation();
+                                view.edit_loop(|lp| lp.remove(&id), cx);
+                            },
+                        )),
+                    );
+                }
+                Some(Slot::Under) => {}
+            }
+        }
         if self.offers_delete(card) {
             let file = card.file.clone();
             bar = bar.child(glyph("kanban-delete", drawn(BIN), "Delete draft").on_click(

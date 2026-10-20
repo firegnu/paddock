@@ -235,6 +235,13 @@ impl Client {
     /// `corral send <name> <text>`, the text one argument and untouched, never forced and never
     /// held back for later.
     pub fn send(&self, name: &str, text: &str, cancel: &AtomicBool) -> Result<(), Refused> {
+        self.deliver(name, text, cancel).map(|_| ())
+    }
+
+    /// [`Client::send`], and what corral said of a send it took: whether text already in the
+    /// agent's input box went in with it (`merged_with_draft`, the Kanban Loop's reminder, DESIGN
+    /// §13 P5-106).
+    pub fn deliver(&self, name: &str, text: &str, cancel: &AtomicBool) -> Result<Taken, Refused> {
         let unanswered = |message: String| Refused {
             code: None,
             message,
@@ -251,7 +258,9 @@ impl Client {
         let value: Value = serde_json::from_slice(&output.stdout)
             .map_err(|_| unanswered("corral did not say how it went".into()))?;
         if output.status.success() && value.get("ok") != Some(&Value::Bool(false)) {
-            return Ok(());
+            return Ok(Taken {
+                merged_with_draft: value.get("merged_with_draft") == Some(&Value::Bool(true)),
+            });
         }
         let said = |key: &str| value.get(key).and_then(Value::as_str).map(str::to_owned);
         let code = said("error");
@@ -346,6 +355,13 @@ impl From<String> for Reply {
     fn from(text: String) -> Self {
         Reply { text, at: None }
     }
+}
+
+/// What corral said of a `corral send` it took.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Taken {
+    /// Text already typed in the agent's input box went in with it.
+    pub merged_with_draft: bool,
 }
 
 /// Why a `corral send` did not go through: corral's word for it (`not_idle`, `human_active`…;
