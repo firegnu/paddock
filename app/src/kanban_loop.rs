@@ -21,8 +21,9 @@ use std::{
     sync::atomic::AtomicBool,
 };
 
-/// How long, in seconds, the controller may idle after a task is handed to it, the task neither
-/// wrapped up nor waiting on the user, before the loop calls it stuck.
+/// How long, in seconds, the controller may idle after a task is handed to it, none of the task's
+/// developers working either and the task neither wrapped up nor waiting on the user, before the
+/// loop calls it stuck.
 pub const STUCK: f64 = 15.0 * 60.0;
 /// How long, in seconds, the loop waits before handing a task over again after the controller was
 /// busy or someone had just typed in its pane.
@@ -377,11 +378,21 @@ pub fn look(
         if let Some(failed) = failed {
             return failed;
         }
-        // Only the time it idles counts: from the latest of the handing over, the nudge and its
-        // idling began.
-        if controller.status == Status::Idle {
+        // Its developers: labelled for it, not controllers. While one works, or waits at a prompt
+        // (its card needs the user then), it is not stuck.
+        let developers: Vec<&Seen> = agents
+            .iter()
+            .filter(|a| !a.controller && a.task.as_deref() == Some(sent.id.as_str()))
+            .collect();
+        let quiet = developers
+            .iter()
+            .all(|a| !matches!(a.status, Status::Working | Status::Waiting));
+        // Only the time all is quiet counts: from the latest of the handing over, the nudge and
+        // the last change of state of the controller and of its developers (user 10-20).
+        if controller.status == Status::Idle && quiet {
             let from = [Some(sent.at), sent.nudged, controller.since]
                 .into_iter()
+                .chain(developers.iter().map(|a| a.since))
                 .flatten()
                 .fold(sent.at, f64::max);
             if now - from >= timing.stuck {
@@ -928,6 +939,64 @@ mod tests {
             .words(1, &T),
             "Stuck: P1-1 not wrapped up, controller idle 15m"
         );
+    }
+
+    #[test]
+    fn while_its_developers_work_the_task_is_not_stuck_and_counts_from_their_last_change() {
+        let facts = facts(vec![task("P1-1"), task("P1-2")]);
+        let lp = Loop {
+            sent: sent("P1-1", 1_000.0),
+            ..on(&["P1-2"])
+        };
+        let idle = main(Status::Idle, 1_000.0);
+        let dev = |task: &str, status: Status, since: f64| Seen {
+            task: Some(task.into()),
+            since: Some(since),
+            ..seen("paddock/dev", "/w/wt/P1-1", status, false)
+        };
+        let not_stuck = |stand: Stand| matches!(stand, Stand::Working { .. });
+        // Its developer at work: the controller idles however long, not stuck.
+        let working = dev("P1-1", Status::Working, 1_100.0);
+        assert!(not_stuck(at(
+            &lp,
+            &facts,
+            &[idle.clone(), working],
+            99_000.0
+        )));
+        // Stopped at a prompt: its card needs the user already, not stuck.
+        let blocked = dev("P1-1", Status::Waiting, 1_100.0);
+        assert!(not_stuck(at(
+            &lp,
+            &facts,
+            &[idle.clone(), blocked],
+            99_000.0
+        )));
+        // Stopped working at 5 000: counted from then, not from the controller's idling.
+        let stopped = dev("P1-1", Status::Idle, 5_000.0);
+        let agents = [idle.clone(), stopped];
+        assert!(not_stuck(at(&lp, &facts, &agents, 5_899.0)));
+        assert_eq!(
+            at(&lp, &facts, &agents, 5_900.0),
+            Stand::Stuck {
+                id: "P1-1".into(),
+                idle: 900.0
+            }
+        );
+        // Another task's developer, or another controller's say, counts for nothing here.
+        let other = dev("P1-2", Status::Working, 5_000.0);
+        assert!(matches!(
+            at(&lp, &facts, &[idle.clone(), other], 1_900.0),
+            Stand::Stuck { .. }
+        ));
+        // A controller labelled for the task is still the controller, not a developer.
+        let labelled = Seen {
+            task: Some("P1-1".into()),
+            ..idle
+        };
+        assert!(matches!(
+            at(&lp, &facts, &[labelled], 1_900.0),
+            Stand::Stuck { .. }
+        ));
     }
 
     #[test]

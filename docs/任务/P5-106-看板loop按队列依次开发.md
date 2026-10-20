@@ -23,7 +23,7 @@
 - **怎么算一件做完**：只认 git：main 上出现这件的收尾提交（DONE，含 `不做` 的 Dropped）。主控回复里的 DONE 不算。
 - **在等用户**：送出的那件的任务文件有 `待用户：` 时，LOOP 显示 Needs you、等着，不跳去下一件。这靠主控照 CLAUDE.md 已有的规矩写 `待用户：`；不另加规矩。
 - **送话的时机**（用户 10-20 指出“没人 attach 才送”在 paddock 里开着主控窗格时会一直不送，改成下面这样）：不看有没有 attach，靠 `corral send` 自带的保护：主控在忙（`not_idle`）或人刚在它的窗口里操作过（`human_active`）时它会拒，loop 不加 `--force`，过一会儿再试（比如 30 秒后），不算出错、不标 Needs you。`paused`、`not_delivered` 才标 Needs you、写原因、给 `Retry`。送成功但 `merged_with_draft` 为 true（输入框里原有用户没提交的字被一起提交了）时，不重送，收件箱提醒一条。
-- **卡住**（用户 10-20：“同意，15分钟”）：送出后主控 idle 满 15 分钟（working 时不计）、这件既没收尾也没写 `待用户：`，算卡住：LOOP 标 Needs you、状态写 `Stuck: <编号> not wrapped up, controller idle 15m`，收件箱来一条；paddock 不自己催。卡住时 LOOP 上有 `Nudge`（再送一句让主控接着做或说明卡在哪）、`Skip`（这件放回 Queued，接着送下一件）；也可以关掉 Loop。
+- **卡住**（用户 10-20：“同意，15分钟”；返工 1 改规则，用户 10-20：“同意，交回去改吧”）：送出后主控 idle，并且这件活的开发 agent（带 `task=<编号>` 标签、不是主控的那些）也都不在干活（working），这样满 15 分钟、这件既没收尾也没写 `待用户：`，算卡住；计时从主控和这件的开发 agent 里最后一次有动静（状态变化）算起。开发 agent 停在 blocked 时卡片本来就有 Needs you，不算卡住。卡住时：LOOP 标 Needs you、状态写 `Stuck: <编号> not wrapped up, controller idle 15m`，收件箱来一条；paddock 不自己催。卡住时 LOOP 上有 `Nudge`（再送一句让主控接着做或说明卡在哪）、`Skip`（这件放回 Queued，接着送下一件）；也可以关掉 Loop。
 - **停下来和告诉用户**（用户 10-20：“同意”）：
   - LOOP 都做完了：自己关上，状态写 `Loop finished · N done`，收件箱留一条。
   - 这个仓库没有主控（没有 `role=controller` 的 agent，或已退出）：不关、不送，标 Needs you、写 `Waiting: no controller`；主控回来接着送。
@@ -138,3 +138,35 @@
 - 违反规矩各一次，已停：
   - 早先查环境时跑过一次 `python3 --version`。
   - 用 `rm -f` 删过一个空的临时文件。
+
+### 返工 1
+主控审查后，用户 10-20 同意改卡住的规则：“同意，交回去改吧”。
+
+**改了什么**
+- `kanban_loop.rs` 的 `look` 改了卡住的判断。
+  - 这件的开发 agent：带 `task=<编号>` 标签、不是主控的 agent。
+  - 有开发 agent 在 working，或停在提问上（Waiting，卡片本来就标 Needs you），就不算卡住。
+  - 都没在干活时，计时从这几样里最晚的算起：送出时间、Nudge 时间、主控进入当前状态的时间、这件每个开发 agent 进入当前状态的时间。
+  - 没有开发 agent 时照旧。
+  - 状态那句 `Stuck: <编号> not wrapped up, controller idle 15m` 没改。
+- `STUCK` 常量的说明、任务文件「用户定的」卡住那条、DESIGN §13 P5-106 都改成新规则。
+- 拿主意的地方：
+  - 开发 agent 退出（Exited）也算一次状态变化，计入“最后一次有动静”。
+  - Working、Waiting 以外的状态（Idle、Error、Stalled、Starting 等）都算不在干活。
+
+**验证了什么**
+- 先红后绿：新测试 `while_its_developers_work_the_task_is_not_stuck_and_counts_from_their_last_change`。
+  - 改之前跑红，失败在“开发 agent 在干活、主控 idle 很久”那一条，被判成了卡住。
+  - 改后变绿。它覆盖了这些情况：
+    - 开发 agent 在干活时，主控 idle 再久也不算卡住。
+    - 开发 agent 停在提问上，不算卡住。
+    - 开发 agent 5 000 秒时停下，5 899 秒不算卡住，5 900 秒算卡住（idle 900）。
+    - 别的任务的开发 agent不算。
+    - 带 task 标签的主控仍当主控，不当开发 agent。
+- 回归：
+  - 原有的 `stuck_counts_only_the_time_the_controller_idles`（没有开发 agent 的情况）照旧通过。
+  - `kanban_loop` 单元测试 13 个、`tests/kanban_loop.rs` 2 个、`kanban::` 单元测试 31 个都通过。
+- `cargo clippy --all-targets -- -D warnings`、`cargo fmt --check` 各跑一次，通过。
+- 照主控的要求，没有重跑全套测试。
+
+**踩过的坑**：没有。
