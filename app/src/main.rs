@@ -238,6 +238,8 @@ fn main() -> Result<()> {
             ),
         };
         cx.set_global(startup);
+        // Whether paddock is the application in front: its windows fade while it is not (P5-162).
+        paddock::unfocused::watch(cx);
         cx.set_global(paddock::fonts::UiFont::from_config(&config));
         cx.bind_keys(menu::bindings());
         cx.bind_keys(paddock::text_input::bindings());

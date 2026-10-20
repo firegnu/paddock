@@ -61,7 +61,7 @@ pub enum SettingsEvent {
 }
 
 pub struct SettingsView {
-    /// The colours drawn in: [`Self::chosen`], faded while the window is out of the front.
+    /// The colours drawn in: [`Self::chosen`], faded while another application is in front.
     theme: Rc<Theme>,
     /// The colours saved.
     chosen: Rc<Theme>,
@@ -410,8 +410,6 @@ impl SettingsView {
         // Back in front: the file may have changed meanwhile (a sidebar drag, an editor), and so
         // may the agents' instructions files.
         let activation = cx.observe_window_activation(window, |this, window, cx| {
-            // Out of the front, it draws in its colours faded, as the main window does (P5-162).
-            this.fade(!window.is_window_active(), cx);
             if window.is_window_active() {
                 this.reload(cx);
                 if this.page == Page::Instructions {
@@ -423,6 +421,13 @@ impl SettingsView {
             }
         });
         view._subscriptions.push(activation);
+        // While another application is in front, it draws in its colours faded, as the main window
+        // does; not while the main window is over it (P5-162).
+        let front = cx.observe_global_in::<crate::unfocused::Front>(window, |this, _, cx| {
+            this.fade(!crate::unfocused::in_front(cx), cx)
+        });
+        view._subscriptions.push(front);
+        view.fade(!crate::unfocused::in_front(cx), cx);
         view
     }
 
@@ -589,7 +594,7 @@ impl SettingsView {
         self.close_picker(window, cx);
     }
 
-    /// `theme` as this window draws it now: faded while it is out of the front (P5-162).
+    /// `theme` as this window draws it now: faded while another application is in front (P5-162).
     fn as_drawn(&self, theme: Theme) -> Theme {
         if self.theme.is_faded() {
             theme.faded()
@@ -598,8 +603,8 @@ impl SettingsView {
         }
     }
 
-    /// Out of the front (`away`), draws in the saved colours faded; back in front, as saved
-    /// (DESIGN §13 P5-162).
+    /// While another application is in front (`away`), draws in the saved colours faded; with
+    /// paddock in front again, as saved (DESIGN §13 P5-162).
     fn fade(&mut self, away: bool, cx: &mut Context<Self>) {
         if away == self.theme.is_faded() {
             return;

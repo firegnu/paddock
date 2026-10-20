@@ -407,7 +407,8 @@ impl Theme {
         if self.faded { fade(color) } else { color }
     }
 
-    /// These colours for a window out of the front (DESIGN §13 P5-162): every colour this hands
+    /// These colours for paddock out of the front, another application in front (DESIGN §13
+    /// P5-162): every colour this hands
     /// out, the terminal's as drawn too, faded (`unfocused::fade`); the terminal's as programs are
     /// told them, as set.
     pub fn faded(&self) -> Theme {
@@ -420,7 +421,7 @@ impl Theme {
         }
     }
 
-    /// Whether these are a window's colours out of the front ([`Self::faded`]).
+    /// Whether these are the colours for paddock out of the front ([`Self::faded`]).
     pub fn is_faded(&self) -> bool {
         self.faded
     }

@@ -1224,7 +1224,7 @@ pub fn ended_panes(panes: &[AgentPane], agents: &[Agent]) -> Vec<PaneId> {
 }
 
 pub struct PaddockWindow {
-    /// The colours drawn in: [`Self::chosen`], faded while the window is out of the front.
+    /// The colours drawn in: [`Self::chosen`], faded while another application is in front.
     theme: Rc<Theme>,
     /// The colours Settings chose.
     chosen: Rc<Theme>,
@@ -1567,11 +1567,13 @@ impl PaddockWindow {
             }
         })
         .detach();
-        // Out of the front, the window draws in its colours faded (P5-162).
-        cx.observe_window_activation(window, |this, window, cx| {
-            this.fade(!window.is_window_active(), cx)
+        // While another application is in front, the window draws in its colours faded; not
+        // while one of paddock's own windows is over it (P5-162).
+        cx.observe_global_in::<crate::unfocused::Front>(window, |this, _, cx| {
+            this.fade(!crate::unfocused::in_front(cx), cx)
         })
         .detach();
+        this.fade(!crate::unfocused::in_front(cx), cx);
         match restored {
             Some(contents) => this.restore(contents, window, cx),
             None => {
@@ -3392,8 +3394,8 @@ impl PaddockWindow {
         self.chosen.clone()
     }
 
-    /// Out of the front (`away`), the window draws in its colours faded; back in front, as chosen
-    /// (DESIGN §13 P5-162).
+    /// While another application is in front (`away`), the window draws in its colours faded;
+    /// with paddock in front again, as chosen (DESIGN §13 P5-162).
     fn fade(&mut self, away: bool, cx: &mut Context<Self>) {
         if away == self.theme.is_faded() {
             return;

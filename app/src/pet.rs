@@ -538,14 +538,15 @@ impl gpui::Render for PetView {
                     (scale, step, view.lane.is_some())
                 })
             },
-            move |bounds, (scale, step, fits), window, _| {
+            move |bounds, (scale, step, fits), window, cx| {
                 if !fits {
                     return;
                 }
                 let left = bounds.origin.x + px(x as f32 * step);
                 let top = bounds.origin.y + bounds.size.height - px(height as f32 * scale);
-                // Out of the front, faded as the window's colours are (P5-162).
-                let away = !window.is_window_active();
+                // While another application is in front, faded as the window's colours are
+                // (P5-162).
+                let away = !crate::unfocused::in_front(cx);
                 for run in &runs {
                     let (r, g, b) = if away {
                         crate::unfocused::fade(run.color)

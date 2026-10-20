@@ -113,3 +113,11 @@ paddock 主窗口不在前台时：
   - 改 `Theme` 后 clippy 报 `terminal()` 返回了别的字段（`misnamed_getters`），把“设定的原色”那份字段改名为 `own`。
   - 上一轮的 `cargo test --all-targets` 因为库测试那条墙里失败，cargo 在第一个失败目标处就停了，其余 29 个测试目标没跑；这次加 `--no-fail-fast` 全跑了一遍。
   - 用 perl 以 `|` 作分隔符改代码时，模式里的 `\|` 变成了“或”，有一处替换错位，手工改正。
+
+### 返工 1 补：按应用是否在前台去色
+- 用户定：切到别的应用才去色；在 paddock 里弹出 Settings、New Agent 等自己的窗口时主窗口不去色，Settings 在主窗口前面时 Settings 也不去色。光标空心那条不变（看窗格有没有键盘）。
+- 怎么拿“应用是否在前台”：GPUI 只给单个窗口是否最前（`is_window_active`／`observe_window_activation`），应用代理只接了启动、重开、退出等，没有激活变化。所以在 `unfocused::watch` 里问 AppKit：启动时读 `NSApplication.isActive` 定初值；向系统通知中心登记 `NSApplicationDidBecomeActiveNotification`、`NSApplicationDidResignActiveNotification`（主队列、block 观察者，`objc2` 的 `msg_send` 加 `block2`，都是已有依赖，没改 Cargo.toml）。回调里只往 `async-channel` 通道发一个布尔值，GPUI 的任务收到后改全局状态 `unfocused::Front`（`global_mut` 会通知观察者），不在 AppKit 的回调里直接动 GPUI，免得重入。`main.rs` 启动时调一次。
+  - 没选“窗口焦点变化时再读 `isActive`”：Settings 在前时切到别的应用，主窗口自己的焦点没变，收不到通知；而且读的时机要赶在系统改完状态之后，靠不住。
+- 改了什么：主窗口和 Settings 不再看窗口焦点，改成观察 `Front`（`observe_global_in`），建窗时也按当前状态先定一次；文字输入框和宠物画的时候看 `unfocused::in_front(cx)`。Settings 原来“回到前面重读文件”的窗口焦点观察留着，只去掉了去色。DESIGN §13 那一条改成按应用判断，写明怎么拿。
+- 验证：`cargo fmt --check`、`cargo clippy --all-targets -- -D warnings`、`git diff --check` 都过；`cargo test --all-targets --no-fail-fast`：30 个目标，1001 个通过、1 个失败，仍是墙里 `clear` 不清屏的那条 pty 测试。系统通知这部分没有单元测试（要真的切应用），留给用户装上看：切到别的应用，所有 paddock 窗口去色；开 Settings、New Agent，主窗口保持原样。
+- 踩过的坑：没有。

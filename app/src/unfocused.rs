@@ -1,9 +1,86 @@
-//! A paddock window out of the front (DESIGN §13 P5-162): each colour it draws is faded at its
-//! source: half its saturation gone, its lightness drawn a little towards a dark middle, so the
-//! window reads as out of the front while every colour is still known and the text still crisp.
-//! The theme hands its colours out so (`Theme::faded`), and the window draws in that copy while it
-//! is out of the front; the terminal fades its cells the same way.
+//! paddock out of the front (DESIGN §13 P5-162): while another application is in front, each
+//! colour paddock's windows draw is faded at its source: half its saturation gone, its lightness
+//! drawn a little towards a dark middle, so they read as out of the front while every colour is
+//! still known and the text still crisp. One of paddock's own windows over another is not out of
+//! the front. The theme hands its colours out so (`Theme::faded`), and each window draws in that
+//! copy while paddock is not in front ([`Front`]); the terminal fades its cells the same way.
 use crate::palette::Rgb;
+use block2::RcBlock;
+use gpui::{App, Global};
+use objc2::{MainThreadMarker, class, msg_send, rc::Retained, runtime::AnyObject};
+use objc2_app_kit::NSApplication;
+use objc2_foundation::{NSString, ns_string};
+use std::ptr::{self, NonNull};
+
+/// Whether paddock is the application in front, as the system says; its windows watch it
+/// (`cx.observe_global_in::<Front>`). GPUI says only whether a window is, so this asks AppKit.
+pub struct Front {
+    active: bool,
+    /// The system's notification center keeps telling while these are kept.
+    _observers: Vec<Retained<AnyObject>>,
+}
+
+impl Global for Front {}
+
+/// Whether paddock is the application in front; in front too before [`watch`] has asked.
+pub fn in_front(cx: &App) -> bool {
+    cx.try_global::<Front>().is_none_or(|front| front.active)
+}
+
+/// Starts following whether paddock is in front: as it is now, then each time the system says it
+/// became the application in front or stopped being it. AppKit's notice only puts the news on a
+/// channel; GPUI takes it from there, outside AppKit's call. Nothing off the main thread.
+pub fn watch(cx: &mut App) {
+    let Some(main) = MainThreadMarker::new() else {
+        return;
+    };
+    let active = NSApplication::sharedApplication(main).isActive();
+    let (tell, told) = async_channel::unbounded::<bool>();
+    let notices: [(&NSString, bool); 2] = [
+        (ns_string!("NSApplicationDidBecomeActiveNotification"), true),
+        (
+            ns_string!("NSApplicationDidResignActiveNotification"),
+            false,
+        ),
+    ];
+    let observers = notices
+        .into_iter()
+        .map(|(name, active)| {
+            let tell = tell.clone();
+            let heard = RcBlock::new(move |_notice: NonNull<AnyObject>| {
+                let _ = tell.try_send(active);
+            });
+            // SAFETY: on the main thread; NSNotificationCenter's block observer, called on the
+            // main queue, which copies the block and returns the observer to keep.
+            unsafe {
+                let center: *mut AnyObject = msg_send![class!(NSNotificationCenter), defaultCenter];
+                let queue: *mut AnyObject = msg_send![class!(NSOperationQueue), mainQueue];
+                let observer: Retained<AnyObject> = msg_send![
+                    center,
+                    addObserverForName: name,
+                    object: ptr::null_mut::<AnyObject>(),
+                    queue: queue,
+                    usingBlock: &*heard,
+                ];
+                observer
+            }
+        })
+        .collect();
+    cx.set_global(Front {
+        active,
+        _observers: observers,
+    });
+    cx.spawn(async move |cx| {
+        while let Ok(active) = told.recv().await {
+            cx.update(|cx| {
+                if in_front(cx) != active {
+                    cx.global_mut::<Front>().active = active;
+                }
+            });
+        }
+    })
+    .detach();
+}
 
 /// How much of a colour's saturation stays.
 const SATURATION: f32 = 0.5;
