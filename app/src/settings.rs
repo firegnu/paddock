@@ -30,18 +30,21 @@ pub enum Page {
     Instructions,
     /// Read-only: fence's sandbox profiles and the rules they come to (DESIGN §13 P5-120).
     Sandbox,
+    /// ranch's dispatch table as a graph, a cell changed through ranch (DESIGN §13 P5-161).
+    Dispatch,
     /// Read-only: what paddock runs and how its reads and saves went.
     Diagnostics,
 }
 
 impl Page {
-    pub const ALL: [Page; 7] = [
+    pub const ALL: [Page; 8] = [
         Page::General,
         Page::Appearance,
         Page::Agents,
         Page::Machines,
         Page::Instructions,
         Page::Sandbox,
+        Page::Dispatch,
         Page::Diagnostics,
     ];
 
@@ -53,6 +56,7 @@ impl Page {
             Page::Machines => "Machines",
             Page::Instructions => "Instructions",
             Page::Sandbox => "Sandbox",
+            Page::Dispatch => "Dispatch",
             Page::Diagnostics => "Diagnostics",
         }
     }
@@ -66,6 +70,7 @@ impl Page {
             Page::Machines => Icon::Machine,
             Page::Instructions => Icon::Document,
             Page::Sandbox => Icon::Lock,
+            Page::Dispatch => Icon::Dispatch,
             Page::Diagnostics => Icon::Pulse,
         }
     }
@@ -1261,6 +1266,7 @@ mod tests {
                 "Machines",
                 "Instructions",
                 "Sandbox",
+                "Dispatch",
                 "Diagnostics"
             ]
         );

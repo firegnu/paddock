@@ -21,6 +21,7 @@ pub mod damage;
 pub mod delegates;
 pub mod diagnostics;
 pub mod diff;
+pub mod dispatch;
 pub mod fence;
 pub mod find;
 pub mod fonts;

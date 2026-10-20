@@ -105,6 +105,8 @@ pub enum Icon {
     Warning,
     /// A closed padlock: Settings' Sandbox (DESIGN §13 P5-120).
     Lock,
+    /// Two nodes joined to a third: Settings' Dispatch (DESIGN §13 P5-161).
+    Dispatch,
 }
 
 /// How far an icon's parts are from where they rest, for its hover motion (`motion.rs`), in the
@@ -757,6 +759,18 @@ fn shapes(icon: Icon, pose: Pose, bounds: Bounds<Pixels>, scale: f32) -> Vec<Pat
         Icon::Lock => {
             let (body, shackle) = lock_paths(false, &at, scale, stroke);
             vec![body, shackle]
+        }
+        Icon::Dispatch => {
+            let mut nodes = stroke();
+            circle(&mut nodes, at(3.0, 3.25), 1.75 * scale);
+            circle(&mut nodes, at(3.0, 10.75), 1.75 * scale);
+            circle(&mut nodes, at(11.0, 7.0), 1.75 * scale);
+            let mut links = stroke();
+            links.move_to(at(4.75, 3.25));
+            links.cubic_bezier_to(at(9.25, 7.0), at(7.0, 3.25), at(7.0, 7.0));
+            links.move_to(at(4.75, 10.75));
+            links.cubic_bezier_to(at(9.25, 7.0), at(7.0, 10.75), at(7.0, 7.0));
+            vec![nodes, links]
         }
     }
 }
