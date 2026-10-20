@@ -1576,6 +1576,16 @@ fn wrap_up_dropped(
     Ok(())
 }
 
+/// Queues a draft by committing its task file alone on main. Never pushes.
+pub fn queue_draft(
+    program: &str,
+    repo: &Path,
+    file: &str,
+    cancel: &AtomicBool,
+) -> Result<(), NotChanged> {
+    commit_draft(program, repo, file, cancel).map(|_| ())
+}
+
 /// Drops a draft, so that it leaves a record: in the main worktree `repo`, on main, commits the
 /// task file `file` alone (`任务: <id> <title>`), leaving whatever else is staged staged, then
 /// adds the wrap-up commit [`drop_task`] does. Never pushes. Refused, with nothing committed, off
@@ -1589,6 +1599,22 @@ pub fn drop_draft(
     why: &str,
     cancel: &AtomicBool,
 ) -> Result<(), NotChanged> {
+    let id = commit_draft(program, repo, file, cancel)?;
+    wrap_up_dropped(program, repo, &id, why, cancel).map_err(|why| {
+        NotChanged::Half(match why {
+            NotChanged::Commit(why) => why,
+            other => other.to_string(),
+        })
+    })
+}
+
+/// Commits one draft, preserving other staged paths, and returns its task id.
+fn commit_draft(
+    program: &str,
+    repo: &Path,
+    file: &str,
+    cancel: &AtomicBool,
+) -> Result<String, NotChanged> {
     let run = |args: &[&str]| git::git(program, repo, args, cancel).ok_or(NotChanged::NoGit);
     let path = format!("{TASKS}/{file}");
     settled_on_main(program, repo, cancel)?;
@@ -1635,12 +1661,7 @@ pub fn drop_draft(
         }
         return Err(why);
     }
-    wrap_up_dropped(program, repo, &id, why, cancel).map_err(|why| {
-        NotChanged::Half(match why {
-            NotChanged::Commit(why) => why,
-            other => other.to_string(),
-        })
-    })
+    Ok(id)
 }
 
 /// Whether the main worktree `repo` can take a commit from the board: it has main out, and no

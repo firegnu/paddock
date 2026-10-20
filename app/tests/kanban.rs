@@ -1808,3 +1808,83 @@ exec git "$@"
     assert_eq!(alone, first);
     assert_eq!(reads().len(), 31);
 }
+
+#[test]
+fn queue_draft_commits_only_the_draft_and_preserves_priority() {
+    use paddock::kanban::{Priority, queue_draft};
+    let temp = common::tempdir();
+    let (repo, _) = waiting_repo(temp.path(), "queue");
+    let cancel = AtomicBool::new(false);
+    let path = "docs/任务/P1-2-草稿.md";
+    let written = "# 任务：排队\n\n优先：高\n\n## 内容\n原话\n";
+    fs::write(repo.join(path), written).unwrap();
+    fs::write(repo.join("docs/任务/P1-3-别的.md"), "# 任务：别的\n").unwrap();
+    fs::write(repo.join("staged.txt"), "staged\n").unwrap();
+    git(&repo, &["add", "staged.txt"]);
+    fs::write(repo.join("notes.txt"), "changed\n").unwrap();
+    let head = said(&repo, &["rev-parse", "HEAD"]);
+    assert_eq!(queue_draft("git", &repo, "P1-2-草稿.md", &cancel), Ok(()));
+    assert_eq!(said(&repo, &["rev-parse", "HEAD~1"]), head);
+    assert_eq!(
+        said(&repo, &["log", "-1", "--format=%s"]),
+        "任务: P1-2 排队\n"
+    );
+    assert_eq!(
+        said(&repo, &["show", "--name-only", "--format=", "HEAD"]),
+        format!("{path}\n")
+    );
+    assert_eq!(said(&repo, &["show", &format!("HEAD:{path}")]), written);
+    assert_eq!(fs::read_to_string(repo.join(path)).unwrap(), written);
+    assert_eq!(
+        said(&repo, &["status", "--porcelain", "--untracked-files=all"]),
+        " M notes.txt\nA  staged.txt\n?? docs/任务/P1-3-别的.md\n"
+    );
+    let Read::Board(facts) = read("git", repo.to_str().unwrap(), &cache(), &cancel) else {
+        panic!("not a board");
+    };
+    let board = board(&facts, &[], 2_000_000_000.0);
+    let queued = board
+        .cards(Column::Queued)
+        .iter()
+        .find(|c| c.id == "P1-2")
+        .unwrap();
+    assert!(!queued.draft);
+    assert_eq!(queued.priority, Some(Priority::High));
+}
+
+#[test]
+fn queue_draft_refuses_invalid_state_without_changes() {
+    use paddock::kanban::{NotChanged, queue_draft};
+    let temp = common::tempdir();
+    let (repo, _) = waiting_repo(temp.path(), "queue-refused");
+    let cancel = AtomicBool::new(false);
+    let file = "P1-2-草稿.md";
+    let path = format!("docs/任务/{file}");
+    fs::write(repo.join(&path), "# 任务：草稿\n").unwrap();
+    fs::write(repo.join("docs/任务/想法.md"), "# 任务：想法\n").unwrap();
+    let head = said(&repo, &["rev-parse", "HEAD"]);
+    let status = said(&repo, &["status", "--porcelain", "--untracked-files=all"]);
+    let queue = |name| queue_draft("git", &repo, name, &cancel);
+    git(&repo, &["checkout", "-q", "-b", "other"]);
+    assert_eq!(queue(file), Err(NotChanged::NotMain(Some("other".into()))));
+    git(&repo, &["checkout", "-q", "main"]);
+    assert_eq!(
+        queue("P1-1-等用户.md"),
+        Err(NotChanged::Committed(WAITING.into()))
+    );
+    assert_eq!(
+        queue("想法.md"),
+        Err(NotChanged::Unnamed("docs/任务/想法.md".into()))
+    );
+    fs::write(repo.join(&path), "没有标题\n").unwrap();
+    assert_eq!(queue(file), Err(NotChanged::Unnamed(path.clone())));
+    fs::write(repo.join(&path), "# 任务：草稿\n").unwrap();
+    fs::write(repo.join(".git/MERGE_HEAD"), &head).unwrap();
+    assert_eq!(queue(file), Err(NotChanged::Busy("merge")));
+    fs::remove_file(repo.join(".git/MERGE_HEAD")).unwrap();
+    assert_eq!(said(&repo, &["rev-parse", "HEAD"]), head);
+    assert_eq!(
+        said(&repo, &["status", "--porcelain", "--untracked-files=all"]),
+        status
+    );
+}

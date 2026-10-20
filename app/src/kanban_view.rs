@@ -123,6 +123,8 @@ const SPIN_ARC: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 
 const PENCIL: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12"><path d="M7.5 2.5l2 2L4 10H2V8z" fill="none" stroke="#000" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>"##;
 const LOCK: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12"><rect x="2.5" y="5.5" width="7" height="5" rx="1" fill="none" stroke="#000" stroke-width="1.3"/><path d="M4 5.5V4a2 2 0 0 1 4 0v1.5" fill="none" stroke="#000" stroke-width="1.3" stroke-linecap="round"/></svg>"##;
 const BRACKETS: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 14 14"><path d="M5 3.5L1.5 7 5 10.5M9 3.5L12.5 7 9 10.5" fill="none" stroke="#000" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>"##;
+/// Queue task: an arrow entering the queue.
+const QUEUE: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12"><path d="M1.5 6h6m-2-2 2 2-2 2M9.5 2.5v7" fill="none" stroke="#000" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>"##;
 /// For a card's Delete draft and Drop task: a bin, and a circle struck through.
 const BIN: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12"><path d="M2.5 3.5h7M5 3.5v-1h2v1M3.5 3.5l.5 6.5h4l.5-6.5" fill="none" stroke="#000" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>"##;
 const STRUCK: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12"><circle cx="6" cy="6" r="4" fill="none" stroke="#000" stroke-width="1.3"/><path d="M3.2 8.8l5.6-5.6" fill="none" stroke="#000" stroke-width="1.3" stroke-linecap="round"/></svg>"##;
@@ -306,6 +308,8 @@ pub struct KanbanView {
     deletes: HashMap<String, Clearing>,
     /// The cards being dropped or asked to be, by task file.
     drops: HashMap<String, Clearing>,
+    /// The drafts being queued or asked to be, by task file.
+    queues: HashMap<String, Clearing>,
     /// The field for why, while a card is asked whether to drop it.
     reason: Option<Reason>,
 }
@@ -362,6 +366,7 @@ impl KanbanView {
             priorities: HashMap::new(),
             deletes: HashMap::new(),
             drops: HashMap::new(),
+            queues: HashMap::new(),
             reason: None,
         }
     }
@@ -684,12 +689,13 @@ impl KanbanView {
     }
 
     /// What the cards are asked or having done, each kind by task file.
-    fn acts(&mut self) -> [&mut HashMap<String, Clearing>; 4] {
+    fn acts(&mut self) -> [&mut HashMap<String, Clearing>; 5] {
         [
             &mut self.clears,
             &mut self.priorities,
             &mut self.deletes,
             &mut self.drops,
+            &mut self.queues,
         ]
     }
 
@@ -815,6 +821,42 @@ impl KanbanView {
             back,
         });
         self.drops.insert(file.to_owned(), Clearing::Asking);
+        cx.notify();
+    }
+
+    /// Confirmed: commit the draft alone, then refresh its state from Git.
+    fn queue_task(&mut self, file: &str, cx: &mut Context<Self>) {
+        if self.queues.get(file) != Some(&Clearing::Asking)
+            || !self.to_drop(file).is_some_and(|card| card.draft)
+        {
+            return;
+        }
+        let Some(repo) = self.board.as_ref().map(|board| board.repo.clone()) else {
+            return;
+        };
+        let file = file.to_owned();
+        self.queues.insert(file.clone(), Clearing::Running);
+        let name = file.clone();
+        let task = cx.background_spawn(async move {
+            kanban::queue_draft("git", &repo, &name, &AtomicBool::new(false))
+        });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |view, cx| {
+                match result {
+                    Ok(()) => {
+                        view.queues.insert(file, Clearing::Done);
+                        view.cancel();
+                        view.last = None;
+                    }
+                    Err(why) => {
+                        view.queues.insert(file, Clearing::Refused(why.to_string()));
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
         cx.notify();
     }
 
@@ -1245,9 +1287,15 @@ impl KanbanView {
             .flat_map(|board| board.columns.iter().flatten())
             .map(|card| card.file.as_str())
             .collect();
-        [&self.clears, &self.priorities, &self.deletes, &self.drops]
-            .into_iter()
-            .any(|acts| confirming(acts, self.active, &files))
+        [
+            &self.clears,
+            &self.priorities,
+            &self.deletes,
+            &self.drops,
+            &self.queues,
+        ]
+        .into_iter()
+        .any(|acts| confirming(acts, self.active, &files))
     }
 
     /// The repository's button and, over a board, main, how many need the user, are in progress
@@ -2123,6 +2171,8 @@ impl KanbanView {
                 .map(|r| small(r).into_any_element()),
             self.dropping(card, ui, cx)
                 .map(|r| small(r).into_any_element()),
+            self.queuing(card, ui, cx)
+                .map(|r| small(r).into_any_element()),
         ]
         .into_iter()
         .flatten()
@@ -2811,6 +2861,22 @@ impl KanbanView {
             ));
         }
         if self.offers_drop(card) {
+            if card.draft
+                && !matches!(
+                    self.queues.get(&card.file),
+                    Some(Clearing::Running | Clearing::Done)
+                )
+            {
+                let file = card.file.clone();
+                bar = bar.child(glyph("kanban-queue", drawn(QUEUE), "Queue task").on_click(
+                    cx.listener(move |view, _: &ClickEvent, window, cx| {
+                        cx.stop_propagation();
+                        view.take_back(&file, window, cx);
+                        view.queues.insert(file.clone(), Clearing::Asking);
+                        cx.notify();
+                    }),
+                ));
+            }
             let file = card.file.clone();
             bar = bar.child(glyph("kanban-drop", drawn(STRUCK), "Drop task").on_click(
                 cx.listener(move |view, _: &ClickEvent, window, cx| {
@@ -3079,6 +3145,56 @@ impl KanbanView {
             Clearing::Running => asked(ui).child(said("Deleting\u{2026}".into(), c.dim)),
             Clearing::Done => asked(ui).child(said("Moved to the Trash".into(), c.dim)),
             Clearing::Refused(why) => asked(ui).child(said(format!("Not deleted: {why}"), c.red)),
+        })
+    }
+
+    /// Under a draft: confirm queuing it, or show the result of its commit.
+    fn queuing(&self, card: &Card, ui: &UiFont, cx: &mut Context<Self>) -> Option<Div> {
+        let c = self.colors;
+        Some(match self.queues.get(&card.file)? {
+            Clearing::Asking => {
+                if !card.draft || !self.board.as_ref()?.droppable(card) {
+                    return None;
+                }
+                let (file, leave) = (card.file.clone(), card.file.clone());
+                let cancel = answer("kanban-queue-cancel", "Cancel", ui)
+                    .border_color(c.rule)
+                    .text_color(c.muted)
+                    .hover(move |style| style.bg(c.text.opacity(0.09)))
+                    .on_click(cx.listener(move |view, _: &ClickEvent, window, cx| {
+                        cx.stop_propagation();
+                        if view.take_back(&leave, window, cx) {
+                            cx.notify();
+                        }
+                    }));
+                let confirm = answer("kanban-queue-confirm", "Queue", ui)
+                    .bg(c.accent.opacity(0.16))
+                    .border_color(c.accent.opacity(0.5))
+                    .text_color(c.accent)
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .hover(move |style| style.bg(c.accent.opacity(0.26)))
+                    .on_click(cx.listener(move |view, _: &ClickEvent, _, cx| {
+                        cx.stop_propagation();
+                        view.queue_task(&file, cx);
+                    }));
+                asked(ui)
+                    .child(said(
+                        "Queue this task? Commits this draft to main.".into(),
+                        c.text,
+                    ))
+                    .child(div().flex_1())
+                    .child(
+                        div()
+                            .flex_shrink_0()
+                            .flex()
+                            .gap(ui.px(6.0))
+                            .child(cancel)
+                            .child(confirm),
+                    )
+            }
+            Clearing::Running => asked(ui).child(said("Queuing…".into(), c.dim)),
+            Clearing::Done => asked(ui).child(said("Queued".into(), c.dim)),
+            Clearing::Refused(why) => asked(ui).child(said(format!("Not queued: {why}"), c.red)),
         })
     }
 
