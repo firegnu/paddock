@@ -80,3 +80,5 @@ Sandbox 页上看得出套墙的 agent 查资料用的是哪一家，以及它�
 - 对方拿主意的都同意：`mcp` 用 `Option` 区分老 fence 没这个字段（两行都不画）和新 fence 的空数组（写 `none`）。
 - 建议改（不挡合并）：两行开头都是 `Web search:`，一行是 fence 有哪些、一行是这个档案用哪家，用户看着可能分不清；要的话上面那行改成 `Web search servers:`。
 - 已从分支装上，等用户在 Settings › Sandbox 看一眼。
+- 用户 10-20 问了以后换成要 key 的服务商怎么办，主控照 ranch `crates/fence/README.md` 说明了手改 `~/.fence/` 的三步、换完这两行会跟着变、界面里换要先请 fence 加命令；用户重开看过：“重开看了，可以，合并吧”。
+结果：一次过
