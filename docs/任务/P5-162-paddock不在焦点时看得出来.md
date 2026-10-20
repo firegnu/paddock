@@ -73,3 +73,12 @@ paddock 主窗口不在前台时：
 - 踩过的坑：
   - 量截图颜色时 `magick` 没有 PNG 解码，`sips` 转格式要写系统临时目录被墙挡；改成在 scratchpad 里写了个一次性的 Rust 小程序（`png` 包，离线编译）读像素。
   - 起初模块叫 `veil`，发现代码里分屏未聚焦窗格的变暗层已经叫 veil，改名 `unfocused`，函数叫 `unfocused::veil`。
+
+## 主控审查
+
+10-20，paddock/main。agent 实际名字是 `paddock/dev-unfocused-1`（Claude Code opus[1m] / high，套 fence `dev` 墙）。
+- diff（`main...p5-162-unfocused`）小而集中：新 `unfocused.rs`（窗口不在前台时在最上层盖一层不接鼠标的中性灰 `#2b2b2b`、51%，比例是从用户两张截图量出来的）、`window.rs` 和 `settings_view.rs` 各挂一行、内置 Browser 页面同时调透明度、`view.rs` 光标没键盘时一律空心、DESIGN 一句。「不要做」一件没犯，截图没进仓库。
+- 主控墙外重跑 `cargo test --all-targets`：999 个通过、0 个失败；clippy、fmt 都过。墙里那条 pty 测试失败是老问题。
+- 对方拿主意的都同意：一层总的盖灰（以后新加的界面不用各自处理）；Settings 窗口也盖灰；跟着窗口是否在最前（Settings 在前时主窗口也变灰，和系统把红黄绿变灰同一时刻）。
+- 建议改（不挡合并）：New Agent、About 小窗没盖灰；GPUI 的悬停提示画在最上层，不在前台时仍是原色；同一窗口里没键盘的分屏窗格，竖线和下划线光标现在也变空心框（以前只有方块）。
+- 已从分支装上，等用户照两条验收看。
