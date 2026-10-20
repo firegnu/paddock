@@ -96,3 +96,4 @@
 ### 踩过的坑
 - `view::links::tests::a_shell_s_relative_paths_are_from_where_it_has_gone_to` 在墙里单跑、全量都失败（“the shell did not get there”）。P5-148a 的完成记录里记过同一件事：PATH 里 ServBay 的 `clear` 在 `/usr/bin` 前面，不认 `xterm-256color`。照那里的办法 `PATH="/usr/bin:/bin:$PATH"` 跑全量全过。想在基线上核对时 `git stash push -u` 被墙挡（“Cannot save the current status”，写不了主仓库的 stash），没有绕，靠 P5-148a 的记录和 PATH 修正后通过来判断与本件无关。
 - `.target/main` 里只有 10-17 的主程序，没有能直接拿来跑的基线测试程序。
+- 在墙里 `git commit` 成功后 git 还报一句 `Unable to create .../paddock/.git/packed-refs.lock: Operation not permitted`（整理主仓库 refs 被墙挡）；提交本身已落到 `p5-148c-send`，没有处理。
