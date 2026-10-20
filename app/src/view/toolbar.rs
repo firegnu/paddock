@@ -4,7 +4,10 @@
 //! that asked for the mouse never brings it. Apart from GPUI, so that this can be tested; what its
 //! buttons do is the pane's.
 use super::tween::{self, Tween};
-use std::time::Instant;
+use std::time::{Duration, Instant};
+
+/// Same feedback duration as the card's Copy, kept within the terminal layer.
+const COPIED: Duration = Duration::from_millis(1200);
 
 /// Room between the bar and the selected rows.
 pub const GAP: f32 = 4.0;
@@ -23,9 +26,23 @@ pub struct Toolbar {
     at: Option<At>,
     /// How far it has faded in, 0 to 1.
     shown: Option<Tween>,
+    copied_until: Option<Instant>,
+    hide_after_copy: bool,
 }
 
 impl Toolbar {
+    /// The clipboard was written; manual Copy closes the bar after the feedback.
+    pub fn copied(&mut self, now: Instant, hide_after: bool) {
+        if self.at.is_some() {
+            self.copied_until = Some(now + COPIED);
+            self.hide_after_copy = hide_after;
+        }
+    }
+
+    pub fn is_copied(&self) -> bool {
+        self.copied_until.is_some()
+    }
+
     /// A press was let go. `ended`: it ended a selection made with the mouse (not a press told to
     /// the program, nor a link opened); `selected`: a selection is left, not empty.
     pub fn let_go(&mut self, ended: bool, selected: bool, at: At, now: Instant) {
@@ -36,13 +53,17 @@ impl Toolbar {
             return self.hide();
         }
         let mut shown = Tween::at(0.0);
+        self.copied_until = None;
+        self.hide_after_copy = false;
         shown.go(1.0, now, tween::POP_IN, tween::POP_CURVE);
         (self.at, self.shown) = (Some(at), Some(shown));
     }
 
-    /// Gone at once: a new press, typing, Esc, one of its buttons used.
+    /// Gone at once: a new press, typing, Esc, or Send to agent.
     pub fn hide(&mut self) {
         (self.at, self.shown) = (None, None);
+        self.copied_until = None;
+        self.hide_after_copy = false;
     }
 
     /// Whether it stays, drawn this frame: not once the selection has gone or the pane has lost
@@ -54,10 +75,16 @@ impl Toolbar {
         self.at
     }
 
-    /// How far it has faded in at `now`, 0 to 1, and whether it is still on its way.
-    pub fn look(&self, now: Instant) -> (f32, bool) {
+    /// Fade at `now`, 0 to 1, and whether another frame is needed for it or copy feedback.
+    pub fn look(&mut self, now: Instant) -> (f32, bool) {
+        if self.copied_until.is_some_and(|until| now >= until) {
+            self.copied_until = None;
+            if self.hide_after_copy {
+                self.hide();
+            }
+        }
         match &self.shown {
-            Some(shown) => (shown.value(now), shown.moving(now)),
+            Some(shown) => (shown.value(now), shown.moving(now) || self.is_copied()),
             None => (0.0, false),
         }
     }
@@ -105,6 +132,29 @@ mod tests {
         x: 120.0,
         below: true,
     };
+
+    #[test]
+    fn copied_shows_for_1200ms_then_stops_requesting_frames() {
+        let now = Instant::now();
+        for hide_after in [false, true] {
+            let mut bar = Toolbar::default();
+            bar.let_go(true, true, AT, now);
+            bar.copied(now, hide_after);
+            assert!(bar.is_copied());
+            assert!(bar.look(now + Duration::from_millis(1199)).1);
+            assert!(bar.is_copied());
+            assert_eq!(
+                bar.look(now + Duration::from_millis(1200)),
+                (if hide_after { 0.0 } else { 1.0 }, false)
+            );
+            assert!(!bar.is_copied());
+            assert_eq!(
+                bar.keep(true, true),
+                if hide_after { None } else { Some(AT) }
+            );
+            assert!(!bar.look(now + Duration::from_secs(2)).1);
+        }
+    }
 
     fn down(mouse: &mut Mouse, clicks: usize, reports: bool, shift: bool) -> Act {
         mouse.down(Down {

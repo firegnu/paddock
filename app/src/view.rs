@@ -270,7 +270,7 @@ pub struct TerminalView {
 /// The grid's room from the pane's edges.
 const GRID_INSET: f32 = 6.0;
 /// The selection's bar, at the base interface size.
-const TOOLBAR_WIDTH: f32 = 176.0;
+const TOOLBAR_WIDTH: f32 = 204.0;
 const TOOLBAR_HEIGHT: f32 = 28.0;
 
 /// How long the position bar and the size show after the last change, then how long they fade.
@@ -1040,15 +1040,16 @@ impl TerminalView {
             && let Some(text) = self.selection_text()
         {
             cx.write_to_clipboard(ClipboardItem::new_string(text));
+            self.toolbar.copied(Instant::now(), false);
         }
     }
 
-    /// The bar's Copy: the selection to the clipboard, as ⌘C; the selection stays, the bar goes.
+    /// The bar's Copy: as ⌘C, then a brief confirmation before the bar goes.
     fn copy_selection(&mut self, cx: &mut Context<Self>) {
         if let Some(text) = self.selection_text() {
             cx.write_to_clipboard(ClipboardItem::new_string(text));
+            self.toolbar.copied(Instant::now(), true);
         }
-        self.toolbar.hide();
         cx.notify();
     }
 
@@ -2729,6 +2730,7 @@ impl Render for TerminalView {
         let ui = crate::fonts::UiFont::get(cx);
         let selected = self.selected_rows(None).map(|(rows, _)| rows);
         let focused = self.focus.is_focused(window);
+        let (bar_shown, bar_moving) = self.toolbar.look(now);
         let bar = self
             .toolbar
             .keep(selected.is_some(), focused)
@@ -2746,7 +2748,6 @@ impl Render for TerminalView {
                 toolbar::place(at, rows, metrics.line_height, bar, grid)
             })
             .map(|(x, y)| (x, y + self.shift()));
-        let (bar_shown, bar_moving) = self.toolbar.look(now);
         if bar.is_some() && bar_moving {
             window.request_animation_frame();
         }
@@ -2869,8 +2870,21 @@ impl TerminalView {
             .text_size(ui.px(12.0))
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .child(
-                button("selection-copy", "Copy")
-                    .on_click(cx.listener(|this, _, _, cx| this.copy_selection(cx))),
+                button(
+                    "selection-copy",
+                    if self.toolbar.is_copied() {
+                        "✓ Copied"
+                    } else {
+                        "Copy"
+                    },
+                )
+                .w(ui.px(76.0))
+                .flex_shrink_0()
+                .justify_center()
+                .when(self.toolbar.is_copied(), |button| {
+                    button.text_color(hsla(self.theme.fg(|t| t.agents_green), 1.0))
+                })
+                .on_click(cx.listener(|this, _, _, cx| this.copy_selection(cx))),
             )
             .child(
                 div()
