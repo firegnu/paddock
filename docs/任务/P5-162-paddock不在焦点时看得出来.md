@@ -121,3 +121,12 @@ paddock 主窗口不在前台时：
 - 改了什么：主窗口和 Settings 不再看窗口焦点，改成观察 `Front`（`observe_global_in`），建窗时也按当前状态先定一次；文字输入框和宠物画的时候看 `unfocused::in_front(cx)`。Settings 原来“回到前面重读文件”的窗口焦点观察留着，只去掉了去色。DESIGN §13 那一条改成按应用判断，写明怎么拿。
 - 验证：`cargo fmt --check`、`cargo clippy --all-targets -- -D warnings`、`git diff --check` 都过；`cargo test --all-targets --no-fail-fast`：30 个目标，1001 个通过、1 个失败，仍是墙里 `clear` 不清屏的那条 pty 测试。系统通知这部分没有单元测试（要真的切应用），留给用户装上看：切到别的应用，所有 paddock 窗口去色；开 Settings、New Agent，主窗口保持原样。
 - 踩过的坑：没有。
+
+## 主控审查（返工 1）
+
+10-20，paddock/main。
+- 返工 1 照用户两条决定改：去掉盖灰，改成主题出一份去色副本、终端格子颜色在画之前去色（饱和度留一半、明暗向偏暗的中间收 15%）；是否去色看 paddock 是不是当前应用（启动读 `NSApplication.isActive`，之后听系统的激活／失活通知，经通道交给 GPUI 更新全局状态），不再看单个窗口。光标空心照旧看窗格有没有键盘。没加依赖。
+- 主控墙外重跑 `cargo test --all-targets --no-fail-fast`：1002 个通过、0 个失败；clippy、fmt 都过。
+- 对方上一轮报的“818 个通过”是因为没带 `--no-fail-fast`、只跑了库测试一个目标；主控上一轮墙外重跑的 999 个全过不受影响。
+- 记建议改（不挡合并）：Browser 网页本身、agent 品牌图标、New Agent／About 小窗不去色。
+- 已从分支装上，等用户照验收看。
