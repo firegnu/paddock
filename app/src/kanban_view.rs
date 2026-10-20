@@ -4426,6 +4426,7 @@ fn input_colors(theme: &Theme) -> text_input::Colors {
         placeholder: hsla(theme.fg(|t| t.agents_dimmer), 1.0),
         cursor: hsla(theme.fg(|t| t.focus), 1.0),
         selection: hsla(theme.fg(|t| t.focus), 0.3),
+        faded: theme.is_faded(),
     }
 }
 
@@ -4433,6 +4434,16 @@ impl TaskDialog {
     /// Drawn `rise` points below its place, as it comes in over the window (P5-148a).
     pub fn set_rise(&mut self, rise: f32) {
         self.rise = rise;
+    }
+
+    /// New colours: the window's, faded or not (P5-162).
+    pub fn set_theme(&mut self, theme: Rc<Theme>, cx: &mut Context<Self>) {
+        let colors = input_colors(&theme);
+        for input in [&self.id, &self.title, &self.body] {
+            input.update(cx, |input, cx| input.set_colors(colors, cx));
+        }
+        self.theme = theme;
+        cx.notify();
     }
 
     /// For the main worktree `repo`: a new task, offered the next free id, its title taking the

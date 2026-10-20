@@ -80,6 +80,26 @@ pub struct Colors {
     pub placeholder: Hsla,
     pub cursor: Hsla,
     pub selection: Hsla,
+    /// Taken from a theme already faded (`Theme::is_faded`).
+    pub faded: bool,
+}
+
+impl Colors {
+    /// As the field draws them in `window`: faded while it is out of the front, unless they
+    /// already are (DESIGN §13 P5-162), so every field fades, however it was given its colours.
+    pub fn in_window(self, window: &Window) -> Self {
+        if self.faded || window.is_window_active() {
+            return self;
+        }
+        let fade = crate::unfocused::fade_hsla;
+        Self {
+            text: fade(self.text),
+            placeholder: fade(self.placeholder),
+            cursor: fade(self.cursor),
+            selection: fade(self.selection),
+            faded: true,
+        }
+    }
 }
 
 /// Sent whenever the text changes.
@@ -852,7 +872,7 @@ impl Element for TextElement {
         let content = input.edit.content.clone();
         let selected_range = input.edit.selected_range.clone();
         let cursor = input.cursor_offset();
-        let colors = input.colors;
+        let colors = input.colors.in_window(window);
         let style = window.text_style();
 
         let (display_text, text_color) = if content.is_empty() {
@@ -1078,13 +1098,14 @@ impl AreaElement {
             let runs = runs(
                 placeholder.len(),
                 style.font(),
-                input.colors.placeholder,
+                input.colors.in_window(window).placeholder,
                 None,
             );
             (placeholder, runs, font_size)
         } else {
             let marked = input.edit.marked_range.as_ref();
-            let runs = runs(content.len(), style.font(), input.colors.text, marked);
+            let text = input.colors.in_window(window).text;
+            let runs = runs(content.len(), style.font(), text, marked);
             (content, runs, font_size)
         }
     }
@@ -1154,7 +1175,7 @@ impl Element for AreaElement {
         let lines = if empty { &[][..] } else { &shown[..] };
         let at = |index| bounds.origin + position_in(lines, line_height, index);
         let selected = input.edit.selected_range.clone();
-        let colors = input.colors;
+        let colors = input.colors.in_window(window);
         let row = |left: Point<Pixels>, right: Pixels| {
             fill(
                 Bounds::from_corners(left, point(right, left.y + line_height)),

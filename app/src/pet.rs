@@ -544,8 +544,14 @@ impl gpui::Render for PetView {
                 }
                 let left = bounds.origin.x + px(x as f32 * step);
                 let top = bounds.origin.y + bounds.size.height - px(height as f32 * scale);
+                // Out of the front, faded as the window's colours are (P5-162).
+                let away = !window.is_window_active();
                 for run in &runs {
-                    let (r, g, b) = run.color;
+                    let (r, g, b) = if away {
+                        crate::unfocused::fade(run.color)
+                    } else {
+                        run.color
+                    };
                     let color = gpui::Rgba {
                         r: f32::from(r) / 255.0,
                         g: f32::from(g) / 255.0,

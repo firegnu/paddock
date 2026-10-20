@@ -171,7 +171,6 @@ impl BrowserView {
         let shown = scene.page().filter(|_| self.page.is_some());
         if let Some(page) = &mut self.page {
             page.place(shown, window);
-            page.fade(crate::unfocused::native_alpha(window));
         }
         self.showing = match shown {
             _ if !(open && on_browser) => Showing::Away,
@@ -909,6 +908,7 @@ fn colors(theme: &Theme) -> text_input::Colors {
         placeholder: hsla(theme.fg(|t| t.agents_dimmer), 1.0),
         cursor: hsla(theme.fg(|t| t.focus), 1.0),
         selection: hsla(theme.fg(|t| t.focus), 0.3),
+        faded: theme.is_faded(),
     }
 }
 

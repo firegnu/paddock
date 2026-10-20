@@ -187,6 +187,7 @@ fn input_colors(theme: &Theme) -> text_input::Colors {
         placeholder: hsla(theme.fg(|t| t.agents_dimmer), 1.0),
         cursor: hsla(theme.fg(|t| t.focus), 1.0),
         selection: hsla(theme.fg(|t| t.focus), 0.3),
+        faded: theme.is_faded(),
     }
 }
 
@@ -282,11 +283,17 @@ impl RemoteAgentView {
 
     /// Settings were saved: their colours and the terminal's font.
     pub fn restyle(&mut self, theme: Rc<Theme>, mono: SharedString, cx: &mut Context<Self>) {
+        self.mono = mono;
+        self.set_theme(theme, cx);
+    }
+
+    /// New colours: the window's, faded or not (P5-162).
+    pub fn set_theme(&mut self, theme: Rc<Theme>, cx: &mut Context<Self>) {
         let colors = input_colors(&theme);
         for input in [&self.command, &self.dir, &self.name] {
             input.update(cx, |input, cx| input.set_colors(colors, cx));
         }
-        (self.theme, self.mono) = (theme, mono);
+        self.theme = theme;
         cx.notify();
     }
 

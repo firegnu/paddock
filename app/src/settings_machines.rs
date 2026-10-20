@@ -34,6 +34,16 @@ fn same_name<'a>(machine: &Machine, others: &'a [Machine]) -> Option<&'a str> {
 }
 
 impl SettingsView {
+    /// The name being typed over in the theme's colours, after the theme changed.
+    pub(super) fn recolor_machines(&mut self, cx: &mut Context<Self>) {
+        let colors = self.input_colors();
+        if let Some(renaming) = &self.machines.renaming {
+            renaming
+                .input
+                .update(cx, |input, cx| input.set_colors(colors, cx));
+        }
+    }
+
     /// While the page shows, how each machine stands is read again every second.
     pub(super) fn tick_machines(&mut self, cx: &mut Context<Self>) {
         if self.machines.ticking {
