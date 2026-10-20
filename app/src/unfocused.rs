@@ -1,6 +1,6 @@
 //! paddock out of the front (DESIGN §13 P5-162): while another application is in front, each
-//! colour paddock's windows draw is faded at its source: half its saturation gone, its lightness
-//! drawn a little towards a dark middle, so they read as out of the front while every colour is
+//! colour paddock's windows draw is faded at its source: most of its saturation gone, its lightness
+//! drawn well towards a dark middle, so they read as out of the front while every colour is
 //! still known and the text still crisp. One of paddock's own windows over another is not out of
 //! the front. The theme hands its colours out so (`Theme::faded`), and each window draws in that
 //! copy while paddock is not in front ([`Front`]); the terminal fades its cells the same way.
@@ -83,16 +83,16 @@ pub fn watch(cx: &mut App) {
 }
 
 /// How much of a colour's saturation stays.
-const SATURATION: f32 = 0.5;
+const SATURATION: f32 = 0.4;
 
 /// How much of a colour's distance in lightness from [`MIDDLE`] stays.
-const CONTRAST: f32 = 0.85;
+const CONTRAST: f32 = 0.62;
 
 /// The lightness the contrast closes towards: low, as paddock's grounds are dark, so a ground
 /// lifts only a little and text dims only a little.
-const MIDDLE: f32 = 96.0;
+const MIDDLE: f32 = 50.0;
 
-/// `color` out of the front: the same hue, half as saturated, its lightness a little nearer
+/// `color` out of the front: the same hue, less than half as saturated, its lightness well nearer
 /// [`MIDDLE`]. Grays stay gray.
 pub fn fade((r, g, b): Rgb) -> Rgb {
     let [r, g, b] = [r, g, b].map(f32::from);
@@ -159,7 +159,7 @@ mod tests {
     ];
 
     #[test]
-    fn a_faded_colour_keeps_half_its_saturation_and_its_hue() {
+    fn a_faded_colour_keeps_its_share_of_saturation_and_its_hue() {
         for color in SEEN {
             let faded = fade(color);
             let (before, after) = (f32::from(spread(color)), f32::from(spread(faded)));
@@ -202,12 +202,12 @@ mod tests {
             let (r, g, b) = fade((v, v, v));
             assert!(r == g && g == b, "{v:02x} → {:02x?}", (r, g, b));
         }
-        // The ground lifts a little, the text dims a little; neither goes to a flat gray.
+        // The ground lifts a little, the text dims clearly; neither goes to a flat gray.
         let (ground, text) = (SEEN[6], SEEN[0]);
         let lift = lightness(fade(ground)) - lightness(ground);
         assert!((3.0..=15.0).contains(&lift), "ground lifts {lift}");
         let dim = lightness(text) - lightness(fade(text));
-        assert!((5.0..=25.0).contains(&dim), "text dims {dim}");
+        assert!((40.0..=80.0).contains(&dim), "text dims {dim}");
         // Lighter stays lighter.
         let mut by_lightness = SEEN;
         by_lightness.sort_by(|a, b| lightness(*a).total_cmp(&lightness(*b)));
