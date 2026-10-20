@@ -18,6 +18,164 @@ use alacritty_terminal::{
 use cursor_icon::CursorIcon;
 use std::sync::mpsc::{self, Receiver, Sender};
 
+#[cfg(test)]
+mod signal_tests {
+    use super::*;
+
+    fn screen() -> Screen {
+        Screen::new(Size { rows: 5, cols: 20 })
+    }
+
+    #[test]
+    fn signals_parse_all_progress_states_and_both_terminators() {
+        let mut screen = screen();
+        for (sequence, progress) in [
+            ("\x1b]9;4;1;40\x07", Progress::Percent(40)),
+            ("\x1b]9;4;2\x1b\\", Progress::Error(40)),
+            ("\x1b]9;4;4;60\x07", Progress::Paused(60)),
+            ("\x1b]9;4;3\x07", Progress::Indeterminate),
+            ("\x1b]9;4;0\x07", Progress::None),
+            ("\x1b]9;4;2\x07", Progress::Error(100)),
+        ] {
+            screen.process(sequence.as_bytes());
+            assert_eq!(screen.signals().progress, progress, "{sequence:?}");
+            assert_eq!(screen.signals().bells, 0, "OSC terminators are not bells");
+        }
+    }
+
+    #[test]
+    fn signals_missing_malformed_and_out_of_range_parameters() {
+        let mut screen = screen();
+        screen.process(b"\x1b]9;4;1;40\x07");
+        for sequence in [
+            "\x1b]9\x07",
+            "\x1b]9;4\x07",
+            "\x1b]9;4;1\x07",
+            "\x1b]9;4;1;\x07",
+            "\x1b]9;4;1;-1\x07",
+            "\x1b]9;4;1;no\x07",
+            "\x1b]9;4;7;10\x07",
+            "\x1b]777;4;0\x07",
+        ] {
+            screen.process(sequence.as_bytes());
+            assert_eq!(
+                screen.signals().progress,
+                Progress::Percent(40),
+                "{sequence:?}"
+            );
+        }
+        screen.process(b"\x1b]9;4;1;101\x07");
+        assert_eq!(screen.signals().progress, Progress::Percent(100));
+        screen.process(b"\x1b]9;4;1;0\x07");
+        assert_eq!(screen.signals().progress, Progress::Percent(0));
+    }
+
+    #[test]
+    fn signals_accept_every_split_and_keep_bells_separate() {
+        let sequence = b"\x1b]9;4;1;40\x1b\\";
+        for split in 0..=sequence.len() {
+            let mut screen = screen();
+            screen.process(&sequence[..split]);
+            screen.process(&sequence[split..]);
+            assert_eq!(screen.signals().progress, Progress::Percent(40));
+            screen.process(b"\x07\x07");
+            assert_eq!(screen.signals().bells, 2);
+        }
+    }
+
+    #[test]
+    fn signals_finish_clears_and_late_output_cannot_restore_progress() {
+        let mut screen = screen();
+        screen.process(b"\x1b]9;4;3\x07\x07");
+        screen.finish();
+        assert_eq!(
+            screen.signals(),
+            Signals {
+                ended: true,
+                ..Signals::default()
+            }
+        );
+        screen.process(b"\x1b]9;4;1;60\x07\x07");
+        assert_eq!(
+            screen.signals(),
+            Signals {
+                ended: true,
+                ..Signals::default()
+            }
+        );
+    }
+}
+
+/// Program-reported progress, independent of the window displaying the terminal.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Progress {
+    #[default]
+    None,
+    Percent(u8),
+    Indeterminate,
+    Error(u8),
+    Paused(u8),
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Signals {
+    pub progress: Progress,
+    pub bells: u64,
+    pub ended: bool,
+}
+
+// The ANSI Processor has no OSC 9 callback. Its underlying VTE parser can report it without
+// changing the grid parser or mistaking an OSC's BEL terminator for a bell. Both keep their
+// state across reads; other strings and escape sequences are left to the existing Processor.
+impl alacritty_terminal::vte::Perform for Signals {
+    fn osc_dispatch(&mut self, params: &[&[u8]], _bell_terminated: bool) {
+        if self.ended || params.len() < 3 || params[0] != b"9" || params[1] != b"4" {
+            return;
+        }
+        let previous = match self.progress {
+            Progress::Percent(n) | Progress::Error(n) | Progress::Paused(n) => n,
+            _ => 100,
+        };
+        let percent = || {
+            let bytes = *params.get(3)?;
+            if bytes.is_empty() || !bytes.iter().all(u8::is_ascii_digit) {
+                return None;
+            }
+            // Saturate while parsing too: even a very large integer means 100%.
+            Some(
+                bytes
+                    .iter()
+                    .fold(0u8, |n, b| n.saturating_mul(10).saturating_add(b - b'0'))
+                    .min(100),
+            )
+        };
+        self.progress = match params[2] {
+            b"0" => Progress::None,
+            b"1" => match percent() {
+                Some(n) => Progress::Percent(n),
+                None => return,
+            },
+            b"2" | b"4" => {
+                let n = if params.len() == 3 {
+                    previous
+                } else {
+                    match percent() {
+                        Some(n) => n,
+                        None => return,
+                    }
+                };
+                if params[2] == b"2" {
+                    Progress::Error(n)
+                } else {
+                    Progress::Paused(n)
+                }
+            }
+            b"3" => Progress::Indeterminate,
+            _ => return,
+        };
+    }
+}
+
 #[derive(Clone, Copy)]
 pub struct Size {
     pub rows: u16,
@@ -53,6 +211,8 @@ pub struct Screen {
     pushed: bool,
     /// The colours the pane draws with: what a program asking for a colour it has not set is told.
     theme: palette::Shared,
+    signals: Signals,
+    signal_parser: alacritty_terminal::vte::Parser,
 }
 impl Screen {
     pub fn new(size: Size) -> Self {
@@ -70,9 +230,14 @@ impl Screen {
             title: None,
             pushed: false,
             theme,
+            signals: Signals::default(),
+            signal_parser: alacritty_terminal::vte::Parser::new(),
         }
     }
     pub fn process(&mut self, bytes: &[u8]) -> Vec<u8> {
+        if !self.signals.ended {
+            self.signal_parser.advance(&mut self.signals, bytes);
+        }
         // Scrolled back, the view stays on what it shows as output pushes lines up: further back.
         let back = self.term.grid().display_offset();
         let mut answering = Answering {
@@ -109,6 +274,12 @@ impl Screen {
                     self.title = None;
                     continue;
                 }
+                Event::Bell => {
+                    if !self.signals.ended {
+                        self.signals.bells = self.signals.bells.wrapping_add(1);
+                    }
+                    continue;
+                }
                 _ => continue,
             };
             replies.extend_from_slice(reply.as_bytes());
@@ -117,6 +288,18 @@ impl Screen {
     }
     pub fn resize(&mut self, size: Size) {
         self.term.resize(size);
+    }
+    pub fn signals(&self) -> Signals {
+        self.signals
+    }
+
+    /// Called on PTY EOF and on child exit. Late buffered output may still update the grid,
+    /// but cannot restore a finished session's signals.
+    pub fn finish(&mut self) {
+        self.signals = Signals {
+            ended: true,
+            ..Signals::default()
+        };
     }
     /// Output came while the view was scrolled back, and it has not been back at the bottom since.
     pub fn pushed(&self) -> bool {
