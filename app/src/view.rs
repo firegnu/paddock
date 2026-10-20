@@ -14,6 +14,7 @@ pub mod links;
 mod marks;
 mod notice;
 mod press;
+pub mod signals;
 pub mod tween;
 pub mod zoom;
 
@@ -219,6 +220,7 @@ pub struct TerminalView {
     bell: Bell,
     /// The session the bell was last handed to, or none.
     shown: Option<u64>,
+    signals: signals::Animation,
     /// A frame was asked for and is not drawn yet: more output waits for it.
     frame_pending: bool,
     /// The screen was redrawn as a whole since the last frame: the cursor goes straight to its
@@ -415,6 +417,7 @@ impl TerminalView {
             quiet: None,
             bell,
             shown: None,
+            signals: signals::Animation::new(),
             frame_pending: false,
             redrawn: false,
             caret: caret::Caret::default(),
@@ -521,6 +524,7 @@ impl TerminalView {
         self.label = format!("corral attach {name}");
         self.subject = name;
         self.bell.kick();
+        self.update_signals(cx);
         cx.notify();
     }
 
@@ -549,6 +553,7 @@ impl TerminalView {
             agent_shell: false,
         });
         self.bell.kick();
+        self.update_signals(cx);
         cx.notify();
     }
 
@@ -642,6 +647,7 @@ impl TerminalView {
         self.label = "empty".into();
         self.subject.clear();
         self.bell.kick();
+        self.update_signals(cx);
         cx.notify();
     }
 
@@ -755,10 +761,32 @@ impl TerminalView {
 
     /// Output came: a frame, unless one is already on its way, which shows it too.
     fn output(&mut self, cx: &mut Context<Self>) {
+        self.update_signals(cx);
         if !self.frame_pending && self.take_changed() {
             self.frame_pending = true;
             cx.notify();
         }
+    }
+
+    fn update_signals(&mut self, cx: &mut Context<Self>) {
+        // Signals can change without any cell damage, even while a grid frame is pending.
+        let (session, signals) = self
+            .session()
+            .filter(|session| session.running())
+            .map_or((None, Default::default()), |session| {
+                (Some(session.id()), session.screen.lock().unwrap().signals())
+            });
+        if self
+            .signals
+            .update(session, signals, Instant::now(), crate::reduce_motion::on())
+        {
+            cx.emit(SignalsChanged);
+        }
+    }
+
+    /// Sampled by a host drawing the terminal's header and tab; no window dependency or timer.
+    pub fn signal_frame(&self, now: Instant, still: bool) -> signals::Frame {
+        self.signals.frame(now, still)
     }
 
     /// Whether the screen changed since the last look; not a bare cursor ([`damage`]).
@@ -2053,6 +2081,10 @@ fn tip(link: &Link, offset: i32, rows: u16) -> Option<(usize, usize, String)> {
 
 /// The pane's attach to its agent has ended: the agent may have just ended too.
 pub struct AttachEnded;
+
+pub struct SignalsChanged;
+
+impl EventEmitter<SignalsChanged> for TerminalView {}
 
 impl EventEmitter<AttachEnded> for TerminalView {}
 

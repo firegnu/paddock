@@ -239,6 +239,7 @@ impl Session {
                 }
             }
             // The program has most likely ended.
+            output.lock().unwrap().finish();
             if let Some(ring) = &*rings.lock().unwrap() {
                 ring.changed();
             }
@@ -384,6 +385,7 @@ impl Session {
             return Ok(true);
         }
         if let Some(status) = self.child.try_wait()? {
+            self.screen.lock().unwrap().finish();
             self.exit_code = Some(status.exit_code());
             if self.shell && self.stopping.is_some() {
                 self.signal_groups(libc::SIGKILL);

@@ -41,7 +41,9 @@ use crate::{
     text_input::{self, Changed, TextInput},
     theme::{Theme, Translucency},
     to_tag,
-    view::{AttachEnded, Launch, OpenLink, Options, TerminalView, hsla, links, zoom},
+    view::{
+        AttachEnded, Launch, OpenLink, Options, SignalsChanged, TerminalView, hsla, links, zoom,
+    },
     viewer::AgentMetadata,
     windows,
 };
@@ -1338,6 +1340,8 @@ mod ctl;
 mod inbox_panel;
 #[path = "window_motion.rs"]
 mod moving;
+#[path = "window_signals.rs"]
+mod signals;
 
 impl PaddockWindow {
     pub fn new(
@@ -2539,6 +2543,8 @@ impl PaddockWindow {
             sidebar.read(cx).refresh()
         })
         .detach();
+        cx.subscribe(&view, |_, _, _: &SignalsChanged, cx| cx.notify())
+            .detach();
         cx.subscribe_in(&view, window, |this, pane, OpenLink(target), window, cx| {
             this.open_link(pane, target, window, cx)
         })
@@ -4501,6 +4507,7 @@ impl PaddockWindow {
                 let panes = tab.panes().len();
                 let empty = matches!(self.workspace.shown(tab.active), Shown::Empty);
                 let group = group.as_deref().unwrap_or_default();
+                let signal = self.tab_signal(index, Instant::now(), crate::reduce_motion::on(), cx);
                 TabSize {
                     chrome: tab_chrome(
                         panes,
@@ -4508,7 +4515,7 @@ impl PaddockWindow {
                         marks[index].paused,
                         index == active || frosted,
                         s,
-                    ),
+                    ) + signals::tab_width(signal, s),
                     full: width(group, TAB_TEXT, FontWeight::NORMAL)
                         + width(name, TAB_TEXT, weight),
                     short: width(&short[index], TAB_TEXT, weight),
@@ -4736,6 +4743,10 @@ impl PaddockWindow {
                 (whole.rest, Some((group, whole.lit)))
             };
             let panes = tab.panes();
+            let signal = self.tab_signal(index, shown_at, crate::reduce_motion::on(), cx);
+            if signal.moving {
+                window.request_animation_frame();
+            }
             let mark = match panes_tip(panes.len()) {
                 Some(text) => {
                     let tip = BarTip {
@@ -4775,6 +4786,12 @@ impl PaddockWindow {
                     this.hover_tab(index, *hovered, cx)
                 }))
                 .child(mark)
+                .children(signals::tab_mark(
+                    signal,
+                    self.signal_ink(signal),
+                    self.fg(|t| t.agents_yellow),
+                    scale,
+                ))
                 .child(
                     div()
                         .flex_shrink(1.0)
@@ -5455,6 +5472,12 @@ impl PaddockWindow {
         // The veil cross-fades as the keys go from pane to pane (P5-148a; `dimmed` at rest).
         let veil = self.pane_veil(pane);
         let opacity = self.pane_shown(pane);
+        let signal = self.panes[&pane]
+            .read(cx)
+            .signal_frame(Instant::now(), crate::reduce_motion::on());
+        if signal.moving {
+            window.request_animation_frame();
+        }
         // Around the terminal, keeping it well off the panel's corners (the view adds 6 itself):
         // roomier alone, tighter under a header, whose own height leaves room above.
         let (top, bottom, side) = if header {
@@ -5511,6 +5534,9 @@ impl PaddockWindow {
                         .bg(background.opacity(DIM * veil)),
                 )
             })
+            .when(signal.glow > 0.0, |this| {
+                this.child(signals::rim(signal.glow, self.fg(|t| t.agents_yellow)))
+            })
             .into_any_element()
     }
 
@@ -5547,6 +5573,7 @@ impl PaddockWindow {
             &self.workspace.agents(),
         );
         let view = self.panes[&pane].read(cx);
+        let signal = view.signal_frame(Instant::now(), crate::reduce_motion::on());
         let (name, topic) = match &subject {
             Subject::Agent(_) => (
                 name,
@@ -5575,6 +5602,11 @@ impl PaddockWindow {
                 let room = f32::from(bounds.size.width)
                     - name_width
                     - chip
+                    - if signal.bell > 0.0 {
+                        (footer_icon::SIZE + PANE_HEADER_GAP) * scale
+                    } else {
+                        0.0
+                    }
                     - (PANE_HEADER_START
                         + BADGE_ICON
                         + 2.0
@@ -5687,6 +5719,7 @@ impl PaddockWindow {
                 .child(text)
         };
         div()
+            .relative()
             .flex_shrink_0()
             .flex()
             .items_center()
@@ -5733,7 +5766,20 @@ impl PaddockWindow {
             .children(topic.map(|topic| faint(topic, self.fg(|t| t.agents_branch))))
             .children(dir.map(|dir| faint(dir, self.fg(|t| t.agents_dimmer))))
             .child(div().flex_1())
+            .when(signal.bell > 0.0, |header| {
+                header.child(footer_icon::posed(
+                    Icon::Bell,
+                    motion::ring(
+                        signal
+                            .swing
+                            .map(|elapsed| motion::RING.play.mul_f32(elapsed.as_secs_f32() / 0.45)),
+                    ),
+                    self.fg(|t| t.agents_yellow).opacity(signal.bell),
+                    scale,
+                ))
+            })
             .child(buttons)
+            .children(signals::bar(signal, self.signal_ink(signal)))
     }
 
     /// The name tags over the active pane's terminal (P5-77, P5-77c, P5-77d, see `to_tag`), for an
