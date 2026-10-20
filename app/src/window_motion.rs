@@ -67,6 +67,7 @@ pub(super) struct Leaving {
     new_task: Option<Entity<TaskDialog>>,
     new_agent: Option<Entity<NewAgentView>>,
     remote_agent: Option<Entity<RemoteAgentView>>,
+    send: Option<send_panel::SendPanel>,
 }
 
 /// The tab on show, as far as a pane growing or the rim sliding goes: its machine, where it is
@@ -390,6 +391,7 @@ impl PaddockWindow {
             new_task: self.new_task.clone(),
             new_agent: self.new_agent.clone(),
             remote_agent: self.remote_agent.clone(),
+            send: self.send.take(),
         };
         self.motion.leave(kept, Instant::now());
     }
@@ -643,6 +645,7 @@ impl PaddockWindow {
         std::mem::swap(&mut self.new_task, &mut kept.new_task);
         std::mem::swap(&mut self.new_agent, &mut kept.new_agent);
         std::mem::swap(&mut self.remote_agent, &mut kept.remote_agent);
+        std::mem::swap(&mut self.send, &mut kept.send);
     }
 }
 
@@ -665,6 +668,7 @@ mod tests {
             new_task: None,
             new_agent: None,
             remote_agent: None,
+            send: None,
         }
     }
 
