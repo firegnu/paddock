@@ -2,7 +2,6 @@
 
 2026-10-20，ranch/main 转来用户的需求，主控写任务书；用户看过后问“这个活难吗？”，主控答是小活，用户：“派给omp做吧”。paddock/main 交给 paddock/dev-search（omp，默认档，不套墙）。
 依据：ranch `docs/需求/paddock-设置里管理查资料的服务器.md`（10-20 ranch/main 写）；字段以 ranch `docs/CONTRACT.md`「sandbox 与 `fence`」一节 R30 那段为准。ranch 不用改，用现装 fence（`versions/2f52652`）现有的输出就能做。
-待用户：重开 paddock，在 Settings › Sandbox 看一眼：Profiles 下列出 exa（built in），选 dev 和一个种类后写着 Web search: exa (built in)；说可以再合并
 执行：派出
 （理由：用户点名交给 omp。不套墙：套 fence `dev` 墙的 omp 起来十几秒就停（P5-150 时遇到，已交 ranch 查）。主控审，装上给用户看。）
 路由：常规 / 交叉审查不要 / 影响面：改行为（路由：常规（置信 0.88）、不要、改行为）
