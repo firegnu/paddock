@@ -167,6 +167,7 @@ pub fn settings() -> Vec<Row> {
                 Page::Machines => "other machines: show, rename, remove",
                 Page::Instructions => "CLAUDE.md, AGENTS.md, GEMINI.md",
                 Page::Sandbox => "fence profiles and their rules, view only",
+                Page::Dispatch => "who does which work: agents, model, effort",
                 Page::Diagnostics => "commands and paths",
             };
             Row {
@@ -537,7 +538,7 @@ mod tests {
             ["Agents"]
         );
         let all = everything(&[], &[], &settings, &commands, "settings");
-        assert_eq!(titles(&all, "Settings").len(), 7);
+        assert_eq!(titles(&all, "Settings").len(), 8);
         assert_eq!(titles(&all, "Commands"), ["Settings…"]);
         // Nothing typed: everything, but only a few common commands, saying how to see all.
         let start = everything(&agents, &tabs, &settings, &commands, "");

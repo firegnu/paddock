@@ -24,6 +24,8 @@ use gpui::{
 };
 use std::{cell::RefCell, collections::HashMap, path::PathBuf, rc::Rc, time::Duration};
 
+#[path = "settings_dispatch.rs"]
+mod dispatch_page;
 #[path = "settings_instructions.rs"]
 mod instructions_page;
 #[path = "settings_integrations.rs"]
@@ -96,6 +98,8 @@ pub struct SettingsView {
     machines: machines_page::Machines,
     /// Sandbox: what fence was found to have, and the rules shown.
     sandbox: sandbox_page::Sandbox,
+    /// Dispatch: ranch's dispatch table as read, and the cell being changed.
+    dispatch: dispatch_page::Dispatch,
     /// Where each slider's track was last drawn, for the mouse's place along it.
     tracks: Rc<RefCell<HashMap<String, Bounds<Pixels>>>>,
     focus: FocusHandle,
@@ -391,6 +395,7 @@ impl SettingsView {
             instructions: Default::default(),
             machines: Default::default(),
             sandbox: Default::default(),
+            dispatch: Default::default(),
             tracks: Rc::default(),
             focus: cx.focus_handle(),
             _subscriptions: Vec::new(),
@@ -405,6 +410,9 @@ impl SettingsView {
                 this.reload(cx);
                 if this.page == Page::Instructions {
                     this.refresh_instructions();
+                }
+                if this.page == Page::Dispatch {
+                    this.refresh_dispatch(cx);
                 }
             }
         });
@@ -892,6 +900,7 @@ impl SettingsView {
                     input.update(cx, |input, cx| input.set_colors(colors, cx));
                 }
             }
+            self.recolor_dispatch(cx);
         }
         cx.emit(SettingsEvent::Saved { config, restart });
         true
@@ -1188,6 +1197,11 @@ impl SettingsView {
             self.refresh_sandbox(cx);
         } else {
             self.leave_sandbox();
+        }
+        if page == Page::Dispatch {
+            self.refresh_dispatch(cx);
+        } else {
+            self.leave_dispatch();
         }
         cx.notify();
     }
@@ -2418,6 +2432,7 @@ impl SettingsView {
             }
             Page::Machines => self.machines_page(ui, cx),
             Page::Sandbox => self.sandbox_page(width, ui, cx),
+            Page::Dispatch => self.dispatch_page(width, ui, cx),
             Page::Diagnostics => self.diagnostics_page(width, ui),
             // Not a list: it fills the window (`instructions_page`).
             Page::Instructions => Vec::new(),
