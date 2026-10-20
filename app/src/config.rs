@@ -48,6 +48,8 @@ pub struct Config {
     /// Whether the history scrolls by the pixel, a wheel's notch sliding into place, rather than by
     /// the line (P5-143c2).
     pub smooth_scroll: bool,
+    /// Copy a nonempty mouse selection to the clipboard when released (P5-152).
+    pub copy_on_select: bool,
     /// Whether text a program drew too close to its background is moved just far enough from it
     /// to read (P5-143e).
     pub minimum_contrast: bool,
@@ -206,6 +208,7 @@ impl Default for Config {
             blink_cursor: true,
             animate_cursor: true,
             smooth_scroll: true,
+            copy_on_select: false,
             minimum_contrast: true,
             agent_presets: None,
             agent_models: Default::default(),

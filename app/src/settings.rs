@@ -246,6 +246,13 @@ pub fn fields() -> Vec<Field> {
             false,
         ),
         field(
+            "copy_on_select",
+            "Copy on select",
+            Page::General,
+            Kind::Bool,
+            false,
+        ),
+        field(
             "sidebar_opacity",
             "Sidebar opacity",
             Page::General,
@@ -303,6 +310,7 @@ fn shown(config: &Config, key: &str) -> String {
         "blink_cursor" => config.blink_cursor.to_string(),
         "animate_cursor" => config.animate_cursor.to_string(),
         "smooth_scroll" => config.smooth_scroll.to_string(),
+        "copy_on_select" => config.copy_on_select.to_string(),
         "minimum_contrast" => config.minimum_contrast.to_string(),
         "sidebar_opacity" => config
             .sidebar_opacity
@@ -1192,6 +1200,26 @@ mod tests {
         assert!(Config::default().smooth_scroll);
     }
 
+    #[test]
+    fn copy_on_select_is_off_by_default_and_can_be_saved() {
+        let mut draft = Draft::new(Some(FILE.into())).unwrap();
+        assert_eq!(draft.value("copy_on_select"), "false");
+        let field = fields()
+            .into_iter()
+            .find(|f| f.key == "copy_on_select")
+            .unwrap();
+        assert_eq!(field.label, "Copy on select");
+        assert_eq!((field.page, field.kind), (Page::General, Kind::Bool));
+        for value in ["true", "false"] {
+            draft.set("copy_on_select", value);
+            let (text, restart) = written(&draft);
+            assert!(restart.is_empty(), "{restart:?}");
+            Config::parse(&text).unwrap();
+            let read = Draft::new(Some(text)).unwrap();
+            assert_eq!(read.value("copy_on_select"), value);
+        }
+    }
+
     /// Text too close to its background is made legible unless Settings turn it off (P5-143e).
     #[test]
     fn legible_text_is_on_by_default_and_can_be_turned_off() {
@@ -1222,7 +1250,7 @@ mod tests {
                 .collect()
         };
         assert_eq!(on(Page::Agents), ["refresh_ms", "corral"]);
-        assert_eq!(on(Page::General).len(), 16);
+        assert_eq!(on(Page::General).len(), 17);
         assert!(!on(Page::General).contains(&"refresh_ms"));
         assert_eq!(
             Page::ALL.map(Page::label),

@@ -3429,6 +3429,12 @@ impl PaddockWindow {
                 view.update(cx, |view, cx| view.set_smooth_scroll(&self.template, cx));
             }
         }
+        if config.copy_on_select != self.template.copy_on_select {
+            self.template.copy_on_select = config.copy_on_select;
+            for view in self.all_panes() {
+                view.update(cx, |view, _| view.set_copy_on_select(&self.template));
+            }
+        }
         if config.minimum_contrast != self.template.minimum_contrast {
             self.template.minimum_contrast = config.minimum_contrast;
             for view in self.all_panes() {

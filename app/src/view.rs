@@ -162,6 +162,8 @@ pub struct Options {
     pub animate_cursor: bool,
     /// Settings' `smooth_scroll` (P5-143c2).
     pub smooth_scroll: bool,
+    /// Copy a mouse selection when released (P5-152).
+    pub copy_on_select: bool,
     /// Steps larger (or smaller, below 0) than `font_size`, ⌘+ and ⌘- for this run (`zoom`).
     pub zoom: i32,
     /// Settings' `minimum_contrast` (P5-143e).
@@ -235,6 +237,7 @@ pub struct TerminalView {
     /// The history scrolled by the pixel, and a wheel's slide (P5-143c2); Settings' `smooth_scroll`.
     glide: glide::Glide,
     smooth_scroll: bool,
+    copy_on_select: bool,
     /// A selection dragged past the top or bottom, and where the mouse is (P5-143d2).
     edge: Option<(edge::Edge, Point<Pixels>)>,
     /// Device pixels to a pixel, as the last frame was drawn.
@@ -267,7 +270,7 @@ pub struct TerminalView {
 /// The grid's room from the pane's edges.
 const GRID_INSET: f32 = 6.0;
 /// The selection's bar, at the base interface size.
-const TOOLBAR_WIDTH: f32 = 176.0;
+const TOOLBAR_WIDTH: f32 = 204.0;
 const TOOLBAR_HEIGHT: f32 = 28.0;
 
 /// How long the position bar and the size show after the last change, then how long they fade.
@@ -438,6 +441,7 @@ impl TerminalView {
             glide: glide::Glide::default(),
             edge: None,
             smooth_scroll: options.smooth_scroll,
+            copy_on_select: options.copy_on_select,
             scale: 1.0,
             minimum_contrast: options.minimum_contrast,
             gauge: fade::Fade::new(SHOWN, FADING),
@@ -497,6 +501,11 @@ impl TerminalView {
             self.glide.stop();
         }
         cx.notify();
+    }
+
+    /// Whether releasing a mouse selection copies it, effective at once.
+    pub fn set_copy_on_select(&mut self, options: &Options) {
+        self.copy_on_select = options.copy_on_select;
     }
 
     /// Whether text too close to its background is made legible, from Settings, at once.
@@ -1015,7 +1024,7 @@ impl TerminalView {
 
     /// A press was let go at `position`: one that ended a selection made with the mouse
     /// (`ended`) brings the selection's bar there, when something stays selected (P5-148c).
-    fn bar_let_go(&mut self, ended: bool, position: Point<Pixels>) {
+    fn bar_let_go(&mut self, ended: bool, position: Point<Pixels>, cx: &mut Context<Self>) {
         let at = self.locate(position).map(|(.., point, _)| point);
         let rows = self.selected_rows(at);
         let at = toolbar::At {
@@ -1027,14 +1036,20 @@ impl TerminalView {
         }
         self.toolbar
             .let_go(ended, rows.is_some(), at, Instant::now());
+        if press::copy_on_select(self.copy_on_select, ended, rows.is_some())
+            && let Some(text) = self.selection_text()
+        {
+            cx.write_to_clipboard(ClipboardItem::new_string(text));
+            self.toolbar.copied(Instant::now(), false);
+        }
     }
 
-    /// The bar's Copy: the selection to the clipboard, as ⌘C; the selection stays, the bar goes.
+    /// The bar's Copy: as ⌘C, then a brief confirmation before the bar goes.
     fn copy_selection(&mut self, cx: &mut Context<Self>) {
         if let Some(text) = self.selection_text() {
             cx.write_to_clipboard(ClipboardItem::new_string(text));
+            self.toolbar.copied(Instant::now(), true);
         }
-        self.toolbar.hide();
         cx.notify();
     }
 
@@ -1667,7 +1682,7 @@ impl TerminalView {
         let act = self.mouse.pane_up();
         let ended = act == press::Act::EndSelect;
         self.act(act, event.position, event.modifiers, cx);
-        self.bar_let_go(ended, event.position);
+        self.bar_let_go(ended, event.position, cx);
         self.edge = None;
     }
 
@@ -1700,7 +1715,7 @@ impl TerminalView {
         let act = self.mouse.window_up(cell, inside);
         let ended = act == press::Act::EndSelect;
         self.act(act, event.position, event.modifiers, cx);
-        self.bar_let_go(ended, event.position);
+        self.bar_let_go(ended, event.position, cx);
         self.edge = None;
     }
 
@@ -2715,6 +2730,7 @@ impl Render for TerminalView {
         let ui = crate::fonts::UiFont::get(cx);
         let selected = self.selected_rows(None).map(|(rows, _)| rows);
         let focused = self.focus.is_focused(window);
+        let (bar_shown, bar_moving) = self.toolbar.look(now);
         let bar = self
             .toolbar
             .keep(selected.is_some(), focused)
@@ -2732,7 +2748,6 @@ impl Render for TerminalView {
                 toolbar::place(at, rows, metrics.line_height, bar, grid)
             })
             .map(|(x, y)| (x, y + self.shift()));
-        let (bar_shown, bar_moving) = self.toolbar.look(now);
         if bar.is_some() && bar_moving {
             window.request_animation_frame();
         }
@@ -2855,8 +2870,21 @@ impl TerminalView {
             .text_size(ui.px(12.0))
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .child(
-                button("selection-copy", "Copy")
-                    .on_click(cx.listener(|this, _, _, cx| this.copy_selection(cx))),
+                button(
+                    "selection-copy",
+                    if self.toolbar.is_copied() {
+                        "✓ Copied"
+                    } else {
+                        "Copy"
+                    },
+                )
+                .w(ui.px(76.0))
+                .flex_shrink_0()
+                .justify_center()
+                .when(self.toolbar.is_copied(), |button| {
+                    button.text_color(hsla(self.theme.fg(|t| t.agents_green), 1.0))
+                })
+                .on_click(cx.listener(|this, _, _, cx| this.copy_selection(cx))),
             )
             .child(
                 div()
