@@ -50,6 +50,8 @@
 - P5-133 Cairn 的 Ledger、Lessons（主控没起窗口看过）：一行一条和右边日期、组头点了收起（默认只开 State，重开 paddock 还记得）、过滤框（命中高亮、`N of M`、`×`、Esc）、⌘F 要先在 Cairn 标签里点一下才进过滤框；**要定**：点 Cairn 标签后键盘离开终端，回终端要再点一下，接不接受。
 - P5-134 左侧栏（主控没起窗口看过）：agent 全停的 workspace 收到列表末尾 `Idle workspaces` 小组、点一行回到上面展开、点标题送回底下；有 agent 的 workspace 里两个以上没 agent 的仓库合成一行、点开逐行；悬停 `⋯`、就地改名、浅色主题、窄条。
 - P5-120 sandbox 界面（Claude Code 做，主控没起窗口看过）：New Agent 皇冠左边的锁（选 `dev`、Codex 的警告、Controller 时变灰、检查没过 Start 灰）；预设记住 sandbox；套墙 agent 卡片的小锁和黄色数字、展开后 Sandbox 一格、被拦记录浮窗（`Network & writes`／`All`）；Settings › Sandbox 只看。退回旧版 paddock 前要去掉配置里预设的 `sandbox` 字段，否则旧版读不了配置。
+- P5-129a 仓库名 11.5pt；P5-130 胶囊提醒记号、切换栏胶囊改淡、右侧栏说明卡居中（10-17 那版装上，用户还没看）。
+- P5-150 光标滑动、滚轮缓动跟系统“减弱动态效果”：打开“减弱动态效果”后光标不滑、滚轮不缓动（用户说直接合并，没试）。
 - P5-135 New Agent 打开时：项目还没有 main 亮 Controller、已有 main 亮 Developer。
 - P5-136 卡片展开后的详情（agy 做，主控没起窗口看过）：展开时不画位置行、路径和小药丸在详情第一段、两条细分隔线、格子少了（Status 带时长、Windows 为 0 不出现）、标签小号大写、Workspace 无常驻底色、Stop 描边；格子标签 9.5 号再淡一档，看会不会太淡。agy 这次 corral 状态一直报 `starting`、没留 reply（插件没报状态），完成靠用户告知。
 - P5-137a Cairn 摘要（omp 做，主控没起窗口看过）：Next session 摘要不再用 GPUI 的两行截断（中文被估窄、右边被切），改成整段换行、框高两行、多的藏起来、第二行末尾没有 `…`。同类“中文 + 最多几行”的截断在看板标题、收件箱可能也有，用户 10-17：“先不查了”。
