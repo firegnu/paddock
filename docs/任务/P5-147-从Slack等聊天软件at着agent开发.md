@@ -3,7 +3,6 @@
 2026-10-21，paddock/main 交给 paddock/dev-chat（Claude Code，opus[1m] / high，套 fence `dev` 墙）。
 依据：用户 10-19：“再加一个draft task，可以接入slack等社交软件，通过社交软件AT的方式进行交互开发”。10-20、10-21 和主控谈定了做法和范围（见文末「来历」）；10-21 定机器人主体移到 ranch（R38），本件只做 paddock 的 Settings 那块。ranch R38b 已把 `pony status` 写进 ranch CONTRACT（本文件附录照抄），用户 10-21 看了样稿：“选甲，开始做吧”。本轮只做只读显示，不改 ranch、不写 pony 的配置。
 执行：派出
-待用户：重开 paddock 看 Settings › Chat（现在本机没有 pony，只会显示没装那一句）
 （理由：新加 Settings 一页和读 pony 的模块，照现有 Sandbox、Dispatch 页的路子做，样子用户已选；按分工表中档「界面和设计」读 `middle-design` 格。主控审，装上给用户看。）
 路由：常规 / 交叉审查不要 / 影响面：改行为（路由：常规（置信 0.98）、拿不准、拿不准；交叉审查和影响面主控定：只读显示，pony 自己不输出凭证和消息内容，做错了只影响这一页）
 类型：功能变更
