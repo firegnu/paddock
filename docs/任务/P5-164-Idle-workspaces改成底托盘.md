@@ -112,3 +112,12 @@
 
 - 主控审查指出：`vacant` 里 `grouped` 的左内边距写死成 `px(4.0 + CHEVRON + 6.0)`，而 `vacancies` 那行的箭头是 `ui.px(CHEVRON)`、间距是 `ui.px(6.0)`，会跟界面字号缩放；字号不是默认时下面的仓库名对不上箭头后面的字。改成 `px(4.0) + ui.px(CHEVRON + 6.0)`（左内边距的 4 和上面那行一样不缩放，箭头和间距跟着缩放）；`docs/DESIGN.md` 里 P5-164 那句同步写清「4 + 箭头 9 + 间距 6，箭头和间距跟界面字号缩放」。
 - 返工后重跑：`cargo test --test workspaces`（19 个全过）、`cargo clippy --all-targets -- -D warnings`（无警告）、`cargo fmt --check`（通过）、`git diff --check`（通过）。别的不动。
+
+## 主控审查
+
+2026-10-21，paddock/main。
+- 看了 diff：只动了 `card.rs`（`IdleWorkspace` 带仓库名、`Vacant` 加 `grouped`）、`sidebar_workspaces.rs`、`sidebar.rs`、`agents.rs`（只改注释）、`app/tests/workspaces.rs`、DESIGN 和本文件；P5-134 的规则、布局字段、`workspaces.json` 没动，没加主题键和依赖，“不要做”里的都没做。淡托盘的外框、和上面的距离同 workspace 托盘（`TRAY_*`、头一个 8 其余 4）。
+- 取舍：淡托盘色值照 `well` 的取法另立 `SHELF`——同意；`⋯` 用宽 0、悬停展开而不是绝对定位（免得看不见的按钮接点击）——同意。
+- 返工 1 次：合成行展开后各行的左内边距写成固定 19pt，而上面那行的箭头和间距随界面字号缩放，字号不是默认时对不上（「要做的」第 3 条）；改成 `px(4.0) + ui.px(CHEVRON + 6.0)`，复核通过。
+- 影响面“看得见”，没重跑全套；从分支编了 release 装上（`~/Applications/paddock.app`），样子留给用户看。
+结果：返工 1 次
