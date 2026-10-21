@@ -102,17 +102,32 @@ fn shown(panel: &Panel, selected: Option<&str>) -> Vec<String> {
                 heading.folded,
                 heading.showing,
             ),
-            Line::Vacant { repo, .. } => format!("  - {repo} No agents"),
+            Line::Vacant { repo, grouped, .. } => {
+                if grouped {
+                    format!("  - {repo}")
+                } else {
+                    format!("  - {repo} No agents")
+                }
+            }
             Line::Vacancies { repos, open, .. } => {
                 let arrow = if open { "v" } else { ">" };
-                format!("  {arrow} {} No agents", repos.join(", "))
+                if open {
+                    format!("  {arrow} No agents {}", repos.len())
+                } else {
+                    format!("  {arrow} {} No agents", repos.join(", "))
+                }
             }
             Line::Empty(_) => "  - No agents".to_owned(),
             Line::Agent(card) => format!("{}{}", inset(&card.workspace), card.name),
-            Line::Idle { count, folded } => {
-                marks(format!("Idle workspaces {count}"), folded, false)
+            Line::Idle { count, folded } => marks(format!("Idle {count}"), folded, false),
+            Line::IdleWorkspace { name, repos } => {
+                let names = if repos.is_empty() {
+                    "Empty".to_owned()
+                } else {
+                    repos.join(", ")
+                };
+                format!("~ {name} {names}")
             }
-            Line::IdleWorkspace { name, repos } => format!("~ {name} {repos}"),
         })
         .collect()
 }
@@ -550,8 +565,8 @@ fn workspaces_come_first_by_name_with_their_groups_and_empty_repositories() {
             "# mesh/ 1 [Idle]",
             "mesh/main",
             // One with no agent lies at the foot (P5-134).
-            "Idle workspaces 1",
-            "~ Zoo 0",
+            "Idle 1",
+            "~ Zoo Empty",
         ]
     );
     // What a heading's button moves: the whole repository of its name in its workspace; a
@@ -936,9 +951,9 @@ fn search_finds_agents_by_their_workspaces_name_and_shows_the_group_as_before() 
     assert_eq!(found[0].rows[0].detail, "Working · ~/…/paddock");
 }
 
-/// The workspaces with no agent (P5-134): at the list's foot under `Idle workspaces`, by name,
-/// how many repositories each holds; up again as soon as one of their repositories has an agent,
-/// one that goes by its name's prefix too, as they were kept; down again once those stop.
+/// The workspaces with no agent (P5-134): at the list's foot on the `Idle` shelf (P5-164), by
+/// name, the names of their repositories; up again as soon as one of their repositories has an
+/// agent, one that goes by its name's prefix too, as they were kept; down again once those stop.
 #[test]
 fn workspaces_with_no_agent_lie_at_the_foot_by_name_and_come_up_with_an_agent() {
     let mut panel = panel(&[
@@ -964,7 +979,7 @@ fn workspaces_with_no_agent_lie_at_the_foot_by_name_and_come_up_with_an_agent() 
         shown(&panel, None),
         [
             &above[..],
-            &["Idle workspaces 3", "~ alpha 0", "~ Beta 1", "~ zeta 3"],
+            &["Idle 3", "~ alpha Empty", "~ Beta ranch", "~ zeta a, b, c"],
         ]
         .concat()
     );
@@ -972,7 +987,7 @@ fn workspaces_with_no_agent_lie_at_the_foot_by_name_and_come_up_with_an_agent() 
     panel.folded.idle = true;
     assert_eq!(
         shown(&panel, None),
-        [&above[..], &["Idle workspaces 3 folded"]].concat()
+        [&above[..], &["Idle 3 folded"]].concat()
     );
     panel.folded.idle = false;
     // An agent in one of its repositories, its name's prefix saying so before Git has: up, by
@@ -991,9 +1006,9 @@ fn workspaces_with_no_agent_lie_at_the_foot_by_name_and_come_up_with_an_agent() 
         "  paddock/main",
         "# mesh/ 1 [Idle]",
         "mesh/main",
-        "Idle workspaces 2",
-        "~ alpha 0",
-        "~ zeta 3",
+        "Idle 2",
+        "~ alpha Empty",
+        "~ zeta a, b, c",
     ];
     assert_eq!(shown(&panel, None), up);
     repository(&mut panel, "/w/ranch", "/w/ranch");
@@ -1010,7 +1025,7 @@ fn workspaces_with_no_agent_lie_at_the_foot_by_name_and_come_up_with_an_agent() 
         shown(&panel, None),
         [
             &above[..],
-            &["Idle workspaces 3", "~ alpha 0", "~ Beta 1", "~ zeta 3"],
+            &["Idle 3", "~ alpha Empty", "~ Beta ranch", "~ zeta a, b, c"],
         ]
         .concat()
     );
@@ -1020,11 +1035,11 @@ fn workspaces_with_no_agent_lie_at_the_foot_by_name_and_come_up_with_an_agent() 
     assert_eq!(
         shown(&panel, None),
         [
-            "Idle workspaces 4",
-            "~ alpha 0",
-            "~ Beta 1",
-            "~ Tools 1",
-            "~ zeta 3"
+            "Idle 4",
+            "~ alpha Empty",
+            "~ Beta ranch",
+            "~ Tools paddock",
+            "~ zeta a, b, c"
         ]
     );
 }
@@ -1054,8 +1069,8 @@ fn opened_and_new_workspaces_stay_up_open_till_their_title_sends_them_back() {
             "  - ranch No agents",
             "# mesh/ 1 [Idle]",
             "mesh/main",
-            "Idle workspaces 1",
-            "~ Zoo 0",
+            "Idle 1",
+            "~ Zoo Empty",
         ]
     );
     // Opened, it is open; and so it stays once back down.
@@ -1075,9 +1090,9 @@ fn opened_and_new_workspaces_stay_up_open_till_their_title_sends_them_back() {
             "  - ranch No agents",
             "# mesh/ 1 [Idle]",
             "mesh/main",
-            "Idle workspaces 2",
-            "~ New 0",
-            "~ Zoo 0",
+            "Idle 2",
+            "~ New Empty",
+            "~ Zoo Empty",
         ]
     );
     // An agent started in it: up as any is, then down once it stops.
@@ -1105,10 +1120,10 @@ fn opened_and_new_workspaces_stay_up_open_till_their_title_sends_them_back() {
         [
             "# mesh/ 1 [Idle]",
             "mesh/main",
-            "Idle workspaces 3",
-            "~ New 0",
-            "~ Tools 2",
-            "~ Zoo 0",
+            "Idle 3",
+            "~ New Empty",
+            "~ Tools paddock, ranch",
+            "~ Zoo Empty",
         ]
     );
     // Made with a repository that has agents: up as any is, not kept up after.
@@ -1133,12 +1148,12 @@ fn opened_and_new_workspaces_stay_up_open_till_their_title_sends_them_back() {
     again.folded = panel.folded.clone();
     read(&mut again, &[]);
     assert!(!again.opened("New"));
-    assert_eq!(shown(&again, None)[0], "Idle workspaces 3");
+    assert_eq!(shown(&again, None)[0], "Idle 3");
 }
 
 /// In a workspace with agents, two or more repositories with no agent are one line after its
-/// groups, opened out on a click into a line each; one alone is the line it was, among the
-/// groups by name (P5-134).
+/// groups, opened out on a click into a line each, their names alone under `No agents` and how
+/// many (P5-134, P5-164); one alone is the line it was, among the groups by name (P5-134).
 #[test]
 fn repositories_with_no_agent_beside_agents_are_one_line_when_two_or_more() {
     let mut panel = panel(&[("paddock/main", "/w/paddock", "idle")]);
@@ -1162,12 +1177,7 @@ fn repositories_with_no_agent_beside_agents_are_one_line_when_two_or_more() {
         shown(&panel, None),
         [
             &groups[..],
-            &[
-                "  v cairn, ranch, saddle No agents",
-                "  - cairn No agents",
-                "  - ranch No agents",
-                "  - saddle No agents",
-            ],
+            &["  v No agents 3", "  - cairn", "  - ranch", "  - saddle",],
         ]
         .concat()
     );

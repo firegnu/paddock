@@ -67,8 +67,8 @@ pub struct Folds {
     pub workspaces: Vec<String>,
     /// The groups inside a workspace: the workspace, then the group.
     pub within: Vec<(String, String)>,
-    /// The `Idle workspaces` group at the list's foot is folded to its heading (P5-134). Left out
-    /// of the file while open, as files from before it have it.
+    /// The `Idle` shelf at the list's foot is folded to its title (P5-134; a tray of its own since
+    /// P5-164). Left out of the file while open, as files from before it have it.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub idle: bool,
     /// The workspaces whose one line of repositories with no agent is opened out, a line each,

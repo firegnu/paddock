@@ -746,10 +746,13 @@ pub enum Line {
     /// A workspace's title; its lines follow, each saying it is in it.
     Workspace(Tray),
     Group(Heading),
-    /// A whole repository of a workspace with no agent now, by its name.
+    /// A whole repository of a workspace with no agent now, by its name; `grouped`, one of those
+    /// listed under the workspace's opened composite line (P5-164), indented and without
+    /// `No agents` of its own.
     Vacant {
         workspace: String,
         repo: String,
+        grouped: bool,
     },
     /// Two or more of them in a workspace with agents, in one line after its groups, their names
     /// in order (P5-134); `open`, their own lines follow.
@@ -767,10 +770,11 @@ pub enum Line {
         count: usize,
         folded: bool,
     },
-    /// A workspace with no agent in that group: its name and how many repositories it has.
+    /// A workspace with no agent in that group: its name and the names of the repositories it
+    /// holds, by name.
     IdleWorkspace {
         name: String,
-        repos: usize,
+        repos: Vec<String>,
     },
 }
 
@@ -789,8 +793,8 @@ fn bar_rank(status: Status) -> u8 {
 /// The panel's lines. `selected` is the active pane's agent and `here` every agent open in this
 /// window; `home` the home directory, written `~`. Text is whole: the drawing fits it to the card.
 /// The workspaces come first, by name, each with its groups; then the groups in none; then, under
-/// the `Idle workspaces` heading, the workspaces with no agent but those opened (P5-134). A folded
-/// group is its heading alone, a folded workspace its title.
+/// the `Idle` shelf at the foot, the workspaces with no agent but those opened (P5-134, P5-164). A
+/// folded group is its heading alone, a folded workspace its title.
 pub fn lines(
     panel: &Panel,
     error: Option<&str>,
@@ -905,9 +909,16 @@ fn listed(
         rest = after;
         let opened = agents.is_empty() && panel.opened(name);
         if agents.is_empty() && !opened {
+            let mut repos: Vec<String> = workspace
+                .repos
+                .iter()
+                .map(|repo| kanban_repos::name(repo))
+                .collect();
+            repos.sort();
+            repos.dedup();
             idle.push(Line::IdleWorkspace {
                 name: name.to_owned(),
-                repos: workspace.repos.len(),
+                repos,
             });
             continue;
         }
@@ -938,9 +949,10 @@ fn listed(
             lines.push(Line::Empty(name.to_owned()));
             continue;
         }
-        let empty = |repo: String| Line::Vacant {
+        let empty = |repo: String, grouped: bool| Line::Vacant {
             workspace: name.to_owned(),
             repo,
+            grouped,
         };
         // Two or more beside agents: one line after its groups, opened out on a click (P5-134).
         if !agents.is_empty() && vacant.len() > 1 {
@@ -954,7 +966,7 @@ fn listed(
                 open,
             });
             if open || !folds {
-                lines.extend(vacant.into_iter().map(empty));
+                lines.extend(vacant.into_iter().map(|repo| empty(repo, true)));
             }
             continue;
         }
@@ -962,11 +974,11 @@ fn listed(
         for agents in agents.chunk_by(same_group) {
             let group = panel.group(agents[0]);
             while let Some(repo) = vacant.next_if(|repo| repo.as_str() < group) {
-                lines.push(empty(repo));
+                lines.push(empty(repo, false));
             }
             section(&mut lines, agents, Some(workspace));
         }
-        lines.extend(vacant.map(empty));
+        lines.extend(vacant.map(|repo| empty(repo, false)));
     }
     for agents in rest.chunk_by(same_group) {
         section(&mut lines, agents, None);

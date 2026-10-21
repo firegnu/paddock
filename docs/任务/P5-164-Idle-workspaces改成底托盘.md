@@ -66,3 +66,44 @@
 
 ## 做完
 三项检查跑完，在本文件末尾追加「## 完成记录」：做了什么、验证了什么、拿主意的地方、没做的事、踩过的坑（试了不行换了办法的、工具或环境的行为和预想不一样的；没有就写「没有」），在你的分支里提交。主控审过后装上给用户看，用户说可以再合并。回复里只写这几样，加上有没有要主控决定的事。命令都在前台跑完，全部做完后，回复最后一行写 DONE。
+
+## 完成记录
+
+### 做了什么
+
+- `app/src/card.rs`：`Line::IdleWorkspace` 的 `repos` 从个数改成按名字排好的仓库目录名（`kanban_repos::name`，排序去重）；`Line::Vacant` 加 `grouped`，把合成行展开后的行和单独一行的 `<仓库> No agents` 分开。`Line::lines` 的注释改成 `Idle` 托盘。
+- `app/src/sidebar_workspaces.rs`：
+  - `idle_heading` 换成 `idle_shelf`：标题和各闲着的 workspace 行进同一个淡托盘。外框圆角、内边距、边线粗细照展开的 workspace 托盘；面色用新增的 `shelf`（黑遮罩 14%／4%，对在用的 26%／7%），边用 `agents_text` 0.09（对在用的 0.17），没加主题键。和上面的距离同两个 workspace 托盘之间（列表间距 + 4，第一个 8）。
+  - 托盘标题照 workspace 标题的样子和高度（30）：箭头、空心层叠图标（`agents_dimmer`，不用强调色）、`Idle`（13、`agents_dim`）、个数（11、`agents_dimmer`）；点标题仍走 `fold_idle`。收起时只剩标题，仍在托盘里，不画成一摞。
+  - `idle_workspace`：去掉图标；名字 11.5 半粗 `agents_dim`，左对齐托盘里仓库小标题的字；右边仓库名 11 `agents_dimmer`、靠右、按名字 `, ` 连起来，没有仓库写 `Empty`；行高 26（`ui.px` 缩放）。悬停整行淡底变亮，名字亮到 `agents_text`、仓库名亮到 `agents_dim`；`options_button` 加 `compact`：平时宽 0 不占位（仓库名贴到右边），悬停才展开 22pt 露出 `⋯`，菜单开着时保持亮；菜单和就地改名照旧。
+  - `vacancies`：展开时标题变成 `▾ No agents <个数>`（`No agents` 11.5 半粗 `agents_dimmer`，个数 11、更深一档）。`vacant` 加 `grouped`：合成行下面只写仓库名，左内边距 19（4 + 箭头 9 + 间距 6），不带 `No agents`，悬停 `+` 照旧；不合成的单行和空 workspace 的行不变。
+- `app/src/sidebar.rs`：列表末尾把 `Line::Idle` 和随后所有 `Line::IdleWorkspace` 收进 `idle_shelf` 一个托盘；窄条仍忽略这些行，上下移动、`No agents yet` 的摆法、远程视图都没动。
+- `app/tests/workspaces.rs`：辅助格式改成 `Idle <个数>`、`~ <名字> <仓库名…|Empty>`、合成行展开 `v No agents <个数>` 且下面只有仓库名；相应期望更新（含没有仓库的、多个仓库按名字排的）。
+- `docs/DESIGN.md`：P5-134 里描述细线、`Idle workspaces` 标题、`N repos` 的画法处注了「P5-164 改成底托盘」；P5-134 后新增 P5-164 一条。
+
+### 验证了什么
+
+- `app/tests/workspaces.rs` 跟着改完，覆盖：闲着的那行带出按名字排好的仓库名（`zeta` 的 `a, b, c`）和没有仓库的 `Empty`；合成行展开后是 `v No agents 3` 加三行只有仓库名的行，不合成的单行仍是 `<仓库> No agents`；原有 P5-134 的规则测试照旧全过。
+- `git diff --check` 通过。
+- `app/` 下 `cargo test --all-targets` 全部通过。
+- `app/` 下 `cargo clippy --all-targets -- -D warnings` 无警告。
+- `app/` 下 `cargo fmt --check` 通过。
+- 按任务没起窗口、没截图；外观留给用户看。
+
+### 拿主意的地方
+
+- 淡托盘的色值：沿用 `well` 的取法新增 `SHELF = [0.14, 0.04]`、`SHELF_EDGE = 0.09`，比在用的 `WELL = [0.26, 0.07]`、`WELL_EDGE = 0.17` 淡一档；没有新增主题键。
+- 托盘里标题和各行之间、各行之间用 2pt 间距（照样稿），外框和内边距照 workspace 托盘。
+- `⋯` 不占位用宽 0 + `group_hover` 展开到 22pt，而不是绝对定位：绝对定位时看不见的按钮仍会接点击。
+- 合成行下面的缩进直接写成 4 + 9 + 6，和标题箭头后的字对齐；个数和 `No agents` 的颜色分别用 `dimmer.opacity(0.6)`、`agents_dimmer`，与仓库小标题一致。
+
+### 没做的事
+
+- 没有改 P5-134 的规则、布局文件里的字段、`workspaces.json` 的格式和成员规则。
+- 没有改在用的 workspace 托盘、卡片、叠卡、仓库小标题、View 菜单、命令面板、看板、收件箱。
+- 没有加主题颜色键、依赖，没改 `gpui-pre-*` 版本。
+- 没有合并到 main，没有推送。
+
+### 踩过的坑
+
+没有。
