@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Chat page states</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+button{font:inherit;color:inherit;cursor:pointer}
+a{color:#86c1e6}a:hover{color:#a9d4ef}
+</style>
+</helmet>
+<div style="width: 1120px; height: 980px; box-sizing: border-box; padding: 30px; background: #1d2221; font-family: -apple-system, 'SF Pro Text', 'Helvetica Neue', sans-serif; color: #e7ecea; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px">
+
+  <!-- 1 not installed -->
+  <div style="display: flex; flex-direction: column; gap: 8px">
+    <div style="font-size: 12px; color: #879290">1 · No pony on PATH or in ~/.local/bin (today, until ranch R38c)</div>
+    <div style="flex: 1; padding: 18px 20px; border-radius: 12px; background: #242a29; border: 1px solid rgba(255,255,255,0.08); display: flex; flex-direction: column; gap: 12px">
+      <span style="font-size: 18px; font-weight: 600">Chat</span>
+      <div style="font-size: 12.5px; line-height: 1.6; color: #a2acaa">pony isn't installed, or isn't a version paddock reads (contract 1). pony is ranch's chat bot and comes with ranch.</div>
+    </div>
+  </div>
+
+  <!-- 2 not set up -->
+  <div style="display: flex; flex-direction: column; gap: 8px">
+    <div style="font-size: 12px; color: #879290">2 · config: missing (normal on every machine but one)</div>
+    <div style="flex: 1; padding: 18px 20px; border-radius: 12px; background: #242a29; border: 1px solid rgba(255,255,255,0.08); display: flex; flex-direction: column; gap: 12px">
+      <div style="display: flex; align-items: center; gap: 10px">
+        <span style="font-size: 18px; font-weight: 600">Chat</span>
+        <span style="display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 9px; border-radius: 11px; background: rgba(255,255,255,0.06); font-size: 12px; color: #a2acaa"><span style="width: 6px; height: 6px; border-radius: 3px; background: #879290"></span>pony 0.1.0 not set up</span>
+      </div>
+      <div style="font-size: 12.5px; line-height: 1.6; color: #a2acaa">Not set up on this Mac. pony runs only on the one machine it's set up on, so nothing here talks to chat.</div>
+    </div>
+  </div>
+
+  <!-- 3 not running -->
+  <div style="display: flex; flex-direction: column; gap: 8px">
+    <div style="font-size: 12px; color: #879290">3 · Not running: last_exit, service not_installed</div>
+    <div style="flex: 1; padding: 18px 20px; border-radius: 12px; background: #242a29; border: 1px solid rgba(255,255,255,0.08); display: flex; flex-direction: column; gap: 12px">
+      <div style="display: flex; align-items: center; gap: 10px">
+        <span style="font-size: 18px; font-weight: 600">Chat</span>
+        <span style="display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 9px; border-radius: 11px; background: rgba(255,255,255,0.06); font-size: 12px; color: #a2acaa"><span style="width: 6px; height: 6px; border-radius: 3px; background: #879290"></span>pony 0.1.0 not running</span>
+      </div>
+      <div style="font-size: 12.5px; line-height: 1.6; color: #ec9a95">Stopped at 10:02: [last_exit.message, word for word]</div>
+      <div style="font-size: 12.5px; line-height: 1.6; color: #a2acaa">The background service isn't installed, so pony won't start at login. In a terminal: <span style="font-family: 'SF Mono', ui-monospace, Menlo, monospace; color: #cfd6d4">pony service install --dry-run</span>, then without <span style="font-family: 'SF Mono', ui-monospace, Menlo, monospace; color: #cfd6d4">--dry-run</span>.</div>
+      <div style="font-size: 12px; color: #879290">Slack · Off</div>
+    </div>
+  </div>
+
+  <!-- 4 config invalid -->
+  <div style="display: flex; flex-direction: column; gap: 8px">
+    <div style="font-size: 12px; color: #879290">4 · config: invalid, while running on the old one</div>
+    <div style="flex: 1; padding: 18px 20px; border-radius: 12px; background: #242a29; border: 1px solid rgba(255,255,255,0.08); display: flex; flex-direction: column; gap: 12px">
+      <div style="display: flex; align-items: center; gap: 10px">
+        <span style="font-size: 18px; font-weight: 600">Chat</span>
+        <span style="display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 9px; border-radius: 11px; background: rgba(156,201,142,0.12); font-size: 12px; color: #9cc98e"><span style="width: 6px; height: 6px; border-radius: 3px; background: #9cc98e"></span>pony 0.1.0 running</span>
+      </div>
+      <div style="padding: 10px 12px; border-radius: 9px; background: rgba(236,154,149,0.08); display: flex; flex-direction: column; gap: 4px">
+        <span style="font-size: 12.5px; color: #ec9a95">The config can't be used</span>
+        <span style="font-family: 'SF Mono', ui-monospace, Menlo, monospace; font-size: 11.5px; line-height: 1.55; color: #cfd6d4">[config_message, word for word: file, line, why]</span>
+        <span style="font-size: 12px; color: #a2acaa">pony keeps running with the last good config.</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 5 connecting -->
+  <div style="display: flex; flex-direction: column; gap: 8px">
+    <div style="font-size: 12px; color: #879290">5 · connection: connecting</div>
+    <div style="flex: 1; padding: 18px 20px; border-radius: 12px; background: #242a29; border: 1px solid rgba(255,255,255,0.08); display: flex; flex-direction: column; gap: 12px">
+      <div style="display: flex; align-items: center; gap: 10px">
+        <span style="font-size: 14.5px; font-weight: 600">Slack</span>
+        <span style="display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 9px; border-radius: 11px; background: rgba(126,162,238,0.12); font-size: 12px; color: #9db8f2"><span style="width: 6px; height: 6px; border-radius: 3px; background: #9db8f2"></span>Connecting…</span>
+        <span style="font-size: 12px; color: #879290">for 12s</span>
+      </div>
+      <div style="font-size: 12px; line-height: 1.6; color: #879290">Channels list their IDs until pony has connected and looked them up.</div>
+      <div style="display: flex; gap: 14px; font-family: 'SF Mono', ui-monospace, Menlo, monospace; font-size: 12.5px; color: #a2acaa"><span>C0AAAAAAAAA → paddock</span><span>C0BBBBBBBBB → ranch</span></div>
+    </div>
+  </div>
+
+  <!-- 6 failed -->
+  <div style="display: flex; flex-direction: column; gap: 8px">
+    <div style="font-size: 12px; color: #879290">6 · connection: failed, with reason and message</div>
+    <div style="flex: 1; padding: 18px 20px; border-radius: 12px; background: #242a29; border: 1px solid rgba(255,255,255,0.08); display: flex; flex-direction: column; gap: 12px">
+      <div style="display: flex; align-items: center; gap: 10px">
+        <span style="font-size: 14.5px; font-weight: 600">Slack</span>
+        <span style="display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 9px; border-radius: 11px; background: rgba(236,154,149,0.12); font-size: 12px; color: #ec9a95"><span style="width: 6px; height: 6px; border-radius: 3px; background: #ec9a95"></span>Can't connect</span>
+        <span style="height: 20px; padding: 0 7px; display: inline-flex; align-items: center; border-radius: 5px; background: rgba(255,255,255,0.06); font-family: 'SF Mono', ui-monospace, Menlo, monospace; font-size: 11.5px; color: #cfd6d4">auth_failed</span>
+        <span style="font-size: 12px; color: #879290">for 3m · retrying</span>
+      </div>
+      <div style="font-size: 12.5px; line-height: 1.6; color: #a2acaa">[message, word for word]</div>
+      <div style="font-size: 12px; color: #879290">Codes paddock doesn't know are shown the same way, with their message.</div>
+    </div>
+  </div>
+
+  <!-- 7 other connections -->
+  <div style="display: flex; flex-direction: column; gap: 8px">
+    <div style="font-size: 12px; color: #879290">7 · other_connections &gt; 0</div>
+    <div style="flex: 1; padding: 18px 20px; border-radius: 12px; background: #242a29; border: 1px solid rgba(255,255,255,0.08); display: flex; flex-direction: column; gap: 12px">
+      <div style="display: flex; align-items: center; gap: 10px">
+        <span style="font-size: 14.5px; font-weight: 600">Slack</span>
+        <span style="display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 9px; border-radius: 11px; background: rgba(156,201,142,0.12); font-size: 12px; color: #9cc98e"><span style="width: 6px; height: 6px; border-radius: 3px; background: #9cc98e"></span>Connected</span>
+        <span style="font-size: 12px; color: #879290">firegnu · @pony</span>
+      </div>
+      <div style="padding: 10px 12px; border-radius: 9px; background: rgba(223,192,122,0.1); display: flex; gap: 8px; align-items: flex-start">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#dfc07a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; margin-top: 2px"><path d="M12 3l9.5 17h-19z"></path><path d="M12 10v4M12 17.5v.01"></path></svg>
+        <span style="font-size: 12.5px; line-height: 1.55; color: #dfc07a">Slack sees 1 other connection for this bot. Another machine may be running pony too, and some messages may go there.</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 8 unknown values -->
+  <div style="display: flex; flex-direction: column; gap: 8px">
+    <div style="font-size: 12px; color: #879290">8 · Values paddock doesn't know: shown as they come</div>
+    <div style="flex: 1; padding: 18px 20px; border-radius: 12px; background: #242a29; border: 1px solid rgba(255,255,255,0.08); display: flex; flex-direction: column; gap: 12px">
+      <div style="display: flex; align-items: center; gap: 10px">
+        <span style="font-size: 14.5px; font-weight: 600">discord</span>
+        <span style="display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 9px; border-radius: 11px; background: rgba(255,255,255,0.06); font-size: 12px; color: #a2acaa"><span style="width: 6px; height: 6px; border-radius: 3px; background: #879290"></span>paused</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 10px; font-size: 13px"><span><span style="color: #879290">#</span>ranch</span><span style="color: #879290">→</span><span style="font-family: 'SF Mono', ui-monospace, Menlo, monospace; font-size: 12.5px; color: #cfd6d4">ranch</span><span style="height: 20px; padding: 0 7px; display: inline-flex; align-items: center; border-radius: 5px; background: rgba(223,192,122,0.1); font-family: 'SF Mono', ui-monospace, Menlo, monospace; font-size: 11.5px; color: #dfc07a">renamed</span></div>
+      <div style="font-size: 12px; line-height: 1.6; color: #879290">A new chat app gets its own card by its kind name; an unknown state or channel problem shows its raw name, neutral grey or yellow.</div>
+    </div>
+  </div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1120,"height":980}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

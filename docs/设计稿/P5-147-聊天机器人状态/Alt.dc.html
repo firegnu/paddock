@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Settings, Agents page with a Chat section</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+button{font:inherit;color:inherit;cursor:pointer}
+a{color:#86c1e6}a:hover{color:#a9d4ef}
+</style>
+</helmet>
+<div style="width: 1120px; height: 720px; box-sizing: border-box; padding: 30px; background: #1d2221; font-family: -apple-system, 'SF Pro Text', 'Helvetica Neue', sans-serif; color: #e7ecea">
+<div style="height: 100%; border-radius: 14px; background: #242a29; border: 1px solid rgba(255,255,255,0.08); display: flex; overflow: hidden">
+
+  <nav aria-label="Settings pages" style="width: 190px; flex: none; box-sizing: border-box; padding: 18px 10px; background: #20262a; border-right: 1px solid rgba(255,255,255,0.06); display: flex; flex-direction: column; gap: 2px">
+    <a href="#" style="height: 30px; padding: 0 10px; display: flex; align-items: center; border-radius: 7px; font-size: 13px; color: #a2acaa; text-decoration: none">General</a>
+    <a href="#" style="height: 30px; padding: 0 10px; display: flex; align-items: center; border-radius: 7px; font-size: 13px; color: #a2acaa; text-decoration: none">Appearance</a>
+    <a href="#" aria-current="page" style="height: 30px; padding: 0 10px; display: flex; align-items: center; border-radius: 7px; background: rgba(134,193,230,0.14); font-size: 13px; color: #86c1e6; text-decoration: none">Agents</a>
+    <a href="#" style="height: 30px; padding: 0 10px; display: flex; align-items: center; border-radius: 7px; font-size: 13px; color: #a2acaa; text-decoration: none">Machines</a>
+    <a href="#" style="height: 30px; padding: 0 10px; display: flex; align-items: center; border-radius: 7px; font-size: 13px; color: #a2acaa; text-decoration: none">Instructions</a>
+    <a href="#" style="height: 30px; padding: 0 10px; display: flex; align-items: center; border-radius: 7px; font-size: 13px; color: #a2acaa; text-decoration: none">Sandbox</a>
+    <a href="#" style="height: 30px; padding: 0 10px; display: flex; align-items: center; border-radius: 7px; font-size: 13px; color: #a2acaa; text-decoration: none">Dispatch</a>
+    <a href="#" style="height: 30px; padding: 0 10px; display: flex; align-items: center; border-radius: 7px; font-size: 13px; color: #a2acaa; text-decoration: none">Diagnostics</a>
+  </nav>
+
+  <div style="flex: 1; min-width: 0; padding: 22px 28px; display: flex; flex-direction: column; gap: 16px; overflow: hidden">
+    <span style="font-size: 18px; font-weight: 600">Agents</span>
+
+    <div style="display: flex; flex-direction: column; gap: 8px; opacity: 0.45">
+      <div style="font-size: 13px; font-weight: 600; color: #a2acaa">Reading agents</div>
+      <div style="height: 38px; border-radius: 10px; background: rgba(255,255,255,0.035)"></div>
+      <div style="height: 38px; border-radius: 10px; background: rgba(255,255,255,0.035)"></div>
+      <div style="font-size: 13px; font-weight: 600; color: #a2acaa; margin-top: 8px">Integrations</div>
+      <div style="height: 38px; border-radius: 10px; background: rgba(255,255,255,0.035)"></div>
+      <div style="height: 38px; border-radius: 10px; background: rgba(255,255,255,0.035)"></div>
+      <div style="height: 38px; border-radius: 10px; background: rgba(255,255,255,0.035)"></div>
+      <div style="font-size: 11.5px; color: #879290">(existing sections, unchanged)</div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 8px">
+      <div style="display: flex; align-items: center; gap: 10px">
+        <span style="font-size: 13px; font-weight: 600">Chat</span>
+        <span style="font-size: 12px; color: #879290">pony 0.1.0 · running since 09:12</span>
+      </div>
+      <div style="border-radius: 10px; background: rgba(255,255,255,0.035); display: flex; flex-direction: column">
+        <div style="display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 14px">
+          <span style="font-size: 13px; font-weight: 500; width: 90px">Slack</span>
+          <span style="display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: #9cc98e"><span style="width: 6px; height: 6px; border-radius: 3px; background: #9cc98e"></span>Connected</span>
+          <span style="font-size: 12px; color: #879290">firegnu · @pony</span>
+          <span style="flex: 1"></span>
+          <span style="font-size: 12.5px; color: #a2acaa">#paddock → paddock · #ranch → ranch · <span style="color: #dfc07a">1 channel needs attention</span></span>
+        </div>
+      </div>
+      <div style="font-size: 12px; color: #879290">One line per chat app. Hover the channel list to see each one; problems only as a count here.</div>
+    </div>
+  </div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1120,"height":720}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>
