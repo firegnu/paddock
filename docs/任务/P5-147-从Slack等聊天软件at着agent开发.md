@@ -151,3 +151,12 @@ paddock 怎么显示（P5-147 定样子，这里只说数据怎么对应）：
   - `card.rs` 的 `how_long` 改成 `pub`，用它写 `for 2h 14m`，没另写一份。
 - **没做的事**：没起 paddock 窗口、没截图；没加 Settings 里改 pony 配置、绑频道、装服务的按钮；没改 ranch、corral 调用、主题颜色键和依赖；没读 `~/.pony`。
 - **踩过的坑**：clippy 报 `Found` 两个变体大小差太多（`large_enum_variant`），把 `Status` 装进 `Box`。
+
+## 主控审查
+
+10-21，paddock/main。agent 实际名字是 `paddock/dev-chat-1`（Claude Code opus[1m] / high，套 fence `dev` 墙），提交 `12d8012`。
+- 看了 diff：只动了 Settings 的页表和接入、命令面板一行、新模块 `pony.rs` 和 `settings_chat.rs`、`card.rs` 的 `how_long` 改 `pub`、图标和 DESIGN §13 一段；「不要做」一条没碰（只调 `pony --version`、`pony status`，不读 `~/.pony`）。定时重读离开这一页或关 Settings 就停，上一次没读完不叠新的，离开时还在跑的读取取消。
+- 主控墙外重跑：`cargo test --all-targets --no-fail-fast` 30 个目标、1011 个通过、0 个失败；clippy、fmt、`git diff --check` 都过。墙里那条 pty 测试失败是老问题。
+- 对方拿的主意（3 秒间隔、机器人名不知道时写 `pony`、装服务提示的说法、不认识的 `config` 值黄字照原样）都同意。
+- 已用分支构建装上，用户 10-21 重开看过：“重开看了，可以，合并吧”。本机还没有 pony，只看到了没装那一句；连接和频道的真实样子等 ranch R38c 部署、R38f 上线后再看。
+结果：一次过
