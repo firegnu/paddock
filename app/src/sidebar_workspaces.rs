@@ -1018,8 +1018,9 @@ impl Sidebar {
             .items_center()
             .gap(ui.px(6.0))
             .when(grouped, |line| {
-                // In under the opened line's arrow: its left padding, the arrow, and the gap.
-                line.pl(px(4.0 + CHEVRON + 6.0)).pr(px(4.0))
+                // In under the opened line's arrow: its left padding, the arrow, and the gap, as
+                // the line sizes them.
+                line.pl(px(4.0) + ui.px(CHEVRON + 6.0)).pr(px(4.0))
             })
             .when(!grouped, |line| line.px(px(4.0)))
             .py(px(2.0))

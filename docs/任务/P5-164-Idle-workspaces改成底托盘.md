@@ -107,3 +107,8 @@
 ### 踩过的坑
 
 没有。
+
+### 返工 1（主控审查）
+
+- 主控审查指出：`vacant` 里 `grouped` 的左内边距写死成 `px(4.0 + CHEVRON + 6.0)`，而 `vacancies` 那行的箭头是 `ui.px(CHEVRON)`、间距是 `ui.px(6.0)`，会跟界面字号缩放；字号不是默认时下面的仓库名对不上箭头后面的字。改成 `px(4.0) + ui.px(CHEVRON + 6.0)`（左内边距的 4 和上面那行一样不缩放，箭头和间距跟着缩放）；`docs/DESIGN.md` 里 P5-164 那句同步写清「4 + 箭头 9 + 间距 6，箭头和间距跟界面字号缩放」。
+- 返工后重跑：`cargo test --test workspaces`（19 个全过）、`cargo clippy --all-targets -- -D warnings`（无警告）、`cargo fmt --check`（通过）、`git diff --check`（通过）。别的不动。
