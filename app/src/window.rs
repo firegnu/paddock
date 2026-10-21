@@ -1348,6 +1348,8 @@ mod ctl;
 mod inbox_panel;
 #[path = "window_motion.rs"]
 mod moving;
+#[path = "window_orbit.rs"]
+mod orbit;
 #[path = "window_send.rs"]
 mod send_panel;
 #[path = "window_signals.rs"]
@@ -4817,10 +4819,19 @@ impl PaddockWindow {
                     cx.stop_propagation();
                     this.close_tab(index, window, cx);
                 }));
+            // A working tab's edge is the running light instead, unless it shows an amber ring
+            // for another pane's agent waiting for a person, and stays as it is when the system
+            // asks for less motion.
+            let light = (marks.tone == TabTone::Working
+                && !crate::reduce_motion::on()
+                && (active || !marks.amber_ring()))
+            .then(|| self.fg(tint.expect("a working tab has its status colour")));
             // Round the active tab its own status colour, or the accent when it has none; amber
             // round another with an agent waiting for a person (see [`TabMarks::amber_ring`]), the
             // active one's dot and its panes' headers telling that instead.
-            let ring = if active {
+            let ring = if light.is_some() {
+                gpui::transparent_black()
+            } else if active {
                 match tint {
                     Some(tint) => self.fg(tint).opacity(RING_TINTED),
                     None => self.fg(|t| t.agents_accent).opacity(RING_ACTIVE),
@@ -4867,6 +4878,14 @@ impl PaddockWindow {
                 .id(("tab", index))
                 .group(SharedString::from(format!("tab-{index}")))
                 .relative()
+                .when_some(light, |item, ink| {
+                    item.child(orbit::edge(
+                        index,
+                        ink,
+                        if active { 1.0 } else { orbit::DIM },
+                        scale,
+                    ))
+                })
                 .max_w(ui.px(TAB_WIDEST))
                 .flex()
                 .items_center()
