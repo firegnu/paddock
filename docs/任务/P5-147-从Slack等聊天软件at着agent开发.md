@@ -1,6 +1,7 @@
 # 任务：Settings 里显示 Slack 机器人的状态（从聊天软件 @ agent 开发，主体在 ranch）
 
 依据：用户 10-19：“再加一个draft task，可以接入slack等社交软件，通过社交软件AT的方式进行交互开发”。10-20、10-21 和主控谈定了做法和范围（见「已定的」）；10-21：“验收照这七条。先把任务书写好。暂时先别排。”10-21 用户又问“P5-147这个任务整体是不是可以移到ranch中的任务队列中”，选了主控建议的“主体移 ranch，留 Settings”：机器人交给 ranch 建任务，本件只剩 paddock 的 Settings 那块。
+依赖：R38
 优先：低
 
 ## 现在知道的（主控 10-19 对着本机命令和代码说的）
@@ -33,7 +34,7 @@
 
 ## 这一件做什么
 - 只做第一期的 paddock 这一半：Settings 里显示 ranch 的 Slack 机器人连没连上、绑了哪些频道。只读 ranch 给的命令和 JSON，不读 ranch 的配置文件和凭证。放哪一页、长什么样，开工时先出样子给用户看。
-- 机器人本身（下面验收 1–6）10-21 交给 ranch，在 ranch 仓库照 ranch 的规矩做，paddock 不改 ranch。ranch 给了编号后，在「依据」后加一行 `依赖：<ranch 编号>`。
+- 机器人本身（下面验收 1–6）10-21 交给 ranch，在 ranch 仓库照 ranch 的规矩做，paddock 不改 ranch。ranch 建成 R38（ranch `docs/任务/R38-从Slack等聊天软件at着agent开发.md`，ranch main `8cc2fe5`，优先低、不开工）；给 paddock 的只读命令和 JSON 等 R38 做完写进 ranch `docs/CONTRACT.md`，ranch/main 会通知。
 - 开工顺序：ranch 那件做完、部署、把命令和 JSON 写进它的 `docs/CONTRACT.md` → 再开本件的 worktree，照 CONTRACT 做。第二期（在聊天里开、停 agent）以后另开。
 - 现在不排（用户 10-21：“暂时先别排”）：worktree 没建，等 ranch 那件做完、用户说开始。
 
