@@ -24,6 +24,8 @@ use gpui::{
 };
 use std::{cell::RefCell, collections::HashMap, path::PathBuf, rc::Rc, time::Duration};
 
+#[path = "settings_chat.rs"]
+mod chat_page;
 #[path = "settings_dispatch.rs"]
 mod dispatch_page;
 #[path = "settings_instructions.rs"]
@@ -103,6 +105,8 @@ pub struct SettingsView {
     sandbox: sandbox_page::Sandbox,
     /// Dispatch: ranch's dispatch table as read, and the cell being changed.
     dispatch: dispatch_page::Dispatch,
+    /// Chat: what pony was last found to say.
+    chat: chat_page::ChatPage,
     /// Where each slider's track was last drawn, for the mouse's place along it.
     tracks: Rc<RefCell<HashMap<String, Bounds<Pixels>>>>,
     focus: FocusHandle,
@@ -400,6 +404,7 @@ impl SettingsView {
             machines: Default::default(),
             sandbox: Default::default(),
             dispatch: Default::default(),
+            chat: Default::default(),
             tracks: Rc::default(),
             focus: cx.focus_handle(),
             _subscriptions: Vec::new(),
@@ -417,6 +422,9 @@ impl SettingsView {
                 }
                 if this.page == Page::Dispatch {
                     this.refresh_dispatch(cx);
+                }
+                if this.page == Page::Chat {
+                    this.refresh_chat(cx);
                 }
             }
         });
@@ -1256,6 +1264,11 @@ impl SettingsView {
             self.refresh_dispatch(cx);
         } else {
             self.leave_dispatch();
+        }
+        if page == Page::Chat {
+            self.refresh_chat(cx);
+        } else {
+            self.leave_chat();
         }
         cx.notify();
     }
@@ -2488,6 +2501,7 @@ impl SettingsView {
             Page::Machines => self.machines_page(ui, cx),
             Page::Sandbox => self.sandbox_page(width, ui, cx),
             Page::Dispatch => self.dispatch_page(width, ui, cx),
+            Page::Chat => self.chat_page(ui),
             Page::Diagnostics => self.diagnostics_page(width, ui),
             // Not a list: it fills the window (`instructions_page`).
             Page::Instructions => Vec::new(),

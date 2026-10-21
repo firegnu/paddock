@@ -82,7 +82,7 @@ pub fn short_time(value: Option<f64>) -> String {
 
 /// How long, for the details, in two units: `57s`, `4m 12s`, `1h 12m`, `3d 4h`; the second is left
 /// out when it is nought.
-fn how_long(seconds: f64) -> String {
+pub fn how_long(seconds: f64) -> String {
     let s = seconds.max(0.0) as u64;
     let ((major, big), (minor, small)) = match s {
         0..60 => return format!("{s}s"),
