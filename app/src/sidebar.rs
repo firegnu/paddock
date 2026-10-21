@@ -886,7 +886,7 @@ impl Sidebar {
         self.folds_changed(cx);
     }
 
-    /// Folds the `Idle workspaces` group to its heading, or opens it again (P5-134).
+    /// Folds the `Idle` shelf to its title, or opens it again (P5-134, P5-164).
     fn fold_idle(&mut self, cx: &mut Context<Self>) {
         let folded = &mut self.listing.panel.folded;
         folded.idle = !folded.idle;
@@ -2579,8 +2579,8 @@ impl Sidebar {
         // Every agent, those of folded groups too.
         let agents = self.listing.panel.agents.len();
         // Workspaces stay when their agents have all stopped (P5-89): once corral has been read,
-        // one opened is listed even with no agent at all; the rest lie in the `Idle workspaces`
-        // group at the foot, under `No agents yet` while there is no agent (P5-134).
+        // one opened is listed even with no agent at all; the rest lie on the `Idle` shelf at the
+        // foot, under `No agents yet` while there is no agent (P5-134, P5-164).
         let loaded = self.listing.loaded;
         let listed =
             agents > 0 || loaded && lines.iter().any(|line| matches!(line, Line::Workspace(_)));
@@ -2732,15 +2732,29 @@ impl Sidebar {
                         self.heading(heading, index, above, cx)
                     }
                     Line::Workspace(_) => continue,
-                    Line::Vacant { workspace, repo } => self.vacant(&workspace, Some(repo), cx),
+                    Line::Vacant {
+                        workspace,
+                        repo,
+                        grouped,
+                    } => self.vacant(&workspace, Some(repo), grouped, cx),
                     Line::Vacancies {
                         workspace,
                         repos,
                         open,
                     } => self.vacancies(&workspace, &repos, open, cx),
-                    Line::Empty(workspace) => self.vacant(&workspace, None, cx),
-                    Line::Idle { count, folded } => self.idle_heading(count, folded, cx),
-                    Line::IdleWorkspace { name, repos } => self.idle_workspace(&name, repos, cx),
+                    Line::Empty(workspace) => self.vacant(&workspace, None, false, cx),
+                    // The shelf draws its own lines, every workspace with no agent in it
+                    // (P5-164).
+                    Line::Idle { count, folded } => {
+                        let mut rows = Vec::new();
+                        while let Some((_, Line::IdleWorkspace { name, repos })) =
+                            lines.next_if(|(_, line)| matches!(line, Line::IdleWorkspace { .. }))
+                        {
+                            rows.push(self.idle_workspace(&name, &repos, cx));
+                        }
+                        self.idle_shelf(count, folded, rows, index == 0, cx)
+                    }
+                    Line::IdleWorkspace { name, repos } => self.idle_workspace(&name, &repos, cx),
                     Line::Agent(card) => {
                         let on_click = {
                             let card = card.clone();
