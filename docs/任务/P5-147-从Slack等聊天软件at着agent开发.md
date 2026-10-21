@@ -2,6 +2,7 @@
 
 依据：用户 10-19：“再加一个draft task，可以接入slack等社交软件，通过社交软件AT的方式进行交互开发”。10-20、10-21 和主控谈定了做法和范围（见「已定的」）；10-21：“验收照这七条。先把任务书写好。暂时先别排。”10-21 用户又问“P5-147这个任务整体是不是可以移到ranch中的任务队列中”，选了主控建议的“主体移 ranch，留 Settings”：机器人交给 ranch 建任务，本件只剩 paddock 的 Settings 那块。
 依赖：R38
+待用户：选样子（甲单独一页 Chat，乙 Agents 页底部一节）
 优先：低
 
 ## 现在知道的（主控 10-19 对着本机命令和代码说的）
@@ -37,6 +38,17 @@
 - 机器人本身（下面验收 1–6）10-21 交给 ranch，在 ranch 仓库照 ranch 的规矩做，paddock 不改 ranch。ranch 建成 R38（ranch `docs/任务/R38-从Slack等聊天软件at着agent开发.md`，ranch main `8cc2fe5`，优先低、不开工）；给 paddock 的只读命令和 JSON 等 R38 做完写进 ranch `docs/CONTRACT.md`，ranch/main 会通知。
 - 开工顺序：ranch 那件做完、部署、把命令和 JSON 写进它的 `docs/CONTRACT.md` → 再开本件的 worktree，照 CONTRACT 做。第二期（在聊天里开、停 agent）以后另开。
 - 现在不排（用户 10-21：“暂时先别排”）：worktree 没建，等 ranch 那件做完、用户说开始。
+
+## 现在是怎样（10-21 ranch/main 通知、主控对着 ranch `b4dec26` 的 CONTRACT 核对）
+- 机器人叫 pony。R38b 已把 `pony status` 写进 ranch `docs/CONTRACT.md` 末尾「`pony status`（R38）」一节；ranch/main 通知可以开工（用户 10-21 对 ranch 定：R38b 写进 CONTRACT 后就开）。开工时把那一节照抄进本文件附录。
+- 要点：找法同 corral（PATH 上的 `pony`，再 `~/.local/bin/pony`，都没有是「未安装」）；`pony --version` 的 `contract` 要是 `"1"`；`pony status` 只读本机文件、几毫秒返回，可以每几秒调一次；没配置、没在跑、连不上都是 `ok:true` 里的数据。字段：`config`（ok / missing / invalid + `config_message`）、`service`、`running`、`pid`、`started`、`last_exit`、`chats[]`（`kind`、`connection`、`since`、`reason`、`message`、`workspace`、`bot`、`other_connections`、`channels[]` 的 `id`、`name`、`private`、`repo`、`problem`）。照 `chats` 列表画，不写死 `slack`；没写的字段忽略，不认识的取值照样显示。
+- 现在 PATH 上还没有 pony（等 R38c 部署），只能显示「未安装」；有真实数据要等 R38c 部署、R38f 上线。
+
+## 样子（待用户选）
+- 样稿：https://claude.ai/artifact/1vQswVKLu3BD7jabPHgYkN
+  - 甲（主控推荐）：Settings 新一页 `Chat`，排在 Dispatch 后面。顶上 pony 版本和运行状态；每家聊天软件一张卡：连接状态、工作区和机器人名、绑的频道逐行（`#频道 → 仓库`，私有标锁，有问题的黄字说明）。
+  - 乙：放在 Agents 页最底下一节，每家一行，频道问题只给个数。
+  - 「甲的各种状态」：未安装、没配置、没在跑（上次退出原因、后台服务没装时怎么装）、配置坏了、连接中、连不上（原因代码和说明）、另一台也连着的警告、不认识的取值。
 
 ## 交给 ranch 的需求（10-21 送给 `ranch/main`，请它记进队列、优先低、不开工）
 连同上面「已定的」和用户原话一起送。
