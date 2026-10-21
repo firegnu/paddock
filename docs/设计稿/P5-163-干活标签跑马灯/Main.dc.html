@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>Working tab motion</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+@property --orbit{syntax:'<angle>';inherits:false;initial-value:0deg}
+.bar{display:flex;align-items:center;gap:6px;height:44px;padding:0 12px;border-radius:10px;background:#1f232b}
+.tab{position:relative;display:inline-flex;align-items:center;gap:7px;height:28px;box-sizing:border-box;padding:0 10px 0 6px;border-radius:14px;border:1px solid rgba(255,255,255,0.09);font-size:13px;white-space:nowrap;overflow:hidden;isolation:isolate}
+.tab .name{position:relative;z-index:2}
+.act{background:#3b4966;color:#eef1f7;font-weight:600;border-color:rgba(126,162,238,0.6)}
+.rest{background:#303a4e;color:#aeb6c4}
+.plain{background:#262b34;color:#aeb6c4}
+.ico{position:relative;z-index:2;flex:none;width:18px;height:18px;border-radius:5px;background:#d97757;display:inline-flex;align-items:center;justify-content:center}
+.term{background:#3a404b}
+.dot{position:absolute;right:-4px;bottom:-4px;width:6px;height:6px;border-radius:5px;background:#7ea2ee;border:2px solid #3b4966}
+.rest .dot{border-color:#303a4e}
+.x{position:relative;z-index:2;display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:9px;margin-left:2px}
+.plus{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:13px;color:#8b93a1}
+.breathe{animation:breathe 1.6s ease-in-out infinite}
+@keyframes breathe{0%{box-shadow:0 0 0 0 rgba(126,162,238,0.55)}50%{box-shadow:0 0 0 3px rgba(126,162,238,0)}100%{box-shadow:0 0 0 0 rgba(126,162,238,0)}}
+.glow{animation:glow 2s ease-in-out infinite}
+@keyframes glow{0%,100%{box-shadow:0 0 4px 0 rgba(126,162,238,0.18);border-color:rgba(126,162,238,0.45)}50%{box-shadow:0 0 14px 2px rgba(126,162,238,0.5);border-color:rgba(176,200,250,0.95)}}
+.rest.glow{animation-name:glowsoft}
+@keyframes glowsoft{0%,100%{box-shadow:0 0 3px 0 rgba(126,162,238,0.1);border-color:rgba(126,162,238,0.25)}50%{box-shadow:0 0 9px 1px rgba(126,162,238,0.3);border-color:rgba(126,162,238,0.6)}}
+.sheen{position:absolute;z-index:1;top:0;bottom:0;left:-45%;width:45%;background:linear-gradient(100deg,rgba(190,210,255,0) 0%,rgba(190,210,255,0.32) 50%,rgba(190,210,255,0) 100%);animation:sweep 2.4s ease-in-out infinite}
+.rest .sheen{background:linear-gradient(100deg,rgba(190,210,255,0) 0%,rgba(190,210,255,0.16) 50%,rgba(190,210,255,0) 100%)}
+@keyframes sweep{0%{left:-45%}55%,100%{left:105%}}
+.orbit{display:inline-flex;padding:1.5px;border-radius:15.5px;background:conic-gradient(from var(--orbit),rgba(126,162,238,0.18) 0deg,rgba(126,162,238,0.18) 250deg,rgba(126,162,238,0.7) 320deg,#e4ecff 352deg,rgba(126,162,238,0.18) 360deg);animation:orbit 2.2s linear infinite;box-shadow:0 0 10px rgba(126,162,238,0.22)}
+.orbit .tab{border:none;height:27px}
+.orbit.dim{opacity:0.7;box-shadow:none}
+@keyframes orbit{to{--orbit:360deg}}
+.spin{position:absolute;left:-3px;top:-3px;width:24px;height:24px;animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.cap{display:flex;align-items:baseline;gap:10px;font-size:13px;color:#cfd6e2}
+.cap b{font-weight:600;color:#eef1f7}
+.cap span{color:#8b93a1;font-size:12px}
+</style>
+</helmet>
+<div style="width: 1000px; height: 700px; box-sizing: border-box; padding: 32px 36px; background: #15181e; font-family: -apple-system, 'SF Pro Text', 'Helvetica Neue', sans-serif; color: #e7ecf3; display: flex; flex-direction: column; gap: 22px">
+
+  <!-- now -->
+  <div style="display: flex; flex-direction: column; gap: 8px">
+    <div class="cap"><b>现在</b><span>蓝底蓝边，图标角上的点在呼吸</span></div>
+    <div class="bar">
+      <span class="tab act"><span class="ico"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4"></path></svg><span class="dot breathe"></span></span><span class="name">dev-r38d2-review-1</span><span class="x"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#c3cad6" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></span></span>
+      <span class="tab rest"><span class="ico"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4"></path></svg><span class="dot breathe"></span></span><span class="name">dev-chat-1</span></span>
+      <span class="tab plain"><span class="ico term"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#cfd6e2" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 7l5 5-5 5M12 18h7"></path></svg></span><span class="name">zsh</span></span>
+      <span class="plus"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg></span>
+    </div>
+  </div>
+
+  <!-- A glow -->
+  <div style="display: flex; flex-direction: column; gap: 8px">
+    <div class="cap"><b>甲 · 呼吸光晕</b><span>整个胶囊带一圈蓝色光晕，跟着节奏一亮一暗，边也一起变亮</span></div>
+    <div class="bar">
+      <span class="tab act glow"><span class="ico"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4"></path></svg><span class="dot"></span></span><span class="name">dev-r38d2-review-1</span><span class="x"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#c3cad6" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></span></span>
+      <span class="tab rest glow"><span class="ico"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4"></path></svg><span class="dot"></span></span><span class="name">dev-chat-1</span></span>
+      <span class="tab plain"><span class="ico term"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#cfd6e2" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 7l5 5-5 5M12 18h7"></path></svg></span><span class="name">zsh</span></span>
+      <span class="plus"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg></span>
+    </div>
+  </div>
+
+  <!-- B sheen -->
+  <div style="display: flex; flex-direction: column; gap: 8px">
+    <div class="cap"><b>乙 · 流光扫过</b><span>一道柔光从左往右扫过胶囊，扫完停一下再来</span></div>
+    <div class="bar">
+      <span class="tab act"><span class="sheen"></span><span class="ico"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4"></path></svg><span class="dot"></span></span><span class="name">dev-r38d2-review-1</span><span class="x"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#c3cad6" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></span></span>
+      <span class="tab rest"><span class="sheen"></span><span class="ico"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4"></path></svg><span class="dot"></span></span><span class="name">dev-chat-1</span></span>
+      <span class="tab plain"><span class="ico term"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#cfd6e2" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 7l5 5-5 5M12 18h7"></path></svg></span><span class="name">zsh</span></span>
+      <span class="plus"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg></span>
+    </div>
+  </div>
+
+  <!-- C orbit -->
+  <div style="display: flex; flex-direction: column; gap: 8px">
+    <div class="cap"><b>丙 · 跑马灯边</b><span>一颗亮点拖着尾巴沿胶囊的边一圈圈跑，其余的边暗下去</span></div>
+    <div class="bar">
+      <span class="orbit"><span class="tab act"><span class="ico"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4"></path></svg><span class="dot"></span></span><span class="name">dev-r38d2-review-1</span><span class="x"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#c3cad6" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></span></span></span>
+      <span class="orbit dim"><span class="tab rest"><span class="ico"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4"></path></svg><span class="dot"></span></span><span class="name">dev-chat-1</span></span></span>
+      <span class="tab plain"><span class="ico term"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#cfd6e2" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 7l5 5-5 5M12 18h7"></path></svg></span><span class="name">zsh</span></span>
+      <span class="plus"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg></span>
+    </div>
+  </div>
+
+  <!-- D spinner -->
+  <div style="display: flex; flex-direction: column; gap: 8px">
+    <div class="cap"><b>丁 · 图标转圈</b><span>图标外面一段蓝色弧线在转，代替角上的点；胶囊本身不动</span></div>
+    <div class="bar">
+      <span class="tab act"><span class="ico"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4"></path></svg><svg class="spin" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="10.5" stroke="rgba(126,162,238,0.22)" stroke-width="1.6"></circle><path d="M12 1.5a10.5 10.5 0 0 1 10.5 10.5" stroke="#9db8f2" stroke-width="1.8" stroke-linecap="round"></path></svg></span><span class="name">dev-r38d2-review-1</span><span class="x"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#c3cad6" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></span></span>
+      <span class="tab rest"><span class="ico"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4"></path></svg><svg class="spin" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 1.5a10.5 10.5 0 0 1 10.5 10.5" stroke="rgba(157,184,242,0.7)" stroke-width="1.8" stroke-linecap="round"></path></svg></span><span class="name">dev-chat-1</span></span>
+      <span class="tab plain"><span class="ico term"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#cfd6e2" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 7l5 5-5 5M12 18h7"></path></svg></span><span class="name">zsh</span></span>
+      <span class="plus"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg></span>
+    </div>
+  </div>
+
+  <div style="font-size: 12px; line-height: 1.6; color: #8b93a1">每行三个标签：选中的干活 agent、没选中的干活 agent、一个 shell。几个干活的标签同一个节拍；系统打开“减弱动态效果”时都不动。</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1000,"height":700}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>
