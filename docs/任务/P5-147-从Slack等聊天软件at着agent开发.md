@@ -136,3 +136,18 @@ paddock 怎么显示（P5-147 定样子，这里只说数据怎么对应）：
 - 遇到没写的字段要忽略，不认识的取值要能显示，和本文开头的规矩一样。
 
 对 paddock：只是兼容新增，不改 corral 的命令、JSON、`~/.corral`，paddock 现有功能不用动。R38b 合并后就可以照这一节开 P5-147（用户 10-21 定）；R38c 部署之前 PATH 上还没有 `pony`，按「未安装」显示。设置页照 `chats` 列表画，不写死 `slack`。
+
+## 完成记录
+
+- **做了什么**：新模块 `app/src/pony.rs` 照附录读 pony：先 PATH 上的 `pony`，再 `~/.local/bin/pony`；`pony --version` 的 `contract` 是 `"1"` 才调 `pony status`；后台跑、5 秒超时、可取消；字段都按可缺省解析，不认识的取值留原样；`status` 退出码不是 0 或不是 JSON 时给出它的 `error`/`message` 或 stderr。还放了几个出字的小函数（连接状态的字和颜色、频道问题的说明、后台服务、本地时间），页面和测试共用。新页 `app/src/settings_chat.rs`：Settings 加 `Page::Chat`（Dispatch 后、Diagnostics 前，图标是新画的气泡 `Icon::Chat`），照样稿甲和 States 1–8 画；打开这一页时读、开着时每 3 秒读、窗口回到前面时读，离开这一页停掉还在跑的读取。命令面板的 Settings 列表多一行 Chat。`docs/DESIGN.md` §13 补了 P5-147 一条。
+- **验证了什么**：`pony.rs` 9 个测试，用假 `pony` 脚本（照 `fence.rs` 的写法）：附录的例子原样读出；没装（PATH 和 `~/.local/bin` 都没有）、contract 是 `"2"`、`--version` 不是 JSON 都算没装；PATH 没有时找到 `~/.local/bin` 的，两处都有时 PATH 优先；`config: missing`；没在跑（`last_exit`、`service: not_installed`/`unsupported`/不认识的值）；`failed` 带原因代码和 `message`、`config: invalid`、`other_connections` 警告；频道 `not_member`/`not_found`/`archived`；不认识的 `kind`、`connection`、`problem`、原因代码和多出来的字段；`status` 报 `usage` 退出 2、输出不是 JSON（带 stderr）、只退出码不是 0、JSON 形状不对。`search.rs` 的测试把 Settings 页数从 8 改成 9（多了一页）。`cargo test --all-targets --no-fail-fast`：830 过、1 失败，失败的是 `view::links::tests::a_shell_s_relative_paths_are_from_where_it_has_gone_to`，墙里的老问题（`clear` 不清屏），和本件无关；`cargo clippy --all-targets -- -D warnings`、`cargo fmt --check`、`git diff --check` 都过。页面没起窗口看，留给主控装上给用户看。
+- **拿主意的地方**：
+  - 重读间隔定 3 秒；每次都重新找 pony、跑 `--version` 再跑 `status`（两次进程，几毫秒），这样后装或换了版本的 pony 下一次就能认出来；上一次还在跑时不叠新的。
+  - 频道行的 `@pony goes to <repo>/main` 用 `bot`（Slack 里机器人的名字），还不知道时写 `pony`；`not_member` 的说明同样写 `Invite @<bot> there`，不知道名字时写 `Invite it there`。
+  - 开始时间：今天只写 `时:分`，不是今天时加月日（`Oct 19 09:12`），免得跑了几天的显示成今天的钟点。`last_exit.at` 一样处理。
+  - 没装后台服务时的提示写成“To install it, run `pony service install --dry-run` in a terminal to see what it does, then `pony service install`”，意思同样稿（先 `--dry-run` 再去掉）；改这个说法是为了不让命令和标点分开排。
+  - `config` 出现附录没写的值时，按“不认识的取值照样显示”黄字写 `Config <值>: <config_message>`。
+  - `not_found`、`archived` 写成 `Slack can't find this channel.`、`This channel is archived.`。
+  - `card.rs` 的 `how_long` 改成 `pub`，用它写 `for 2h 14m`，没另写一份。
+- **没做的事**：没起 paddock 窗口、没截图；没加 Settings 里改 pony 配置、绑频道、装服务的按钮；没改 ranch、corral 调用、主题颜色键和依赖；没读 `~/.pony`。
+- **踩过的坑**：clippy 报 `Found` 两个变体大小差太多（`large_enum_variant`），把 `Status` 装进 `Box`。

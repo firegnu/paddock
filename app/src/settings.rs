@@ -32,12 +32,14 @@ pub enum Page {
     Sandbox,
     /// ranch's dispatch table as a graph, a cell changed through ranch (DESIGN §13 P5-161).
     Dispatch,
+    /// Read-only: ranch's chat bot pony, connected or not and its channels (DESIGN §13 P5-147).
+    Chat,
     /// Read-only: what paddock runs and how its reads and saves went.
     Diagnostics,
 }
 
 impl Page {
-    pub const ALL: [Page; 8] = [
+    pub const ALL: [Page; 9] = [
         Page::General,
         Page::Appearance,
         Page::Agents,
@@ -45,6 +47,7 @@ impl Page {
         Page::Instructions,
         Page::Sandbox,
         Page::Dispatch,
+        Page::Chat,
         Page::Diagnostics,
     ];
 
@@ -57,6 +60,7 @@ impl Page {
             Page::Instructions => "Instructions",
             Page::Sandbox => "Sandbox",
             Page::Dispatch => "Dispatch",
+            Page::Chat => "Chat",
             Page::Diagnostics => "Diagnostics",
         }
     }
@@ -71,6 +75,7 @@ impl Page {
             Page::Instructions => Icon::Document,
             Page::Sandbox => Icon::Lock,
             Page::Dispatch => Icon::Dispatch,
+            Page::Chat => Icon::Chat,
             Page::Diagnostics => Icon::Pulse,
         }
     }
@@ -1267,6 +1272,7 @@ mod tests {
                 "Instructions",
                 "Sandbox",
                 "Dispatch",
+                "Chat",
                 "Diagnostics"
             ]
         );

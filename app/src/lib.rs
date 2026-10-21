@@ -58,6 +58,7 @@ pub mod new_agent_view;
 pub mod palette;
 pub mod pause;
 pub mod pet;
+pub mod pony;
 pub mod popover;
 pub mod preset;
 pub mod pty;

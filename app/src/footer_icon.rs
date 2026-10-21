@@ -107,6 +107,8 @@ pub enum Icon {
     Lock,
     /// Two nodes joined to a third: Settings' Dispatch (DESIGN §13 P5-161).
     Dispatch,
+    /// A speech bubble, its tail at the bottom left: Settings' Chat (DESIGN §13 P5-147).
+    Chat,
 }
 
 /// How far an icon's parts are from where they rest, for its hover motion (`motion.rs`), in the
@@ -771,6 +773,15 @@ fn shapes(icon: Icon, pose: Pose, bounds: Bounds<Pixels>, scale: f32) -> Vec<Pat
             links.move_to(at(4.75, 10.75));
             links.cubic_bezier_to(at(9.25, 7.0), at(7.0, 10.75), at(7.0, 7.0));
             vec![nodes, links]
+        }
+        Icon::Chat => {
+            let mut bubble = stroke();
+            rounded_rect(&mut bubble, at(1.5, 2.0), at(12.5, 9.75), 2.75 * scale);
+            let mut tail = stroke();
+            tail.move_to(at(4.25, 9.75));
+            tail.line_to(at(3.5, 12.5));
+            tail.line_to(at(7.25, 9.75));
+            vec![bubble, tail]
         }
     }
 }
