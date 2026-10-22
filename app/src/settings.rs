@@ -1422,9 +1422,9 @@ mod tests {
             format!("{}", (wash * 100.0).round())
         );
         assert_eq!(draft.value("sidebar_opacity"), "45");
-        assert_eq!(draft.value("frame_opacity"), "65");
+        assert_eq!(draft.value("frame_opacity"), "0");
         assert_eq!(draft.default_shown("sidebar_opacity"), "45");
-        assert_eq!(draft.default_shown("frame_opacity"), "65");
+        assert_eq!(draft.default_shown("frame_opacity"), "0");
         assert!(!draft.modified("sidebar_opacity") && !draft.modified("frame_opacity"));
 
         let file = format!("sidebar_opacity = 30   # mine\nframe_opacity = 80\n{FILE}");
@@ -1456,7 +1456,7 @@ mod tests {
         draft.reset("sidebar_opacity");
         draft.reset("frame_opacity");
         assert_eq!(draft.value("sidebar_opacity"), "45");
-        assert_eq!(draft.value("frame_opacity"), "65");
+        assert_eq!(draft.value("frame_opacity"), "0");
         let text = committed(&mut draft, Some(&text)).unwrap();
         assert!(!text.contains("opacity"), "{text}");
         assert!(

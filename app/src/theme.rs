@@ -726,7 +726,7 @@ mod tests {
                 Translucency::of(&config, &theme),
                 Translucency {
                     sidebar: theme.frost().wash,
-                    frame: 0.65
+                    frame: 0.0
                 },
                 "{name}"
             );

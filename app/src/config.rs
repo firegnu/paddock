@@ -8,8 +8,8 @@ use std::{
 };
 
 /// How opaque, in percent, the darker frame lies over the system's sidebar material when the
-/// config leaves it out (P5-95c).
-pub const FRAME_OPACITY: u8 = 65;
+/// config leaves it out: not at all, the material showing through whole (P5-95c; P5-166, was 65).
+pub const FRAME_OPACITY: u8 = 0;
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(default, deny_unknown_fields)]
