@@ -521,8 +521,8 @@ const BAR_END: f32 = 10.0;
 /// A tab's capsule: its height; its title's size; the room before its badge, after it, and after
 /// the title (an inactive tab's, its × drawn over the title's end; the active tab's, after its
 /// ×); its ×; its ring, drawn clear where it has none so every title sits alike, and the room
-/// between capsules, both unscaled; the widest a tab grows, and the least one shortened for room
-/// keeps.
+/// between tabs, both unscaled; every tab's width while there is room, and the least they narrow
+/// to (P5-165 rework 1: every tab as wide as the others).
 const TAB_HEIGHT: f32 = 28.0;
 const TAB_TEXT: f32 = 13.0;
 const TAB_START: f32 = 6.0;
@@ -530,18 +530,21 @@ const TAB_GAP: f32 = 7.0;
 const TAB_END: f32 = 12.0;
 const ACTIVE_TAB_END: f32 = 6.0;
 const TAB_CLOSE: f32 = 16.0;
-/// How opaque a capsule's edge is over the system's material, drawn in the text's colour, as the
-/// sidebar's cards' there (P5-97).
-const TAB_EDGE: f32 = 0.07;
+/// The tabs not active and the `+N`, flat on the bar (P5-165 rework 1): the faint ground under the
+/// mouse, as strong a tint of the text's colour as the sidebar's cards' edge (P5-97), and its
+/// corners; the short line between two of them, its height and how strong a tint it is.
+const FLAT_LIT: f32 = 0.07;
+const FLAT_RADIUS: f32 = 8.0;
+const TAB_LINE: f32 = 14.0;
+const TAB_LINE_INK: f32 = 0.12;
 pub(crate) const TAB_RING: f32 = 1.0;
 const TAB_SPACING: f32 = 6.0;
-const TAB_WIDEST: f32 = 220.0;
-const TAB_LEAST: f32 = 78.0;
+const TAB_WIDTH: f32 = 180.0;
+const TAB_LEAST: f32 = 110.0;
 /// How strongly the active tab's ring shows, the accent round a neutral one and its status colour
-/// round a tinted one, and the amber ring of another with an agent waiting for a person.
+/// round a tinted one.
 pub(crate) const RING_ACTIVE: f32 = 0.5;
 const RING_TINTED: f32 = 0.6;
-const RING_WAITING: f32 = 0.4;
 /// A capsule's grounds over the title bar, at rest, lit and active: how far a neutral one steps
 /// towards the text colour, and how strongly a tinted one's status colour washes it; and how much
 /// of that colour its name takes, an inactive one's lifted from the muted colour this far towards
@@ -775,12 +778,12 @@ pub enum Subject {
     Empty,
 }
 
-/// A tab as the title bar draws it: which, its width when the bar is short of room, its title
+/// A tab as the title bar draws it: which, its width (every tab's the same), its title
 /// (the group to draw faint, and the rest), and its whole title to show on hover when that is
 /// shortened.
 struct ShownTab {
     index: usize,
-    width: Option<f32>,
+    width: f32,
     title: (Option<String>, String),
     whole: Option<String>,
 }
@@ -996,14 +999,6 @@ pub struct TabMarks {
     pub waiting: bool,
     pub paused: bool,
     pub tone: TabTone,
-}
-
-impl TabMarks {
-    /// An inactive tab's amber ring: one of its agents needs a person, unless the capsule is red
-    /// for the one it is named after being in error.
-    fn amber_ring(&self) -> bool {
-        self.waiting && self.tone != TabTone::Error
-    }
 }
 
 /// The colour a tab's capsule takes from the agent of the pane it is named after: working, waiting
@@ -4652,7 +4647,7 @@ impl PaddockWindow {
         let bar = Bar {
             room,
             gap: TAB_SPACING,
-            widest: TAB_WIDEST * s,
+            widest: TAB_WIDTH * s,
             least: TAB_LEAST * s,
             more: if may_wait { more + dot } else { more },
         };
@@ -4670,15 +4665,20 @@ impl PaddockWindow {
                     }
                     Title::Short => ((None, short[index].clone()), true),
                     Title::Squeezed(room) => {
+                        let weight = if index == active {
+                            FontWeight::SEMIBOLD
+                        } else {
+                            FontWeight::NORMAL
+                        };
                         let text = tab_fit::middle(&short[index], room, |text| {
-                            width(text, TAB_TEXT, FontWeight::NORMAL)
+                            width(text, TAB_TEXT, weight)
                         });
                         ((None, text), true)
                     }
                 };
                 ShownTab {
                     index,
-                    width: (!fit.roomy).then_some(slot.width),
+                    width: slot.width,
                     title,
                     whole: cut.then(|| tab_title(&subjects[index], &open)),
                 }
@@ -4737,14 +4737,27 @@ impl PaddockWindow {
         }
     }
 
-    /// The edge of a title bar capsule with no ring: over the system's material a faint one, as
-    /// the sidebar's cards' there (P5-97); else none.
-    fn capsule_edge(&self) -> Hsla {
-        if self.frosted() {
-            self.fg(|t| t.agents_text).opacity(TAB_EDGE)
-        } else {
-            gpui::transparent_black()
-        }
+    /// A flat tab's (and the `+N`'s) faint ground under the mouse (P5-165 rework 1): as drawn,
+    /// over the system's material a tint of the text that lets it through, else that tint over the
+    /// frame, whole; and what its status dot's ring takes at rest and under the mouse, whole, to
+    /// stand off its icon.
+    fn flat_grounds(&self) -> (Hsla, Hsla, Hsla) {
+        let frame = hsla(self.theme.frame(), 1.0);
+        let tint = self.fg(|t| t.agents_text).opacity(FLAT_LIT);
+        let lit = frame.blend(tint);
+        (if self.frosted() { tint } else { lit }, frame, lit)
+    }
+
+    /// The short line between two flat tabs, in the room before the tab it hangs from.
+    fn tab_line(&self, ui: &UiFont) -> Div {
+        let height = ui.scale(TAB_LINE);
+        div()
+            .absolute()
+            .left(px(-TAB_RING - TAB_SPACING / 2.0 - 0.5))
+            .top(px((ui.scale(TAB_HEIGHT) - 2.0 * TAB_RING - height) / 2.0))
+            .w(px(1.0))
+            .h(px(height))
+            .bg(self.fg(|t| t.agents_text).opacity(TAB_LINE_INK))
     }
 
     /// The title bar: over the sidebar the traffic lights (none in full screen) and the sidebar's
@@ -4788,26 +4801,34 @@ impl PaddockWindow {
             .track_scroll(&self.tabs);
         let mut items = Vec::new();
         let mut look = None;
+        // The tabs not active lie flat on the bar, a faint ground under the mouse; a short line
+        // between two of them, but none beside the active one or the one under the mouse (P5-165
+        // rework 1).
+        let (flat_lit, flat_rest_whole, flat_lit_whole) = self.flat_grounds();
+        let under_mouse = self.tab_hover.map(|(tab, _)| tab);
+        let mut before: Option<usize> = None;
         for shown in fit.shown {
             let index = shown.index;
             let tab = &self.workspace.tabs[index];
             let active = index == self.workspace.active_tab;
             let marks = fit.marks[index];
-            // Its grounds and its name's colour, from the status of the agent it is named after.
-            let tint = marks.tone.color();
+            // The active tab's colours, from the status of the agent it is named after; the
+            // others tell theirs by the dot on their icon alone.
+            let tint = if active { marks.tone.color() } else { None };
             let (whole, quiet, loud) = self.capsule(tint);
-            let Grounds { rest, lit, chosen } = self.faces(whole, tint);
+            let chosen = self.faces(whole, tint).chosen;
             // The active tab keeps its × in line; the others have it over the end of their
-            // title, so a narrow tab gives the title all its room, unless their ground is seen
+            // title, so a narrow tab gives the title all its room, unless the bar is seen
             // through. The active one's always shows; the others' fade in only while the mouse is
-            // on the tab. Seen through, its ground is the capsule's.
+            // on the tab.
             let inline = active || frosted;
             // The active tab's ground lies under its whole row (see `join::tab_ground`), the
-            // capsule's or the terminal's, which shows through.
+            // capsule's or the terminal's, which shows through; seen through, so does the faint
+            // ground under the mouse.
             let (under, pressed) = if frosted || active {
                 (gpui::transparent_black(), hsla(muted, 0.18))
             } else {
-                (lit, lit.blend(hsla(muted, 0.18)))
+                (flat_lit_whole, flat_lit_whole.blend(hsla(muted, 0.18)))
             };
             let close = div()
                 .id(("close-tab", index))
@@ -4838,32 +4859,23 @@ impl PaddockWindow {
                     cx.stop_propagation();
                     this.close_tab(index, window, cx);
                 }));
-            // A working tab's edge is the running light instead, unless it shows an amber ring
-            // for another pane's agent waiting for a person, and stays as it is when the system
-            // asks for less motion.
-            let light = (marks.tone == TabTone::Working
-                && !crate::reduce_motion::on()
-                && (active || !marks.amber_ring()))
-            .then(|| self.fg(tint.expect("a working tab has its status colour")));
-            // Round the active tab its own status colour, or the accent when it has none; amber
-            // round another with an agent waiting for a person (see [`TabMarks::amber_ring`]), the
-            // active one's dot and its panes' headers telling that instead.
-            let ring = if light.is_some() {
-                gpui::transparent_black()
-            } else if active {
-                match tint {
-                    Some(tint) => self.fg(tint).opacity(RING_TINTED),
-                    None => self.fg(|t| t.agents_accent).opacity(RING_ACTIVE),
-                }
-            } else if marks.amber_ring() {
-                self.fg(|t| t.agents_yellow).opacity(RING_WAITING)
-            } else {
-                self.capsule_edge()
-            };
+            // The active tab's edge is the running light while its agent works, and stays as it
+            // is when the system asks for less motion.
+            let light = (active && marks.tone == TabTone::Working && !crate::reduce_motion::on())
+                .then(|| self.fg(tint.expect("a working tab has its status colour")));
             // The active tab's ground, ring and light are drawn under the tabs, joined to the
             // panel under it or as its capsule (P5-165): joined, its edge takes its status colour
-            // or the working light, else the panel's rim.
+            // or the working light, else the panel's rim. As a capsule, it is ringed in its own
+            // status colour, or the accent when it has none.
             if active {
+                let ring = if light.is_some() {
+                    gpui::transparent_black()
+                } else {
+                    match tint {
+                        Some(tint) => self.fg(tint).opacity(RING_TINTED),
+                        None => self.fg(|t| t.agents_accent).opacity(RING_ACTIVE),
+                    }
+                };
                 look = Some(join::TabLook {
                     light,
                     tint: tint.map(|pick| self.fg(pick)),
@@ -4872,8 +4884,8 @@ impl PaddockWindow {
                 });
             }
             // The active pane's icon and status dot; in a split tab, its panes' cards in a stack,
-            // which tells how many they are on hover. The dot's ring keeps the capsule's whole
-            // colour, seen through or not, to stand off the icon; joined, the terminal's ground,
+            // which tells how many they are on hover. The dot's ring keeps the ground under it
+            // whole, seen through or not, to stand off the icon; joined, the terminal's ground,
             // as last drawn.
             let (ground, hovered) = if active {
                 let ground = if self.joined.get() {
@@ -4884,7 +4896,7 @@ impl PaddockWindow {
                 (ground, None)
             } else {
                 let group = SharedString::from(format!("tab-{index}"));
-                (whole.rest, Some((group, whole.lit)))
+                (flat_rest_whole, Some((group, flat_lit_whole)))
             };
             let panes = tab.panes();
             let signal = self.tab_signal(index, shown_at, crate::reduce_motion::on(), cx);
@@ -4914,22 +4926,16 @@ impl PaddockWindow {
                 .id(("tab", index))
                 .group(SharedString::from(format!("tab-{index}")))
                 .relative()
-                .when_some(light.filter(|_| !active), |item, ink| {
-                    item.child(orbit::edge(index, ink, orbit::DIM, scale))
-                })
-                .max_w(ui.px(TAB_WIDEST))
+                .flex_shrink_0()
+                .w(px(shown.width))
                 .flex()
                 .items_center()
                 .gap(ui.px(TAB_GAP))
                 .h(ui.px(TAB_HEIGHT))
                 .pl(ui.px(TAB_START))
-                .rounded_full()
+                .rounded(ui.px(FLAT_RADIUS))
                 .border(px(TAB_RING))
-                .border_color(if active {
-                    gpui::transparent_black()
-                } else {
-                    ring
-                })
+                .border_color(gpui::transparent_black())
                 .text_size(ui.px(TAB_TEXT))
                 .cursor_pointer()
                 .on_mouse_down(MouseButton::Left, keep)
@@ -4960,27 +4966,27 @@ impl PaddockWindow {
                         scale * PAUSE_MARK,
                     ))
                 });
-            // Short of room, the other tabs narrow first; the active one keeps its title.
             item = if active {
-                item.flex_shrink_0()
-                    .pr(ui.px(ACTIVE_TAB_END))
+                item.pr(ui.px(ACTIVE_TAB_END))
                     .child(self.spot(Spot::ActiveTab))
                     .text_color(loud)
                     // The short name heavier; a faint group before it stays regular.
                     .font_weight(FontWeight::SEMIBOLD)
             } else {
-                item.flex_shrink(1.0)
-                    .min_w(ui.px(56.0))
-                    .pr(ui.px(if inline { ACTIVE_TAB_END } else { TAB_END }))
-                    .bg(rest)
+                // A line between it and the tab before, when neither is active nor under the
+                // mouse.
+                let line = before.is_some_and(|before| {
+                    before != self.workspace.active_tab
+                        && under_mouse != Some(before)
+                        && under_mouse != Some(index)
+                });
+                item.pr(ui.px(if inline { ACTIVE_TAB_END } else { TAB_END }))
                     .text_color(quiet)
-                    .hover(move |style| style.bg(lit))
+                    .hover(move |style| style.bg(flat_lit))
+                    .when(line, |item| item.child(self.tab_line(&ui)))
             };
-            // Fitted to the room left, as `fit_tabs` worked it out; the whole title on hover
-            // when it is shortened.
-            if let Some(width) = shown.width {
-                item = item.flex_shrink_0().w(px(width));
-            }
+            before = Some(index);
+            // The whole title on hover when it is shortened.
             if let Some(whole) = shown.whole {
                 let tip = BarTip {
                     text: whole.into(),
@@ -5125,17 +5131,10 @@ impl PaddockWindow {
         cx: &mut Context<Self>,
     ) -> Stateful<Div> {
         let ui = UiFont::get(cx);
-        let tone = if waiting {
-            TabTone::Waiting
-        } else {
-            TabTone::Neutral
-        };
-        let (whole, quiet, loud) = self.capsule(tone.color());
-        let Grounds {
-            rest,
-            lit: lit_ground,
-            ..
-        } = self.faces(whole, tone.color());
+        // Flat on the bar as the tabs not active, the faint ground under the mouse and while its
+        // menu is open (P5-165 rework 1).
+        let (_, quiet, loud) = self.capsule(None);
+        let (lit_ground, ..) = self.flat_grounds();
         let lit = self.popup == Some(Popup::Overflow);
         let color = if lit { loud } else { quiet };
         div()
@@ -5148,10 +5147,10 @@ impl PaddockWindow {
             .gap(ui.px(MORE_GAP))
             .w(px(width))
             .h(ui.px(TAB_HEIGHT))
-            .rounded_full()
-            .bg(if lit { lit_ground } else { rest })
+            .rounded(ui.px(FLAT_RADIUS))
+            .when(lit, |button| button.bg(lit_ground))
             .border(px(TAB_RING))
-            .border_color(self.capsule_edge())
+            .border_color(gpui::transparent_black())
             .text_size(ui.px(MORE_TEXT))
             .text_color(color)
             .cursor_pointer()
@@ -7968,21 +7967,6 @@ mod tests {
         let marks = tab_marks(&w, &agents, &[], &[], 0.0);
         assert!(!marks[0].paused);
         assert_eq!(marks[0].tone, TabTone::Waiting);
-    }
-
-    #[test]
-    fn an_inactive_tab_is_ringed_amber_for_a_waiting_agent_but_not_over_its_error_red() {
-        let marks = |waiting, tone| TabMarks {
-            waiting,
-            paused: false,
-            tone,
-        };
-        assert!(marks(true, TabTone::Waiting).amber_ring());
-        // Another of its panes waits while the one it is named after works.
-        assert!(marks(true, TabTone::Working).amber_ring());
-        // In error: Attention's Needs you too, and the red capsule says so.
-        assert!(!marks(true, TabTone::Error).amber_ring());
-        assert!(!marks(false, TabTone::Neutral).amber_ring());
     }
 
     #[test]

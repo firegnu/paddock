@@ -1,7 +1,8 @@
-//! How the title bar's tabs fit when they are short of room: the active tab keeps its whole
-//! title; the others first drop to the part of theirs that tells them apart, then shorten in the
-//! middle down to a least width; what still has no room waits behind a `+N` menu at the bar's
-//! end, the active tab always staying in the bar.
+//! How the title bar's tabs fit (P5-165, rework 1): every tab as wide as the others, the base
+//! width while there is room, all narrowing together when there is not, each title kept whole
+//! where it fits, else dropped to the part that tells it apart, else cut in the middle; at the
+//! least width, what still has no room waits behind a `+N` menu at the bar's end, the active tab
+//! always staying in the bar.
 use crate::window::{Subject, agent_name, last_part};
 
 /// Where a title's start may be cut off: just after one of these.
@@ -98,8 +99,8 @@ pub struct TabSize {
     pub short: f32,
 }
 
-/// The bar the tabs share, in points: its room, the gap between tabs, the widest a tab grows,
-/// the least a shortened one keeps, and the `+N` button's width.
+/// The bar the tabs share, in points: its room, the gap between tabs, every tab's width while
+/// there is room, the least they narrow to, and the `+N` button's width.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Bar {
     pub room: f32,
@@ -127,108 +128,69 @@ pub struct Slot {
     pub title: Title,
 }
 
-/// How the tabs fit: the ones in the bar, in order, and the ones behind `+N`. `roomy` when they
-/// all fit whole, to be drawn as they are without any width set.
+/// How the tabs fit: the ones in the bar, in order, and the ones behind `+N`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Fit {
     pub shown: Vec<Slot>,
     pub hidden: Vec<usize>,
-    pub roomy: bool,
 }
 
 impl TabSize {
-    fn whole(&self, widest: f32) -> f32 {
-        (self.chrome + self.full).min(widest)
-    }
-
-    /// Its width and title, shortened, when it may be at most `cap` wide: the part that tells it
-    /// apart, cut to `cap` when that is wider.
-    fn at(&self, cap: f32) -> (f32, Title) {
-        let part = self.chrome + self.short;
-        if part <= cap {
-            (part, Title::Short)
+    /// What its title shows when it is `width` wide: whole if it fits, else the part that tells
+    /// it apart if that does, else that part cut to the room left.
+    fn title(&self, width: f32) -> Title {
+        if self.chrome + self.full <= width {
+            Title::Full
+        } else if self.chrome + self.short <= width {
+            Title::Short
         } else {
-            (cap, Title::Squeezed((cap - self.chrome).max(0.0)))
+            Title::Squeezed((width - self.chrome).max(0.0))
         }
     }
 }
 
-/// How the tabs `sizes` fit `bar` with the one at `active` active: whole if they can; else every
-/// other tab shortened to the part that tells it apart, cut evenly where that is still too wide
-/// but none narrower than `bar.least` (unless that part is), the active one whole; else as many
-/// of the others as fit, from the first, that narrow beside it and the `+N` button, the rest
-/// behind it. The active tab keeps its place among them, or comes last when it would have been
-/// behind `+N`.
+/// How the tabs `sizes` fit `bar` with the one at `active` active: all of them as wide as each
+/// other, `bar.widest` while they fit at that, else narrowed together to fit; when that would
+/// take them under `bar.least`, as many as fit at it beside the `+N` button, the active one and
+/// the others from the first, share the room left, the rest behind `+N`. The active tab keeps its
+/// place among them, or comes last when it would have been behind `+N`.
 pub fn fit(sizes: &[TabSize], active: usize, bar: &Bar) -> Fit {
-    let at = |tab: usize, cap: f32| {
-        if tab == active {
-            (sizes[tab].whole(bar.widest), Title::Full)
-        } else {
-            sizes[tab].at(cap)
-        }
+    // Each of `count` tabs' width to share out `room`, the gaps between them taken first.
+    let width = |count: usize, room: f32| {
+        let gaps = bar.gap * count.saturating_sub(1) as f32;
+        ((room - gaps) / count.max(1) as f32).min(bar.widest)
     };
-    let total = |tabs: &[usize], cap: f32| {
-        let gaps = bar.gap * tabs.len().saturating_sub(1) as f32;
-        tabs.iter().map(|&tab| at(tab, cap).0).sum::<f32>() + gaps
-    };
-    // The widest every shortened tab may be, for `tabs` to fit `room`.
-    let squeeze = |tabs: &[usize], room: f32| {
-        let (mut low, mut high) = (bar.least, bar.widest);
-        for _ in 0..24 {
-            let cap = (low + high) / 2.0;
-            if total(tabs, cap) <= room {
-                low = cap;
-            } else {
-                high = cap;
-            }
-        }
+    let slots = |tabs: &[usize], width: f32| {
         tabs.iter()
-            .map(|&tab| {
-                let (width, title) = at(tab, low);
-                Slot { tab, width, title }
+            .map(|&tab| Slot {
+                tab,
+                width,
+                title: sizes[tab].title(width),
             })
             .collect()
     };
     let all: Vec<usize> = (0..sizes.len()).collect();
-    let whole: Vec<Slot> = all
-        .iter()
-        .map(|&tab| Slot {
-            tab,
-            width: sizes[tab].whole(bar.widest),
-            title: Title::Full,
-        })
-        .collect();
-    let gaps = bar.gap * all.len().saturating_sub(1) as f32;
-    if whole.iter().map(|slot| slot.width).sum::<f32>() + gaps <= bar.room {
+    let even = width(all.len(), bar.room);
+    if even >= bar.least {
         return Fit {
-            shown: whole,
+            shown: slots(&all, even),
             hidden: Vec::new(),
-            roomy: true,
-        };
-    }
-    if total(&all, bar.least) <= bar.room {
-        return Fit {
-            shown: squeeze(&all, bar.room),
-            hidden: Vec::new(),
-            roomy: false,
         };
     }
     let room = bar.room - bar.gap - bar.more;
-    let mut used = at(active, bar.least).0;
-    let mut kept = vec![active];
-    for tab in all.iter().copied().filter(|&tab| tab != active) {
-        let width = at(tab, bar.least).0;
-        if used + bar.gap + width > room {
-            break;
-        }
-        used += bar.gap + width;
-        kept.push(tab);
-    }
+    // `count` tabs at the least width take `count` widths and a gap fewer.
+    let count = ((room + bar.gap) / (bar.least + bar.gap)).floor().max(1.0) as usize;
+    let mut kept: Vec<usize> = all
+        .iter()
+        .copied()
+        .filter(|&tab| tab != active)
+        .take(count - 1)
+        .collect();
+    kept.push(active);
     kept.sort_unstable();
     Fit {
-        shown: squeeze(&kept, room),
+        shown: slots(&kept, width(kept.len(), room).max(bar.least)),
         hidden: all.into_iter().filter(|tab| !kept.contains(tab)).collect(),
-        roomy: false,
     }
 }
 
@@ -336,8 +298,8 @@ mod tests {
     const BAR: Bar = Bar {
         room: 0.0,
         gap: 4.0,
-        widest: 220.0,
-        least: 78.0,
+        widest: 180.0,
+        least: 110.0,
         more: 40.0,
     };
 
@@ -353,7 +315,7 @@ mod tests {
             .collect()
     }
 
-    /// Seven tabs: the least width each, 78, but the third whole at 112 and the last at 176.
+    /// Seven tabs, the active one among them included.
     fn seven() -> Vec<TabSize> {
         sizes(&[
             (12, 7),
@@ -370,54 +332,81 @@ mod tests {
         fit.shown.iter().map(|slot| slot.tab).collect()
     }
 
+    fn widths(fit: &Fit) -> Vec<f32> {
+        fit.shown.iter().map(|slot| slot.width).collect()
+    }
+
     #[test]
-    fn tabs_that_fit_stay_whole() {
-        // 136, 136, 112: 392 with the gaps.
-        let tabs = sizes(&[(12, 7), (12, 8), (9, 5)]);
-        let fit = fit(&tabs, 2, &Bar { room: 392.0, ..BAR });
-        assert!(fit.roomy);
+    fn with_room_every_tab_is_the_base_width_whatever_its_title() {
+        // Titles of 3, 12 and 17 letters: 64, 136 and 176 points whole.
+        let tabs = sizes(&[(3, 3), (12, 7), (17, 11)]);
+        let fit = fit(
+            &tabs,
+            1,
+            &Bar {
+                room: 1000.0,
+                ..BAR
+            },
+        );
         assert!(fit.hidden.is_empty());
+        assert_eq!(widths(&fit), [180.0, 180.0, 180.0]);
         assert!(fit.shown.iter().all(|slot| slot.title == Title::Full));
-        assert_eq!(fit.shown[0].width, 136.0);
+        // A title wider than the base width drops to its distinct part, the active one too.
+        let tabs = sizes(&[(20, 7), (20, 5)]);
+        let fit = super::fit(
+            &tabs,
+            1,
+            &Bar {
+                room: 1000.0,
+                ..BAR
+            },
+        );
+        assert_eq!(widths(&fit), [180.0, 180.0]);
+        assert_eq!(fit.shown[0].title, Title::Short);
+        assert_eq!(fit.shown[1].title, Title::Short);
     }
 
     #[test]
-    fn short_of_room_the_others_drop_to_their_distinct_part_and_the_active_stays_whole() {
+    fn short_of_room_every_tab_narrows_together() {
         let tabs = sizes(&[(12, 7), (12, 8), (9, 5)]);
-        // Short: 96 and 104, the active 112, and the gaps: 320.
-        let fit = fit(&tabs, 2, &Bar { room: 320.0, ..BAR });
-        assert!(!fit.roomy);
+        // Three at 120 and the gaps.
+        let fit = fit(
+            &tabs,
+            2,
+            &Bar {
+                room: 3.0 * 120.0 + 2.0 * 4.0,
+                ..BAR
+            },
+        );
+        assert!(fit.hidden.is_empty());
+        assert_eq!(widths(&fit), [120.0, 120.0, 120.0]);
+        // 136 whole does not fit in 120, 96 short does; the active one's 112 whole does.
         let titles: Vec<Title> = fit.shown.iter().map(|slot| slot.title).collect();
         assert_eq!(titles, [Title::Short, Title::Short, Title::Full]);
-        let widths: Vec<f32> = fit.shown.iter().map(|slot| slot.width).collect();
-        assert_eq!(widths, [96.0, 104.0, 112.0]);
     }
 
     #[test]
-    fn short_of_room_no_other_tab_keeps_its_whole_title_even_where_it_would_fit() {
-        // Whole: 136, 88 and the active 112, 344 with the gaps; short: 96 and 72.
-        let tabs = sizes(&[(12, 7), (6, 4), (9, 5)]);
-        let fit = fit(&tabs, 2, &Bar { room: 320.0, ..BAR });
-        let titles: Vec<Title> = fit.shown.iter().map(|slot| slot.title).collect();
-        assert_eq!(titles, [Title::Short, Title::Short, Title::Full]);
-        let widths: Vec<f32> = fit.shown.iter().map(|slot| slot.width).collect();
-        assert_eq!(widths, [96.0, 72.0, 112.0]);
+    fn narrowed_titles_drop_to_their_distinct_part_then_are_cut() {
+        let tab = sizes(&[(12, 9)])[0];
+        assert_eq!(tab.title(136.0), Title::Full);
+        assert_eq!(tab.title(135.0), Title::Short);
+        assert_eq!(tab.title(112.0), Title::Short);
+        assert_eq!(tab.title(111.0), Title::Squeezed(71.0));
     }
 
     #[test]
-    fn shorter_still_they_are_cut_to_an_even_width_but_never_under_the_least() {
-        let tabs = sizes(&[(12, 7), (12, 8), (9, 5), (3, 3)]);
-        // The active 112, the three-letter one at 64, two cut to 80 each, and the gaps.
-        let room = 112.0 + 64.0 + 2.0 * 80.0 + 3.0 * 4.0;
+    fn they_narrow_to_the_least_width_and_no_further() {
+        let tabs = seven();
+        // Seven at the least, and the gaps: all of them still.
+        let room = 7.0 * 110.0 + 6.0 * 4.0;
         let fit = fit(&tabs, 2, &Bar { room, ..BAR });
         assert!(fit.hidden.is_empty());
-        let slot = fit.shown[0];
-        assert!((slot.width - 80.0).abs() < 0.01, "{slot:?}");
-        assert!(matches!(slot.title, Title::Squeezed(text) if (text - 40.0).abs() < 0.01));
-        assert_eq!(fit.shown[2].title, Title::Full);
-        assert_eq!(fit.shown[3].title, Title::Short);
-        assert!(fit.shown.iter().all(|slot| slot.width >= 64.0));
-        // A little less room: one waits behind `+N` rather than any narrowing under the least.
+        assert!(
+            widths(&fit)
+                .iter()
+                .all(|&width| (width - 110.0).abs() < 0.01)
+        );
+        // A little less: some wait behind `+N` rather than any narrowing under it.
         let fit = super::fit(
             &tabs,
             2,
@@ -426,58 +415,43 @@ mod tests {
                 ..BAR
             },
         );
-        assert_eq!(fit.hidden, [3]);
-        assert!(fit.shown.iter().all(|slot| slot.width >= 78.0));
+        assert!(!fit.hidden.is_empty());
+        assert!(widths(&fit).iter().all(|&width| width >= 110.0));
     }
 
     #[test]
     fn with_no_room_at_the_least_width_the_rest_wait_behind_more() {
         let tabs = seven();
-        // The active, two others, the `+N` button and the gaps.
-        let room = 112.0 + 2.0 * 78.0 + 40.0 + 3.0 * 4.0;
+        // Three at the least, the `+N` button and the gaps.
+        let room = 3.0 * 110.0 + 40.0 + 3.0 * 4.0;
         let fit = fit(&tabs, 2, &Bar { room, ..BAR });
         assert_eq!(order(&fit), [0, 1, 2]);
         assert_eq!(fit.hidden, [3, 4, 5, 6]);
-        assert_eq!(fit.shown[2].title, Title::Full);
+        assert_eq!(widths(&fit), [110.0, 110.0, 110.0]);
+    }
+
+    #[test]
+    fn tabs_kept_beside_more_share_the_room_it_leaves_evenly() {
+        let tabs = seven();
+        // Room for three at the least and a little over, not enough for a fourth.
+        let room = 3.0 * 110.0 + 40.0 + 3.0 * 4.0 + 60.0;
+        let fit = fit(&tabs, 2, &Bar { room, ..BAR });
+        assert_eq!(order(&fit), [0, 1, 2]);
+        assert_eq!(widths(&fit), [130.0, 130.0, 130.0]);
     }
 
     #[test]
     fn the_active_tab_is_never_behind_more_it_takes_the_last_place_shown() {
         let tabs = seven();
-        let room = 112.0 + 2.0 * 78.0 + 40.0 + 3.0 * 4.0;
-        // The last tab active, wider than the others: the first two and it.
-        let fit = fit(
-            &tabs,
-            6,
-            &Bar {
-                room: room + 64.0,
-                ..BAR
-            },
-        );
+        let room = 3.0 * 110.0 + 40.0 + 3.0 * 4.0;
+        let fit = fit(&tabs, 6, &Bar { room, ..BAR });
         assert_eq!(order(&fit), [0, 1, 6]);
         assert_eq!(fit.hidden, [2, 3, 4, 5]);
-        assert_eq!(fit.shown[2].title, Title::Full);
-        assert_eq!(fit.shown[2].width, 176.0);
-        // No room for anything beside it: it alone.
+        assert_eq!(widths(&fit), [110.0, 110.0, 110.0]);
+        // No room for anything beside it: it alone, at the least width.
         let fit = super::fit(&tabs, 4, &Bar { room: 60.0, ..BAR });
         assert_eq!(order(&fit), [4]);
         assert_eq!(fit.hidden, [0, 1, 2, 3, 5, 6]);
-    }
-
-    #[test]
-    fn tabs_kept_beside_more_share_the_room_it_leaves() {
-        let tabs = seven();
-        // Room for the active and two others at the least, and a little over.
-        let room = 112.0 + 2.0 * 78.0 + 40.0 + 3.0 * 4.0 + 40.0;
-        let fit = fit(&tabs, 2, &Bar { room, ..BAR });
-        assert_eq!(order(&fit), [0, 1, 2]);
-        let used: f32 = fit.shown.iter().map(|slot| slot.width).sum::<f32>() + 2.0 * 4.0;
-        assert!(used <= room - 40.0 - 4.0 + 0.01);
-        // The first drops to its distinct part, 96; the second is cut to the room left.
-        assert_eq!(fit.shown[0].title, Title::Short);
-        assert_eq!(
-            fit.shown[1].title,
-            Title::Squeezed(fit.shown[1].width - 40.0)
-        );
+        assert_eq!(widths(&fit), [110.0]);
     }
 }

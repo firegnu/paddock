@@ -1,6 +1,7 @@
-//! The title bar's working tabs run a light round their capsule's edge (P5-163): the whole edge a
-//! pale wash of the working colour, a tail brightening towards a near-white head that goes once
-//! round in about 2.5 seconds, and every working tab on the same beat.
+//! The active tab's working light (P5-163): while the agent it is named after works, the whole
+//! edge is a pale wash of the working colour and a tail brightening towards a near-white head goes
+//! once along it in about 2.5 seconds: along the outline joining it to the panel under it
+//! (P5-165), else round its capsule. The tabs not active no longer run one (P5-165 rework 1).
 use super::*;
 use gpui::PathBuilder;
 
@@ -17,8 +18,6 @@ const AFTER_BANDS: usize = 4;
 const OVERLAP: f32 = 0.0015;
 /// The points the pale edge is sampled at.
 const STEPS: usize = 72;
-/// An unselected working tab's light, dimmed to this.
-pub(super) const DIM: f32 = 0.6;
 /// The edge's weight, a little over the capsule's ring so the light reads.
 const WEIGHT: f32 = TAB_RING + 0.5;
 /// The pale edge's strength, and how much of the head's near-white is the working colour.
@@ -56,25 +55,6 @@ pub(super) fn edge_point(t: f32, width: f32, height: f32) -> (f32, f32) {
     along -= straight;
     let angle = std::f32::consts::FRAC_PI_2 + along / radius;
     (radius + radius * angle.cos(), radius + radius * angle.sin())
-}
-
-/// The light's edge over the capsule, `id` telling this tab's light from another's: in `ink`, the
-/// working colour, at `dim` of its strength (`DIM` for an unselected tab), its weight scaled by
-/// `scale`.
-pub(super) fn edge(id: usize, ink: Hsla, dim: f32, scale: f32) -> impl IntoElement {
-    let head = head(ink);
-    div()
-        .absolute()
-        .inset_0()
-        .with_animation(("orbit", id), beat(), move |edge, phase| {
-            edge.child(
-                canvas(
-                    |_, _, _| {},
-                    move |bounds, _, window, _| paint(bounds, phase, ink, head, dim, scale, window),
-                )
-                .size_full(),
-            )
-        })
 }
 
 /// The beat every light keeps: once round in [`PERIOD`], all of them together.
