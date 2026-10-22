@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>Joined tab states</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+.cap{display:flex;align-items:baseline;gap:12px;font-size:13px;color:#cfd6e2}
+.cap b{font-weight:600;color:#eef1f7;flex:none}
+.cap span{color:#8b93a1;font-size:12.5px;line-height:18px}
+.win{position:relative;width:1040px;height:180px;border-radius:12px;overflow:hidden;background:#181b22;box-shadow:0 0 0 1px rgba(255,255,255,0.07)}
+.win.full{background:#121418}
+.side{position:absolute;left:0;top:0;bottom:0;width:200px;background:#1d2129}
+.full .side{background:#181b21}
+.lights{position:absolute;left:14px;top:14px;display:flex;gap:8px}
+.lights span{width:12px;height:12px;border-radius:6px}
+.cards{position:absolute;left:10px;right:10px;top:48px;display:flex;flex-direction:column;gap:6px}
+.card{display:flex;align-items:center;gap:9px;height:40px;padding:0 10px;border-radius:10px;background:rgba(255,255,255,0.05);font-size:12.5px;color:#c3cad6}
+.card.sel{background:rgba(126,162,238,0.11);box-shadow:inset 0 0 0 1px rgba(126,162,238,0.42);color:#eef1f7}
+.panel{position:absolute;left:208px;top:40px;right:8px;bottom:8px;box-sizing:border-box;background:#23272f;border:1px solid #373b43;border-radius:12px;overflow:hidden}
+.rcard{position:absolute;top:40px;right:8px;bottom:8px;width:292px;box-sizing:border-box;background:#23272f;border:1px solid #30343c;border-radius:10px;padding:8px 12px;font-size:12px;color:#aeb6c4}
+.rrow{display:flex;justify-content:space-between;line-height:22px}
+.phead{display:flex;align-items:center;gap:8px;height:30px;padding:0 12px;font-size:12px;color:#8b93a1}
+.phead b{font-weight:600;color:#c9d1dc}
+.term{padding:2px 16px;font-family:'SF Mono',Menlo,monospace;font-size:12.5px;line-height:20px;color:#c9d1dc;white-space:pre}
+.tabs{position:absolute;top:6px;display:flex;align-items:flex-start;gap:6px;z-index:2}
+.tab{display:inline-flex;align-items:center;gap:7px;height:28px;box-sizing:border-box;padding:0 12px 0 6px;border-radius:14px;font-size:13px;white-space:nowrap;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.07);color:#aeb6c4}
+.full .tab{background:#262b34;border-color:#262b34}
+.tab.working{border-color:rgba(126,162,238,0.45)}
+.tab.more{padding:0 10px;font-size:12.5px;gap:5px}
+.ftab{position:relative;flex:none;width:200px;height:35px;margin-right:8px;color:#eef1f7;font-size:13px;font-weight:600}
+.ftab svg.shape{position:absolute;left:-8px;top:0}
+.ftab .in{position:relative;display:flex;align-items:center;gap:7px;height:28px;padding:0 6px 0 8px;white-space:nowrap}
+.name{overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1}
+.ico{position:relative;flex:none;width:18px;height:18px;border-radius:5px;background:#d97757;display:inline-flex;align-items:center;justify-content:center}
+.ico.sh{background:#3a404b}
+.dot{position:absolute;right:-4px;bottom:-4px;width:6px;height:6px;border-radius:5px;border:2px solid #2a2e36;background:#6b7280}
+.dot.run{background:#7ea2ee}
+.dot.wait{background:#e0b24f}
+.full .tab .dot{border-color:#262b34}
+.ftab .dot{border-color:#23272f}
+.card .dot{border-color:#262a32}
+.x{display:inline-flex;align-items:center;justify-content:center;flex:none;width:18px;height:18px;border-radius:9px}
+.plus{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:14px;color:#8b93a1}
+.tools{position:absolute;right:10px;top:6px;display:flex;align-items:center;gap:6px}
+.pill{display:inline-flex;align-items:center;gap:8px;height:28px;padding:0 10px;border-radius:8px;background:rgba(255,255,255,0.06);font-size:12px;color:#8b93a1}
+.kbd{font-size:11px;padding:1px 5px;border-radius:4px;background:rgba(255,255,255,0.08)}
+.tail{stroke-dasharray:22 200;animation:tail 2.5s linear infinite}
+.head{stroke-dasharray:6 200;animation:head 2.5s linear infinite}
+@keyframes tail{from{stroke-dashoffset:22}to{stroke-dashoffset:-100}}
+@keyframes head{from{stroke-dashoffset:6}to{stroke-dashoffset:-116}}
+@media (prefers-reduced-motion: reduce){.tail,.head{animation:none;stroke-dasharray:none;opacity:0}}
+</style>
+</helmet>
+<div style="width: 1120px; height: 1300px; box-sizing: border-box; padding: 32px 40px; background: #111318; font-family: -apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif; color: #e7ecf3; display: flex; flex-direction: column; gap: 10px">
+  <h1 style="margin: 0 0 14px; font-size: 18px; font-weight: 600">选中标签连窗格 · 各种状态</h1>
+
+  <div class="cap"><b>干活中</b><span>跑马灯（P5-163）改成沿新轮廓走：从左下的小圆角上去、过顶边、到右下，不走底下的交界；没选中的照旧</span></div>
+  <div class="win">
+    <div class="side">
+      <div class="lights"><span style="background: #ff5f57"></span><span style="background: #febc2e"></span><span style="background: #28c840"></span></div>
+      <div class="cards"><div class="card sel"><span class="ico"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4"></path></svg><span class="dot run"></span></span>paddock/main</div></div>
+    </div>
+    <div class="panel">
+      <div class="phead"><b>paddock/main</b><span>~/paddock</span></div>
+      <div class="term"><div><span style="color: #d97757">⏺</span> Update(app/src/window.rs)</div><div style="color: #8b93a1">  ⎿  Updated with 42 additions</div><div style="color: #7ea2ee">✻ Working… (1m 12s)</div></div>
+    </div>
+    <div class="tabs" style="left: 232px">
+      <span class="ftab"><svg class="shape" width="216" height="36" viewBox="0 0 216 36" aria-hidden="true"><path d="M0.5,34.5 A8,8 0 0 0 8.5,26.5 L8.5,10.5 A10,10 0 0 1 18.5,0.5 L197.5,0.5 A10,10 0 0 1 207.5,10.5 L207.5,26.5 A8,8 0 0 0 215.5,34.5 L215.5,36 L0.5,36 Z" fill="#23272f"></path><path d="M0.5,34.5 A8,8 0 0 0 8.5,26.5 L8.5,10.5 A10,10 0 0 1 18.5,0.5 L197.5,0.5 A10,10 0 0 1 207.5,10.5 L207.5,26.5 A8,8 0 0 0 215.5,34.5" fill="none" stroke="rgba(126,162,238,0.32)" stroke-width="1.5"></path><path class="tail" pathLength="100" d="M0.5,34.5 A8,8 0 0 0 8.5,26.5 L8.5,10.5 A10,10 0 0 1 18.5,0.5 L197.5,0.5 A10,10 0 0 1 207.5,10.5 L207.5,26.5 A8,8 0 0 0 215.5,34.5" fill="none" stroke="rgba(126,162,238,0.75)" stroke-width="1.5" stroke-linecap="round"></path><path class="head" pathLength="100" d="M0.5,34.5 A8,8 0 0 0 8.5,26.5 L8.5,10.5 A10,10 0 0 1 18.5,0.5 L197.5,0.5 A10,10 0 0 1 207.5,10.5 L207.5,26.5 A8,8 0 0 0 215.5,34.5" fill="none" stroke="#e4ecff" stroke-width="1.5" stroke-linecap="round"></path></svg><span class="in"><span class="ico"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4"></path></svg><span class="dot run"></span></span><span class="name">paddock/main</span><span class="x"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#c3cad6" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></span></span></span>
+      <span class="tab working"><span class="ico"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4"></path></svg><span class="dot run"></span></span><span class="name">dev-tab-join-1</span></span>
+      <span class="tab"><span class="ico sh"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#cfd6e2" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 7l5 5-5 5M12 18h7"></path></svg></span><span class="name">zsh</span></span>
+    </div>
+    <div class="tools"><span class="pill">Search <span class="kbd">⌘K</span></span></div>
+  </div>
+
+  <div class="cap" style="margin-top: 18px"><b>等人</b><span>琥珀色细边同样沿新轮廓画，不画底下的交界；图标角上的黄点照旧</span></div>
+  <div class="win">
+    <div class="side">
+      <div class="lights"><span style="background: #ff5f57"></span><span style="background: #febc2e"></span><span style="background: #28c840"></span></div>
+      <div class="cards"><div class="card sel"><span class="ico"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4"></path></svg><span class="dot wait"></span></span>paddock/main</div></div>
+    </div>
+    <div class="panel">
+      <div class="phead"><b>paddock/main</b><span>~/paddock</span></div>
+      <div class="term"><div><span style="color: #d97757">⏺</span> 要改的是标题栏的画法，先问一下：</div><div style="color: #e0b24f">  Do you want to proceed?  ❯ 1. Yes   2. No</div></div>
+    </div>
+    <div class="tabs" style="left: 232px">
+      <span class="ftab"><svg class="shape" width="216" height="36" viewBox="0 0 216 36" aria-hidden="true"><path d="M0.5,34.5 A8,8 0 0 0 8.5,26.5 L8.5,10.5 A10,10 0 0 1 18.5,0.5 L197.5,0.5 A10,10 0 0 1 207.5,10.5 L207.5,26.5 A8,8 0 0 0 215.5,34.5 L215.5,36 L0.5,36 Z" fill="#23272f"></path><path d="M0.5,34.5 A8,8 0 0 0 8.5,26.5 L8.5,10.5 A10,10 0 0 1 18.5,0.5 L197.5,0.5 A10,10 0 0 1 207.5,10.5 L207.5,26.5 A8,8 0 0 0 215.5,34.5" fill="none" stroke="rgba(224,178,79,0.6)" stroke-width="1.5"></path></svg><span class="in"><span class="ico"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4"></path></svg><span class="dot wait"></span></span><span class="name">paddock/main</span><span class="x"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#c3cad6" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></span></span></span>
+      <span class="tab"><span class="ico"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4"></path></svg><span class="dot"></span></span><span class="name">ranch/main</span></span>
+    </div>
+    <div class="tools"><span class="pill">Search <span class="kbd">⌘K</span></span></div>
+  </div>
+
+  <div class="cap" style="margin-top: 18px"><b>第一个标签 · 另一个办法</b><span>标签不右移，第一个标签左边直接和面板左边对齐成一条直线，面板左上角变方；选中别的标签时面板左上角恢复圆角</span></div>
+  <div class="win">
+    <div class="side">
+      <div class="lights"><span style="background: #ff5f57"></span><span style="background: #febc2e"></span><span style="background: #28c840"></span></div>
+      <div class="cards"><div class="card sel"><span class="ico"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4"></path></svg><span class="dot"></span></span>paddock/main</div></div>
+    </div>
+    <div class="panel" style="border-top-left-radius: 0">
+      <div class="phead"><b>paddock/main</b><span>~/paddock</span></div>
+      <div class="term"><div><span style="color: #8b93a1">&gt;</span> </div></div>
+    </div>
+    <div class="tabs" style="left: 208px">
+      <span class="ftab"><svg class="shape" style="left: 0" width="208" height="36" viewBox="0 0 208 36" aria-hidden="true"><path d="M0.5,36 L0.5,10.5 A10,10 0 0 1 10.5,0.5 L189.5,0.5 A10,10 0 0 1 199.5,10.5 L199.5,26.5 A8,8 0 0 0 207.5,34.5 L207.5,36 Z" fill="#23272f"></path><path d="M0.5,36 L0.5,10.5 A10,10 0 0 1 10.5,0.5 L189.5,0.5 A10,10 0 0 1 199.5,10.5 L199.5,26.5 A8,8 0 0 0 207.5,34.5" fill="none" stroke="#373b43" stroke-width="1"></path></svg><span class="in"><span class="ico"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4"></path></svg><span class="dot"></span></span><span class="name">paddock/main</span><span class="x"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#c3cad6" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></span></span></span>
+      <span class="tab"><span class="ico"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4"></path></svg><span class="dot run"></span></span><span class="name">dev-tab-join-1</span></span>
+      <span class="tab"><span class="ico sh"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#cfd6e2" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 7l5 5-5 5M12 18h7"></path></svg></span><span class="name">zsh</span></span>
+    </div>
+    <div class="tools"><span class="pill">Search <span class="kbd">⌘K</span></span></div>
+  </div>
+
+  <div class="cap" style="margin-top: 18px"><b>右侧栏开着</b><span>标签区只占窗格面板那么宽，保证选中的标签下面总有面板可连；放不下的进 +N</span></div>
+  <div class="win">
+    <div class="side">
+      <div class="lights"><span style="background: #ff5f57"></span><span style="background: #febc2e"></span><span style="background: #28c840"></span></div>
+      <div class="cards"><div class="card sel"><span class="ico"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4"></path></svg><span class="dot"></span></span>paddock/main</div></div>
+    </div>
+    <div class="panel" style="right: 308px">
+      <div class="phead"><b>paddock/main</b><span>~/paddock</span></div>
+      <div class="term"><div><span style="color: #8b93a1">&gt;</span> </div></div>
+    </div>
+    <div class="rcard"><div class="rrow" style="color: #eef1f7; font-weight: 600"><span>Changes</span><span style="color: #8b93a1; font-weight: 400">3 files</span></div><div class="rrow"><span>app/src/window.rs</span><span><span style="color: #8bc48a">+42</span> <span style="color: #e58c8c">−7</span></span></div><div class="rrow"><span>docs/DESIGN.md</span><span><span style="color: #8bc48a">+6</span></span></div></div>
+    <div class="tabs" style="left: 232px">
+      <span class="ftab"><svg class="shape" width="216" height="36" viewBox="0 0 216 36" aria-hidden="true"><path d="M0.5,34.5 A8,8 0 0 0 8.5,26.5 L8.5,10.5 A10,10 0 0 1 18.5,0.5 L197.5,0.5 A10,10 0 0 1 207.5,10.5 L207.5,26.5 A8,8 0 0 0 215.5,34.5 L215.5,36 L0.5,36 Z" fill="#23272f"></path><path d="M0.5,34.5 A8,8 0 0 0 8.5,26.5 L8.5,10.5 A10,10 0 0 1 18.5,0.5 L197.5,0.5 A10,10 0 0 1 207.5,10.5 L207.5,26.5 A8,8 0 0 0 215.5,34.5" fill="none" stroke="#373b43" stroke-width="1"></path></svg><span class="in"><span class="ico"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4"></path></svg><span class="dot"></span></span><span class="name">paddock/main</span><span class="x"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#c3cad6" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></span></span></span>
+      <span class="tab"><span class="ico"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4"></path></svg><span class="dot run"></span></span><span class="name">dev-tab-join-1</span></span>
+      <span class="tab more">+3<svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg></span>
+      <span class="plus"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg></span>
+    </div>
+    <div class="tools"><span class="pill">Search <span class="kbd">⌘K</span></span></div>
+  </div>
+
+  <div class="cap" style="margin-top: 18px"><b>全屏（不磨砂）</b><span>外框是不透明的深色，没选中的标签照旧是实心胶囊；选中的连法和磨砂时一样</span></div>
+  <div class="win full">
+    <div class="side">
+      <div class="cards" style="top: 10px"><div class="card sel"><span class="ico"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4"></path></svg><span class="dot"></span></span>paddock/main</div></div>
+    </div>
+    <div class="panel">
+      <div class="phead"><b>paddock/main</b><span>~/paddock</span></div>
+      <div class="term"><div><span style="color: #8b93a1">&gt;</span> </div></div>
+    </div>
+    <div class="tabs" style="left: 232px">
+      <span class="ftab"><svg class="shape" width="216" height="36" viewBox="0 0 216 36" aria-hidden="true"><path d="M0.5,34.5 A8,8 0 0 0 8.5,26.5 L8.5,10.5 A10,10 0 0 1 18.5,0.5 L197.5,0.5 A10,10 0 0 1 207.5,10.5 L207.5,26.5 A8,8 0 0 0 215.5,34.5 L215.5,36 L0.5,36 Z" fill="#23272f"></path><path d="M0.5,34.5 A8,8 0 0 0 8.5,26.5 L8.5,10.5 A10,10 0 0 1 18.5,0.5 L197.5,0.5 A10,10 0 0 1 207.5,10.5 L207.5,26.5 A8,8 0 0 0 215.5,34.5" fill="none" stroke="#373b43" stroke-width="1"></path></svg><span class="in"><span class="ico"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4"></path></svg><span class="dot"></span></span><span class="name">paddock/main</span><span class="x"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#c3cad6" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></span></span></span>
+      <span class="tab"><span class="ico"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4"></path></svg><span class="dot run"></span></span><span class="name">dev-tab-join-1</span></span>
+      <span class="tab"><span class="ico sh"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#cfd6e2" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 7l5 5-5 5M12 18h7"></path></svg></span><span class="name">zsh</span></span>
+    </div>
+    <div class="tools"><span class="pill">Search <span class="kbd">⌘K</span></span></div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1120,"height":1300}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>
