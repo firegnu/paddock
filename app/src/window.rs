@@ -541,7 +541,8 @@ const BAR_END: f32 = 10.0;
 /// cross drawn in it; its ring, drawn clear where it has none so every title sits alike, and the
 /// room between tabs, both unscaled; every tab's width while there is room, and the least they
 /// narrow to (P5-165 rework 1: every tab as wide as the others). Rework 2 set the room as the
-/// reference has it: 10 before the icon, 6 after it, the cross 9 in from the tab's right edge.
+/// reference has it: 10 before the icon, 6 after it, the cross 9 in from the tab's right edge,
+/// itself 7.5 across in a line a little thinner than the footer's icons'.
 const TAB_HEIGHT: f32 = 28.0;
 const TAB_TEXT: f32 = 13.0;
 const TAB_START: f32 = 8.0;
@@ -549,7 +550,8 @@ const TAB_GAP: f32 = 5.0;
 const TAB_END: f32 = 12.0;
 const ACTIVE_TAB_END: f32 = 4.0;
 const TAB_CLOSE: f32 = 16.0;
-const TAB_CROSS: f32 = 8.0;
+const TAB_CROSS: f32 = 7.5;
+const TAB_CROSS_LINE: f32 = 1.0;
 /// The tabs not active and the `+N`, flat on the bar (P5-165 rework 1): the faint ground under the
 /// mouse, as strong a tint of the text's colour as the sidebar's cards' edge (P5-97), and its
 /// corners.
@@ -639,6 +641,27 @@ fn tab_chrome(panes: usize, empty: bool, paused: bool, inline: bool, s: f32) -> 
         TAB_END
     };
     (TAB_START + badge + TAB_GAP + pause + end) * s + 2.0 * TAB_RING
+}
+
+/// A tab's ×: a cross `TAB_CROSS` points across, its arms `TAB_CROSS_LINE` thick, times `scale`
+/// (P5-165 rework 2).
+fn tab_cross(color: Hsla, scale: f32) -> impl IntoElement {
+    let size = TAB_CROSS * scale;
+    canvas(
+        |_, _, _| {},
+        move |bounds, _, window, _| {
+            let at = |x: f32, y: f32| bounds.origin + point(px(x * size), px(y * size));
+            let mut cross = gpui::PathBuilder::stroke(px(TAB_CROSS_LINE * scale));
+            cross.move_to(at(0.0, 0.0));
+            cross.line_to(at(1.0, 1.0));
+            cross.move_to(at(1.0, 0.0));
+            cross.line_to(at(0.0, 1.0));
+            if let Ok(cross) = cross.build() {
+                window.paint_path(cross, color);
+            }
+        },
+    )
+    .size(px(size))
 }
 
 /// A pane header's split buttons' mark, `footer_icon::SIZE` points square times `scale`: a frame
@@ -4868,12 +4891,7 @@ impl PaddockWindow {
                     let top = px(ui.scale((TAB_HEIGHT - TAB_CLOSE) / 2.0) - TAB_RING);
                     close.absolute().top(top).right(ui.px(ACTIVE_TAB_END))
                 })
-                // A thin cross, `TAB_CROSS` across as the footer's icons are measured.
-                .child(footer_icon::icon(
-                    Icon::Close,
-                    self.fg(|t| t.muted),
-                    scale * TAB_CROSS / footer_icon::SIZE,
-                ))
+                .child(tab_cross(self.fg(|t| t.muted), scale))
                 .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                     cx.stop_propagation();
                     this.close_tab(index, window, cx);
@@ -8310,11 +8328,9 @@ mod tests {
         let one = TAB_START + icon + TAB_GAP + TAB_END + 2.0 * TAB_RING;
         assert_eq!(around(1), 43.0);
         assert_eq!(around(1), one);
-        // In line, the × at the end: its cross's right edge 9 in from the tab's.
-        assert_eq!(
-            TAB_RING + ACTIVE_TAB_END + (TAB_CLOSE - TAB_CROSS) / 2.0,
-            9.0
-        );
+        // In line, the × at the end: its cross's right end about 9 in from the tab's.
+        let cross_end = TAB_RING + ACTIVE_TAB_END + (TAB_CLOSE - TAB_CROSS) / 2.0;
+        assert!((cross_end - 9.0).abs() <= 0.25, "{cross_end}");
         assert_eq!(
             tab_chrome(1, false, false, true, 1.0),
             one - TAB_END + TAB_GAP + TAB_CLOSE + ACTIVE_TAB_END
