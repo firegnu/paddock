@@ -59,7 +59,7 @@ use objc2::{MainThreadMarker, rc::Retained};
 use objc2_app_kit::{NSView, NSWindow};
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use std::{
-    cell::RefCell,
+    cell::{Cell, RefCell},
     collections::HashMap,
     path::PathBuf,
     rc::Rc,
@@ -336,6 +336,8 @@ enum Spot {
     Tab,
     /// A pane's place in the split while it grows to fill the tab or goes back.
     Slot(PaneId),
+    /// The active tab in the title bar, inside its ring (P5-165).
+    ActiveTab,
 }
 
 /// Every word of `query` in the agent's full name (its project, then its own), ignoring case.
@@ -1266,6 +1268,10 @@ pub struct PaddockWindow {
     /// Where the `+`, the split icon and the panes were last drawn, for the panels that hang from
     /// them.
     spots: Rc<RefCell<HashMap<Spot, Bounds<Pixels>>>>,
+    /// What the active tab joins this frame, worked out once the panes are laid out (P5-165),
+    /// and whether it joined one last frame, for what is chosen before that.
+    joint: Rc<Cell<Option<join::Joint>>>,
+    joined: Rc<Cell<bool>>,
     /// The tab under the mouse and since when, and the one it last left and when: their ×
     /// fades in and out.
     tab_hover: Option<(usize, Instant)>,
@@ -1346,6 +1352,8 @@ struct Seat {
 mod ctl;
 #[path = "window_inbox.rs"]
 mod inbox_panel;
+#[path = "window_join.rs"]
+mod join;
 #[path = "window_motion.rs"]
 mod moving;
 #[path = "window_orbit.rs"]
@@ -1485,6 +1493,8 @@ impl PaddockWindow {
             new_agent: None,
             remote_agent: None,
             spots: Rc::default(),
+            joint: Rc::default(),
+            joined: Rc::default(),
             tab_hover: None,
             tab_left: None,
             palette: None,
@@ -4410,15 +4420,14 @@ impl PaddockWindow {
             .border_color(self.fg(|t| t.agents_text).opacity(RIM))
     }
 
-    /// A pane's panel on the frame: the terminal's ground, rounded, with a rim, a step brighter for
-    /// the active pane among several: `rim` opaque, [`PANEL_RIM_ACTIVE`] or [`PANEL_RIM`], or between
-    /// as it changes (P5-148a).
-    fn panel(&self, rim: f32) -> Div {
+    /// A pane's panel on the frame: the terminal's ground, rounded, with room for its rim, which
+    /// [`Self::panel_rim`] draws over it, left open where the active tab joins it (P5-165).
+    fn panel(&self) -> Div {
         div()
             .rounded(px(PANEL_RADIUS))
             .bg(hsla(self.theme.terminal().background, 1.0))
             .border_1()
-            .border_color(self.fg(|t| t.agents_text).opacity(rim))
+            .border_color(gpui::transparent_black())
     }
 
     fn highlight(&self) -> Hsla {
@@ -4633,6 +4642,8 @@ impl PaddockWindow {
         let room = f32::from(window.viewport_size().width)
             - self.bar_left_now(full_screen, &ui)
             - 2.0 * BAR_END
+            // The tabs begin clear of the panel's rounded corner (P5-165).
+            - self.tabs_inset(full_screen, &ui)
             // Between the tabs, the `+`, the pet's room, the split icon, Search and the right
             // sidebar's switch; the pet's room keeps a little more.
             - 5.0 * BAR_GAP
@@ -4747,7 +4758,7 @@ impl PaddockWindow {
         full_screen: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
-    ) -> Stateful<Div> {
+    ) -> (Stateful<Div>, Option<join::TabLook>) {
         let ui = UiFont::get(cx);
         let scale = ui.scale(1.0);
         let highlight = self.bar_ground();
@@ -4760,7 +4771,10 @@ impl PaddockWindow {
         let frosted = self.frosted();
         // A press on a tab or a button is theirs, not the start of a drag.
         let keep = |_: &MouseDownEvent, _: &mut Window, cx: &mut gpui::App| cx.stop_propagation();
-        let mut tabs = div()
+        // The tabs begin clear of the panel's rounded corner, with room either side for the
+        // active tab's curves where it joins the panel, which the `+` takes back (P5-165).
+        let flare = self.tab_flare(&ui);
+        let tabs = div()
             .id("tabs")
             .flex()
             .items_center()
@@ -4768,8 +4782,12 @@ impl PaddockWindow {
             .min_w(px(0.0))
             .flex_shrink(1.0)
             .h_full()
+            .pl(px(self.tabs_inset(full_screen, &ui)))
+            .pr(px(flare))
             .overflow_x_scroll()
             .track_scroll(&self.tabs);
+        let mut items = Vec::new();
+        let mut look = None;
         for shown in fit.shown {
             let index = shown.index;
             let tab = &self.workspace.tabs[index];
@@ -4784,11 +4802,12 @@ impl PaddockWindow {
             // through. The active one's always shows; the others' fade in only while the mouse is
             // on the tab. Seen through, its ground is the capsule's.
             let inline = active || frosted;
-            let under = if active { chosen } else { lit };
-            let (under, pressed) = if frosted {
+            // The active tab's ground lies under its whole row (see `join::tab_ground`), the
+            // capsule's or the terminal's, which shows through.
+            let (under, pressed) = if frosted || active {
                 (gpui::transparent_black(), hsla(muted, 0.18))
             } else {
-                (under, under.blend(hsla(muted, 0.18)))
+                (lit, lit.blend(hsla(muted, 0.18)))
             };
             let close = div()
                 .id(("close-tab", index))
@@ -4841,11 +4860,28 @@ impl PaddockWindow {
             } else {
                 self.capsule_edge()
             };
+            // The active tab's ground, ring and light are drawn under the tabs, joined to the
+            // panel under it or as its capsule (P5-165): joined, its edge takes its status colour
+            // or the working light, else the panel's rim.
+            if active {
+                look = Some(join::TabLook {
+                    light,
+                    tint: tint.map(|pick| self.fg(pick)),
+                    ground: chosen,
+                    ring,
+                });
+            }
             // The active pane's icon and status dot; in a split tab, its panes' cards in a stack,
             // which tells how many they are on hover. The dot's ring keeps the capsule's whole
-            // colour, seen through or not, to stand off the icon.
+            // colour, seen through or not, to stand off the icon; joined, the terminal's ground,
+            // as last drawn.
             let (ground, hovered) = if active {
-                (whole.chosen, None)
+                let ground = if self.joined.get() {
+                    hsla(self.theme.terminal().background, 1.0)
+                } else {
+                    whole.chosen
+                };
+                (ground, None)
             } else {
                 let group = SharedString::from(format!("tab-{index}"));
                 (whole.rest, Some((group, whole.lit)))
@@ -4878,13 +4914,8 @@ impl PaddockWindow {
                 .id(("tab", index))
                 .group(SharedString::from(format!("tab-{index}")))
                 .relative()
-                .when_some(light, |item, ink| {
-                    item.child(orbit::edge(
-                        index,
-                        ink,
-                        if active { 1.0 } else { orbit::DIM },
-                        scale,
-                    ))
+                .when_some(light.filter(|_| !active), |item, ink| {
+                    item.child(orbit::edge(index, ink, orbit::DIM, scale))
                 })
                 .max_w(ui.px(TAB_WIDEST))
                 .flex()
@@ -4894,7 +4925,11 @@ impl PaddockWindow {
                 .pl(ui.px(TAB_START))
                 .rounded_full()
                 .border(px(TAB_RING))
-                .border_color(ring)
+                .border_color(if active {
+                    gpui::transparent_black()
+                } else {
+                    ring
+                })
                 .text_size(ui.px(TAB_TEXT))
                 .cursor_pointer()
                 .on_mouse_down(MouseButton::Left, keep)
@@ -4929,7 +4964,7 @@ impl PaddockWindow {
             item = if active {
                 item.flex_shrink_0()
                     .pr(ui.px(ACTIVE_TAB_END))
-                    .bg(chosen)
+                    .child(self.spot(Spot::ActiveTab))
                     .text_color(loud)
                     // The short name heavier; a faint group before it stays regular.
                     .font_weight(FontWeight::SEMIBOLD)
@@ -4958,10 +4993,14 @@ impl PaddockWindow {
                 };
                 item = item.tooltip(move |_, cx| cx.new(|_| tip.clone()).into());
             }
-            tabs = tabs.child(item.child(close).on_click(cx.listener(
+            items.push(item.child(close).on_click(cx.listener(
                 move |this, _: &ClickEvent, window, cx| this.select_tab(index, window, cx),
             )));
         }
+        // The active tab's ground first, under the tabs.
+        let mut tabs = tabs
+            .children(look.map(|look| self.tab_ground(look, &ui)))
+            .children(items);
         if !fit.hidden.is_empty() {
             tabs = tabs.child(self.more_button(fit.hidden.len(), fit.more, fit.waiting, cx));
         }
@@ -5020,7 +5059,7 @@ impl PaddockWindow {
                 left.pr(px(HEAD_END * (1.0 - folded)))
             })
             .child(head);
-        div()
+        let bar = div()
             .id("title-bar")
             .flex_shrink_0()
             .flex()
@@ -5057,7 +5096,8 @@ impl PaddockWindow {
                     .pl(px(BAR_END))
                     .pr(px(BAR_END))
                     .child(tabs)
-                    .child(new_tab)
+                    // Over the room the tabs keep for the last one's curve.
+                    .child(div().flex_shrink_0().ml(px(-flare)).child(new_tab))
                     // Spare room, where the pet walks along the terminal's top edge.
                     .child(
                         div()
@@ -5070,7 +5110,8 @@ impl PaddockWindow {
                     .child(self.split_button(cx))
                     .child(self.search_button(cx))
                     .child(self.right_button(cx)),
-            )
+            );
+        (bar, look)
     }
 
     /// The `+N` capsule after the tabs for the `count` with no room in the title bar, `width`
@@ -5601,7 +5642,10 @@ impl PaddockWindow {
         } else {
             (8.0, 8.0, 12.0)
         };
-        self.panel(self.pane_rim(pane, shown, active))
+        // A step brighter for the active pane among several: [`PANEL_RIM_ACTIVE`] or
+        // [`PANEL_RIM`], or between as it changes (P5-148a).
+        let rim = self.pane_rim(pane, shown, active);
+        self.panel()
             .when(opacity < 1.0, |this| this.opacity(opacity))
             .id(("pane", pane as usize))
             .group(SharedString::from(format!("pane-{pane}")))
@@ -5653,6 +5697,7 @@ impl PaddockWindow {
             .when(signal.glow > 0.0, |this| {
                 this.child(signals::rim(signal.glow, self.fg(|t| t.agents_yellow)))
             })
+            .child(self.panel_rim(pane, rim))
             .into_any_element()
     }
 
@@ -7429,6 +7474,12 @@ impl Render for PaddockWindow {
                 (tab.root.clone(), tab.panes().len())
             }
         };
+        // The panels drawn, the topmost last, for the active tab to join the one under it (P5-165).
+        let panes = match (self.workspace.zoomed(), growing) {
+            (Some(pane), None) => vec![pane],
+            _ => self.workspace.tab().panes(),
+        };
+        let drawn = self.drawn(&panes, growing.map(|(pane, _)| pane), shown);
         let agents = self.sidebar.read(cx).agents();
         let now = now();
         // A tab switched to fades in as it moves over from its side, its size kept (P5-154).
@@ -7592,6 +7643,7 @@ impl Render for PaddockWindow {
         // One closing fades out under the one on show (P5-148a).
         let leaving = self.leaving_layer(window.is_fullscreen(), window, cx);
         let dialog = self.popup_layer(&hidden, window, cx);
+        let (bar, look) = self.title_bar(&agents, now, window.is_fullscreen(), window, cx);
         ui.apply(div())
             .relative()
             .size_full()
@@ -7734,10 +7786,12 @@ impl Render for PaddockWindow {
             .on_action(
                 cx.listener(|this, _: &menu::Cancel, window, cx| this.close_popup(window, cx)),
             )
-            .child(self.title_bar(&agents, now, window.is_fullscreen(), window, cx))
+            .child(bar)
             .child(body)
-            // Over the panes, under what is drawn over the window.
+            // Over the panes, under what is drawn over the window: the rim sliding between them,
+            // then the active tab's outline where it joins one (P5-165).
             .children(self.rim_layer())
+            .children(look.map(|look| self.join_layer(drawn, look, height, &ui)))
             .children(leaving)
             .children(dialog)
             // While a divider is dragged the cursor keeps its shape, and nothing under it

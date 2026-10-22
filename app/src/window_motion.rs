@@ -18,7 +18,7 @@ const MOVE_CURVE: Curve = Curve(0.2, 0.8, 0.2, 1.0);
 const FOCUS: Duration = Duration::from_millis(200);
 /// How opaque the sliding rim is: over a pane's own rim it makes the active pane's, as a still
 /// one is drawn; between panes, fainter.
-const SLIDING_RIM: f32 = 1.0 - (1.0 - PANEL_RIM_ACTIVE) / (1.0 - PANEL_RIM);
+pub(super) const SLIDING_RIM: f32 = 1.0 - (1.0 - PANEL_RIM_ACTIVE) / (1.0 - PANEL_RIM);
 
 /// Whether the popup on show stays the one that came in when it turns from `a` to `b`: the split
 /// panel turned to another side does.
@@ -50,7 +50,7 @@ fn between(from: Bounds<Pixels>, to: Bounds<Pixels>, t: f32) -> Bounds<Pixels> {
 }
 
 /// A pane's panel from where it noted itself: its spot lies inside the rim.
-fn panel_bounds(spot: Bounds<Pixels>) -> Bounds<Pixels> {
+pub(super) fn panel_bounds(spot: Bounds<Pixels>) -> Bounds<Pixels> {
     Bounds::new(
         point(spot.origin.x - px(1.0), spot.origin.y - px(1.0)),
         size(spot.size.width + px(2.0), spot.size.height + px(2.0)),
@@ -594,19 +594,28 @@ impl PaddockWindow {
         Some(between(from, to, went))
     }
 
-    /// The active pane's rim on its way from the pane that had the keys, over the panes (3B).
-    pub(super) fn rim_layer(&self) -> Option<Div> {
-        let at = self.sliding_rim(self.motion.frame)?;
+    /// Where the sliding rim is this frame, while it slides.
+    pub(super) fn sliding_now(&self) -> Option<Bounds<Pixels>> {
+        self.sliding_rim(self.motion.frame)
+    }
+
+    /// The active pane's rim on its way from the pane that had the keys, over the panes (3B); left
+    /// open, as the panel's own, where the active tab joins a panel (P5-165).
+    pub(super) fn rim_layer(&self) -> Option<impl IntoElement> {
+        let at = self.sliding_now()?;
+        let color = self.fg(|t| t.agents_text).opacity(SLIDING_RIM);
+        let joint = self.joint.clone();
         Some(
-            div()
-                .absolute()
-                .left(at.origin.x)
-                .top(at.origin.y)
-                .w(at.size.width)
-                .h(at.size.height)
-                .rounded(px(PANEL_RADIUS))
-                .border_1()
-                .border_color(self.fg(|t| t.agents_text).opacity(SLIDING_RIM)),
+            canvas(
+                |_, _, _| {},
+                move |_, _, window, _| {
+                    join::paint_rim(at, color, joint.get().map(|j| j.shape), window)
+                },
+            )
+            .absolute()
+            .top_0()
+            .left_0()
+            .size_full(),
         )
     }
 

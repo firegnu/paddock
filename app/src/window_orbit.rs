@@ -62,11 +62,11 @@ pub(super) fn edge_point(t: f32, width: f32, height: f32) -> (f32, f32) {
 /// working colour, at `dim` of its strength (`DIM` for an unselected tab), its weight scaled by
 /// `scale`.
 pub(super) fn edge(id: usize, ink: Hsla, dim: f32, scale: f32) -> impl IntoElement {
-    let head = gpui::white().blend(ink.opacity(HEAD_TINT));
-    div().absolute().inset_0().with_animation(
-        ("orbit", id),
-        Animation::new(PERIOD).repeat_synced().with_max_fps(FPS),
-        move |edge, phase| {
+    let head = head(ink);
+    div()
+        .absolute()
+        .inset_0()
+        .with_animation(("orbit", id), beat(), move |edge, phase| {
             edge.child(
                 canvas(
                     |_, _, _| {},
@@ -74,13 +74,22 @@ pub(super) fn edge(id: usize, ink: Hsla, dim: f32, scale: f32) -> impl IntoEleme
                 )
                 .size_full(),
             )
-        },
-    )
+        })
+}
+
+/// The beat every light keeps: once round in [`PERIOD`], all of them together.
+pub(super) fn beat() -> Animation {
+    Animation::new(PERIOD).repeat_synced().with_max_fps(FPS)
+}
+
+/// The light's near-white head, faintly in the working colour `ink`.
+pub(super) fn head(ink: Hsla) -> Hsla {
+    gpui::white().blend(ink.opacity(HEAD_TINT))
 }
 
 /// The edge painted `phase` of the way round, on `bounds`: the pale ring, the fade after the
 /// head, and the tail running up to the head.
-fn paint(
+pub(super) fn paint(
     bounds: Bounds<Pixels>,
     phase: f32,
     ink: Hsla,
@@ -127,23 +136,71 @@ fn paint(
             stroke(a, b, color, window);
         }
     };
+    lights(phase, ink, head, dim, |from, to, color| {
+        band(from, to, color, window)
+    });
+}
+
+/// The light run along an open line instead of round (P5-165): `at` the point `t` of the way
+/// from its start to its end. The light comes in at the start, `phase` of the way through the
+/// beat, and runs out past the end before it comes in again; the rest as [`paint`].
+pub(super) fn paint_open(
+    at: impl Fn(f32) -> Point<Pixels>,
+    phase: f32,
+    ink: Hsla,
+    dim: f32,
+    scale: f32,
+    window: &mut Window,
+) {
+    let weight = px(WEIGHT * scale);
+    let mut line = PathBuilder::stroke(weight);
+    for step in 0..=STEPS {
+        let point = at(step as f32 / STEPS as f32);
+        if step == 0 {
+            line.move_to(point);
+        } else {
+            line.line_to(point);
+        }
+    }
+    if let Ok(line) = line.build() {
+        window.paint_path(line, ink.opacity(PALE * dim));
+    }
+    // From just before the start, the fade ahead of the head unseen, to past the end with the
+    // whole tail.
+    let front = -AFTER + phase * (1.0 + TAIL + AFTER);
+    lights(front, ink, head(ink), dim, |from, to, color| {
+        let (from, to) = (from.max(0.0), to.min(1.0));
+        if from < to {
+            let mut path = PathBuilder::stroke(weight);
+            path.move_to(at(from));
+            path.line_to(at(to));
+            if let Ok(path) = path.build() {
+                window.paint_path(path, color);
+            }
+        }
+    });
+}
+
+/// The light's bands with the head at `front`, each from where to where along the edge and in
+/// what colour: the tail brightening up to the head, then the short fade after it.
+fn lights(front: f32, ink: Hsla, head: Hsla, dim: f32, mut band: impl FnMut(f32, f32, Hsla)) {
     for step in 0..BANDS {
         let behind = step as f32 / BANDS as f32;
         let share = (step + 1) as f32 / BANDS as f32;
-        let from = phase - TAIL * (1.0 - behind) - OVERLAP;
-        let to = phase - TAIL * (1.0 - share);
+        let from = front - TAIL * (1.0 - behind) - OVERLAP;
+        let to = front - TAIL * (1.0 - share);
         let color = ink.blend(head.opacity(share)).opacity(share * dim);
-        band(from, to, color, window);
+        band(from, to, color);
     }
     for step in 0..AFTER_BANDS {
         let behind = step as f32 / AFTER_BANDS as f32;
         let share = (step + 1) as f32 / AFTER_BANDS as f32;
-        let from = phase + AFTER * behind - OVERLAP;
-        let to = phase + AFTER * share;
+        let from = front + AFTER * behind - OVERLAP;
+        let to = front + AFTER * share;
         let color = ink
             .blend(head.opacity(1.0 - share))
             .opacity((1.0 - share) * dim);
-        band(from, to, color, window);
+        band(from, to, color);
     }
 }
 
