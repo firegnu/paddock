@@ -517,11 +517,11 @@ const BADGE: Badge = Badge {
     icon: BADGE_ICON,
     dot: BADGE_DOT,
 };
-/// In a tab, beside its title (P5-165 rework 2); a split tab's stack of cards as high as the
-/// icon.
+/// In a tab, beside its title (P5-165 rework 2, larger again in 2b); a split tab's stack of
+/// cards as high as the icon.
 const TAB_BADGE: Badge = Badge {
-    icon: 14.0,
-    dot: 5.0,
+    icon: 16.0,
+    dot: 5.5,
 };
 const TAB_STACK: f32 = TAB_BADGE.icon / tab_stack::CARD;
 /// What a command palette row's hover brightens: this name on each row.
@@ -544,7 +544,7 @@ const BAR_END: f32 = 10.0;
 /// reference has it: 10 before the icon, 6 after it, the cross 9 in from the tab's right edge,
 /// itself 7.5 across in a line a little thinner than the footer's icons'.
 const TAB_HEIGHT: f32 = 28.0;
-const TAB_TEXT: f32 = 13.0;
+const TAB_TEXT: f32 = 14.0;
 const TAB_START: f32 = 8.0;
 const TAB_GAP: f32 = 5.0;
 const TAB_END: f32 = 12.0;
@@ -8319,14 +8319,14 @@ mod tests {
     fn a_split_tab_s_width_counts_its_stack_and_nothing_after_its_title() {
         let near = |a: f32, b: f32| (a - b).abs() < 0.001;
         let around = |panes| tab_chrome(panes, false, false, false, 1.0);
-        // As the reference has it (P5-165 rework 2): 10 before the 14 icon, in its box a point
+        // As the reference has it (P5-165 rework 2): 10 before the 16 icon, in its box a point
         // wider either side, and 6 after it.
         let icon = TAB_BADGE.icon + 2.0;
-        assert_eq!(icon, 16.0);
+        assert_eq!(icon, 18.0);
         assert_eq!(TAB_RING + TAB_START + 1.0, 10.0);
         assert_eq!(1.0 + TAB_GAP, 6.0);
         let one = TAB_START + icon + TAB_GAP + TAB_END + 2.0 * TAB_RING;
-        assert_eq!(around(1), 43.0);
+        assert_eq!(around(1), 45.0);
         assert_eq!(around(1), one);
         // In line, the × at the end: its cross's right end about 9 in from the tab's.
         let cross_end = TAB_RING + ACTIVE_TAB_END + (TAB_CLOSE - TAB_CROSS) / 2.0;
