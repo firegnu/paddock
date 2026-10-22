@@ -19,7 +19,7 @@ pub const MOST: usize = 3;
 /// one stands to the right of the one before it; how far the front one leans, clockwise in
 /// degrees; how much darker the last of three is; and how big what a card shows on its ground is
 /// (a silhouette, an original that is not a tile, the terminal). In points.
-const CARD: f32 = 18.0;
+pub const CARD: f32 = 18.0;
 const RADIUS: f32 = 5.0;
 const EDGE: f32 = 1.5;
 const STEP: f32 = 4.0;

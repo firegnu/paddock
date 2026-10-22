@@ -59,7 +59,7 @@ use objc2::{MainThreadMarker, rc::Retained};
 use objc2_app_kit::{NSView, NSWindow};
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use std::{
-    cell::RefCell,
+    cell::{Cell, RefCell},
     collections::HashMap,
     path::PathBuf,
     rc::Rc,
@@ -336,6 +336,8 @@ enum Spot {
     Tab,
     /// A pane's place in the split while it grows to fill the tab or goes back.
     Slot(PaneId),
+    /// The active tab in the title bar, inside its ring (P5-165).
+    ActiveTab,
 }
 
 /// Every word of `query` in the agent's full name (its project, then its own), ignoring case.
@@ -502,9 +504,26 @@ const MACHINE_TAG_GROUND: [f32; 2] = [0.08, 0.18];
 /// How far apart in hue another machine's colour keeps from the accent: the theme's blue when it
 /// is this far, else its purple when that is further.
 const MACHINE_APART: f32 = 30.0 / 360.0;
-/// The kind icon in a tab or a pane's header, and the status dot on its corner.
+/// The kind icon in a pane's header and the lists, and the status dot on its corner.
 const BADGE_ICON: f32 = 13.0;
 const BADGE_DOT: f32 = 6.0;
+/// A kind icon and the status dot on its corner, in points.
+#[derive(Clone, Copy)]
+struct Badge {
+    icon: f32,
+    dot: f32,
+}
+const BADGE: Badge = Badge {
+    icon: BADGE_ICON,
+    dot: BADGE_DOT,
+};
+/// In a tab, beside its title (P5-165 rework 2, larger again in 2b); a split tab's stack of
+/// cards as high as the icon.
+const TAB_BADGE: Badge = Badge {
+    icon: 16.0,
+    dot: 5.5,
+};
+const TAB_STACK: f32 = TAB_BADGE.icon / tab_stack::CARD;
 /// What a command palette row's hover brightens: this name on each row.
 const PALETTE_ROW: &str = "palette-row";
 /// The title bar's `+` and split icon; the search field's width, and the room between it and the
@@ -518,28 +537,34 @@ const BAR_GAP: f32 = 4.0;
 const BAR_END: f32 = 10.0;
 /// A tab's capsule: its height; its title's size; the room before its badge, after it, and after
 /// the title (an inactive tab's, its × drawn over the title's end; the active tab's, after its
-/// ×); its ×; its ring, drawn clear where it has none so every title sits alike, and the room
-/// between capsules, both unscaled; the widest a tab grows, and the least one shortened for room
-/// keeps.
+/// ×), the badge's box a point wider than its icon either side; its ×, where it is taken and the
+/// cross drawn in it; its ring, drawn clear where it has none so every title sits alike, and the
+/// room between tabs, both unscaled; every tab's width while there is room, and the least they
+/// narrow to (P5-165 rework 1: every tab as wide as the others). Rework 2 set the room as the
+/// reference has it: 10 before the icon, 6 after it, the cross 9 in from the tab's right edge,
+/// itself 7.5 across in a line a little thinner than the footer's icons'.
 const TAB_HEIGHT: f32 = 28.0;
-const TAB_TEXT: f32 = 13.0;
-const TAB_START: f32 = 6.0;
-const TAB_GAP: f32 = 7.0;
+const TAB_TEXT: f32 = 14.0;
+const TAB_START: f32 = 8.0;
+const TAB_GAP: f32 = 5.0;
 const TAB_END: f32 = 12.0;
-const ACTIVE_TAB_END: f32 = 6.0;
+const ACTIVE_TAB_END: f32 = 4.0;
 const TAB_CLOSE: f32 = 16.0;
-/// How opaque a capsule's edge is over the system's material, drawn in the text's colour, as the
-/// sidebar's cards' there (P5-97).
-const TAB_EDGE: f32 = 0.07;
+const TAB_CROSS: f32 = 7.5;
+const TAB_CROSS_LINE: f32 = 1.0;
+/// The tabs not active and the `+N`, flat on the bar (P5-165 rework 1): the faint ground under the
+/// mouse, as strong a tint of the text's colour as the sidebar's cards' edge (P5-97), and its
+/// corners.
+const FLAT_LIT: f32 = 0.07;
+const FLAT_RADIUS: f32 = 8.0;
 pub(crate) const TAB_RING: f32 = 1.0;
 const TAB_SPACING: f32 = 6.0;
-const TAB_WIDEST: f32 = 220.0;
-const TAB_LEAST: f32 = 78.0;
+const TAB_WIDTH: f32 = 180.0;
+const TAB_LEAST: f32 = 110.0;
 /// How strongly the active tab's ring shows, the accent round a neutral one and its status colour
-/// round a tinted one, and the amber ring of another with an agent waiting for a person.
+/// round a tinted one.
 pub(crate) const RING_ACTIVE: f32 = 0.5;
 const RING_TINTED: f32 = 0.6;
-const RING_WAITING: f32 = 0.4;
 /// A capsule's grounds over the title bar, at rest, lit and active: how far a neutral one steps
 /// towards the text colour, and how strongly a tinted one's status colour washes it; and how much
 /// of that colour its name takes, an inactive one's lifted from the muted colour this far towards
@@ -602,8 +627,8 @@ fn ui_text_width(window: &Window, ui: &UiFont, text: &str, size: f32, weight: Fo
 fn tab_chrome(panes: usize, empty: bool, paused: bool, inline: bool, s: f32) -> f32 {
     let badge = match panes {
         1 if empty => 7.0,
-        1 => BADGE_ICON + 2.0,
-        _ => tab_stack::width(panes),
+        1 => TAB_BADGE.icon + 2.0,
+        _ => tab_stack::width(panes) * TAB_STACK,
     };
     let pause = if paused {
         TAB_GAP + footer_icon::SIZE * PAUSE_MARK
@@ -616,6 +641,27 @@ fn tab_chrome(panes: usize, empty: bool, paused: bool, inline: bool, s: f32) -> 
         TAB_END
     };
     (TAB_START + badge + TAB_GAP + pause + end) * s + 2.0 * TAB_RING
+}
+
+/// A tab's ×: a cross `TAB_CROSS` points across, its arms `TAB_CROSS_LINE` thick, times `scale`
+/// (P5-165 rework 2).
+fn tab_cross(color: Hsla, scale: f32) -> impl IntoElement {
+    let size = TAB_CROSS * scale;
+    canvas(
+        |_, _, _| {},
+        move |bounds, _, window, _| {
+            let at = |x: f32, y: f32| bounds.origin + point(px(x * size), px(y * size));
+            let mut cross = gpui::PathBuilder::stroke(px(TAB_CROSS_LINE * scale));
+            cross.move_to(at(0.0, 0.0));
+            cross.line_to(at(1.0, 1.0));
+            cross.move_to(at(1.0, 0.0));
+            cross.line_to(at(0.0, 1.0));
+            if let Ok(cross) = cross.build() {
+                window.paint_path(cross, color);
+            }
+        },
+    )
+    .size(px(size))
 }
 
 /// A pane header's split buttons' mark, `footer_icon::SIZE` points square times `scale`: a frame
@@ -773,12 +819,12 @@ pub enum Subject {
     Empty,
 }
 
-/// A tab as the title bar draws it: which, its width when the bar is short of room, its title
+/// A tab as the title bar draws it: which, its width (every tab's the same), its title
 /// (the group to draw faint, and the rest), and its whole title to show on hover when that is
 /// shortened.
 struct ShownTab {
     index: usize,
-    width: Option<f32>,
+    width: f32,
     title: (Option<String>, String),
     whole: Option<String>,
 }
@@ -994,14 +1040,6 @@ pub struct TabMarks {
     pub waiting: bool,
     pub paused: bool,
     pub tone: TabTone,
-}
-
-impl TabMarks {
-    /// An inactive tab's amber ring: one of its agents needs a person, unless the capsule is red
-    /// for the one it is named after being in error.
-    fn amber_ring(&self) -> bool {
-        self.waiting && self.tone != TabTone::Error
-    }
 }
 
 /// The colour a tab's capsule takes from the agent of the pane it is named after: working, waiting
@@ -1266,6 +1304,10 @@ pub struct PaddockWindow {
     /// Where the `+`, the split icon and the panes were last drawn, for the panels that hang from
     /// them.
     spots: Rc<RefCell<HashMap<Spot, Bounds<Pixels>>>>,
+    /// What the active tab joins this frame, worked out once the panes are laid out (P5-165),
+    /// and whether it joined one last frame, for what is chosen before that.
+    joint: Rc<Cell<Option<join::Joint>>>,
+    joined: Rc<Cell<bool>>,
     /// The tab under the mouse and since when, and the one it last left and when: their ×
     /// fades in and out.
     tab_hover: Option<(usize, Instant)>,
@@ -1346,6 +1388,8 @@ struct Seat {
 mod ctl;
 #[path = "window_inbox.rs"]
 mod inbox_panel;
+#[path = "window_join.rs"]
+mod join;
 #[path = "window_motion.rs"]
 mod moving;
 #[path = "window_orbit.rs"]
@@ -1485,6 +1529,8 @@ impl PaddockWindow {
             new_agent: None,
             remote_agent: None,
             spots: Rc::default(),
+            joint: Rc::default(),
+            joined: Rc::default(),
             tab_hover: None,
             tab_left: None,
             palette: None,
@@ -4219,7 +4265,9 @@ impl PaddockWindow {
 
     /// A pane's mark in its tab and its header: the icon of an agent's kind, or a terminal for a
     /// shell, with the status dot on its lower right corner, ringed in `ground` (`hovered` while
-    /// the group is hovered) to stand off the icon; the dot alone where there is no icon.
+    /// the group is hovered) to stand off the icon, both as big as `size` has them; the dot alone
+    /// where there is no icon.
+    #[allow(clippy::too_many_arguments)]
     fn badge(
         &self,
         pane: PaneId,
@@ -4227,6 +4275,7 @@ impl PaddockWindow {
         now: f64,
         ground: Hsla,
         hovered: Option<(SharedString, Hsla)>,
+        size: Badge,
         ui: &UiFont,
     ) -> AnyElement {
         let dot = self.dot(pane, agents, now);
@@ -4234,19 +4283,19 @@ impl PaddockWindow {
             Shown::Agent(name) => agents
                 .iter()
                 .find(|a| &a.name == name)
-                .and_then(|a| self.kind_icon(a.kind.as_deref()?, ui)),
+                .and_then(|a| self.kind_icon(a.kind.as_deref()?, size, ui)),
             Shown::Shell => Some(
                 footer_icon::icon(
                     Icon::NewShell,
                     self.fg(|t| t.muted),
-                    ui.scale(BADGE_ICON / footer_icon::SIZE),
+                    ui.scale(size.icon / footer_icon::SIZE),
                 )
                 .into_any_element(),
             ),
             Shown::Empty => None,
         };
         match icon {
-            Some(icon) => self.dotted(icon, (dot, false), ground, hovered, ui),
+            Some(icon) => self.dotted(icon, (dot, false), ground, hovered, size, ui),
             None => plain_dot(dot, ui),
         }
     }
@@ -4261,18 +4310,18 @@ impl PaddockWindow {
         hovered: Option<(SharedString, Hsla)>,
         ui: &UiFont,
     ) -> AnyElement {
-        match kind.and_then(|kind| self.kind_icon(kind, ui)) {
-            Some(icon) => self.dotted(icon, (dot, false), ground, hovered, ui),
+        match kind.and_then(|kind| self.kind_icon(kind, BADGE, ui)) {
+            Some(icon) => self.dotted(icon, (dot, false), ground, hovered, BADGE, ui),
             None => plain_dot(dot, ui),
         }
     }
 
-    /// The icon of an agent's `kind`, a badge's size: a silhouette in the kind's colour, an
-    /// original in its own; `None` for a kind without one.
-    fn kind_icon(&self, kind: &str, ui: &UiFont) -> Option<AnyElement> {
+    /// The icon of an agent's `kind`, as big as `size` has it: a silhouette in the kind's colour,
+    /// an original in its own; `None` for a kind without one.
+    fn kind_icon(&self, kind: &str, size: Badge, ui: &UiFont) -> Option<AnyElement> {
         let icon = kind_icon::of(kind)?;
         let color = self.fg(card::brand(kind).color).opacity(0.85);
-        Some(icon.render(ui.px(BADGE_ICON), color))
+        Some(icon.render(ui.px(size.icon), color))
     }
 
     /// A split tab's mark: a card for each of `panes`, stacked, the front one's first (see
@@ -4303,18 +4352,20 @@ impl PaddockWindow {
             })
             .collect();
         let dot = (self.dot(panes[0], agents, now), false);
-        let dot = self.corner_dot(dot, (2.0, 2.0), ground, hovered, ui);
-        tab_stack::stack(&faces, Inks::of(&self.theme), dot, ui.scale(1.0))
+        let dot = self.corner_dot(dot, (2.0, 2.0), ground, hovered, TAB_BADGE.dot, ui);
+        tab_stack::stack(&faces, Inks::of(&self.theme), dot, ui.scale(TAB_STACK))
     }
 
     /// `icon` with the status dot `(colour, breathing)` on its lower right corner, ringed in
-    /// `ground` (`hovered` while the group is hovered) to stand off the icon.
+    /// `ground` (`hovered` while the group is hovered) to stand off the icon, both as big
+    /// as `size` has them.
     fn dotted(
         &self,
         icon: AnyElement,
         dot: (Hsla, bool),
         ground: Hsla,
         hovered: Option<(SharedString, Hsla)>,
+        size: Badge,
         ui: &UiFont,
     ) -> AnyElement {
         div()
@@ -4323,21 +4374,22 @@ impl PaddockWindow {
             .flex()
             .items_center()
             .justify_center()
-            .size(ui.px(BADGE_ICON + 2.0))
+            .size(ui.px(size.icon + 2.0))
             .child(icon)
-            .child(self.corner_dot(dot, (2.0, 1.0), ground, hovered, ui))
+            .child(self.corner_dot(dot, (2.0, 1.0), ground, hovered, size.dot, ui))
             .into_any_element()
     }
 
     /// The status dot `(colour, breathing)` for the lower right corner of what holds it, this far
     /// past its `(right, bottom)` edges, ringed in `ground` (`hovered` while the group is
-    /// hovered) to stand off it.
+    /// hovered) to stand off it, `size` points across inside the ring.
     fn corner_dot(
         &self,
         (dot, breathing): (Hsla, bool),
         (right, bottom): (f32, f32),
         ground: Hsla,
         hovered: Option<(SharedString, Hsla)>,
+        size: f32,
         ui: &UiFont,
     ) -> AnyElement {
         let ring = 2.0;
@@ -4345,7 +4397,7 @@ impl PaddockWindow {
             .absolute()
             .right(px(-(ui.scale(right) + ring)))
             .bottom(px(-(ui.scale(bottom) + ring)))
-            .size(px(ui.scale(BADGE_DOT) + 2.0 * ring))
+            .size(px(ui.scale(size) + 2.0 * ring))
             .rounded_full()
             .border_2()
             .border_color(ground)
@@ -4410,15 +4462,14 @@ impl PaddockWindow {
             .border_color(self.fg(|t| t.agents_text).opacity(RIM))
     }
 
-    /// A pane's panel on the frame: the terminal's ground, rounded, with a rim, a step brighter for
-    /// the active pane among several: `rim` opaque, [`PANEL_RIM_ACTIVE`] or [`PANEL_RIM`], or between
-    /// as it changes (P5-148a).
-    fn panel(&self, rim: f32) -> Div {
+    /// A pane's panel on the frame: the terminal's ground, rounded, with room for its rim, which
+    /// [`Self::panel_rim`] draws over it, left open where the active tab joins it (P5-165).
+    fn panel(&self) -> Div {
         div()
             .rounded(px(PANEL_RADIUS))
             .bg(hsla(self.theme.terminal().background, 1.0))
             .border_1()
-            .border_color(self.fg(|t| t.agents_text).opacity(rim))
+            .border_color(gpui::transparent_black())
     }
 
     fn highlight(&self) -> Hsla {
@@ -4599,7 +4650,7 @@ impl PaddockWindow {
             .map(|(index, tab)| {
                 let (group, name) = &titles[index];
                 let weight = if index == active {
-                    FontWeight::SEMIBOLD
+                    FontWeight::MEDIUM
                 } else {
                     FontWeight::NORMAL
                 };
@@ -4633,6 +4684,8 @@ impl PaddockWindow {
         let room = f32::from(window.viewport_size().width)
             - self.bar_left_now(full_screen, &ui)
             - 2.0 * BAR_END
+            // The tabs begin clear of the panel's rounded corner (P5-165).
+            - self.tabs_inset(full_screen, &ui)
             // Between the tabs, the `+`, the pet's room, the split icon, Search and the right
             // sidebar's switch; the pet's room keeps a little more.
             - 5.0 * BAR_GAP
@@ -4641,7 +4694,7 @@ impl PaddockWindow {
         let bar = Bar {
             room,
             gap: TAB_SPACING,
-            widest: TAB_WIDEST * s,
+            widest: TAB_WIDTH * s,
             least: TAB_LEAST * s,
             more: if may_wait { more + dot } else { more },
         };
@@ -4659,15 +4712,20 @@ impl PaddockWindow {
                     }
                     Title::Short => ((None, short[index].clone()), true),
                     Title::Squeezed(room) => {
+                        let weight = if index == active {
+                            FontWeight::MEDIUM
+                        } else {
+                            FontWeight::NORMAL
+                        };
                         let text = tab_fit::middle(&short[index], room, |text| {
-                            width(text, TAB_TEXT, FontWeight::NORMAL)
+                            width(text, TAB_TEXT, weight)
                         });
                         ((None, text), true)
                     }
                 };
                 ShownTab {
                     index,
-                    width: (!fit.roomy).then_some(slot.width),
+                    width: slot.width,
                     title,
                     whole: cut.then(|| tab_title(&subjects[index], &open)),
                 }
@@ -4726,14 +4784,15 @@ impl PaddockWindow {
         }
     }
 
-    /// The edge of a title bar capsule with no ring: over the system's material a faint one, as
-    /// the sidebar's cards' there (P5-97); else none.
-    fn capsule_edge(&self) -> Hsla {
-        if self.frosted() {
-            self.fg(|t| t.agents_text).opacity(TAB_EDGE)
-        } else {
-            gpui::transparent_black()
-        }
+    /// A flat tab's (and the `+N`'s) faint ground under the mouse (P5-165 rework 1): as drawn,
+    /// over the system's material a tint of the text that lets it through, else that tint over the
+    /// frame, whole; and what its status dot's ring takes at rest and under the mouse, whole, to
+    /// stand off its icon.
+    fn flat_grounds(&self) -> (Hsla, Hsla, Hsla) {
+        let frame = hsla(self.theme.frame(), 1.0);
+        let tint = self.fg(|t| t.agents_text).opacity(FLAT_LIT);
+        let lit = frame.blend(tint);
+        (if self.frosted() { tint } else { lit }, frame, lit)
     }
 
     /// The title bar: over the sidebar the traffic lights (none in full screen) and the sidebar's
@@ -4747,7 +4806,7 @@ impl PaddockWindow {
         full_screen: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
-    ) -> Stateful<Div> {
+    ) -> (Stateful<Div>, Option<join::TabLook>) {
         let ui = UiFont::get(cx);
         let scale = ui.scale(1.0);
         let highlight = self.bar_ground();
@@ -4760,7 +4819,10 @@ impl PaddockWindow {
         let frosted = self.frosted();
         // A press on a tab or a button is theirs, not the start of a drag.
         let keep = |_: &MouseDownEvent, _: &mut Window, cx: &mut gpui::App| cx.stop_propagation();
-        let mut tabs = div()
+        // The tabs begin clear of the panel's rounded corner, with room either side for the
+        // active tab's curves where it joins the panel, which the `+` takes back (P5-165).
+        let flare = self.tab_flare(&ui);
+        let tabs = div()
             .id("tabs")
             .flex()
             .items_center()
@@ -4768,27 +4830,45 @@ impl PaddockWindow {
             .min_w(px(0.0))
             .flex_shrink(1.0)
             .h_full()
+            .pl(px(self.tabs_inset(full_screen, &ui)))
+            .pr(px(flare))
             .overflow_x_scroll()
             .track_scroll(&self.tabs);
+        let mut items = Vec::new();
+        let mut look = None;
+        // The tabs not active lie flat on the bar, a faint ground under the mouse (P5-165 rework
+        // 1).
+        let (flat_lit, flat_rest_whole, flat_lit_whole) = self.flat_grounds();
+        // What the bar holds sits on one line, centred in what shows of the active tab when it
+        // joins the panel, from its top edge down to the panel, a point high: this far below the
+        // bar's middle. The active tab keeps its top edge and takes it as room over what it holds,
+        // twice over to centre it; as a capsule, as last drawn, it centres what it holds in itself
+        // (P5-165 rework 2).
+        let drop = (title_bar_height(&ui, self.pet.is_some()) - ui.scale(TAB_HEIGHT)) / 4.0
+            - ui.scale(1.0);
+        let joined = self.joined.get();
         for shown in fit.shown {
             let index = shown.index;
             let tab = &self.workspace.tabs[index];
             let active = index == self.workspace.active_tab;
             let marks = fit.marks[index];
-            // Its grounds and its name's colour, from the status of the agent it is named after.
-            let tint = marks.tone.color();
-            let (whole, quiet, loud) = self.capsule(tint);
-            let Grounds { rest, lit, chosen } = self.faces(whole, tint);
+            // The active tab's colours, from the status of the agent it is named after; the
+            // others tell theirs by the dot on their icon alone.
+            let tint = if active { marks.tone.color() } else { None };
+            let (whole, quiet, _) = self.capsule(tint);
+            let chosen = self.faces(whole, tint).chosen;
             // The active tab keeps its × in line; the others have it over the end of their
-            // title, so a narrow tab gives the title all its room, unless their ground is seen
+            // title, so a narrow tab gives the title all its room, unless the bar is seen
             // through. The active one's always shows; the others' fade in only while the mouse is
-            // on the tab. Seen through, its ground is the capsule's.
+            // on the tab.
             let inline = active || frosted;
-            let under = if active { chosen } else { lit };
-            let (under, pressed) = if frosted {
+            // The active tab's ground lies under its whole row (see `join::tab_ground`), the
+            // capsule's or the terminal's, which shows through; seen through, so does the faint
+            // ground under the mouse.
+            let (under, pressed) = if frosted || active {
                 (gpui::transparent_black(), hsla(muted, 0.18))
             } else {
-                (under, under.blend(hsla(muted, 0.18)))
+                (flat_lit_whole, flat_lit_whole.blend(hsla(muted, 0.18)))
             };
             let close = div()
                 .id(("close-tab", index))
@@ -4806,49 +4886,54 @@ impl PaddockWindow {
                 })
                 .hover(move |style| style.bg(pressed))
                 .when(!inline, |close| {
-                    // Centred in the capsule, inside its ring.
-                    let inset = px(ui.scale((TAB_HEIGHT - TAB_CLOSE) / 2.0) - TAB_RING);
-                    close.absolute().top(inset).right(inset)
+                    // Centred top to bottom inside its ring, at the tab's right end as the active
+                    // tab's is.
+                    let top = px(ui.scale((TAB_HEIGHT - TAB_CLOSE) / 2.0) - TAB_RING);
+                    close.absolute().top(top).right(ui.px(ACTIVE_TAB_END))
                 })
-                .child(footer_icon::icon(
-                    Icon::Close,
-                    self.fg(|t| t.muted),
-                    scale * 0.85,
-                ))
+                .child(tab_cross(self.fg(|t| t.muted), scale))
                 .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                     cx.stop_propagation();
                     this.close_tab(index, window, cx);
                 }));
-            // A working tab's edge is the running light instead, unless it shows an amber ring
-            // for another pane's agent waiting for a person, and stays as it is when the system
-            // asks for less motion.
-            let light = (marks.tone == TabTone::Working
-                && !crate::reduce_motion::on()
-                && (active || !marks.amber_ring()))
-            .then(|| self.fg(tint.expect("a working tab has its status colour")));
-            // Round the active tab its own status colour, or the accent when it has none; amber
-            // round another with an agent waiting for a person (see [`TabMarks::amber_ring`]), the
-            // active one's dot and its panes' headers telling that instead.
-            let ring = if light.is_some() {
-                gpui::transparent_black()
-            } else if active {
-                match tint {
-                    Some(tint) => self.fg(tint).opacity(RING_TINTED),
-                    None => self.fg(|t| t.agents_accent).opacity(RING_ACTIVE),
-                }
-            } else if marks.amber_ring() {
-                self.fg(|t| t.agents_yellow).opacity(RING_WAITING)
-            } else {
-                self.capsule_edge()
-            };
+            // The active tab's edge is the running light while its agent works, and stays as it
+            // is when the system asks for less motion.
+            let light = (active && marks.tone == TabTone::Working && !crate::reduce_motion::on())
+                .then(|| self.fg(tint.expect("a working tab has its status colour")));
+            // The active tab's ground, ring and light are drawn under the tabs, joined to the
+            // panel under it or as its capsule (P5-165): joined, its edge takes its status colour
+            // or the working light, else the panel's rim. As a capsule, it is ringed in its own
+            // status colour, or the accent when it has none.
+            if active {
+                let ring = if light.is_some() {
+                    gpui::transparent_black()
+                } else {
+                    match tint {
+                        Some(tint) => self.fg(tint).opacity(RING_TINTED),
+                        None => self.fg(|t| t.agents_accent).opacity(RING_ACTIVE),
+                    }
+                };
+                look = Some(join::TabLook {
+                    light,
+                    tint: tint.map(|pick| self.fg(pick)),
+                    ground: chosen,
+                    ring,
+                });
+            }
             // The active pane's icon and status dot; in a split tab, its panes' cards in a stack,
-            // which tells how many they are on hover. The dot's ring keeps the capsule's whole
-            // colour, seen through or not, to stand off the icon.
+            // which tells how many they are on hover. The dot's ring keeps the ground under it
+            // whole, seen through or not, to stand off the icon; joined, the terminal's ground,
+            // as last drawn.
             let (ground, hovered) = if active {
-                (whole.chosen, None)
+                let ground = if self.joined.get() {
+                    hsla(self.theme.terminal().background, 1.0)
+                } else {
+                    whole.chosen
+                };
+                (ground, None)
             } else {
                 let group = SharedString::from(format!("tab-{index}"));
-                (whole.rest, Some((group, whole.lit)))
+                (flat_rest_whole, Some((group, flat_lit_whole)))
             };
             let panes = tab.panes();
             let signal = self.tab_signal(index, shown_at, crate::reduce_motion::on(), cx);
@@ -4872,29 +4957,22 @@ impl PaddockWindow {
                         .tooltip(move |_, cx| cx.new(|_| tip.clone()).into())
                         .into_any_element()
                 }
-                None => self.badge(tab.active, agents, now, ground, hovered, &ui),
+                None => self.badge(tab.active, agents, now, ground, hovered, TAB_BADGE, &ui),
             };
             let mut item = div()
                 .id(("tab", index))
                 .group(SharedString::from(format!("tab-{index}")))
                 .relative()
-                .when_some(light, |item, ink| {
-                    item.child(orbit::edge(
-                        index,
-                        ink,
-                        if active { 1.0 } else { orbit::DIM },
-                        scale,
-                    ))
-                })
-                .max_w(ui.px(TAB_WIDEST))
+                .flex_shrink_0()
+                .w(px(shown.width))
                 .flex()
                 .items_center()
                 .gap(ui.px(TAB_GAP))
                 .h(ui.px(TAB_HEIGHT))
                 .pl(ui.px(TAB_START))
-                .rounded_full()
+                .rounded(ui.px(FLAT_RADIUS))
                 .border(px(TAB_RING))
-                .border_color(ring)
+                .border_color(gpui::transparent_black())
                 .text_size(ui.px(TAB_TEXT))
                 .cursor_pointer()
                 .on_mouse_down(MouseButton::Left, keep)
@@ -4908,9 +4986,10 @@ impl PaddockWindow {
                     self.fg(|t| t.agents_yellow),
                     scale,
                 ))
+                // The title takes the room between the badge and the ×, which stays at the end.
                 .child(
                     div()
-                        .flex_shrink(1.0)
+                        .flex_1()
                         .min_w(px(0.0))
                         .overflow_hidden()
                         .whitespace_nowrap()
@@ -4925,27 +5004,21 @@ impl PaddockWindow {
                         scale * PAUSE_MARK,
                     ))
                 });
-            // Short of room, the other tabs narrow first; the active one keeps its title.
             item = if active {
-                item.flex_shrink_0()
-                    .pr(ui.px(ACTIVE_TAB_END))
-                    .bg(chosen)
-                    .text_color(loud)
-                    // The short name heavier; a faint group before it stays regular.
-                    .font_weight(FontWeight::SEMIBOLD)
+                item.pr(ui.px(ACTIVE_TAB_END))
+                    .when(joined, |item| item.pt(px(2.0 * drop)))
+                    .child(self.spot(Spot::ActiveTab))
+                    // The short name bright, a little heavier; a faint group before it stays
+                    // regular (P5-165 rework 2).
+                    .text_color(self.fg(|t| t.agents_text))
+                    .font_weight(FontWeight::MEDIUM)
             } else {
-                item.flex_shrink(1.0)
-                    .min_w(ui.px(56.0))
-                    .pr(ui.px(if inline { ACTIVE_TAB_END } else { TAB_END }))
-                    .bg(rest)
+                item.pr(ui.px(if inline { ACTIVE_TAB_END } else { TAB_END }))
+                    .top(px(drop))
                     .text_color(quiet)
-                    .hover(move |style| style.bg(lit))
+                    .hover(move |style| style.bg(flat_lit))
             };
-            // Fitted to the room left, as `fit_tabs` worked it out; the whole title on hover
-            // when it is shortened.
-            if let Some(width) = shown.width {
-                item = item.flex_shrink_0().w(px(width));
-            }
+            // The whole title on hover when it is shortened.
             if let Some(whole) = shown.whole {
                 let tip = BarTip {
                     text: whole.into(),
@@ -4958,12 +5031,20 @@ impl PaddockWindow {
                 };
                 item = item.tooltip(move |_, cx| cx.new(|_| tip.clone()).into());
             }
-            tabs = tabs.child(item.child(close).on_click(cx.listener(
+            items.push(item.child(close).on_click(cx.listener(
                 move |this, _: &ClickEvent, window, cx| this.select_tab(index, window, cx),
             )));
         }
+        // The active tab's ground first, under the tabs.
+        let mut tabs = tabs
+            .children(look.map(|look| self.tab_ground(look, &ui)))
+            .children(items);
         if !fit.hidden.is_empty() {
-            tabs = tabs.child(self.more_button(fit.hidden.len(), fit.more, fit.waiting, cx));
+            tabs = tabs.child(
+                self.more_button(fit.hidden.len(), fit.more, fit.waiting, cx)
+                    .relative()
+                    .top(px(drop)),
+            );
         }
         // A round button, lit while its panel is open, which hangs from it; the `+` turns as the
         // pointer comes in.
@@ -5020,7 +5101,7 @@ impl PaddockWindow {
                 left.pr(px(HEAD_END * (1.0 - folded)))
             })
             .child(head);
-        div()
+        let bar = div()
             .id("title-bar")
             .flex_shrink_0()
             .flex()
@@ -5057,7 +5138,15 @@ impl PaddockWindow {
                     .pl(px(BAR_END))
                     .pr(px(BAR_END))
                     .child(tabs)
-                    .child(new_tab)
+                    // Over the room the tabs keep for the last one's curve.
+                    .child(
+                        div()
+                            .flex_shrink_0()
+                            .ml(px(-flare))
+                            .relative()
+                            .top(px(drop))
+                            .child(new_tab),
+                    )
                     // Spare room, where the pet walks along the terminal's top edge.
                     .child(
                         div()
@@ -5070,7 +5159,8 @@ impl PaddockWindow {
                     .child(self.split_button(cx))
                     .child(self.search_button(cx))
                     .child(self.right_button(cx)),
-            )
+            );
+        (bar, look)
     }
 
     /// The `+N` capsule after the tabs for the `count` with no room in the title bar, `width`
@@ -5084,17 +5174,10 @@ impl PaddockWindow {
         cx: &mut Context<Self>,
     ) -> Stateful<Div> {
         let ui = UiFont::get(cx);
-        let tone = if waiting {
-            TabTone::Waiting
-        } else {
-            TabTone::Neutral
-        };
-        let (whole, quiet, loud) = self.capsule(tone.color());
-        let Grounds {
-            rest,
-            lit: lit_ground,
-            ..
-        } = self.faces(whole, tone.color());
+        // Flat on the bar as the tabs not active, the faint ground under the mouse and while its
+        // menu is open (P5-165 rework 1).
+        let (_, quiet, loud) = self.capsule(None);
+        let (lit_ground, ..) = self.flat_grounds();
         let lit = self.popup == Some(Popup::Overflow);
         let color = if lit { loud } else { quiet };
         div()
@@ -5107,10 +5190,10 @@ impl PaddockWindow {
             .gap(ui.px(MORE_GAP))
             .w(px(width))
             .h(ui.px(TAB_HEIGHT))
-            .rounded_full()
-            .bg(if lit { lit_ground } else { rest })
+            .rounded(ui.px(FLAT_RADIUS))
+            .when(lit, |button| button.bg(lit_ground))
             .border(px(TAB_RING))
-            .border_color(self.capsule_edge())
+            .border_color(gpui::transparent_black())
             .text_size(ui.px(MORE_TEXT))
             .text_color(color)
             .cursor_pointer()
@@ -5175,6 +5258,7 @@ impl PaddockWindow {
                 now,
                 ground,
                 Some((group, hovered)),
+                BADGE,
                 &ui,
             );
             let title = tab_label(&self.subject(tab.active, cx), &open);
@@ -5601,7 +5685,10 @@ impl PaddockWindow {
         } else {
             (8.0, 8.0, 12.0)
         };
-        self.panel(self.pane_rim(pane, shown, active))
+        // A step brighter for the active pane among several: [`PANEL_RIM_ACTIVE`] or
+        // [`PANEL_RIM`], or between as it changes (P5-148a).
+        let rim = self.pane_rim(pane, shown, active);
+        self.panel()
             .when(opacity < 1.0, |this| this.opacity(opacity))
             .id(("pane", pane as usize))
             .group(SharedString::from(format!("pane-{pane}")))
@@ -5653,6 +5740,7 @@ impl PaddockWindow {
             .when(signal.glow > 0.0, |this| {
                 this.child(signals::rim(signal.glow, self.fg(|t| t.agents_yellow)))
             })
+            .child(self.panel_rim(pane, rim))
             .into_any_element()
     }
 
@@ -5850,6 +5938,7 @@ impl PaddockWindow {
                 now,
                 hsla(self.theme.terminal().background, 1.0),
                 None,
+                BADGE,
                 &ui,
             ))
             // Another machine's agent: the machine before its name (P5-122).
@@ -6783,10 +6872,19 @@ impl PaddockWindow {
                 color,
                 breathing,
                 kind,
-            } => Some(match kind.and_then(|kind| self.kind_icon(&kind, ui)) {
-                Some(icon) => self.dotted(icon, (self.fg(color), breathing), ground, hovered, ui),
-                None => status_dot(self.fg(color), breathing, ui),
-            }),
+            } => Some(
+                match kind.and_then(|kind| self.kind_icon(&kind, BADGE, ui)) {
+                    Some(icon) => self.dotted(
+                        icon,
+                        (self.fg(color), breathing),
+                        ground,
+                        hovered,
+                        BADGE,
+                        ui,
+                    ),
+                    None => status_dot(self.fg(color), breathing, ui),
+                },
+            ),
             Lead::Settings(page) => Some(
                 footer_icon::icon(page.icon(), self.fg(|t| t.agents_dim), scale).into_any_element(),
             ),
@@ -7429,6 +7527,12 @@ impl Render for PaddockWindow {
                 (tab.root.clone(), tab.panes().len())
             }
         };
+        // The panels drawn, the topmost last, for the active tab to join the one under it (P5-165).
+        let panes = match (self.workspace.zoomed(), growing) {
+            (Some(pane), None) => vec![pane],
+            _ => self.workspace.tab().panes(),
+        };
+        let drawn = self.drawn(&panes, growing.map(|(pane, _)| pane), shown);
         let agents = self.sidebar.read(cx).agents();
         let now = now();
         // A tab switched to fades in as it moves over from its side, its size kept (P5-154).
@@ -7592,6 +7696,7 @@ impl Render for PaddockWindow {
         // One closing fades out under the one on show (P5-148a).
         let leaving = self.leaving_layer(window.is_fullscreen(), window, cx);
         let dialog = self.popup_layer(&hidden, window, cx);
+        let (bar, look) = self.title_bar(&agents, now, window.is_fullscreen(), window, cx);
         ui.apply(div())
             .relative()
             .size_full()
@@ -7734,10 +7839,12 @@ impl Render for PaddockWindow {
             .on_action(
                 cx.listener(|this, _: &menu::Cancel, window, cx| this.close_popup(window, cx)),
             )
-            .child(self.title_bar(&agents, now, window.is_fullscreen(), window, cx))
+            .child(bar)
             .child(body)
-            // Over the panes, under what is drawn over the window.
+            // Over the panes, under what is drawn over the window: the rim sliding between them,
+            // then the active tab's outline where it joins one (P5-165).
             .children(self.rim_layer())
+            .children(look.map(|look| self.join_layer(drawn, look, height, &ui)))
             .children(leaving)
             .children(dialog)
             // While a divider is dragged the cursor keeps its shape, and nothing under it
@@ -7914,21 +8021,6 @@ mod tests {
         let marks = tab_marks(&w, &agents, &[], &[], 0.0);
         assert!(!marks[0].paused);
         assert_eq!(marks[0].tone, TabTone::Waiting);
-    }
-
-    #[test]
-    fn an_inactive_tab_is_ringed_amber_for_a_waiting_agent_but_not_over_its_error_red() {
-        let marks = |waiting, tone| TabMarks {
-            waiting,
-            paused: false,
-            tone,
-        };
-        assert!(marks(true, TabTone::Waiting).amber_ring());
-        // Another of its panes waits while the one it is named after works.
-        assert!(marks(true, TabTone::Working).amber_ring());
-        // In error: Attention's Needs you too, and the red capsule says so.
-        assert!(!marks(true, TabTone::Error).amber_ring());
-        assert!(!marks(false, TabTone::Neutral).amber_ring());
     }
 
     #[test]
@@ -8225,13 +8317,28 @@ mod tests {
 
     #[test]
     fn a_split_tab_s_width_counts_its_stack_and_nothing_after_its_title() {
+        let near = |a: f32, b: f32| (a - b).abs() < 0.001;
         let around = |panes| tab_chrome(panes, false, false, false, 1.0);
-        let icon = BADGE_ICON + 2.0;
+        // As the reference has it (P5-165 rework 2): 10 before the 16 icon, in its box a point
+        // wider either side, and 6 after it.
+        let icon = TAB_BADGE.icon + 2.0;
+        assert_eq!(icon, 18.0);
+        assert_eq!(TAB_RING + TAB_START + 1.0, 10.0);
+        assert_eq!(1.0 + TAB_GAP, 6.0);
         let one = TAB_START + icon + TAB_GAP + TAB_END + 2.0 * TAB_RING;
+        assert_eq!(around(1), 45.0);
         assert_eq!(around(1), one);
-        // The stack in place of the one icon, and no pill after the title.
-        assert_eq!(around(2) - one, tab_stack::width(2) - icon);
-        assert_eq!(around(3) - one, tab_stack::width(3) - icon);
+        // In line, the × at the end: its cross's right end about 9 in from the tab's.
+        let cross_end = TAB_RING + ACTIVE_TAB_END + (TAB_CLOSE - TAB_CROSS) / 2.0;
+        assert!((cross_end - 9.0).abs() <= 0.25, "{cross_end}");
+        assert_eq!(
+            tab_chrome(1, false, false, true, 1.0),
+            one - TAB_END + TAB_GAP + TAB_CLOSE + ACTIVE_TAB_END
+        );
+        // The stack in place of the one icon, as high as it, and no pill after the title.
+        let stack = |panes| tab_stack::width(panes) * TAB_BADGE.icon / tab_stack::CARD;
+        assert!(near(around(2) - one, stack(2) - icon));
+        assert!(near(around(3) - one, stack(3) - icon));
         // No wider past three cards.
         assert_eq!(around(6), around(3));
         // An empty pane alone is a bare dot; in a split tab it has a card like any other.
@@ -8239,10 +8346,10 @@ mod tests {
         assert_eq!(tab_chrome(2, true, false, false, 1.0), around(2));
         // Everything but the ring grows with the interface.
         let ring = 2.0 * TAB_RING;
-        assert_eq!(
+        assert!(near(
             tab_chrome(3, false, false, false, 2.0),
             2.0 * (around(3) - ring) + ring
-        );
+        ));
     }
 
     #[test]

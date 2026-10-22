@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>Equal width tabs</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+.cap{display:flex;align-items:baseline;gap:12px;font-size:13px;color:#cfd6e2}
+.cap b{font-weight:600;color:#eef1f7;flex:none}
+.cap span{color:#8b93a1;font-size:12.5px;line-height:18px}
+.win{position:relative;width:1040px;height:170px;border-radius:12px;overflow:hidden;background:#181b22;box-shadow:0 0 0 1px rgba(255,255,255,0.07)}
+.side{position:absolute;left:0;top:0;bottom:0;width:200px;background:#1d2129}
+.lights{position:absolute;left:14px;top:14px;display:flex;gap:8px}
+.lights span{width:12px;height:12px;border-radius:6px}
+.panel{position:absolute;left:208px;top:40px;right:8px;bottom:8px;box-sizing:border-box;background:#23272f;border:1px solid #373b43;border-radius:12px;overflow:hidden}
+.phead{display:flex;align-items:center;gap:8px;height:30px;padding:0 12px;font-size:12px;color:#8b93a1}
+.phead b{font-weight:600;color:#c9d1dc}
+.term{padding:2px 16px;font-family:'SF Mono',Menlo,monospace;font-size:12.5px;line-height:20px;color:#c9d1dc;white-space:pre}
+.tabs{position:absolute;top:6px;display:flex;align-items:flex-start;gap:6px;z-index:2}
+.tab{display:inline-flex;align-items:center;gap:7px;height:28px;box-sizing:border-box;padding:0 12px 0 6px;border-radius:14px;font-size:13px;white-space:nowrap;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.07);color:#aeb6c4}
+.ftab{position:relative;flex:none;height:35px;margin:0 6px;color:#eef1f7;font-size:13px;font-weight:600}
+.ftab svg.shape{position:absolute;left:-8px;top:0}
+.ftab .in,.stab .in,.flat{position:relative;display:flex;align-items:center;gap:7px;height:28px;box-sizing:border-box;white-space:nowrap}
+.ftab .in{padding:0 6px 0 10px}
+.flat{flex:none;width:180px;padding:0 10px;font-size:13px;color:#aeb6c4;border-radius:8px}
+.flat.hover{background:rgba(255,255,255,0.07);color:#d6dce6}
+.sep{flex:none;width:1px;height:14px;margin-top:7px;background:rgba(255,255,255,0.12)}
+.stab{position:relative;flex:none;width:180px;height:34px;box-sizing:border-box;border:1px solid rgba(255,255,255,0.09);border-bottom:none;border-radius:10px 10px 0 0;background:rgba(255,255,255,0.05);color:#aeb6c4;font-size:13px}
+.stab .in{padding:0 10px 0 9px;margin-top:-1px}
+.stab.wait{border-color:rgba(224,178,79,0.5)}
+.stab.work{border-color:transparent}
+.stab svg.edge{position:absolute;left:-1px;top:-1px}
+.more{display:inline-flex;align-items:center;gap:5px;height:28px;padding:0 10px;border-radius:8px;font-size:12.5px;color:#aeb6c4}
+.name{overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1}
+.ico{position:relative;flex:none;width:18px;height:18px;border-radius:5px;background:#d97757;display:inline-flex;align-items:center;justify-content:center}
+.ico.sh{background:#3a404b}
+.dot{position:absolute;right:-4px;bottom:-4px;width:6px;height:6px;border-radius:5px;border:2px solid #2a2e36;background:#6b7280}
+.dot.run{background:#7ea2ee}
+.dot.ok{background:#8bc48a}
+.dot.wait{background:#e0b24f}
+.ftab .dot{border-color:#23272f}
+.flat .dot{border-color:#181b22}
+.flat.hover .dot{border-color:#262930}
+.stab .dot{border-color:#1f2229}
+.x{display:inline-flex;align-items:center;justify-content:center;flex:none;width:18px;height:18px;border-radius:9px}
+.plus{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:14px;color:#8b93a1}
+.tools{position:absolute;right:10px;top:6px;display:flex;align-items:center;gap:6px}
+.pill{display:inline-flex;align-items:center;gap:8px;height:28px;padding:0 10px;border-radius:8px;background:rgba(255,255,255,0.06);font-size:12px;color:#8b93a1}
+.kbd{font-size:11px;padding:1px 5px;border-radius:4px;background:rgba(255,255,255,0.08)}
+.ib{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:8px;color:#8b93a1}
+.tail{stroke-dasharray:22 200;animation:tail 2.5s linear infinite}
+.head{stroke-dasharray:6 200;animation:head 2.5s linear infinite}
+@keyframes tail{from{stroke-dashoffset:22}to{stroke-dashoffset:-100}}
+@keyframes head{from{stroke-dashoffset:6}to{stroke-dashoffset:-116}}
+@media (prefers-reduced-motion: reduce){.tail,.head{animation:none;opacity:0}}
+</style>
+</helmet>
+<div style="width: 1120px; height: 1000px; box-sizing: border-box; padding: 32px 40px; background: #111318; font-family: -apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif; color: #e7ecf3; display: flex; flex-direction: column; gap: 10px">
+  <h1 style="margin: 0 0 14px; font-size: 18px; font-weight: 600">选中标签连窗格 · 返工：等宽，没选中的标签怎么配</h1>
+
+  <div class="cap"><b>现在（装上的）</b><span>选中的按名字定宽，main 只剩一小块；旁边是全圆角带边的胶囊，两种形状放在一排</span></div>
+  <div class="win">
+    <div class="side"><div class="lights"><span style="background: #ff5f57"></span><span style="background: #febc2e"></span><span style="background: #28c840"></span></div></div>
+    <div class="panel">
+      <div class="phead"><b>main</b><span>Ranch 待命  ~/…/paddock</span></div>
+      <div class="term"><div style="color: #8b93a1">  ⎿  (timeout 10m)</div></div>
+    </div>
+    <div class="tabs" style="left: 232px">
+      <span class="tab"><span class="ico sh"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#cfd6e2" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 7l5 5-5 5M12 18h7"></path></svg><span class="dot ok"></span></span><span class="name">zsh · firegnu</span></span>
+      <span class="ftab" style="width: 110px"><svg class="shape" width="126" height="36" viewBox="0 0 126 36" aria-hidden="true"><path d="M0.5,34.5 A8,8 0 0 0 8.5,26.5 L8.5,10.5 A10,10 0 0 1 18.5,0.5 L107.5,0.5 A10,10 0 0 1 117.5,10.5 L117.5,26.5 A8,8 0 0 0 125.5,34.5 L125.5,36 L0.5,36 Z" fill="#23272f"></path><path d="M0.5,34.5 A8,8 0 0 0 8.5,26.5 L8.5,10.5 A10,10 0 0 1 18.5,0.5 L107.5,0.5 A10,10 0 0 1 117.5,10.5 L117.5,26.5 A8,8 0 0 0 125.5,34.5" fill="none" stroke="#373b43" stroke-width="1"></path></svg><span class="in"><span class="ico"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4"></path></svg><span class="dot ok"></span></span><span class="name">main</span><span class="x"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#c3cad6" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></span></span></span>
+      <span class="plus"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg></span>
+    </div>
+    <div class="tools"><span class="pill">Search <span class="kbd">⌘K</span></span></div>
+  </div>
+
+  <div class="cap" style="margin-top: 18px"><b>甲 · 等宽，去掉胶囊</b><span>每个标签一样宽（约 180）；没选中的只剩图标和名字，标签之间一道短竖线，鼠标移上去出一块淡底（图里 ranch/main 是悬停）。没选中的干活、等人只靠图标角上的点</span></div>
+  <div class="win">
+    <div class="side"><div class="lights"><span style="background: #ff5f57"></span><span style="background: #febc2e"></span><span style="background: #28c840"></span></div></div>
+    <div class="panel">
+      <div class="phead"><b>main</b><span>Ranch 待命  ~/…/paddock</span></div>
+      <div class="term"><div style="color: #8b93a1">  ⎿  (timeout 10m)</div></div>
+    </div>
+    <div class="tabs" style="left: 232px; gap: 4px">
+      <span class="flat"><span class="ico sh"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#cfd6e2" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 7l5 5-5 5M12 18h7"></path></svg><span class="dot ok"></span></span><span class="name">zsh · firegnu</span></span>
+      <span class="ftab" style="width: 180px"><svg class="shape" width="196" height="36" viewBox="0 0 196 36" aria-hidden="true"><path d="M0.5,34.5 A8,8 0 0 0 8.5,26.5 L8.5,10.5 A10,10 0 0 1 18.5,0.5 L177.5,0.5 A10,10 0 0 1 187.5,10.5 L187.5,26.5 A8,8 0 0 0 195.5,34.5 L195.5,36 L0.5,36 Z" fill="#23272f"></path><path d="M0.5,34.5 A8,8 0 0 0 8.5,26.5 L8.5,10.5 A10,10 0 0 1 18.5,0.5 L177.5,0.5 A10,10 0 0 1 187.5,10.5 L187.5,26.5 A8,8 0 0 0 195.5,34.5" fill="none" stroke="#373b43" stroke-width="1"></path></svg><span class="in"><span class="ico"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4"></path></svg><span class="dot ok"></span></span><span class="name">main</span><span class="x"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#c3cad6" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></span></span></span>
+      <span class="flat"><span class="ico"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4"></path></svg><span class="dot run"></span></span><span class="name">dev-tab-join-1</span></span>
+      <span class="sep"></span>
+      <span class="flat hover"><span class="ico"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4"></path></svg><span class="dot wait"></span></span><span class="name">ranch/main</span><span class="x"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#c3cad6" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></span></span>
+      <span class="plus"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg></span>
+    </div>
+    <div class="tools"><span class="ib"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6"></circle><path d="M20 20l-4.5-4.5"></path></svg></span></div>
+  </div>
+
+  <div class="cap" style="margin-top: 18px"><b>乙 · 等宽，同形状不连面板</b><span>没选中的也是上圆下方，淡底，底边落在面板顶边上但不连进去；干活的跑马灯（调暗）、等人的琥珀边照旧沿这个形状画</span></div>
+  <div class="win">
+    <div class="side"><div class="lights"><span style="background: #ff5f57"></span><span style="background: #febc2e"></span><span style="background: #28c840"></span></div></div>
+    <div class="panel">
+      <div class="phead"><b>main</b><span>Ranch 待命  ~/…/paddock</span></div>
+      <div class="term"><div style="color: #8b93a1">  ⎿  (timeout 10m)</div></div>
+    </div>
+    <div class="tabs" style="left: 232px; gap: 4px">
+      <span class="stab"><span class="in"><span class="ico sh"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#cfd6e2" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 7l5 5-5 5M12 18h7"></path></svg><span class="dot ok"></span></span><span class="name">zsh · firegnu</span></span></span>
+      <span class="ftab" style="width: 180px"><svg class="shape" width="196" height="36" viewBox="0 0 196 36" aria-hidden="true"><path d="M0.5,34.5 A8,8 0 0 0 8.5,26.5 L8.5,10.5 A10,10 0 0 1 18.5,0.5 L177.5,0.5 A10,10 0 0 1 187.5,10.5 L187.5,26.5 A8,8 0 0 0 195.5,34.5 L195.5,36 L0.5,36 Z" fill="#23272f"></path><path d="M0.5,34.5 A8,8 0 0 0 8.5,26.5 L8.5,10.5 A10,10 0 0 1 18.5,0.5 L177.5,0.5 A10,10 0 0 1 187.5,10.5 L187.5,26.5 A8,8 0 0 0 195.5,34.5" fill="none" stroke="#373b43" stroke-width="1"></path></svg><span class="in"><span class="ico"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4"></path></svg><span class="dot ok"></span></span><span class="name">main</span><span class="x"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#c3cad6" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></span></span></span>
+      <span class="stab work"><svg class="edge" width="180" height="34" viewBox="0 0 180 34" aria-hidden="true"><path d="M0.5,34 L0.5,10.5 A10,10 0 0 1 10.5,0.5 L169.5,0.5 A10,10 0 0 1 179.5,10.5 L179.5,34" fill="none" stroke="rgba(126,162,238,0.2)" stroke-width="1.5"></path><path class="tail" pathLength="100" d="M0.5,34 L0.5,10.5 A10,10 0 0 1 10.5,0.5 L169.5,0.5 A10,10 0 0 1 179.5,10.5 L179.5,34" fill="none" stroke="rgba(126,162,238,0.45)" stroke-width="1.5" stroke-linecap="round"></path><path class="head" pathLength="100" d="M0.5,34 L0.5,10.5 A10,10 0 0 1 10.5,0.5 L169.5,0.5 A10,10 0 0 1 179.5,10.5 L179.5,34" fill="none" stroke="rgba(228,236,255,0.6)" stroke-width="1.5" stroke-linecap="round"></path></svg><span class="in"><span class="ico"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4"></path></svg><span class="dot run"></span></span><span class="name">dev-tab-join-1</span></span></span>
+      <span class="stab wait"><span class="in"><span class="ico"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4"></path></svg><span class="dot wait"></span></span><span class="name">ranch/main</span></span></span>
+      <span class="plus"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg></span>
+    </div>
+    <div class="tools"><span class="ib"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6"></circle><path d="M20 20l-4.5-4.5"></path></svg></span></div>
+  </div>
+
+  <div class="cap" style="margin-top: 18px"><b>乙 · 标签多了</b><span>放不下时所有标签一起变窄（图里约 110），名字截短，选中的照样连着面板；再窄到下限就收进 +N。甲也照这个规则变窄</span></div>
+  <div class="win">
+    <div class="side"><div class="lights"><span style="background: #ff5f57"></span><span style="background: #febc2e"></span><span style="background: #28c840"></span></div></div>
+    <div class="panel">
+      <div class="phead"><b>main</b><span>Ranch 待命  ~/…/paddock</span></div>
+      <div class="term"><div style="color: #8b93a1">  ⎿  (timeout 10m)</div></div>
+    </div>
+    <div class="tabs" style="left: 232px; gap: 4px">
+      <span class="stab" style="width: 110px"><span class="in"><span class="ico sh"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#cfd6e2" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 7l5 5-5 5M12 18h7"></path></svg><span class="dot ok"></span></span><span class="name">zsh · firegnu</span></span></span>
+      <span class="ftab" style="width: 110px"><svg class="shape" width="126" height="36" viewBox="0 0 126 36" aria-hidden="true"><path d="M0.5,34.5 A8,8 0 0 0 8.5,26.5 L8.5,10.5 A10,10 0 0 1 18.5,0.5 L107.5,0.5 A10,10 0 0 1 117.5,10.5 L117.5,26.5 A8,8 0 0 0 125.5,34.5 L125.5,36 L0.5,36 Z" fill="#23272f"></path><path d="M0.5,34.5 A8,8 0 0 0 8.5,26.5 L8.5,10.5 A10,10 0 0 1 18.5,0.5 L107.5,0.5 A10,10 0 0 1 117.5,10.5 L117.5,26.5 A8,8 0 0 0 125.5,34.5" fill="none" stroke="#373b43" stroke-width="1"></path></svg><span class="in"><span class="ico"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4"></path></svg><span class="dot ok"></span></span><span class="name">main</span><span class="x"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#c3cad6" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></span></span></span>
+      <span class="stab" style="width: 110px"><span class="in"><span class="ico"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4"></path></svg><span class="dot run"></span></span><span class="name">dev-tab-join-1</span></span></span>
+      <span class="stab wait" style="width: 110px"><span class="in"><span class="ico"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4"></path></svg><span class="dot wait"></span></span><span class="name">ranch/main</span></span></span>
+      <span class="stab" style="width: 110px"><span class="in"><span class="ico"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4"></path></svg><span class="dot"></span></span><span class="name">cairn/main</span></span></span>
+      <span class="stab" style="width: 110px"><span class="in"><span class="ico sh"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#cfd6e2" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 7l5 5-5 5M12 18h7"></path></svg></span><span class="name">zsh · logs</span></span></span>
+      <span class="more">+2<svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg></span>
+      <span class="plus"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg></span>
+    </div>
+    <div class="tools"><span class="ib"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6"></circle><path d="M20 20l-4.5-4.5"></path></svg></span></div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1120,"height":1000}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>
