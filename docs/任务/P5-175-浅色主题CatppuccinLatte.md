@@ -6,6 +6,7 @@
 提示：围绕已确认的使用目标完成变更，优先沿用现有机制。
 依据：paddock 七套内置主题全是深色的。用户 10-23 要加一套浅色的试试，从三种样稿里选了 Catppuccin Latte。本轮加这一套，Settings 的主题选择里能选到，并把界面里默认按深色写的地方在浅色下理顺；七套深色主题的样子一点不变。Rosé Pine Dawn、Tokyo Night Day 不做。
 执行：派出
+待用户：重开 paddock，在 Settings 里选 Catppuccin Latte 看浅色效果
 你是被委派的 agent：照本文件做，不要再开别的 agent。
 
 ## 用户原话
