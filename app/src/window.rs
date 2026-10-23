@@ -340,6 +340,15 @@ enum Spot {
     ActiveTab,
 }
 
+/// Which part of the title bar's capsule the pointer is over (P5-171 rework 2): that part fills
+/// whole, and the lines either side of it give way.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CapsulePart {
+    Split,
+    Search,
+    Right,
+}
+
 /// Every word of `query` in the agent's full name (its project, then its own), ignoring case.
 fn agent_matches(name: &str, query: &str) -> bool {
     let name = name.to_lowercase();
@@ -526,11 +535,19 @@ const TAB_BADGE: Badge = Badge {
 const TAB_STACK: f32 = TAB_BADGE.icon / tab_stack::CARD;
 /// What a command palette row's hover brightens: this name on each row.
 const PALETTE_ROW: &str = "palette-row";
-/// The title bar's `+` and split icon; the search field's width, and the room between it and the
-/// split icon, besides the bar's own gap.
+/// The title bar's `+`; and its capsule at the right end (P5-171 rework 2): its height, corners
+/// and ring, the two buttons either side of Search, and the line between its parts. The parts fit
+/// inside the ring, the lines drawn over their edges and taking no room; unscaled.
 const BAR_BUTTON: f32 = 28.0;
-const SEARCH: f32 = 220.0;
-const SPLIT_GAP: f32 = 4.0;
+const CAPSULE_HEIGHT: f32 = 28.0;
+const CAPSULE_RADIUS: f32 = 8.0;
+const CAPSULE_RING: f32 = 1.0;
+const CAPSULE_SIDE: f32 = 30.0;
+const CAPSULE_SEARCH: f32 = 208.0;
+const CAPSULE_RULE: f32 = 1.0;
+const CAPSULE_RULE_HEIGHT: f32 = 14.0;
+/// The capsule across as drawn, unscaled: its ring either side and its three parts.
+const CAPSULE: f32 = 2.0 * CAPSULE_RING + 2.0 * CAPSULE_SIDE + CAPSULE_SEARCH;
 /// The room between the title bar's tabs and buttons, and at either end of the part after the
 /// sidebar; unscaled.
 const BAR_GAP: f32 = 4.0;
@@ -700,6 +717,13 @@ fn split_glyph(axis: Axis, color: Hsla, scale: f32) -> Div {
 fn title_bar_height(ui: &UiFont, pet: bool) -> f32 {
     let base = if pet { PET_TITLE_BAR } else { TITLE_BAR };
     base.max(ui.scale(base))
+}
+
+/// The room the title bar's tabs fit in, `window` points across: less its left part, the room at
+/// either end and between what it holds, the pet's little more, and the capsule at its right end
+/// (P5-171 rework 2), in points at `scale`.
+fn tabs_room(window: f32, left: f32, inset: f32, scale: f32) -> f32 {
+    window - left - 2.0 * BAR_END - inset - 3.0 * BAR_GAP - GAP - CAPSULE * scale
 }
 
 /// How wide the title bar's left part is, before the divider's line or the tabs: the sidebar's
@@ -1321,6 +1345,8 @@ pub struct PaddockWindow {
     /// fades in and out.
     tab_hover: Option<(usize, Instant)>,
     tab_left: Option<(usize, Instant)>,
+    /// The title bar capsule's part under the mouse, if any (P5-171 rework 2).
+    capsule_hover: Option<CapsulePart>,
     /// Where the layout is saved.
     store: Store,
     /// Last normal window size, kept while fullscreen or miniaturized.
@@ -1542,6 +1568,7 @@ impl PaddockWindow {
             joined: Rc::default(),
             tab_hover: None,
             tab_left: None,
+            capsule_hover: None,
             palette: None,
             sidebar_width: config.sidebar_width,
             collapsed,
@@ -4681,16 +4708,12 @@ impl PaddockWindow {
         let may_wait = (0..sizes.len())
             .filter(|&tab| tab != active)
             .any(|tab| waiting(&tab));
-        let room = f32::from(window.viewport_size().width)
-            - self.bar_left_now(full_screen, &ui)
-            - 2.0 * BAR_END
-            // The tabs begin clear of the panel's rounded corner (P5-165).
-            - self.tabs_inset(full_screen, &ui)
-            // Between the tabs, the `+`, the pet's room, the split icon, Search and the right
-            // sidebar's switch; the pet's room keeps a little more.
-            - 5.0 * BAR_GAP
-            - GAP
-            - (3.0 * BAR_BUTTON + 2.0 * SPLIT_GAP + SEARCH) * s;
+        let room = tabs_room(
+            f32::from(window.viewport_size().width),
+            self.bar_left_now(full_screen, &ui),
+            self.tabs_inset(full_screen, &ui),
+            s,
+        );
         let bar = Bar {
             room,
             gap: TAB_SPACING,
@@ -5155,9 +5178,7 @@ impl PaddockWindow {
                             .ml(px(GAP))
                             .children(self.pet.clone()),
                     )
-                    .child(self.split_button(cx))
-                    .child(self.search_button(cx))
-                    .child(self.right_button(cx)),
+                    .child(self.bar_capsule(cx)),
             );
         (bar, look)
     }
@@ -5290,9 +5311,110 @@ impl PaddockWindow {
             .child(panel.child(cover()))
     }
 
-    /// The right sidebar's switch, after the search field at the title bar's right end; lit while
-    /// the sidebar is open. As the pointer comes in its edge slides the way the click goes, out
-    /// to close and in to open.
+    /// The title bar's right end: the split button, Search and the right sidebar's switch in one
+    /// capsule, a faint line between its parts (P5-171 rework 2, design A). The part under the
+    /// mouse, or lit, fills whole and the lines either side of it give way. Over the material the
+    /// capsule is the dark field the search box was (P5-171); in full screen the bar's own ground.
+    fn bar_capsule(&self, cx: &mut Context<Self>) -> Stateful<Div> {
+        let ui = UiFont::get(cx);
+        let rule = hsla(self.theme.fg(|t| t.agents_rule), 1.0);
+        let (ground, border) = if self.frosted() {
+            (hsla(self.theme.frame(), 1.0).opacity(0.6), rule)
+        } else {
+            (self.bar_ground().opacity(0.5), rule.opacity(0.6))
+        };
+        // Fainter than the ring, so the lines between the parts never carry the eye.
+        let line = rule.opacity(if self.frosted() { 0.6 } else { 0.35 });
+        let (rule_in, rule_across, rule_high) = (
+            ui.px(-CAPSULE_RULE),
+            ui.px(CAPSULE_RULE),
+            ui.px(CAPSULE_RULE_HEIGHT),
+        );
+        let hovered = self.capsule_hover;
+        let split_lit = self.split_hanging() == Some(SplitFrom::Bar);
+        let right_lit = self.right.open;
+        // A part under the mouse or lit gives the line either side of it way. Each line is drawn
+        // over the edge of the part before it and takes no room, so hiding one leaves no seam.
+        let upwards = |part: CapsulePart| hovered == Some(part);
+        let between_split =
+            !(split_lit || upwards(CapsulePart::Split) || upwards(CapsulePart::Search));
+        let between_right =
+            !(right_lit || upwards(CapsulePart::Right) || upwards(CapsulePart::Search));
+        let line = move || {
+            div()
+                .flex_shrink_0()
+                .ml(rule_in)
+                .w(rule_across)
+                .h(rule_high)
+                .bg(line)
+        };
+        let split = self.split_button(cx);
+        let search = self.search_button(cx);
+        let right = self.right_button(cx);
+        div()
+            .id("bar-capsule")
+            .flex_shrink_0()
+            .flex()
+            .items_center()
+            .w(ui.px(CAPSULE))
+            .h(ui.px(CAPSULE_HEIGHT))
+            .rounded(ui.px(CAPSULE_RADIUS))
+            .border(ui.px(CAPSULE_RING))
+            .border_color(border)
+            .bg(ground)
+            .child(self.capsule_part(CapsulePart::Split, CAPSULE_SIDE, &ui, split, cx))
+            .when(between_split, |capsule| capsule.child(line()))
+            .child(self.capsule_part(CapsulePart::Search, CAPSULE_SEARCH, &ui, search, cx))
+            .when(between_right, |capsule| capsule.child(line()))
+            .child(self.capsule_part(CapsulePart::Right, CAPSULE_SIDE, &ui, right, cx))
+    }
+
+    /// One part of the capsule, `width` across and filling it inside the ring, noting when the
+    /// pointer comes onto it or leaves so the lines either side follow (P5-171 rework 2).
+    fn capsule_part(
+        &self,
+        part: CapsulePart,
+        width: f32,
+        ui: &UiFont,
+        child: impl IntoElement,
+        cx: &mut Context<Self>,
+    ) -> Stateful<Div> {
+        div()
+            .id(match part {
+                CapsulePart::Split => "capsule-split",
+                CapsulePart::Search => "capsule-search",
+                CapsulePart::Right => "capsule-right",
+            })
+            .flex_shrink_0()
+            .flex()
+            .items_center()
+            .justify_center()
+            .w(ui.px(width))
+            .h(ui.px(CAPSULE_HEIGHT - 2.0 * CAPSULE_RING))
+            .on_hover(cx.listener(move |this, hovered: &bool, _, cx| {
+                this.hover_capsule(part, *hovered, cx)
+            }))
+            .child(child)
+    }
+
+    /// The mouse came onto one of the title bar capsule's parts or left it (P5-171 rework 2).
+    fn hover_capsule(&mut self, part: CapsulePart, hovered: bool, cx: &mut Context<Self>) {
+        let next = if hovered {
+            Some(part)
+        } else if self.capsule_hover == Some(part) {
+            None
+        } else {
+            self.capsule_hover
+        };
+        if next != self.capsule_hover {
+            self.capsule_hover = next;
+            cx.notify();
+        }
+    }
+
+    /// The right sidebar's switch, the last part of the title bar's capsule; lit while the
+    /// sidebar is open. As the pointer comes in its edge slides the way the click goes, out to
+    /// close and in to open.
     fn right_button(&self, cx: &mut Context<Self>) -> HoverMotion {
         let ui = UiFont::get(cx);
         let highlight = self.bar_ground();
@@ -5319,9 +5441,9 @@ impl PaddockWindow {
                 .flex()
                 .items_center()
                 .justify_center()
-                .size(ui.px(BAR_BUTTON))
-                .ml(ui.px(SPLIT_GAP))
-                .rounded(px(6.0))
+                .w_full()
+                .h_full()
+                .rounded_r(ui.px(CAPSULE_RADIUS - CAPSULE_RING))
                 .cursor_pointer()
                 .when(lit, |button| button.bg(highlight))
                 .hover(move |style| style.bg(highlight))
@@ -5338,9 +5460,9 @@ impl PaddockWindow {
         })
     }
 
-    /// The way into the split panel for the active pane, always before the search field, as a
-    /// lone pane has no header to carry its split button. Quiet until hovered; lit while the
-    /// panel hangs from it. Its halves part as the pointer comes in.
+    /// The way into the split panel for the active pane, the first part of the title bar's
+    /// capsule, as a lone pane has no header to carry its split button. Quiet until hovered; lit
+    /// while the panel hangs from it. Its halves part as the pointer comes in.
     fn split_button(&self, cx: &mut Context<Self>) -> HoverMotion {
         let ui = UiFont::get(cx);
         let highlight = self.bar_ground();
@@ -5370,9 +5492,9 @@ impl PaddockWindow {
                 .flex()
                 .items_center()
                 .justify_center()
-                .size(ui.px(BAR_BUTTON))
-                .mr(ui.px(SPLIT_GAP))
-                .rounded(px(6.0))
+                .w_full()
+                .h_full()
+                .rounded_l(ui.px(CAPSULE_RADIUS - CAPSULE_RING))
                 .cursor_pointer()
                 .when(lit, |button| button.bg(highlight))
                 .hover(move |style| style.bg(highlight))
@@ -5389,12 +5511,18 @@ impl PaddockWindow {
         })
     }
 
-    /// The way into the command palette, always at the title bar's right end: the tabs narrow
+    /// The way into the command palette, the middle of the title bar's capsule: the tabs narrow
     /// before it does. Its magnifier tilts as the pointer comes in.
     fn search_button(&self, cx: &mut Context<Self>) -> HoverMotion {
         let ui = UiFont::get(cx);
         let highlight = self.bar_ground();
-        let border = hsla(self.theme.fg(|t| t.agents_rule), 0.6);
+        // Over the material the part darkens under the mouse; the capsule around it keeps the
+        // dark field's colour (P5-171).
+        let hovered = if self.frosted() {
+            hsla(self.theme.frame(), 1.0).opacity(0.75)
+        } else {
+            highlight
+        };
         let dim = self.bar_fg(|t| t.agents_dim);
         let keycaps = self.keycaps(&menu::keys(&menu::Search), &ui, 18.0, highlight);
         let on_click =
@@ -5403,18 +5531,14 @@ impl PaddockWindow {
             div()
                 .id("search")
                 .flex_shrink_0()
-                .w(ui.px(SEARCH))
-                .h(ui.px(28.0))
+                .w_full()
+                .h_full()
                 .flex()
                 .items_center()
                 .gap(ui.px(8.0))
                 .pl(ui.px(10.0))
                 .pr(ui.px(6.0))
-                .rounded(px(7.0))
-                .border_1()
-                .border_color(border)
-                .bg(highlight.opacity(0.5))
-                .hover(move |style| style.bg(highlight))
+                .hover(move |style| style.bg(hovered))
                 .text_size(ui.px(12.5))
                 .text_color(dim)
                 .cursor_pointer()
@@ -7020,11 +7144,11 @@ impl PaddockWindow {
                 )
             }
             Popup::Split(_) => (
-                // Not drawn yet: before the search field at the title bar's right end.
+                // Not drawn yet: the capsule's first part at the title bar's right end.
                 spots.get(&Spot::Split).copied().unwrap_or_else(|| {
-                    let button = BAR_BUTTON * s;
-                    let right = f32::from(viewport.width) - 10.0 - SEARCH * s - 4.0 - SPLIT_GAP * s;
-                    rect(right - button, (title - button) / 2.0, button, button)
+                    let high = (CAPSULE_HEIGHT - 2.0 * CAPSULE_RING) * s;
+                    let left = f32::from(viewport.width) - BAR_END - CAPSULE * s + CAPSULE_RING * s;
+                    rect(left, (title - high) / 2.0, CAPSULE_SIDE * s, high)
                 }),
                 Hang::BelowRight,
             ),
@@ -8496,6 +8620,18 @@ mod tests {
         };
         assert_eq!(title_bar_height(&small, false), TITLE_BAR);
         assert_eq!(title_bar_height(&small, true), PET_TITLE_BAR);
+    }
+
+    #[test]
+    fn the_tabs_give_way_by_the_capsule_across() {
+        // The capsule at the title bar's right end: the split button, Search and the right
+        // sidebar's switch, its ring either side; the lines between the parts are drawn over
+        // their edges and take no room (P5-171 rework 2).
+        assert_eq!(CAPSULE, 2.0 * 1.0 + 30.0 + 208.0 + 30.0);
+        // The tabs' room gives way by exactly that much as the interface scales.
+        let base = tabs_room(1200.0, 300.0, 12.0, 1.0);
+        let doubled = tabs_room(1200.0, 300.0, 12.0, 2.0);
+        assert_eq!(base - doubled, CAPSULE);
     }
 
     #[test]
