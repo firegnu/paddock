@@ -15,8 +15,8 @@ use anyhow::{Result, anyhow, bail};
 const FRAME: f32 = 0.55;
 
 /// How opaque the two layers under the window lie over the system's sidebar material (P5-96): the
-/// sidebar's colour over its column, the darker frame elsewhere; and how opaque the material
-/// itself is over the desktop behind the window (P5-169).
+/// sidebar's colour over its column, the darker frame elsewhere; and how strong the material's
+/// tint is over its blur of the desktop behind the window (P5-169, P5-174).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Translucency {
     pub sidebar: f32,

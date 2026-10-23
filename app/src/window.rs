@@ -793,9 +793,10 @@ enum Under {
 }
 
 /// The window's own background while the system's material is under it: opaque in full screen,
-/// where there is nothing behind to show; else see-through, the desktop behind blurred and left
-/// uncoloured under the material, so the material thinned down to nothing leaves frosted glass, not
-/// clear (P5-170).
+/// where there is nothing behind to show; else see-through, for the material. `Blurred` has GPUI
+/// put a colourless material of its own under everything (P5-170), but on macOS 27 that one has no
+/// blur layer and shows nothing; the blur is the system's material's own, kept whole while only
+/// its tint thins (P5-174).
 fn background(full_screen: bool) -> WindowBackgroundAppearance {
     if full_screen {
         WindowBackgroundAppearance::Opaque
@@ -1407,8 +1408,9 @@ pub struct PaddockWindow {
     /// The system's sidebar material under the left column; none when it could not be put there,
     /// and the window stays opaque.
     frost: Option<Frost>,
-    /// How opaque the ground lies over the material, and the material itself: as the config sets
-    /// it, or as a Settings slider shows it while dragged (P5-96, P5-169).
+    /// How opaque the ground lies over the material, and how strong the material's tint is: as
+    /// the config sets them, or as a Settings slider shows them while dragged (P5-96, P5-169,
+    /// P5-174).
     translucency: Translucency,
     /// What `paddock ctl` asked for and is still under way.
     ctl: ctl::Ctl,
@@ -4615,12 +4617,12 @@ impl PaddockWindow {
 
     /// Shows the material under the window GPUI is drawing now, or takes it away; taking it away
     /// waits for the next frame, once this one is drawn (see [`Frost::fit`]). Its look follows the
-    /// theme: dark under a dark sidebar; it is as opaque as [`Translucency::material`].
+    /// theme: dark under a dark sidebar; its tint is as strong as [`Translucency::material`].
     fn fit_frost(&mut self, shown: bool, window: &mut Window, cx: &mut Context<Self>) {
         let dark = hsla(self.theme.bg(|t| t.agents_bg), 1.0).l < 0.5;
         let Some(frost) = &mut self.frost else { return };
         frost.set_dark(dark);
-        frost.set_opacity(self.translucency.material);
+        frost.set_tint(self.translucency.material);
         if frost.fit(shown) {
             cx.on_next_frame(window, |this, _, _| {
                 if let Some(frost) = &mut this.frost {
@@ -8833,9 +8835,8 @@ mod tests {
     }
 
     #[test]
-    fn under_the_material_the_desktop_stays_blurred_and_full_screen_is_opaque() {
-        // Blurred, uncoloured, under the material: thinned to nothing, the window is still frosted
-        // glass, not clear (P5-170).
+    fn under_the_material_the_window_is_see_through_and_full_screen_is_opaque() {
+        // GPUI's colourless material under the system's (P5-170; on macOS 27 it shows nothing).
         assert_eq!(background(false), WindowBackgroundAppearance::Blurred);
         assert_eq!(background(true), WindowBackgroundAppearance::Opaque);
     }

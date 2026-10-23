@@ -51,3 +51,69 @@
 
 ## 做完
 三项检查跑完，在本文件末尾追加「## 完成记录」：查到的层结构（事实、推测、没查清的分开）、做了什么、验证了什么、拿主意的地方、没做的事、踩过的坑（试了不行换了办法的、工具或环境的行为和预想不一样的；没有就写「没有」），在你的分支里提交。回复里只写这几样，加上有没有要主控决定的事。命令都在前台跑完，全部做完后，回复最后一行写 DONE。
+
+## 完成记录
+
+### 查到的层结构
+事实（本机 macOS 27.0.1，起测试窗口打日志看层树；临时打印代码已删）：
+- paddock 那块（`frost.rs`，`NSVisualEffectView`）：视图层下面一个容器层（`kCUIVariantSidebarMaterial` / `kCUIVariantMenuMaterial`），里面从下到上四层：
+  1. `CABackdropLayer`：滤镜 `sdrNormalize`、`gaussianBlur`（半径 30）、`colorSaturate`（2.1–2.4）。管模糊和提饱和度。
+  2. `fill`（`CALayer`）：底色就是着色薄膜。深色 0.157 灰，不透明度 0.8（Menu 0.7）；浅色 0.965 灰，0.84（Menu 0.72）。
+  3. `tone`（`CALayer`）：纯灰，深色用 `lightenBlendMode`（0.14 / 0.125），浅色用 `darkenBlendMode`（0.915 / 0.93）。把暗处提亮、亮处压暗，也算着色。
+  4. `CAChameleonLayer`：桌面淡色，系统把它的不透明度设成 0.05。
+  Sidebar 和 Menu、深色和浅色四种组合都是这个结构，只有数值不同。
+- 层名会变：深色叫 `backdrop`、`desktop tint`，浅色叫 `Backdrop`、`Chameleon`。所以按类名找，不按层名。
+- 换外观时 AppKit 立刻拆掉整组层，到下一次绘制才重建，新层的不透明度是满的 1。调 `displayIfNeeded` 会马上重建。
+- GPUI 垫的那块（`BlurredView`，Selection 材质，经 `remove_layer_background` 改过）：里面只有一层 `CALayer`，合成滤镜 `vibrantColorMatrixSourceOver`，底色被清掉了，**没有 `CABackdropLayer`，没有模糊**。所以它什么都不显示。主控猜“删 Saturat 时把模糊一起删了”不对：本来就没有模糊层，`remove_layer_background` 删的 Saturat 滤镜在它里面也不存在。P5-169/170 的效果其实是：整块视图的 `alphaValue` 往下调，就把没模糊的桌面按比例混进来，所以 80% 左右就能看清形状。
+- 标题栏的 `NSTitlebarView` 下面也有一个不带名字的 `CABackdropLayer`，那是系统标题栏自己的，不在我们视图里。
+
+推测：
+- AppKit 还会在别的时候重建这些层，比如换屏幕、改缩放、窗口状态变化。每帧都重设能接住，最多晚一帧。
+- 合成是在接近 sRGB 的空间里线性混合，所以着色不透明度按比例线性变化，看起来大致均匀。
+
+没查清的：
+- 别的 macOS 版本层结构是否一样。只在这台机器上看过。
+- 实际画面效果：没截图，留给用户看。测试窗口不在前台，截到的背景不代表实际。
+
+### 做了什么
+- `frost.rs`：
+  - 去掉整块视图的 `alphaValue`，视图始终完全不透明，所以模糊和提饱和度始终满的。
+  - 新增 `set_tint`：Material 的比例（0–1）直接当作着色层（`fill`、`tone`）的不透明度。线性，100 就是系统原样。`CAChameleonLayer` 不动。
+  - 找层的办法：从视图层往下最多 4 级，找一组同级层，其中有 `CABackdropLayer` 且它上面还有别的层。上面那些层除去 `CAChameleonLayer` 就是着色层。类名用 `AnyClass::get` 和 `isKindOfClass:` 判断，读写都走 `msg_send!`，不加依赖。
+  - 找不到（类不存在、结构变了、模糊上面没有层）就什么都不改，磨砂保持满强度，不会崩。
+  - 设不透明度时包在 `CATransaction` 里、关掉隐式动画，拖滑块马上看到变化。不透明度和要的值一样就不写。
+  - 着色值存在 `Frost` 里，每帧由 `fit_frost` 重设。换外观（`set_dark`）和显示（`set_shown(true)`）时先 `displayIfNeeded` 让层马上重建，再设。
+  - 材质种类收成一个常量 `MATERIAL`。
+- `window.rs`：`set_opacity` 改成调 `set_tint`。改了 `background()` 的注释和对应测试的名字、注释，让它们和查到的事实一致。行为没改，`Blurred` 留着。
+- `config.rs`、`theme.rs`：注释改成“着色强度”。配置键、默认 100、Settings 都没改。
+- `docs/DESIGN.md` §13：给 P5-169、P5-170 不对的地方加了“P5-174 改/查实”的说明，新增 P5-174 一条，用户原话照抄。
+
+### 主控要打菜单那一版
+`app/src/frost.rs` 中 `const MATERIAL: NSVisualEffectMaterial = NSVisualEffectMaterial::Sidebar;` 一行，把 `Sidebar` 改成 `Menu`。我在测试窗口里看过，菜单材质深浅两种外观的结构都对，`fill`、`tone` 都按比例变了（设 40% 时都是 0.4）。截图里那种菜单效果更接近哪一种，我没法判断。两种的差别只在着色薄膜浓淡（Menu 稍淡）和饱和度（2.2 / 2.1，Sidebar 深色 2.4），模糊半径一样。
+
+### 验证
+- 新测试 `frost::tests::the_tint_is_what_lies_over_the_blur_but_the_desktops_colour`：测“哪些层算着色”和找不到时退回。先看到它失败（“模糊上面没有层”那条），再改实现让它通过。
+- 测试窗口（`PADDOCK_NO_ACTIVATE=1`，`CORRAL_HOME` 和 `HOME` 都指向临时空目录，按 PID 停）：
+  - Sidebar、Menu 各在深色、浅色下设 `material_opacity = 40`，打出层树：`fill`、`tone` 都是 0.4；`CABackdropLayer` 的模糊半径 30、提饱和度原样；视图本身不透明度 1。
+  - 试过换外观：层会重建，满强度的新层被重设回 0.4。
+  - 最后用定稿的程序设 `material_opacity = 0` 跑了一次，正常、没有报错。
+- `git diff --check` 通过；在 `app/` 下 `cargo test --all-targets` 全部通过（lib 845 个），`cargo clippy --all-targets -- -D warnings` 通过，`cargo fmt --check` 通过。
+- 没截图，外观留给用户看。
+
+### 拿主意的地方
+- 着色层的范围定为 `fill` 加 `tone`，也就是模糊上面除桌面淡色以外的所有层，只调 `fill` 不够。`tone` 在深色下把暗处提亮、在浅色下把亮处压暗，留着它到 0 也还是一层灰白，颜色不鲜艳。桌面淡色本来就只有 0.05，而且它的不透明度是系统自己管的，不碰。
+- 换算用线性（着色不透明度 = Material 比例）。理由见上面“推测”第二条。
+- 兜底那层（GPUI 的 `Blurred`）：**建议去掉**（`background()` 返回 `Transparent`）。查实它在本机什么都不显示。现在系统磨砂一直是满的，而且它的模糊取的是窗口后面的东西，下面垫什么都看不见。按“不确定就留着”的规矩，这一轮没改行为，只改了说错的注释。去不去由主控定。
+
+### 没做的事
+- 没去掉 `Blurred`（理由见上）。
+- 没调模糊强度、饱和度，没加设置项和配置键。
+- 没截图。
+- 没在别的 macOS 版本上验证。
+
+### 踩过的坑
+- 打印层树的临时代码第一次把 `backgroundColor` 的返回类型声明成对象，objc2 在调试构建里检查类型编码直接崩了。改成按 `CGColor` 指针声明才好。
+- 同时起三个测试窗口时，后两个一声不响就退了（像是只允许开一个），改成一个一个起。
+- 上一轮的测试窗口（PID 23530）忘了停，后来发现了按 PID 停掉。
+- 过滤日志时把标题栏自己的 `CABackdropLayer` 看成了我们视图里的。为此给找层的逻辑加了“模糊上面没有层就继续往下找”，这一条有测试。
+- 有一次误在命令末尾敲了一个等标准输入的 `python3 -`（什么也没执行），挂住了，已经停掉。
