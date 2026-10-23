@@ -63,3 +63,11 @@
 - 拿主意的地方：`ground` 只替换悬停底色，`Some` 时不再设 `text_color`，因为发布版里第二个 `hover` 会把第一个整体覆盖；皇冠按钮唯一子节点是明确着色的图标，沙盒按钮的文字有自己的 `text_color`，所以悬停观感与发布版一致。悬停颜色本身无法在不让脚本模拟鼠标的前提下实测（任务禁止模拟输入），依据是代码路径与发布版覆盖后的样式相同。
 - 没做的事：没有加单元测试或 `test-support`（任务明确不写）；没有截图；没有改动 New Agent 以外的文件。
 - 踩过的坑：`env PATH=...` 直接传未加引号的 `$PATH` 时，路径里的空格（Fusion.app 那段）被 `env` 拆成额外参数，命令以 127 退出；加引号后正常。另：panic 之后 GPUI 报 `failed to initiate panic` 并以 134 退出，判断是否崩溃要看 stderr 里的 assert，不能只看退出码。
+
+## 主控审查
+
+- diff 只动了 `app/src/new_agent_view.rs` 和本文件，没有 `main.rs`。`ghost()` 多一个悬停底参数，皇冠按钮（Controller 开着）和沙盒按钮（选了档案）把各自原来第二次 hover 的底色传进去，hover 每个元素只设一次。
+- 核对 GPUI `div.rs:841`：`hover()` 是整个替换 `hover_style`，发布版里第二次调用只留背景色、不留字色；agent 的 `Some` 分支只设背景，和发布版现在的样子一致，用户看不出变化。
+- 沙盒按钮同一种问题，在任务第 2 条范围内，同意一起修。
+- 主控在分支上重跑 `cargo test --all-targets --no-fail-fast`：30 个目标，1034 passed，0 failed。复现前后崩不崩以 agent 的记录为准（主控不起测试窗口）。
+结果：一次过
