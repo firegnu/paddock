@@ -20,7 +20,7 @@
 - `app/src/preset.rs` 的 `dune()`（默认值，`Theme::default()` 那组常量）、`tide()`、`lagoon()`；`app/src/theme.rs` 的 `DUNE`（Gruvbox）、`TIDE`（Nord）、`LAGOON`（Everforest）终端配色。
 
 ## 在哪里干活
-- worktree：`/Users/firegnu/Developer/personal_projs/paddock-worktrees/p5-177-light-own`，分支 `p5-177-light-own`（主控在 P5-176 合并后从 main 建好）。
+- worktree：`/Users/firegnu/Developer/personal_projs/paddock-worktrees/p5-177-light-own`，分支 `p5-177-light-own`（已从 main 建好）。
 - 编译：`CARGO_TARGET_DIR=$HOME/Developer/personal_projs/paddock-worktrees/.target/p5-177-light-own`（已从 `.target/main` 克隆）。三项检查在 `app/` 下跑（仓库根没有 `Cargo.toml`；单元测试在 lib 目标里，`--bin paddock` 跑不到）。
 - `docs/DESIGN.md` §13 补一条 P5-177（用户原话照上面抄）。
 
