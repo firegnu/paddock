@@ -409,7 +409,7 @@ impl Sidebar {
             })
             .collect();
         let inks = tab_stack::Inks::of(&self.theme);
-        tab_stack::stack(&faces, inks, div().into_any_element(), ui.scale(1.0)).into_any_element()
+        tab_stack::stack(&faces, inks, ui.scale(1.0)).into_any_element()
     }
 
     /// A workspace: its title and under it `inside`, its groups' lines, in a tray sunk in the

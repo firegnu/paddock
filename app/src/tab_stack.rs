@@ -137,10 +137,10 @@ impl Face {
     }
 }
 
-/// The stack for `faces`, the front card's first (see [`cards`]), with `mark` laid over the front
-/// card's box as its child, to hang the status dot from; `scale` is the interface's size over its
-/// base.
-pub fn stack(faces: &[Face], inks: Inks, mark: AnyElement, scale: f32) -> Div {
+/// The stack for `faces`, the front card's first (see [`cards`]); `scale` is the interface's size
+/// over its base. A caller that needs something over the front card (as the tab once did with the
+/// status dot, P5-172) draws it in a mark of its own around the stack.
+pub fn stack(faces: &[Face], inks: Inks, scale: f32) -> Div {
     let front = faces[0];
     let grounds: Vec<Hsla> = faces
         .iter()
@@ -202,8 +202,7 @@ pub fn stack(faces: &[Face], inks: Inks, mark: AnyElement, scale: f32) -> Div {
                 .flex()
                 .items_center()
                 .justify_center()
-                .children(front.shown(inks, scale))
-                .child(mark),
+                .children(front.shown(inks, scale)),
         )
 }
 

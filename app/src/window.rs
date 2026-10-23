@@ -516,7 +516,7 @@ const MACHINE_APART: f32 = 30.0 / 360.0;
 /// The kind icon in a pane's header and the lists, and the status dot on its corner.
 const BADGE_ICON: f32 = 13.0;
 const BADGE_DOT: f32 = 6.0;
-/// A kind icon and the status dot on its corner, in points.
+/// A kind icon and a status dot, in points.
 #[derive(Clone, Copy)]
 struct Badge {
     icon: f32,
@@ -526,12 +526,16 @@ const BADGE: Badge = Badge {
     icon: BADGE_ICON,
     dot: BADGE_DOT,
 };
-/// In a tab, beside its title (P5-165 rework 2, larger again in 2b, and again in P5-167); a split
-/// tab's stack of cards as high as the icon.
+/// In a tab, beside its title (P5-165 rework 2, larger again in 2b, and again in P5-167): the icon,
+/// and the status dot after the title (P5-172), which once sat on the icon's corner; a split tab's
+/// stack of cards as high as the icon.
 const TAB_BADGE: Badge = Badge {
     icon: 18.0,
     dot: 6.0,
 };
+/// How far below its middle a tab's status dot sits, so it lines up with the lower-case letters'
+/// middle rather than the line box's (P5-172; the design's 6 pt dot drops 2 pt), in points.
+const TAB_DOT_DROP: f32 = 2.0;
 const TAB_STACK: f32 = TAB_BADGE.icon / tab_stack::CARD;
 /// What a command palette row's hover brightens: this name on each row.
 const PALETTE_ROW: &str = "palette-row";
@@ -640,21 +644,29 @@ fn ui_text_width(window: &Window, ui: &UiFont, text: &str, size: f32, weight: Fo
 
 /// A tab's width around its title (see [`TabSize`]), in points: for one holding `panes` panes, the
 /// active one `empty` or not, its agent `paused` or not, the interface `s` times its base size. A
-/// split tab has its panes' stack where another has its one icon, or its bare dot when it is empty.
-/// What a tab holds centres in its whole width, so the room either side is alike and its × takes
-/// none of its title's (P5-167).
+/// split tab has its panes' stack where another has its one icon, or its bare dot when it is empty;
+/// a status dot follows every title but the one of an empty pane alone (P5-172). What a tab holds
+/// centres in its whole width, so the room either side is alike and its × takes none of its
+/// title's (P5-167).
 fn tab_chrome(panes: usize, empty: bool, paused: bool, s: f32) -> f32 {
     let badge = match panes {
         1 if empty => 7.0,
         1 => TAB_BADGE.icon + 2.0,
         _ => tab_stack::width(panes) * TAB_STACK,
     };
+    // The room the status dot takes after the title, with the gap before it; the bare dot in an
+    // empty pane's icon place is the only mark that tab has.
+    let dot = if panes == 1 && empty {
+        0.0
+    } else {
+        TAB_GAP + TAB_BADGE.dot
+    };
     let pause = if paused {
         TAB_GAP + footer_icon::SIZE * PAUSE_MARK
     } else {
         0.0
     };
-    (2.0 * TAB_SIDE + badge + TAB_GAP + pause) * s + 2.0 * TAB_RING
+    (2.0 * TAB_SIDE + badge + TAB_GAP + dot + pause) * s + 2.0 * TAB_RING
 }
 
 /// A tab's ×: a cross `TAB_CROSS` points across, its arms `TAB_CROSS_LINE` thick, times `scale`
@@ -4295,23 +4307,16 @@ impl PaddockWindow {
         self.fg(dot(self.workspace.shown(pane), agents, now))
     }
 
-    /// A pane's mark in its tab and its header: the icon of an agent's kind, or a terminal for a
-    /// shell, with the status dot on its lower right corner, ringed in `ground` (`hovered` while
-    /// the group is hovered) to stand off the icon, both as big as `size` has them; the dot alone
-    /// where there is no icon.
-    #[allow(clippy::too_many_arguments)]
-    fn badge(
+    /// The icon a pane shows in a mark: the icon of an agent's kind, or a terminal for a shell, as
+    /// big as `size` has it; `None` where there is no icon, for an empty pane.
+    fn pane_icon(
         &self,
         pane: PaneId,
         agents: &[Agent],
-        now: f64,
-        ground: Hsla,
-        hovered: Option<(SharedString, Hsla)>,
         size: Badge,
         ui: &UiFont,
-    ) -> AnyElement {
-        let dot = self.dot(pane, agents, now);
-        let icon = match self.workspace.shown(pane) {
+    ) -> Option<AnyElement> {
+        match self.workspace.shown(pane) {
             Shown::Agent(name) => agents
                 .iter()
                 .find(|a| &a.name == name)
@@ -4325,10 +4330,46 @@ impl PaddockWindow {
                 .into_any_element(),
             ),
             Shown::Empty => None,
-        };
-        match icon {
+        }
+    }
+
+    /// A pane's mark in its header: the icon of an agent's kind, or a terminal for a shell, with
+    /// the status dot on its lower right corner, ringed in `ground` (`hovered` while the group is
+    /// hovered) to stand off the icon, both as big as `size` has them; the dot alone where there is
+    /// no icon.
+    #[allow(clippy::too_many_arguments)]
+    fn badge(
+        &self,
+        pane: PaneId,
+        agents: &[Agent],
+        now: f64,
+        ground: Hsla,
+        hovered: Option<(SharedString, Hsla)>,
+        size: Badge,
+        ui: &UiFont,
+    ) -> AnyElement {
+        let dot = self.dot(pane, agents, now);
+        match self.pane_icon(pane, agents, size, ui) {
             Some(icon) => self.dotted(icon, (dot, false), ground, hovered, size, ui),
             None => plain_dot(dot, ui),
+        }
+    }
+
+    /// A tab's mark (P5-172): the pane's icon whole, in the box the corner dot once needed either
+    /// side of it, or the bare dot an empty pane has in its place. The status dot is no longer on
+    /// the icon but after the title (see [`Self::tab_status_dot`]).
+    fn tab_badge(&self, pane: PaneId, agents: &[Agent], now: f64, ui: &UiFont) -> AnyElement {
+        match self.pane_icon(pane, agents, TAB_BADGE, ui) {
+            Some(icon) => div()
+                .relative()
+                .flex_shrink_0()
+                .flex()
+                .items_center()
+                .justify_center()
+                .size(ui.px(TAB_BADGE.icon + 2.0))
+                .child(icon)
+                .into_any_element(),
+            None => plain_dot(self.dot(pane, agents, now), ui),
         }
     }
 
@@ -4357,17 +4398,9 @@ impl PaddockWindow {
     }
 
     /// A split tab's mark: a card for each of `panes`, stacked, the front one's first (see
-    /// `tab_stack`), with that pane's status dot on the front card's lower right corner, as
-    /// [`Self::badge`] has it on an icon's.
-    fn stack(
-        &self,
-        panes: &[PaneId],
-        agents: &[Agent],
-        now: f64,
-        ground: Hsla,
-        hovered: Option<(SharedString, Hsla)>,
-        ui: &UiFont,
-    ) -> Div {
+    /// `tab_stack`). P5-172 took the status dot off the front card: the tab shows it after its
+    /// title, as every other does.
+    fn stack(&self, panes: &[PaneId], agents: &[Agent], ui: &UiFont) -> Div {
         let faces: Vec<Face> = panes
             .iter()
             .map(|&pane| match self.workspace.shown(pane) {
@@ -4383,9 +4416,7 @@ impl PaddockWindow {
                 Shown::Empty => Face::Blank(self.fg(|t| t.agents_faint)),
             })
             .collect();
-        let dot = (self.dot(panes[0], agents, now), false);
-        let dot = self.corner_dot(dot, (2.0, 2.0), ground, hovered, TAB_BADGE.dot, ui);
-        tab_stack::stack(&faces, Inks::of(&self.theme), dot, ui.scale(TAB_STACK))
+        tab_stack::stack(&faces, Inks::of(&self.theme), ui.scale(TAB_STACK))
     }
 
     /// `icon` with the status dot `(colour, breathing)` on its lower right corner, ringed in
@@ -4809,13 +4840,12 @@ impl PaddockWindow {
 
     /// A flat tab's (and the `+N`'s) faint ground under the mouse (P5-165 rework 1): as drawn,
     /// over the system's material a tint of the text that lets it through, else that tint over the
-    /// frame, whole; and what its status dot's ring takes at rest and under the mouse, whole, to
-    /// stand off its icon.
-    fn flat_grounds(&self) -> (Hsla, Hsla, Hsla) {
+    /// frame, whole.
+    fn flat_grounds(&self) -> (Hsla, Hsla) {
         let frame = hsla(self.theme.frame(), 1.0);
         let tint = self.fg(|t| t.agents_text).opacity(FLAT_LIT);
         let lit = frame.blend(tint);
-        (if self.frosted() { tint } else { lit }, frame, lit)
+        (if self.frosted() { tint } else { lit }, lit)
     }
 
     /// The title bar: over the sidebar the traffic lights (none in full screen) and the sidebar's
@@ -4861,7 +4891,7 @@ impl PaddockWindow {
         let mut look = None;
         // The tabs not active lie flat on the bar, a faint ground under the mouse (P5-165 rework
         // 1).
-        let (flat_lit, flat_rest_whole, flat_lit_whole) = self.flat_grounds();
+        let (flat_lit, flat_lit_whole) = self.flat_grounds();
         // What the bar holds sits on one line, centred in what shows of the active tab when it
         // joins the panel, from its top edge down to the panel, a point high: this far below the
         // bar's middle. The active tab keeps its top edge and takes it as room over what it holds,
@@ -4942,22 +4972,10 @@ impl PaddockWindow {
                     ring,
                 });
             }
-            // The active pane's icon and status dot; in a split tab, its panes' cards in a stack,
-            // which tells how many they are on hover. The dot's ring keeps the ground under it
-            // whole, seen through or not, to stand off the icon; joined, the terminal's ground,
-            // as last drawn.
-            let (ground, hovered) = if active {
-                let ground = if self.joined.get() {
-                    hsla(self.theme.terminal().background, 1.0)
-                } else {
-                    whole.chosen
-                };
-                (ground, None)
-            } else {
-                let group = SharedString::from(format!("tab-{index}"));
-                (flat_rest_whole, Some((group, flat_lit_whole)))
-            };
+            // The active pane's icon, or in a split tab its panes' cards in a stack, which tells
+            // how many they are on hover; the status dot follows the title (P5-172).
             let panes = tab.panes();
+            let empty = matches!(self.workspace.shown(tab.active), Shown::Empty);
             let signal = self.tab_signal(index, shown_at, crate::reduce_motion::on(), cx);
             if signal.moving {
                 window.request_animation_frame();
@@ -4974,12 +4992,12 @@ impl PaddockWindow {
                         border: self.fg(|t| t.agents_rule),
                     };
                     let cards = tab_stack::cards(&panes, tab.active);
-                    self.stack(&cards, agents, now, ground, hovered, &ui)
+                    self.stack(&cards, agents, &ui)
                         .id(("tab-panes", index))
                         .tooltip(move |_, cx| cx.new(|_| tip.clone()).into())
                         .into_any_element()
                 }
-                None => self.badge(tab.active, agents, now, ground, hovered, TAB_BADGE, &ui),
+                None => self.tab_badge(tab.active, agents, now, &ui),
             };
             let mut item = div()
                 .id(("tab", index))
@@ -5011,7 +5029,8 @@ impl PaddockWindow {
                     scale,
                 ))
                 // The icon, title and marks are one block, centred in the tab; the title takes
-                // its own width, shrinking only into the room the × leaves it (P5-167).
+                // its own width, shrinking only into the room the × leaves it (P5-167), while the
+                // status dot after it stays whole (P5-172).
                 .child(
                     div()
                         .min_w(px(0.0))
@@ -5020,6 +5039,16 @@ impl PaddockWindow {
                         .text_ellipsis()
                         .child(grouped(shown.title, self.fg(|t| t.agents_dimmer))),
                 )
+                // The status dot after the title (P5-172), the colour the corner dot took; a
+                // working agent's breathes until the system asks for less motion. An empty pane
+                // alone keeps its bare dot in the icon's place and has none here.
+                .when(!(panes.len() == 1 && empty), |item| {
+                    item.child(tab_status_dot(
+                        self.dot(tab.active, agents, now),
+                        marks.tone == TabTone::Working && !crate::reduce_motion::on(),
+                        &ui,
+                    ))
+                })
                 // A paused agent's tab, faint, with the pause mark after its title.
                 .when(marks.paused, |item| {
                     item.opacity(PAUSED_TAB).child(footer_icon::icon(
@@ -7583,6 +7612,44 @@ fn plain_dot(color: Hsla, ui: &UiFont) -> AnyElement {
         .into_any_element()
 }
 
+/// A tab's status dot after its title (P5-172): `TAB_BADGE.dot` across, a little below the line's
+/// middle to sit on the lower-case letters' middle, breathing while `breathing` as the sidebar's
+/// does (a ring widening as it fades, every 1.6 s).
+fn tab_status_dot(color: Hsla, breathing: bool, ui: &UiFont) -> AnyElement {
+    let dot = div()
+        .relative()
+        .top(ui.px(TAB_DOT_DROP))
+        .flex_shrink_0()
+        .size(ui.px(TAB_BADGE.dot))
+        .rounded_full()
+        .bg(color);
+    if !breathing {
+        return dot.into_any_element();
+    }
+    let reach = ui.scale(4.0);
+    dot.with_animation(
+        "breath",
+        Animation::new(Duration::from_millis(1600))
+            .repeat_synced()
+            .with_max_fps(30.0),
+        move |dot, delta| {
+            let out = ease_in_out(if delta < 0.5 {
+                delta * 2.0
+            } else {
+                (1.0 - delta) * 2.0
+            });
+            dot.shadow(vec![BoxShadow {
+                color: color.opacity(0.55 * (1.0 - out)),
+                offset: point(px(0.0), px(0.0)),
+                blur_radius: px(0.0),
+                spread_radius: px(reach * out),
+                inset: false,
+            }])
+        },
+    )
+    .into_any_element()
+}
+
 /// Seconds since the epoch, as the agent statuses count them.
 fn now() -> f64 {
     std::time::SystemTime::now()
@@ -8443,25 +8510,28 @@ mod tests {
         let near = |a: f32, b: f32| (a - b).abs() < 0.001;
         let around = |panes| tab_chrome(panes, false, false, 1.0);
         // P5-167: the icon 18 in its box a point wider either side, 7 to the 15 title, and the ×'s
-        // box and a little clear again kept either side, the same on both.
+        // box and a little clear again kept either side, the same on both. P5-172 adds the 6 pt
+        // status dot after the title, 6 clear of it, to every tab but an empty pane's alone.
         let icon = TAB_BADGE.icon + 2.0;
         assert_eq!(TAB_BADGE.icon, 18.0);
         assert_eq!(TAB_BADGE.dot, 6.0);
         assert_eq!(icon, 20.0);
         assert_eq!(1.0 + TAB_GAP, 7.0);
+        let dot = TAB_GAP + TAB_BADGE.dot;
+        assert_eq!(dot, 12.0);
         assert_eq!(TAB_SIDE, ACTIVE_TAB_END + TAB_CLOSE + 6.0);
         // The room the ×'s box needs is inside the side a tab keeps, so what it holds stays clear
         // of it however wide the title is.
         assert_eq!(TAB_SIDE - (ACTIVE_TAB_END + TAB_CLOSE), 6.0);
-        let one = 2.0 * TAB_SIDE + icon + TAB_GAP + 2.0 * TAB_RING;
-        assert_eq!(around(1), 80.0);
+        let one = 2.0 * TAB_SIDE + icon + TAB_GAP + dot + 2.0 * TAB_RING;
+        assert_eq!(around(1), 92.0);
         assert_eq!(around(1), one);
         // Both sides take alike, so the block centres: at the base width the title gets 180 minus
-        // two sides, the icon's box and the room after it.
-        assert_eq!(TAB_WIDTH - around(1), 100.0);
+        // two sides, the icon's box, the room after it and the dot.
+        assert_eq!(TAB_WIDTH - around(1), 88.0);
         assert_eq!(
-            TAB_WIDTH - 2.0 * TAB_SIDE - icon - TAB_GAP - 2.0 * TAB_RING,
-            100.0
+            TAB_WIDTH - 2.0 * TAB_SIDE - icon - TAB_GAP - dot - 2.0 * TAB_RING,
+            88.0
         );
         // The × is not part of the title's room: its cross's right end stays about 9 in from the
         // tab's, whether the tab is active or not.
@@ -8474,9 +8544,15 @@ mod tests {
         assert!(near(around(3) - one, stack(3) - icon));
         // No wider past three cards.
         assert_eq!(around(6), around(3));
-        // An empty pane alone is a bare dot; in a split tab it has a card like any other.
-        assert_eq!(tab_chrome(1, true, false, 1.0), one - icon + 7.0);
+        // An empty pane alone is a bare dot and no dot after its title; in a split tab it has a
+        // card and a dot like any other.
+        assert_eq!(tab_chrome(1, true, false, 1.0), one - icon + 7.0 - dot);
         assert_eq!(tab_chrome(2, true, false, 1.0), around(2));
+        // A pause mark follows the dot, another 6 clear of it.
+        assert_eq!(
+            tab_chrome(1, false, true, 1.0),
+            one + TAB_GAP + footer_icon::SIZE * PAUSE_MARK
+        );
         // Everything but the ring grows with the interface.
         let ring = 2.0 * TAB_RING;
         assert!(near(
