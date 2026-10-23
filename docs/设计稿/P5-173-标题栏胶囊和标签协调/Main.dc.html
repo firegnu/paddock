@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>Title bar capsule</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+.opt{display:flex;flex-direction:column;gap:10px}
+.opt-h{display:flex;align-items:baseline;gap:14px}
+.opt-h b{font-size:17px;font-weight:600;color:#eef0f4;white-space:nowrap}
+.opt-h span{font-size:13.5px;color:#a3a9b5;line-height:1.5}
+.tag{display:inline-block;margin-left:8px;padding:1px 7px;border-radius:5px;background:#d9b44a;color:#16171b;font-size:11.5px;font-weight:600;vertical-align:2px}
+.zoom{zoom:1.5}
+.bar{position:relative;width:820px;height:54px;border-radius:6px;overflow:hidden;background-color:#3b1d15;background-image:radial-gradient(circle at 15% 40%, rgba(170,82,48,0.75) 0, rgba(170,82,48,0) 40%),radial-gradient(circle at 70% 10%, rgba(130,64,40,0.7) 0, rgba(130,64,40,0) 38%),radial-gradient(circle at 92% 60%, rgba(196,120,80,0.55) 0, rgba(196,120,80,0) 30%)}
+.pc{position:absolute;left:4px;width:510px;top:40px;height:20px;border-radius:10px 10px 0 0;background:#11181a}
+.pr{position:absolute;left:522px;right:4px;top:40px;height:20px;border-radius:10px 10px 0 0;background:#11181a}
+.tab{position:absolute;width:180px;display:flex;align-items:center;justify-content:center;gap:7px;font-size:15px;font-weight:500;letter-spacing:-0.1px}
+.flat{left:14px;top:8px;height:28px;color:#d6d9df}
+.active{left:200px;top:6px;height:34px;padding-top:2px;box-sizing:border-box;border-radius:10px 10px 0 0;background:#11181a;color:#eceef2}
+.icon{display:flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:4.5px;background:#d97757;color:#fff6ef}
+.dot{width:6px;height:6px;margin-left:-1px;margin-top:3px;border-radius:50%;background:#6fc48d;flex-shrink:0}
+.x{position:absolute;right:9px;top:50%;margin-top:-3px;width:8px;height:8px;color:#8a8f99}
+.plus{position:absolute;left:388px;top:8px;width:28px;height:28px;display:flex;align-items:center;justify-content:center;color:#c9ccd3}
+.pet{position:absolute;left:455px;top:12px;width:22px;height:16px;border-radius:3px;background:#d77a5e;opacity:0.85}
+.cap{position:absolute;right:14px;width:270px;height:28px;box-sizing:border-box;display:flex;align-items:center}
+.side{width:30px;height:100%;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.srch{flex:1;height:100%;display:flex;align-items:center;gap:8px;padding:0 9px 0 10px;font-size:12.5px}
+.srch .w{flex:1}
+.rule{width:1px;height:14px;flex-shrink:0}
+.kc{display:flex;gap:2px}
+.kc i{font-style:normal;min-width:16px;height:18px;padding:0 4px;box-sizing:border-box;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:11.5px;background:rgba(255,255,255,0.08);color:#9aa0aa}
+.kt{font-size:12px;color:#7f8590;letter-spacing:0.5px}
+.lbl{font-size:12px;color:#8d93a0;margin-top:2px}
+</style>
+</helmet>
+<div style="width: 1440px; height: 900px; box-sizing: border-box; padding: 40px 56px; background: #121317; color: #e7eaf0; font-family: -apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif; display: flex; flex-direction: column; gap: 30px">
+  <div style="display: flex; flex-direction: column; gap: 6px">
+    <h1 style="margin: 0; font-size: 22px; font-weight: 600">标题栏右端胶囊怎么和标签协调</h1>
+    <div style="font-size: 13.5px; color: #8d93a0">放大 1.5 倍，磨砂打开时的样子。下面三种都顺带做两件事：胶囊和标签、+ 落在同一条线上（现在胶囊比标签文字高 2pt）；⌘P 不画成两个小方块，改成一行淡字</div>
+  </div>
+
+  <div class="opt">
+    <div class="opt-h"><b>现在</b><span>一圈描边加 60% 的半透明底，里面两道竖线、两个键帽方块，是“表单输入框”的样子；标签都是没描边的实心块或平铺字，语言不一样。胶囊居中在整条上，标签往下沉了 2pt，所以两边不在一条线上</span></div>
+    <div class="zoom"><div class="bar">
+      <div class="pc"></div><div class="pr"></div>
+      <div class="tab flat"><svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><rect x="1.5" y="3" width="15" height="12" rx="2.5"></rect><path d="M5 7l2.5 2L5 11M9 11.5h4"></path></svg><span>zsh · firegnu</span><div class="dot" style="background: #8d93a0"></div></div>
+      <div class="tab active"><div class="icon"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="M6 1v10M1 6h10M2.5 2.5l7 7M9.5 2.5l-7 7"></path></svg></div><span>main</span><div class="dot"></div><svg class="x" viewBox="0 0 8 8" fill="none" stroke="currentColor" stroke-width="1" aria-hidden="true"><path d="M1 1l6 6M7 1l-6 6"></path></svg></div>
+      <div class="plus"><svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><path d="M5.5 1v9M1 5.5h9"></path></svg></div>
+      <div class="pet"></div>
+      <div class="cap" style="top: 6px; border: 1px solid rgba(255,255,255,0.16); border-radius: 8px; background: rgba(28,18,15,0.6)">
+        <div class="side" style="color: #a9aeb7"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><rect x="1.5" y="2" width="11" height="10" rx="2"></rect><path d="M6 2v10"></path></svg></div>
+        <div class="rule" style="background: rgba(255,255,255,0.12)"></div>
+        <div class="srch" style="color: #a3a8b1"><svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" aria-hidden="true"><circle cx="5.5" cy="5.5" r="4"></circle><path d="M8.5 8.5l3 3"></path></svg><span class="w">Search</span><span class="kc"><i>⌘</i><i>P</i></span></div>
+        <div class="rule" style="background: rgba(255,255,255,0.12)"></div>
+        <div class="side" style="color: #e3e5ea"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><rect x="1.5" y="2" width="11" height="10" rx="2"></rect><path d="M8.5 2v10"></path></svg></div>
+      </div>
+    </div></div>
+  </div>
+
+  <div class="opt">
+    <div class="opt-h"><b>甲 · 和选中标签同一块料<span class="tag">推荐</span></b><span>去掉描边，底色用选中标签和面板那种实心深色，圆角、高度都和标签一样（8、28）；竖线再淡一半。看起来是选中标签的同胞，磨砂再透也看得清（P5-171 原来的问题不会回来）</span></div>
+    <div class="zoom"><div class="bar">
+      <div class="pc"></div><div class="pr"></div>
+      <div class="tab flat"><svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><rect x="1.5" y="3" width="15" height="12" rx="2.5"></rect><path d="M5 7l2.5 2L5 11M9 11.5h4"></path></svg><span>zsh · firegnu</span><div class="dot" style="background: #8d93a0"></div></div>
+      <div class="tab active"><div class="icon"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="M6 1v10M1 6h10M2.5 2.5l7 7M9.5 2.5l-7 7"></path></svg></div><span>main</span><div class="dot"></div><svg class="x" viewBox="0 0 8 8" fill="none" stroke="currentColor" stroke-width="1" aria-hidden="true"><path d="M1 1l6 6M7 1l-6 6"></path></svg></div>
+      <div class="plus"><svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><path d="M5.5 1v9M1 5.5h9"></path></svg></div>
+      <div class="pet"></div>
+      <div class="cap" style="top: 8px; border-radius: 8px; background: #11181a">
+        <div class="side" style="color: #a9aeb7"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><rect x="1.5" y="2" width="11" height="10" rx="2"></rect><path d="M6 2v10"></path></svg></div>
+        <div class="rule" style="background: rgba(255,255,255,0.07)"></div>
+        <div class="srch" style="color: #a3a8b1"><svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" aria-hidden="true"><circle cx="5.5" cy="5.5" r="4"></circle><path d="M8.5 8.5l3 3"></path></svg><span class="w">Search</span><span class="kt">⌘P</span></div>
+        <div class="rule" style="background: rgba(255,255,255,0.07)"></div>
+        <div class="side" style="color: #e3e5ea; background: rgba(255,255,255,0.06); height: 100%; border-radius: 0 8px 8px 0"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><rect x="1.5" y="2" width="11" height="10" rx="2"></rect><path d="M8.5 2v10"></path></svg></div>
+      </div>
+    </div></div>
+  </div>
+
+  <div class="opt">
+    <div class="opt-h"><b>乙 · 平铺在条上</b><span>不要底、不要描边，三样和没选中的标签一样平铺在条上，鼠标放上去才出淡底（图里 Search 是放上去时的样子）。最轻、最统一；代价是磨砂透的时候 Search 两个字又会和壁纸混在一起，就是 P5-171 开头那个问题</span></div>
+    <div class="zoom"><div class="bar">
+      <div class="pc"></div><div class="pr"></div>
+      <div class="tab flat"><svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><rect x="1.5" y="3" width="15" height="12" rx="2.5"></rect><path d="M5 7l2.5 2L5 11M9 11.5h4"></path></svg><span>zsh · firegnu</span><div class="dot" style="background: #8d93a0"></div></div>
+      <div class="tab active"><div class="icon"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="M6 1v10M1 6h10M2.5 2.5l7 7M9.5 2.5l-7 7"></path></svg></div><span>main</span><div class="dot"></div><svg class="x" viewBox="0 0 8 8" fill="none" stroke="currentColor" stroke-width="1" aria-hidden="true"><path d="M1 1l6 6M7 1l-6 6"></path></svg></div>
+      <div class="plus"><svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><path d="M5.5 1v9M1 5.5h9"></path></svg></div>
+      <div class="pet"></div>
+      <div class="cap" style="top: 8px; gap: 4px">
+        <div class="side" style="color: #c9ccd3; border-radius: 8px"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><rect x="1.5" y="2" width="11" height="10" rx="2"></rect><path d="M6 2v10"></path></svg></div>
+        <div class="srch" style="color: #d6d9df; border-radius: 8px; background: rgba(255,255,255,0.09)"><svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" aria-hidden="true"><circle cx="5.5" cy="5.5" r="4"></circle><path d="M8.5 8.5l3 3"></path></svg><span class="w">Search</span><span class="kt" style="color: #b3b7bf">⌘P</span></div>
+        <div class="side" style="color: #eceef2; border-radius: 8px"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><rect x="1.5" y="2" width="11" height="10" rx="2"></rect><path d="M8.5 2v10"></path></svg></div>
+      </div>
+    </div></div>
+  </div>
+
+  <div class="opt">
+    <div class="opt-h"><b>丙 · 挂在右侧栏上</b><span>右侧栏开着时，胶囊像选中标签接中间面板那样，往下接进右侧栏，上圆下直，左右对称；右侧栏关上时退回甲的样子。最“成套”，但胶囊会被当成右侧栏的标签，开关右侧栏时它要变形，做起来也最多</span></div>
+    <div class="zoom"><div class="bar">
+      <div class="pc"></div><div class="pr"></div>
+      <div class="tab flat"><svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><rect x="1.5" y="3" width="15" height="12" rx="2.5"></rect><path d="M5 7l2.5 2L5 11M9 11.5h4"></path></svg><span>zsh · firegnu</span><div class="dot" style="background: #8d93a0"></div></div>
+      <div class="tab active"><div class="icon"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="M6 1v10M1 6h10M2.5 2.5l7 7M9.5 2.5l-7 7"></path></svg></div><span>main</span><div class="dot"></div><svg class="x" viewBox="0 0 8 8" fill="none" stroke="currentColor" stroke-width="1" aria-hidden="true"><path d="M1 1l6 6M7 1l-6 6"></path></svg></div>
+      <div class="plus"><svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><path d="M5.5 1v9M1 5.5h9"></path></svg></div>
+      <div class="pet"></div>
+      <div class="cap" style="top: 6px; height: 34px; padding-top: 2px; border-radius: 10px 10px 0 0; background: #11181a">
+        <div class="side" style="color: #a9aeb7"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><rect x="1.5" y="2" width="11" height="10" rx="2"></rect><path d="M6 2v10"></path></svg></div>
+        <div class="rule" style="background: rgba(255,255,255,0.07)"></div>
+        <div class="srch" style="color: #a3a8b1"><svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" aria-hidden="true"><circle cx="5.5" cy="5.5" r="4"></circle><path d="M8.5 8.5l3 3"></path></svg><span class="w">Search</span><span class="kt">⌘P</span></div>
+        <div class="rule" style="background: rgba(255,255,255,0.07)"></div>
+        <div class="side" style="color: #e3e5ea"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><rect x="1.5" y="2" width="11" height="10" rx="2"></rect><path d="M8.5 2v10"></path></svg></div>
+      </div>
+    </div></div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>
