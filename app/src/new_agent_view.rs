@@ -1357,8 +1357,16 @@ impl NewAgentView {
     }
 
     /// A borderless part along the foot (P5-102): no ground until the mouse is over it, lit while
-    /// `menu` is open, and noting where it is drawn for that to hang from.
-    fn ghost(&self, id: &'static str, menu: Option<Menu>, ui: &UiFont) -> Stateful<Div> {
+    /// `menu` is open, and noting where it is drawn for that to hang from. `ground` replaces the
+    /// plain hover ground when the part is lit differently; it is given here because a part takes
+    /// one hover only, and a second `hover` call is a debug build's panic (P5-178).
+    fn ghost(
+        &self,
+        id: &'static str,
+        menu: Option<Menu>,
+        ground: Option<Hsla>,
+        ui: &UiFont,
+    ) -> Stateful<Div> {
         let text = self.fg(|t| t.agents_text);
         div()
             .id(id)
@@ -1374,7 +1382,10 @@ impl NewAgentView {
             .when(menu.is_some_and(|menu| self.open == Some(menu)), |part| {
                 part.bg(text.opacity(0.08))
             })
-            .hover(move |style| style.bg(text.opacity(0.06)).text_color(text))
+            .hover(move |style| match ground {
+                Some(ground) => style.bg(ground),
+                None => style.bg(text.opacity(0.06)).text_color(text),
+            })
             .children(menu.map(|menu| self.spot(menu)))
     }
 
@@ -1411,7 +1422,7 @@ impl NewAgentView {
         // The kind, and in the same block its model and effort when it has them (P5-99).
         let models = tool.has_models();
         let agent = self
-            .ghost("chip-agent", Some(Menu::Agent), ui)
+            .ghost("chip-agent", Some(Menu::Agent), None, ui)
             .pl(ui.px(10.0))
             .pr(ui.px(9.0))
             .gap(ui.px(8.0))
@@ -1423,7 +1434,7 @@ impl NewAgentView {
             .child(chevron(Menu::Agent, dimmer))
             .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.toggle(Menu::Agent, cx)));
         let model = models.then(|| {
-            self.ghost("chip-model", Some(Menu::Model), ui)
+            self.ghost("chip-model", Some(Menu::Model), None, ui)
                 .rounded_l(px(0.0))
                 .px(ui.px(10.0))
                 .gap(ui.px(6.0))
@@ -1450,7 +1461,7 @@ impl NewAgentView {
                 block.child(seam(16.0, 0.10)).child(model)
             });
         let project = self
-            .ghost("chip-project", Some(Menu::Project), ui)
+            .ghost("chip-project", Some(Menu::Project), None, ui)
             .flex_shrink(1.0)
             .min_w(px(0.0))
             .px(ui.px(10.0))
@@ -1465,17 +1476,23 @@ impl NewAgentView {
                     .child(project_name(&self.form.project)),
             )
             .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.toggle(Menu::Project, cx)));
-        let icon_button = |id: &'static str, menu: Option<Menu>, tip: &'static str| {
-            let tip = Tip::new(tip, &self.theme, ui);
-            self.ghost(id, menu, ui)
-                .size(ui.px(32.0))
-                .justify_center()
-                .rounded(ui.px(9.0))
-                .tooltip(move |_, cx| cx.new(|_| tip.clone()).into())
-        };
-        let place = icon_button("chip-place", Some(Menu::Place), place_tip(self.form.place))
-            .child(place_icon(self.form.place, dim, ui.scale(16.0)))
-            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.toggle(Menu::Place, cx)));
+        let icon_button =
+            |id: &'static str, menu: Option<Menu>, tip: &'static str, ground: Option<Hsla>| {
+                let tip = Tip::new(tip, &self.theme, ui);
+                self.ghost(id, menu, ground, ui)
+                    .size(ui.px(32.0))
+                    .justify_center()
+                    .rounded(ui.px(9.0))
+                    .tooltip(move |_, cx| cx.new(|_| tip.clone()).into())
+            };
+        let place = icon_button(
+            "chip-place",
+            Some(Menu::Place),
+            place_tip(self.form.place),
+            None,
+        )
+        .child(place_icon(self.form.place, dim, ui.scale(16.0)))
+        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.toggle(Menu::Place, cx)));
         let lock = self.lock_button(ui, cx);
         let controller = !self.form.regular;
         let role = icon_button(
@@ -1486,11 +1503,9 @@ impl NewAgentView {
             } else {
                 "Controller: off"
             },
+            controller.then(|| accent.opacity(0.2)),
         )
-        .when(controller, |part| {
-            part.bg(accent.opacity(0.14))
-                .hover(move |style| style.bg(accent.opacity(0.2)))
-        })
+        .when(controller, |part| part.bg(accent.opacity(0.14)))
         .child(crown(
             if controller { accent } else { dimmer },
             controller.then(|| accent.opacity(0.25)),
@@ -1501,7 +1516,7 @@ impl NewAgentView {
             this.chose(cx);
         }));
         let command = self
-            .ghost("show-command", None, ui)
+            .ghost("show-command", None, None, ui)
             .size(ui.px(32.0))
             .justify_center()
             .rounded(ui.px(9.0))
@@ -1609,11 +1624,12 @@ impl NewAgentView {
                     .child(footer_icon::lock(true, dim, None, ui.scale(16.0))),
             );
         }
-        let base = self
-            .ghost("chip-sandbox", Some(Menu::Sandbox), ui)
-            .rounded(ui.px(9.0));
+        let base = |ground: Option<Hsla>| {
+            self.ghost("chip-sandbox", Some(Menu::Sandbox), ground, ui)
+                .rounded(ui.px(9.0))
+        };
         let button = match &self.form.sandbox {
-            None => base
+            None => base(None)
                 .size(ui.px(32.0))
                 .justify_center()
                 .tooltip(tip("No sandbox".into()))
@@ -1628,12 +1644,12 @@ impl NewAgentView {
                     (None, true) => format!("Sandbox: {profile}, with a warning"),
                     (None, false) => format!("Sandbox: {profile}"),
                 };
-                base.h(ui.px(32.0))
+                base(Some(color.opacity(0.2)))
+                    .h(ui.px(32.0))
                     .pl(ui.px(8.0))
                     .pr(ui.px(9.0))
                     .gap(ui.px(5.0))
                     .bg(color.opacity(0.14))
-                    .hover(move |style| style.bg(color.opacity(0.2)))
                     .text_size(ui.px(12.5))
                     .font_weight(FontWeight::MEDIUM)
                     .text_color(color)
