@@ -5394,7 +5394,16 @@ impl PaddockWindow {
     fn search_button(&self, cx: &mut Context<Self>) -> HoverMotion {
         let ui = UiFont::get(cx);
         let highlight = self.bar_ground();
-        let border = hsla(self.theme.fg(|t| t.agents_rule), 0.6);
+        let rule = self.theme.fg(|t| t.agents_rule);
+        // Over the material a dark field sunk in the bar, the frame's colour mostly opaque: with
+        // the material thinned the desktop shows through, and a faint light veil was lost in it
+        // (P5-171).
+        let (ground, hovered, border) = if self.frosted() {
+            let frame = hsla(self.theme.frame(), 1.0);
+            (frame.opacity(0.6), frame.opacity(0.75), hsla(rule, 1.0))
+        } else {
+            (highlight.opacity(0.5), highlight, hsla(rule, 0.6))
+        };
         let dim = self.bar_fg(|t| t.agents_dim);
         let keycaps = self.keycaps(&menu::keys(&menu::Search), &ui, 18.0, highlight);
         let on_click =
@@ -5413,8 +5422,8 @@ impl PaddockWindow {
                 .rounded(px(7.0))
                 .border_1()
                 .border_color(border)
-                .bg(highlight.opacity(0.5))
-                .hover(move |style| style.bg(highlight))
+                .bg(ground)
+                .hover(move |style| style.bg(hovered))
                 .text_size(ui.px(12.5))
                 .text_color(dim)
                 .cursor_pointer()
