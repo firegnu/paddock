@@ -517,11 +517,11 @@ const BADGE: Badge = Badge {
     icon: BADGE_ICON,
     dot: BADGE_DOT,
 };
-/// In a tab, beside its title (P5-165 rework 2, larger again in 2b); a split tab's stack of
-/// cards as high as the icon.
+/// In a tab, beside its title (P5-165 rework 2, larger again in 2b, and again in P5-167); a split
+/// tab's stack of cards as high as the icon.
 const TAB_BADGE: Badge = Badge {
-    icon: 16.0,
-    dot: 5.5,
+    icon: 18.0,
+    dot: 6.0,
 };
 const TAB_STACK: f32 = TAB_BADGE.icon / tab_stack::CARD;
 /// What a command palette row's hover brightens: this name on each row.
@@ -535,23 +535,25 @@ const SPLIT_GAP: f32 = 4.0;
 /// sidebar; unscaled.
 const BAR_GAP: f32 = 4.0;
 const BAR_END: f32 = 10.0;
-/// A tab's capsule: its height; its title's size; the room before its badge, after it, and after
-/// the title (an inactive tab's, its × drawn over the title's end; the active tab's, after its
-/// ×), the badge's box a point wider than its icon either side; its ×, where it is taken and the
-/// cross drawn in it; its ring, drawn clear where it has none so every title sits alike, and the
-/// room between tabs, both unscaled; every tab's width while there is room, and the least they
-/// narrow to (P5-165 rework 1: every tab as wide as the others). Rework 2 set the room as the
-/// reference has it: 10 before the icon, 6 after it, the cross 9 in from the tab's right edge,
-/// itself 7.5 across in a line a little thinner than the footer's icons'.
+/// A tab's capsule: its height; its title's size; the room either side of what it holds, and after
+/// its badge; the badge's box a point wider than its icon either side; its ×, where it is taken
+/// and the cross drawn in it; its ring, drawn clear where it has none so every title sits alike,
+/// and the room between tabs, both unscaled; every tab's width while there is room, and the least
+/// they narrow to (P5-165 rework 1: every tab as wide as the others). Rework 2 set the cross 9 in
+/// from the tab's right edge, itself 7.5 across in a line a little thinner than the footer's
+/// icons'. P5-167 centred what a tab holds in its whole width, clear of the ×: the room either
+/// side is the ×'s box and a little clear after it, the icon 18, its dot 6, the title 15 and the
+/// room after the icon 7.
 const TAB_HEIGHT: f32 = 28.0;
-const TAB_TEXT: f32 = 14.0;
-const TAB_START: f32 = 8.0;
-const TAB_GAP: f32 = 5.0;
-const TAB_END: f32 = 12.0;
+const TAB_TEXT: f32 = 15.0;
+const TAB_GAP: f32 = 6.0;
 const ACTIVE_TAB_END: f32 = 4.0;
 const TAB_CLOSE: f32 = 16.0;
 const TAB_CROSS: f32 = 7.5;
 const TAB_CROSS_LINE: f32 = 1.0;
+/// The room a tab keeps either side of what it holds (P5-167): the ×'s box and a little clear
+/// after it, so the icon, title and marks centre in the tab's whole width and never reach it.
+const TAB_SIDE: f32 = ACTIVE_TAB_END + TAB_CLOSE + 6.0;
 /// The tabs not active and the `+N`, flat on the bar (P5-165 rework 1): the faint ground under the
 /// mouse, as strong a tint of the text's colour as the sidebar's cards' edge (P5-97), and its
 /// corners.
@@ -620,11 +622,11 @@ fn ui_text_width(window: &Window, ui: &UiFont, text: &str, size: f32, weight: Fo
 }
 
 /// A tab's width around its title (see [`TabSize`]), in points: for one holding `panes` panes, the
-/// active one `empty` or not, its agent `paused` or not, its × `inline` (the active tab's, and every
-/// tab's over the system's material, P5-97) or over its title's end, the interface `s` times its
-/// base size. A split tab has its panes' stack where another has its one
-/// icon, or its bare dot when it is empty.
-fn tab_chrome(panes: usize, empty: bool, paused: bool, inline: bool, s: f32) -> f32 {
+/// active one `empty` or not, its agent `paused` or not, the interface `s` times its base size. A
+/// split tab has its panes' stack where another has its one icon, or its bare dot when it is empty.
+/// What a tab holds centres in its whole width, so the room either side is alike and its × takes
+/// none of its title's (P5-167).
+fn tab_chrome(panes: usize, empty: bool, paused: bool, s: f32) -> f32 {
     let badge = match panes {
         1 if empty => 7.0,
         1 => TAB_BADGE.icon + 2.0,
@@ -635,12 +637,7 @@ fn tab_chrome(panes: usize, empty: bool, paused: bool, inline: bool, s: f32) -> 
     } else {
         0.0
     };
-    let end = if inline {
-        TAB_GAP + TAB_CLOSE + ACTIVE_TAB_END
-    } else {
-        TAB_END
-    };
-    (TAB_START + badge + TAB_GAP + pause + end) * s + 2.0 * TAB_RING
+    (2.0 * TAB_SIDE + badge + TAB_GAP + pause) * s + 2.0 * TAB_RING
 }
 
 /// A tab's ×: a cross `TAB_CROSS` points across, its arms `TAB_CROSS_LINE` thick, times `scale`
@@ -4641,7 +4638,6 @@ impl PaddockWindow {
         let short = tab_fit::distinct(&subjects, &open);
         let marks = self.tab_marks(cx);
         let active = self.workspace.active_tab;
-        let frosted = self.frosted();
         let sizes: Vec<TabSize> = self
             .workspace
             .tabs
@@ -4659,13 +4655,8 @@ impl PaddockWindow {
                 let group = group.as_deref().unwrap_or_default();
                 let signal = self.tab_signal(index, Instant::now(), crate::reduce_motion::on(), cx);
                 TabSize {
-                    chrome: tab_chrome(
-                        panes,
-                        empty,
-                        marks[index].paused,
-                        index == active || frosted,
-                        s,
-                    ) + signals::tab_width(signal, s),
+                    chrome: tab_chrome(panes, empty, marks[index].paused, s)
+                        + signals::tab_width(signal, s),
                     full: width(group, TAB_TEXT, FontWeight::NORMAL)
                         + width(name, TAB_TEXT, weight),
                     short: width(&short[index], TAB_TEXT, weight),
@@ -4857,11 +4848,9 @@ impl PaddockWindow {
             let tint = if active { marks.tone.color() } else { None };
             let (whole, quiet, _) = self.capsule(tint);
             let chosen = self.faces(whole, tint).chosen;
-            // The active tab keeps its × in line; the others have it over the end of their
-            // title, so a narrow tab gives the title all its room, unless the bar is seen
-            // through. The active one's always shows; the others' fade in only while the mouse is
-            // on the tab.
-            let inline = active || frosted;
+            // The active tab's × always shows; the others' fade in only while the mouse is on the
+            // tab. Either way it sits at the tab's right end, and what the tab holds centres in
+            // the whole tab clear of it (P5-167).
             // The active tab's ground lies under its whole row (see `join::tab_ground`), the
             // capsule's or the terminal's, which shows through; seen through, so does the faint
             // ground under the mouse.
@@ -4870,8 +4859,15 @@ impl PaddockWindow {
             } else {
                 (flat_lit_whole, flat_lit_whole.blend(hsla(muted, 0.18)))
             };
+            // Centred top to bottom inside its ring at the tab's right end; joined to its panel,
+            // the active tab's content sits a point lower and its × with it.
+            let top = ui.scale((TAB_HEIGHT - TAB_CLOSE) / 2.0) - TAB_RING
+                + if active && joined { drop } else { 0.0 };
             let close = div()
                 .id(("close-tab", index))
+                .absolute()
+                .top(px(top))
+                .right(ui.px(ACTIVE_TAB_END))
                 .flex_shrink_0()
                 .flex()
                 .items_center()
@@ -4885,12 +4881,6 @@ impl PaddockWindow {
                     self.close_shown(index, shown_at)
                 })
                 .hover(move |style| style.bg(pressed))
-                .when(!inline, |close| {
-                    // Centred top to bottom inside its ring, at the tab's right end as the active
-                    // tab's is.
-                    let top = px(ui.scale((TAB_HEIGHT - TAB_CLOSE) / 2.0) - TAB_RING);
-                    close.absolute().top(top).right(ui.px(ACTIVE_TAB_END))
-                })
                 .child(tab_cross(self.fg(|t| t.muted), scale))
                 .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                     cx.stop_propagation();
@@ -4967,9 +4957,11 @@ impl PaddockWindow {
                 .w(px(shown.width))
                 .flex()
                 .items_center()
+                .justify_center()
                 .gap(ui.px(TAB_GAP))
                 .h(ui.px(TAB_HEIGHT))
-                .pl(ui.px(TAB_START))
+                .pl(ui.px(TAB_SIDE))
+                .pr(ui.px(TAB_SIDE))
                 .rounded(ui.px(FLAT_RADIUS))
                 .border(px(TAB_RING))
                 .border_color(gpui::transparent_black())
@@ -4986,10 +4978,10 @@ impl PaddockWindow {
                     self.fg(|t| t.agents_yellow),
                     scale,
                 ))
-                // The title takes the room between the badge and the ×, which stays at the end.
+                // The icon, title and marks are one block, centred in the tab; the title takes
+                // its own width, shrinking only into the room the × leaves it (P5-167).
                 .child(
                     div()
-                        .flex_1()
                         .min_w(px(0.0))
                         .overflow_hidden()
                         .whitespace_nowrap()
@@ -5005,16 +4997,14 @@ impl PaddockWindow {
                     ))
                 });
             item = if active {
-                item.pr(ui.px(ACTIVE_TAB_END))
-                    .when(joined, |item| item.pt(px(2.0 * drop)))
+                item.when(joined, |item| item.pt(px(2.0 * drop)))
                     .child(self.spot(Spot::ActiveTab))
                     // The short name bright, a little heavier; a faint group before it stays
                     // regular (P5-165 rework 2).
                     .text_color(self.fg(|t| t.agents_text))
                     .font_weight(FontWeight::MEDIUM)
             } else {
-                item.pr(ui.px(if inline { ACTIVE_TAB_END } else { TAB_END }))
-                    .top(px(drop))
+                item.top(px(drop))
                     .text_color(quiet)
                     .hover(move |style| style.bg(flat_lit))
             };
@@ -8316,38 +8306,48 @@ mod tests {
     }
 
     #[test]
-    fn a_split_tab_s_width_counts_its_stack_and_nothing_after_its_title() {
+    fn a_tab_centres_what_it_holds_and_counts_its_stack() {
         let near = |a: f32, b: f32| (a - b).abs() < 0.001;
-        let around = |panes| tab_chrome(panes, false, false, false, 1.0);
-        // As the reference has it (P5-165 rework 2): 10 before the 16 icon, in its box a point
-        // wider either side, and 6 after it.
+        let around = |panes| tab_chrome(panes, false, false, 1.0);
+        // P5-167: the icon 18 in its box a point wider either side, 7 to the 15 title, and the ×'s
+        // box and a little clear again kept either side, the same on both.
         let icon = TAB_BADGE.icon + 2.0;
-        assert_eq!(icon, 18.0);
-        assert_eq!(TAB_RING + TAB_START + 1.0, 10.0);
-        assert_eq!(1.0 + TAB_GAP, 6.0);
-        let one = TAB_START + icon + TAB_GAP + TAB_END + 2.0 * TAB_RING;
-        assert_eq!(around(1), 45.0);
+        assert_eq!(TAB_BADGE.icon, 18.0);
+        assert_eq!(TAB_BADGE.dot, 6.0);
+        assert_eq!(icon, 20.0);
+        assert_eq!(1.0 + TAB_GAP, 7.0);
+        assert_eq!(TAB_SIDE, ACTIVE_TAB_END + TAB_CLOSE + 6.0);
+        // The room the ×'s box needs is inside the side a tab keeps, so what it holds stays clear
+        // of it however wide the title is.
+        assert_eq!(TAB_SIDE - (ACTIVE_TAB_END + TAB_CLOSE), 6.0);
+        let one = 2.0 * TAB_SIDE + icon + TAB_GAP + 2.0 * TAB_RING;
+        assert_eq!(around(1), 80.0);
         assert_eq!(around(1), one);
-        // In line, the × at the end: its cross's right end about 9 in from the tab's.
+        // Both sides take alike, so the block centres: at the base width the title gets 180 minus
+        // two sides, the icon's box and the room after it.
+        assert_eq!(TAB_WIDTH - around(1), 100.0);
+        assert_eq!(
+            TAB_WIDTH - 2.0 * TAB_SIDE - icon - TAB_GAP - 2.0 * TAB_RING,
+            100.0
+        );
+        // The × is not part of the title's room: its cross's right end stays about 9 in from the
+        // tab's, whether the tab is active or not.
         let cross_end = TAB_RING + ACTIVE_TAB_END + (TAB_CLOSE - TAB_CROSS) / 2.0;
         assert!((cross_end - 9.0).abs() <= 0.25, "{cross_end}");
-        assert_eq!(
-            tab_chrome(1, false, false, true, 1.0),
-            one - TAB_END + TAB_GAP + TAB_CLOSE + ACTIVE_TAB_END
-        );
         // The stack in place of the one icon, as high as it, and no pill after the title.
         let stack = |panes| tab_stack::width(panes) * TAB_BADGE.icon / tab_stack::CARD;
+        assert_eq!(TAB_STACK, 1.0);
         assert!(near(around(2) - one, stack(2) - icon));
         assert!(near(around(3) - one, stack(3) - icon));
         // No wider past three cards.
         assert_eq!(around(6), around(3));
         // An empty pane alone is a bare dot; in a split tab it has a card like any other.
-        assert_eq!(tab_chrome(1, true, false, false, 1.0), one - icon + 7.0);
-        assert_eq!(tab_chrome(2, true, false, false, 1.0), around(2));
+        assert_eq!(tab_chrome(1, true, false, 1.0), one - icon + 7.0);
+        assert_eq!(tab_chrome(2, true, false, 1.0), around(2));
         // Everything but the ring grows with the interface.
         let ring = 2.0 * TAB_RING;
         assert!(near(
-            tab_chrome(3, false, false, false, 2.0),
+            tab_chrome(3, false, false, 2.0),
             2.0 * (around(3) - ring) + ring
         ));
     }
