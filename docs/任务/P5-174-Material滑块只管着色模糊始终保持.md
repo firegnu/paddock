@@ -117,3 +117,13 @@
 - 上一轮的测试窗口（PID 23530）忘了停，后来发现了按 PID 停掉。
 - 过滤日志时把标题栏自己的 `CABackdropLayer` 看成了我们视图里的。为此给找层的逻辑加了“模糊上面没有层就继续往下找”，这一条有测试。
 - 有一次误在命令末尾敲了一个等标准输入的 `python3 -`（什么也没执行），挂住了，已经停掉。
+
+## 主控审查
+
+- diff 动了 `frost.rs`、`window.rs`、`theme.rs`、`config.rs` 的注释和 DESIGN、本文件，没碰 GPUI 画的层、设置项、配置键。`set_opacity`（整块 `alphaValue`）换成 `set_tint`：按类名找 `CABackdropLayer` 上面、`CAChameleonLayer` 以外的层，把不透明度设成 Material 比例，关动画；找不到就不动，磨砂保持满强度。每帧重设，换外观和显示时先 `displayIfNeeded` 再设。材质收成 `frost.rs` 的 `MATERIAL` 常量。
+- 「要做的」五条：层结构查清了，事实、推测、没查清分开写了；滑块只管着色，模糊和饱和度一直是满的；两种材质一处切换；`Blurred` 留着没动，给了建议；别的不变。
+- 主控猜错的一处：GPUI 的 `Blurred` 不是删滤镜时误删了模糊，而是在本机根本没有模糊层，什么都不画。P5-170 实际上没起作用，原来 Material 调低就是在混进没模糊的桌面。
+- 测试：主控重跑 `cargo test --all-targets --no-fail-fast`，30 个目标、1025 条全过。
+- agent 误敲过一次 `python3 -`（等输入，没执行就停了），违反“不用 Python”，没留下文件，不返工。
+- 待用户：两种材质挑哪个；`Blurred` 去不去掉（agent 建议去掉，主控同意，它是 P5-170 定的，问用户）。
+结果：一次过
