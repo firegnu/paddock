@@ -3,8 +3,8 @@
 //! (DESIGN §8). Not taken: the Terminal preset (paddock has no outer terminal), the 256-colour
 //! fallback, `[colors]` deserialisation, and the ratatui block and layout helpers. Since M1 colours
 //! are paddock's own `Color` below instead of ratatui's, with the same values. The Catppuccin
-//! Mocha, Tokyo Night, Rosé Pine and Kanagawa presets are paddock's own (P5-40), from those
-//! palettes' published colours; each names its source.
+//! Mocha, Tokyo Night, Rosé Pine and Kanagawa presets are paddock's own (P5-40), as are their
+//! light versions (P5-175, P5-176), from those palettes' published colours; each names its source.
 
 /// A configured interface colour: the terminal's default, one of the 16 basic colours, an entry of
 /// the 256-colour palette, or RGB.
@@ -99,21 +99,48 @@ pub enum Preset {
     Catppuccin,
     Latte,
     TokyoNight,
+    TokyoNightDay,
     RosePine,
+    RosePineDawn,
     Kanagawa,
+    KanagawaLotus,
 }
 
 impl Preset {
-    pub const ALL: [Preset; 8] = [
+    pub const ALL: [Preset; 11] = [
         Preset::Dune,
         Preset::Tide,
         Preset::Lagoon,
         Preset::Catppuccin,
         Preset::Latte,
         Preset::TokyoNight,
+        Preset::TokyoNightDay,
         Preset::RosePine,
+        Preset::RosePineDawn,
         Preset::Kanagawa,
+        Preset::KanagawaLotus,
     ];
+    /// The light version of a dark preset, where it has one (P5-176).
+    pub fn light(self) -> Option<Preset> {
+        match self {
+            Preset::Catppuccin => Some(Preset::Latte),
+            Preset::TokyoNight => Some(Preset::TokyoNightDay),
+            Preset::RosePine => Some(Preset::RosePineDawn),
+            Preset::Kanagawa => Some(Preset::KanagawaLotus),
+            _ => None,
+        }
+    }
+    /// The presets as Settings groups them (P5-176): the dark ones in [`Self::ALL`]'s order, then
+    /// the light ones in their dark versions' order, so a light version lines up under its dark one
+    /// once each dark preset has one.
+    pub fn groups() -> (Vec<Preset>, Vec<Preset>) {
+        let dark: Vec<Preset> = Self::ALL
+            .into_iter()
+            .filter(|p| !Self::ALL.iter().any(|d| d.light() == Some(*p)))
+            .collect();
+        let light = dark.iter().filter_map(|p| p.light()).collect();
+        (dark, light)
+    }
     /// How the theme is written in the config file.
     pub fn name(self) -> &'static str {
         match self {
@@ -123,8 +150,11 @@ impl Preset {
             Preset::Catppuccin => "catppuccin",
             Preset::Latte => "latte",
             Preset::TokyoNight => "tokyonight",
+            Preset::TokyoNightDay => "tokyonight-day",
             Preset::RosePine => "rosepine",
+            Preset::RosePineDawn => "rosepine-dawn",
             Preset::Kanagawa => "kanagawa",
+            Preset::KanagawaLotus => "kanagawa-lotus",
         }
     }
     /// How the theme is shown: the palette's own name for the borrowed ones.
@@ -136,8 +166,11 @@ impl Preset {
             Preset::Catppuccin => "Catppuccin Mocha",
             Preset::Latte => "Catppuccin Latte",
             Preset::TokyoNight => "Tokyo Night",
+            Preset::TokyoNightDay => "Tokyo Night Day",
             Preset::RosePine => "Rosé Pine",
+            Preset::RosePineDawn => "Rosé Pine Dawn",
             Preset::Kanagawa => "Kanagawa",
+            Preset::KanagawaLotus => "Kanagawa Lotus",
         }
     }
     /// The names as an error message lists them: "dune, tide, … or kanagawa".
@@ -232,6 +265,30 @@ impl Preset {
                 dim: 0.48,
                 dimmer: 0.44,
             },
+            // The other light ones (P5-176) lie as Latte does, their quiet text stepping as far,
+            // Tokyo Night Day's `dim` a little further: on their darkest card face it reads at
+            // 4.5:1 and 3.5:1 at least.
+            Preset::TokyoNightDay => Frost {
+                wash: 0.45,
+                lit: 0.10,
+                waiting: 0.14,
+                dim: 0.66,
+                dimmer: 0.53,
+            },
+            Preset::RosePineDawn => Frost {
+                wash: 0.45,
+                lit: 0.10,
+                waiting: 0.14,
+                dim: 0.64,
+                dimmer: 0.53,
+            },
+            Preset::KanagawaLotus => Frost {
+                wash: 0.45,
+                lit: 0.10,
+                waiting: 0.14,
+                dim: 0.64,
+                dimmer: 0.53,
+            },
         }
     }
     /// Every color of the theme.
@@ -243,8 +300,11 @@ impl Preset {
             Preset::Catppuccin => catppuccin(),
             Preset::Latte => latte(),
             Preset::TokyoNight => tokyo_night(),
+            Preset::TokyoNightDay => tokyo_night_day(),
             Preset::RosePine => rose_pine(),
+            Preset::RosePineDawn => rose_pine_dawn(),
             Preset::Kanagawa => kanagawa(),
+            Preset::KanagawaLotus => kanagawa_lotus(),
         }
     }
 }
@@ -409,7 +469,7 @@ fn catppuccin() -> Theme {
 }
 
 /// Catppuccin Latte (https://github.com/catppuccin/catppuccin, MIT, Copyright (c) 2021
-/// Catppuccin), paddock's one light preset (P5-175), by Mocha's roles: base for the terminal,
+/// Catppuccin), paddock's first light preset (P5-175), by Mocha's roles: base for the terminal,
 /// mantle for the sidebar, surface0–2 for the selected ground, rules and edges, overlay0–2 for the
 /// quiet text, subtext1 for branches, mauve for the accent. Status hues: blue working, green idle,
 /// yellow waiting, peach stalled, red error, lavender starting. Latte's quiet text and most of its
@@ -642,6 +702,200 @@ fn kanagawa() -> Theme {
     }
 }
 
+/// Tokyo Night, day style (https://github.com/folke/tokyonight.nvim `extras/lua/tokyonight_day.lua`,
+/// Apache-2.0, by Folke Lemaitre; after Tokyo Night, https://github.com/enkia/tokyo-night-vscode-theme,
+/// MIT, Copyright (c) 2018-present Enkia), a light preset (P5-176), by the night style's roles:
+/// bg for the terminal, bg_dark for the sidebar, bg_visual for the selected ground, bg_highlight,
+/// fg_gutter, terminal_black and dark3 for rules and edges, fg_dark for branches, blue for the
+/// accent. Status hues: blue working, green idle, yellow waiting, orange stalled, red error,
+/// magenta starting. Those read as text under 4.5:1 (3:1 for `agents_dimmer`) on its grounds are
+/// darkened just enough, towards black: muted dark5 #68709a to #5c6389 on bg; on bg_dark, dark5
+/// #68709a to #555b7d and comment #848cb5 to #707699 for the quiet text, green #587539 to
+/// #4c6431, red #f52a65 to #b21e49, blue #2e7de9 to #225bab, yellow #8c6c3e to #735833, teal
+/// #118c74 to #0d6957, orange #b15c00 to #8f4b00 and magenta #9854f1 to #7440b9; and the
+/// sidebar's text, fg #3760bf to #243f7e, so the tabs' names read at 4.5:1 on their capsules
+/// over bg_dark; the accent, blue #2e7de9 to #2668c3, so the selected right tab's icon reads at
+/// 3:1 on its capsule. The keys nothing reads as text keep the day style's own hues.
+fn tokyo_night_day() -> Theme {
+    let rgb = |v: u32| Color::Rgb((v >> 16) as u8, (v >> 8) as u8, v as u8);
+    Theme {
+        bg: rgb(0xe1e2e7),
+        text: rgb(0x3760bf),
+        selected: rgb(0xb7c1e3),
+        agent_selected: rgb(0xb7c1e3),
+        agent_working: rgb(0x2e7de9),
+        agent_idle: rgb(0x587539),
+        agent_blocked: rgb(0x8c6c3e),
+        agent_stalled: rgb(0x8f4b00),
+        agent_error: rgb(0xf52a65),
+        agent_starting: rgb(0x7440b9),
+        border: rgb(0xa8aecb),
+        bright: rgb(0x3760bf),
+        muted: rgb(0x5c6389),
+        dim: rgb(0x8990b3),
+        focus: rgb(0x2e7de9),
+        connected: rgb(0x007197),
+        working: rgb(0x2e7de9),
+        danger: rgb(0xf52a65),
+        unread: rgb(0x9854f1),
+        input_text: rgb(0xb4b5b9),
+        reply_code: rgb(0x8c6c3e),
+        reply_heading: rgb(0x007197),
+        agents_bg: rgb(0xd0d5e3),
+        agents_border: rgb(0xa1a6c5),
+        agents_rule: rgb(0xc4c8da),
+        agents_faint: rgb(0xa8aecb),
+        agents_text: rgb(0x243f7e),
+        agents_branch: rgb(0x6172b0),
+        agents_dim: rgb(0x555b7d),
+        agents_dimmer: rgb(0x707699),
+        agents_accent: rgb(0x2668c3),
+        agents_green: rgb(0x4c6431),
+        agents_red: rgb(0xb21e49),
+        agents_blue: rgb(0x225bab),
+        agents_yellow: rgb(0x735833),
+        agents_purple: rgb(0x9854f1),
+        agents_sandbox: rgb(0x0d6957),
+        claude: rgb(0xb15c00),
+        codex: rgb(0x118c74),
+        pi: rgb(0x3760bf),
+        omp: rgb(0x7847bd),
+        amp: rgb(0x8c6c3e),
+        agy: rgb(0x2e7de9),
+        ..Theme::default()
+    }
+}
+
+/// Rosé Pine, dawn variant (https://github.com/rose-pine/rose-pine-theme, MIT, Copyright (c) 2023
+/// Rosé Pine), a light preset (P5-176), by main's roles: base for the terminal, highlight med for
+/// the selected ground and rules, highlight high for edges, subtle and muted for the quiet text,
+/// rose for the accent, branches a third of the way from text to subtle (#625e82). The sidebar
+/// is overlay, not surface as on main: dawn's surface (#fffaf3) is nearly white, and the cards'
+/// white faces would not stand off it. Status hues: foam working, pine idle (dawn's own pine
+/// reads on its light grounds), gold waiting, love error, iris starting, and rose deepened for
+/// stalled, apart from the accent. Those read as text under 4.5:1 (3:1 for `agents_dimmer`) on
+/// its grounds are darkened just enough, towards black: muted subtle #797593 to #716d89 on base;
+/// on overlay, subtle #797593 to #6b6782 and muted #9893a5 to #898495 for the quiet text, love
+/// #b4637a to #9a5569, foam #56949f to #42717a (blue and sandbox), gold #ea9d34 to #906020, rose
+/// #d7827e to #955a58 (stalled) and iris #907aa9 to #746389 (starting); and the sidebar's text,
+/// #575279 to #514d71, so the tabs' names read at 4.5:1 on their capsules over overlay; the
+/// accent, rose #d7827e to #a86562, so the selected right tab's icon reads at 3:1. The keys
+/// nothing reads as text keep dawn's own hues.
+fn rose_pine_dawn() -> Theme {
+    let rgb = |v: u32| Color::Rgb((v >> 16) as u8, (v >> 8) as u8, v as u8);
+    Theme {
+        bg: rgb(0xfaf4ed),
+        text: rgb(0x575279),
+        selected: rgb(0xdfdad9),
+        agent_selected: rgb(0xdfdad9),
+        agent_working: rgb(0x56949f),
+        agent_idle: rgb(0x286983),
+        agent_blocked: rgb(0xea9d34),
+        agent_stalled: rgb(0x955a58),
+        agent_error: rgb(0xb4637a),
+        agent_starting: rgb(0x746389),
+        border: rgb(0xdfdad9),
+        bright: rgb(0x575279),
+        muted: rgb(0x716d89),
+        dim: rgb(0x9893a5),
+        focus: rgb(0xd7827e),
+        connected: rgb(0x56949f),
+        working: rgb(0x56949f),
+        danger: rgb(0xb4637a),
+        unread: rgb(0x907aa9),
+        input_text: rgb(0xf2e9e1),
+        reply_code: rgb(0xea9d34),
+        reply_heading: rgb(0x56949f),
+        agents_bg: rgb(0xf2e9e1),
+        agents_border: rgb(0xcecacd),
+        agents_rule: rgb(0xdfdad9),
+        agents_faint: rgb(0xcecacd),
+        agents_text: rgb(0x514d71),
+        agents_branch: rgb(0x625e82),
+        agents_dim: rgb(0x6b6782),
+        agents_dimmer: rgb(0x898495),
+        agents_accent: rgb(0xa86562),
+        agents_green: rgb(0x286983),
+        agents_red: rgb(0x9a5569),
+        agents_blue: rgb(0x42717a),
+        agents_yellow: rgb(0x906020),
+        agents_purple: rgb(0x907aa9),
+        agents_sandbox: rgb(0x42717a),
+        claude: rgb(0xd7827e),
+        codex: rgb(0x56949f),
+        pi: rgb(0x575279),
+        omp: rgb(0x907aa9),
+        amp: rgb(0xea9d34),
+        agy: rgb(0x286983),
+        ..Theme::default()
+    }
+}
+
+/// Kanagawa, lotus variant (https://github.com/rebelot/kanagawa.nvim, MIT, Copyright (c) 2021
+/// Tommaso Laurenzi), a light preset (P5-176), by wave's roles: bg (lotusWhite3) for the
+/// terminal, bg_m3 (lotusWhite0) for the sidebar, bg_visual (lotusViolet3), bg_p1–2 (lotusWhite4–5)
+/// and nontext (lotusViolet1) for the selected ground, rules and edges, fg and fg_dim (lotusInk1–2)
+/// for text and branches, the identifier yellow (lotusYellow) for the accent. The quiet text takes
+/// the float border's lotusGray2 and the comment's lotusGray3. Status hues: lotusBlue4 working,
+/// lotusGreen idle, lotusYellow3 waiting, lotusOrange stalled, lotusRed error, lotusViolet4
+/// starting. Those read as text under 4.5:1 (3:1 for `agents_dimmer`) on its grounds are darkened
+/// just enough, towards black: muted lotusGray2 #716e61 to #6d6a5e on bg; on bg_m3, lotusGray2
+/// #716e61 to #5a574d and lotusGray3 #8a8980 to #73736b for the quiet text, lotusGreen #6f894e
+/// to #4c5d35, lotusRed #c84053 to #9b3240, lotusBlue4 #4d699b to #405781, lotusYellow3 #de9800
+/// to #755000, lotusAqua #597b75 to #435c58 and lotusOrange #cc6d00 to #864700; and the
+/// sidebar's text, lotusInk1 #545464 to #3b3b46, so the tabs' names read at 4.5:1 on their
+/// capsules over bg_m3; the accent, lotusYellow #77713f to #6c6739, so the selected right tab's
+/// icon reads at 3:1 and each level of the activity panel stands apart from the last. The keys nothing reads as text keep lotus's own hues.
+fn kanagawa_lotus() -> Theme {
+    let rgb = |v: u32| Color::Rgb((v >> 16) as u8, (v >> 8) as u8, v as u8);
+    Theme {
+        bg: rgb(0xf2ecbc),
+        text: rgb(0x545464),
+        selected: rgb(0xc9cbd1),
+        agent_selected: rgb(0xe7dba0),
+        agent_working: rgb(0x4d699b),
+        agent_idle: rgb(0x6f894e),
+        agent_blocked: rgb(0xde9800),
+        agent_stalled: rgb(0x864700),
+        agent_error: rgb(0xc84053),
+        agent_starting: rgb(0x624c83),
+        border: rgb(0xe4d794),
+        bright: rgb(0x545464),
+        muted: rgb(0x6d6a5e),
+        dim: rgb(0x8a8980),
+        focus: rgb(0x77713f),
+        connected: rgb(0x6693bf),
+        working: rgb(0x4d699b),
+        danger: rgb(0xc84053),
+        unread: rgb(0x624c83),
+        input_text: rgb(0xd5cea3),
+        reply_code: rgb(0x77713f),
+        reply_heading: rgb(0x6693bf),
+        agents_bg: rgb(0xd5cea3),
+        agents_border: rgb(0xa09cac),
+        agents_rule: rgb(0xe7dba0),
+        agents_faint: rgb(0xe4d794),
+        agents_text: rgb(0x3b3b46),
+        agents_branch: rgb(0x43436c),
+        agents_dim: rgb(0x5a574d),
+        agents_dimmer: rgb(0x73736b),
+        agents_accent: rgb(0x6c6739),
+        agents_green: rgb(0x4c5d35),
+        agents_red: rgb(0x9b3240),
+        agents_blue: rgb(0x405781),
+        agents_yellow: rgb(0x755000),
+        agents_purple: rgb(0x624c83),
+        agents_sandbox: rgb(0x435c58),
+        claude: rgb(0xcc6d00),
+        codex: rgb(0x597b75),
+        pi: rgb(0x545464),
+        omp: rgb(0x624c83),
+        amp: rgb(0xde9800),
+        agy: rgb(0x4d699b),
+        ..Theme::default()
+    }
+}
+
 /// The colors in effect. Queue deliberately shares the Agents status accents.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Theme {
@@ -845,6 +1099,58 @@ impl Theme {
             ("amp", &mut self.amp),
             ("agy", &mut self.agy),
         ]
+    }
+}
+
+#[cfg(test)]
+mod groups {
+    use super::*;
+
+    /// Settings shows the dark presets, then the light ones in their dark versions' order
+    /// (P5-176); each group holds only themes of its kind, and every preset is in one.
+    #[test]
+    fn the_light_group_follows_the_dark_ones_order() {
+        let (dark, light) = Preset::groups();
+        assert_eq!(
+            dark,
+            [
+                Preset::Dune,
+                Preset::Tide,
+                Preset::Lagoon,
+                Preset::Catppuccin,
+                Preset::TokyoNight,
+                Preset::RosePine,
+                Preset::Kanagawa,
+            ]
+        );
+        assert_eq!(
+            light,
+            [
+                Preset::Latte,
+                Preset::TokyoNightDay,
+                Preset::RosePineDawn,
+                Preset::KanagawaLotus,
+            ]
+        );
+        let paired: Vec<Preset> = dark
+            .iter()
+            .filter(|p| p.light().is_some())
+            .copied()
+            .collect();
+        for (dark, light) in paired.iter().zip(&light) {
+            assert_eq!(dark.light(), Some(*light));
+        }
+        assert_eq!(dark.len() + light.len(), Preset::ALL.len());
+        for (group, is_light) in [(&dark, false), (&light, true)] {
+            for preset in group {
+                let config = crate::config::Config {
+                    theme: Some(preset.name().into()),
+                    ..crate::config::Config::default()
+                };
+                let theme = crate::theme::Theme::from_config(&config).unwrap();
+                assert_eq!(theme.is_light(), is_light, "{}", preset.name());
+            }
+        }
     }
 }
 

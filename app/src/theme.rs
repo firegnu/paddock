@@ -274,6 +274,91 @@ const KANAGAWA: Terminal = Terminal {
     selection: rgb(0x2d4f67),
 };
 
+/// Tokyo Night, day style (https://github.com/folke/tokyonight.nvim `extras/kitty`, Apache-2.0,
+/// by Folke Lemaitre; after https://github.com/enkia/tokyo-night-vscode-theme, MIT, Copyright (c)
+/// 2018-present Enkia): the terminal colours, cursor and selection as published. Four read under
+/// 3:1 on its light background, so they are darkened just enough, towards black: bright black
+/// #a1a6c5 to #7c8098, bright red #ff4774 to #e8416a, bright blue #358aff to #317feb and bright
+/// magenta #a463ff to #9e5ff5.
+const TOKYO_NIGHT_DAY: Terminal = Terminal {
+    ansi: [
+        rgb(0xb4b5b9),
+        rgb(0xf52a65),
+        rgb(0x587539),
+        rgb(0x8c6c3e),
+        rgb(0x2e7de9),
+        rgb(0x9854f1),
+        rgb(0x007197),
+        rgb(0x6172b0),
+        rgb(0x7c8098),
+        rgb(0xe8416a),
+        rgb(0x5c8524),
+        rgb(0xa27629),
+        rgb(0x317feb),
+        rgb(0x9e5ff5),
+        rgb(0x007ea8),
+        rgb(0x3760bf),
+    ],
+    cursor: rgb(0x3760bf),
+    selection: rgb(0xb7c1e3),
+};
+
+/// Rosé Pine, dawn variant (https://github.com/rose-pine/alacritty, MIT, Copyright (c) Rosé
+/// Pine): the terminal colours, cursor (highlight high) and selection (highlight med) as
+/// published; its bright colours repeat the normal ones. Three read under 3:1 on its light base,
+/// so they are darkened just enough, towards black: gold #ea9d34 to #bf802b and rose #d7827e to
+/// #c77875 (each the normal and the bright one), and bright black (muted, #9893a5) to #908b9c.
+const ROSE_PINE_DAWN: Terminal = Terminal {
+    ansi: [
+        rgb(0xf2e9e1),
+        rgb(0xb4637a),
+        rgb(0x286983),
+        rgb(0xbf802b),
+        rgb(0x56949f),
+        rgb(0x907aa9),
+        rgb(0xc77875),
+        rgb(0x575279),
+        rgb(0x908b9c),
+        rgb(0xb4637a),
+        rgb(0x286983),
+        rgb(0xbf802b),
+        rgb(0x56949f),
+        rgb(0x907aa9),
+        rgb(0xc77875),
+        rgb(0x575279),
+    ],
+    cursor: rgb(0xcecacd),
+    selection: rgb(0xdfdad9),
+};
+
+/// Kanagawa, lotus variant (https://github.com/rebelot/kanagawa.nvim `extras/alacritty`, MIT,
+/// Copyright (c) 2021 Tommaso Laurenzi): the terminal colours and selection as published, the
+/// cursor lotusInk2 as its kitty colours have it. Three read under 3:1 on its light background,
+/// so they are darkened just enough, towards black: bright black #8a8980 to #88877f, bright green
+/// #6e915f to #6e905f and bright blue #6693bf to #608ab4.
+const KANAGAWA_LOTUS: Terminal = Terminal {
+    ansi: [
+        rgb(0x1f1f28),
+        rgb(0xc84053),
+        rgb(0x6f894e),
+        rgb(0x77713f),
+        rgb(0x4d699b),
+        rgb(0xb35b79),
+        rgb(0x597b75),
+        rgb(0x545464),
+        rgb(0x88877f),
+        rgb(0xd7474b),
+        rgb(0x6e905f),
+        rgb(0x836f4a),
+        rgb(0x608ab4),
+        rgb(0x624c83),
+        rgb(0x5e857a),
+        rgb(0x43436c),
+    ],
+    cursor: rgb(0x43436c),
+    selection: rgb(0xc9cbd1),
+};
+
 /// The `[colors]` keys of the terminal colours: the 16 under Saddle's ANSI names, then text,
 /// background, cursor and selection.
 const TERMINAL_KEYS: [&str; 20] = [
@@ -389,8 +474,11 @@ impl Theme {
             Preset::Catppuccin => &CATPPUCCIN,
             Preset::Latte => &LATTE,
             Preset::TokyoNight => &TOKYO_NIGHT,
+            Preset::TokyoNightDay => &TOKYO_NIGHT_DAY,
             Preset::RosePine => &ROSE_PINE,
+            Preset::RosePineDawn => &ROSE_PINE_DAWN,
             Preset::Kanagawa => &KANAGAWA,
+            Preset::KanagawaLotus => &KANAGAWA_LOTUS,
         };
         let mut terminal = palette::Theme {
             ansi: own.ansi,
@@ -854,8 +942,11 @@ mod tests {
             ("catppuccin", Preset::Catppuccin, &CATPPUCCIN),
             ("latte", Preset::Latte, &LATTE),
             ("tokyonight", Preset::TokyoNight, &TOKYO_NIGHT),
+            ("tokyonight-day", Preset::TokyoNightDay, &TOKYO_NIGHT_DAY),
             ("rosepine", Preset::RosePine, &ROSE_PINE),
+            ("rosepine-dawn", Preset::RosePineDawn, &ROSE_PINE_DAWN),
             ("kanagawa", Preset::Kanagawa, &KANAGAWA),
+            ("kanagawa-lotus", Preset::KanagawaLotus, &KANAGAWA_LOTUS),
         ] {
             let theme = theme(&format!("theme = \"{name}\"")).unwrap();
             let saddle = preset.theme();
@@ -934,12 +1025,18 @@ mod tests {
     }
 
     #[test]
-    fn latte_alone_is_light_and_only_there_do_shadows_soften() {
+    fn the_light_presets_alone_are_light_and_only_there_do_shadows_soften() {
+        let lights = [
+            Preset::Latte,
+            Preset::TokyoNightDay,
+            Preset::RosePineDawn,
+            Preset::KanagawaLotus,
+        ];
         for preset in Preset::ALL {
             let theme = theme(&format!("theme = \"{}\"", preset.name())).unwrap();
             assert_eq!(
                 theme.is_light(),
-                preset == Preset::Latte,
+                lights.contains(&preset),
                 "{}",
                 preset.name()
             );
@@ -974,7 +1071,8 @@ mod tests {
             );
             assert!(
                 message.contains(
-                    "expected dune, tide, lagoon, catppuccin, latte, tokyonight, rosepine or kanagawa"
+                    "expected dune, tide, lagoon, catppuccin, latte, tokyonight, tokyonight-day, \
+                     rosepine, rosepine-dawn, kanagawa or kanagawa-lotus"
                 ),
                 "{message}"
             );
