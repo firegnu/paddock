@@ -15,20 +15,28 @@ use anyhow::{Result, anyhow, bail};
 const FRAME: f32 = 0.55;
 
 /// How opaque the two layers under the window lie over the system's sidebar material (P5-96): the
-/// sidebar's colour over its column, the darker frame elsewhere.
+/// sidebar's colour over its column, the darker frame elsewhere; and how opaque the material
+/// itself is over the desktop behind the window (P5-169).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Translucency {
     pub sidebar: f32,
     pub frame: f32,
+    pub material: f32,
 }
 
 impl Translucency {
-    /// As `config` writes them, else the theme's own wash and [`crate::config::FRAME_OPACITY`].
+    /// As `config` writes them, else the theme's own wash, [`crate::config::FRAME_OPACITY`] and
+    /// [`crate::config::MATERIAL_OPACITY`].
     pub fn of(config: &Config, theme: &Theme) -> Self {
         let share = |percent: u8| f32::from(percent) / 100.0;
         Self {
             sidebar: config.sidebar_opacity.map_or(theme.frost().wash, share),
             frame: share(config.frame_opacity.unwrap_or(crate::config::FRAME_OPACITY)),
+            material: share(
+                config
+                    .material_opacity
+                    .unwrap_or(crate::config::MATERIAL_OPACITY),
+            ),
         }
     }
 }
@@ -726,19 +734,23 @@ mod tests {
                 Translucency::of(&config, &theme),
                 Translucency {
                     sidebar: theme.frost().wash,
-                    frame: 0.0
+                    frame: 0.0,
+                    material: 1.0
                 },
                 "{name}"
             );
         }
-        let config =
-            Config::parse("theme = \"tide\"\nsidebar_opacity = 30\nframe_opacity = 100").unwrap();
+        let config = Config::parse(
+            "theme = \"tide\"\nsidebar_opacity = 30\nframe_opacity = 100\nmaterial_opacity = 20",
+        )
+        .unwrap();
         let theme = Theme::from_config(&config).unwrap();
         assert_eq!(
             Translucency::of(&config, &theme),
             Translucency {
                 sidebar: 0.3,
-                frame: 1.0
+                frame: 1.0,
+                material: 0.2
             }
         );
         let config = Config::parse("frame_opacity = 0").unwrap();

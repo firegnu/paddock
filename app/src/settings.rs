@@ -276,6 +276,13 @@ pub fn fields() -> Vec<Field> {
             Kind::Opacity,
             false,
         ),
+        field(
+            "material_opacity",
+            "Material opacity",
+            Page::General,
+            Kind::Opacity,
+            false,
+        ),
         field("theme", "Theme", Page::Appearance, Kind::Theme, false),
     ];
     let mut colors: Vec<Field> = theme::color_keys()
@@ -328,6 +335,10 @@ fn shown(config: &Config, key: &str) -> String {
             .unwrap_or_default(),
         "frame_opacity" => config
             .frame_opacity
+            .map(|p| p.to_string())
+            .unwrap_or_default(),
+        "material_opacity" => config
+            .material_opacity
             .map(|p| p.to_string())
             .unwrap_or_default(),
         _ => String::new(),
@@ -499,7 +510,7 @@ impl Draft {
     }
 
     /// The default as the page shows it; empty for the system's interface font; for an opacity,
-    /// the drafted theme's own or the frame's.
+    /// the drafted theme's own, the frame's or the material's.
     pub fn default_shown(&self, key: &str) -> String {
         if self
             .field(key)
@@ -512,10 +523,10 @@ impl Draft {
                 return String::new();
             };
             let shares = Translucency::of(&Config::default(), &theme);
-            let share = if key == "sidebar_opacity" {
-                shares.sidebar
-            } else {
-                shares.frame
+            let share = match key {
+                "sidebar_opacity" => shares.sidebar,
+                "material_opacity" => shares.material,
+                _ => shares.frame,
             };
             return format!("{}", (share * 100.0).round());
         }
@@ -835,7 +846,7 @@ pub fn range(key: &str) -> Option<(f64, Option<f64>)> {
         // As wide as a drag can make it.
         "sidebar_width" => (10.0, Some(f64::from(crate::sidebar::MAX_WIDTH))),
         "refresh_ms" => (250.0, None),
-        "sidebar_opacity" | "frame_opacity" => (0.0, Some(100.0)),
+        "sidebar_opacity" | "frame_opacity" | "material_opacity" => (0.0, Some(100.0)),
         _ => return None,
     })
 }
@@ -1260,7 +1271,7 @@ mod tests {
                 .collect()
         };
         assert_eq!(on(Page::Agents), ["refresh_ms", "corral"]);
-        assert_eq!(on(Page::General).len(), 17);
+        assert_eq!(on(Page::General).len(), 18);
         assert!(!on(Page::General).contains(&"refresh_ms"));
         assert_eq!(
             Page::ALL.map(Page::label),
@@ -1408,6 +1419,7 @@ mod tests {
         for (key, label) in [
             ("sidebar_opacity", "Sidebar opacity"),
             ("frame_opacity", "Frame opacity"),
+            ("material_opacity", "Material opacity"),
         ] {
             assert_eq!(
                 (field(key).kind, field(key).page, field(key).label.as_str()),
@@ -1426,12 +1438,20 @@ mod tests {
         assert_eq!(draft.default_shown("sidebar_opacity"), "45");
         assert_eq!(draft.default_shown("frame_opacity"), "0");
         assert!(!draft.modified("sidebar_opacity") && !draft.modified("frame_opacity"));
+        // The material whole, as before it could be thinned (P5-169).
+        assert_eq!(draft.value("material_opacity"), "100");
+        assert_eq!(draft.default_shown("material_opacity"), "100");
+        assert!(!draft.modified("material_opacity"));
 
-        let file = format!("sidebar_opacity = 30   # mine\nframe_opacity = 80\n{FILE}");
+        let file = format!(
+            "sidebar_opacity = 30   # mine\nframe_opacity = 80\nmaterial_opacity = 20\n{FILE}"
+        );
         let draft = Draft::new(Some(file)).unwrap();
         assert_eq!(draft.value("sidebar_opacity"), "30");
         assert_eq!(draft.value("frame_opacity"), "80");
+        assert_eq!(draft.value("material_opacity"), "20");
         assert!(draft.modified("sidebar_opacity") && draft.modified("frame_opacity"));
+        assert!(draft.modified("material_opacity"));
     }
 
     #[test]
@@ -1439,14 +1459,17 @@ mod tests {
         let mut draft = Draft::new(Some(FILE.into())).unwrap();
         draft.set("sidebar_opacity", "30");
         draft.set("frame_opacity", "100");
+        draft.set("material_opacity", "0");
         let text = committed(&mut draft, Some(FILE)).unwrap();
         assert!(text.contains("sidebar_opacity = 30\n"), "{text}");
         assert!(text.contains("frame_opacity = 100\n"), "{text}");
+        assert!(text.contains("material_opacity = 0\n"), "{text}");
         let config = Config::parse(&text).unwrap();
         assert_eq!(
             (config.sidebar_opacity, config.frame_opacity),
             (Some(30), Some(100))
         );
+        assert_eq!(draft.value("material_opacity"), "0");
         // Written equal to the default, it is still written: the user's value, kept over a theme.
         draft.set("sidebar_opacity", "45");
         let text = committed(&mut draft, Some(&text)).unwrap();
@@ -1455,8 +1478,10 @@ mod tests {
         // Default takes the key out: the theme's own again, and the frame's default.
         draft.reset("sidebar_opacity");
         draft.reset("frame_opacity");
+        draft.reset("material_opacity");
         assert_eq!(draft.value("sidebar_opacity"), "45");
         assert_eq!(draft.value("frame_opacity"), "0");
+        assert_eq!(draft.value("material_opacity"), "100");
         let text = committed(&mut draft, Some(&text)).unwrap();
         assert!(!text.contains("opacity"), "{text}");
         assert!(
@@ -1464,6 +1489,7 @@ mod tests {
             "{text}"
         );
         assert!(!draft.modified("sidebar_opacity") && !draft.modified("frame_opacity"));
+        assert!(!draft.modified("material_opacity"));
     }
 
     #[test]
@@ -1509,17 +1535,27 @@ mod tests {
                 "4.5",
                 "Frame opacity must be a whole number",
             ),
+            (
+                "material_opacity",
+                "101",
+                "Material opacity must be from 0 to 100",
+            ),
         ] {
             draft.set(key, value);
             let problem = draft.problem(key).unwrap_or_default();
             assert!(problem.contains(says), "{key} {value}: {problem}");
         }
-        for (key, value) in [("sidebar_opacity", "0"), ("frame_opacity", "100")] {
+        for (key, value) in [
+            ("sidebar_opacity", "0"),
+            ("frame_opacity", "100"),
+            ("material_opacity", "0"),
+        ] {
             draft.set(key, value);
             assert_eq!(draft.problem(key), None, "{key} {value}");
         }
         assert_eq!(range("sidebar_opacity"), Some((0.0, Some(100.0))));
         assert_eq!(range("frame_opacity"), Some((0.0, Some(100.0))));
+        assert_eq!(range("material_opacity"), Some((0.0, Some(100.0))));
     }
 
     #[test]

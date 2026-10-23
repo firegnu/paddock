@@ -3,7 +3,8 @@
 //! with the system's own frosting, brightening and saturation. It sits under GPUI's view, the
 //! window's size, so it shows wherever GPUI leaves the window clear: the sidebar's column and the
 //! frame around the panes' panels, which GPUI draws opaque over it; GPUI's view covers it whole,
-//! so it never takes the mouse or the keyboard.
+//! so it never takes the mouse or the keyboard. It can be thinned, down to nothing, letting the
+//! desktop behind show clearer (P5-169).
 use objc2::{MainThreadMarker, MainThreadOnly, rc::Retained};
 use objc2_app_kit::{
     NSAppearance, NSAppearanceCustomization, NSAppearanceNameAqua, NSAppearanceNameDarkAqua,
@@ -22,6 +23,8 @@ pub struct Frost {
     target: bool,
     /// The appearance it was last given: dark or light.
     dark: Option<bool>,
+    /// How opaque it was last made, from 0 to 1.
+    opacity: f32,
 }
 
 impl Frost {
@@ -55,11 +58,20 @@ impl Frost {
             NSWindowOrderingMode::Below,
             Some(gpui_view),
         );
+        // Left as it starts, a see-through window lets a click through to the window behind
+        // wherever nothing is drawn; with the material thinned to nothing, that is the seams, the
+        // title bar's empty stretches and a frame left clear. Set to false, AppKit gives the
+        // window every click in its frame instead (P5-169).
+        if let Some(window) = gpui_view.window() {
+            window.setIgnoresMouseEvents(false);
+        }
         Some(Self {
             view,
             shown: false,
             target: false,
             dark: None,
+            // A new view's own.
+            opacity: 1.0,
         })
     }
 
@@ -101,6 +113,17 @@ impl Frost {
         self.view
             .setAppearance(NSAppearance::appearanceNamed(name).as_deref());
         self.dark = Some(dark);
+    }
+
+    /// How opaque the material lies over the desktop behind the window, from 0 to 1 (P5-169):
+    /// thinner, its frosting, brightening and tint fade together and the desktop shows clearer;
+    /// at 0 it is gone, and the window is clear glass wherever GPUI draws nothing.
+    pub fn set_opacity(&mut self, opacity: f32) {
+        if self.opacity == opacity {
+            return;
+        }
+        self.view.setAlphaValue(f64::from(opacity));
+        self.opacity = opacity;
     }
 }
 
