@@ -1350,8 +1350,8 @@ pub struct PaddockWindow {
     /// The system's sidebar material under the left column; none when it could not be put there,
     /// and the window stays opaque.
     frost: Option<Frost>,
-    /// How opaque the ground lies over the material: as the config sets it, or as a Settings slider
-    /// shows it while dragged (P5-96).
+    /// How opaque the ground lies over the material, and the material itself: as the config sets
+    /// it, or as a Settings slider shows it while dragged (P5-96, P5-169).
     translucency: Translucency,
     /// What `paddock ctl` asked for and is still under way.
     ctl: ctl::Ctl,
@@ -4542,11 +4542,12 @@ impl PaddockWindow {
 
     /// Shows the material under the window GPUI is drawing now, or takes it away; taking it away
     /// waits for the next frame, once this one is drawn (see [`Frost::fit`]). Its look follows the
-    /// theme: dark under a dark sidebar.
+    /// theme: dark under a dark sidebar; it is as opaque as [`Translucency::material`].
     fn fit_frost(&mut self, shown: bool, window: &mut Window, cx: &mut Context<Self>) {
         let dark = hsla(self.theme.bg(|t| t.agents_bg), 1.0).l < 0.5;
         let Some(frost) = &mut self.frost else { return };
         frost.set_dark(dark);
+        frost.set_opacity(self.translucency.material);
         if frost.fit(shown) {
             cx.on_next_frame(window, |this, _, _| {
                 if let Some(frost) = &mut this.frost {

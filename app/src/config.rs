@@ -11,6 +11,10 @@ use std::{
 /// config leaves it out: not at all, the material showing through whole (P5-95c; P5-166, was 65).
 pub const FRAME_OPACITY: u8 = 0;
 
+/// How opaque, in percent, the system's sidebar material itself is when the config leaves it out:
+/// whole, as before it could be thinned (P5-169).
+pub const MATERIAL_OPACITY: u8 = 100;
+
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Config {
@@ -63,6 +67,9 @@ pub struct Config {
     /// How opaque, in percent, the darker frame lies over the material beside the sidebar; `None`
     /// (not written) is [`FRAME_OPACITY`].
     pub frame_opacity: Option<u8>,
+    /// How opaque, in percent, the system's sidebar material under the whole window is: thinner,
+    /// the desktop behind shows clearer; `None` (not written) is [`MATERIAL_OPACITY`].
+    pub material_opacity: Option<u8>,
     /// `[[machines]]` as written; read into `machines` by [`Config::parse`].
     #[serde(rename = "machines")]
     pub machines_written: Vec<toml::Value>,
@@ -214,6 +221,7 @@ impl Default for Config {
             agent_models: Default::default(),
             sidebar_opacity: None,
             frame_opacity: None,
+            material_opacity: None,
             machines_written: Vec::new(),
             machines: Vec::new(),
             machines_problem: None,
@@ -241,6 +249,7 @@ impl Config {
         for (key, value) in [
             ("sidebar_opacity", config.sidebar_opacity),
             ("frame_opacity", config.frame_opacity),
+            ("material_opacity", config.material_opacity),
         ] {
             ensure!(
                 value.is_none_or(|percent| percent <= 100),
@@ -452,6 +461,7 @@ font_size = 15
     fn opacities_are_whole_percentages_left_out_by_default() {
         let config = Config::default();
         assert_eq!((config.sidebar_opacity, config.frame_opacity), (None, None));
+        assert_eq!(config.material_opacity, None);
         let config = Config::parse("sidebar_opacity = 30\nframe_opacity = 100").unwrap();
         assert_eq!(
             (config.sidebar_opacity, config.frame_opacity),
@@ -461,7 +471,13 @@ font_size = 15
             Config::parse("frame_opacity = 0").unwrap().frame_opacity,
             Some(0)
         );
-        for key in ["sidebar_opacity", "frame_opacity"] {
+        assert_eq!(
+            Config::parse("material_opacity = 0")
+                .unwrap()
+                .material_opacity,
+            Some(0)
+        );
+        for key in ["sidebar_opacity", "frame_opacity", "material_opacity"] {
             for value in ["101", "300", "-1", "45.5", "\"45\""] {
                 let error = Config::parse(&format!("{key} = {value}")).unwrap_err();
                 assert!(

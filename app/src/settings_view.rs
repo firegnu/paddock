@@ -57,8 +57,8 @@ pub enum SettingsEvent {
         config: Box<Config>,
         restart: Vec<String>,
     },
-    /// A slider is being dragged: how the main window's ground lies over the material meanwhile.
-    /// Written only when it is let go, as `Saved`.
+    /// A slider is being dragged: how the main window's ground lies over the material, and how
+    /// opaque the material is, meanwhile. Written only when it is let go, as `Saved`.
     Preview(Translucency),
 }
 
@@ -221,7 +221,10 @@ fn percent_at(x: f32, left: f32, width: f32) -> u8 {
 /// General's settings by heading, in display order.
 const GENERAL: [(&str, &[&str]); 4] = [
     ("Interface", &["ui_font", "ui_font_size", "sidebar_width"]),
-    ("Translucency", &["sidebar_opacity", "frame_opacity"]),
+    (
+        "Translucency",
+        &["sidebar_opacity", "frame_opacity", "material_opacity"],
+    ),
     (
         "Terminal",
         &[
@@ -252,6 +255,7 @@ fn row_label(field: &Field) -> &str {
         "ui_font_size" | "font_size" => "Size",
         "sidebar_opacity" => "Sidebar",
         "frame_opacity" => "Frame",
+        "material_opacity" => "Material",
         _ => &field.label,
     }
 }
@@ -799,12 +803,14 @@ impl SettingsView {
         }
     }
 
-    /// How the main window's ground lies over the material, as the sliders show it.
+    /// How the main window's ground lies over the material, and how opaque the material is, as
+    /// the sliders show it.
     fn translucency(&self) -> Translucency {
         let share = |key| f32::from(self.percent(key)) / 100.0;
         Translucency {
             sidebar: share("sidebar_opacity"),
             frame: share("frame_opacity"),
+            material: share("material_opacity"),
         }
     }
 
