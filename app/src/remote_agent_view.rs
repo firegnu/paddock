@@ -1386,7 +1386,7 @@ impl Render for RemoteAgentView {
             .border_color(self.fg(|t| t.agents_rule))
             .bg(popover::ground(&self.theme))
             .shadow(vec![BoxShadow {
-                color: gpui::black().opacity(0.5),
+                color: gpui::black().opacity(self.theme.shade(0.5)),
                 offset: point(px(0.0), ui.px(20.0)),
                 blur_radius: ui.px(50.0),
                 spread_radius: px(0.0),
@@ -1438,7 +1438,7 @@ impl Render for RemoteAgentView {
             .absolute()
             .inset_0()
             .occlude()
-            .bg(gpui::black().opacity(0.45))
+            .bg(gpui::black().opacity(self.theme.shade(0.45)))
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|_, _: &MouseDownEvent, _, cx| cx.emit(RemoteAgentEvent::Close)),

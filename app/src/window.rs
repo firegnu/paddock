@@ -596,6 +596,11 @@ const CAPSULE_NEUTRAL: [f32; 3] = [0.10, 0.15, 0.17];
 const CAPSULE_TINTED: [f32; 3] = [0.18, 0.25, 0.30];
 const CAPSULE_TEXT_TINT: f32 = 0.35;
 pub(crate) const NAME_LIFT: f32 = 0.5;
+/// The same on a light theme (P5-175; see [`capsule_steps`] and [`name_lift`]): the least that
+/// still stands a capsule off the bar and keeps its name readable on each step.
+const CAPSULE_NEUTRAL_LIGHT: [f32; 3] = [0.13, 0.17, 0.20];
+const CAPSULE_TINTED_LIGHT: [f32; 3] = [0.15, 0.17, 0.20];
+const NAME_LIFT_LIGHT: f32 = 0.85;
 /// A paused agent's tab: how strongly it shows, and its pause mark's scale.
 const PAUSED_TAB: f32 = 0.55;
 const PAUSE_MARK: f32 = 0.7;
@@ -1181,12 +1186,10 @@ pub(crate) struct Grounds {
 }
 
 /// [`Grounds`] over the title `bar`: steps towards its `text` for a neutral capsule, washes of its
-/// `tint` for one with a status colour.
-pub(crate) fn capsule_grounds(bar: Hsla, text: Hsla, tint: Option<Hsla>) -> Grounds {
-    let (color, [rest, lit, chosen]) = match tint {
-        Some(tint) => (tint, CAPSULE_TINTED),
-        None => (text, CAPSULE_NEUTRAL),
-    };
+/// `tint` for one with a status colour; on a `light` theme the steps of [`capsule_steps`] there.
+pub(crate) fn capsule_grounds(bar: Hsla, text: Hsla, tint: Option<Hsla>, light: bool) -> Grounds {
+    let color = tint.unwrap_or(text);
+    let [rest, lit, chosen] = capsule_steps(tint.is_some(), light);
     Grounds {
         rest: bar.blend(color.opacity(rest)),
         lit: bar.blend(color.opacity(lit)),
@@ -1197,16 +1200,32 @@ pub(crate) fn capsule_grounds(bar: Hsla, text: Hsla, tint: Option<Hsla>) -> Grou
 /// [`Grounds`] seen through over the system's sidebar material (P5-97): the same steps as
 /// [`capsule_grounds`], laid over what is under them rather than over the bar's colour, as the
 /// sidebar's card faces there.
-pub(crate) fn capsule_faces(text: Hsla, tint: Option<Hsla>) -> Grounds {
-    let (color, [rest, lit, chosen]) = match tint {
-        Some(tint) => (tint, CAPSULE_TINTED),
-        None => (text, CAPSULE_NEUTRAL),
-    };
+pub(crate) fn capsule_faces(text: Hsla, tint: Option<Hsla>, light: bool) -> Grounds {
+    let color = tint.unwrap_or(text);
+    let [rest, lit, chosen] = capsule_steps(tint.is_some(), light);
     Grounds {
         rest: color.opacity(rest),
         lit: color.opacity(lit),
         chosen: color.opacity(chosen),
     }
+}
+
+/// A capsule's three steps, `tinted` or neutral: on a `light` theme (P5-175) the dark text's steps
+/// a little stronger, to stand off the light bar as plainly, and the status colours' a little
+/// weaker, so the dark name still reads on them.
+fn capsule_steps(tinted: bool, light: bool) -> [f32; 3] {
+    match (tinted, light) {
+        (true, false) => CAPSULE_TINTED,
+        (false, false) => CAPSULE_NEUTRAL,
+        (true, true) => CAPSULE_TINTED_LIGHT,
+        (false, true) => CAPSULE_NEUTRAL_LIGHT,
+    }
+}
+
+/// How far an inactive capsule's name is lifted from the muted colour towards the text:
+/// [`NAME_LIFT`], or further on a `light` theme, where the muted colour stands nearer the ground.
+pub(crate) fn name_lift(light: bool) -> f32 {
+    if light { NAME_LIFT_LIGHT } else { NAME_LIFT }
 }
 
 /// A capsule's name, `base` faintly in its `tint`.
@@ -1556,6 +1575,7 @@ impl PaddockWindow {
             None => (Workspace::new(shown).0, None),
         };
         let motion = moving::Motion::new(collapsed, right.open);
+        let light = theme.is_light();
         let mut this = Self {
             chosen: theme.clone(),
             theme,
@@ -1573,7 +1593,7 @@ impl PaddockWindow {
             tabs: ScrollHandle::new(),
             pet: config
                 .mascot_enabled
-                .then(|| cx.new(|cx| PetView::new(config.mascot, cx))),
+                .then(|| cx.new(|cx| PetView::new(config.mascot, light, cx))),
             menu_state: None,
             pet_setting: (config.mascot_enabled, config.mascot),
             open_files_with: config.open_files_with.clone(),
@@ -3534,6 +3554,10 @@ impl PaddockWindow {
             let theme = theme.clone();
             view.update(cx, |view, cx| view.set_theme(theme, cx));
         }
+        if let Some(pet) = &self.pet {
+            let light = theme.is_light();
+            pet.update(cx, |pet, _| pet.set_light(light));
+        }
         if let Some(view) = &self.new_task {
             view.update(cx, |view, cx| view.set_theme(theme, cx));
         }
@@ -3616,7 +3640,8 @@ impl PaddockWindow {
         let pet = (config.mascot_enabled, config.mascot);
         if pet != self.pet_setting {
             self.pet_setting = pet;
-            self.pet = pet.0.then(|| cx.new(|cx| PetView::new(pet.1, cx)));
+            let light = self.theme.is_light();
+            self.pet = pet.0.then(|| cx.new(|cx| PetView::new(pet.1, light, cx)));
         }
         // The New Agent panel follows too, open or closed.
         if let Some(view) = &self.new_agent {
@@ -4829,9 +4854,10 @@ impl PaddockWindow {
         let tint = tint.map(|pick| self.fg(pick));
         let bar = hsla(self.theme.bg(|t| t.agents_bg), 1.0);
         let text = self.fg(|t| t.agents_text);
-        let quiet = self.fg(|t| t.muted).blend(text.opacity(NAME_LIFT));
+        let light = self.theme.is_light();
+        let quiet = self.fg(|t| t.muted).blend(text.opacity(name_lift(light)));
         (
-            capsule_grounds(bar, text, tint),
+            capsule_grounds(bar, text, tint, light),
             capsule_text(quiet, tint),
             capsule_text(text, tint),
         )
@@ -4841,7 +4867,11 @@ impl PaddockWindow {
     /// colour `tint`: over the system's material seen through (see [`capsule_faces`]), else whole.
     fn faces(&self, whole: Grounds, tint: Option<Pick>) -> Grounds {
         if self.frosted() {
-            capsule_faces(self.fg(|t| t.agents_text), tint.map(|pick| self.fg(pick)))
+            capsule_faces(
+                self.fg(|t| t.agents_text),
+                tint.map(|pick| self.fg(pick)),
+                self.theme.is_light(),
+            )
         } else {
             whole
         }
@@ -4985,6 +5015,7 @@ impl PaddockWindow {
                 };
                 look = Some(join::TabLook {
                     light,
+                    light_theme: self.theme.is_light(),
                     tint: tint.map(|pick| self.fg(pick)),
                     ground: chosen,
                     ring,
@@ -6982,7 +7013,7 @@ impl PaddockWindow {
             .border_color(self.fg(|t| t.agents_rule))
             .bg(hsla(self.theme.bg(|t| t.agents_bg), 1.0))
             .shadow(vec![BoxShadow {
-                color: gpui::black().opacity(0.5),
+                color: gpui::black().opacity(self.theme.shade(0.5)),
                 offset: point(px(0.0), px(24.0)),
                 blur_radius: px(60.0),
                 spread_radius: px(0.0),
@@ -7005,7 +7036,7 @@ impl PaddockWindow {
             // Rising to its place as it comes in (P5-148a).
             .pt(px(top + rise))
             .px(ui.px(16.0))
-            .bg(gpui::black().opacity(0.35))
+            .bg(gpui::black().opacity(self.theme.shade(0.35)))
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|this, _, window, cx| this.close_popup(window, cx)),
@@ -8288,17 +8319,35 @@ mod tests {
         let text = gpui::hsla(0.6, 0.2, 0.9, 1.0);
         let tint = gpui::hsla(0.1, 0.7, 0.6, 1.0);
         // Neutral: the text colour, as faint as a neutral capsule steps towards it.
-        let faces = capsule_faces(text, None);
-        assert_eq!(faces.rest, text.opacity(CAPSULE_NEUTRAL[0]));
-        assert_eq!(faces.lit, text.opacity(CAPSULE_NEUTRAL[1]));
-        assert_eq!(faces.chosen, text.opacity(CAPSULE_NEUTRAL[2]));
-        // Tinted: the status colour, as strongly as it washes a tinted one.
-        let faces = capsule_faces(text, Some(tint));
-        assert_eq!(faces.rest, tint.opacity(CAPSULE_TINTED[0]));
-        assert_eq!(faces.lit, tint.opacity(CAPSULE_TINTED[1]));
-        assert_eq!(faces.chosen, tint.opacity(CAPSULE_TINTED[2]));
-        // Each a step brighter than the last: the active one stands out of the others.
-        assert!(faces.rest.a < faces.lit.a && faces.lit.a < faces.chosen.a);
+        for (light, neutral, tinted) in [
+            (false, CAPSULE_NEUTRAL, CAPSULE_TINTED),
+            (true, CAPSULE_NEUTRAL_LIGHT, CAPSULE_TINTED_LIGHT),
+        ] {
+            let faces = capsule_faces(text, None, light);
+            assert_eq!(faces.rest, text.opacity(neutral[0]));
+            assert_eq!(faces.lit, text.opacity(neutral[1]));
+            assert_eq!(faces.chosen, text.opacity(neutral[2]));
+            assert!(faces.rest.a < faces.lit.a && faces.lit.a < faces.chosen.a);
+            // Tinted: the status colour, as strongly as it washes a tinted one.
+            let faces = capsule_faces(text, Some(tint), light);
+            assert_eq!(faces.rest, tint.opacity(tinted[0]));
+            assert_eq!(faces.lit, tint.opacity(tinted[1]));
+            assert_eq!(faces.chosen, tint.opacity(tinted[2]));
+            // Each a step stronger than the last: the active one stands out of the others.
+            assert!(faces.rest.a < faces.lit.a && faces.lit.a < faces.chosen.a);
+        }
+    }
+
+    /// A dark theme's capsules keep the steps and the name's lift they had; a light one's
+    /// (P5-175) are their own.
+    #[test]
+    fn capsules_keep_their_steps_on_a_dark_theme_and_take_their_own_on_a_light_one() {
+        assert_eq!(capsule_steps(false, false), CAPSULE_NEUTRAL);
+        assert_eq!(capsule_steps(true, false), CAPSULE_TINTED);
+        assert_eq!(name_lift(false), NAME_LIFT);
+        assert_eq!(capsule_steps(false, true), CAPSULE_NEUTRAL_LIGHT);
+        assert_eq!(capsule_steps(true, true), CAPSULE_TINTED_LIGHT);
+        assert_eq!(name_lift(true), NAME_LIFT_LIGHT);
     }
 
     #[test]
@@ -8328,6 +8377,16 @@ mod tests {
             let bar = hsla(theme.bg(|t| t.agents_bg), 1.0);
             let text = fg(|t| t.agents_text);
             let muted = fg(|t| t.muted);
+            // Each step up is brighter on a dark theme, darker on a light one (P5-175).
+            let light = theme.is_light();
+            let further = |a: Hsla, b: Hsla| {
+                if light {
+                    luminance(a) < luminance(b)
+                } else {
+                    luminance(a) > luminance(b)
+                }
+            };
+            let quiet = muted.blend(text.opacity(name_lift(light)));
             for tone in [
                 TabTone::Neutral,
                 TabTone::Working,
@@ -8336,20 +8395,14 @@ mod tests {
                 TabTone::Error,
             ] {
                 let tint = tone.color().map(fg);
-                let grounds = capsule_grounds(bar, text, tint);
-                // A capsule at rest is plainly one, and each step up is brighter.
+                let grounds = capsule_grounds(bar, text, tint, light);
+                // A capsule at rest is plainly one, and each step up is further from the bar.
                 let rest = contrast(grounds.rest, bar);
                 assert!(rest >= 1.2, "{name} {tone:?}: rest {rest}");
-                assert!(
-                    luminance(grounds.lit) > luminance(grounds.rest),
-                    "{name} {tone:?}"
-                );
-                assert!(
-                    luminance(grounds.chosen) > luminance(grounds.rest),
-                    "{name} {tone:?}"
-                );
+                assert!(further(grounds.lit, grounds.rest), "{name} {tone:?}");
+                assert!(further(grounds.chosen, grounds.rest), "{name} {tone:?}");
                 // Its name reads on every ground it takes.
-                let quiet = capsule_text(muted.blend(text.opacity(NAME_LIFT)), tint);
+                let quiet = capsule_text(quiet, tint);
                 let loud = capsule_text(text, tint);
                 for (text, ground) in [
                     (quiet, grounds.rest),
@@ -8363,16 +8416,11 @@ mod tests {
             // The right sidebar's tabs are the neutral capsule over its card, the terminal's
             // ground (P5-82): plainly capsules there too, their labels and icons reading.
             let card = hsla(theme.terminal().background, 1.0);
-            let grounds = capsule_grounds(card, text, None);
+            let grounds = capsule_grounds(card, text, None, light);
             let rest = contrast(grounds.rest, card);
             assert!(rest >= 1.2, "{name} right tabs: rest {rest}");
             for (what, color, ground, least) in [
-                (
-                    "label",
-                    muted.blend(text.opacity(NAME_LIFT)),
-                    grounds.rest,
-                    4.5,
-                ),
+                ("label", quiet, grounds.rest, 4.5),
                 ("selected label", text, grounds.chosen, 4.5),
                 ("icon", fg(|t| t.agents_dim), grounds.rest, 3.0),
                 (

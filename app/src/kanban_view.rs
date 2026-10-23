@@ -5279,7 +5279,7 @@ impl Render for TaskDialog {
             .border_color(rule)
             .bg(popover::ground(&theme))
             .shadow(vec![BoxShadow {
-                color: gpui::black().opacity(0.55),
+                color: gpui::black().opacity(theme.shade(0.55)),
                 offset: point(px(0.0), ui.px(24.0)),
                 blur_radius: ui.px(60.0),
                 spread_radius: px(0.0),
@@ -5302,7 +5302,7 @@ impl Render for TaskDialog {
             .absolute()
             .inset_0()
             .occlude()
-            .bg(gpui::black().opacity(0.45))
+            .bg(gpui::black().opacity(theme.shade(0.45)))
             // Tab moves between the fields as it moves in the palette's list.
             .key_context(menu::PALETTE)
             .track_focus(&self.focus)

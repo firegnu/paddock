@@ -97,17 +97,19 @@ pub enum Preset {
     Tide,
     Lagoon,
     Catppuccin,
+    Latte,
     TokyoNight,
     RosePine,
     Kanagawa,
 }
 
 impl Preset {
-    pub const ALL: [Preset; 7] = [
+    pub const ALL: [Preset; 8] = [
         Preset::Dune,
         Preset::Tide,
         Preset::Lagoon,
         Preset::Catppuccin,
+        Preset::Latte,
         Preset::TokyoNight,
         Preset::RosePine,
         Preset::Kanagawa,
@@ -119,6 +121,7 @@ impl Preset {
             Preset::Tide => "tide",
             Preset::Lagoon => "lagoon",
             Preset::Catppuccin => "catppuccin",
+            Preset::Latte => "latte",
             Preset::TokyoNight => "tokyonight",
             Preset::RosePine => "rosepine",
             Preset::Kanagawa => "kanagawa",
@@ -131,6 +134,7 @@ impl Preset {
             Preset::Tide => "Tide",
             Preset::Lagoon => "Lagoon",
             Preset::Catppuccin => "Catppuccin Mocha",
+            Preset::Latte => "Catppuccin Latte",
             Preset::TokyoNight => "Tokyo Night",
             Preset::RosePine => "Rosé Pine",
             Preset::Kanagawa => "Kanagawa",
@@ -196,6 +200,17 @@ impl Preset {
                 dim: 0.62,
                 dimmer: 0.48,
             },
+            // The light one lies over the material's light look (P5-175), washed as far; its grounds
+            // step darker, in its dark text colour. Its cards are whole faces there, the selected
+            // one the darkest (#d7cdef), and its quiet text steps towards the text until it reads
+            // at about 4.6:1 and 3.6:1 on that.
+            Preset::Latte => Frost {
+                wash: 0.45,
+                lit: 0.10,
+                waiting: 0.14,
+                dim: 0.64,
+                dimmer: 0.53,
+            },
             Preset::TokyoNight => Frost {
                 wash: 0.45,
                 lit: 0.12,
@@ -226,6 +241,7 @@ impl Preset {
             Preset::Tide => tide(),
             Preset::Lagoon => lagoon(),
             Preset::Catppuccin => catppuccin(),
+            Preset::Latte => latte(),
             Preset::TokyoNight => tokyo_night(),
             Preset::RosePine => rose_pine(),
             Preset::Kanagawa => kanagawa(),
@@ -388,6 +404,67 @@ fn catppuccin() -> Theme {
         omp: rgb(0xcba6f7),
         amp: rgb(0xf9e2af),
         agy: rgb(0x89b4fa),
+        ..Theme::default()
+    }
+}
+
+/// Catppuccin Latte (https://github.com/catppuccin/catppuccin, MIT, Copyright (c) 2021
+/// Catppuccin), paddock's one light preset (P5-175), by Mocha's roles: base for the terminal,
+/// mantle for the sidebar, surface0–2 for the selected ground, rules and edges, overlay0–2 for the
+/// quiet text, subtext1 for branches, mauve for the accent. Status hues: blue working, green idle,
+/// yellow waiting, peach stalled, red error, lavender starting. Latte's quiet text and most of its
+/// hues read under 4.5:1 (3:1 for `agents_dimmer`) on its light grounds, so those that must are
+/// darkened just enough, towards black: muted overlay2 #7c7f93 to #6b6d7f on base; on mantle,
+/// overlay1 #8c8fa1 to #666876 and overlay0 #9ca0b0 to #828593 for the quiet text, green
+/// #40a02b to #307820, red #d20f39 to #d00f39, blue #1e66f5 to #1c5fe5, yellow #df8e1d to
+/// #935d13, teal #179299 to #12747a, peach #fe640b to #b34708 and lavender #7287fd to #5362b8.
+/// The keys nothing reads as text keep Latte's own hues.
+fn latte() -> Theme {
+    let rgb = |v: u32| Color::Rgb((v >> 16) as u8, (v >> 8) as u8, v as u8);
+    Theme {
+        bg: rgb(0xeff1f5),
+        text: rgb(0x4c4f69),
+        selected: rgb(0xbcc0cc),
+        agent_selected: rgb(0xccd0da),
+        agent_working: rgb(0x1e66f5),
+        agent_idle: rgb(0x40a02b),
+        agent_blocked: rgb(0xdf8e1d),
+        agent_stalled: rgb(0xb34708),
+        agent_error: rgb(0xd20f39),
+        agent_starting: rgb(0x5362b8),
+        border: rgb(0xbcc0cc),
+        bright: rgb(0x4c4f69),
+        muted: rgb(0x6b6d7f),
+        dim: rgb(0xacb0be),
+        focus: rgb(0x8839ef),
+        connected: rgb(0x179299),
+        working: rgb(0x1e66f5),
+        danger: rgb(0xd20f39),
+        unread: rgb(0xea76cb),
+        input_text: rgb(0xdce0e8),
+        reply_code: rgb(0xdf8e1d),
+        reply_heading: rgb(0x04a5e5),
+        agents_bg: rgb(0xe6e9ef),
+        agents_border: rgb(0xacb0be),
+        agents_rule: rgb(0xccd0da),
+        agents_faint: rgb(0xbcc0cc),
+        agents_text: rgb(0x4c4f69),
+        agents_branch: rgb(0x5c5f77),
+        agents_dim: rgb(0x666876),
+        agents_dimmer: rgb(0x828593),
+        agents_accent: rgb(0x8839ef),
+        agents_green: rgb(0x307820),
+        agents_red: rgb(0xd00f39),
+        agents_blue: rgb(0x1c5fe5),
+        agents_yellow: rgb(0x935d13),
+        agents_purple: rgb(0x7287fd),
+        agents_sandbox: rgb(0x12747a),
+        claude: rgb(0xfe640b),
+        codex: rgb(0x179299),
+        pi: rgb(0x4c4f69),
+        omp: rgb(0x8839ef),
+        amp: rgb(0xdf8e1d),
+        agy: rgb(0x1e66f5),
         ..Theme::default()
     }
 }

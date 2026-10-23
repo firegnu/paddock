@@ -56,6 +56,19 @@ fn empty_task_hint(tool: Tool) -> Option<&'static str> {
     (!tool.needs_prompt()).then_some("empty task starts it idle")
 }
 
+/// The keys' line's colours, its keys and its words. It lies on the dimmed window under the
+/// panel's shadow: on a dark theme in the quiet text colours; on a light one (P5-175), where the
+/// dimming takes the light out of its ground, in the text colour.
+fn hint_colors(theme: &Theme) -> (Hsla, Hsla) {
+    let fg = |pick: Pick| hsla(theme.fg(pick), 1.0);
+    if theme.is_light() {
+        let text = fg(|t| t.agents_text);
+        (text, text)
+    } else {
+        (fg(|t| t.agents_dim), fg(|t| t.agents_dimmer))
+    }
+}
+
 const PAD: f32 = 14.0;
 const PRESET: f32 = 30.0;
 const PRESET_GAP: f32 = 4.0;
@@ -2719,7 +2732,7 @@ impl NewAgentView {
                     .px(ui.px(9.0))
                     .py(ui.px(6.0))
                     .rounded(ui.px(8.0))
-                    .bg(gpui::black().opacity(0.22))
+                    .bg(gpui::black().opacity(self.theme.shade(0.22)))
                     .border_1()
                     .border_color(if problem == Some("command") {
                         self.fg(|t| t.agents_red)
@@ -2904,7 +2917,6 @@ impl Render for NewAgentView {
         let tallest = (room_y - top - margin - ui.scale(HINTS)).max(ui.scale(120.0));
         let text = self.fg(|t| t.agents_text);
         let dim = self.fg(|t| t.agents_dim);
-        let dimmer = self.fg(|t| t.agents_dimmer);
 
         let name_width = if self.renaming {
             ui.scale(RENAMING)
@@ -3042,7 +3054,7 @@ impl Render for NewAgentView {
             .border_color(self.fg(|t| t.agents_rule))
             .bg(popover::ground(&self.theme))
             .shadow(vec![BoxShadow {
-                color: gpui::black().opacity(0.55),
+                color: gpui::black().opacity(self.theme.shade(0.55)),
                 offset: point(px(0.0), ui.px(30.0)),
                 blur_radius: ui.px(80.0),
                 spread_radius: px(0.0),
@@ -3068,6 +3080,7 @@ impl Render for NewAgentView {
                 panel.child(self.command_block(&ui, window, cx))
             });
 
+        let (hint_keys, hint_words) = hint_colors(&self.theme);
         let key = |keys: &'static str, what: &'static str| {
             div()
                 .flex()
@@ -3075,7 +3088,7 @@ impl Render for NewAgentView {
                 .child(
                     div()
                         .font_family(self.mono.clone())
-                        .text_color(dim)
+                        .text_color(hint_keys)
                         .child(keys),
                 )
                 .child(what)
@@ -3088,7 +3101,7 @@ impl Render for NewAgentView {
             .justify_center()
             .gap(ui.px(18.0))
             .text_size(ui.px(12.0))
-            .text_color(dimmer)
+            .text_color(hint_words)
             .child(key("⌘↩", "start"))
             .child(key("esc", "close"))
             .children(empty_task_hint(self.form.tool));
@@ -3119,7 +3132,7 @@ impl Render for NewAgentView {
             .absolute()
             .inset_0()
             .occlude()
-            .bg(gpui::black().opacity(0.45))
+            .bg(gpui::black().opacity(self.theme.shade(0.45)))
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|this, _: &MouseDownEvent, _, cx| this.close(cx)),
@@ -3216,6 +3229,26 @@ mod tests {
         assert!(start_waits(&form, Some(&passed)));
         press(&form, Some(&passed));
         assert_eq!(calls(), 2);
+    }
+
+    /// The keys' line keeps its quiet colours on a dark theme and takes the text colour on a
+    /// light one (P5-175).
+    #[test]
+    fn the_hints_are_quiet_on_a_dark_theme_and_in_the_text_colour_on_a_light_one() {
+        for preset in crate::preset::Preset::ALL {
+            let theme = Theme::from_config(&Config {
+                theme: Some(preset.name().into()),
+                ..Config::default()
+            })
+            .unwrap();
+            let fg = |pick: Pick| hsla(theme.fg(pick), 1.0);
+            let expected = if theme.is_light() {
+                (fg(|t| t.agents_text), fg(|t| t.agents_text))
+            } else {
+                (fg(|t| t.agents_dim), fg(|t| t.agents_dimmer))
+            };
+            assert_eq!(hint_colors(&theme), expected, "{}", preset.name());
+        }
     }
 
     #[test]

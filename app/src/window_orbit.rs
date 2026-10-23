@@ -23,6 +23,9 @@ const WEIGHT: f32 = TAB_RING + 0.5;
 /// The pale edge's strength, and how much of the head's near-white is the working colour.
 const PALE: f32 = 0.18;
 const HEAD_TINT: f32 = 0.15;
+/// On a light theme (P5-175) a near-white head would vanish into the ground, so the head is the
+/// working colour deepened towards black instead, this much of it the working colour.
+const HEAD_TINT_LIGHT: f32 = 0.65;
 /// The frames a second its animation redraws at, as the status dots' breathing has it.
 const FPS: f32 = 30.0;
 
@@ -62,9 +65,14 @@ pub(super) fn beat() -> Animation {
     Animation::new(PERIOD).repeat_synced().with_max_fps(FPS)
 }
 
-/// The light's near-white head, faintly in the working colour `ink`.
-pub(super) fn head(ink: Hsla) -> Hsla {
-    gpui::white().blend(ink.opacity(HEAD_TINT))
+/// The light's head in the working colour `ink`: near-white, faintly in it, or on a `light`
+/// theme deepened towards black.
+pub(super) fn head(ink: Hsla, light: bool) -> Hsla {
+    if light {
+        gpui::black().blend(ink.opacity(HEAD_TINT_LIGHT))
+    } else {
+        gpui::white().blend(ink.opacity(HEAD_TINT))
+    }
 }
 
 /// The edge painted `phase` of the way round, on `bounds`: the pale ring, the fade after the
@@ -128,6 +136,7 @@ pub(super) fn paint_open(
     at: impl Fn(f32) -> Point<Pixels>,
     phase: f32,
     ink: Hsla,
+    head: Hsla,
     dim: f32,
     scale: f32,
     window: &mut Window,
@@ -148,7 +157,7 @@ pub(super) fn paint_open(
     // From just before the start, the fade ahead of the head unseen, to past the end with the
     // whole tail.
     let front = -AFTER + phase * (1.0 + TAIL + AFTER);
-    lights(front, ink, head(ink), dim, |from, to, color| {
+    lights(front, ink, head, dim, |from, to, color| {
         let (from, to) = (from.max(0.0), to.min(1.0));
         if from < to {
             let mut path = PathBuilder::stroke(weight);
@@ -190,6 +199,20 @@ mod tests {
 
     fn near(a: f32, b: f32) -> bool {
         (a - b).abs() < 0.01
+    }
+
+    /// On a dark theme the head is the near-white it always was; on a light one it is the working
+    /// colour deepened, darker than the colour itself (P5-175).
+    #[test]
+    fn the_head_is_near_white_on_a_dark_theme_and_deeper_on_a_light_one() {
+        let ink = gpui::hsla(0.6, 0.8, 0.5, 1.0);
+        assert_eq!(
+            head(ink, false),
+            gpui::white().blend(ink.opacity(HEAD_TINT))
+        );
+        let deep = head(ink, true);
+        assert!(deep.l < ink.l, "{deep:?}");
+        assert!(near(deep.h, ink.h), "{deep:?}");
     }
 
     #[test]

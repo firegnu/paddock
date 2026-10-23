@@ -36,6 +36,18 @@ impl Theme {
             _ => indexed(index),
         }
     }
+
+    /// Whether its background is light (P5-175): see [`light`].
+    pub fn is_light(&self) -> bool {
+        light(self.background)
+    }
+}
+
+/// Whether `color` is light: lighter than the middle, as HSL measures lightness (the mean of the
+/// strongest and the weakest channel). A theme with a light background is drawn the other way
+/// round where paddock's colours were written for dark ones (DESIGN §13 P5-175).
+pub fn light((r, g, b): Rgb) -> bool {
+    u16::from(r.max(g).max(b)) + u16::from(r.min(g).min(b)) > 255
 }
 
 /// A pane's colours, shared with every session it runs or is starting: a program asking for a
@@ -114,22 +126,32 @@ pub fn resolve(color: Color, colors: &Colors, theme: &Theme) -> Rgb {
         _ => match color {
             Color::Named(NamedColor::Background) => theme.background,
             Color::Named(NamedColor::Cursor) => theme.cursor,
-            Color::Named(NamedColor::DimForeground) => dim(theme.foreground),
+            Color::Named(NamedColor::DimForeground) => dim(theme.foreground, theme.is_light()),
             // Dim black…white sit right after the cursor entry, in normal-colour order.
             Color::Named(name)
                 if (NamedColor::DimBlack as usize..=NamedColor::DimWhite as usize)
                     .contains(&(name as usize)) =>
             {
-                dim(theme.ansi[name as usize - NamedColor::DimBlack as usize])
+                dim(
+                    theme.ansi[name as usize - NamedColor::DimBlack as usize],
+                    theme.is_light(),
+                )
             }
             _ => theme.foreground,
         },
     }
 }
 
-/// SGR 2 (faint) as two thirds of the colour.
-pub fn dim((r, g, b): Rgb) -> Rgb {
-    let f = |v: u8| (u16::from(v) * 2 / 3) as u8;
+/// SGR 2 (faint) as two thirds of the colour: the rest towards black on a dark background, towards
+/// white on a `light` one (P5-175), so faint text there is paler, not darker and louder.
+pub fn dim((r, g, b): Rgb, light: bool) -> Rgb {
+    let f = |v: u8| {
+        if light {
+            (255 - u16::from(255 - v) * 2 / 3) as u8
+        } else {
+            (u16::from(v) * 2 / 3) as u8
+        }
+    };
     (f(r), f(g), f(b))
 }
 
@@ -202,6 +224,20 @@ mod tests {
         cursor: (200, 200, 0),
         selection: (60, 60, 60),
     };
+
+    /// Faint text keeps two thirds of its colour: towards black on a dark background, as before,
+    /// and towards white on a light one (P5-175).
+    #[test]
+    fn faint_goes_towards_black_on_a_dark_ground_and_towards_white_on_a_light_one() {
+        let color = (220, 120, 30);
+        let old = |v: u8| (u16::from(v) * 2 / 3) as u8;
+        assert_eq!(dim(color, false), (old(220), old(120), old(30)));
+        assert!(!THEME.is_light());
+        assert!(light((0xef, 0xf1, 0xf5)) && !light((0x1e, 0x1e, 0x2e)));
+        let (r, g, b) = dim(color, true);
+        assert!(r > 220 && g > 120 && b > 30, "{r}, {g}, {b}");
+        assert_eq!(dim((0, 0, 0), true), (85, 85, 85));
+    }
 
     #[test]
     fn xterm_palette() {

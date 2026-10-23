@@ -182,6 +182,10 @@ const WAITING_EDGE: f32 = 0.34;
 /// than the material around it; and how dark the line inside its bottom edge is (P5-51b).
 const FROSTED_FACE: f32 = 1.45;
 const FROSTED_BOTTOM: f32 = 0.28;
+/// On a light theme (P5-175) a card's face, and the light along its top edge, are white this many
+/// times as strong as the text colour would be on a dark one.
+const LIGHT_FACE: f32 = 6.0;
+const LIGHT_EDGE: f32 = 8.0;
 const DOT: f32 = 8.0;
 /// Room kept before the age.
 const TIME_PAD: f32 = 4.0;
@@ -2993,10 +2997,11 @@ struct Grounds {
     waiting: Hsla,
     /// The strip's short rules.
     rule: Hsla,
-    /// A card's own face resting, hovered and paused, and a selected card's (P5-51).
+    /// A card's own face resting, hovered, paused and paused hovered, and a selected card's (P5-51).
     card: Hsla,
     card_hovered: Hsla,
     card_paused: Hsla,
+    card_paused_hovered: Hsla,
     card_selected: Hsla,
     /// Over the system's material: card faces are see-through.
     frosted: bool,
@@ -3006,17 +3011,50 @@ impl Grounds {
     fn of(theme: &Theme, frosted: bool) -> Self {
         let fg = |pick: Pick| hsla(theme.fg(pick), 1.0);
         let text = fg(|t| t.agents_text);
+        // A card stands up off the column in the text colour on a dark theme. On a light one
+        // (P5-175) the dark text would sink it instead, so its face is white, the more of it as
+        // white has less room over a light ground.
+        let face = |alpha: f32| {
+            if theme.is_light() {
+                gpui::white().opacity((alpha * LIGHT_FACE).min(1.0))
+            } else {
+                text.opacity(alpha)
+            }
+        };
         if frosted {
             let frost = theme.frost();
+            let accent = fg(|t| t.agents_accent).opacity(SELECTED_FACE * FROSTED_FACE);
+            if theme.is_light() {
+                // GPUI adds a see-through layer's alpha to the alpha under it, so a light tint
+                // over the sidebar's see-through wash hides more of the material than it lets
+                // through and comes out grey. On a light theme (P5-175) the faces are whole
+                // colours over the sidebar's colour instead; a paused card, drawn see-through as
+                // a whole, has no face of its own.
+                let base = hsla(theme.bg(|t| t.agents_bg), 1.0);
+                let clear = gpui::transparent_black();
+                return Self {
+                    base: clear,
+                    selected: text.opacity(frost.lit),
+                    waiting: fg(|t| t.agents_yellow).opacity(frost.waiting),
+                    rule: text.opacity(frost.lit),
+                    card: over(face(FACE * FROSTED_FACE), base),
+                    card_hovered: over(face(FACE_HOVERED * FROSTED_FACE), base),
+                    card_paused: clear,
+                    card_paused_hovered: clear,
+                    card_selected: over(accent, base),
+                    frosted,
+                };
+            }
             Self {
                 base: gpui::transparent_black(),
                 selected: text.opacity(frost.lit),
                 waiting: fg(|t| t.agents_yellow).opacity(frost.waiting),
                 rule: text.opacity(frost.lit),
-                card: text.opacity(FACE * FROSTED_FACE),
-                card_hovered: text.opacity(FACE_HOVERED * FROSTED_FACE),
-                card_paused: text.opacity(FACE_PAUSED * FROSTED_FACE),
-                card_selected: fg(|t| t.agents_accent).opacity(SELECTED_FACE * FROSTED_FACE),
+                card: face(FACE * FROSTED_FACE),
+                card_hovered: face(FACE_HOVERED * FROSTED_FACE),
+                card_paused: face(FACE_PAUSED * FROSTED_FACE),
+                card_paused_hovered: face(FACE_HOVERED * FROSTED_FACE),
+                card_selected: accent,
                 frosted,
             }
         } else {
@@ -3028,9 +3066,10 @@ impl Grounds {
                 selected,
                 waiting: fg(|t| t.agents_yellow).opacity(WAITING_TINT),
                 rule: fg(|t| t.agents_rule).opacity(0.8),
-                card: over(text.opacity(FACE), base),
-                card_hovered: over(text.opacity(FACE_HOVERED), base),
-                card_paused: over(text.opacity(FACE_PAUSED), base),
+                card: over(face(FACE), base),
+                card_hovered: over(face(FACE_HOVERED), base),
+                card_paused: over(face(FACE_PAUSED), base),
+                card_paused_hovered: over(face(FACE_HOVERED), base),
                 card_selected: selected,
                 frosted,
             }
@@ -3039,16 +3078,24 @@ impl Grounds {
 
     /// These grounds for the cards in an open workspace's `well` (P5-91), `column` the sidebar's
     /// colour: a whole face hides the well; a see-through one gives back what the well darkens,
-    /// so the cards there look as those outside it.
+    /// so the cards there look as those outside it. A card with no face (paused on a light theme)
+    /// lies flat in the well as well.
     fn in_well(self, well: Hsla, column: Hsla) -> Self {
         if !self.frosted {
             return self;
         }
-        let through = |face| through(face, well, column);
+        let through = |face: Hsla| {
+            if face.a == 0.0 {
+                face
+            } else {
+                through(face, well, column)
+            }
+        };
         Self {
             card: through(self.card),
             card_hovered: through(self.card_hovered),
             card_paused: through(self.card_paused),
+            card_paused_hovered: through(self.card_paused_hovered),
             card_selected: through(self.card_selected),
             ..self
         }
@@ -3113,15 +3160,27 @@ const SELECTED: Lift = Lift {
 };
 
 impl Lift {
-    fn shadows(&self, text: Hsla, frosted: bool) -> Vec<BoxShadow> {
+    /// The card's shadows in `theme`: the light along its top edge in its text colour, white on a
+    /// light theme (P5-175), and the dark ones as dark as [`Theme::shade`] has them there.
+    fn shadows(&self, theme: &Theme, frosted: bool) -> Vec<BoxShadow> {
+        let edge = if theme.is_light() {
+            gpui::white().opacity((self.light * LIGHT_EDGE).min(1.0))
+        } else {
+            hsla(theme.fg(|t| t.agents_text), 1.0).opacity(self.light)
+        };
         // Inside the card, under its top edge, so that edge reads lighter than the rest.
-        let light = BoxShadow::new(px(0.0), px(1.0), text.opacity(self.light)).inset();
+        let light = BoxShadow::new(px(0.0), px(1.0), edge).inset();
         if frosted {
-            let dark = BoxShadow::new(px(0.0), px(-1.0), gpui::black().opacity(FROSTED_BOTTOM));
+            let dark = BoxShadow::new(
+                px(0.0),
+                px(-1.0),
+                gpui::black().opacity(theme.shade(FROSTED_BOTTOM)),
+            );
             return vec![light, dark.inset()];
         }
         let drop = |(y, blur, alpha): (f32, f32, f32)| {
-            BoxShadow::new(px(0.0), px(y), gpui::black().opacity(alpha)).blur_radius(px(blur))
+            BoxShadow::new(px(0.0), px(y), gpui::black().opacity(theme.shade(alpha)))
+                .blur_radius(px(blur))
         };
         vec![light, drop(self.near), drop(self.far)]
     }
@@ -3360,7 +3419,7 @@ impl RenderOnce for AgentCard {
         let (base, lit) = if card.selected {
             (grounds.card_selected, grounds.card_selected)
         } else if paused {
-            (grounds.card_paused, grounds.card_hovered)
+            (grounds.card_paused, grounds.card_paused_hovered)
         } else {
             (grounds.card, grounds.card_hovered)
         };
@@ -3390,7 +3449,7 @@ impl RenderOnce for AgentCard {
             if paused {
                 Vec::new()
             } else {
-                lift.shadows(text, frosted)
+                lift.shadows(&theme, frosted)
             }
         };
         let (shadows, shadows_hovered) = if card.selected {
@@ -4575,16 +4634,78 @@ mod tests {
 
     #[test]
     fn frosted_cards_cast_no_shadow_under_their_see_through_face() {
-        let text = gpui::white();
-        for lift in [&RESTING, &HOVERED, &SELECTED] {
-            // Over the material the face is see-through: only lines inside it, light on top and
-            // dark at the bottom, nothing laid under it to show through (P5-51b).
-            let frosted = lift.shadows(text, true);
-            assert!(frosted.iter().all(|s| s.inset), "{frosted:?}");
-            assert!(frosted.iter().any(|s| s.offset.y > px(0.0)));
-            assert!(frosted.iter().any(|s| s.offset.y < px(0.0)));
-            // On the sidebar's own colour the face is whole: the shadows stay.
-            assert!(lift.shadows(text, false).iter().any(|s| !s.inset));
+        for name in crate::preset::Preset::ALL.map(crate::preset::Preset::name) {
+            let theme = Theme::from_config(&crate::config::Config {
+                theme: Some(name.into()),
+                ..crate::config::Config::default()
+            })
+            .unwrap();
+            for lift in [&RESTING, &HOVERED, &SELECTED] {
+                // Over the material the face is see-through: only lines inside it, light on top
+                // and dark at the bottom, nothing laid under it to show through (P5-51b).
+                let frosted = lift.shadows(&theme, true);
+                assert!(frosted.iter().all(|s| s.inset), "{name}: {frosted:?}");
+                assert!(frosted.iter().any(|s| s.offset.y > px(0.0)));
+                assert!(frosted.iter().any(|s| s.offset.y < px(0.0)));
+                // On the sidebar's own colour the face is whole: the shadows stay.
+                assert!(lift.shadows(&theme, false).iter().any(|s| !s.inset));
+            }
+        }
+    }
+
+    /// A dark theme's cards are drawn as before the light theme came; the light one's faces and
+    /// top edges are white and its shadows softer (P5-175).
+    #[test]
+    fn cards_lift_in_the_text_colour_on_a_dark_theme_and_in_white_on_a_light_one() {
+        for name in crate::preset::Preset::ALL.map(crate::preset::Preset::name) {
+            let theme = Theme::from_config(&crate::config::Config {
+                theme: Some(name.into()),
+                ..crate::config::Config::default()
+            })
+            .unwrap();
+            let text = hsla(theme.fg(|t| t.agents_text), 1.0);
+            let base = hsla(theme.bg(|t| t.agents_bg), 1.0);
+            let (whole, frosted) = (Grounds::of(&theme, false), Grounds::of(&theme, true));
+            let lifts = RESTING.shadows(&theme, false);
+            if theme.is_light() {
+                let white = gpui::white();
+                // Over the material too, a whole face over the sidebar's colour; a paused card
+                // has none there.
+                let face = over(white.opacity(FACE * FROSTED_FACE * LIGHT_FACE), base);
+                assert_eq!(frosted.card, face, "{name}");
+                assert_eq!(frosted.card.a, 1.0, "{name}");
+                assert_eq!(frosted.card_hovered.a, 1.0, "{name}");
+                assert_eq!(frosted.card_selected.a, 1.0, "{name}");
+                assert_eq!(frosted.card_paused, gpui::transparent_black());
+                assert_eq!(frosted.card_paused_hovered, gpui::transparent_black());
+                assert_eq!(whole.card, over(white.opacity(FACE * LIGHT_FACE), base));
+                assert!(Rgba::from(whole.card).r > Rgba::from(base).r, "{name}");
+                assert_eq!(lifts[0].color, white.opacity(RESTING.light * LIGHT_EDGE));
+                assert!(lifts[1].color.a < RESTING.near.2, "{name}");
+            } else {
+                assert_eq!(frosted.card, text.opacity(FACE * FROSTED_FACE), "{name}");
+                assert_eq!(
+                    frosted.card_hovered,
+                    text.opacity(FACE_HOVERED * FROSTED_FACE)
+                );
+                assert_eq!(
+                    frosted.card_paused,
+                    text.opacity(FACE_PAUSED * FROSTED_FACE)
+                );
+                assert_eq!(frosted.card_paused_hovered, frosted.card_hovered, "{name}");
+                assert_eq!(whole.card_paused_hovered, whole.card_hovered, "{name}");
+                let accent = hsla(theme.fg(|t| t.agents_accent), 1.0);
+                let selected = accent.opacity(SELECTED_FACE * FROSTED_FACE);
+                assert_eq!(frosted.card_selected, selected, "{name}");
+                assert_eq!(whole.card, over(text.opacity(FACE), base), "{name}");
+                assert_eq!(whole.card_hovered, over(text.opacity(FACE_HOVERED), base));
+                assert_eq!(whole.card_paused, over(text.opacity(FACE_PAUSED), base));
+                assert_eq!(lifts[0].color, text.opacity(RESTING.light), "{name}");
+                assert_eq!(lifts[1].color, gpui::black().opacity(RESTING.near.2));
+                assert_eq!(lifts[2].color, gpui::black().opacity(RESTING.far.2));
+                let bottom = SELECTED.shadows(&theme, true)[1].color;
+                assert_eq!(bottom, gpui::black().opacity(FROSTED_BOTTOM), "{name}");
+            }
         }
     }
 
@@ -5271,9 +5392,15 @@ esac"#,
             };
             0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b)
         }
-        // The material under a selected card, as the user's screenshot shows it.
-        let frost = luminance((0x45, 0x49, 0x4a));
-        let contrast = |color| (luminance(color) + 0.05) / (frost + 0.05);
+        fn contrast(a: crate::palette::Rgb, b: crate::palette::Rgb) -> f64 {
+            let (a, b) = (luminance(a), luminance(b));
+            (a.max(b) + 0.05) / (a.min(b) + 0.05)
+        }
+        let rgb = |color: Hsla| {
+            let color = Rgba::from(color);
+            let channel = |value: f32| (value * 255.0).round() as u8;
+            (channel(color.r), channel(color.g), channel(color.b))
+        };
 
         for name in crate::preset::Preset::ALL.map(crate::preset::Preset::name) {
             let given = Rc::new(
@@ -5284,10 +5411,34 @@ esac"#,
                 .unwrap(),
             );
             let frosted = column_theme(&given, true);
-            let dim = contrast(frosted.fg(|t| t.agents_dim));
-            assert!(dim >= 4.5, "{name} agents_dim: {dim:.2}:1 < 4.5:1");
-            let dimmer = contrast(frosted.fg(|t| t.agents_dimmer));
-            assert!(dimmer >= 3.5, "{name} agents_dimmer: {dimmer:.2}:1 < 3.5:1");
+            // What the quiet text lies on over the material: on a dark theme, the material
+            // under a selected card, as the user's screenshot shows it; on a light one
+            // (P5-175), the column, the material's light look as a screenshot shows it washed
+            // with the sidebar's colour, and the cards' whole faces on it.
+            let grounds = if given.is_light() {
+                let base = hsla(given.bg(|t| t.agents_bg), 1.0);
+                let material = gpui::rgb(0xe6e6e6).into();
+                let column = over(base.opacity(given.frost().wash), material);
+                let faces = Grounds::of(&frosted, true);
+                let waiting = over(faces.waiting, faces.card);
+                [column, faces.card, faces.card_selected, waiting]
+                    .map(rgb)
+                    .to_vec()
+            } else {
+                vec![(0x45, 0x49, 0x4a)]
+            };
+            for ground in grounds {
+                let dim = contrast(frosted.fg(|t| t.agents_dim), ground);
+                assert!(
+                    dim >= 4.5,
+                    "{name} agents_dim: {dim:.2}:1 < 4.5:1 on {ground:?}"
+                );
+                let dimmer = contrast(frosted.fg(|t| t.agents_dimmer), ground);
+                assert!(
+                    dimmer >= 3.5,
+                    "{name} agents_dimmer: {dimmer:.2}:1 < 3.5:1 on {ground:?}"
+                );
+            }
 
             let full_screen = column_theme(&given, false);
             for key in crate::theme::color_keys() {

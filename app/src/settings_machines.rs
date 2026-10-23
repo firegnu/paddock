@@ -539,7 +539,7 @@ impl SettingsView {
                 .absolute()
                 .inset_0()
                 .occlude()
-                .bg(gpui::black().opacity(0.45))
+                .bg(gpui::black().opacity(self.theme.shade(0.45)))
                 .flex()
                 .items_center()
                 .justify_center()

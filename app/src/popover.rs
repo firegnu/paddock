@@ -73,7 +73,7 @@ pub fn panel(theme: &Theme, ui: &UiFont) -> Div {
         .border_color(colors.edge)
         .bg(colors.ground)
         .shadow(vec![BoxShadow {
-            color: gpui::black().opacity(0.45),
+            color: gpui::black().opacity(theme.shade(0.45)),
             offset: point(px(0.0), ui.px(12.0)),
             blur_radius: ui.px(32.0),
             spread_radius: px(0.0),

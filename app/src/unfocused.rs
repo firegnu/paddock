@@ -88,16 +88,27 @@ const SATURATION: f32 = 0.4;
 /// How much of a colour's distance in lightness from [`MIDDLE`] stays.
 const CONTRAST: f32 = 0.62;
 
-/// The lightness the contrast closes towards: low, as paddock's grounds are dark, so a ground
+/// The lightness the contrast closes towards: low, as a dark theme's grounds are dark, so a ground
 /// lifts only a little and text dims only a little.
 const MIDDLE: f32 = 50.0;
 
+/// On a light theme's grounds (P5-175) the lightness closes towards white instead, so a ground
+/// pales only a little and dark text lightens; more of the distance stays, as a light theme's text
+/// stands less far from its ground and would not read otherwise.
+const MIDDLE_LIGHT: f32 = 255.0;
+const CONTRAST_LIGHT: f32 = 0.88;
+
 /// `color` out of the front: the same hue, less than half as saturated, its lightness well nearer
-/// [`MIDDLE`]. Grays stay gray.
-pub fn fade((r, g, b): Rgb) -> Rgb {
+/// [`MIDDLE`], or nearer [`MIDDLE_LIGHT`] for a `light` theme. Grays stay gray.
+pub fn fade((r, g, b): Rgb, light: bool) -> Rgb {
+    let (middle, contrast) = if light {
+        (MIDDLE_LIGHT, CONTRAST_LIGHT)
+    } else {
+        (MIDDLE, CONTRAST)
+    };
     let [r, g, b] = [r, g, b].map(f32::from);
     let lightness = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-    let lightness_now = MIDDLE + (lightness - MIDDLE) * CONTRAST;
+    let lightness_now = middle + (lightness - middle) * contrast;
     let channel = |c: f32| {
         (lightness_now + (c - lightness) * SATURATION)
             .round()
@@ -107,15 +118,16 @@ pub fn fade((r, g, b): Rgb) -> Rgb {
 }
 
 /// A GPUI colour faded as [`fade`] does, its opacity kept.
-pub fn fade_hsla(color: gpui::Hsla) -> gpui::Hsla {
+pub fn fade_hsla(color: gpui::Hsla, light: bool) -> gpui::Hsla {
     let rgba = gpui::Rgba::from(color);
     let channel = |c: f32| (c * 255.0).round().clamp(0.0, 255.0) as u8;
-    let faded = fade((channel(rgba.r), channel(rgba.g), channel(rgba.b)));
+    let faded = fade((channel(rgba.r), channel(rgba.g), channel(rgba.b)), light);
     crate::view::hsla(faded, rgba.a)
 }
 
-/// A whole terminal palette faded.
+/// A whole terminal palette faded, as its own background is dark or light.
 pub fn fade_palette(theme: &crate::palette::Theme) -> crate::palette::Theme {
+    let fade = |color| fade(color, theme.is_light());
     crate::palette::Theme {
         ansi: theme.ansi.map(fade),
         foreground: fade(theme.foreground),
@@ -126,11 +138,11 @@ pub fn fade_palette(theme: &crate::palette::Theme) -> crate::palette::Theme {
 }
 
 /// A row of terminal cells faded, their text and ground: whatever colour the program gave them,
-/// a palette's or its own.
-pub fn fade_cells(cells: &mut [crate::rows::Cell]) {
+/// a palette's or its own; `light`, the theme's.
+pub fn fade_cells(cells: &mut [crate::rows::Cell], light: bool) {
     for cell in cells {
-        cell.bg = fade(cell.bg);
-        cell.style.fg = fade(cell.style.fg);
+        cell.bg = fade(cell.bg, light);
+        cell.style.fg = fade(cell.style.fg, light);
     }
 }
 
@@ -161,7 +173,7 @@ mod tests {
     #[test]
     fn a_faded_colour_keeps_its_share_of_saturation_and_its_hue() {
         for color in SEEN {
-            let faded = fade(color);
+            let faded = fade(color, false);
             let (before, after) = (f32::from(spread(color)), f32::from(spread(faded)));
             assert!(
                 (after - before * SATURATION).abs() <= 1.5,
@@ -182,10 +194,10 @@ mod tests {
     #[test]
     fn a_gpui_colour_fades_alike_and_keeps_its_opacity() {
         for color in SEEN {
-            let faded = fade_hsla(crate::view::hsla(color, 0.3));
+            let faded = fade_hsla(crate::view::hsla(color, 0.3), false);
             let rgba = gpui::Rgba::from(faded);
             let back = |c: f32| (c * 255.0).round() as u8;
-            let want = fade(color);
+            let want = fade(color, false);
             assert!(
                 back(rgba.r).abs_diff(want.0) <= 1
                     && back(rgba.g).abs_diff(want.1) <= 1
@@ -199,19 +211,59 @@ mod tests {
     #[test]
     fn grays_stay_gray_and_lightness_closes_in_a_little_keeping_its_order() {
         for v in [0u8, 0x1b, 0x60, 0xa0, 0xeb, 0xff] {
-            let (r, g, b) = fade((v, v, v));
-            assert!(r == g && g == b, "{v:02x} → {:02x?}", (r, g, b));
+            for light in [false, true] {
+                let (r, g, b) = fade((v, v, v), light);
+                assert!(r == g && g == b, "{v:02x} → {:02x?}", (r, g, b));
+            }
         }
         // The ground lifts a little, the text dims clearly; neither goes to a flat gray.
         let (ground, text) = (SEEN[6], SEEN[0]);
-        let lift = lightness(fade(ground)) - lightness(ground);
+        let lift = lightness(fade(ground, false)) - lightness(ground);
         assert!((3.0..=15.0).contains(&lift), "ground lifts {lift}");
-        let dim = lightness(text) - lightness(fade(text));
+        let dim = lightness(text) - lightness(fade(text, false));
         assert!((40.0..=80.0).contains(&dim), "text dims {dim}");
         // Lighter stays lighter.
         let mut by_lightness = SEEN;
         by_lightness.sort_by(|a, b| lightness(*a).total_cmp(&lightness(*b)));
-        let faded: Vec<f32> = by_lightness.iter().map(|c| lightness(fade(*c))).collect();
+        let faded: Vec<f32> = by_lightness
+            .iter()
+            .map(|c| lightness(fade(*c, false)))
+            .collect();
+        assert!(faded.windows(2).all(|w| w[0] <= w[1]), "{faded:?}");
+    }
+
+    // Catppuccin Latte's text, red, green and mauve, then its base and mantle (P5-175).
+    const LATTE: [Rgb; 6] = [
+        (0x4c, 0x4f, 0x69),
+        (0xd2, 0x0f, 0x39),
+        (0x40, 0xa0, 0x2b),
+        (0x88, 0x39, 0xef),
+        (0xef, 0xf1, 0xf5),
+        (0xe6, 0xe9, 0xef),
+    ];
+
+    #[test]
+    fn on_a_light_theme_the_ground_pales_a_little_and_the_text_lightens() {
+        for color in LATTE {
+            let faded = fade(color, true);
+            let (before, after) = (f32::from(spread(color)), f32::from(spread(faded)));
+            assert!(
+                (after - before * SATURATION).abs() <= 1.5,
+                "{color:02x?} → {faded:02x?}: spread {before} → {after}"
+            );
+        }
+        let (ground, text) = (LATTE[4], LATTE[0]);
+        let pale = lightness(fade(ground, true)) - lightness(ground);
+        assert!((0.5..=5.0).contains(&pale), "ground pales {pale}");
+        let lift = lightness(fade(text, true)) - lightness(text);
+        assert!((10.0..=40.0).contains(&lift), "text lightens {lift}");
+        // Lighter stays lighter.
+        let mut by_lightness = LATTE;
+        by_lightness.sort_by(|a, b| lightness(*a).total_cmp(&lightness(*b)));
+        let faded: Vec<f32> = by_lightness
+            .iter()
+            .map(|c| lightness(fade(*c, true)))
+            .collect();
         assert!(faded.windows(2).all(|w| w[0] <= w[1]), "{faded:?}");
     }
 }

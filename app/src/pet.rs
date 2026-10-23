@@ -472,10 +472,12 @@ pub struct PetView {
     lane: Option<u32>,
     /// What was last drawn: place and pose.
     drawn: Option<(u32, (usize, bool))>,
+    /// The theme is light (P5-175): out of the front it fades as a light theme does.
+    light: bool,
 }
 
 impl PetView {
-    pub fn new(pet: Pet, cx: &mut gpui::Context<Self>) -> Self {
+    pub fn new(pet: Pet, light: bool, cx: &mut gpui::Context<Self>) -> Self {
         cx.spawn(async move |this, cx| {
             loop {
                 cx.background_executor()
@@ -491,7 +493,13 @@ impl PetView {
             mascot: Mascot::new(pet),
             lane: None,
             drawn: None,
+            light,
         }
+    }
+
+    /// Follows the theme: light or dark.
+    pub fn set_light(&mut self, light: bool) {
+        self.light = light;
     }
 
     fn tick(&mut self, cx: &mut gpui::Context<Self>) {
@@ -525,6 +533,7 @@ impl gpui::Render for PetView {
         use gpui::{Styled as _, point, px, size};
         let entity = cx.entity();
         let runs = self.mascot.runs();
+        let light = self.light;
         let x = self.mascot.x();
         let (width, height) = (self.mascot.pack().width, self.mascot.pack().height);
         gpui::canvas(
@@ -549,7 +558,7 @@ impl gpui::Render for PetView {
                 let away = !crate::unfocused::in_front(cx);
                 for run in &runs {
                     let (r, g, b) = if away {
-                        crate::unfocused::fade(run.color)
+                        crate::unfocused::fade(run.color, light)
                     } else {
                         run.color
                     };

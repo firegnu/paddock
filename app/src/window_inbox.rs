@@ -543,14 +543,14 @@ impl PaddockWindow {
             .bg(ground)
             .shadow(vec![
                 BoxShadow {
-                    color: gpui::black().opacity(0.6),
+                    color: gpui::black().opacity(theme.shade(0.6)),
                     offset: point(px(0.0), ui.px(24.0)),
                     blur_radius: ui.px(64.0),
                     spread_radius: px(0.0),
                     inset: false,
                 },
                 BoxShadow {
-                    color: gpui::black().opacity(0.3),
+                    color: gpui::black().opacity(theme.shade(0.3)),
                     offset: point(px(0.0), ui.px(2.0)),
                     blur_radius: ui.px(8.0),
                     spread_radius: px(0.0),

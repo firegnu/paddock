@@ -83,7 +83,7 @@ impl AboutView {
             .size(px(square))
             .rounded(px(square * 0.225))
             .shadow(vec![BoxShadow {
-                color: gpui::black().opacity(0.4),
+                color: gpui::black().opacity(self.theme.shade(0.4)),
                 offset: point(px(0.0), ui.px(6.0)),
                 blur_radius: ui.px(18.0),
                 spread_radius: px(0.0),

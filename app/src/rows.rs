@@ -273,7 +273,7 @@ pub fn read<T>(
             std::mem::swap(&mut fg, &mut bg);
         }
         if flags.intersects(Flags::DIM) {
-            fg = dim(fg);
+            fg = dim(fg, theme.is_light());
         }
         let mut text = cell.c.to_string();
         if let Some(marks) = cell.zerowidth() {

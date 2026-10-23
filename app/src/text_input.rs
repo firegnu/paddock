@@ -91,7 +91,9 @@ impl Colors {
         if self.faded || crate::unfocused::in_front(cx) {
             return self;
         }
-        let fade = crate::unfocused::fade_hsla;
+        // Dark text lies on a light theme's ground (P5-175), which fades the other way.
+        let light = self.text.l < 0.5;
+        let fade = |color| crate::unfocused::fade_hsla(color, light);
         Self {
             text: fade(self.text),
             placeholder: fade(self.placeholder),
