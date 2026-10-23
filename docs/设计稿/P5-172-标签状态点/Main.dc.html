@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>Tab status dot</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+.opt{display:flex;flex-direction:column;gap:10px}
+.opt-h{display:flex;align-items:baseline;gap:14px}
+.opt-h b{font-size:17px;font-weight:600;color:#eef0f4}
+.opt-h span{font-size:13.5px;color:#a3a9b5}
+.tag{display:inline-block;margin-left:8px;padding:1px 7px;border-radius:5px;background:#d9b44a;color:#16171b;font-size:11.5px;font-weight:600;vertical-align:2px}
+.tabs{display:flex;gap:16px;zoom:1.5}
+.cell{display:flex;flex-direction:column;align-items:center;gap:6px}
+.bar{position:relative;width:200px;height:52px;border-radius:6px;overflow:hidden;background-color:#2c2420;background-image:radial-gradient(circle at 20% 30%, rgba(196,110,60,0.55) 0, rgba(196,110,60,0) 45%),radial-gradient(circle at 85% 20%, rgba(150,90,60,0.5) 0, rgba(150,90,60,0) 40%)}
+.panel{position:absolute;left:0;right:0;bottom:0;height:10px;background:#24262d}
+.tab{position:absolute;left:10px;bottom:10px;width:180px;height:34px;box-sizing:border-box;border-radius:10px 10px 0 0;background:#24262d;display:flex;align-items:center;justify-content:center}
+.x{position:absolute;right:9px;top:50%;margin-top:-5px;width:10px;height:10px;color:#8a8f99}
+.content{display:flex;align-items:center;gap:6px}
+.name{font-size:15px;font-weight:500;color:#e9ebef;letter-spacing:-0.1px}
+.icon{display:flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:4.5px;background:#d97757;color:#fff6ef}
+.lbl{font-size:10px;color:#8d93a0}
+</style>
+</helmet>
+<div style="width: 1440px; height: 960px; box-sizing: border-box; padding: 40px 56px; background: #121317; color: #e7eaf0; font-family: -apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif; display: flex; flex-direction: column; gap: 30px">
+  <div style="display: flex; flex-direction: column; gap: 6px">
+    <h1 style="margin: 0; font-size: 22px; font-weight: 600">选中标签上的 agent 状态点</h1>
+    <div style="font-size: 13.5px; color: #8d93a0">放大 1.5 倍；每种画四个状态：干活中（蓝）、空闲（绿）、等你（黄）、出错（红）。干活中在 paddock 里还会呼吸（这里是静止的一帧）</div>
+  </div>
+
+  <div class="opt">
+    <div class="opt-h"><b>现在</b><span>6pt 点套 2pt 标签底色的圈，压在图标右下角：深圈在橙色图标上咬出缺口，点掉到图标底边以下，和文字基线对不上</span></div>
+    <div class="tabs">
+      <sc-for list="{{states}}" as="s" hint-placeholder-count="4">
+        <div class="cell">
+          <div class="bar"><div class="panel"></div><div class="tab">
+            <div class="content">
+              <div style="position: relative; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center">
+                <div class="icon"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="M6 1v10M1 6h10M2.5 2.5l7 7M9.5 2.5l-7 7"></path></svg></div>
+                <div style="position: absolute; right: -4px; bottom: -3px; width: 6px; height: 6px; border: 2px solid #24262d; border-radius: 50%; background: {{s.c}}"></div>
+              </div>
+              <span class="name">main</span>
+            </div>
+            <svg class="x" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><path d="M1.5 1.5l7 7M8.5 1.5l-7 7"></path></svg>
+          </div></div>
+          <span class="lbl">{{s.label}}</span>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+
+  <div class="opt">
+    <div class="opt-h"><b>甲 · 点挪到名字后面<span class="tag">推荐</span></b><span>图标完整不挖缺口；名字后面一颗 6pt 的点，和小写字母的中线对齐，像一个句点。冷暖色分开，不再贴在一起</span></div>
+    <div class="tabs">
+      <sc-for list="{{states}}" as="s" hint-placeholder-count="4">
+        <div class="cell">
+          <div class="bar"><div class="panel"></div><div class="tab">
+            <div class="content">
+              <div class="icon"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="M6 1v10M1 6h10M2.5 2.5l7 7M9.5 2.5l-7 7"></path></svg></div>
+              <span class="name">main</span>
+              <div style="width: 6px; height: 6px; margin-left: 1px; margin-top: 2px; border-radius: 50%; background: {{s.c}}"></div>
+            </div>
+            <svg class="x" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><path d="M1.5 1.5l7 7M8.5 1.5l-7 7"></path></svg>
+          </div></div>
+          <span class="lbl">{{s.label}}</span>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+
+  <div class="opt">
+    <div class="opt-h"><b>乙 · 图标外一圈状态色细环</b><span>图标外 1.5pt 空隙再一圈 1.5pt 的状态色环，圆角跟着图标走；干活中时环呼吸。最醒目，但环和橙色图标挨得近，红、黄两色会和橙色抢</span></div>
+    <div class="tabs">
+      <sc-for list="{{states}}" as="s" hint-placeholder-count="4">
+        <div class="cell">
+          <div class="bar"><div class="panel"></div><div class="tab">
+            <div class="content">
+              <div style="display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; box-sizing: border-box; border: 1.5px solid {{s.c}}; border-radius: 7.5px">
+                <div class="icon"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="M6 1v10M1 6h10M2.5 2.5l7 7M9.5 2.5l-7 7"></path></svg></div>
+              </div>
+              <span class="name">main</span>
+            </div>
+            <svg class="x" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><path d="M1.5 1.5l7 7M8.5 1.5l-7 7"></path></svg>
+          </div></div>
+          <span class="lbl">{{s.label}}</span>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+
+  <div class="opt">
+    <div class="opt-h"><b>丙 · 精修角标</b><span>还在角上，但点缩到 5pt、圈减到 1.5pt，圆心落在图标圆角的弧上，不再掉出底边。改动最小，缺口变小但还在</span></div>
+    <div class="tabs">
+      <sc-for list="{{states}}" as="s" hint-placeholder-count="4">
+        <div class="cell">
+          <div class="bar"><div class="panel"></div><div class="tab">
+            <div class="content">
+              <div style="position: relative">
+                <div class="icon"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="M6 1v10M1 6h10M2.5 2.5l7 7M9.5 2.5l-7 7"></path></svg></div>
+                <div style="position: absolute; right: -2.5px; bottom: -2.5px; width: 5px; height: 5px; border: 1.5px solid #24262d; border-radius: 50%; background: {{s.c}}"></div>
+              </div>
+              <span class="name">main</span>
+            </div>
+            <svg class="x" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><path d="M1.5 1.5l7 7M8.5 1.5l-7 7"></path></svg>
+          </div></div>
+          <span class="lbl">{{s.label}}</span>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+
+  <div class="opt">
+    <div class="opt-h"><b>丁 · 图标下方一道短横</b><span>像程序坞里“正在运行”的那道光：图标正下方 10×2.5 的圆头短横。图标完整，安静；但很小，等你、出错这种要你注意的状态不够跳</span></div>
+    <div class="tabs">
+      <sc-for list="{{states}}" as="s" hint-placeholder-count="4">
+        <div class="cell">
+          <div class="bar"><div class="panel"></div><div class="tab">
+            <div class="content">
+              <div style="position: relative">
+                <div class="icon"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="M6 1v10M1 6h10M2.5 2.5l7 7M9.5 2.5l-7 7"></path></svg></div>
+                <div style="position: absolute; left: 4px; bottom: -5px; width: 10px; height: 2.5px; border-radius: 2px; background: {{s.c}}"></div>
+              </div>
+              <span class="name">main</span>
+            </div>
+            <svg class="x" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><path d="M1.5 1.5l7 7M8.5 1.5l-7 7"></path></svg>
+          </div></div>
+          <span class="lbl">{{s.label}}</span>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":960}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {
+      states: [
+        { label: 'Working', c: '#5ea8ec' },
+        { label: 'Idle', c: '#6fc48d' },
+        { label: 'Waiting', c: '#e3b341' },
+        { label: 'Error', c: '#ec6a5e' }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>
