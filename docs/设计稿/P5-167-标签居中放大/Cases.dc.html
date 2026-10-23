@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>Tab centered, edge cases</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+.cap{display:flex;align-items:baseline;gap:12px;font-size:13px;color:#cfd6e2}
+.cap b{font-weight:600;color:#eef1f7;flex:none}
+.cap span{color:#8b93a1;font-size:12.5px;line-height:18px}
+.zoom{width:1200px;height:150px;border-radius:12px;overflow:hidden;box-shadow:0 0 0 1px rgba(255,255,255,0.07)}
+.win{position:relative;width:600px;height:75px;transform:scale(2);transform-origin:0 0;background:#1a1d24}
+.lights{position:absolute;left:14px;top:14px;display:flex;gap:8px}
+.lights span{width:12px;height:12px;border-radius:6px}
+.panel{position:absolute;left:8px;top:40px;right:8px;height:60px;box-sizing:border-box;background:#23272f;border:1px solid #373b43;border-radius:12px}
+.phead{display:flex;align-items:center;gap:7px;height:30px;padding:0 12px;font-size:12px;color:#8b93a1}
+.phead b{font-weight:600;color:#c9d1dc}
+.tabs{position:absolute;display:flex;align-items:flex-start;gap:6px;z-index:2}
+.ftab{position:relative;flex:none;width:180px;margin:0 6px;color:#eef1f7}
+.ftab svg.shape{position:absolute;left:-8px;top:0}
+.row{position:relative;display:flex;align-items:center;box-sizing:border-box;white-space:nowrap}
+.flat{flex:none;width:180px;height:28px;border-radius:8px;color:#aeb6c4}
+.flat.hover{background:rgba(255,255,255,0.07);color:#d6dce6}
+.name{overflow:hidden;text-overflow:ellipsis;min-width:0}
+.group{color:#8b93a1;font-weight:400}
+.ico{position:relative;flex:none;background:#d97757;display:inline-flex;align-items:center;justify-content:center}
+.ico.sh{background:#3a404b}
+.ico.omp{background:#6a5acd}
+.dot{position:absolute;border-radius:5px;border:2px solid #23272f;background:#8bc48a}
+.flat .dot{border-color:#1a1d24}
+.flat.hover .dot{border-color:#272a31}
+.x{display:inline-flex;align-items:center;justify-content:center;flex:none;width:16px;height:16px;border-radius:8px}
+.xr{position:absolute;right:5px;top:50%;margin-top:-8px}
+.mid{display:flex;align-items:center;justify-content:center;gap:7px;min-width:0;width:100%;box-sizing:border-box;padding:0 26px}
+.notes{display:grid;grid-template-columns:repeat(3, minmax(0, 1fr));gap:8px 24px;font-size:12.5px;color:#aeb6c4;line-height:19px}
+.notes b{color:#eef1f7;font-weight:600}
+</style>
+</helmet>
+<div style="width: 1300px; height: 600px; box-sizing: border-box; padding: 32px 50px; background: #111318; font-family: -apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif; color: #e7ecf3; display: flex; flex-direction: column; gap: 12px">
+  <h1 style="margin: 0 0 10px; font-size: 18px; font-weight: 600">甲的几种情况（放大两倍；乙的规则相同，只是尺寸大一档）</h1>
+
+  <div class="cap"><b>悬停没选中的 · 选中的名字很长 · 没选中的名字很短</b><span>悬停时 × 在最右端淡入，块照旧居中；长名字在两边留出的位置里截短</span></div>
+  <div class="zoom">
+    <div class="win">
+      <div class="lights"><span style="background: #ff5f57"></span><span style="background: #febc2e"></span><span style="background: #28c840"></span></div>
+      <div class="panel"><div class="phead" style="margin-top: 6px"><b>dev-tab-center-bigger-1</b><span>paddock/dev-tab-center-bigger-1</span></div></div>
+      <div class="tabs" style="left: 76px; top: 6px">
+        <span class="row flat hover" style="margin-top: 2px; font-size: 15px"><span class="mid"><span class="ico sh" style="width: 18px; height: 18px; border-radius: 5px"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#cfd6e2" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 7l5 5-5 5M12 18h7"></path></svg><span class="dot" style="width: 6px; height: 6px; right: -4px; bottom: -4px"></span></span><span class="name">zsh · firegnu</span></span><span class="x xr"><svg width="7.5" height="7.5" viewBox="0 0 24 24" fill="none" stroke="#aeb6c4" stroke-width="3.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></span></span>
+        <span class="ftab" style="height: 35px"><svg class="shape" width="196" height="36" viewBox="0 0 196 36" aria-hidden="true"><path d="M0.5,34.5 A8,8 0 0 0 8.5,26.5 L8.5,10.5 A10,10 0 0 1 18.5,0.5 L177.5,0.5 A10,10 0 0 1 187.5,10.5 L187.5,26.5 A8,8 0 0 0 195.5,34.5 L195.5,36 L0.5,36 Z" fill="#23272f"></path><path d="M0.5,34.5 A8,8 0 0 0 8.5,26.5 L8.5,10.5 A10,10 0 0 1 18.5,0.5 L177.5,0.5 A10,10 0 0 1 187.5,10.5 L187.5,26.5 A8,8 0 0 0 195.5,34.5" fill="none" stroke="#373b43" stroke-width="1"></path></svg><span class="row" style="height: 32px; font-size: 15px; font-weight: 500"><span class="mid"><span class="ico" style="width: 18px; height: 18px; border-radius: 5px"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.8" stroke-linecap="round" aria-hidden="true"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4"></path></svg><span class="dot" style="width: 6px; height: 6px; right: -4px; bottom: -4px"></span></span><span class="name"><span class="group">paddock / </span>dev-tab-center-bigger-1</span></span><span class="x xr"><svg width="7.5" height="7.5" viewBox="0 0 24 24" fill="none" stroke="#c3cad6" stroke-width="3.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></span></span></span>
+        <span class="row flat" style="margin-top: 2px; font-size: 15px"><span class="mid"><span class="ico omp" style="width: 18px; height: 18px; border-radius: 5px"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="6"></circle></svg><span class="dot" style="width: 6px; height: 6px; right: -4px; bottom: -4px; background: #e8b04b"></span></span><span class="name">omp</span></span></span>
+      </div>
+    </div>
+  </div>
+
+  <div class="cap" style="margin-top: 14px"><b>选中的名字很短 · 没选中的名字很长</b><span>短名字的块小，照样落在正中；没选中的长名字同样两边留位置截短，悬停时 × 不盖住字</span></div>
+  <div class="zoom">
+    <div class="win">
+      <div class="lights"><span style="background: #ff5f57"></span><span style="background: #febc2e"></span><span style="background: #28c840"></span></div>
+      <div class="panel"><div class="phead" style="margin-top: 6px"><b>zsh</b><span>~/Developer</span></div></div>
+      <div class="tabs" style="left: 76px; top: 6px">
+        <span class="ftab" style="height: 35px"><svg class="shape" width="196" height="36" viewBox="0 0 196 36" aria-hidden="true"><path d="M0.5,34.5 A8,8 0 0 0 8.5,26.5 L8.5,10.5 A10,10 0 0 1 18.5,0.5 L177.5,0.5 A10,10 0 0 1 187.5,10.5 L187.5,26.5 A8,8 0 0 0 195.5,34.5 L195.5,36 L0.5,36 Z" fill="#23272f"></path><path d="M0.5,34.5 A8,8 0 0 0 8.5,26.5 L8.5,10.5 A10,10 0 0 1 18.5,0.5 L177.5,0.5 A10,10 0 0 1 187.5,10.5 L187.5,26.5 A8,8 0 0 0 195.5,34.5" fill="none" stroke="#373b43" stroke-width="1"></path></svg><span class="row" style="height: 32px; font-size: 15px; font-weight: 500"><span class="mid"><span class="ico sh" style="width: 18px; height: 18px; border-radius: 5px"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#cfd6e2" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 7l5 5-5 5M12 18h7"></path></svg><span class="dot" style="width: 6px; height: 6px; right: -4px; bottom: -4px"></span></span><span class="name">zsh</span></span><span class="x xr"><svg width="7.5" height="7.5" viewBox="0 0 24 24" fill="none" stroke="#c3cad6" stroke-width="3.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></span></span></span>
+        <span class="row flat" style="margin-top: 2px; font-size: 15px"><span class="mid"><span class="ico" style="width: 18px; height: 18px; border-radius: 5px"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.8" stroke-linecap="round" aria-hidden="true"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4"></path></svg><span class="dot" style="width: 6px; height: 6px; right: -4px; bottom: -4px; background: #7ea2ee"></span></span><span class="name"><span class="group">paddock / </span>review-tab-center-1</span></span></span>
+        <span class="row flat" style="margin-top: 2px; font-size: 15px"><span class="mid"><span class="ico" style="width: 18px; height: 18px; border-radius: 5px"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.8" stroke-linecap="round" aria-hidden="true"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4"></path></svg><span class="dot" style="width: 6px; height: 6px; right: -4px; bottom: -4px"></span></span><span class="name">cairn / main</span></span></span>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes" style="margin-top: 12px">
+    <div><b>长名字</b>：块的宽度到顶就是标签宽减去两边各一个 × 的位置，名字照原来的截短规则（先只留区分它的那部分，再从中间截短）；样稿里用 … 示意</div>
+    <div><b>悬停</b>：没选中的悬停出淡底和 ×，块不挪；× 从来不盖住名字（现在是盖在名字末尾）</div>
+    <div><b>分屏标签</b>：叠卡跟着图标放大（16/18 → 18/18 的比例），和名字一起当一整块居中</div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1300,"height":600}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>
