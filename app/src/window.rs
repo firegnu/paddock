@@ -539,19 +539,19 @@ const TAB_DOT_DROP: f32 = 2.0;
 const TAB_STACK: f32 = TAB_BADGE.icon / tab_stack::CARD;
 /// What a command palette row's hover brightens: this name on each row.
 const PALETTE_ROW: &str = "palette-row";
-/// The title bar's `+`; and its capsule at the right end (P5-171 rework 2): its height, corners
-/// and ring, the two buttons either side of Search, and the line between its parts. The parts fit
-/// inside the ring, the lines drawn over their edges and taking no room; unscaled.
+/// The title bar's `+`; and its capsule at the right end (P5-171 rework 2, P5-173): its height and
+/// corners, the two buttons either side of Search, and the line between its parts. The capsule has
+/// no ring now, so its parts take the room the ring had, the lines drawn over their edges and
+/// taking no room; unscaled.
 const BAR_BUTTON: f32 = 28.0;
 const CAPSULE_HEIGHT: f32 = 28.0;
 const CAPSULE_RADIUS: f32 = 8.0;
-const CAPSULE_RING: f32 = 1.0;
-const CAPSULE_SIDE: f32 = 30.0;
+const CAPSULE_SIDE: f32 = 31.0;
 const CAPSULE_SEARCH: f32 = 208.0;
 const CAPSULE_RULE: f32 = 1.0;
 const CAPSULE_RULE_HEIGHT: f32 = 14.0;
-/// The capsule across as drawn, unscaled: its ring either side and its three parts.
-const CAPSULE: f32 = 2.0 * CAPSULE_RING + 2.0 * CAPSULE_SIDE + CAPSULE_SEARCH;
+/// The capsule across as drawn, unscaled: its three parts.
+const CAPSULE: f32 = 2.0 * CAPSULE_SIDE + CAPSULE_SEARCH;
 /// The room between the title bar's tabs and buttons, and at either end of the part after the
 /// sidebar; unscaled.
 const BAR_GAP: f32 = 4.0;
@@ -729,6 +729,13 @@ fn split_glyph(axis: Axis, color: Hsla, scale: f32) -> Div {
 fn title_bar_height(ui: &UiFont, pet: bool) -> f32 {
     let base = if pet { PET_TITLE_BAR } else { TITLE_BAR };
     base.max(ui.scale(base))
+}
+
+/// How far below the bar's middle what the bar holds sits, the tabs and the `+` (P5-165 rework 2)
+/// and the capsule at its right end with them (P5-173): the room over what the joined active tab
+/// holds, halved, less a point.
+fn bar_drop(ui: &UiFont, pet: bool) -> f32 {
+    (title_bar_height(ui, pet) - ui.scale(TAB_HEIGHT)) / 4.0 - ui.scale(1.0)
 }
 
 /// The room the title bar's tabs fit in, `window` points across: less its left part, the room at
@@ -4848,6 +4855,16 @@ impl PaddockWindow {
         (if self.frosted() { tint } else { lit }, lit)
     }
 
+    /// The title bar capsule's grounds (P5-173): the selected tab's joined to its panel, the
+    /// terminal's own ground, whole, so the capsule is cut from the same stuff over the material
+    /// and in full screen alike; and the faint ground a part takes under the mouse or lit, as a
+    /// tab of the bar's (see [`Self::flat_grounds`]), blended over it.
+    fn capsule_grounds(&self) -> (Hsla, Hsla) {
+        let ground = hsla(self.theme.terminal().background, 1.0);
+        let lit = ground.blend(self.fg(|t| t.agents_text).opacity(FLAT_LIT));
+        (ground, lit)
+    }
+
     /// The title bar: over the sidebar the traffic lights (none in full screen) and the sidebar's
     /// header row, then the tabs from the terminal's left edge, the `+` after the last, and the
     /// pet in the room left. What is not a tab or a button drags the window, and a double click
@@ -4896,9 +4913,8 @@ impl PaddockWindow {
         // joins the panel, from its top edge down to the panel, a point high: this far below the
         // bar's middle. The active tab keeps its top edge and takes it as room over what it holds,
         // twice over to centre it; as a capsule, as last drawn, it centres what it holds in itself
-        // (P5-165 rework 2).
-        let drop = (title_bar_height(&ui, self.pet.is_some()) - ui.scale(TAB_HEIGHT)) / 4.0
-            - ui.scale(1.0);
+        // (P5-165 rework 2). The capsule at the right end drops with them (P5-173).
+        let drop = bar_drop(&ui, self.pet.is_some());
         let joined = self.joined.get();
         for shown in fit.shown {
             let index = shown.index;
@@ -5342,18 +5358,16 @@ impl PaddockWindow {
 
     /// The title bar's right end: the split button, Search and the right sidebar's switch in one
     /// capsule, a faint line between its parts (P5-171 rework 2, design A). The part under the
-    /// mouse, or lit, fills whole and the lines either side of it give way. Over the material the
-    /// capsule is the dark field the search box was (P5-171); in full screen the bar's own ground.
+    /// mouse, or lit, fills whole and the lines either side of it give way. Since P5-173 it is cut
+    /// from the selected tab's joined ground, whole and unringed, so it reads as the same stuff as
+    /// the tab, over the material and in full screen alike; it drops with the tabs and the `+` to
+    /// sit on their line.
     fn bar_capsule(&self, cx: &mut Context<Self>) -> Stateful<Div> {
         let ui = UiFont::get(cx);
         let rule = hsla(self.theme.fg(|t| t.agents_rule), 1.0);
-        let (ground, border) = if self.frosted() {
-            (hsla(self.theme.frame(), 1.0).opacity(0.6), rule)
-        } else {
-            (self.bar_ground().opacity(0.5), rule.opacity(0.6))
-        };
-        // Fainter than the ring, so the lines between the parts never carry the eye.
-        let line = rule.opacity(if self.frosted() { 0.6 } else { 0.35 });
+        let (ground, _) = self.capsule_grounds();
+        // Half what the ringed capsule's lines were, so they never carry the eye.
+        let line = rule.opacity(0.3);
         let (rule_in, rule_across, rule_high) = (
             ui.px(-CAPSULE_RULE),
             ui.px(CAPSULE_RULE),
@@ -5380,16 +5394,17 @@ impl PaddockWindow {
         let split = self.split_button(cx);
         let search = self.search_button(cx);
         let right = self.right_button(cx);
+        let drop = bar_drop(&ui, self.pet.is_some());
         div()
             .id("bar-capsule")
+            .relative()
+            .top(px(drop))
             .flex_shrink_0()
             .flex()
             .items_center()
             .w(ui.px(CAPSULE))
             .h(ui.px(CAPSULE_HEIGHT))
             .rounded(ui.px(CAPSULE_RADIUS))
-            .border(ui.px(CAPSULE_RING))
-            .border_color(border)
             .bg(ground)
             .child(self.capsule_part(CapsulePart::Split, CAPSULE_SIDE, &ui, split, cx))
             .when(between_split, |capsule| capsule.child(line()))
@@ -5398,8 +5413,8 @@ impl PaddockWindow {
             .child(self.capsule_part(CapsulePart::Right, CAPSULE_SIDE, &ui, right, cx))
     }
 
-    /// One part of the capsule, `width` across and filling it inside the ring, noting when the
-    /// pointer comes onto it or leaves so the lines either side follow (P5-171 rework 2).
+    /// One part of the capsule, `width` across and filling it, noting when the pointer comes onto
+    /// it or leaves so the lines either side follow (P5-171 rework 2).
     fn capsule_part(
         &self,
         part: CapsulePart,
@@ -5419,7 +5434,7 @@ impl PaddockWindow {
             .items_center()
             .justify_center()
             .w(ui.px(width))
-            .h(ui.px(CAPSULE_HEIGHT - 2.0 * CAPSULE_RING))
+            .h(ui.px(CAPSULE_HEIGHT))
             .on_hover(cx.listener(move |this, hovered: &bool, _, cx| {
                 this.hover_capsule(part, *hovered, cx)
             }))
@@ -5446,7 +5461,7 @@ impl PaddockWindow {
     /// close and in to open.
     fn right_button(&self, cx: &mut Context<Self>) -> HoverMotion {
         let ui = UiFont::get(cx);
-        let highlight = self.bar_ground();
+        let highlight = self.capsule_grounds().1;
         let lit = self.right.open;
         let tip = BarTip {
             text: "Toggle right sidebar".into(),
@@ -5472,7 +5487,7 @@ impl PaddockWindow {
                 .justify_center()
                 .w_full()
                 .h_full()
-                .rounded_r(ui.px(CAPSULE_RADIUS - CAPSULE_RING))
+                .rounded_r(ui.px(CAPSULE_RADIUS))
                 .cursor_pointer()
                 .when(lit, |button| button.bg(highlight))
                 .hover(move |style| style.bg(highlight))
@@ -5494,7 +5509,7 @@ impl PaddockWindow {
     /// while the panel hangs from it. Its halves part as the pointer comes in.
     fn split_button(&self, cx: &mut Context<Self>) -> HoverMotion {
         let ui = UiFont::get(cx);
-        let highlight = self.bar_ground();
+        let highlight = self.capsule_grounds().1;
         let lit = self.split_hanging() == Some(SplitFrom::Bar);
         let tip = BarTip {
             text: "Split pane".into(),
@@ -5523,7 +5538,7 @@ impl PaddockWindow {
                 .justify_center()
                 .w_full()
                 .h_full()
-                .rounded_l(ui.px(CAPSULE_RADIUS - CAPSULE_RING))
+                .rounded_l(ui.px(CAPSULE_RADIUS))
                 .cursor_pointer()
                 .when(lit, |button| button.bg(highlight))
                 .hover(move |style| style.bg(highlight))
@@ -5544,16 +5559,12 @@ impl PaddockWindow {
     /// before it does. Its magnifier tilts as the pointer comes in.
     fn search_button(&self, cx: &mut Context<Self>) -> HoverMotion {
         let ui = UiFont::get(cx);
-        let highlight = self.bar_ground();
-        // Over the material the part darkens under the mouse; the capsule around it keeps the
-        // dark field's colour (P5-171).
-        let hovered = if self.frosted() {
-            hsla(self.theme.frame(), 1.0).opacity(0.75)
-        } else {
-            highlight
-        };
+        let highlight = self.capsule_grounds().1;
         let dim = self.bar_fg(|t| t.agents_dim);
-        let keycaps = self.keycaps(&menu::keys(&menu::Search), &ui, 18.0, highlight);
+        // The shortcut as a line of faint text, no caps, a step dimmer than the word beside it
+        // (P5-173).
+        let keys = menu::keys(&menu::Search).concat();
+        let faint = self.bar_fg(|t| t.agents_dimmer);
         let on_click =
             cx.listener(|this, _: &ClickEvent, window, cx| this.toggle_palette("", window, cx));
         motion::hover_motion("search-motion", motion::TILT, move |hover| {
@@ -5566,8 +5577,8 @@ impl PaddockWindow {
                 .items_center()
                 .gap(ui.px(8.0))
                 .pl(ui.px(10.0))
-                .pr(ui.px(6.0))
-                .hover(move |style| style.bg(hovered))
+                .pr(ui.px(9.0))
+                .hover(move |style| style.bg(highlight))
                 .text_size(ui.px(12.5))
                 .text_color(dim)
                 .cursor_pointer()
@@ -5579,7 +5590,13 @@ impl PaddockWindow {
                     ui.scale(13.0 / footer_icon::SIZE),
                 ))
                 .child(div().flex_1().child("Search"))
-                .child(keycaps)
+                .child(
+                    div()
+                        .flex_shrink_0()
+                        .text_size(ui.px(12.0))
+                        .text_color(faint)
+                        .child(keys),
+                )
                 .on_click(on_click)
         })
     }
@@ -7173,11 +7190,13 @@ impl PaddockWindow {
                 )
             }
             Popup::Split(_) => (
-                // Not drawn yet: the capsule's first part at the title bar's right end.
+                // Not drawn yet: the capsule's first part at the title bar's right end, on the
+                // line the capsule drops to (P5-173).
                 spots.get(&Spot::Split).copied().unwrap_or_else(|| {
-                    let high = (CAPSULE_HEIGHT - 2.0 * CAPSULE_RING) * s;
-                    let left = f32::from(viewport.width) - BAR_END - CAPSULE * s + CAPSULE_RING * s;
-                    rect(left, (title - high) / 2.0, CAPSULE_SIDE * s, high)
+                    let high = CAPSULE_HEIGHT * s;
+                    let left = f32::from(viewport.width) - BAR_END - CAPSULE * s;
+                    let drop = bar_drop(&ui, self.pet.is_some());
+                    rect(left, (title - high) / 2.0 + drop, CAPSULE_SIDE * s, high)
                 }),
                 Hang::BelowRight,
             ),
@@ -8701,9 +8720,9 @@ mod tests {
     #[test]
     fn the_tabs_give_way_by_the_capsule_across() {
         // The capsule at the title bar's right end: the split button, Search and the right
-        // sidebar's switch, its ring either side; the lines between the parts are drawn over
-        // their edges and take no room (P5-171 rework 2).
-        assert_eq!(CAPSULE, 2.0 * 1.0 + 30.0 + 208.0 + 30.0);
+        // sidebar's switch, with no ring since P5-173; the lines between the parts are drawn over
+        // their edges and take no room.
+        assert_eq!(CAPSULE, 31.0 + 208.0 + 31.0);
         // The tabs' room gives way by exactly that much as the interface scales.
         let base = tabs_room(1200.0, 300.0, 12.0, 1.0);
         let doubled = tabs_room(1200.0, 300.0, 12.0, 2.0);
