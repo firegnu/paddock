@@ -13,7 +13,7 @@ use crate::{
     kanban::{self, Column},
     theme::Theme,
     view::hsla,
-    window::{Grounds, NAME_LIFT, RING_ACTIVE, TAB_RING, capsule_grounds},
+    window::{Grounds, RING_ACTIVE, TAB_RING, capsule_grounds, name_lift},
 };
 use gpui::{
     AnyElement, App, ClickEvent, Div, FontWeight, Hsla, Pixels, Render, SharedString, Window, div,
@@ -233,9 +233,13 @@ impl RightPanel {
         // The title bar's neutral capsule, over the card's ground: the selected one brighter, in
         // an accent ring, which the others have clear so every label sits alike.
         let bright = fg(|t| t.agents_text);
-        let Grounds { rest, lit, chosen } =
-            capsule_grounds(hsla(theme.terminal().background, 1.0), bright, None);
-        let quiet = fg(|t| t.muted).blend(bright.opacity(NAME_LIFT));
+        let Grounds { rest, lit, chosen } = capsule_grounds(
+            hsla(theme.terminal().background, 1.0),
+            bright,
+            None,
+            theme.is_light(),
+        );
+        let quiet = fg(|t| t.muted).blend(bright.opacity(name_lift(theme.is_light())));
         let mut tabs = div()
             .flex()
             .items_center()

@@ -2071,7 +2071,7 @@ impl TerminalView {
                 rows::legible(&mut cells, crate::palette::MIN_CONTRAST);
             }
             if self.theme.is_faded() {
-                crate::unfocused::fade_cells(&mut cells);
+                crate::unfocused::fade_cells(&mut cells, self.theme.is_light());
             }
             if let Some(link) = &link {
                 let line = Line(y - offset);
@@ -2107,7 +2107,7 @@ impl TerminalView {
                 text: (cell.c != ' ').then(|| cell.c.to_string()),
                 wide,
                 color: if self.theme.is_faded() {
-                    crate::unfocused::fade(screen.cursor_color())
+                    crate::unfocused::fade(screen.cursor_color(), self.theme.is_light())
                 } else {
                     screen.cursor_color()
                 },

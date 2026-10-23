@@ -57,10 +57,12 @@ pub(super) struct Joint {
 }
 
 /// What the active tab is drawn in: the working light's colour while it runs, else its status
-/// colour; as a capsule, its ground and its ring.
+/// colour; as a capsule, its ground and its ring; and whether the theme is a light one, for the
+/// working light's head (P5-175).
 #[derive(Clone, Copy)]
 pub(super) struct TabLook {
     pub(super) light: Option<Hsla>,
+    pub(super) light_theme: bool,
     pub(super) tint: Option<Hsla>,
     pub(super) ground: Hsla,
     pub(super) ring: Hsla,
@@ -329,7 +331,7 @@ impl PaddockWindow {
                         BorderStyle::Solid,
                     ));
                     if let Some(ink) = look.light {
-                        let head = orbit::head(ink);
+                        let head = orbit::head(ink, look.light_theme);
                         orbit::paint(inside, phase, ink, head, 1.0, scale, window);
                     }
                 },
@@ -397,7 +399,8 @@ impl PaddockWindow {
                             let (x, y) = shape.point(t, INSET);
                             point(px(x), px(y))
                         };
-                        orbit::paint_open(at, phase, ink, shown, scale, window);
+                        let head = orbit::head(ink, look.light_theme);
+                        orbit::paint_open(at, phase, ink, head, shown, scale, window);
                     } else if let Some(tint) = look.tint {
                         let color = tint.opacity(RING_TINTED * shown);
                         paint_outline(&shape, color, TAB_RING, window);

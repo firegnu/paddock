@@ -11,8 +11,15 @@ use crate::{
 };
 use anyhow::{Result, anyhow, bail};
 
-/// How much of the terminal's background the window's ground around the panes keeps.
+/// How much of the terminal's background the window's ground around the panes keeps: on a dark
+/// theme, and on a light one (P5-175), where as much would turn it a mid grey; there it lands
+/// near Latte's own crust.
 const FRAME: f32 = 0.55;
+const FRAME_LIGHT: f32 = 0.92;
+
+/// How much of a shadow's or a dimming's darkness stays on a light theme (P5-175): black stands
+/// out far more against a light ground, where as dark a shadow reads as a smudge.
+const SHADE_LIGHT: f32 = 0.5;
 
 /// How opaque the two layers under the window lie over the system's sidebar material (P5-96): the
 /// sidebar's colour over its column, the darker frame elsewhere; and how strong the material's
@@ -157,6 +164,35 @@ const CATPPUCCIN: Terminal = Terminal {
     ],
     cursor: rgb(0xf5e0dc),
     selection: rgb(0x414356),
+};
+
+/// Catppuccin Latte (https://github.com/catppuccin/alacritty, MIT, Copyright (c) 2021
+/// Catppuccin): the terminal colours as published, with the rosewater cursor and, as for Mocha,
+/// the style guide's selection, overlay2 at 30% over base. Four read under 3:1 on its light base,
+/// so they are darkened just enough, towards black: green #40a02b to #3f9e2b, yellow #df8e1d to
+/// #c27b19, magenta #ea76cb to #cd67b2 (each the normal and the bright one, which repeat), and
+/// bright black (surface2, #acb0be) to #888b96.
+const LATTE: Terminal = Terminal {
+    ansi: [
+        rgb(0xbcc0cc),
+        rgb(0xd20f39),
+        rgb(0x3f9e2b),
+        rgb(0xc27b19),
+        rgb(0x1e66f5),
+        rgb(0xcd67b2),
+        rgb(0x179299),
+        rgb(0x5c5f77),
+        rgb(0x888b96),
+        rgb(0xd20f39),
+        rgb(0x3f9e2b),
+        rgb(0xc27b19),
+        rgb(0x1e66f5),
+        rgb(0xcd67b2),
+        rgb(0x179299),
+        rgb(0x6c6f85),
+    ],
+    cursor: rgb(0xdc8a78),
+    selection: rgb(0xcdcfd8),
 };
 
 /// Tokyo Night, night style (https://github.com/folke/tokyonight.nvim `extras/kitty`, Apache-2.0,
@@ -351,6 +387,7 @@ impl Theme {
             Preset::Tide => &TIDE,
             Preset::Lagoon => &LAGOON,
             Preset::Catppuccin => &CATPPUCCIN,
+            Preset::Latte => &LATTE,
             Preset::TokyoNight => &TOKYO_NIGHT,
             Preset::RosePine => &ROSE_PINE,
             Preset::Kanagawa => &KANAGAWA,
@@ -412,7 +449,28 @@ impl Theme {
 
     /// `color` as handed out: faded while [`Self::is_faded`].
     fn look(&self, color: Rgb) -> Rgb {
-        if self.faded { fade(color) } else { color }
+        if self.faded {
+            fade(color, self.is_light())
+        } else {
+            color
+        }
+    }
+
+    /// Whether this is a light theme (P5-175): the terminal's background as set is light (see
+    /// [`palette::light`]). Where paddock's colours were written for dark grounds, a light one
+    /// takes them the other way round, or softer.
+    pub fn is_light(&self) -> bool {
+        self.own.is_light()
+    }
+
+    /// How dark a shadow or a dimming written `alpha` black for a dark theme is on this one: as
+    /// written, or [`SHADE_LIGHT`] of it on a light theme.
+    pub fn shade(&self, alpha: f32) -> f32 {
+        if self.is_light() {
+            alpha * SHADE_LIGHT
+        } else {
+            alpha
+        }
     }
 
     /// These colours for paddock out of the front, another application in front (DESIGN §13
@@ -464,9 +522,11 @@ impl Theme {
     }
 
     /// The window's ground around and between the panes' panels: the terminal's background a
-    /// step darker, so each panel stands off it (DESIGN §13 P5-59).
+    /// step darker, so each panel stands off it (DESIGN §13 P5-59); a smaller step on a light
+    /// theme ([`FRAME_LIGHT`]).
     pub fn frame(&self) -> Rgb {
-        let darker = |channel: u8| (f32::from(channel) * FRAME).round() as u8;
+        let keep = if self.is_light() { FRAME_LIGHT } else { FRAME };
+        let darker = |channel: u8| (f32::from(channel) * keep).round() as u8;
         let (r, g, b) = self.own.background;
         self.look((darker(r), darker(g), darker(b)))
     }
@@ -675,6 +735,9 @@ mod tests {
             let theme = theme(&format!("theme = \"{name}\"")).unwrap();
             let faded = theme.faded();
             assert!(faded.is_faded() && !theme.is_faded(), "{name}");
+            // A dark theme fades towards a dark middle, the light one towards white (P5-175).
+            let light = theme.is_light();
+            let fade = |color| fade(color, light);
             assert_eq!(
                 faded.fg(|t| t.agents_text),
                 fade(theme.fg(|t| t.agents_text))
@@ -789,6 +852,7 @@ mod tests {
             ("tide", Preset::Tide, &TIDE),
             ("lagoon", Preset::Lagoon, &LAGOON),
             ("catppuccin", Preset::Catppuccin, &CATPPUCCIN),
+            ("latte", Preset::Latte, &LATTE),
             ("tokyonight", Preset::TokyoNight, &TOKYO_NIGHT),
             ("rosepine", Preset::RosePine, &ROSE_PINE),
             ("kanagawa", Preset::Kanagawa, &KANAGAWA),
@@ -842,12 +906,57 @@ mod tests {
                 "{}: {frame:?} over {background:?}",
                 preset.name()
             );
-            assert!(
-                sum(frame) * 10 <= sum(background) * 7,
-                "{}: {frame:?} over {background:?}",
+            if theme.is_light() {
+                // A light theme's a smaller step, still plainly one: not a mid grey (P5-175).
+                assert!(
+                    sum(frame) * 100 <= sum(background) * 95
+                        && sum(frame) * 100 >= sum(background) * 85,
+                    "{}: {frame:?} over {background:?}",
+                    preset.name()
+                );
+            } else {
+                assert!(
+                    sum(frame) * 10 <= sum(background) * 7,
+                    "{}: {frame:?} over {background:?}",
+                    preset.name()
+                );
+                // As it was before the light theme came.
+                let darker = |channel: u8| (f32::from(channel) * 0.55).round() as u8;
+                let (r, g, b) = background;
+                assert_eq!(
+                    frame,
+                    (darker(r), darker(g), darker(b)),
+                    "{}",
+                    preset.name()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn latte_alone_is_light_and_only_there_do_shadows_soften() {
+        for preset in Preset::ALL {
+            let theme = theme(&format!("theme = \"{}\"", preset.name())).unwrap();
+            assert_eq!(
+                theme.is_light(),
+                preset == Preset::Latte,
+                "{}",
                 preset.name()
             );
+            // Faded, a theme stays what it is.
+            assert_eq!(theme.faded().is_light(), theme.is_light());
+            for alpha in [0.2, 0.35, 0.45] {
+                let shade = theme.shade(alpha);
+                if theme.is_light() {
+                    assert!(shade < alpha && shade > 0.0, "{}", preset.name());
+                } else {
+                    assert_eq!(shade, alpha, "{}", preset.name());
+                }
+            }
         }
+        // A dark theme whose background is written light is drawn as a light one.
+        let light = theme("theme = \"tide\"\n[colors]\nbg = \"#f4f4f4\"").unwrap();
+        assert!(light.is_light());
     }
 
     #[test]
@@ -865,7 +974,7 @@ mod tests {
             );
             assert!(
                 message.contains(
-                    "expected dune, tide, lagoon, catppuccin, tokyonight, rosepine or kanagawa"
+                    "expected dune, tide, lagoon, catppuccin, latte, tokyonight, rosepine or kanagawa"
                 ),
                 "{message}"
             );

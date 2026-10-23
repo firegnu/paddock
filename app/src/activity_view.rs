@@ -141,15 +141,22 @@ impl Colors {
         } else {
             (0.025, fg(|t| t.agents_rule), None)
         };
-        let ground = motion::mix(base, text, tint).opacity(SEE_THROUGH);
-        let levels = ramp(base, accent, text, frost);
+        // Over the material on a light theme (P5-175) the ground is whole: GPUI adds a
+        // see-through layer's alpha to the sidebar's wash's, which would grey a light one.
+        let see_through = if frosted && theme.is_light() {
+            1.0
+        } else {
+            SEE_THROUGH
+        };
+        let ground = motion::mix(base, text, tint).opacity(see_through);
+        let levels = ramp(base, accent, text, frost, theme.is_light());
         Self {
             ground,
             edge,
             levels,
             accent,
             hot: levels[4],
-            flash: white_hot(accent, text, FLASH),
+            flash: white_hot(accent, text, FLASH, theme.is_light()),
             text,
             dim: fg(|t| t.agents_dim),
             dimmer: fg(|t| t.agents_dimmer),
@@ -183,7 +190,9 @@ impl Colors {
 }
 /// The accent `share` of the way towards the text, then towards white as far as it takes to stand
 /// [`HOT_STEP`] above the accent: the busiest level, and the sweep's light, which must not dim it.
-fn white_hot(accent: Hsla, text: Hsla, share: f32) -> Hsla {
+/// On a `light` theme (P5-175) the busiest level is the darkest: towards the dark text, then
+/// towards black as far as it takes to stand [`HOT_STEP`] below the accent.
+fn white_hot(accent: Hsla, text: Hsla, share: f32, light: bool) -> Hsla {
     fn luminance(color: Hsla) -> f32 {
         let c = gpui::Rgba::from(color);
         let linear = |v: f32| {
@@ -195,13 +204,25 @@ fn white_hot(accent: Hsla, text: Hsla, share: f32) -> Hsla {
         };
         0.2126 * linear(c.r) + 0.7152 * linear(c.g) + 0.0722 * linear(c.b)
     }
-    let least = (luminance(accent) + 0.05) * HOT_STEP - 0.05;
     let hot = motion::mix(accent, text, share);
-    let mut white = 0.0;
+    let accent = luminance(accent) + 0.05;
+    let (far, bound) = if light {
+        (gpui::black(), accent / HOT_STEP - 0.05)
+    } else {
+        (gpui::white(), accent * HOT_STEP - 0.05)
+    };
+    let apart = |level: Hsla| {
+        if light {
+            luminance(level) <= bound
+        } else {
+            luminance(level) >= bound
+        }
+    };
+    let mut toward = 0.0;
     let mut level = hot;
-    while luminance(level) < least && white < 1.0 {
-        white += 0.02;
-        level = motion::mix(hot, gpui::white(), white);
+    while !apart(level) && toward < 1.0 {
+        toward += 0.02;
+        level = motion::mix(hot, far, toward);
     }
     level
 }
@@ -210,8 +231,9 @@ fn white_hot(accent: Hsla, text: Hsla, share: f32) -> Hsla {
 /// shows as a cell; then solid steps from the accent deep in the sidebar's colour `base`, through
 /// the accent, to the accent white-hot towards the `text`. Over the material (`frost`, its `lit`)
 /// the sidebar's colour is not what lies under a cell, so there the deep steps let the accent
-/// through over whatever does, which mixes it into that all the same.
-fn ramp(base: Hsla, accent: Hsla, text: Hsla, frost: Option<f32>) -> [Hsla; 5] {
+/// through over whatever does, which mixes it into that all the same. On a `light` theme the dark
+/// text makes the steps go darker instead, to the darkest at the busiest.
+fn ramp(base: Hsla, accent: Hsla, text: Hsla, frost: Option<f32>, light: bool) -> [Hsla; 5] {
     let empty = match frost {
         Some(lit) => text.opacity(lit * EMPTY_FROSTED),
         None => motion::mix(base, text, EMPTY),
@@ -225,7 +247,7 @@ fn ramp(base: Hsla, accent: Hsla, text: Hsla, frost: Option<f32>) -> [Hsla; 5] {
         deep(DEEP[0]),
         deep(DEEP[1]),
         accent,
-        white_hot(accent, text, HOT),
+        white_hot(accent, text, HOT, light),
     ]
 }
 
@@ -1053,7 +1075,7 @@ mod tests {
     }
 
     #[test]
-    fn each_level_is_a_step_brighter_than_the_last() {
+    fn each_level_is_a_step_further_than_the_last() {
         // `top` laid over the opaque `under`.
         fn over(top: Hsla, under: gpui::Rgba) -> gpui::Rgba {
             let top = gpui::Rgba::from(top);
@@ -1083,20 +1105,35 @@ mod tests {
             .unwrap();
             let base = hsla(theme.bg(|t| t.agents_bg), 1.0);
             // Over the material: about the grey under a selected card, washed with the
-            // sidebar's colour as the column is.
-            let washed = motion::mix(gpui::rgb(0x45494a).into(), base, theme.frost().wash);
+            // sidebar's colour as the column is; the material's light look on a light theme, as
+            // a screenshot shows it (P5-175).
+            let light = theme.is_light();
+            let material = if light { 0xe6e6e6 } else { 0x45494a };
+            let washed = motion::mix(gpui::rgb(material).into(), base, theme.frost().wash);
             for (column, frosted) in [(base, false), (washed, true)] {
                 let c = Colors::of(&theme, frosted);
+                // See-through as it was, but whole over the material on a light theme.
+                let whole = frosted && light;
+                let alpha = if whole { 1.0 } else { SEE_THROUGH };
+                assert_eq!(c.ground.a, alpha, "{name}, frosted {frosted}");
                 let ground = over(c.ground, column.into());
                 // The panel's ground, then the five levels: a day without commits shows as a
-                // cell, and each level stands well apart from the one below.
+                // cell, and each level stands well apart from the one below, brighter on a dark
+                // theme, darker on a light one.
                 let lum: Vec<f32> = std::iter::once(ground)
                     .chain(c.levels.iter().map(|&level| over(level, ground)))
                     .map(luminance)
                     .collect();
                 let steps: Vec<f32> = lum
                     .windows(2)
-                    .map(|pair| (pair[1] + 0.05) / (pair[0] + 0.05))
+                    .map(|pair| {
+                        let (from, to) = if light {
+                            (pair[1], pair[0])
+                        } else {
+                            (pair[0], pair[1])
+                        };
+                        (to + 0.05) / (from + 0.05)
+                    })
                     .collect();
                 assert!(
                     steps.iter().all(|&step| step >= 1.15),

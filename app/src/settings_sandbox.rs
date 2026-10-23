@@ -500,7 +500,7 @@ impl SettingsView {
             .p(px(2.0))
             .gap(px(2.0))
             .rounded(px(8.0))
-            .bg(gpui::black().opacity(0.22));
+            .bg(gpui::black().opacity(self.theme.shade(0.22)));
         for (index, kind) in profiles.kinds.iter().enumerate() {
             let on = state.kind.as_deref() == Some(kind.kind.as_str());
             let name = kind.kind.clone();

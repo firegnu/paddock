@@ -398,7 +398,7 @@ impl Sidebar {
                     .gap(ui.px(2.0))
                     .p(ui.px(2.0))
                     .rounded(ui.px(8.0))
-                    .bg(gpui::black().opacity(0.2))
+                    .bg(gpui::black().opacity(theme.shade(0.2)))
                     .child(
                         toggle(
                             "denials-counted",
