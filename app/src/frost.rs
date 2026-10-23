@@ -4,7 +4,8 @@
 //! window's size, so it shows wherever GPUI leaves the window clear: the sidebar's column and the
 //! frame around the panes' panels, which GPUI draws opaque over it; GPUI's view covers it whole,
 //! so it never takes the mouse or the keyboard. It can be thinned, down to nothing, letting the
-//! desktop behind show clearer (P5-169).
+//! desktop behind show clearer (P5-169); under it the window keeps the desktop blurred, uncoloured,
+//! so thinned it leaves frosted glass, not clear (P5-170).
 use objc2::{MainThreadMarker, MainThreadOnly, rc::Retained};
 use objc2_app_kit::{
     NSAppearance, NSAppearanceCustomization, NSAppearanceNameAqua, NSAppearanceNameDarkAqua,
@@ -117,7 +118,8 @@ impl Frost {
 
     /// How opaque the material lies over the desktop behind the window, from 0 to 1 (P5-169):
     /// thinner, its frosting, brightening and tint fade together and the desktop shows clearer;
-    /// at 0 it is gone, and the window is clear glass wherever GPUI draws nothing.
+    /// at 0 it is gone, leaving the window's own uncoloured blur (P5-170) wherever GPUI draws
+    /// nothing.
     pub fn set_opacity(&mut self, opacity: f32) {
         if self.opacity == opacity {
             return;
