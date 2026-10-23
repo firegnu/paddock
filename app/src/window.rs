@@ -749,6 +749,18 @@ enum Under {
     Shade,
 }
 
+/// The window's own background while the system's material is under it: opaque in full screen,
+/// where there is nothing behind to show; else see-through, the desktop behind blurred and left
+/// uncoloured under the material, so the material thinned down to nothing leaves frosted glass, not
+/// clear (P5-170).
+fn background(full_screen: bool) -> WindowBackgroundAppearance {
+    if full_screen {
+        WindowBackgroundAppearance::Opaque
+    } else {
+        WindowBackgroundAppearance::Blurred
+    }
+}
+
 /// The layers under everything in a window `window` big, by the sidebar's `column`: the sidebar's
 /// colour over its column and the frame elsewhere, over the strip the title bar's whole row. While
 /// the system's sidebar material shows (`frosted`), the column is washed and the frame shaded over
@@ -1566,7 +1578,7 @@ impl PaddockWindow {
         this.seat_machines(config, saved.as_ref(), window, cx);
         // The column shows the material through the window, which is see-through for it.
         if this.frost.is_some() {
-            window.set_background_appearance(WindowBackgroundAppearance::Transparent);
+            window.set_background_appearance(background(false));
             this.sidebar
                 .update(cx, |sidebar, cx| sidebar.set_frosted(true, cx));
         }
@@ -1599,11 +1611,7 @@ impl PaddockWindow {
             if full_screen != this.full_screen {
                 this.full_screen = full_screen;
                 if this.frost.is_some() {
-                    window.set_background_appearance(if full_screen {
-                        WindowBackgroundAppearance::Opaque
-                    } else {
-                        WindowBackgroundAppearance::Transparent
-                    });
+                    window.set_background_appearance(background(full_screen));
                 }
                 let frosted = this.frosted();
                 this.sidebar
@@ -8591,6 +8599,14 @@ mod tests {
                 (Under::Shade, beside)
             ]
         );
+    }
+
+    #[test]
+    fn under_the_material_the_desktop_stays_blurred_and_full_screen_is_opaque() {
+        // Blurred, uncoloured, under the material: thinned to nothing, the window is still frosted
+        // glass, not clear (P5-170).
+        assert_eq!(background(false), WindowBackgroundAppearance::Blurred);
+        assert_eq!(background(true), WindowBackgroundAppearance::Opaque);
     }
 
     #[test]
