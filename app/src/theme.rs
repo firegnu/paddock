@@ -138,6 +138,97 @@ const LAGOON: Terminal = Terminal {
     selection: rgb(0x284440),
 };
 
+/// Gruvbox light (https://github.com/morhetz/gruvbox, MIT/X11, by morhetz) for Dune's light version
+/// (P5-177): the terminal colours as published, light0 as black, dark4/gray as the two grays, dark1
+/// as white and cursor, except that the normal hues take the faded ones as the bright hues do, as
+/// the sample has them (`docs/设计稿/P5-177-Dune-Tide-Lagoon浅色版/`): the neutral ones read under
+/// 3:1 on its light ground. The selection is light1, as the sample has it.
+const DUNE_LIGHT: Terminal = Terminal {
+    ansi: [
+        rgb(0xfbf1c7),
+        rgb(0x9d0006),
+        rgb(0x79740e),
+        rgb(0xb57614),
+        rgb(0x076678),
+        rgb(0x8f3f71),
+        rgb(0x427b58),
+        rgb(0x7c6f64),
+        rgb(0x928374),
+        rgb(0x9d0006),
+        rgb(0x79740e),
+        rgb(0xb57614),
+        rgb(0x076678),
+        rgb(0x8f3f71),
+        rgb(0x427b58),
+        rgb(0x3c3836),
+    ],
+    cursor: rgb(0x3c3836),
+    selection: rgb(0xebdbb2),
+};
+
+/// Nord (https://www.nordtheme.com, MIT, Copyright (c) 2016-present Sven Greb) for Tide's light
+/// version (P5-177), which has no light terminal colours of its own: Snow Storm nord4 as black,
+/// Polar Night nord1 and #7b88a1 as the two grays, nord0 as white and cursor, nord4 the selection,
+/// as the sample has them (`docs/设计稿/P5-177-Dune-Tide-Lagoon浅色版/`). Red and blue (frost
+/// nord10) as published; green, yellow, magenta and cyan deepened by the sample to read on the
+/// light ground: nord14 to #5f7f4a, nord13 to #9a7a2e, nord15 to #9a6e93, nord8 to #3b8ba3. The
+/// bright colours are the normal ones mixed 25% toward black, the mirror of Tide's.
+const TIDE_LIGHT: Terminal = Terminal {
+    ansi: [
+        rgb(0xd8dee9),
+        rgb(0xbf616a),
+        rgb(0x5f7f4a),
+        rgb(0x9a7a2e),
+        rgb(0x5e81ac),
+        rgb(0x9a6e93),
+        rgb(0x3b8ba3),
+        rgb(0x3b4252),
+        rgb(0x7b88a1),
+        rgb(0x8f4950),
+        rgb(0x475f38),
+        rgb(0x745c23),
+        rgb(0x476181),
+        rgb(0x74536e),
+        rgb(0x2c687a),
+        rgb(0x2e3440),
+    ],
+    cursor: rgb(0x2e3440),
+    selection: rgb(0xd8dee9),
+};
+
+/// Everforest light (https://github.com/sainnhe/everforest, MIT, Copyright (c) 2019 sainnhe) for
+/// Lagoon's light version (P5-177), as Lagoon lays it out: bg3 as black, grey2/grey1 as the two
+/// grays and fg as white (Everforest's own light terminal swaps black and white, which would leave
+/// white unreadable on the light ground). Blue as published; the others deepened by the sample
+/// (`docs/设计稿/P5-177-Dune-Tide-Lagoon浅色版/`): red #f85552 to #d94a47, green #8da101 to #5f8a00,
+/// yellow #dfa000 to #b88a00, magenta #df69ba to #b8569a, cyan (aqua) #35a77c to #2f9474. Three of
+/// them still read under 3:1 on its light ground, so they are darkened just enough, towards black:
+/// yellow #b88a00 to #b28500, grey2 #829181 to #819080, grey1 #939f91 to #858f83. The bright
+/// colours are the normal ones mixed 25% toward black, the mirror of Lagoon's. The cursor is the
+/// text and the selection paddock's own pale teal, as the sample has them.
+const LAGOON_LIGHT: Terminal = Terminal {
+    ansi: [
+        rgb(0xe6e2cc),
+        rgb(0xd94a47),
+        rgb(0x5f8a00),
+        rgb(0xb28500),
+        rgb(0x3a94c5),
+        rgb(0xb8569a),
+        rgb(0x2f9474),
+        rgb(0x819080),
+        rgb(0x858f83),
+        rgb(0xa33835),
+        rgb(0x476800),
+        rgb(0x866400),
+        rgb(0x2c6f94),
+        rgb(0x8a4174),
+        rgb(0x236f57),
+        rgb(0x5c6a72),
+    ],
+    cursor: rgb(0x3a524c),
+    selection: rgb(0xd5e5de),
+};
+
 /// Catppuccin Mocha (https://github.com/catppuccin/alacritty, MIT, Copyright (c) 2021
 /// Catppuccin): the terminal colours as published, with bright black (surface2, #585b70)
 /// lightened to #676a7d to reach 3:1 on base, and the rosewater cursor. Catppuccin's terminals
@@ -469,8 +560,11 @@ impl Theme {
 
         let own = match preset {
             Preset::Dune => &DUNE,
+            Preset::DuneLight => &DUNE_LIGHT,
             Preset::Tide => &TIDE,
+            Preset::TideLight => &TIDE_LIGHT,
             Preset::Lagoon => &LAGOON,
+            Preset::LagoonLight => &LAGOON_LIGHT,
             Preset::Catppuccin => &CATPPUCCIN,
             Preset::Latte => &LATTE,
             Preset::TokyoNight => &TOKYO_NIGHT,
@@ -937,8 +1031,11 @@ mod tests {
         );
 
         for (name, preset, own) in [
+            ("dune-light", Preset::DuneLight, &DUNE_LIGHT),
             ("tide", Preset::Tide, &TIDE),
+            ("tide-light", Preset::TideLight, &TIDE_LIGHT),
             ("lagoon", Preset::Lagoon, &LAGOON),
+            ("lagoon-light", Preset::LagoonLight, &LAGOON_LIGHT),
             ("catppuccin", Preset::Catppuccin, &CATPPUCCIN),
             ("latte", Preset::Latte, &LATTE),
             ("tokyonight", Preset::TokyoNight, &TOKYO_NIGHT),
@@ -1027,6 +1124,9 @@ mod tests {
     #[test]
     fn the_light_presets_alone_are_light_and_only_there_do_shadows_soften() {
         let lights = [
+            Preset::DuneLight,
+            Preset::TideLight,
+            Preset::LagoonLight,
             Preset::Latte,
             Preset::TokyoNightDay,
             Preset::RosePineDawn,
@@ -1071,8 +1171,9 @@ mod tests {
             );
             assert!(
                 message.contains(
-                    "expected dune, tide, lagoon, catppuccin, latte, tokyonight, tokyonight-day, \
-                     rosepine, rosepine-dawn, kanagawa or kanagawa-lotus"
+                    "expected dune, dune-light, tide, tide-light, lagoon, lagoon-light, \
+                     catppuccin, latte, tokyonight, tokyonight-day, rosepine, rosepine-dawn, \
+                     kanagawa or kanagawa-lotus"
                 ),
                 "{message}"
             );
