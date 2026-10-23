@@ -5,6 +5,8 @@
 //! are paddock's own `Color` below instead of ratatui's, with the same values. The Catppuccin
 //! Mocha, Tokyo Night, Rosé Pine and Kanagawa presets are paddock's own (P5-40), as are their
 //! light versions (P5-175, P5-176), from those palettes' published colours; each names its source.
+//! So are Dune's, Tide's and Lagoon's light versions (P5-177), from a sample and the light
+//! versions of the palettes their terminal colours come from.
 
 /// A configured interface colour: the terminal's default, one of the 16 basic colours, an entry of
 /// the 256-colour palette, or RGB.
@@ -94,8 +96,11 @@ pub struct Frost {
 pub enum Preset {
     #[default]
     Dune,
+    DuneLight,
     Tide,
+    TideLight,
     Lagoon,
+    LagoonLight,
     Catppuccin,
     Latte,
     TokyoNight,
@@ -107,10 +112,13 @@ pub enum Preset {
 }
 
 impl Preset {
-    pub const ALL: [Preset; 11] = [
+    pub const ALL: [Preset; 14] = [
         Preset::Dune,
+        Preset::DuneLight,
         Preset::Tide,
+        Preset::TideLight,
         Preset::Lagoon,
+        Preset::LagoonLight,
         Preset::Catppuccin,
         Preset::Latte,
         Preset::TokyoNight,
@@ -120,9 +128,12 @@ impl Preset {
         Preset::Kanagawa,
         Preset::KanagawaLotus,
     ];
-    /// The light version of a dark preset, where it has one (P5-176).
+    /// The light version of a dark preset, where it has one (P5-176, P5-177).
     pub fn light(self) -> Option<Preset> {
         match self {
+            Preset::Dune => Some(Preset::DuneLight),
+            Preset::Tide => Some(Preset::TideLight),
+            Preset::Lagoon => Some(Preset::LagoonLight),
             Preset::Catppuccin => Some(Preset::Latte),
             Preset::TokyoNight => Some(Preset::TokyoNightDay),
             Preset::RosePine => Some(Preset::RosePineDawn),
@@ -145,8 +156,11 @@ impl Preset {
     pub fn name(self) -> &'static str {
         match self {
             Preset::Dune => "dune",
+            Preset::DuneLight => "dune-light",
             Preset::Tide => "tide",
+            Preset::TideLight => "tide-light",
             Preset::Lagoon => "lagoon",
+            Preset::LagoonLight => "lagoon-light",
             Preset::Catppuccin => "catppuccin",
             Preset::Latte => "latte",
             Preset::TokyoNight => "tokyonight",
@@ -161,8 +175,11 @@ impl Preset {
     pub fn label(self) -> &'static str {
         match self {
             Preset::Dune => "Dune",
+            Preset::DuneLight => "Dune Light",
             Preset::Tide => "Tide",
+            Preset::TideLight => "Tide Light",
             Preset::Lagoon => "Lagoon",
+            Preset::LagoonLight => "Lagoon Light",
             Preset::Catppuccin => "Catppuccin Mocha",
             Preset::Latte => "Catppuccin Latte",
             Preset::TokyoNight => "Tokyo Night",
@@ -289,14 +306,25 @@ impl Preset {
                 dim: 0.64,
                 dimmer: 0.53,
             },
+            // Dune's, Tide's and Lagoon's light versions (P5-177) lie as Latte does.
+            Preset::DuneLight | Preset::TideLight | Preset::LagoonLight => Frost {
+                wash: 0.45,
+                lit: 0.10,
+                waiting: 0.14,
+                dim: 0.64,
+                dimmer: 0.53,
+            },
         }
     }
     /// Every color of the theme.
     pub fn theme(self) -> Theme {
         match self {
             Preset::Dune => Theme::default(),
+            Preset::DuneLight => dune_light(),
             Preset::Tide => tide(),
+            Preset::TideLight => tide_light(),
             Preset::Lagoon => lagoon(),
+            Preset::LagoonLight => lagoon_light(),
             Preset::Catppuccin => catppuccin(),
             Preset::Latte => latte(),
             Preset::TokyoNight => tokyo_night(),
@@ -409,6 +437,200 @@ fn lagoon() -> Theme {
         omp: rgb(0xb07cf2),
         amp: rgb(0xe3cb73),
         agy: rgb(0x6aa6f2),
+        ..Theme::default()
+    }
+}
+
+/// Dune's light version (P5-177), paddock's own like Dune: the grounds, text, quiet text and rules
+/// are the sample's warm sand (`docs/设计稿/P5-177-Dune-Tide-Lagoon浅色版/`): #f7f2e6 for the
+/// terminal, #efe7d6 for the sidebar, #3c3836 text, #665c54 and #928374 quiet text, #d5c4a1 rules.
+/// The selected ground is the sample's selected card over the sidebar (#e1d4b9). The rest come from
+/// Gruvbox light (https://github.com/morhetz/gruvbox, MIT/X11, by morhetz) by Dune's roles, where
+/// Dune names the terminal's colours: its faded hues for blue working, green idle, yellow waiting
+/// and focus, orange stalled, red error, purple starting, aqua sandbox; light3 for edges, dark2 for
+/// branches, its "white" (dark4) for muted, the faded green as the olive-gold accent. Those read as
+/// text under 4.5:1 (3:1 for `agents_dimmer`) on their grounds are darkened just enough, towards
+/// black: muted #7c6f64 to #796d62 on the terminal's ground; on the sidebar, gray #928374 to #918274
+/// for the quieter text, green #79740e to #6f6b0d, yellow #b57614 to #8f5d10 and aqua #427b58 to
+/// #3e7353. The keys nothing reads as text keep Gruvbox's own hues.
+fn dune_light() -> Theme {
+    let rgb = |v: u32| Color::Rgb((v >> 16) as u8, (v >> 8) as u8, v as u8);
+    Theme {
+        bg: rgb(0xf7f2e6),
+        text: rgb(0x3c3836),
+        selected: rgb(0xe1d4b9),
+        agent_selected: rgb(0xe1d4b9),
+        agent_working: rgb(0x076678),
+        agent_idle: rgb(0x79740e),
+        agent_blocked: rgb(0xb57614),
+        agent_stalled: rgb(0xaf3a03),
+        agent_error: rgb(0x9d0006),
+        agent_starting: rgb(0x8f3f71),
+        border: rgb(0xbdae93),
+        bright: rgb(0x3c3836),
+        muted: rgb(0x796d62),
+        dim: rgb(0x928374),
+        focus: rgb(0xb57614),
+        connected: rgb(0x427b58),
+        working: rgb(0x076678),
+        danger: rgb(0x9d0006),
+        unread: rgb(0x8f3f71),
+        input_text: rgb(0xfbf1c7),
+        reply_code: rgb(0xb57614),
+        reply_heading: rgb(0x427b58),
+        agents_bg: rgb(0xefe7d6),
+        agents_border: rgb(0xbdae93),
+        agents_rule: rgb(0xd5c4a1),
+        agents_faint: rgb(0xd5c4a1),
+        agents_text: rgb(0x3c3836),
+        agents_branch: rgb(0x504945),
+        agents_dim: rgb(0x665c54),
+        agents_dimmer: rgb(0x918274),
+        agents_accent: rgb(0x79740e),
+        agents_green: rgb(0x6f6b0d),
+        agents_red: rgb(0x9d0006),
+        agents_blue: rgb(0x076678),
+        agents_yellow: rgb(0x8f5d10),
+        agents_purple: rgb(0x8f3f71),
+        agents_sandbox: rgb(0x3e7353),
+        claude: rgb(0xaf3a03),
+        codex: rgb(0x427b58),
+        pi: rgb(0x3c3836),
+        omp: rgb(0x8f3f71),
+        amp: rgb(0xb57614),
+        agy: rgb(0x076678),
+        ..Theme::default()
+    }
+}
+
+/// Tide's light version (P5-177), paddock's own like Tide, in Nord (https://www.nordtheme.com, MIT,
+/// Copyright (c) 2016-present Sven Greb): the sample's grounds, text, quiet text and rules
+/// (`docs/设计稿/P5-177-Dune-Tide-Lagoon浅色版/`), Snow Storm nord6 #eceff4 for the terminal and nord5
+/// #e5e9f0 for the sidebar, Polar Night nord0 #2e3440 for text, nord3 #4c566a and #7b88a1 for the
+/// quiet text, nord4 #d8dee9 for rules. The selected ground is the sample's selected card over the
+/// sidebar (#dae0ea); edges lie halfway from the rules to the quieter text (#aab3c5), branches are
+/// nord2. Status hues by Tide's roles, as the sample deepens Nord's for a light ground: frost
+/// nord10 working, green #5f7f4a idle, yellow #9a7a2e waiting, orange #c0704a stalled, aurora red
+/// nord11 error, purple #9a6e93 starting; the accent is the deepened frost nord8 (#3b8ba3), and the
+/// sandbox halfway from nord7 to nord14 (#99bda4), Tide's green-teal. Those read as text under
+/// 4.5:1 (3:1 for `agents_dimmer`) on their grounds are darkened just enough, towards black: muted
+/// #7b88a1 to #636d82 on the terminal's ground; on the sidebar, #7b88a1 to #7a869f for the quieter
+/// text, green to #557142, red #bf616a to #a05159, blue #5e81ac to #4e6b8f, yellow to #806526, the
+/// sandbox to #596e60, orange to #98593b (stalled) and purple to #835d7d (starting); and the
+/// accent, #3b8ba3 to #33788d, so the selected right tab's icon reads at 3:1 on its capsule and
+/// each level of the activity panel stands apart from the last.
+fn tide_light() -> Theme {
+    let rgb = |v: u32| Color::Rgb((v >> 16) as u8, (v >> 8) as u8, v as u8);
+    Theme {
+        bg: rgb(0xeceff4),
+        text: rgb(0x2e3440),
+        selected: rgb(0xdae0ea),
+        agent_selected: rgb(0xdae0ea),
+        agent_working: rgb(0x5e81ac),
+        agent_idle: rgb(0x5f7f4a),
+        agent_blocked: rgb(0x9a7a2e),
+        agent_stalled: rgb(0x98593b),
+        agent_error: rgb(0xbf616a),
+        agent_starting: rgb(0x835d7d),
+        border: rgb(0xaab3c5),
+        bright: rgb(0x2e3440),
+        muted: rgb(0x636d82),
+        dim: rgb(0x7b88a1),
+        focus: rgb(0x33788d),
+        connected: rgb(0x3b8ba3),
+        working: rgb(0x5e81ac),
+        danger: rgb(0xbf616a),
+        unread: rgb(0x9a6e93),
+        input_text: rgb(0xd8dee9),
+        reply_code: rgb(0x9a7a2e),
+        reply_heading: rgb(0x3b8ba3),
+        agents_bg: rgb(0xe5e9f0),
+        agents_border: rgb(0xaab3c5),
+        agents_rule: rgb(0xd8dee9),
+        agents_faint: rgb(0xd8dee9),
+        agents_text: rgb(0x2e3440),
+        agents_branch: rgb(0x434c5e),
+        agents_dim: rgb(0x4c566a),
+        agents_dimmer: rgb(0x7a869f),
+        agents_accent: rgb(0x33788d),
+        agents_green: rgb(0x557142),
+        agents_red: rgb(0xa05159),
+        agents_blue: rgb(0x4e6b8f),
+        agents_yellow: rgb(0x806526),
+        agents_purple: rgb(0x9a6e93),
+        agents_sandbox: rgb(0x596e60),
+        claude: rgb(0xc0704a),
+        codex: rgb(0x3b8ba3),
+        pi: rgb(0x2e3440),
+        omp: rgb(0x9a6e93),
+        amp: rgb(0x9a7a2e),
+        agy: rgb(0x5e81ac),
+        ..Theme::default()
+    }
+}
+
+/// Lagoon's light version (P5-177), paddock's own like Lagoon: the sample's pale mint grounds and
+/// deep teal text (`docs/设计稿/P5-177-Dune-Tide-Lagoon浅色版/`), #eef4f0 for the terminal, #e0ece6
+/// for the sidebar, #3a524c text, #cfdcd6 rules. The selected ground is the sample's selected card
+/// over the sidebar (#cce0d7); edges lie halfway from the rules to the quieter text (#a9bbb4),
+/// branches a third of the way from the text to the quiet text (#465f59). Status hues by Lagoon's
+/// roles from Everforest light (https://github.com/sainnhe/everforest, MIT, Copyright (c) 2019
+/// sainnhe), deepened as the sample has them: blue #3a94c5 working, green #5f8a00 idle and sandbox
+/// (Lagoon's sandbox is its green), yellow #b88a00 waiting, orange #e06f22 stalled, red #d94a47
+/// error, purple #b8569a starting; the accent is the deepened aqua #2f9474, Lagoon's teal. Those
+/// read as text under 4.5:1 (3:1 for `agents_dimmer`) on their grounds are darkened just enough,
+/// towards black: muted, the sample's #829a93, to #61736d on the terminal's ground; on the sidebar,
+/// the sample's quiet text #5f7a73 to #566e68 and #829a93 to #758a84, green to #507400, red to
+/// #b93f3d, blue to #2c6f94, yellow to #866400, orange to #a65219 (stalled) and purple to #a04b86
+/// (starting); the terminal's yellow too, to #b28500 (see `theme.rs`); and the accent, #2f9474
+/// to #2a8367, so the selected right tab's icon reads at 3:1 on its capsule and each level of the
+/// activity panel stands apart from the last.
+fn lagoon_light() -> Theme {
+    let rgb = |v: u32| Color::Rgb((v >> 16) as u8, (v >> 8) as u8, v as u8);
+    Theme {
+        bg: rgb(0xeef4f0),
+        text: rgb(0x3a524c),
+        selected: rgb(0xcce0d7),
+        agent_selected: rgb(0xcce0d7),
+        agent_working: rgb(0x3a94c5),
+        agent_idle: rgb(0x5f8a00),
+        agent_blocked: rgb(0xb28500),
+        agent_stalled: rgb(0xa65219),
+        agent_error: rgb(0xd94a47),
+        agent_starting: rgb(0xa04b86),
+        border: rgb(0xa9bbb4),
+        bright: rgb(0x3a524c),
+        muted: rgb(0x61736d),
+        dim: rgb(0x829a93),
+        focus: rgb(0x2a8367),
+        connected: rgb(0x3a94c5),
+        working: rgb(0x3a94c5),
+        danger: rgb(0xd94a47),
+        unread: rgb(0xb8569a),
+        input_text: rgb(0xe6e2cc),
+        reply_code: rgb(0xb28500),
+        reply_heading: rgb(0x2f9474),
+        agents_bg: rgb(0xe0ece6),
+        agents_border: rgb(0xa9bbb4),
+        agents_rule: rgb(0xcfdcd6),
+        agents_faint: rgb(0xcfdcd6),
+        agents_text: rgb(0x3a524c),
+        agents_branch: rgb(0x465f59),
+        agents_dim: rgb(0x566e68),
+        agents_dimmer: rgb(0x758a84),
+        agents_accent: rgb(0x2a8367),
+        agents_green: rgb(0x507400),
+        agents_red: rgb(0xb93f3d),
+        agents_blue: rgb(0x2c6f94),
+        agents_yellow: rgb(0x866400),
+        agents_purple: rgb(0xb8569a),
+        agents_sandbox: rgb(0x507400),
+        claude: rgb(0xe06f22),
+        codex: rgb(0x2f9474),
+        pi: rgb(0x3a524c),
+        omp: rgb(0xb8569a),
+        amp: rgb(0xb28500),
+        agy: rgb(0x3a94c5),
         ..Theme::default()
     }
 }
@@ -1126,19 +1348,19 @@ mod groups {
         assert_eq!(
             light,
             [
+                Preset::DuneLight,
+                Preset::TideLight,
+                Preset::LagoonLight,
                 Preset::Latte,
                 Preset::TokyoNightDay,
                 Preset::RosePineDawn,
                 Preset::KanagawaLotus,
             ]
         );
-        let paired: Vec<Preset> = dark
-            .iter()
-            .filter(|p| p.light().is_some())
-            .copied()
-            .collect();
-        for (dark, light) in paired.iter().zip(&light) {
-            assert_eq!(dark.light(), Some(*light));
+        // Seven over seven (P5-177): each light version sits right under its dark one.
+        assert_eq!(dark.len(), light.len());
+        for (dark, light) in dark.iter().zip(&light) {
+            assert_eq!(dark.light(), Some(*light), "{}", dark.name());
         }
         assert_eq!(dark.len() + light.len(), Preset::ALL.len());
         for (group, is_light) in [(&dark, false), (&light, true)] {
