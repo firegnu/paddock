@@ -11,8 +11,8 @@ use std::{
 /// config leaves it out: not at all, the material showing through whole (P5-95c; P5-166, was 65).
 pub const FRAME_OPACITY: u8 = 0;
 
-/// How opaque, in percent, the system's sidebar material itself is when the config leaves it out:
-/// whole, as before it could be thinned (P5-169).
+/// How strong, in percent, the system's material's tint over its blur is when the config leaves it
+/// out: the system's own, as before it could be thinned (P5-169, P5-174).
 pub const MATERIAL_OPACITY: u8 = 100;
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
@@ -67,8 +67,9 @@ pub struct Config {
     /// How opaque, in percent, the darker frame lies over the material beside the sidebar; `None`
     /// (not written) is [`FRAME_OPACITY`].
     pub frame_opacity: Option<u8>,
-    /// How opaque, in percent, the system's sidebar material under the whole window is: thinner,
-    /// the desktop behind shows clearer; `None` (not written) is [`MATERIAL_OPACITY`].
+    /// How strong, in percent, the tint of the system's material under the whole window is over
+    /// its blur: weaker, more of the blurred desktop's colours come through, its shapes still
+    /// blurred away (P5-174); `None` (not written) is [`MATERIAL_OPACITY`].
     pub material_opacity: Option<u8>,
     /// `[[machines]]` as written; read into `machines` by [`Config::parse`].
     #[serde(rename = "machines")]
