@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>Translucency settings</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+.row{display:flex;align-items:center;gap:16px;height:44px;padding:0 16px;border-radius:8px}
+.label{width:150px;font-size:14px;color:#e7ecf3}
+.track{position:relative;flex:1;height:4px;border-radius:2px;background:#3a3f49}
+.fill{position:absolute;left:0;top:0;bottom:0;border-radius:2px;background:#7ea2ee}
+.knob{position:absolute;top:-6px;width:16px;height:16px;margin-left:-8px;border-radius:8px;background:#eef1f7;box-shadow:0 1px 3px rgba(0,0,0,0.5)}
+.val{width:44px;text-align:right;font-size:13px;color:#cfd6e2;font-variant-numeric:tabular-nums}
+.reset{width:104px;font-size:12px;color:#7ea2ee}
+.new{font-size:10.5px;font-weight:600;color:#111318;background:#d9b44a;border-radius:4px;padding:1px 5px;margin-left:6px}
+</style>
+</helmet>
+<div style="width: 760px; height: 340px; box-sizing: border-box; padding: 28px 36px; background: #1a1d24; font-family: -apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif; color: #e7ecf3; display: flex; flex-direction: column; gap: 6px">
+  <div style="font-size: 12px; color: #8b93a1; letter-spacing: 0.06em">GENERAL</div>
+  <div style="display: flex; align-items: baseline; gap: 10px; margin: 8px 0 6px">
+    <span style="font-size: 15px; font-weight: 600">Translucency</span>
+    <span style="font-size: 12px; color: #8b93a1">Only while the window isn't full screen</span>
+  </div>
+  <div class="row"><span class="label">Sidebar opacity</span><span class="track"><span class="fill" style="width: 45%"></span><span class="knob" style="left: 45%"></span></span><span class="val">45%</span><span class="reset"></span></div>
+  <div class="row"><span class="label">Frame opacity</span><span class="track"><span class="fill" style="width: 2%"></span><span class="knob" style="left: 2%"></span></span><span class="val">2%</span><span class="reset">Reset to 0%</span></div>
+  <div class="row" style="background: rgba(217,180,74,0.08); box-shadow: 0 0 0 1px rgba(217,180,74,0.35)"><span class="label">Pane opacity<span class="new">新</span></span><span class="track"><span class="fill" style="width: 70%"></span><span class="knob" style="left: 70%"></span></span><span class="val">70%</span><span class="reset">Reset to 100%</span></div>
+  <div style="margin-top: 14px; font-size: 12.5px; color: #aeb6c4; line-height: 19px">新的一行和上面两行一样：拖动时主窗口跟着实时变，松手写进 <span style="font-family: 'SF Mono', Menlo, monospace; color: #cfd6e2">pane_opacity</span>；没写时是 100，和现在一样。（黄框和「新」字只是样稿里标出来，界面上没有。）</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":760,"height":340}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

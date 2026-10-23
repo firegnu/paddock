@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>Pane opacity</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+.desk{position:relative;width:420px;height:330px;border-radius:12px;overflow:hidden;background-color:#1b2240;background-image:radial-gradient(circle at 18% 22%, #e0705a 0, rgba(224,112,90,0) 34%),radial-gradient(circle at 78% 30%, #4f8be8 0, rgba(79,139,232,0) 38%),radial-gradient(circle at 60% 85%, #d9b44a 0, rgba(217,180,74,0) 32%),radial-gradient(circle at 30% 80%, #7a5ad6 0, rgba(122,90,214,0) 36%)}
+.other{position:absolute;left:250px;top:60px;width:210px;height:150px;border-radius:8px;background:#f3f1ec;box-shadow:0 6px 18px rgba(0,0,0,0.35)}
+.other i{display:block;height:6px;margin:12px 14px 0;border-radius:3px;background:#b9b4aa}
+.win{position:absolute;left:16px;top:16px;right:16px;bottom:16px;border-radius:10px;overflow:hidden;backdrop-filter:blur(26px) saturate(170%);-webkit-backdrop-filter:blur(26px) saturate(170%);background:rgba(28,30,38,0.30);box-shadow:0 0 0 1px rgba(255,255,255,0.12),0 12px 30px rgba(0,0,0,0.45)}
+.side{position:absolute;left:0;top:0;bottom:0;width:104px;background:rgba(35,38,46,0.45)}
+.card{margin:6px 8px 0;height:30px;border-radius:7px;background:rgba(255,255,255,0.07);box-shadow:0 0 0 1px rgba(255,255,255,0.06)}
+.lights{position:absolute;left:10px;top:10px;display:flex;gap:5px}
+.lights span{width:8px;height:8px;border-radius:4px}
+.rcard{position:absolute;right:8px;top:34px;bottom:8px;width:74px;border-radius:8px;background:#23272f;box-shadow:0 0 0 1px #373b43}
+.rcard i{display:block;height:5px;margin:9px 9px 0;border-radius:3px;background:#3d424c}
+.term{font-family:'SF Mono', Menlo, monospace;font-size:8.5px;line-height:13px;color:#d6dce6;white-space:pre;padding:8px 10px}
+.term .d{color:#8b93a1}.term .g{color:#8bc48a}.term .b{color:#7ea2ee}
+.tabtxt{position:absolute;display:flex;align-items:center;gap:5px;font-size:9px;font-weight:500;color:#eef1f7;font-family:-apple-system, 'SF Pro Text', sans-serif}
+.ico{width:10px;height:10px;border-radius:3px;background:#d97757}
+.cap{display:flex;flex-direction:column;gap:4px;font-size:13px;color:#cfd6e2}
+.cap b{color:#eef1f7;font-weight:600}
+.cap span{font-size:12px;color:#8b93a1;line-height:17px}
+.notes{display:grid;grid-template-columns:repeat(3, minmax(0, 1fr));gap:8px 24px;font-size:12.5px;color:#aeb6c4;line-height:19px}
+.notes b{color:#eef1f7;font-weight:600}
+</style>
+</helmet>
+<div style="width: 1440px; height: 560px; box-sizing: border-box; padding: 30px 40px; background: #111318; font-family: -apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif; color: #e7ecf3; display: flex; flex-direction: column; gap: 18px">
+  <h1 style="margin: 0; font-size: 18px; font-weight: 600">窗格面板的不透明度：100（现在）／70／40</h1>
+  <div style="display: flex; gap: 40px">
+
+    <div style="display: flex; flex-direction: column; gap: 10px">
+      <div class="desk">
+        <div class="other"><i style="width: 60%"></i><i></i><i style="width: 75%"></i><i style="width: 40%"></i></div>
+        <div class="win">
+          <div class="side"><div style="height: 30px"></div><div class="card"></div><div class="card"></div><div class="card"></div></div>
+          <div class="lights"><span style="background: #ff5f57"></span><span style="background: #febc2e"></span><span style="background: #28c840"></span></div>
+          <div style="position: absolute; left: 116px; top: 10px; width: 96px; height: 24px; border-radius: 7px 7px 0 0; background: rgba(35,39,47,1)"></div>
+          <div class="tabtxt" style="left: 140px; top: 13px; height: 18px"><span class="ico"></span>main</div>
+          <div style="position: absolute; left: 112px; top: 34px; right: 90px; bottom: 8px; border-radius: 8px; background: rgba(35,39,47,1); box-shadow: 0 0 0 1px rgba(255,255,255,0.08)">
+            <div class="term"><span class="d">~/paddock</span> <span class="g">main</span> ❯ cargo test
+   Compiling paddock v0.1.0
+    Finished test profile
+     Running unittests
+<span class="g">test result: ok.</span> 841 passed
+<span class="d">~/paddock</span> <span class="g">main</span> ❯ <span class="b">▍</span></div>
+          </div>
+          <div class="rcard"><i></i><i style="width: 40%"></i><i></i><i style="width: 60%"></i></div>
+        </div>
+      </div>
+      <div class="cap"><b>100 · 现在</b><span>面板是实色，只有缝和标题栏透出磨砂</span></div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 10px">
+      <div class="desk">
+        <div class="other"><i style="width: 60%"></i><i></i><i style="width: 75%"></i><i style="width: 40%"></i></div>
+        <div class="win">
+          <div class="side"><div style="height: 30px"></div><div class="card"></div><div class="card"></div><div class="card"></div></div>
+          <div class="lights"><span style="background: #ff5f57"></span><span style="background: #febc2e"></span><span style="background: #28c840"></span></div>
+          <div style="position: absolute; left: 116px; top: 10px; width: 96px; height: 24px; border-radius: 7px 7px 0 0; background: rgba(35,39,47,0.7)"></div>
+          <div class="tabtxt" style="left: 140px; top: 13px; height: 18px"><span class="ico"></span>main</div>
+          <div style="position: absolute; left: 112px; top: 34px; right: 90px; bottom: 8px; border-radius: 8px; background: rgba(35,39,47,0.7); box-shadow: 0 0 0 1px rgba(255,255,255,0.10)">
+            <div class="term"><span class="d">~/paddock</span> <span class="g">main</span> ❯ cargo test
+   Compiling paddock v0.1.0
+    Finished test profile
+     Running unittests
+<span class="g">test result: ok.</span> 841 passed
+<span class="d">~/paddock</span> <span class="g">main</span> ❯ <span class="b">▍</span></div>
+          </div>
+          <div class="rcard"><i></i><i style="width: 40%"></i><i></i><i style="width: 60%"></i></div>
+        </div>
+      </div>
+      <div class="cap"><b>70 · 推荐起点</b><span>面板透出后面虚化的颜色，字照样清楚；选中的标签跟着一起透</span></div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 10px">
+      <div class="desk">
+        <div class="other"><i style="width: 60%"></i><i></i><i style="width: 75%"></i><i style="width: 40%"></i></div>
+        <div class="win">
+          <div class="side"><div style="height: 30px"></div><div class="card"></div><div class="card"></div><div class="card"></div></div>
+          <div class="lights"><span style="background: #ff5f57"></span><span style="background: #febc2e"></span><span style="background: #28c840"></span></div>
+          <div style="position: absolute; left: 116px; top: 10px; width: 96px; height: 24px; border-radius: 7px 7px 0 0; background: rgba(35,39,47,0.4)"></div>
+          <div class="tabtxt" style="left: 140px; top: 13px; height: 18px"><span class="ico"></span>main</div>
+          <div style="position: absolute; left: 112px; top: 34px; right: 90px; bottom: 8px; border-radius: 8px; background: rgba(35,39,47,0.4); box-shadow: 0 0 0 1px rgba(255,255,255,0.12)">
+            <div class="term"><span class="d">~/paddock</span> <span class="g">main</span> ❯ cargo test
+   Compiling paddock v0.1.0
+    Finished test profile
+     Running unittests
+<span class="g">test result: ok.</span> 841 passed
+<span class="d">~/paddock</span> <span class="g">main</span> ❯ <span class="b">▍</span></div>
+          </div>
+          <div class="rcard"><i></i><i style="width: 40%"></i><i></i><i style="width: 60%"></i></div>
+        </div>
+      </div>
+      <div class="cap"><b>40 · 很透</b><span>玻璃感最强；后面是亮色窗口时，灰色的字开始吃力</span></div>
+    </div>
+
+  </div>
+  <div class="notes">
+    <div><b>只动窗格面板</b>：终端的底色按这个比例透明，文字、光标、选区、面板亮边照旧不透明。左侧栏、右侧栏卡片、外框都不变</div>
+    <div><b>选中的标签跟着透</b>：它和面板连成一块（P5-165），底色用同一个比例，交界不出接缝</div>
+    <div><b>全屏</b>：没有磨砂，面板照旧实色。默认 100，跟现在一模一样</div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":560}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>
