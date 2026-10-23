@@ -2202,14 +2202,20 @@ impl SettingsView {
             ]))
     }
 
-    /// The themes as small windows, each in its own ground, sidebar, accent and status colours,
+    /// `presets` as small windows, each in its own ground, sidebar, accent and status colours,
     /// its name below; the drafted one ringed in the accent and ticked. A click drafts another.
-    fn theme_cards(&self, columns: u16, ui: &UiFont, cx: &mut Context<Self>) -> Div {
+    fn theme_cards(
+        &self,
+        presets: &[Preset],
+        columns: u16,
+        ui: &UiFont,
+        cx: &mut Context<Self>,
+    ) -> Div {
         let current = self.draft.theme_name();
         let (accent, text) = (self.fg(|t| t.agents_accent), self.fg(|t| t.agents_text));
         let edge = self.faint(0.12);
         let mut grid = div().grid().grid_cols(columns).gap(px(12.0));
-        for preset in Preset::ALL {
+        for &preset in presets {
             let value = preset.name();
             let config = Config {
                 theme: Some(value.into()),
@@ -2497,9 +2503,14 @@ impl SettingsView {
                 items
             }
             Page::Appearance => {
+                // The dark themes over the light ones, in as many columns, so a light version
+                // sits under its dark one (P5-176).
                 let columns = columns(width, ui.scale(130.0), 12.0);
+                let (dark, light) = Preset::groups();
                 vec![
-                    self.section("Theme", self.theme_cards(columns, ui, cx), ui)
+                    self.section("Dark", self.theme_cards(&dark, columns, ui, cx), ui)
+                        .into_any_element(),
+                    self.section("Light", self.theme_cards(&light, columns, ui, cx), ui)
                         .into_any_element(),
                     self.colors(window, ui, cx).into_any_element(),
                 ]
