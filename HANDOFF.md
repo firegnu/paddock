@@ -8,7 +8,7 @@
 
 ## 本机安装
 
-- 现装：`~/Applications/paddock.app` 是 P5-169 的版本（10-23 从分支装，代码和合并提交 `4d47b9b` 相同），本机 Apple Development 证书签名。
+- 现装：`~/Applications/paddock.app` 是 P5-170 的版本（10-23 从分支装，代码和合并提交 `577ef6e` 相同），本机 Apple Development 证书签名。
 - 重新打包安装：在 `app/` 下 `cargo build --release`，再 `cargo run --release --example bundle -- --install`（编译目录 `.target/main`）。默认选本机 Apple Development 身份，可用 `PADDOCK_SIGN_IDENTITY` 指定；退回 ad-hoc 时会提示屏幕录制授权会失效。release 很快结束时，核对产物时间晚于合并再装。
 - 退回：不留旧版。在临时 worktree 检出要退回的提交，照上面打包安装（编译目录用这个 worktree 自己的子目录）。旧版读不了新配置：P5-90 之前不认 `[[machines]]`，P5-120 之前不认预设里的 `sandbox` 字段，退回前先从 `~/.config/paddock/config.toml` 去掉。
 - paddock ctl：`~/.local/bin/paddock` 链到 app 里的程序，重新打包不用重建。技能正文改了要重跑 `paddock install-skills`（装在 `~/.claude/skills/paddock`、`~/.agents/skills/paddock`、`~/.gemini/config/skills/paddock`），开着的 agent 重开才看到。
@@ -61,4 +61,5 @@
 - 动效：卡片滑动时分组标题和托盘直接跳（P5-154）；Loop 里 Now 的转圈不跟“减弱动态效果”（P5-158，用户：“先这样”）。
 - GPUI 中文“最多几行”截断会估窄：Cairn 摘要已改（P5-137a），看板标题、收件箱可能也有。
 - P5-131a：格子图存失败不重试；菜单两句提示只显示前一句；存失败后再选已在列表里的仓库不重试保存。
+- 测试：`control::transport_tests::directory_swap_between_last_check_and_bind_is_rejected` 全套并行跑时偶发失败（P5-170 碰到一次），单跑和重跑都过。
 - 零碎：`cairn_view.rs` 的 `styled` 和 `kanban_view.rs` 里那份重复；右侧栏最窄 426 嫌宽（P5-55）；Cairn 记录点开不自动滚到它、行没有悬停底色（P5-79）；名字签在查找条开着时可能盖住它、窄窗格里右端被裁（P5-77）；任务弹框正文写到框底不滚、开着换主题不变色（P5-60b）；New Agent 弹出框不能用键盘上下选（P5-37）；看板切仓库的菜单没有滚动、Kept 里暂时不在的目录会被去掉、列表存不进去不提示（P5-85）；Drop task 的原因输入框全看板只有一个（P5-86）；同名仓库上级目录缩短后可能一样（P5-105）；`paddock ctl open --prompt … -- amp` 会被 corral 拒（P5-98）；卡片悬停不做渐变（P5-51）；DESIGN §13 的 P5-20 条重复了一遍。
