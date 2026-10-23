@@ -87,3 +87,11 @@
 - 假 corral 的 `status` 一开始回 `{}`，侧栏卡片没有种类和状态：`merge` 用 status 的结果整个替换 ls 的那一条，改成按名字回各自的 kind 和 state 才显示。
 - 删临时钩子时把 `}` 和下一行的 `});` 并到了一行，`git diff` 看出来后改回，diff 里 `main.rs` 无改动。
 - 按主题循环的测试遇到第一个不过的主题就停，Tide 修好后 Lagoon 才露出同样的强调色问题；Lagoon 的强调色按估算的胶囊底只差一点（2.9989），再压一档才过。
+
+## 主控审查
+
+- diff 只动了 preset.rs、theme.rs、README、DESIGN §13 和本文件；删掉的行只有 `ALL` 的长度、一行注释、报错文字和 groups 测试的配对写法，七套深色和四套已有浅色的色值没动。settings_view.rs 没改，七对七靠 `Preset::light` 配对加 `groups()` 排出来。
+- 主控在分支上重跑 `cargo test --all-targets --no-fail-fast`：30 个目标，1034 passed，0 failed，和 agent 说的一致。
+- 取舍表态：Dune Light 强调色等于空闲绿、Tide 和 Lagoon 强调色比样稿深、Lagoon 两级淡字压到刚好够，都照现有对比度规矩，同意，交用户看实际效果再定要不要分开。
+- 记建议改：调试版 New Agent 在 Controller 开着时崩（`NewAgentView::foot` 的 ghost 和 hover 重复设，P5-102 起就有，发布版不受影响），要不要另开一件由用户定。
+结果：一次过
