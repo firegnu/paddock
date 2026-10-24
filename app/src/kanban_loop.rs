@@ -374,7 +374,7 @@ pub fn face(stand: &Stand, sent: Option<bool>, next: usize, timing: &Timing) -> 
                 ..
             },
             None,
-        ) if next == 0 => Top::Line {
+        ) if next == 0 && *done > 0 => Top::Line {
             words: format!("Finished \u{b7} {done} done. Add queued tasks to run another loop."),
             amber: false,
         },
@@ -1380,6 +1380,19 @@ mod tests {
                     "Finished \u{b7} 3 done. Add queued tasks to run another loop.",
                     false
                 ),
+                rule: false,
+                count: 0
+            }
+        );
+        // Off after a run that finished nothing: as if it never ran (P5-184).
+        let none_done = Stand::Off {
+            tasks: 0,
+            finished: Some(0),
+        };
+        assert_eq!(
+            said(&none_done, None, 0),
+            Face {
+                top: line("Add queued tasks to the loop.", false),
                 rule: false,
                 count: 0
             }
