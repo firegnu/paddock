@@ -446,6 +446,13 @@ impl SettingsView {
             }
         });
         view._subscriptions.push(startup);
+        let colors = cx.observe_global::<crate::corral_colors::Status>(|this, cx| {
+            if let Some(report) = &mut this.report {
+                report.terminal_colors = cx.global::<crate::corral_colors::Status>().clone();
+                cx.notify();
+            }
+        });
+        view._subscriptions.push(colors);
         view.fade(!crate::unfocused::in_front(cx), cx);
         view
     }
@@ -1091,6 +1098,28 @@ impl SettingsView {
                 checks.map_or_else(checking, |c| outcome(&c.git.version)),
             ),
             row("shell", checks.map_or_else(checking, |c| path(&c.shell))),
+            row(
+                "Terminal colors",
+                match &report.terminal_colors.0 {
+                    None => ("not sent yet".into(), Tone::Unknown),
+                    Some(attempt) => {
+                        let (result, tone) = match &attempt.result {
+                            None => ("sending…".to_owned(), Tone::Unknown),
+                            Some(Ok(())) => ("sent".to_owned(), Tone::Good),
+                            Some(Err(error)) => (error.clone(), Tone::Bad),
+                        };
+                        (
+                            format!(
+                                "{} · fg {} · bg {} · {result}",
+                                clock(attempt.at),
+                                attempt.colors.fg,
+                                attempt.colors.bg
+                            ),
+                            tone,
+                        )
+                    }
+                },
+            ),
         ];
 
         let agents = vec![row(
@@ -2524,6 +2553,12 @@ impl SettingsView {
                     self.section("Dark", self.theme_cards(&dark, columns, ui, cx), ui)
                         .into_any_element(),
                     self.section("Light", self.theme_cards(&light, columns, ui, cx), ui)
+                        .into_any_element(),
+                    div()
+                        .pl(px(4.0))
+                        .text_size(ui.px(12.5))
+                        .text_color(self.fg(|t| t.agents_dimmer))
+                        .child("Agents already running keep the colours they started with; restart them to follow a new theme.")
                         .into_any_element(),
                     self.colors(window, ui, cx).into_any_element(),
                 ]

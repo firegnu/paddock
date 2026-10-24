@@ -6,6 +6,7 @@
 mod common;
 use paddock::{
     config::Machine,
+    corral_colors::Colors,
     new_agent::{Started, Tool},
     remote::Link,
     remote_start::{self, Agent, Commands, Field, RecentDirs, Request},
@@ -14,6 +15,13 @@ use std::{
     path::Path,
     sync::{Arc, atomic::AtomicBool},
 };
+
+fn colors() -> Colors {
+    Colors {
+        fg: "#4c4f69".into(),
+        bg: "#eff1f5".into(),
+    }
+}
 
 /// The fake `ssh`: skips the options as ssh would take them, notes each command, then runs it in
 /// `sh` with the home there, a PATH that has no agent, and the fake login shell as `$SHELL`.
@@ -69,6 +77,12 @@ fn corral(root: &Path) -> String {
 root='{root}'
 case "$1" in
   --version) echo '{{"contract":"1","ok":true,"version":"0.9.0"}}' ;;
+  terminal-colors)
+    printf '%s\0' "$@" > "$root/colors"
+    echo '{{"ok":false,"error":"usage"}}'
+    echo usage >&2
+    exit 1
+    ;;
   start)
     shift
     printf '%s\0' "$@" > "$root/started"
@@ -171,6 +185,7 @@ fn the_kinds_offered_are_those_the_login_shell_there_finds() {
 #[test]
 fn it_starts_through_the_login_shell_in_that_machines_home_with_the_words_typed() {
     let studio = studio();
+    let calls = studio.nul_separated("calls").len();
     let odd = "my dir/it's $(touch pwned); `id` \"q\"";
     std::fs::create_dir_all(Path::new(&studio.home()).join(odd)).unwrap();
     let request = Request {
@@ -179,7 +194,9 @@ fn it_starts_through_the_login_shell_in_that_machines_home_with_the_words_typed(
         dir: format!("~/{odd}"),
         name: "p/it's;$HOME".into(),
     };
-    let started = remote_start::start(&studio.link, &request);
+    let started = remote_start::start(&studio.link, &request, &colors());
+    assert_eq!(studio.nul_separated("calls").len(), calls + 1);
+    assert_eq!(studio.nul_separated("colors"), colors().args());
     assert_eq!(
         started,
         Ok(Started {
@@ -218,7 +235,7 @@ fn an_empty_name_asks_for_the_directory_and_kind_and_corral_says_which() {
         dir: "~".into(),
         name: String::new(),
     };
-    let started = remote_start::start(&studio.link, &request).unwrap();
+    let started = remote_start::start(&studio.link, &request, &colors()).unwrap();
     assert_eq!(started.name, "ranch/pi-2");
     let asked = studio.nul_separated("started");
     assert_eq!(asked[..4], ["home/pi", "--unique", "--cwd", &studio.home()]);
@@ -234,7 +251,7 @@ fn a_directory_not_there_comes_back_as_corral_said_it() {
         dir: "~/nope".into(),
         name: String::new(),
     };
-    let failure = remote_start::start(&studio.link, &request).unwrap_err();
+    let failure = remote_start::start(&studio.link, &request, &colors()).unwrap_err();
     assert_eq!(failure.field, Some(Field::Dir));
     assert_eq!(
         failure.text,
@@ -255,7 +272,7 @@ fn a_command_of_the_users_own_reaches_corral_word_for_word_and_runs_nothing_ther
         dir: "~".into(),
         name: String::new(),
     };
-    assert!(remote_start::start(&studio.link, &request).is_ok());
+    assert!(remote_start::start(&studio.link, &request, &colors()).is_ok());
     let asked = studio.nul_separated("started");
     assert_eq!(asked[0], "home/my-agent");
     let at = asked.iter().position(|word| word == "--").unwrap();
@@ -292,7 +309,7 @@ fn a_kinds_edited_command_is_the_one_started() {
         dir: "~".into(),
         name: String::new(),
     };
-    assert!(remote_start::start(&studio.link, &request).is_ok());
+    assert!(remote_start::start(&studio.link, &request, &colors()).is_ok());
     let asked = studio.nul_separated("started");
     assert_eq!(asked[0], "home/pi");
     assert_eq!(asked[asked.len() - 3..], ["pi", "--model", "son net"]);
@@ -309,7 +326,7 @@ fn an_unclosed_quote_is_said_at_once_and_nothing_goes_there() {
             dir: "~".into(),
             name: String::new(),
         };
-        let failure = remote_start::start(&studio.link, &request).unwrap_err();
+        let failure = remote_start::start(&studio.link, &request, &colors()).unwrap_err();
         assert_eq!(failure.field, Some(Field::Command));
     }
     assert_eq!(studio.nul_separated("calls").len(), calls);
@@ -326,7 +343,7 @@ fn only_what_corral_started_is_kept_for_that_machine() {
         dir: "~/nope".into(),
         name: String::new(),
     };
-    let failed = remote_start::start(&studio.link, &request);
+    let failed = remote_start::start(&studio.link, &request, &colors());
     assert!(failed.is_err());
     assert!(!remote_start::keep(
         &failed,
@@ -339,7 +356,7 @@ fn only_what_corral_started_is_kept_for_that_machine() {
     assert_eq!(commands, Commands::default());
     assert_eq!(recent, RecentDirs::default());
     request.dir = "~".into();
-    let started = remote_start::start(&studio.link, &request);
+    let started = remote_start::start(&studio.link, &request, &colors());
     assert!(started.is_ok());
     assert!(remote_start::keep(
         &started,
@@ -370,7 +387,7 @@ fn a_custom_command_named_as_a_kind_found_there_is_kept_as_that_kinds() {
             dir: "~".into(),
             name: String::new(),
         };
-        let outcome = remote_start::start(&studio.link, &request);
+        let outcome = remote_start::start(&studio.link, &request, &colors());
         assert!(outcome.is_ok(), "{command}");
         remote_start::keep(&outcome, "studio", &request, &found, recent, commands);
     };
