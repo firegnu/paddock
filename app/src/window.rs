@@ -8119,6 +8119,100 @@ impl Render for PaddockWindow {
 mod tests {
     use super::*;
 
+    /// The production window loads sidebar/kanban state: isolate that state and its commands
+    /// in a child test process, without changing the environment of the parallel test suite.
+    #[gpui::test]
+    fn clicking_a_shell_bar_through_the_host_window(cx: &mut gpui::TestAppContext) {
+        const CHILD: &str = "PADDOCK_BARCLICK_TEST";
+        if std::env::var_os(CHILD).is_none() {
+            use std::os::unix::fs::PermissionsExt;
+            let dir = std::env::temp_dir().join(format!("paddock-barclick-{}", std::process::id()));
+            std::fs::create_dir(&dir).unwrap();
+            let corral = dir.join("corral");
+            std::fs::write(
+                &corral,
+                "#!/bin/sh\ncase \"$1\" in\nls) echo '{\"ok\":true,\"agents\":[]}' ;;\n*) echo '{\"ok\":true}' ;;\nesac\n",
+            )
+            .unwrap();
+            std::fs::set_permissions(&corral, std::fs::Permissions::from_mode(0o755)).unwrap();
+            let result = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "window::tests::clicking_a_shell_bar_through_the_host_window",
+                    "--nocapture",
+                ])
+                .env(CHILD, &corral)
+                .env("HOME", &dir)
+                .env("XDG_STATE_HOME", dir.join("state"))
+                .env("PATH", &dir)
+                .current_dir(&dir)
+                .output()
+                .unwrap();
+            std::fs::remove_dir_all(&dir).unwrap();
+            assert!(
+                result.status.success(),
+                "{}\n{}",
+                String::from_utf8_lossy(&result.stdout),
+                String::from_utf8_lossy(&result.stderr),
+            );
+            return;
+        }
+        cx.update(|cx| cx.bind_keys(menu::bindings()));
+        let config = Config {
+            mascot_enabled: false,
+            ..Config::default()
+        };
+        for (collapsed, split) in [
+            (false, None),
+            (true, None),
+            (false, Some(Direction::Right)),
+            (false, Some(Direction::Down)),
+        ] {
+            let options = Options {
+                corral: std::env::var(CHILD).unwrap(),
+                ..crate::view::tests::shell_options()
+            };
+            let (root, window_cx) = cx.add_window_view(|window, cx| {
+                let mut root = PaddockWindow::new(
+                    &config,
+                    Theme::from_config(&config).unwrap(),
+                    options,
+                    NewShell {
+                        program: "/bin/cat".into(),
+                        cwd: "/".into(),
+                        instance: String::new(),
+                        ctl_problem: None,
+                    },
+                    (Store::skip(None), None),
+                    window,
+                    cx,
+                );
+                root.collapsed = collapsed;
+                root.motion = moving::Motion::new(collapsed, false);
+                root.sidebar
+                    .update(cx, |sidebar, cx| sidebar.set_collapsed(collapsed, cx));
+                if let Some(direction) = split {
+                    let pane = root.workspace.split(direction, Shown::Shell);
+                    let view =
+                        root.view(pane, crate::view::tests::shell_options().launch, window, cx);
+                    root.panes.insert(pane, view);
+                }
+                root
+            });
+            let views = root.read_with(window_cx, |root, _| {
+                root.workspace
+                    .tab()
+                    .panes()
+                    .iter()
+                    .map(|pane| root.panes[pane].clone())
+                    .collect::<Vec<_>>()
+            });
+            for view in views {
+                crate::view::tests::check_bar_click(view, window_cx);
+            }
+        }
+    }
+
     #[test]
     fn a_shell_opened_from_a_shell_starts_where_that_one_is_while_it_is_there() {
         let fallback = "/where/paddock/started";
