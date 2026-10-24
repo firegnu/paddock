@@ -12,9 +12,10 @@ const FACE: f32 = 0.055;
 const EDGE: f32 = 0.12;
 const LIGHT: f32 = 0.12;
 const DARK: f32 = 0.40;
-/// The two shadows outside: how far down, how soft and how dark.
-const NEAR: (f32, f32, f32) = (2.0, 3.0, 0.45);
-const FAR: (f32, f32, f32) = (8.0, 20.0, 0.35);
+/// The two shadows outside: how far down, how soft and how dark; light, so the box sits just off
+/// the card (P5-186).
+const NEAR: (f32, f32, f32) = (1.0, 2.0, 0.20);
+const FAR: (f32, f32, f32) = (3.0, 8.0, 0.12);
 /// On a light theme (P5-175) the face and the light line are white, as the dark text would sink
 /// the box: the face this much white over the card, the line this much.
 const LIGHT_THEME_FACE: f32 = 0.6;
@@ -106,5 +107,28 @@ mod tests {
                 assert_eq!(raised.shadows[3].color, gpui::black().opacity(FAR.2));
             }
         }
+    }
+
+    /// The box sits just off the card, not floating over it (P5-186, the mockup's “light”): a near
+    /// shadow 1pt down, 2pt soft; a far one 3pt down, 8pt soft; both faint.
+    #[test]
+    fn a_box_sits_just_off_the_card() {
+        let ui = UiFont {
+            family: None,
+            size: 13.0,
+        };
+        let theme = Theme::from_config(&Config::default()).unwrap();
+        let raised = raised(&theme, &ui);
+        let outside: Vec<_> = raised.shadows[2..]
+            .iter()
+            .map(|s| {
+                (
+                    f32::from(s.offset.y),
+                    f32::from(s.blur_radius),
+                    (s.color.a * 100.0).round(),
+                )
+            })
+            .collect();
+        assert_eq!(outside, [(1.0, 2.0, 20.0), (3.0, 8.0, 12.0)]);
     }
 }
