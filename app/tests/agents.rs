@@ -197,3 +197,60 @@ fn without_a_cursor_only_the_shown_agent_counts_as_read() {
     );
     assert!(!panel.unread.contains("p/a"));
 }
+
+#[test]
+fn controllers_come_first_in_their_group_by_status_or_by_name() {
+    fn controller(name: &str, state: &str) -> Agent {
+        let mut labels = serde_json::Map::new();
+        labels.insert("role".into(), "controller".into());
+        Agent {
+            labels,
+            ..agent(name, state)
+        }
+    }
+    let mut panel = Panel::default();
+    panel.absorb(
+        vec![
+            agent("p/a-working", "working"),
+            agent("p/b-blocked", "blocked"),
+            controller("p/y-main", "blocked"),
+            controller("p/z-main", "idle"),
+            agent("q/a-working", "working"),
+            controller("q/z-main", "idle"),
+        ],
+        None,
+        100.0,
+    );
+    let names = |panel: &Panel| -> Vec<String> {
+        panel
+            .ordered(100.0)
+            .iter()
+            .map(|a| a.name.clone())
+            .collect()
+    };
+    // In each group its controllers first, among them by status as the rest are; a group of none
+    // keeps its own order.
+    assert_eq!(
+        names(&panel),
+        [
+            "p/y-main",
+            "p/z-main",
+            "p/b-blocked",
+            "p/a-working",
+            "q/z-main",
+            "q/a-working"
+        ]
+    );
+    panel.by_name = true;
+    assert_eq!(
+        names(&panel),
+        [
+            "p/y-main",
+            "p/z-main",
+            "p/a-working",
+            "p/b-blocked",
+            "q/z-main",
+            "q/a-working"
+        ]
+    );
+}

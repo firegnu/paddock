@@ -18,6 +18,7 @@ pub mod control;
 pub mod control_ui;
 pub mod corral;
 pub mod corral_colors;
+pub mod crown;
 pub mod damage;
 pub mod delegates;
 pub mod diagnostics;

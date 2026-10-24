@@ -609,6 +609,9 @@ pub struct Card {
     /// The name without its prefix, unless another card in its group has the same short name.
     pub short: String,
     pub status: Status,
+    /// Labelled `role=controller` (P5-182): a crown on the card's avatar corner, and the first
+    /// place in its group.
+    pub controller: bool,
     pub look: Look,
     /// Shown in the active pane: highlighted, and a click opens its details instead.
     pub selected: bool,
@@ -1043,6 +1046,7 @@ fn card(
         name: a.name.clone(),
         group: panel.group(a).to_owned(),
         status,
+        controller: a.role() == Some(crate::corral::Role::Controller),
         selected: selected == Some(a.name.as_str()),
         expanded: panel.expanded.contains(&a.name),
         here: is_here,
@@ -1978,6 +1982,31 @@ mod tests {
     }
 
     #[test]
+    fn only_the_controller_label_wears_the_crown() {
+        let mut controller = agent("p/main", "idle");
+        controller.labels.insert("role".into(), "controller".into());
+        let mut implementer = agent("p/dev", "working");
+        implementer
+            .labels
+            .insert("role".into(), "implementer".into());
+        // A name that says nothing: only the label counts.
+        let named = agent("main", "idle");
+        let panel = panel(vec![controller, implementer, named]);
+        let lines = lines(&panel, None, None, &[], None, 100.0);
+        let cards = cards(&lines);
+        let crowned = |name: &str| {
+            cards
+                .iter()
+                .find(|card| card.name == name)
+                .unwrap()
+                .controller
+        };
+        assert!(crowned("p/main"));
+        assert!(!crowned("p/dev"));
+        assert!(!crowned("main"));
+    }
+
+    #[test]
     fn a_controller_card_carries_its_delegates_setting_once_fence_is_here() {
         use crate::fence::{Update, Version};
         let mut controller = agent("p/main", "idle");
@@ -1994,17 +2023,18 @@ mod tests {
                 .map(|card| (card.name.clone(), card.delegates.clone().map(|d| d.value())))
                 .collect::<Vec<_>>()
         };
-        // No fence here (as on another machine's list): no setting on any card.
+        // No fence here (as on another machine's list): no setting on any card. The controller's
+        // card comes first in its group (P5-182).
         assert_eq!(
             delegates(&panel),
-            [("p/dev".to_owned(), None), ("p/main".to_owned(), None)]
+            [("p/main".to_owned(), None), ("p/dev".to_owned(), None)]
         );
         panel.fence.absorb(Update::Found(Some(Version::default())));
         assert_eq!(
             delegates(&panel),
             [
-                ("p/dev".to_owned(), None),
-                ("p/main".to_owned(), Some("In sandbox · dev".to_owned()))
+                ("p/main".to_owned(), Some("In sandbox · dev".to_owned())),
+                ("p/dev".to_owned(), None)
             ]
         );
     }

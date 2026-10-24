@@ -161,6 +161,13 @@ const AVATAR_GAP: f32 = 11.0;
 const AVATAR_ICON: f32 = 16.0;
 /// An original without a ground of its own (pi's logo) in the avatar, leaving a margin of tint.
 const AVATAR_PICTURE: f32 = 24.0;
+/// A controller's crown (P5-182): the glyph on the avatar's top corner, the ground it is ringed
+/// in, and how far that disc hangs past the avatar's corner.
+const CROWN: f32 = 13.0;
+const CROWN_PAD: f32 = 17.0;
+const CROWN_PAD_RADIUS: f32 = 9.0;
+const CROWN_LEFT: f32 = 6.0;
+const CROWN_TOP: f32 = 7.0;
 /// How strongly the kind's colour tints the avatar, and waiting amber the card.
 const AVATAR_TINT: f32 = 0.13;
 const WAITING_TINT: f32 = 0.07;
@@ -3699,7 +3706,7 @@ impl RenderOnce for AgentCard {
         });
 
         let badge = badge(&theme, &ui, &card, (ground, hovered), &group, ripple);
-        let avatar = avatar(&theme, &ui, &card, badge).when_some(
+        let avatar = avatar(&theme, &ui, &card, badge, (ground, hovered), &group).when_some(
             card.brand
                 .as_ref()
                 .map(|brand| tip(brand.kind.clone().into())),
@@ -3751,11 +3758,35 @@ impl RenderOnce for AgentCard {
 
 /// The avatar: the kind's icon, or the name's letter for a kind without one, on a square tinted in
 /// the kind's colour, with `badge` on its corner. An original that brings its own ground fills the
-/// square instead of the tint; one without (pi's logo) is drawn larger than a silhouette.
-fn avatar(theme: &Theme, ui: &UiFont, card: &Card, badge: AnyElement) -> gpui::Stateful<Div> {
+/// square instead of the tint; one without (pi's logo) is drawn larger than a silhouette. A
+/// controller wears the crown on its top corner (P5-182), ringed in the card's ground as the badge
+/// is.
+fn avatar(
+    theme: &Theme,
+    ui: &UiFont,
+    card: &Card,
+    badge: AnyElement,
+    (ground, hovered): (Hsla, Hsla),
+    group: &SharedString,
+) -> gpui::Stateful<Div> {
     let color = kind_color(theme, card);
     let (mark, tile) = original_mark(ui, card, color, (AVATAR, AVATAR_RADIUS))
         .unwrap_or_else(|| (kind_mark(ui, card, color, CARD_NAME_SIZE), false));
+    let crown = card.controller.then(|| {
+        let accent = hsla(theme.fg(|t| t.agents_accent), 1.0);
+        div()
+            .absolute()
+            .left(ui.px(-CROWN_LEFT))
+            .top(ui.px(-CROWN_TOP))
+            .size(ui.px(CROWN_PAD))
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded(ui.px(CROWN_PAD_RADIUS))
+            .bg(ground)
+            .group_hover(group.clone(), move |style| style.bg(hovered))
+            .child(crate::crown::crown(accent, Some(accent), ui.scale(CROWN)))
+    });
     div()
         .id("avatar")
         .relative()
@@ -3768,6 +3799,7 @@ fn avatar(theme: &Theme, ui: &UiFont, card: &Card, badge: AnyElement) -> gpui::S
         .rounded(ui.px(AVATAR_RADIUS))
         .when(!tile, |avatar| avatar.bg(color.opacity(AVATAR_TINT)))
         .child(mark)
+        .children(crown)
         .child(badge)
 }
 
@@ -4398,7 +4430,8 @@ impl RenderOnce for Tile {
             })
             .children(plate)
             .child(mark)
-            // The mark hangs over the strip: ringed in the strip's colour.
+            // The mark hangs over the strip: ringed in the strip's colour. A controller wears the
+            // crown on its top corner (P5-182), ringed the same way.
             .child(badge(
                 theme,
                 &ui,
@@ -4407,6 +4440,20 @@ impl RenderOnce for Tile {
                 &group,
                 None,
             ))
+            .children(card.controller.then(|| {
+                let accent = fg(|t| t.agents_accent);
+                div()
+                    .absolute()
+                    .left(ui.px(-CROWN_LEFT))
+                    .top(ui.px(-CROWN_TOP))
+                    .size(ui.px(CROWN_PAD))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded(ui.px(CROWN_PAD_RADIUS))
+                    .bg(grounds.base)
+                    .child(crate::crown::crown(accent, Some(accent), ui.scale(CROWN)))
+            }))
     }
 }
 
