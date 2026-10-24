@@ -112,3 +112,12 @@
 ### 踩过的坑
 - 用 perl 的 `s{…}{…}` 批量改 Rust 代码时，替换文本里的 `{kind}`、`{}` 和分隔符打架，几次报错没改成；改用 Edit 工具或 `#` 分隔符。
 - `instructions::KINDS` 和 Agent shell 共用一份名单，事先没想到，全量测试才发现（见上）。
+
+## 主控审查
+
+- 接续：原 `paddock/dev-kimi-1` 做完第一节、还没提交时机器重启，agent 没了；主控在同一个 worktree 重开 `paddock/dev-kimi-1`（Claude Code，opus[1m] / high），沿用留下的改动做完第二到第六节。
+- 看过 diff：只动了任务列的文件。amp、agy 的确认框和提醒文字照旧；装法按 `install.format` 判断，不看 kind 名。Instructions 改成自己的六家名单，是为了不加 kimi 的说明文件，行为不变，同意。
+- 提醒文字和 ranch CONTRACT 对过：没装钩子时 corral 能从屏幕认出 kimi 就绪，但看不到干活和回复，所以不照搬 agy 的 “stay Starting”，同意。子命令名单按实际跑 `kimi --help` 列的 17 个，同意。
+- 重跑：`cargo test --all-targets` 1044 个通过，clippy `-D warnings`、`fmt --check`、`git diff --check` 都过。
+- 没做：界面排版和真实 kimi 的启动、装卸钩子，等合并安装后和用户一起实测。
+结果：一次过
