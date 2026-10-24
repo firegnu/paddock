@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>Controller crown, light theme</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+.side{width:368px;height:600px;box-sizing:border-box;padding:14px 7px;border-radius:12px;background:#e0ece6;overflow:hidden;display:flex;flex-direction:column;font-size:13px;color:#3a524c}
+.tray{display:flex;flex-direction:column;gap:3px;padding:4px 6px 8px;border-radius:16px;background:#f3f8f5;border:1px solid #cfdcd6}
+.ws{display:flex;align-items:center;gap:8px;height:34px;padding:0 8px}
+.grp{display:flex;align-items:center;gap:6px;padding:8px 4px 2px}
+.card{display:flex;gap:10px;padding:9px 12px 9px 10px;border-radius:12px;border:1px solid transparent}
+.av{position:relative;width:34px;height:34px;border-radius:9px;flex-shrink:0;display:flex;align-items:center;justify-content:center}
+.dot{position:absolute;right:-2px;bottom:-2px;width:9px;height:9px;border-radius:5px;border:2px solid}
+.crown{position:absolute;left:-6px;top:-7px;width:17px;height:17px;border-radius:9px;display:flex;align-items:center;justify-content:center}
+.body{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+.row1{display:flex;align-items:center;gap:6px}
+.sub{font-size:11.5px;color:#5f7a73;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.k{font-size:11px;font-weight:600;color:#829a93}
+.v{font-size:13px;margin-top:1px}
+</style>
+</helmet>
+<div style="width: 860px; height: 720px; box-sizing: border-box; padding: 28px 34px; background: #eef4f0; font-family: -apple-system, 'SF Pro Text', 'Helvetica Neue', sans-serif; color: #3a524c; display: flex; gap: 52px">
+
+<div style="display: flex; flex-direction: column; gap: 14px">
+<div style="display: flex; flex-direction: column; gap: 4px">
+<div style="font-size: 13px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #2f9474">Proposed · Light</div>
+<div style="font-size: 12px; line-height: 1.5; color: #5f7a73; width: 368px">浅色主题同样的做法：皇冠用主题的强调色，底下垫一圈卡片底色，和右下的状态点分在两个角。</div>
+</div>
+<div class="side">
+<div class="tray">
+<div class="ws">
+<svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="#5f7a73" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 3.75 L5 6.25 L7.5 3.75"></path></svg>
+<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#2f9474" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true"><path d="M8 2 L14 5 L8 8 L2 5 Z"></path><path d="M2 8 L8 11 L14 8"></path><path d="M2 11 L8 14 L14 11"></path></svg>
+<span style="font-size: 13.5px; font-weight: 600">My-Harness</span>
+<span style="font-size: 11.5px; font-weight: 600; color: #5f7a73">7</span>
+</div>
+<sc-for list="{{groups}}" as="g" hint-placeholder-count="3">
+<div class="grp"><span style="font-size: 11.5px; font-weight: 600; color: #5f7a73">{{g.name}}</span><span style="font-size: 11px; font-weight: 600; color: #829a93">{{g.count}}</span></div>
+<sc-for list="{{g.cards}}" as="c" hint-placeholder-count="2">
+<div class="card" style="{{c.cardStyle}}">
+<div class="av" style="background: {{c.avBg}}">
+<sc-if value="{{c.claude}}" hint-placeholder-val="{{ true }}"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4"></path></svg></sc-if>
+<sc-if value="{{c.codex}}" hint-placeholder-val="{{ false }}"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#eef4f0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 7l5 5-5 5M12 18h7"></path></svg></sc-if>
+<span class="dot" style="background: {{c.dot}}; border-color: {{c.ground}}"></span>
+<sc-if value="{{c.crown}}" hint-placeholder-val="{{ false }}"><span class="crown" style="background: {{c.ground}}"><svg width="13" height="13" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 8 L7.5 12 L12 5 L16.5 12 L21 8 L19 19 L5 19 Z" fill="#2f9474" stroke="#2f9474" stroke-width="2" stroke-linejoin="round"></path></svg></span></sc-if>
+</div>
+<div class="body">
+<div class="row1"><span style="font-size: 14px; font-weight: 600">{{c.name}}</span><span style="font-size: 11.5px; color: #5f7a73">{{c.effort}}</span><span style="flex: 1"></span><span style="font-size: 11.5px; color: {{c.timeColor}}">{{c.time}}</span></div>
+<div class="sub">{{c.place}}</div>
+</div>
+</div>
+</sc-for>
+</sc-for>
+</div>
+</div>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 14px">
+<div style="display: flex; flex-direction: column; gap: 4px">
+<div style="font-size: 13px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #2f9474">Expanded</div>
+<div style="font-size: 12px; line-height: 1.5; color: #5f7a73; width: 368px">展开时皇冠照样在头像上，详情不加新的格子；Delegates 一格（P5-141）照旧。</div>
+</div>
+<div style="width: 368px; box-sizing: border-box; padding: 10px 12px 12px 10px; border-radius: 12px; background: #d3e8df; border: 1px solid #8cc4b0; display: flex; gap: 10px">
+<div class="av" style="background: #e06f22">
+<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4"></path></svg>
+<span class="dot" style="background: #5f8a00; border-color: #d3e8df"></span>
+<span class="crown" style="background: #d3e8df"><svg width="13" height="13" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 8 L7.5 12 L12 5 L16.5 12 L21 8 L19 19 L5 19 Z" fill="#2f9474" stroke="#2f9474" stroke-width="2" stroke-linejoin="round"></path></svg></span>
+</div>
+<div class="body">
+<div class="row1"><span style="font-size: 14px; font-weight: 600">main</span><span style="font-size: 11.5px; color: #5f7a73">xhigh</span><span style="flex: 1"></span><span style="font-size: 11.5px; color: #5f7a73">3m</span></div>
+<div class="sub">~/Developer/personal_projs/paddock · ⎇ main ?3</div>
+<div style="margin-top: 10px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 14px; row-gap: 10px">
+<div><div class="k">Status</div><div class="v">Idle</div></div>
+<div><div class="k">Model</div><div class="v">opus[1m] · xhigh</div></div>
+<div><div class="k">Idle for</div><div class="v">3m 12s</div></div>
+<div><div class="k">Up</div><div class="v">4h 20m</div></div>
+<div><div class="k">Windows</div><div class="v">1 pane</div></div>
+<div><div class="k">Workspace</div><div class="v">My-Harness</div></div>
+<div><div class="k">Delegates</div><div class="v">Not sandboxed</div></div>
+</div>
+</div>
+</div>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":860,"height":720}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const tray = '#f3f8f5';
+    const sel = '#d3e8df';
+    const C = { claude: '#e06f22', codex: '#3a524c', idle: '#5f8a00', work: '#3a94c5', wait: '#b88a00' };
+    const card = (o) => {
+      const ground = o.selected ? sel : tray;
+      return {
+        ...o,
+        crown: !!o.ctl,
+        claude: o.kind === 'claude',
+        codex: o.kind === 'codex',
+        avBg: C[o.kind],
+        dot: C[o.status],
+        ground,
+        cardStyle: o.selected ? 'background: ' + sel + '; border-color: #8cc4b0' : '',
+        timeColor: o.status === 'work' ? '#3a94c5' : o.status === 'wait' ? '#b88a00' : '#5f7a73'
+      };
+    };
+    const groups = [
+      { name: 'paddock', count: 3, cards: [
+        { name: 'main', ctl: true, kind: 'claude', effort: 'xhigh', time: '3m', status: 'idle', selected: true, place: '~/Developer/personal_projs/paddock · ⎇ main ?3' },
+        { name: 'dev-marks-1', kind: 'claude', effort: 'xhigh', time: '41m', status: 'work', place: 'paddock-worktrees/p5-149-marks · ⎇ p5-149-marks' },
+        { name: 'dev-colors-1', kind: 'codex', effort: 'high', time: '12m', status: 'work', place: 'paddock-worktrees/p5-181-colors · ⎇ p5-181-colors' }
+      ] },
+      { name: 'ranch', count: 2, cards: [
+        { name: 'main', ctl: true, kind: 'claude', effort: 'xhigh', time: '18m', status: 'idle', place: '~/Developer/personal_projs/ranch · ⎇ main' },
+        { name: 'dev-r48f-1', kind: 'codex', effort: 'xhigh', time: '6m', status: 'work', place: 'ranch-worktrees/r48f · ⎇ r48f' }
+      ] },
+      { name: 'cairn', count: 2, cards: [
+        { name: 'main', ctl: true, kind: 'claude', effort: 'high', time: '2m', status: 'wait', place: '~/Developer/personal_projs/cairn · ⎇ main' },
+        { name: 'review-tui2-1', kind: 'codex', effort: 'xhigh', time: '9m', status: 'work', place: 'canter-worktrees/tui2 · detached' }
+      ] }
+    ];
+    return { groups: groups.map((g) => ({ ...g, cards: g.cards.map(card) })) };
+  }
+}
+</script>
+</body>
+</html>

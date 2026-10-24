@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>Controller crown, dark sidebar</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+.side{width:368px;height:600px;box-sizing:border-box;padding:14px 7px;border-radius:12px;background:linear-gradient(180deg,#20272d 0%,#1b1f24 100%);overflow:hidden;display:flex;flex-direction:column;font-size:13px;color:#e4eaec}
+.tray{display:flex;flex-direction:column;gap:3px;padding:4px 6px 8px;border-radius:16px;background:#121619;border:1px solid rgba(228,234,236,0.16)}
+.ws{display:flex;align-items:center;gap:8px;height:34px;padding:0 8px}
+.grp{display:flex;align-items:center;gap:6px;padding:8px 4px 2px}
+.card{display:flex;gap:10px;padding:9px 12px 9px 10px;border-radius:12px;border:1px solid transparent}
+.av{position:relative;width:34px;height:34px;border-radius:9px;flex-shrink:0;display:flex;align-items:center;justify-content:center}
+.dot{position:absolute;right:-2px;bottom:-2px;width:9px;height:9px;border-radius:5px;border:2px solid #121619}
+.crown{position:absolute;left:-6px;top:-7px;width:17px;height:17px;border-radius:9px;display:flex;align-items:center;justify-content:center}
+.body{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+.row1{display:flex;align-items:center;gap:6px}
+.sub{font-size:11.5px;color:#9eaab0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cap{display:flex;flex-direction:column;gap:4px}
+</style>
+</helmet>
+<div style="width: 860px; height: 720px; box-sizing: border-box; padding: 28px 34px; background: #15191d; font-family: -apple-system, 'SF Pro Text', 'Helvetica Neue', sans-serif; color: #e4eaec; display: flex; gap: 52px">
+<sc-for list="{{cols}}" as="col" hint-placeholder-count="2">
+<div style="display: flex; flex-direction: column; gap: 14px">
+<div class="cap">
+<div style="font-size: 13px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: {{col.headColor}}">{{col.head}}</div>
+<div style="font-size: 12px; line-height: 1.5; color: #9eaab0; width: 368px">{{col.note}}</div>
+</div>
+<div class="side">
+<div class="tray">
+<div class="ws">
+<svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="#c3ccd0" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 3.75 L5 6.25 L7.5 3.75"></path></svg>
+<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#72d6c0" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true"><path d="M8 2 L14 5 L8 8 L2 5 Z"></path><path d="M2 8 L8 11 L14 8"></path><path d="M2 11 L8 14 L14 11"></path></svg>
+<span style="font-size: 13.5px; font-weight: 600">My-Harness</span>
+<span style="font-size: 11.5px; font-weight: 600; color: #9eaab0">7</span>
+</div>
+<sc-for list="{{col.groups}}" as="g" hint-placeholder-count="3">
+<div class="grp"><span style="font-size: 11.5px; font-weight: 600; color: #9eaab0">{{g.name}}</span><span style="font-size: 11px; font-weight: 600; color: #7d8a90">{{g.count}}</span></div>
+<sc-for list="{{g.cards}}" as="c" hint-placeholder-count="2">
+<div class="card" style="{{c.cardStyle}}">
+<div class="av" style="background: {{c.avBg}}">
+<sc-if value="{{c.claude}}" hint-placeholder-val="{{ true }}"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4"></path></svg></sc-if>
+<sc-if value="{{c.codex}}" hint-placeholder-val="{{ false }}"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#e4eaec" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 7l5 5-5 5M12 18h7"></path></svg></sc-if>
+<span class="dot" style="background: {{c.dot}}; border-color: {{c.ground}}"></span>
+<sc-if value="{{c.crown}}" hint-placeholder-val="{{ false }}"><span class="crown" style="background: {{c.ground}}"><svg width="13" height="13" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 8 L7.5 12 L12 5 L16.5 12 L21 8 L19 19 L5 19 Z" fill="{{crownColor}}" stroke="{{crownColor}}" stroke-width="2" stroke-linejoin="round"></path></svg></span></sc-if>
+</div>
+<div class="body">
+<div class="row1"><span style="font-size: 14px; font-weight: 600">{{c.name}}</span><span style="font-size: 11.5px; color: #9eaab0">{{c.effort}}</span><span style="flex: 1"></span><span style="font-size: 11.5px; color: {{c.timeColor}}">{{c.time}}</span></div>
+<div class="sub">{{c.place}}</div>
+</div>
+</div>
+</sc-for>
+</sc-for>
+</div>
+</div>
+</div>
+</sc-for>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"crownColor":{"editor":"color","default":"#72d6c0","options":["#72d6c0","#e4eaec","#9eaab0"]},"$preview":{"width":860,"height":720}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const tray = '#121619';
+    const sel = '#1d3532';
+    const C = { claude: '#e07a52', codex: '#2f363d', idle: '#93c79a', work: '#7ea2ee', wait: '#e5c07b' };
+    const card = (o, crown) => {
+      const ground = o.selected ? sel : tray;
+      return {
+        ...o,
+        crown: crown && o.ctl,
+        claude: o.kind === 'claude',
+        codex: o.kind === 'codex',
+        avBg: o.kind === 'claude' ? C.claude : C.codex,
+        dot: C[o.status],
+        ground,
+        cardStyle: o.selected ? 'background: ' + sel + '; border-color: #3c8e78' : '',
+        timeColor: o.status === 'work' ? '#9fb7ee' : o.status === 'wait' ? '#e5c07b' : '#9eaab0'
+      };
+    };
+    const A = {
+      pMain: { name: 'main', ctl: true, kind: 'claude', effort: 'xhigh', time: '3m', status: 'idle', selected: true, place: '~/Developer/personal_projs/paddock · ⎇ main ?3' },
+      pMarks: { name: 'dev-marks-1', kind: 'claude', effort: 'xhigh', time: '41m', status: 'work', place: 'paddock-worktrees/p5-149-marks · ⎇ p5-149-marks' },
+      pColors: { name: 'dev-colors-1', kind: 'codex', effort: 'high', time: '12m', status: 'work', place: 'paddock-worktrees/p5-181-colors · ⎇ p5-181-colors' },
+      rMain: { name: 'main', ctl: true, kind: 'claude', effort: 'xhigh', time: '18m', status: 'idle', place: '~/Developer/personal_projs/ranch · ⎇ main' },
+      rDev: { name: 'dev-r48f-1', kind: 'codex', effort: 'xhigh', time: '6m', status: 'work', place: 'ranch-worktrees/r48f · ⎇ r48f' },
+      cMain: { name: 'main', ctl: true, kind: 'claude', effort: 'high', time: '2m', status: 'wait', place: '~/Developer/personal_projs/cairn · ⎇ main' },
+      cRev: { name: 'review-tui2-1', kind: 'codex', effort: 'xhigh', time: '9m', status: 'work', place: 'canter-worktrees/tui2 · detached' }
+    };
+    const now = [
+      { name: 'paddock', count: 3, cards: [A.pMarks, A.pColors, A.pMain] },
+      { name: 'ranch', count: 2, cards: [A.rDev, A.rMain] },
+      { name: 'cairn', count: 2, cards: [A.cMain, A.cRev] }
+    ];
+    const next = [
+      { name: 'paddock', count: 3, cards: [A.pMain, A.pMarks, A.pColors] },
+      { name: 'ranch', count: 2, cards: [A.rMain, A.rDev] },
+      { name: 'cairn', count: 2, cards: [A.cMain, A.cRev] }
+    ];
+    const build = (groups, crown) => groups.map((g) => ({ ...g, cards: g.cards.map((c) => card(c, crown)) }));
+    return {
+      crownColor: this.props.crownColor ?? '#72d6c0',
+      cols: [
+        { head: 'Now', headColor: '#7d8a90', note: '按状态排：干活中的 dev-* 排在空闲的 main 前面；主控和派出去的长得一样。', groups: build(now, false) },
+        { head: 'Proposed', headColor: '#72d6c0', note: '主控头像左上角戴一顶小皇冠（New Agent 里 Controller 的那顶）；每组主控固定排第一，其余照旧按状态或名字排。', groups: build(next, true) }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

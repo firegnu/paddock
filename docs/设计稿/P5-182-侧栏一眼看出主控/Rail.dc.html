@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>Controller crown, narrow rail</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+.rail{width:56px;height:560px;box-sizing:border-box;padding:16px 0;border-radius:12px;display:flex;flex-direction:column;align-items:center}
+.tile{position:relative;width:34px;height:34px;margin:3.5px 0;border-radius:9px;display:flex;align-items:center;justify-content:center}
+.dot{position:absolute;right:-2px;bottom:-2px;width:9px;height:9px;border-radius:5px;border:2px solid}
+.crown{position:absolute;left:-6px;top:-7px;width:17px;height:17px;border-radius:9px;display:flex;align-items:center;justify-content:center}
+.sep{width:22px;height:1px;margin:7px 0}
+</style>
+</helmet>
+<div style="width: 440px; height: 720px; box-sizing: border-box; padding: 28px 34px; background: #15191d; font-family: -apple-system, 'SF Pro Text', 'Helvetica Neue', sans-serif; color: #e4eaec; display: flex; flex-direction: column; gap: 18px">
+<div style="display: flex; flex-direction: column; gap: 4px">
+<div style="font-size: 14px; font-weight: 600">窄侧栏（只剩方块）</div>
+<div style="font-size: 12px; line-height: 1.5; color: #9eaab0">方块角上同样一顶小皇冠，状态点仍在右下；每组主控排第一。顺序和左边侧栏一样：paddock、ranch、cairn。</div>
+</div>
+<div style="display: flex; gap: 44px">
+<sc-for list="{{rails}}" as="r" hint-placeholder-count="3">
+<div style="display: flex; flex-direction: column; align-items: center; gap: 10px">
+<div style="font-size: 11.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: {{r.headColor}}">{{r.head}}</div>
+<div class="rail" style="background: {{r.bg}}">
+<sc-for list="{{r.tiles}}" as="t" hint-placeholder-count="7">
+<sc-if value="{{t.sep}}" hint-placeholder-val="{{ false }}"><div class="sep" style="background: {{r.line}}"></div></sc-if>
+<div class="tile" style="{{t.style}}">
+<sc-if value="{{t.claude}}" hint-placeholder-val="{{ true }}"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.1" stroke-linecap="round" aria-hidden="true"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4"></path></svg></sc-if>
+<sc-if value="{{t.codex}}" hint-placeholder-val="{{ false }}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="{{r.codexInk}}" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 7l5 5-5 5M12 18h7"></path></svg></sc-if>
+<span class="dot" style="background: {{t.dot}}; border-color: {{r.bg}}"></span>
+<sc-if value="{{t.crown}}" hint-placeholder-val="{{ false }}"><span class="crown" style="background: {{r.bg}}"><svg width="13" height="13" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 8 L7.5 12 L12 5 L16.5 12 L21 8 L19 19 L5 19 Z" fill="{{r.crown}}" stroke="{{r.crown}}" stroke-width="2" stroke-linejoin="round"></path></svg></span></sc-if>
+</div>
+</sc-for>
+</div>
+<div style="font-size: 11px; color: #7d8a90">{{r.foot}}</div>
+</div>
+</sc-for>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":440,"height":720}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const dark = { bg: '#1c2126', line: 'rgba(228,234,236,0.14)', crown: '#72d6c0', codexBg: '#2f363d', codexInk: '#e4eaec', claude: '#e07a52', idle: '#93c79a', work: '#7ea2ee', wait: '#e5c07b', sel: 'box-shadow: 0 0 0 3px #1d3532, 0 0 0 4px #3c8e78' };
+    const light = { bg: '#e0ece6', line: '#cfdcd6', crown: '#2f9474', codexBg: '#3a524c', codexInk: '#eef4f0', claude: '#e06f22', idle: '#5f8a00', work: '#3a94c5', wait: '#b88a00', sel: 'box-shadow: 0 0 0 3px #d3e8df, 0 0 0 4px #8cc4b0' };
+    const ag = {
+      pMain: { kind: 'claude', status: 'idle', ctl: true, selected: true },
+      pMarks: { kind: 'claude', status: 'work' },
+      pColors: { kind: 'codex', status: 'work' },
+      rMain: { kind: 'claude', status: 'idle', ctl: true },
+      rDev: { kind: 'codex', status: 'work' },
+      cMain: { kind: 'claude', status: 'wait', ctl: true },
+      cRev: { kind: 'codex', status: 'work' }
+    };
+    const now = [[ag.pMarks, ag.pColors, ag.pMain], [ag.rDev, ag.rMain], [ag.cMain, ag.cRev]];
+    const next = [[ag.pMain, ag.pMarks, ag.pColors], [ag.rMain, ag.rDev], [ag.cMain, ag.cRev]];
+    const tiles = (groups, p, crown) => groups.flatMap((g, gi) => g.map((a, i) => ({
+      sep: gi > 0 && i === 0,
+      claude: a.kind === 'claude',
+      codex: a.kind === 'codex',
+      crown: crown && !!a.ctl,
+      dot: p[a.status],
+      style: 'background: ' + (a.kind === 'claude' ? p.claude : p.codexBg) + (a.selected ? '; ' + p.sel : '')
+    })));
+    const rail = (head, headColor, p, groups, crown, foot) => ({ head, headColor, bg: p.bg, line: p.line, crown: p.crown, codexInk: p.codexInk, tiles: tiles(groups, p, crown), foot });
+    return {
+      rails: [
+        rail('Now', '#7d8a90', dark, now, false, '深色'),
+        rail('Proposed', '#72d6c0', dark, next, true, '深色'),
+        rail('Proposed', '#72d6c0', light, next, true, '浅色')
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>
