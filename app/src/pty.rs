@@ -162,6 +162,9 @@ impl Session {
         let spawning = crate::command::spawn_guard();
         let pair = native_pty_system().openpty(pty_size(size))?;
         let mut cmd = CommandBuilder::new(program);
+        if let Some(path) = crate::launch::path() {
+            cmd.env("PATH", path);
+        }
         cmd.args(&command[1..]);
         cmd.env("TERM", "xterm-256color");
         cmd.env("COLORTERM", "truecolor");

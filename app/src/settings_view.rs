@@ -439,6 +439,13 @@ impl SettingsView {
             this.fade(!crate::unfocused::in_front(cx), cx)
         });
         view._subscriptions.push(front);
+        let startup = cx.observe_global::<diagnostics::Startup>(|this, cx| {
+            if let Some(report) = &mut this.report {
+                report.startup = cx.global::<diagnostics::Startup>().clone();
+                cx.notify();
+            }
+        });
+        view._subscriptions.push(startup);
         view.fade(!crate::unfocused::in_front(cx), cx);
         view
     }
@@ -1199,9 +1206,15 @@ impl SettingsView {
                 "PATH",
                 match report.startup.login_path {
                     None => ("as the terminal had it".into(), Tone::Plain),
-                    Some(true) => ("taken from the login shell".into(), Tone::Good),
-                    Some(false) => (
-                        "the login shell did not answer; kept as started".into(),
+                    Some(crate::launch::LoginPath::Loading) => (
+                        "still loading from the login shell; using the startup PATH".into(),
+                        Tone::Unknown,
+                    ),
+                    Some(crate::launch::LoginPath::Ready) => {
+                        ("taken from the login shell".into(), Tone::Good)
+                    }
+                    Some(crate::launch::LoginPath::Failed) => (
+                        "could not load from the login shell; using the startup PATH".into(),
                         Tone::Bad,
                     ),
                 },

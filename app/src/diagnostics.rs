@@ -16,8 +16,8 @@ pub type Last = Option<(SystemTime, Result<String, String>)>;
 pub struct Startup {
     /// From Finder or the Dock rather than a terminal.
     pub desktop: bool,
-    /// From the desktop: whether the login shell gave its PATH.
-    pub login_path: Option<bool>,
+    /// From the desktop: whether the login shell is still supplying PATH, succeeded or failed.
+    pub login_path: Option<crate::launch::LoginPath>,
 }
 
 impl gpui::Global for Startup {}
@@ -107,7 +107,7 @@ pub fn find(program: &str) -> Result<PathBuf, String> {
             Err(format!("{} is not an executable file", path.display()))
         };
     }
-    std::env::var_os("PATH")
+    crate::launch::path()
         .iter()
         .flat_map(std::env::split_paths)
         .map(|dir| dir.join(program))
