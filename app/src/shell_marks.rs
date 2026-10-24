@@ -2,49 +2,55 @@
 //! OSC 133, where each prompt starts (`A`), where typing starts (`B`), where the command's output
 //! starts (`C`) and that the command has ended, with its status (`D;<status>`). Plain shells get
 //! them through a private `.zshenv` or rcfile that reads the user's own first; the Agent shell
-//! appends them to its own (P5-61). The marks take no room, so the prompt looks as it did. The ones in the
-//! prompt and `PS0` carry an option of their own (`;paddock=1`, ignored by the terminal) so the
-//! scripts can tell them from another integration's: when the prompt already carries OSC 133
-//! marks of its own (iTerm2, WezTerm), these stay out of its way.
+//! appends them to its own (P5-61). The marks take no room, so the prompt looks as it did. Zsh sends
+//! A/B outside the prompt; bash's prompt and `PS0` marks carry `;paddock=1` (ignored by the terminal).
+//! Both check the theme's prompt for another integration's OSC 133 and stay out of its way.
 use crate::agent_shell::Setup;
 use anyhow::Result;
 use std::{io::Write, os::unix::fs::OpenOptionsExt, path::Path};
 
-/// Run at the end of the private `.zshenv`, once the user's own has been read. The prompt hook
-/// moves itself last before each prompt, after whatever sets the prompt in `.zshrc`.
+/// Run at the end of the private `.zshenv`, once the user's own has been read. `sched` runs after
+/// all precmd hooks, so even a theme that moves itself last cannot erase A or hide its own marks.
 pub const ZSH: &str = r#"if [[ -o interactive && -z "${_paddock_marks-}" ]]; then
-    typeset -g _paddock_marks=1 _paddock_marks_running=0 _paddock_marks_other=0 _paddock_marks_left=
+    typeset -g _paddock_marks=1 _paddock_marks_running=0 _paddock_marks_other=0 _paddock_marks_exit=0
     typeset -ga precmd_functions preexec_functions
+    zmodload zsh/sched
+    autoload -Uz add-zle-hook-widget
     _paddock_marks_precmd() {
         local ret=$?
+        _paddock_marks_exit=$ret
         if (( _paddock_marks_running )); then
             _paddock_marks_running=0
             (( _paddock_marks_other )) || builtin printf '\e]133;D;%s\a' $ret
         fi
-        precmd_functions=(_paddock_marks_precmd ${precmd_functions:#_paddock_marks_(precmd|prompt)} _paddock_marks_prompt)
+        sched +0 _paddock_marks_prompt
         return ret
     }
-    _paddock_marks_bare() {
-        _paddock_marks_left=${PS1//$'%{\e]133;A;paddock=1\a%}'/}
-        _paddock_marks_left=${_paddock_marks_left//$'%{\e]133;B;paddock=1\a%}'/}
-        [[ $_paddock_marks_left == *']133;'* ]] && _paddock_marks_other=1
+    _paddock_marks_detect() {
+        [[ $PS1 == *']133;'* ]] && _paddock_marks_other=1
     }
     _paddock_marks_prompt() {
-        local ret=$?
-        _paddock_marks_bare
-        if (( _paddock_marks_other )); then
-            PS1=$_paddock_marks_left
-        elif [[ -o promptpercent ]]; then
-            PS1=$'%{\e]133;A;paddock=1\a%}'$_paddock_marks_left$'%{\e]133;B;paddock=1\a%}'
+        _paddock_marks_detect
+        add-zle-hook-widget line-init _paddock_marks_line_init
+        (( _paddock_marks_other )) || builtin printf '\e]133;A\a'
+        return $_paddock_marks_exit
+    }
+    _paddock_marks_line_init() {
+        [[ $CONTEXT == start ]] || return 0
+        _paddock_marks_detect
+        if (( ! _paddock_marks_other )); then
+            # Earlier line-init widgets may have reset the prompt; draw it before marking input.
+            zle -R
+            builtin printf '\e]133;B\a'
         fi
-        return ret
+        return 0
     }
     _paddock_marks_preexec() {
         _paddock_marks_running=1
-        _paddock_marks_bare
+        _paddock_marks_detect
         (( _paddock_marks_other )) || builtin printf '\e]133;C\a'
     }
-    precmd_functions=(_paddock_marks_precmd ${precmd_functions:#_paddock_marks_(precmd|prompt)} _paddock_marks_prompt)
+    precmd_functions=(_paddock_marks_precmd ${precmd_functions:#_paddock_marks_precmd})
     preexec_functions=(${preexec_functions:#_paddock_marks_preexec} _paddock_marks_preexec)
 fi
 "#;
@@ -55,6 +61,7 @@ fi
 pub const BASH: &str = r#"if [[ $- == *i* && -z "${_paddock_marks-}" ]]; then
     _paddock_marks=1
     _paddock_marks_other=0
+    [[ $PS1 == *']133;'* ]] && _paddock_marks_other=1
     _paddock_marks_waiting=0
     _paddock_marks_ps0=0
     (( BASH_VERSINFO[0] > 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] >= 4) )) && _paddock_marks_ps0=1
@@ -64,8 +71,27 @@ pub const BASH: &str = r#"if [[ $- == *i* && -z "${_paddock_marks-}" ]]; then
         [[ $_paddock_marks_other == 1 ]] || builtin printf '\e]133;D;%s\a' "$ret"
         return $ret
     }
+    _paddock_marks_order() {
+        local entry commands
+        local -a kept=()
+        if [[ "$(declare -p PROMPT_COMMAND 2>/dev/null)" == 'declare -a'* ]]; then
+            for entry in "${PROMPT_COMMAND[@]}"; do
+                [[ $entry == _paddock_marks_prompt ]] || kept+=("$entry")
+            done
+            PROMPT_COMMAND=("${kept[@]}" _paddock_marks_prompt)
+        else
+            commands=$'\n'"${PROMPT_COMMAND-}"$'\n'
+            commands=${commands//$'\n'_paddock_marks_prompt$'\n'/$'\n'}
+            commands=${commands#$'\n'}
+            commands=${commands%$'\n'}
+            PROMPT_COMMAND="${commands:+$commands$'\n'}"_paddock_marks_prompt
+        fi
+    }
     _paddock_marks_prompt() {
         local ret=$? a='\[\e]133;A;paddock=1\a\]' b='\[\e]133;B;paddock=1\a\]' c=$'\e]133;C;paddock=1\a' bare
+        # A theme may have moved itself after us while preparing this prompt. Reclaim the end
+        # for the next round; this round still executes the list bash took before the hooks ran.
+        _paddock_marks_order
         bare=${PS1//"$a"/}
         bare=${bare//"$b"/}
         [[ $bare == *']133;'* ]] && _paddock_marks_other=1
