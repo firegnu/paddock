@@ -3,6 +3,7 @@
 //! Saddle's `Viewer` owns the shell / `corral attach` lifecycle and `Session` the PTY and parser,
 //! unchanged. This file only reads the parser's grid, draws it, and turns window input into the
 //! bytes Saddle's `input` module already encodes.
+mod blocks;
 mod caret;
 mod edge;
 mod fade;
@@ -28,6 +29,7 @@ use crate::{
     keys, menu,
     palette::{Rgb, Theme},
     rows::{self, Run, Span, Style},
+    segments::Segment,
     text_input::{self, Changed, TextInput},
     theme,
     to_tag::{self, Typing},
@@ -265,10 +267,23 @@ pub struct TerminalView {
     /// Motion on as it came, whether it only fades.
     toolbar: toolbar::Toolbar,
     toolbar_still: bool,
+    /// A shell's command the mouse is over (P5-149), by its `Segment::id`, and whether the mouse
+    /// is on its bar in the left margin.
+    block: Option<i64>,
+    on_bar: bool,
+    /// A press on a command's bar selected its output: let go, it ends as a selection made with
+    /// the mouse does.
+    bar_press: bool,
+    /// The command ⌘↑ or ⌘↓ went to last: its id and the view row its prompt was put on; and its
+    /// prompt lit for a moment.
+    jumped: Option<(i64, i32)>,
+    flash: fade::Fade,
 }
 
 /// The grid's room from the pane's edges.
 const GRID_INSET: f32 = 6.0;
+/// What the mouse over a shell's command says (P5-149).
+const BAR_TIP: &str = "Click the bar to select output";
 /// The selection's bar, at the base interface size.
 const TOOLBAR_WIDTH: f32 = 204.0;
 const TOOLBAR_HEIGHT: f32 = 28.0;
@@ -456,6 +471,11 @@ impl TerminalView {
             find_gone: None,
             toolbar: toolbar::Toolbar::default(),
             toolbar_still: false,
+            block: None,
+            on_bar: false,
+            bar_press: false,
+            jumped: None,
+            flash: blocks::flash(false),
         }
     }
 
@@ -827,6 +847,8 @@ impl TerminalView {
             return;
         }
         self.shown = id;
+        // Its commands are not the ones before (P5-149).
+        (self.block, self.on_bar, self.jumped) = (None, false, None);
         match self.session() {
             Some(session) => session.set_ring(self.bell.for_session()),
             None => self.bell.silence(),
@@ -921,6 +943,8 @@ impl TerminalView {
         }
         self.toolbar.hide();
         self.glide.stop();
+        // A command lifted under a mouse left where it was is not in the way of typing.
+        (self.block, self.on_bar) = (None, false);
         if let Err(error) = self.send(bytes) {
             self.note = format!("{error:#}");
         }
@@ -1524,6 +1548,115 @@ impl TerminalView {
         }
     }
 
+    /// The shell's command whose lines are under `position`, when it has output to select
+    /// (P5-149); none off the grid's rows, or while the program has the mouse.
+    fn block_at(&self, position: Point<Pixels>) -> Option<Segment> {
+        if self.mode().intersects(TermMode::MOUSE_MODE) && !self.paused() {
+            return None;
+        }
+        let metrics = self.metrics?;
+        let y = f32::from(position.y - self.origin.y);
+        if y < 0.0 || y >= f32::from(self.size.rows) * metrics.line_height {
+            return None;
+        }
+        let screen = self.session()?.screen.lock().unwrap();
+        let (.., point, _) = self.cell_at(position, screen.term.grid().display_offset())?;
+        let columns = screen.term.columns();
+        let segments = screen.segments();
+        blocks::at(&segments, point.line)
+            .filter(|segment| segment.output(columns).is_some())
+            .copied()
+    }
+
+    /// The mouse at `position` over the pane, no button held: the shell's command there is lifted
+    /// and its bar shown, darker with the mouse on it (P5-149).
+    fn hover_block(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
+        let block = self.block_at(position).map(|segment| segment.id);
+        let on_bar = block.is_some() && position.x < self.origin.x;
+        if (block, on_bar) != (self.block, self.on_bar) {
+            (self.block, self.on_bar) = (block, on_bar);
+            cx.notify();
+        }
+    }
+
+    /// A press on a shell command's bar, in the left margin (P5-149): its output is selected, not
+    /// its command line. False for a press anywhere else.
+    fn press_bar(&mut self, event: &MouseDownEvent, cx: &mut Context<Self>) -> bool {
+        let held = &event.modifiers;
+        if held.platform || held.shift || event.position.x >= self.origin.x {
+            return false;
+        }
+        let Some(segment) = self.block_at(event.position) else {
+            return false;
+        };
+        let Some(session) = self.session() else {
+            return false;
+        };
+        let mut screen = session.screen.lock().unwrap();
+        let columns = screen.term.columns();
+        screen.term.selection = blocks::output_selection(&segment, columns);
+        drop(screen);
+        self.forget_found();
+        (self.block, self.on_bar, self.bar_press) = (Some(segment.id), true, true);
+        cx.notify();
+        true
+    }
+
+    /// ⌘↑ (`up`) or ⌘↓: the view goes to a shell's previous or next command, its prompt at the
+    /// top as far as the history allows, and the prompt is lit a moment (P5-149). Past either
+    /// end, nothing moves.
+    fn jump(&mut self, up: bool, cx: &mut Context<Self>) {
+        let Some(shared) = self.session().map(|session| session.screen.clone()) else {
+            return;
+        };
+        let mut screen = shared.lock().unwrap();
+        let segments = screen.segments();
+        let grid = screen.term.grid();
+        let (offset, history) = (grid.display_offset(), grid.history_size());
+        let from = blocks::from(&segments, self.jumped, offset);
+        let Some(target) = blocks::target(&segments, from, up).copied() else {
+            return;
+        };
+        let to = blocks::offset_for(target.prompt, history);
+        if to != offset {
+            screen
+                .term
+                .scroll_display(ViewScroll::Delta(to as i32 - offset as i32));
+        }
+        drop(screen);
+        self.glide.stop();
+        self.jumped = Some((target.id, target.prompt.0 + to as i32));
+        self.flash = blocks::flash(crate::reduce_motion::on());
+        self.flash.poke(Instant::now());
+        cx.notify();
+    }
+
+    fn previous_command(
+        &mut self,
+        _: &menu::PreviousCommand,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.jump(true, cx);
+    }
+
+    fn next_command(&mut self, _: &menu::NextCommand, _: &mut Window, cx: &mut Context<Self>) {
+        self.jump(false, cx);
+    }
+
+    /// Where the lifted command shows what its bar does (P5-149): down from the grid's top, by
+    /// its first row in view; none without one.
+    fn tip_top(&self) -> Option<f32> {
+        let id = self.block?;
+        let metrics = self.metrics?;
+        let screen = self.session()?.screen.lock().unwrap();
+        let offset = screen.term.grid().display_offset() as i32;
+        let segment = screen.segments().into_iter().find(|s| s.id == id)?;
+        let row = (segment.prompt.0 + offset).max(0);
+        let shown = segment.last().0 + offset >= 0 && row < i32::from(self.size.rows);
+        shown.then(|| row as f32 * metrics.line_height + self.shift() + 2.0)
+    }
+
     /// A few words over the pane's bottom, for [`notice::NOTICE`] once the pane shows: why a link
     /// did not open, seen where it was clicked whatever the sidebar shows, and not missed while
     /// another tab or machine is shown.
@@ -1637,6 +1770,15 @@ impl TerminalView {
     fn mouse_down(&mut self, event: &MouseDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         window.focus(&self.focus, cx);
         self.toolbar.hide();
+        self.bar_press = false;
+        if self.press_bar(event, cx) {
+            return;
+        }
+        // Pressed elsewhere: no command is lifted until the mouse moves on.
+        if self.block.take().is_some() {
+            self.on_bar = false;
+            cx.notify();
+        }
         let command = event.modifiers.platform;
         let link = if command {
             self.link_at(event.position)
@@ -1665,6 +1807,7 @@ impl TerminalView {
         if !self.mouse.pressed() {
             if event.pressed_button.is_none() {
                 self.hover(event.position, event.modifiers.platform, cx);
+                self.hover_block(event.position, cx);
                 if self.mode().contains(TermMode::MOUSE_MOTION) {
                     self.report_mouse(K::Moved, event.position, event.modifiers, cx);
                 }
@@ -1681,7 +1824,8 @@ impl TerminalView {
 
     fn mouse_up(&mut self, event: &MouseUpEvent, _: &mut Window, cx: &mut Context<Self>) {
         let act = self.mouse.pane_up();
-        let ended = act == press::Act::EndSelect;
+        let bar = std::mem::take(&mut self.bar_press);
+        let ended = act == press::Act::EndSelect || bar;
         self.act(act, event.position, event.modifiers, cx);
         self.bar_let_go(ended, event.position, cx);
         self.edge = None;
@@ -1693,6 +1837,11 @@ impl TerminalView {
         let inside = self.bounds.contains(&event.position);
         if !inside {
             self.left(cx);
+        }
+        // Off the pane, its margins too, no command is lifted (P5-149).
+        if self.block.is_some() && !self.bounds.dilate(px(GRID_INSET)).contains(&event.position) {
+            (self.block, self.on_bar) = (None, false);
+            cx.notify();
         }
         // The grid is only read while a press goes on.
         if !self.mouse.pressed() {
@@ -1714,7 +1863,8 @@ impl TerminalView {
             .locate(event.position)
             .map(|(.., point, side)| (point, side));
         let act = self.mouse.window_up(cell, inside);
-        let ended = act == press::Act::EndSelect;
+        let bar = std::mem::take(&mut self.bar_press);
+        let ended = act == press::Act::EndSelect || bar;
         self.act(act, event.position, event.modifiers, cx);
         self.bar_let_go(ended, event.position, cx);
         self.edge = None;
@@ -1909,6 +2059,12 @@ impl TerminalView {
             other: ((0, 0, 0), 0.0),
             gauge: None,
             size_label: None,
+            failed: Vec::new(),
+            block: None,
+            flash: None,
+            ticks: Vec::new(),
+            danger: self.theme.fg(|t| t.danger),
+            focus_color: self.theme.fg(|t| t.focus),
         };
         let Some(session) = self.session() else {
             // Without a session, the viewer's own message comes first: a hint or why the last one
@@ -2063,6 +2219,55 @@ impl TerminalView {
             frame.gauge = gauge::thumb(back, term.grid().history_size(), rows, height)
                 .map(|(top, length)| (top, length, alpha));
         }
+        // A shell's commands (P5-149): a red line beside the failed ones, the one under the mouse
+        // lifted, the one jumped to lit, and a tick on the position bar for each.
+        let segments = screen.segments();
+        let view = |line: Line| line.0 + offset;
+        let shown = |top: i32, bottom: i32| bottom >= first && top < i32::from(rows);
+        for segment in segments.iter().filter(|segment| segment.failed()) {
+            let (top, bottom) = (view(segment.prompt), view(segment.last()));
+            if shown(top, bottom) {
+                frame.failed.push((top, bottom));
+            }
+        }
+        frame.block = self
+            .block
+            .and_then(|id| segments.iter().find(|segment| segment.id == id))
+            .filter(|segment| segment.output(usize::from(cols)).is_some())
+            .map(|segment| (view(segment.prompt), view(segment.last()), self.on_bar))
+            .filter(|&(top, bottom, _)| shown(top, bottom));
+        let jumped = self
+            .jumped
+            .and_then(|(id, row)| Some((segments.iter().find(|s| s.id == id)?, row)));
+        let lit = self.flash.alpha(now);
+        if let Some((segment, _)) = jumped
+            && lit > 0.0
+        {
+            let (top, bottom) = blocks::command_lines(segment);
+            let (top, bottom) = (view(top), view(bottom));
+            frame.flash = shown(top, bottom).then_some((top, bottom, lit));
+        }
+        if frame.gauge.is_some() {
+            let (history, height) = (term.grid().history_size(), f32::from(bounds.size.height));
+            // Longer for the command jumped to, while the view stays where the jump put it.
+            let long = jumped
+                .filter(|(segment, row)| view(segment.prompt) == *row)
+                .map(|(segment, _)| segment.id);
+            frame.ticks = segments
+                .iter()
+                .map(|segment| {
+                    let line = (history as i32 + segment.prompt.0) as f32 + 0.5;
+                    let long = long == Some(segment.id);
+                    let thick = if long { 3.0 } else { 2.0 };
+                    let y = gauge::tick(line, history, rows, height) - thick / 2.0;
+                    (
+                        y.clamp(0.0, (height - thick).max(0.0)),
+                        segment.failed(),
+                        long,
+                    )
+                })
+                .collect();
+        }
         for y in first..i32::from(rows) {
             // Read in the colours as set, so a program's own come out as it means them; then, out
             // of the front, every cell faded alike, its own colours too (P5-162).
@@ -2159,11 +2364,13 @@ impl TerminalView {
             cursor.alpha = look.alpha;
             cursor.corners = look.corners;
         }
-        // The position bar and the size fade on the same wake (P5-143e).
+        // The position bar, the size and a jumped-to prompt's light (P5-149) fade on the same wake
+        // (P5-143e).
         let next = look
             .next
             .sooner(self.gauge.next(now))
-            .sooner(self.sized.next(now));
+            .sooner(self.sized.next(now))
+            .sooner(self.flash.next(now));
         self.caret_wake = match next {
             caret::Next::Idle => None,
             caret::Next::Frame => {
@@ -2286,6 +2493,17 @@ pub struct Frame {
     gauge: Option<(f32, f32, f32)>,
     /// The grid's size as the pane is resized, and how strongly it shows.
     size_label: Option<(String, f32)>,
+    /// A shell's commands in view (P5-149), each by its first and last row: the failed ones, a
+    /// red line beside each; the one under the mouse, lifted, and whether the mouse is on its
+    /// bar; the one jumped to, its command lines lit this strongly.
+    failed: Vec<(i32, i32)>,
+    block: Option<(i32, i32, bool)>,
+    flash: Option<(i32, i32, f32)>,
+    /// Along the position bar, each command's tick: its top, whether it failed, whether it is
+    /// the one jumped to (longer).
+    ticks: Vec<(f32, bool, bool)>,
+    danger: Rgb,
+    focus_color: Rgb,
 }
 
 fn terminal_font(family: &str, fallbacks: &[String]) -> Font {
@@ -2453,7 +2671,21 @@ impl Frame {
                 size(px(width), px(self.rows.len() as f32 * lh)),
             ),
         });
+        // A shell's commands (P5-149) go into the margins, as far down as the grid.
+        let blocks = ContentMask {
+            bounds: Bounds::new(
+                point(self.origin.x - px(GRID_INSET), self.origin.y),
+                size(
+                    px(width + 2.0 * GRID_INSET),
+                    px(self.rows.len() as f32 * lh),
+                ),
+            ),
+        };
+        window.with_content_mask(Some(blocks), |window| {
+            self.paint_blocks_under(width, window)
+        });
         window.with_content_mask(mask, |window| self.paint_grid(width, window, cx));
+        window.with_content_mask(Some(blocks), |window| self.paint_blocks_beside(window));
         if let Some(note) = &self.note {
             let style = Style {
                 fg: self.note_color,
@@ -2486,6 +2718,69 @@ impl Frame {
         );
         let color = hsla(self.theme.foreground, 0.4 * alpha);
         window.paint_quad(fill(bounds, color).corner_radii(px(2.0)));
+        // A tick for each of a shell's commands along it, red for a failed one, the one jumped to
+        // longer and thicker (P5-149).
+        for &(y, failed, long) in &self.ticks {
+            let (x, h) = if long { (-4.0, 3.0) } else { (-1.0, 2.0) };
+            let color = if failed {
+                hsla(self.danger, alpha)
+            } else {
+                hsla(self.theme.foreground, 0.6 * alpha)
+            };
+            let bounds = Bounds::new(
+                point(self.origin.x + px(width + x), self.origin.y + px(y)),
+                size(px(GRID_INSET - x), px(h)),
+            );
+            window.paint_quad(fill(bounds, color).corner_radii(px(1.0)));
+        }
+    }
+
+    /// Under the grid's text (P5-149): the command under the mouse lifted, out into the margins;
+    /// the command lines of the one jumped to lit.
+    fn paint_blocks_under(&self, width: f32, window: &mut Window) {
+        if let Some((top, bottom, _)) = self.block {
+            let (y, h) = self.block_span(top, bottom);
+            let lift = hsla(self.theme.foreground, 0.06);
+            window.paint_quad(
+                self.rect(-GRID_INSET, y, width + GRID_INSET, h, lift)
+                    .corner_radii(px(4.0)),
+            );
+        }
+        if let Some((top, bottom, lit)) = self.flash {
+            let (y, h) = self.block_span(top, bottom);
+            let color = hsla(self.focus_color, 0.22 * lit);
+            window.paint_quad(
+                self.rect(-2.0, y, width + 2.0, h, color)
+                    .corner_radii(px(4.0)),
+            );
+        }
+    }
+
+    /// In the left margin (P5-149): the lifted command's bar, darker with the mouse on it, and a
+    /// thin red line beside each failed command, a little apart from the next.
+    fn paint_blocks_beside(&self, window: &mut Window) {
+        if let Some((top, bottom, on_bar)) = self.block {
+            let (y, h) = self.block_span(top, bottom);
+            let color = hsla(self.theme.foreground, if on_bar { 0.7 } else { 0.35 });
+            window.paint_quad(
+                self.rect(-5.0, y + 1.0, 4.0, h - 2.0, color)
+                    .corner_radii(px(2.0)),
+            );
+        }
+        for &(top, bottom) in &self.failed {
+            let (y, h) = self.block_span(top, bottom);
+            window.paint_quad(
+                self.rect(-4.0, y + 1.0, 2.0, h - 2.0, hsla(self.danger, 1.0))
+                    .corner_radii(px(1.0)),
+            );
+        }
+    }
+
+    /// The top and height of rows `top` to `bottom`, held to those drawn.
+    fn block_span(&self, top: i32, bottom: i32) -> (f32, f32) {
+        let top = self.y(top.max(-1));
+        let bottom = self.y(bottom.min(self.rows.len() as i32) + 1);
+        (top, bottom - top)
     }
 
     /// The grid's size, `120×40`, in the middle of the pane, dark on light like a link's address.
@@ -2769,19 +3064,23 @@ impl Render for TerminalView {
             (None, Some((bar, rise))) => Some((bar, (shown, *rise))),
             (None, None) => None,
         };
+        // What the lifted command's bar does, until a selection's bar is up (P5-149).
+        let tip = self.tip_top().filter(|_| bar.is_none());
         div()
             .relative()
             .size_full()
             .bg(hsla(self.theme.terminal().background, 1.0))
             .p(px(GRID_INSET))
             .track_focus(&self.focus)
-            .key_context("Terminal")
+            .key_context(menu::TERMINAL)
             .on_key_down(cx.listener(Self::key_down))
             .on_action(cx.listener(Self::copy))
             .on_action(cx.listener(Self::paste_clipboard))
             .on_action(cx.listener(Self::open_find))
             .on_action(cx.listener(Self::find_next))
             .on_action(cx.listener(Self::find_previous))
+            .on_action(cx.listener(Self::previous_command))
+            .on_action(cx.listener(Self::next_command))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::mouse_down))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::mouse_up))
             .on_mouse_move(cx.listener(Self::mouse_move))
@@ -2829,6 +3128,7 @@ impl Render for TerminalView {
             .children(finding.map(|(bar, look)| self.find_bar(bar, look, cx)))
             .children(notice.map(|(text, fine)| self.notice_bar(text, fine, cx)))
             .when(self.pill, |pane| pane.child(self.new_output(cx)))
+            .children(tip.map(|y| self.bar_tip(y, cx)))
             .children(bar.map(|at| self.selection_bar(at, bar_shown, cx)))
     }
 }
@@ -2910,6 +3210,24 @@ impl TerminalView {
                 button("selection-send", "Send to agent…")
                     .on_click(cx.listener(move |this, _, _, cx| this.send_selection(at, cx))),
             )
+    }
+
+    /// What a click on the lifted command's bar does (P5-149), `y` down from the grid's top at its
+    /// right, light on dark like a link's address; the mouse goes through it.
+    fn bar_tip(&self, y: f32, cx: &mut Context<Self>) -> impl IntoElement {
+        let ui = crate::fonts::UiFont::get(cx);
+        let colors = self.theme.terminal();
+        div()
+            .absolute()
+            .top(px(GRID_INSET + y))
+            .right(px(2.0 * GRID_INSET))
+            .px(ui.px(8.0))
+            .rounded_full()
+            .bg(hsla(colors.foreground, 0.92))
+            .text_color(hsla(colors.background, 1.0))
+            .text_size(ui.px(11.0))
+            .line_height(ui.px(17.0))
+            .child(BAR_TIP)
     }
 
     /// Output came while the view is scrolled back (P5-143e): a pill over the pane's bottom that

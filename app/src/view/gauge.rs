@@ -18,6 +18,14 @@ pub fn thumb(back: f32, history: usize, rows: u16, height: f32) -> Option<(f32, 
     Some((top, length))
 }
 
+/// Where a line is along the track (P5-149's command ticks), `line` counted from the oldest kept
+/// (part of one too): inside the thumb whenever the view shows that line.
+pub fn tick(line: f32, history: usize, rows: u16, height: f32) -> f32 {
+    // The thumb is never shorter than its share of the track, so the share of the lines above
+    // stays within it.
+    line / (history as f32 + f32::from(rows)) * height
+}
+
 /// The grid's size shown for a moment as the pane is resized (P5-143e), as `120×40` (columns by
 /// rows); none on the pane's first layout (`before` none) or when the size stayed.
 pub fn size_label(before: Option<(u16, u16)>, now: (u16, u16)) -> Option<String> {
@@ -55,6 +63,29 @@ mod tests {
         // A track shorter than that: the whole track.
         let (_, length) = thumb(5.0, 10_000, 2, 20.0).unwrap();
         assert_eq!(length, 20.0);
+    }
+
+    #[test]
+    fn a_line_in_view_ticks_inside_the_thumb_wherever_the_view_is() {
+        for (history, rows, height) in [(160, 40, 800.0), (10_000, 40, 800.0), (300, 2, 20.0)] {
+            let total = history + usize::from(rows);
+            for back in (1..=history).step_by(7) {
+                let (top, length) = thumb(back as f32, history, rows, height).unwrap();
+                let first = history - back;
+                for line in first..first + usize::from(rows) {
+                    for part in [0.0, 0.5, 1.0] {
+                        let y = tick(line as f32 + part, history, rows, height);
+                        assert!(
+                            y >= top - 0.01 && y <= top + length + 0.01,
+                            "line {line} at {y}, thumb {top}+{length}, {history} {rows} {height}"
+                        );
+                    }
+                }
+            }
+            // From the track's top to its end.
+            assert_eq!(tick(0.0, history, rows, height), 0.0);
+            assert_eq!(tick(total as f32, history, rows, height), height);
+        }
     }
 
     #[test]
