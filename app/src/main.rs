@@ -68,25 +68,27 @@ fn main() -> Result<()> {
         // SAFETY: first thing in main, before any other thread exists.
         unsafe { std::env::remove_var(key) };
     }
-    // Started from Finder or the Dock: take the login shell's PATH, still before any thread.
+    // Started from Finder or the Dock: wait briefly, then let a slow login finish off-thread.
     let desktop = paddock::launch::from_desktop();
     let mut startup = paddock::diagnostics::Startup {
         desktop,
         login_path: None,
     };
-    if desktop {
+    let path_ready = if desktop {
         let shell = std::env::var("SHELL")
             .ok()
             .filter(|s| !s.is_empty())
             .unwrap_or("/bin/zsh".into());
-        let timeout = std::time::Duration::from_secs(3);
-        let path = paddock::launch::login_path(std::path::Path::new(&shell), timeout);
-        startup.login_path = Some(path.is_some());
-        if let Some(path) = path {
-            // SAFETY: the login shell ran on this thread; no other thread exists yet.
-            unsafe { std::env::set_var("PATH", path) };
-        }
-    }
+        let (state, ready) = paddock::launch::load_login_path(
+            shell.into(),
+            std::time::Duration::from_secs(3),
+            std::time::Duration::from_secs(60),
+        );
+        startup.login_path = Some(state);
+        (state == paddock::launch::LoginPath::Loading).then_some(ready)
+    } else {
+        None
+    };
     let mut args = std::env::args().skip(1);
     let mut attach = None;
     let mut corral = None;
@@ -238,6 +240,19 @@ fn main() -> Result<()> {
             ),
         };
         cx.set_global(startup);
+        if let Some(ready) = path_ready {
+            let task = cx.background_spawn(async move { ready.recv() });
+            cx.spawn(async move |cx| {
+                let state = task.await.unwrap_or(paddock::launch::LoginPath::Failed);
+                cx.update(|cx| {
+                    cx.set_global(paddock::diagnostics::Startup {
+                        desktop: true,
+                        login_path: Some(state),
+                    });
+                });
+            })
+            .detach();
+        }
         // Whether paddock is the application in front: its windows fade while it is not (P5-162).
         paddock::unfocused::watch(cx);
         cx.set_global(paddock::fonts::UiFont::from_config(&config));

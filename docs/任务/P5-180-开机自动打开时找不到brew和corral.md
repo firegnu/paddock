@@ -58,3 +58,21 @@
 ## 还没问清的（不挡开工）
 - `.zshenv` 那段是不是 15:09 才加的（见上）。要是早就有，终端缺 brew 另有原因，另查。
 - 用户说的“关掉 paddock 的 background”指什么：退出 paddock，还是系统设置登录项里的“允许在后台”。
+
+## 完成记录
+
+- 做了什么：桌面启动仍最多前台等 3 秒，同一个登录 shell 在后台继续取 PATH，总限时 60 秒。成功后用 `RwLock` 整体替换共用值，`command::start`、PTY、Diagnostics 程序查找和 pony 查找均读取快照；普通终端和 Agent shell 随后新开的用新值，已有终端不变。移除了启动路径里的 `set_var("PATH", …)`，从终端启动、headless 命令和独立 Agent shell 替身保留调用方环境，显式的子进程 PATH 覆盖／移除仍优先。侧栏沿用列表错误提示的样式显示英文等待／失败说明，恢复时消失并刷新本机 corral 列表；打开着的 Diagnostics 同步更新 PATH 的等待、成功、失败状态。设计补在 P2-4 下。
+- 验证了什么：先加 4 秒慢登录 shell 回归，运行 `cargo test --test login_path -- --nocapture`，原实现于 3.01 秒失败（实际 `None`，预期登录 shell 的 PATH），确认 RED 来自本次缺陷。实现后针对性 3 项测试通过：慢登录恢复、假 brew／corral、普通及 Agent shell、恢复前开的终端继续用旧 PATH、4 个线程跨恢复时同时启动命令且只能读到完整旧值／新值；一直不结束、非零退出但打印标记、无标记、空 PATH 均保留原 PATH 并提供说明；快速成功和不走桌面初始化的路径也通过。慢登录用文件信号确保恢复前终端已启动，测试在隔离 HOME／ZDOTDIR／PATH 的子进程里执行。
+- 指定检查：`app/` 下 `cargo test --all-targets`、`cargo clippy --all-targets -- -D warnings`、`cargo fmt --check` 各跑一次，全部通过；全量共 1047 项测试。编译目录均为 `.target/p5-180-path`，全量测试另设临时 ZDOTDIR 避免现有 zsh 测试读用户配置。只有原有上游 `block v0.1.6` 的 future-incompatibility 提示。所有命令前台运行并等到结束。
+- 拿主意的地方：采用继续等待同一次登录调用，不重复执行 profile；总等待上限取 60 秒，仍失败时明确提示检查登录 shell 配置后重开或从正常终端启动。取 PATH 复用现有有界命令执行器（输出上限 1 MiB），让退出和读输出都受超时约束，并拒绝非零退出。无需要主控决定的事项。
+- 没做的事：没有真机重启／注销、没有打开 paddock 窗口或截图，界面与开机体验留给用户实测；未读写用户 shell 配置，未启动真实 corral agent，未改 ranch／corral／Saddle、登录项或 P5-149。未安装、合并或推送；只在本分支提交。现装版本等长期事实未变，没有改 HANDOFF。上面两项用户用法的疑问保持原记录。
+- 踩过的坑：没有。
+
+## 主控审查
+
+- 看过 diff：取到的 PATH 存在 `launch.rs` 的 `RwLock` 里整份替换；`command::start`（所有子进程都经过它，主控 grep 核对过，没有绕过的）和 `pty.rs` 开终端时显式传入，显式设了 PATH 的照旧优先；启动路径不再 `set_var`。前台仍等 3 秒，后台同一次调用总限时 60 秒。侧栏提示、Diagnostics 跟着结果更新。只动了任务范围里的文件，「不要做」一件没碰。
+- 取舍：等同一次登录调用、不重跑 profile，同意；60 秒上限，同意；非零退出算失败（脚本最后一条是 `printf`，正常时退出码是 0），同意。
+- 重跑：`cargo test --all-targets` 1047 个通过（主控没另设 ZDOTDIR，也全过），clippy `-D warnings`、`fmt --check`、`git diff --check` 都过。
+- 建议改（不挡合并）：还在等的提示用的是 `agents_red`，和失败一样醒目；换成灰字可能更合适。要不要改由用户定。
+- 没做：真机重启验证，留给用户下次开机时看。
+结果：一次过

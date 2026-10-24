@@ -25,6 +25,12 @@ pub(crate) fn spawn_guard() -> MutexGuard<'static, ()> {
 
 /// Serializes only descriptor setup and spawn, not the child's lifetime.
 pub(crate) fn start(command: &mut Command) -> std::io::Result<Child> {
+    // Explicit per-command overrides/removals still win (for example an Agent shell shim).
+    if !command.get_envs().any(|(key, _)| key == "PATH")
+        && let Some(path) = crate::launch::path()
+    {
+        command.env("PATH", path);
+    }
     let _guard = spawn_guard();
     command.spawn()
 }

@@ -1,15 +1,75 @@
 //! Started from Finder, Launchpad or the Dock, paddock gets launchd's bare environment: a `PATH`
 //! without `~/.local/bin` or Homebrew, and `/` as the working directory. Like other desktop apps
-//! with terminals, it asks the user's login shell for its `PATH` once at start.
+//! with terminals, it asks the user's login shell for its `PATH` once at start, allowing a slow
+//! login to finish after the window opens. Children use that PATH without changing our environment.
 use std::{
-    io::Read,
-    path::Path,
-    process::{Command, Stdio},
-    time::{Duration, Instant},
+    ffi::OsString,
+    path::{Path, PathBuf},
+    sync::{RwLock, atomic::AtomicBool, mpsc},
+    time::Duration,
 };
 
 const START: &str = "__PADDOCK_PATH_START__";
 const END: &str = "__PADDOCK_PATH_END__";
+
+static LOGIN_PATH: RwLock<Option<OsString>> = RwLock::new(None);
+
+/// A complete snapshot for one child or executable lookup. Terminal/headless launches keep the
+/// caller's environment; only a successful desktop login installs an override.
+pub fn path() -> Option<OsString> {
+    LOGIN_PATH
+        .read()
+        .unwrap()
+        .clone()
+        .or_else(|| std::env::var_os("PATH"))
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LoginPath {
+    Loading,
+    Ready,
+    Failed,
+}
+
+impl LoginPath {
+    pub fn notice(self) -> Option<&'static str> {
+        match self {
+            Self::Loading => Some(
+                "Still loading the login shell's PATH. New terminals and commands are using the limited startup PATH; brew and corral may be unavailable. Wait for this message to clear, then open a new terminal.",
+            ),
+            Self::Failed => Some(
+                "Couldn't load the login shell's PATH. New terminals and commands are using the limited startup PATH; brew and corral may be unavailable. Check your login shell startup files, then quit and reopen paddock, or launch it from a working terminal.",
+            ),
+            Self::Ready => None,
+        }
+    }
+}
+
+/// Waits only `foreground` before allowing the window to open. The same login shell continues
+/// off-thread, bounded by `timeout`; the receiver reports its final result after PATH is installed.
+pub fn load_login_path(
+    shell: PathBuf,
+    foreground: Duration,
+    timeout: Duration,
+) -> (LoginPath, mpsc::Receiver<LoginPath>) {
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let state = match login_path(&shell, timeout) {
+            Some(path) => {
+                *LOGIN_PATH.write().unwrap() = Some(path.into());
+                LoginPath::Ready
+            }
+            None => LoginPath::Failed,
+        };
+        let _ = tx.send(state);
+    });
+    let state = match rx.recv_timeout(foreground) {
+        Ok(state) => state,
+        Err(mpsc::RecvTimeoutError::Timeout) => LoginPath::Loading,
+        Err(mpsc::RecvTimeoutError::Disconnected) => LoginPath::Failed,
+    };
+    (state, rx)
+}
 
 /// Not started from a terminal: launchd never sets `TERM`, and LaunchServices starts apps in `/`
 /// (an app opened with `open` from a terminal keeps that terminal's `TERM`, but not its directory).
@@ -27,39 +87,29 @@ pub fn parse_path(output: &str) -> Option<String> {
     (!path.is_empty()).then(|| path.to_owned())
 }
 
-/// Asks `shell` as a login shell for its `PATH`, giving up after `timeout`. Runs on the calling
-/// thread only, so the caller may still change the environment afterwards.
+/// Asks `shell` for PATH with bounded output and a timeout covering both exit and pipe reads.
 pub fn login_path(shell: &Path, timeout: Duration) -> Option<String> {
     let script = format!("printf '{START}%s{END}' \"$PATH\"");
-    let mut child = crate::command::start(
-        Command::new(shell)
-            .args(["-l", "-c", &script])
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null()),
+    let output = crate::command::run_bounded(
+        shell.to_str()?,
+        &["-l", "-c", &script],
+        None,
+        &[],
+        timeout,
+        &AtomicBool::new(false),
+        1024 * 1024,
     )
     .ok()?;
-    let deadline = Instant::now() + timeout;
-    loop {
-        match child.try_wait() {
-            Ok(Some(_)) => break,
-            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(10)),
-            _ => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return None;
-            }
-        }
+    if !output.status.success() {
+        return None;
     }
-    let mut output = String::new();
-    child.stdout.take()?.read_to_string(&mut output).ok()?;
-    parse_path(&output)
+    parse_path(std::str::from_utf8(&output.stdout).ok()?)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::os::unix::fs::PermissionsExt;
+    use std::{os::unix::fs::PermissionsExt, time::Instant};
 
     #[test]
     fn the_path_is_read_between_the_markers() {
@@ -85,7 +135,7 @@ mod tests {
     }
 
     #[test]
-    fn a_login_shell_is_asked_once_and_a_slow_one_is_given_up_on() {
+    fn login_shell_output_is_parsed_and_the_final_deadline_is_bounded() {
         // A profile that prints a banner, then runs the command it was given.
         let talkative = shell(
             "talkative",

@@ -744,6 +744,13 @@ impl Sidebar {
             cx.emit(SidebarEvent::ActivityFolded(folded.0))
         })
         .detach();
+        cx.observe_global::<crate::diagnostics::Startup>(|this, cx| {
+            if this.remote.is_none() {
+                this.refresh();
+            }
+            cx.notify();
+        })
+        .detach();
         Self {
             given: theme.clone(),
             theme,
@@ -2625,6 +2632,21 @@ impl Sidebar {
             list = list.child(self.banner(error, now, cx));
         } else if self.remote.is_some() && !self.listing.loaded {
             list = list.child(self.connecting(cx));
+        }
+        if self.remote.is_none()
+            && let Some(note) = cx
+                .try_global::<crate::diagnostics::Startup>()
+                .and_then(|startup| startup.login_path)
+                .and_then(crate::launch::LoginPath::notice)
+        {
+            list = list.child(
+                div()
+                    .px(px(8.0))
+                    .pt(px(6.0))
+                    .text_size(ui.px(NOTE_SIZE))
+                    .text_color(fg(|t| t.agents_red))
+                    .child(note),
+            );
         }
         if !listed && self.listing.loaded && !stale {
             // Nothing listed: why, or how to start one, in the middle of the list.

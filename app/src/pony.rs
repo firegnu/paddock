@@ -286,10 +286,10 @@ pub fn look_in(path: Option<&OsStr>, home: Option<&Path>, cancel: &AtomicBool) -
     }
 }
 
-/// Finds pony on this process's PATH or in `~/.local/bin` and reads its status.
+/// Finds pony on the child PATH or in `~/.local/bin` and reads its status.
 pub fn look(cancel: &AtomicBool) -> Found {
     let home = std::env::var_os("HOME").map(PathBuf::from);
-    look_in(std::env::var_os("PATH").as_deref(), home.as_deref(), cancel)
+    look_in(crate::launch::path().as_deref(), home.as_deref(), cancel)
 }
 
 /// Now, in Unix seconds.
