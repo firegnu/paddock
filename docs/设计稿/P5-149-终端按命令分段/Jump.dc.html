@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>Jump to previous command</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+.pane{position:relative;width:648px;height:400px;box-sizing:border-box;padding:10px 20px 10px 0;background:#eff1f5;border:1px solid #bcc0cc;border-radius:10px;overflow:hidden;font-family:Menlo,'SF Mono',monospace;font-size:12.5px;line-height:19px;color:#4c4f69}
+.blk{position:relative;display:flex;margin-bottom:4px;border-radius:6px}
+.gut{flex:none;width:18px;display:flex;justify-content:center}
+.bar{width:2px;border-radius:1px}
+.rows{flex:1;min-width:0;white-space:pre}
+.p{color:#1e66f5}.b{color:#8839ef}.c{color:#40a02b}.e{color:#d20f39}
+.tick{position:absolute;left:-3px;width:12px;height:2px;border-radius:1px;background:#6b6d7f}
+.key{display:inline-block;padding:0 6px;border:1px solid #acb0be;border-radius:4px;background:#eff1f5;font-size:11px;line-height:16px}
+</style>
+</helmet>
+<div style="width: 720px; height: 500px; box-sizing: border-box; padding: 26px 36px; background: #dce0e8; font-family: -apple-system, 'SF Pro Text', 'Helvetica Neue', sans-serif; color: #4c4f69; display: flex; flex-direction: column; gap: 14px">
+  <div style="display: flex; flex-direction: column; gap: 4px">
+    <div style="font-size: 14px; font-weight: 600"><span class="key">⌘↑</span> <span class="key">⌘↓</span> 在命令之间跳</div>
+    <div style="font-size: 12px; color: #5c5f77">跳到的那条命令贴着窗格顶上，它的提示符行亮一下再淡掉（约半秒）；位置条上它的刻度变长。到头了不动。</div>
+  </div>
+  <div class="pane">
+    <div class="blk">
+      <div class="gut"><div class="bar" style="background: #d20f39"></div></div>
+      <div class="rows"><div style="margin-right: -20px; padding-right: 20px; border-radius: 4px; background: rgba(114, 135, 253, 0.22)"><span class="p">~/D/p/paddock</span> <span class="b">main</span> <span class="c">❯</span> cargo clippy --all-targets -- -D warnings</div><div>    <span class="c">Checking</span> paddock v0.1.0</div><div><span class="e">error</span>: unused variable: `path`</div><div>  <span class="p">--&gt;</span> app/src/launch.rs:42:9</div><div><span class="e">error</span>: could not compile `paddock` (lib) due to 1 previous error</div></div>
+    </div>
+    <div class="blk">
+      <div class="gut"></div>
+      <div class="rows"><div><span class="p">~/D/p/paddock</span> <span class="b">main</span> <span class="c">❯</span> cargo test --test login_path</div><div>running 3 tests</div><div>test a_slow_login_is_waited_for ... <span class="c">ok</span></div><div>test shells_opened_before_keep_their_path ... <span class="c">ok</span></div><div>test threads_see_old_or_new_path ... <span class="c">ok</span></div><div>test result: <span class="c">ok</span>. 3 passed; 0 failed</div></div>
+    </div>
+    <div class="blk">
+      <div class="gut"></div>
+      <div class="rows"><div><span class="p">~/D/p/paddock</span> <span class="b">main</span> <span class="c">❯</span> ls docs/任务 | wc -l</div><div>     183</div></div>
+    </div>
+    <div class="blk">
+      <div class="gut"></div>
+      <div class="rows"><div><span class="p">~/D/p/paddock</span> <span class="b">main</span> <span class="c">❯</span> <span style="background: #4c4f69"> </span></div></div>
+    </div>
+    <div style="position: absolute; top: 8px; right: 5px; width: 6px; height: 382px">
+      <div style="position: absolute; left: 0; top: 250px; width: 6px; height: 126px; border-radius: 3px; background: rgba(172, 176, 190, 0.55)"></div>
+      <div class="tick" style="top: 22px"></div>
+      <div class="tick" style="top: 58px"></div>
+      <div class="tick" style="top: 96px; background: #d20f39"></div>
+      <div class="tick" style="top: 140px"></div>
+      <div class="tick" style="top: 182px"></div>
+      <div class="tick" style="top: 226px"></div>
+      <div class="tick" style="top: 252px; left: -7px; width: 16px; height: 3px; background: #d20f39"></div>
+      <div class="tick" style="top: 300px"></div>
+      <div class="tick" style="top: 344px"></div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":720,"height":500}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>
