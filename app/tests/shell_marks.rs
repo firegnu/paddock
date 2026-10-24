@@ -285,6 +285,156 @@ fn expected_segments() -> Vec<(String, Option<i32>)> {
     .collect()
 }
 
+fn expected_marks(shell: &str) -> Vec<String> {
+    let mut expected = Vec::new();
+    if shell.ends_with("bash") {
+        expected.push("D;0".into());
+    }
+    expected.extend(["A".into(), "B".into()]);
+    for code in [Some(0), Some(1), None, Some(0), Some(3)] {
+        if let Some(code) = code {
+            expected.extend(["C".into(), format!("D;{code}")]);
+        } else if shell.ends_with("bash") {
+            // bash reports status again after an empty command line.
+            expected.push("D;1".into());
+        }
+        expected.extend(["A".into(), "B".into()]);
+    }
+    expected
+}
+
+fn check_input_positions(bytes: &[u8], what: &str) {
+    let mut screen = Screen::new(Size {
+        rows: ROWS,
+        cols: COLS,
+    });
+    let text = String::from_utf8_lossy(bytes);
+    let mut from = 0;
+    for (to, _) in text.match_indices("\x1b]133;B") {
+        screen.process(&bytes[from..to]);
+        let grid = screen.term.grid();
+        let point = grid.cursor.point;
+        assert_eq!(
+            point.column.0,
+            PROMPT.len(),
+            "{what}: B is at the input column"
+        );
+        use alacritty_terminal::index::Column;
+        let prompt: String = (0..PROMPT.len())
+            .map(|col| grid[point.line][Column(col)].c)
+            .collect();
+        assert_eq!(prompt, PROMPT, "{what}: B follows the theme's prompt");
+        from = to;
+    }
+}
+
+fn check_theme(shell: &str, rc: &str, theme: &str) {
+    let home = Home::new(false);
+    let path = home.home.path().join(rc);
+    let mut config = fs::read_to_string(&path).unwrap();
+    config.push_str(theme);
+    fs::write(&path, config).unwrap();
+    let files = home.files();
+    let bare = Shell::start(&home, shell, Kind::Bare).session(LINES);
+    let theirs = marks(&bare);
+    let (expected, expected_segments) = if theirs.is_empty() {
+        (expected_marks(shell), expected_segments())
+    } else {
+        // A theme may supply prompt marks itself (as p10k can), without a complete integration.
+        // Preserve precisely what it sends; paddock must not add a second set.
+        (theirs, segments(&bare))
+    };
+    for kind in [Kind::Plain, Kind::Agent] {
+        let output = Shell::start(&home, shell, kind).session(LINES);
+        let what = format!("{shell} {kind:?}");
+        assert_eq!(marks(&output), expected, "{what}: each mark exactly once");
+        check_input_positions(&output, &what);
+        assert_eq!(segments(&output), expected_segments, "{what}");
+        assert_eq!(screen_text(&output), screen_text(&bare), "{what}");
+        assert_eq!(home.files(), files, "{what}: user's files untouched");
+    }
+}
+
+#[test]
+fn zsh_theme_moving_its_precmd_last_keeps_command_marks() {
+    let theme = r#"
+theme_precmd() {
+    precmd_functions=(${precmd_functions:#theme_precmd} theme_precmd)
+    PS1='FIXTURE> '
+    if [[ ${theme_integration-} == 1 ]]; then
+        PS1=$'%{\e]133;A\a%}'$PS1$'%{\e]133;B\a%}'
+    fi
+}
+precmd_functions+=(theme_precmd)
+"#;
+    check_theme("/bin/zsh", ".zshrc", theme);
+    check_theme(
+        "/bin/zsh",
+        ".zshrc",
+        &format!("{theme}\ntheme_integration=1\n"),
+    );
+}
+
+#[test]
+fn zsh_theme_resetting_the_prompt_in_line_init_keeps_command_marks() {
+    check_theme(
+        "/bin/zsh",
+        ".zshrc",
+        r#"
+PS1='BEFORE> '
+theme_line_init() {
+    PS1='FIXTURE> '
+    zle reset-prompt
+}
+zle -N zle-line-init theme_line_init
+"#,
+    );
+    let home = Home::new(false);
+    for kind in [Kind::Plain, Kind::Agent] {
+        let output = Shell::start(&home, "/bin/zsh", kind).session(&["if true; then\ntrue\nfi"]);
+        assert_eq!(
+            marks(&output),
+            ["A", "B", "C", "D;0", "A", "B"],
+            "{kind:?}: continuation line-init is not another command prompt"
+        );
+    }
+}
+
+#[test]
+fn bash_theme_resetting_ps1_after_paddock_keeps_command_marks() {
+    for shell in shells().into_iter().filter(|shell| shell.ends_with("bash")) {
+        check_theme(
+            shell,
+            ".bashrc",
+            r#"
+theme_prompt() { PS1='FIXTURE> '; }
+mine() {
+    PROMPT_COMMAND=${PROMPT_COMMAND//$'\n''theme_prompt'/}
+    PROMPT_COMMAND+=$'\n''theme_prompt'
+}
+"#,
+        );
+        if shell == "/opt/homebrew/bin/bash" {
+            check_theme(
+                shell,
+                ".bashrc",
+                r#"
+PROMPT_COMMAND=(mine)
+theme_prompt() { PS1='FIXTURE> '; }
+mine() {
+    local entry
+    local -a kept=()
+    for entry in "${PROMPT_COMMAND[@]}"; do
+        [[ $entry == theme_prompt ]] || kept+=("$entry")
+    done
+    PROMPT_COMMAND=("${kept[@]}" theme_prompt)
+}
+"#,
+            );
+        }
+    }
+}
+
 #[test]
 fn zsh_and_bash_mark_each_command_once_without_changing_the_prompt_or_the_users_files() {
     for shell in shells() {
@@ -299,25 +449,7 @@ fn zsh_and_bash_mark_each_command_once_without_changing_the_prompt_or_the_users_
         for kind in [Kind::Plain, Kind::Agent] {
             let output = Shell::start(&home, shell, kind).session(LINES);
             let what = format!("{shell} {kind:?}");
-            let per_command =
-                |code: i32| ["C".to_owned(), format!("D;{code}"), "A".into(), "B".into()];
-            let mut expected: Vec<String> = Vec::new();
-            if shell.ends_with("bash") {
-                // bash says how the last command ended at every prompt; a D with no C before it
-                // is a prompt left without running anything.
-                expected.extend(["D;0".into(), "A".into(), "B".into()]);
-                expected.extend(per_command(0));
-                expected.extend(per_command(1));
-                expected.extend(["D;1".into(), "A".into(), "B".into()]);
-            } else {
-                expected.extend(["A".into(), "B".into()]);
-                expected.extend(per_command(0));
-                expected.extend(per_command(1));
-                expected.extend(["A".into(), "B".into()]);
-            }
-            expected.extend(per_command(0));
-            expected.extend(per_command(3));
-            assert_eq!(marks(&output), expected, "{what}");
+            assert_eq!(marks(&output), expected_marks(shell), "{what}");
             assert_eq!(segments(&output), expected_segments(), "{what}");
             assert_eq!(
                 screen_text(&output),
@@ -350,17 +482,10 @@ fn another_integration_that_marks_the_prompt_is_not_marked_again() {
             let output = Shell::start(&home, shell, kind).session(LINES);
             let what = format!("{shell} {kind:?}");
             let (ours, alone) = (marks(&output), marks(&theirs));
-            if shell.ends_with("bash") {
-                // Seen from the first prompt on: only bash's first status before it is extra.
-                assert_eq!(ours[0], "D;0", "{what}");
-                assert_eq!(ours[1..], alone[..], "{what}");
-            } else {
-                // zsh: the first prompt is marked by both (the other's hook runs after paddock's
-                // there); from the first command on, only the other's marks.
-                let first = ours.iter().position(|mark| mark == "C").unwrap();
-                let theirs_first = alone.iter().position(|mark| mark == "C").unwrap();
-                assert_eq!(ours[first..], alone[theirs_first..], "{what}");
-            }
+            assert_eq!(
+                ours, alone,
+                "{what}: even the first prompt is marked only by theirs"
+            );
             assert_eq!(segments(&output), expected_segments(), "{what}");
         }
     }
