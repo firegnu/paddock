@@ -116,6 +116,9 @@ const RING_GAP: f32 = 6.0;
 /// A group's name, and how much an empty group's ring is faded.
 const GROUP_SIZE: f32 = 13.0;
 const EMPTY_RING: f32 = 0.45;
+/// The line of empty groups in the list (P5-185): its rings' size and the room between groups.
+const ZERO_RING: f32 = 11.0;
+const ZERO_GAP: f32 = 14.0;
 /// A title's line height, and so the height of the id and the end beside its first line.
 const TITLE_LINE: f32 = 18.0;
 /// The share of the room a branch keeps, cut, before the name beside it gives way.
@@ -2207,7 +2210,14 @@ impl KanbanView {
             .pb(ui.px(16.0));
         // The Loop first, over Queued.
         list = list.child(self.loop_group(board, Place::List, ids, fit, ui, cx));
-        for column in Column::ALL {
+        for entry in entries(|column| self.listed(board, column).is_empty()) {
+            let column = match entry {
+                Entry::Group(column) => column,
+                Entry::Zeros(columns) => {
+                    list = list.child(self.zeros(&columns, ui));
+                    continue;
+                }
+            };
             let open = !self.folded.contains(&column);
             list = list.child(self.group(board, column, open, false, ui, cx));
             // A folded group still shows the tasks that need the user.
@@ -2321,6 +2331,52 @@ impl KanbanView {
             head = head.tooltip(move |_, cx| cx.new(|_| tip.clone()).into());
         }
         head
+    }
+
+    /// In the narrow list, the groups among In progress, To review and Merged that have nothing,
+    /// on one line of small faint words (P5-185): each its small faded ring, its name and 0, set in
+    /// as far as the groups' rings.
+    fn zeros(&self, columns: &[Column], ui: &UiFont) -> Div {
+        let c = self.colors;
+        let mut line = div()
+            .flex_shrink_0()
+            .flex()
+            .flex_wrap()
+            .items_center()
+            .gap_x(ui.px(ZERO_GAP))
+            .gap_y(ui.px(2.0))
+            .min_h(ui.px(22.0))
+            .mt(ui.px(8.0))
+            .pl(ui.px(HEAD_X + ARROW + 8.0))
+            .pr(ui.px(HEAD_X))
+            .text_size(ui.px(12.0))
+            .text_color(c.dim);
+        for &column in columns {
+            let mut zero = div()
+                .id(("kanban-zero", column as usize))
+                .flex()
+                .items_center()
+                .gap(ui.px(6.0))
+                .whitespace_nowrap()
+                .child(
+                    div()
+                        .flex_shrink_0()
+                        .size(ui.px(RING))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .opacity(EMPTY_RING)
+                        .child(self.ring_icon(ring(column, false, None, false), ZERO_RING, ui)),
+                )
+                .child(format!("{} 0", column.label()));
+            let note = column.note();
+            if !note.is_empty() {
+                let tip = Tip::new(note, &self.theme, ui);
+                zero = zero.tooltip(move |_, cx| cx.new(|_| tip.clone()).into());
+            }
+            line = line.child(zero);
+        }
+        line
     }
 
     /// Widened: five columns side by side, each scrolling on its own.
@@ -2849,6 +2905,12 @@ impl KanbanView {
                 .text_color(c.accent)
                 .child("Loop")
         });
+        // Queued in the list, not in the Loop's box: Draft, High, Low (P5-185).
+        let tags = if inline && now.is_none() && self.slot(card).is_none() {
+            tags(card.column, card.draft, card.priority)
+        } else {
+            Vec::new()
+        };
         let end = div()
             .flex_shrink_0()
             .h(ui.px(TITLE_LINE))
@@ -2856,6 +2918,7 @@ impl KanbanView {
             .items_center()
             .gap(ui.px(END_GAP))
             .children(looped)
+            .children(tags.into_iter().map(|t| self.tag(t, ui)))
             .children(self.warning(card, ui))
             .children(age);
         let title = if done {
@@ -3013,6 +3076,39 @@ impl KanbanView {
             .child(head)
             .children(below)
             .children(bar)
+    }
+
+    /// A small tag at the end of a queued row in the list (P5-185): Draft in a dashed frame, High
+    /// in red, Low faint.
+    fn tag(&self, tag: Tag, ui: &UiFont) -> Div {
+        let c = self.colors;
+        let chip = div()
+            .flex_shrink_0()
+            .flex()
+            .items_center()
+            .h(ui.px(16.0))
+            .px(ui.px(5.0))
+            .rounded(ui.px(5.0))
+            .border_1()
+            .border_color(gpui::transparent_black())
+            .whitespace_nowrap()
+            .text_size(ui.px(10.5))
+            .font_weight(FontWeight::MEDIUM);
+        match tag {
+            Tag::Draft => chip
+                .border_dashed()
+                .border_color(c.dim)
+                .text_color(c.muted)
+                .child("Draft"),
+            Tag::High => chip
+                .bg(c.red.opacity(0.14))
+                .text_color(c.red)
+                .child(Priority::High.label()),
+            Tag::Low => chip
+                .bg(c.text.opacity(SOFT))
+                .text_color(c.muted)
+                .child(Priority::Low.label()),
+        }
     }
 
     /// The ground under a row's avatars, round their status dots: a group's box over the panel in
@@ -5667,9 +5763,133 @@ fn ring(column: Column, draft: bool, priority: Option<Priority>, dropped: bool) 
     }
 }
 
+/// What the narrow list shows, top to bottom (P5-185): each column as its group, but those of In
+/// progress, To review and Merged that list nothing folded into one line, where the first of them
+/// was. `empty` tells whether a column lists nothing.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum Entry {
+    Group(Column),
+    Zeros(Vec<Column>),
+}
+
+fn entries(empty: impl Fn(Column) -> bool) -> Vec<Entry> {
+    let folds = |column: Column| !matches!(column, Column::Queued | Column::Done) && empty(column);
+    let zeros: Vec<Column> = Column::ALL.into_iter().filter(|c| folds(*c)).collect();
+    let mut entries = Vec::new();
+    for column in Column::ALL {
+        if !folds(column) {
+            entries.push(Entry::Group(column));
+        } else if zeros.first() == Some(&column) {
+            entries.push(Entry::Zeros(zeros.clone()));
+        }
+    }
+    entries
+}
+
+/// A small tag at the end of a queued task's row in the list (P5-185).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Tag {
+    Draft,
+    High,
+    Low,
+}
+
+/// Draft on a draft, then High or Low; nothing for a committed medium task, nor in another column.
+fn tags(column: Column, draft: bool, priority: Option<Priority>) -> Vec<Tag> {
+    if column != Column::Queued {
+        return Vec::new();
+    }
+    let priority = match priority {
+        Some(Priority::High) => Some(Tag::High),
+        Some(Priority::Low) => Some(Tag::Low),
+        _ => None,
+    };
+    draft
+        .then_some(Tag::Draft)
+        .into_iter()
+        .chain(priority)
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_middle_groups_with_nothing_fold_into_one_line_where_the_first_was() {
+        use Column::*;
+        use Entry::*;
+        let with = |empty: &'static [Column]| entries(move |column| empty.contains(&column));
+        // All three empty: one line between Queued and DONE.
+        assert_eq!(
+            with(&[InProgress, ToReview, Merged]),
+            [
+                Group(Queued),
+                Zeros(vec![InProgress, ToReview, Merged]),
+                Group(Done)
+            ]
+        );
+        // Some empty: those in the line, in order, where the first of them stood.
+        assert_eq!(
+            with(&[ToReview, Merged]),
+            [
+                Group(Queued),
+                Group(InProgress),
+                Zeros(vec![ToReview, Merged]),
+                Group(Done)
+            ]
+        );
+        assert_eq!(
+            with(&[InProgress, ToReview]),
+            [
+                Group(Queued),
+                Zeros(vec![InProgress, ToReview]),
+                Group(Merged),
+                Group(Done)
+            ]
+        );
+        assert_eq!(
+            with(&[InProgress, Merged]),
+            [
+                Group(Queued),
+                Zeros(vec![InProgress, Merged]),
+                Group(ToReview),
+                Group(Done)
+            ]
+        );
+        // None empty: no line.
+        assert_eq!(
+            with(&[]),
+            Column::ALL.into_iter().map(Group).collect::<Vec<_>>()
+        );
+        // Queued and DONE never fold in, empty or not.
+        assert_eq!(
+            with(&[Queued, InProgress, Done]),
+            [
+                Group(Queued),
+                Zeros(vec![InProgress]),
+                Group(ToReview),
+                Group(Merged),
+                Group(Done)
+            ]
+        );
+    }
+
+    #[test]
+    fn a_queued_row_ends_with_draft_then_high_or_low_and_nothing_for_medium() {
+        use Tag::*;
+        let q = Column::Queued;
+        for (draft, before) in [(false, vec![]), (true, vec![Draft])] {
+            let and = |tag: Option<Tag>| before.iter().copied().chain(tag).collect::<Vec<_>>();
+            assert_eq!(tags(q, draft, Some(Priority::High)), and(Some(High)));
+            assert_eq!(tags(q, draft, Some(Priority::Medium)), and(None));
+            assert_eq!(tags(q, draft, None), and(None));
+            assert_eq!(tags(q, draft, Some(Priority::Low)), and(Some(Low)));
+        }
+        // Rows in the other groups: none.
+        assert!(tags(Column::InProgress, false, Some(Priority::High)).is_empty());
+        assert!(tags(Column::Done, false, Some(Priority::Low)).is_empty());
+    }
 
     #[test]
     fn a_ring_shows_the_column_and_on_a_queued_task_its_priority() {
