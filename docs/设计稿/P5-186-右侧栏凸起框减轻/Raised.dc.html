@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>Raised boxes, lighter</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+.panel{width:340px;box-sizing:border-box;padding:14px 12px 18px;border-radius:12px;background:#eff1f5;border:1px solid rgba(76,79,105,0.12);display:flex;flex-direction:column;gap:8px;font-size:12.5px;color:#4c4f69}
+.box{border-radius:10px;background:#f9fafb;border:1px solid rgba(76,79,105,0.12);overflow:hidden;display:flex;flex-direction:column}
+.r{display:flex;align-items:center;gap:8px;padding:7px 10px;white-space:nowrap}
+.r + .r{border-top:1px solid rgba(76,79,105,0.07)}
+.n{color:#7c7f93;width:34px;flex-shrink:0}
+.t{flex:1;overflow:hidden;text-overflow:ellipsis}
+.d{color:#7c7f93;font-size:11.5px}
+.h{display:flex;align-items:center;gap:6px;padding:4px 6px 0;font-weight:600}
+.cap{display:flex;flex-direction:column;gap:4px;width:340px}
+</style>
+</helmet>
+<div style="width: 1240px; height: 640px; box-sizing: border-box; padding: 28px 34px; background: #e6e9ef; font-family: -apple-system, 'SF Pro Text', 'Helvetica Neue', sans-serif; color: #4c4f69; display: flex; gap: 46px">
+<sc-for list="{{cols}}" as="col" hint-placeholder-count="3">
+<div style="display: flex; flex-direction: column; gap: 14px">
+<div class="cap">
+<div style="font-size: 13px; font-weight: 600; letter-spacing: 0.06em; color: {{col.headColor}}">{{col.head}}</div>
+<div style="font-size: 12px; line-height: 1.55; color: #6c6f85">{{col.note}}</div>
+</div>
+<div class="panel">
+<div class="h">Queued <span class="d">3</span></div>
+<div class="box" style="{{col.shadow}}">
+<div class="r"><span class="n">P5-111</span><span class="t">调研 Ghostty 作者提出的 OSC 7501</span></div>
+<div class="r"><span class="n">P5-54</span><span class="t">Browser 选中元素、Changes 选中 diff 后送给 agent</span></div>
+<div class="r"><span class="n">P5-146</span><span class="t">把 paddock 的终端拆出去</span></div>
+</div>
+<div class="h" style="padding-top: 10px">State <span class="d">23</span></div>
+<div class="box" style="{{col.shadow}}">
+<div class="r"><span class="n">#134</span><span class="t">本机已放置 Kimi 官方图标</span><span class="d">Oct 24</span></div>
+<div class="r"><span class="n">#132</span><span class="t">paddock 任务队列由 docs/任务 文件和状态推导</span><span class="d">Oct 24</span></div>
+<div class="r"><span class="n">#114</span><span class="t">P5-163 干活中 agent 标签已改为跑马灯边</span><span class="d">Oct 21</span></div>
+<div class="r"><span class="n">#83</span><span class="t">paddock 终端采用 portable-pty、alacritty</span><span class="d">Oct 19</span></div>
+<div class="r"><span class="n">#78</span><span class="t">本机 fence local 配置已放行 IP Guardian</span><span class="d">Oct 19</span></div>
+<div class="r"><span class="n">#73</span><span class="t">fence dev 档案对新仓库的默认规则</span><span class="d">Oct 19</span></div>
+</div>
+<div class="h" style="padding-top: 10px">Open <span class="d">20</span></div>
+</div>
+</div>
+</sc-for>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1240,"height":640}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const lines = 'inset 0 1px 0 rgba(255,255,255,0.9), inset 0 -1px 0 rgba(0,0,0,0.2)';
+    return {
+      cols: [
+        { head: '现在（P5-117 的“重”）', headColor: '#6c6f85', note: '近影往下 2、糊 3，远影往下 8、糊 20；浅色主题上投影黑减半，仍像浮起来的卡片。', shadow: `box-shadow: ${lines}, 0 2px 3px rgba(0,0,0,0.225), 0 8px 20px rgba(0,0,0,0.175)` },
+        { head: '甲 · 轻', headColor: '#8839ef', note: '保留面、边和上下两道细线；近影往下 1、糊 2，远影往下 3、糊 8，都更淡。仍看得出是一块，但不跳出来。', shadow: `box-shadow: ${lines}, 0 1px 2px rgba(0,0,0,0.10), 0 3px 8px rgba(0,0,0,0.06)` },
+        { head: '乙 · 平', headColor: '#8839ef', note: '不要框外投影，只靠略亮的面、边线和上沿一道白线分出这一块。', shadow: 'box-shadow: inset 0 1px 0 rgba(255,255,255,0.9)' },
+      ],
+    };
+  }
+}
+</script>
+</body>
+</html>
