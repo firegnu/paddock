@@ -121,3 +121,9 @@
 - 重跑：`cargo test --all-targets` 1044 个通过，clippy `-D warnings`、`fmt --check`、`git diff --check` 都过。
 - 没做：界面排版和真实 kimi 的启动、装卸钩子，等合并安装后和用户一起实测。
 结果：一次过
+
+## 用户验收
+
+- 10-24 用户重开 paddock 后确认图标正常。
+- 主控开 `paddock/test-kimi`（钩子已装，状态 `same`）实测：不带首句起成 idle；问一句拿到回复；让它跑 `touch` 时报 `blocked`，用户在 paddock 里批准后它做完回复 ok。测完已关，临时目录已删。
+- 用户：“暂时不交，收尾即可”。实测时第一次 `corral send` 报 `human_active`：当时没有窗口连着 kimi，输入框是空的，像是 paddock 显示它时发的终端应答被算成有人打字，几秒后再送就成功了。用户定暂时不交给 ranch 查。
