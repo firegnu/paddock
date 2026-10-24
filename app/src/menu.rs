@@ -72,8 +72,14 @@ actions!(
         IncreaseFontSize,
         DecreaseFontSize,
         ResetFontSize,
+        /// The terminal pane's view goes to a shell's previous or next command (P5-149).
+        PreviousCommand,
+        NextCommand,
     ]
 );
+
+/// The key context of a terminal pane.
+pub const TERMINAL: &str = "Terminal";
 
 /// The key context of a pane's find bar: ⏎ and ⇧⏎ go on searching, Esc closes it.
 pub const FIND: &str = "PaddockFind";
@@ -154,6 +160,8 @@ pub fn bindings() -> Vec<KeyBinding> {
         KeyBinding::new("enter", OpenSelected, Some(crate::new_agent_view::FIELD)),
         KeyBinding::new("cmd-l", FocusAddress, Some(BROWSER)),
         KeyBinding::new("cmd-r", ReloadPage, Some(BROWSER)),
+        KeyBinding::new("cmd-up", PreviousCommand, Some(TERMINAL)),
+        KeyBinding::new("cmd-down", NextCommand, Some(TERMINAL)),
     ]
 }
 
@@ -431,6 +439,18 @@ mod tests {
             assert!(
                 shortcuts.iter().any(|(k, a, _)| k == keys && *a == action),
                 "{keys} → {action} missing from {shortcuts:?}"
+            );
+        }
+        // ⌘↑ and ⌘↓ go between a shell's commands in the terminal pane only (P5-149).
+        for (keys, action) in [
+            ("cmd-up", "paddock::PreviousCommand"),
+            ("cmd-down", "paddock::NextCommand"),
+        ] {
+            let bound: Vec<_> = shortcuts.iter().filter(|(k, ..)| k == keys).collect();
+            assert_eq!(
+                bound,
+                [&(keys.to_owned(), action, TERMINAL.to_owned())],
+                "{keys}"
             );
         }
         // One action per shortcut in each key context.

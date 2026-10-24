@@ -4,10 +4,12 @@
 //! for its pane's header (DESIGN §13 P5-59), and answers colour queries with the pane's theme
 //! (P5-143a).
 use crate::palette;
+use crate::segments::{self, Before, Mark, Segment, Segments};
 use alacritty_terminal::{
     Term,
     event::{Event, EventListener},
     grid::Dimensions,
+    term::TermMode,
     vte::ansi::{
         Attr, CharsetIndex, ClearMode, Color, CursorShape, CursorStyle, Handler, Hyperlink,
         KeyboardModes, KeyboardModesApplyBehavior, LineClearMode, Mode, ModifyOtherKeys,
@@ -176,6 +178,30 @@ impl alacritty_terminal::vte::Perform for Signals {
     }
 }
 
+/// Reads what the grid's parser does not report: OSC 9;4 for [`Signals`] and, for a shell's
+/// terminal, OSC 133 marks (P5-149), stopping right after each so that it lands where the grid's
+/// parser has put the cursor by then.
+struct Side<'a> {
+    signals: &'a mut Signals,
+    marks: bool,
+    mark: Option<Mark>,
+}
+
+impl alacritty_terminal::vte::Perform for Side<'_> {
+    fn osc_dispatch(&mut self, params: &[&[u8]], bell_terminated: bool) {
+        if params.first() == Some(&&b"133"[..]) {
+            if self.marks {
+                self.mark = Mark::parse(params);
+            }
+        } else {
+            self.signals.osc_dispatch(params, bell_terminated);
+        }
+    }
+    fn terminated(&self) -> bool {
+        self.mark.is_some()
+    }
+}
+
 #[derive(Clone, Copy)]
 pub struct Size {
     pub rows: u16,
@@ -213,6 +239,8 @@ pub struct Screen {
     theme: palette::Shared,
     signals: Signals,
     signal_parser: alacritty_terminal::vte::Parser,
+    /// Where each command a shell ran is (P5-149); off for other programs.
+    segments: Segments,
 }
 impl Screen {
     pub fn new(size: Size) -> Self {
@@ -232,20 +260,53 @@ impl Screen {
             theme,
             signals: Signals::default(),
             signal_parser: alacritty_terminal::vte::Parser::new(),
+            segments: Segments::default(),
         }
     }
+    /// Keeps where each command the shell runs is, from the OSC 133 marks it sends (P5-149):
+    /// for a shell's terminal. History stays [`segments::HISTORY`] lines, as without.
+    pub fn keep_segments(&mut self) {
+        self.segments.start();
+        self.term.set_options(alacritty_terminal::term::Config {
+            scrolling_history: segments::HISTORY + segments::SLACK,
+            ..config()
+        });
+    }
+    /// The commands the shell has run, oldest first; none while a program has the alternate
+    /// screen.
+    pub fn segments(&self) -> Vec<Segment> {
+        self.segments.segments(&self.term)
+    }
     pub fn process(&mut self, bytes: &[u8]) -> Vec<u8> {
-        if !self.signals.ended {
-            self.signal_parser.advance(&mut self.signals, bytes);
-        }
         // Scrolled back, the view stays on what it shows as output pushes lines up: further back.
         let back = self.term.grid().display_offset();
-        let mut answering = Answering {
-            term: &mut self.term,
-            theme: &self.theme,
-            replies: &self.replies,
-        };
-        self.parser.advance(&mut answering, bytes);
+        let mut rest = bytes;
+        while !rest.is_empty() {
+            let mut side = Side {
+                signals: &mut self.signals,
+                marks: self.segments.on(),
+                mark: None,
+            };
+            let read = self.signal_parser.advance_until_terminated(&mut side, rest);
+            let mark = side.mark;
+            let mut answering = Answering {
+                term: &mut self.term,
+                theme: &self.theme,
+                replies: &self.replies,
+                segments: &mut self.segments,
+            };
+            self.parser.advance(&mut answering, &rest[..read]);
+            if let Some(mark) = mark {
+                // Inside a synchronized update the parser holds bytes back: the mark goes where
+                // they put the cursor.
+                if self.parser.sync_bytes_count() > 0 {
+                    self.parser.stop_sync(&mut answering);
+                }
+                self.segments.mark(&self.term, mark);
+            }
+            rest = &rest[read..];
+        }
+        self.segments.verify(&self.term);
         if back > 0 && self.term.grid().display_offset() > back {
             self.pushed = true;
         }
@@ -287,7 +348,7 @@ impl Screen {
         replies
     }
     pub fn resize(&mut self, size: Size) {
-        self.term.resize(size);
+        self.segments.resize(&mut self.term, size);
     }
     pub fn signals(&self) -> Signals {
         self.signals
@@ -345,6 +406,14 @@ fn blinking_mode(mode: &PrivateMode) -> bool {
     matches!(mode, PrivateMode::Named(NamedPrivateMode::BlinkingCursor))
 }
 
+/// `CSI ? 1049 h/l`: the alternate screen, the only one the terminal swaps to.
+fn swap_mode(mode: &PrivateMode) -> bool {
+    matches!(
+        mode,
+        PrivateMode::Named(NamedPrivateMode::SwapScreenAndSetRestoreCursor)
+    )
+}
+
 /// What palette entry `index` (OSC 4's 0–255, then OSC 10–12's foreground, background and cursor)
 /// is as the pane draws it: what the program set there, or else the theme's.
 fn color_at(term: &Term<Events>, theme: &palette::Theme, index: usize) -> Rgb {
@@ -365,11 +434,29 @@ fn color_at(term: &Term<Events>, theme: &palette::Theme, index: usize) -> Rgb {
 /// Every `Handler` method has an empty default, so one left out here would quietly stop working.
 /// When upgrading vte or alacritty_terminal, check this again against vte's `pub trait Handler`
 /// and alacritty_terminal's `impl Handler for Term`: every method forwarded, only
-/// `dynamic_color_sequence` answered here.
+/// `dynamic_color_sequence` answered here. The segments (P5-149) count every line that goes into
+/// history: check too that the steps run through `tracked` are still all those that scroll the
+/// whole screen up (`linefeed`, `wrapline` and the methods that call them) or clear history, and
+/// that `CSI ? 1049` is still the only way to the alternate screen.
 struct Answering<'a> {
     term: &'a mut Term<Events>,
     theme: &'a palette::Shared,
     replies: &'a Events,
+    segments: &'a mut Segments,
+}
+
+impl Answering<'_> {
+    /// Runs a step that may scroll lines into history or clear it, for the segments to keep count
+    /// (P5-149).
+    fn tracked(&mut self, step: impl FnOnce(&mut Term<Events>)) {
+        if !self.segments.on() {
+            step(self.term);
+            return;
+        }
+        let before = Before::of(self.term);
+        step(self.term);
+        self.segments.after(self.term, before);
+    }
 }
 
 impl Handler for Answering<'_> {
@@ -391,7 +478,7 @@ impl Handler for Answering<'_> {
         Handler::set_cursor_shape(&mut *self.term, shape);
     }
     fn input(&mut self, c: char) {
-        Handler::input(&mut *self.term, c);
+        self.tracked(|term| Handler::input(term, c));
     }
     fn goto(&mut self, line: i32, col: usize) {
         Handler::goto(&mut *self.term, line, col);
@@ -430,7 +517,7 @@ impl Handler for Answering<'_> {
         Handler::move_up_and_cr(&mut *self.term, row);
     }
     fn put_tab(&mut self, count: u16) {
-        Handler::put_tab(&mut *self.term, count);
+        self.tracked(|term| Handler::put_tab(term, count));
     }
     fn backspace(&mut self) {
         Handler::backspace(&mut *self.term);
@@ -439,7 +526,7 @@ impl Handler for Answering<'_> {
         Handler::carriage_return(&mut *self.term);
     }
     fn linefeed(&mut self) {
-        Handler::linefeed(&mut *self.term);
+        self.tracked(Handler::linefeed);
     }
     fn bell(&mut self) {
         Handler::bell(&mut *self.term);
@@ -448,13 +535,13 @@ impl Handler for Answering<'_> {
         Handler::substitute(&mut *self.term);
     }
     fn newline(&mut self) {
-        Handler::newline(&mut *self.term);
+        self.tracked(Handler::newline);
     }
     fn set_horizontal_tabstop(&mut self) {
         Handler::set_horizontal_tabstop(&mut *self.term);
     }
     fn scroll_up(&mut self, a0: usize) {
-        Handler::scroll_up(&mut *self.term, a0);
+        self.tracked(|term| Handler::scroll_up(term, a0));
     }
     fn scroll_down(&mut self, a0: usize) {
         Handler::scroll_down(&mut *self.term, a0);
@@ -463,7 +550,7 @@ impl Handler for Answering<'_> {
         Handler::insert_blank_lines(&mut *self.term, a0);
     }
     fn delete_lines(&mut self, a0: usize) {
-        Handler::delete_lines(&mut *self.term, a0);
+        self.tracked(|term| Handler::delete_lines(term, a0));
     }
     fn erase_chars(&mut self, a0: usize) {
         Handler::erase_chars(&mut *self.term, a0);
@@ -487,7 +574,7 @@ impl Handler for Answering<'_> {
         Handler::clear_line(&mut *self.term, mode);
     }
     fn clear_screen(&mut self, mode: ClearMode) {
-        Handler::clear_screen(&mut *self.term, mode);
+        self.tracked(|term| Handler::clear_screen(term, mode));
     }
     fn clear_tabs(&mut self, mode: TabulationClearMode) {
         Handler::clear_tabs(&mut *self.term, mode);
@@ -497,6 +584,7 @@ impl Handler for Answering<'_> {
     }
     fn reset_state(&mut self) {
         Handler::reset_state(&mut *self.term);
+        self.segments.forget();
     }
     fn reverse_index(&mut self) {
         Handler::reverse_index(&mut *self.term);
@@ -518,13 +606,20 @@ impl Handler for Answering<'_> {
         if blinking_mode(&mode) {
             return;
         }
+        if swap_mode(&mode) && !self.term.mode().contains(TermMode::ALT_SCREEN) {
+            self.segments.leave(self.term);
+        }
         Handler::set_private_mode(&mut *self.term, mode);
     }
     fn unset_private_mode(&mut self, mode: PrivateMode) {
         if blinking_mode(&mode) {
             return;
         }
+        let away = self.term.mode().contains(TermMode::ALT_SCREEN);
         Handler::unset_private_mode(&mut *self.term, mode);
+        if away && !self.term.mode().contains(TermMode::ALT_SCREEN) {
+            self.segments.back(self.term);
+        }
     }
     fn report_private_mode(&mut self, mode: PrivateMode) {
         Handler::report_private_mode(&mut *self.term, mode);

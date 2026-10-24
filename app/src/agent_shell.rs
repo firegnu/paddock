@@ -4,7 +4,7 @@ use std::{
     ffi::{OsStr, OsString},
     io::IsTerminal,
     os::unix::{
-        fs::{OpenOptionsExt, PermissionsExt, symlink},
+        fs::{PermissionsExt, symlink},
         process::CommandExt,
     },
     path::{Path, PathBuf},
@@ -39,17 +39,9 @@ pub fn setup(
         symlink(executable, &temporary)?;
         std::fs::rename(temporary, bin.join(kind))?;
     }
-    for (name, contents) in [(".zshenv", ZSHENV), ("bashrc", BASHRC)] {
-        use std::io::Write;
-        let temporary = dir.join(crate::control::random_id()?);
-        let mut file = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .open(&temporary)?;
-        file.write_all(contents.as_bytes())?;
-        std::fs::rename(temporary, dir.join(name))?;
-    }
+    // Followed by the command marks plain shells get too (P5-149).
+    crate::shell_marks::write_private(&dir, ".zshenv", &[ZSHENV, crate::shell_marks::ZSH])?;
+    crate::shell_marks::write_private(&dir, "bashrc", &[BASHRC, crate::shell_marks::BASH])?;
     let mut env = vec![(
         "PADDOCK_AGENT_SHIMS".into(),
         bin.to_string_lossy().into_owned(),

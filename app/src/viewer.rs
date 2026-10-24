@@ -399,6 +399,25 @@ impl Viewer {
                         env.extend(setup.env);
                         env.push(("PADDOCK_AGENT_CORRAL".into(), corral));
                         (setup.command, env)
+                    } else if crate::agent_shell::supported(&command[0]) {
+                        // Marks each command for the terminal (P5-149); the shell starts without
+                        // them when its private startup file cannot be written.
+                        let original = std::env::var("ZDOTDIR").ok();
+                        let setup = crate::control::runtime_dir().and_then(|dir| {
+                            crate::shell_marks::setup(
+                                &command[0],
+                                &dir.join(format!("shell-{}", std::process::id())),
+                                original.as_deref(),
+                            )
+                        });
+                        match setup {
+                            Ok(setup) => {
+                                let mut env = env;
+                                env.extend(setup.env);
+                                (setup.command, env)
+                            }
+                            Err(_) => (command, env),
+                        }
                     } else {
                         (command, env)
                     };

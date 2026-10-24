@@ -193,7 +193,12 @@ impl Session {
             .with_context(|| format!("starting {program}"))?;
         drop(pair.slave);
         drop(spawning);
-        let screen = Arc::new(Mutex::new(Screen::with_theme(size, theme)));
+        let mut screen = Screen::with_theme(size, theme);
+        // A shell's commands are told apart (P5-149); an agent's pane has none.
+        if env.is_some() {
+            screen.keep_segments();
+        }
+        let screen = Arc::new(Mutex::new(screen));
         // Unbounded: typing, pastes and replies wait their turn, none is turned away. What is
         // left once the program has gone is dropped with the thread.
         let (input, rx) = mpsc::channel::<Vec<u8>>();
