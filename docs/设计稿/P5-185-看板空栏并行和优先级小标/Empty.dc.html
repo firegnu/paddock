@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>Empty kanban columns</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+.panel{width:380px;box-sizing:border-box;padding:12px 12px 14px;border-radius:12px;background:#fbfafc;border:1px solid rgba(40,36,52,0.10);display:flex;flex-direction:column;gap:6px;font-size:13px;color:#2a2833}
+.ring{display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;border-radius:50%;box-sizing:border-box;flex-shrink:0}
+.row{display:flex;align-items:center;gap:8px;padding:0 8px}
+.task{display:flex;align-items:flex-start;gap:9px;padding:6px 10px;font-size:12.5px;line-height:1.45}
+.id{color:#6f6c7a;flex-shrink:0;width:58px}
+.cap{display:flex;flex-direction:column;gap:4px;width:380px}
+</style>
+</helmet>
+<div style="width: 1340px; height: 780px; box-sizing: border-box; padding: 28px 34px; background: #efedf2; font-family: -apple-system, 'SF Pro Text', 'Helvetica Neue', sans-serif; color: #2a2833; display: flex; gap: 46px">
+<sc-for list="{{cols}}" as="col" hint-placeholder-count="3">
+<div style="display: flex; flex-direction: column; gap: 14px">
+<div class="cap">
+<div style="font-size: 13px; font-weight: 600; letter-spacing: 0.06em; color: {{col.headColor}}">{{col.head}}</div>
+<div style="font-size: 12px; line-height: 1.55; color: #6f6c7a">{{col.note}}</div>
+</div>
+<div class="panel">
+<div style="display: flex; align-items: center; gap: 8px; padding: 2px 4px 6px">
+<span style="font-weight: 600">paddock</span>
+<svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="#6f6c7a" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 3.75 L5 6.25 L7.5 3.75"></path></svg>
+<span style="font-size: 11.5px; color: #6f6c7a; background: #ecebf0; border-radius: 6px; padding: 1px 7px">main</span>
+<span style="flex: 1"></span>
+<span style="font-size: 16px; color: #6f6c7a">+</span>
+</div>
+<div style="border: 1px solid rgba(40,36,52,0.10); border-radius: 10px; background: #ffffff; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px">
+<div style="display: flex; align-items: center; gap: 8px"><span style="font-weight: 600">Loop</span><span style="color: #8b8896; font-size: 12px">0</span><span style="flex: 1"></span><span style="width: 26px; height: 15px; border-radius: 8px; background: #dcdae2"></span></div>
+<div style="font-size: 12px; color: #8b8896">Add queued tasks to the loop.</div>
+</div>
+<div class="row" style="height: 32px"><span class="ring" style="border: 1.5px solid #8b8896"></span><span style="font-weight: 600">Queued</span><span style="color: #8b8896; font-size: 12px">3</span></div>
+<div style="background: #ffffff; border-radius: 10px; border: 1px solid rgba(40,36,52,0.08); padding: 2px 0">
+<sc-for list="{{queued}}" as="t" hint-placeholder-count="3">
+<div class="task"><span class="ring" style="{{t.ring}}; margin-top: 3px"></span><span class="id">{{t.id}}</span><span style="flex: 1">{{t.title}}</span></div>
+</sc-for>
+</div>
+<sc-if value="{{col.rows}}" hint-placeholder-val="{{ true }}">
+<sc-for list="{{col.mid}}" as="m" hint-placeholder-count="3">
+<div class="row" style="height: {{m.h}}"><span class="ring" style="{{m.ring}}"></span><span style="font-weight: {{m.weight}}; color: {{m.color}}">{{m.label}}</span><span style="color: {{m.countColor}}; font-size: 12px">0</span></div>
+</sc-for>
+</sc-if>
+<sc-if value="{{col.line}}" hint-placeholder-val="{{ false }}">
+<div class="row" style="height: 28px; gap: 14px; font-size: 12px; color: #9a97a4">
+<sc-for list="{{col.mid}}" as="m" hint-placeholder-count="3">
+<span style="display: inline-flex; align-items: center; gap: 6px"><span class="ring" style="{{m.ring}}; width: 11px; height: 11px"></span>{{m.label}} 0</span>
+</sc-for>
+</div>
+</sc-if>
+<div class="row" style="height: 32px"><span class="ring" style="background: #8b8896"></span><span style="font-weight: 600">Done</span><span style="color: #8b8896; font-size: 12px">6 of 278</span></div>
+<sc-for list="{{done}}" as="t" hint-placeholder-count="6">
+<div class="task" style="padding: 4px 10px"><span class="ring" style="background: #b9b6c0; margin-top: 3px"></span><span class="id">{{t.id}}</span><span style="flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{t.title}}</span><span style="color: #8b8896; font-size: 11.5px">{{t.time}}</span></div>
+</sc-for>
+<div style="padding: 6px 8px 0"><span style="font-size: 12px; color: #6f6c7a; border: 1px solid rgba(40,36,52,0.12); border-radius: 7px; padding: 3px 9px">Show all 278</span></div>
+</div>
+</div>
+</sc-for>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1340,"height":780}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const C = { blue: '#4f7fe0', yellow: '#d29a1e', green: '#3fa25f', muted: '#8b8896', dim: '#c3c0ca' };
+    const part = (c, deg) => `border: 1.5px solid ${c}; background: conic-gradient(${c} 0 ${deg}deg, transparent ${deg}deg)`;
+    const mid = (dim) => [
+      { label: 'In progress', ring: part(dim ? C.dim : C.blue, 180) },
+      { label: 'To review', ring: part(dim ? C.dim : C.yellow, 270) },
+      { label: 'Merged', ring: `background: ${dim ? C.dim : C.green}` },
+    ].map((m) => ({
+      ...m,
+      h: dim ? '24px' : '32px',
+      weight: dim ? 400 : 600,
+      color: dim ? '#aeabb6' : '#2a2833',
+      countColor: dim ? '#c3c0ca' : '#8b8896',
+    }));
+    return {
+      cols: [
+        { head: '现在', headColor: '#6f6c7a', note: '没活时三行都是 0，各占一行，把 Queued 和 Done 隔开。', rows: true, line: false, mid: mid(false) },
+        { head: '甲 · 为 0 时变淡', headColor: '#7a5bd1', note: '为 0 的栏行高变矮、字和圆圈变淡；有活时照现在的样子。', rows: true, line: false, mid: mid(true) },
+        { head: '乙 · 为 0 的并成一行', headColor: '#7a5bd1', note: '为 0 的栏并成一行小字；哪栏有活，它回到自己的一行，列出它的活。', rows: false, line: true, mid: mid(false) },
+      ],
+      queued: [
+        { id: 'P5-111', title: '调研 Ghostty 作者提出的 OSC 7501（agent 状态的标准）', ring: `border: 1.5px dashed ${C.muted}` },
+        { id: 'P5-54', title: 'Browser 选中元素、Changes 选中 diff 后送给 agent', ring: `border: 1.5px dashed ${C.dim}` },
+        { id: 'P5-146', title: '把 paddock 的终端拆出去，做一个自己的终端', ring: `border: 1.5px dashed ${C.dim}` },
+      ],
+      done: [
+        { id: 'P5-184', title: 'Loop 完成 0 件时不再说 “Finished · 0 done”', time: '5m' },
+        { id: 'P5-183', title: '侧栏卡片精修：回复预览去掉 Markdown 符号', time: '5m' },
+        { id: 'P5-149c', title: '点灰条选不中输出', time: '1h' },
+        { id: 'P5-149b', title: 'shell 窗格左边加宽，灰条好点', time: '1h' },
+        { id: 'P5-182', title: '侧栏一眼看出主控', time: '2h' },
+        { id: 'P5-149', title: '终端按命令分段', time: '3h' },
+      ],
+    };
+  }
+}
+</script>
+</body>
+</html>

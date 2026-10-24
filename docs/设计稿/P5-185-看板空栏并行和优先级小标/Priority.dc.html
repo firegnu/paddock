@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>Queued priority and drafts</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+.panel{width:260px;box-sizing:border-box;padding:10px 0 8px;border-radius:12px;background:#ffffff;border:1px solid rgba(40,36,52,0.10);display:flex;flex-direction:column;font-size:12.5px;color:#2a2833}
+.ring{display:inline-block;width:13px;height:13px;border-radius:50%;box-sizing:border-box;flex-shrink:0;margin-top:3px}
+.task{display:flex;align-items:flex-start;gap:8px;padding:6px 10px;line-height:1.45}
+.id{color:#6f6c7a;flex-shrink:0;width:50px}
+.chip{flex-shrink:0;font-size:10.5px;line-height:16px;border-radius:5px;padding:0 5px;margin-top:1px}
+.cap{display:flex;flex-direction:column;gap:4px;width:260px}
+</style>
+</helmet>
+<div style="width: 940px; height: 640px; box-sizing: border-box; padding: 28px 34px; background: #efedf2; font-family: -apple-system, 'SF Pro Text', 'Helvetica Neue', sans-serif; color: #2a2833; display: flex; gap: 46px">
+<sc-for list="{{cols}}" as="col" hint-placeholder-count="3">
+<div style="display: flex; flex-direction: column; gap: 14px">
+<div class="cap">
+<div style="font-size: 13px; font-weight: 600; letter-spacing: 0.06em; color: {{col.headColor}}">{{col.head}}</div>
+<div style="font-size: 12px; line-height: 1.55; color: #6f6c7a">{{col.note}}</div>
+</div>
+<div style="display: flex; align-items: center; gap: 8px; padding: 0 8px; font-size: 13px"><span class="ring" style="border: 1.5px solid #8b8896; margin-top: 0"></span><span style="font-weight: 600">Queued</span><span style="color: #8b8896; font-size: 12px">5</span></div>
+<div class="panel">
+<sc-for list="{{col.items}}" as="t" hint-placeholder-count="5">
+<sc-if value="{{t.head}}" hint-placeholder-val="{{ false }}">
+<div style="padding: 8px 10px 2px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.08em; color: {{t.headColor}}">{{t.headText}}</div>
+</sc-if>
+<div class="task"><span class="ring" style="{{t.ring}}"></span><span class="id">{{t.id}}</span><span style="flex: 1">{{t.title}}</span>
+<sc-if value="{{t.showDraft}}" hint-placeholder-val="{{ false }}"><span class="chip" style="color: #6f6c7a; border: 1px dashed #b9b6c0">Draft</span></sc-if>
+<sc-if value="{{t.showPri}}" hint-placeholder-val="{{ false }}"><span class="chip" style="color: {{t.priColor}}; background: {{t.priBg}}">{{t.pri}}</span></sc-if>
+</div>
+</sc-for>
+</div>
+</div>
+</sc-for>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":940,"height":640}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const C = { red: '#d64545', muted: '#8b8896', dim: '#c3c0ca' };
+    const base = [
+      { id: 'P5-1xx', title: '（示例）一件高优先、已提交的活', pri: 'High', draft: false },
+      { id: 'P5-111', title: '调研 Ghostty 作者提出的 OSC 7501', pri: 'Medium', draft: true },
+      { id: 'P5-1yy', title: '（示例）一件中优先、已提交的活', pri: 'Medium', draft: false },
+      { id: 'P5-54', title: 'Browser 选中元素、Changes 选中 diff 后送给 agent', pri: 'Low', draft: true },
+      { id: 'P5-146', title: '把 paddock 的终端拆出去，做一个自己的终端', pri: 'Low', draft: true },
+    ];
+    const color = { High: C.red, Medium: C.muted, Low: C.dim };
+    const items = (mode) => base.map((t, i) => {
+      const prev = base[i - 1];
+      return {
+        ...t,
+        ring: `border: 1.5px ${t.draft ? 'dashed' : 'solid'} ${color[t.pri]}`,
+        showDraft: mode !== 'now' && t.draft,
+        showPri: mode === 'tag' && t.pri !== 'Medium',
+        priColor: t.pri === 'High' ? '#b42f2f' : '#6f6c7a',
+        priBg: t.pri === 'High' ? '#fbe9e9' : '#efeef2',
+        head: mode === 'group' && (!prev || prev.pri !== t.pri),
+        headText: t.pri.toUpperCase(),
+        headColor: t.pri === 'High' ? '#b42f2f' : '#6f6c7a',
+      };
+    });
+    return {
+      cols: [
+        { head: '现在', headColor: '#6f6c7a', note: '优先级只看圆圈颜色：高是红，中是灰，低是更淡的灰；草稿是虚线圈。低和中只差一点灰度。', items: items('now') },
+        { head: '甲 · 行尾小标', headColor: '#7a5bd1', note: '高、低在行尾加小标（中不标）；草稿再加虚线框的 Draft。圆圈照旧。', items: items('tag') },
+        { head: '乙 · 按优先级分段', headColor: '#7a5bd1', note: '列表里按 HIGH／MEDIUM／LOW 加小标题分段，只有一档时不加；草稿加 Draft。', items: items('group') },
+      ],
+    };
+  }
+}
+</script>
+</body>
+</html>
