@@ -32,17 +32,19 @@ pub enum Tool {
     Omp,
     Amp,
     Agy,
+    Kimi,
 }
 
 impl Tool {
     /// In the order the form offers them.
-    pub const ALL: [Tool; 6] = [
+    pub const ALL: [Tool; 7] = [
         Tool::Claude,
         Tool::Codex,
         Tool::Pi,
         Tool::Omp,
         Tool::Amp,
         Tool::Agy,
+        Tool::Kimi,
     ];
 
     /// The kind as corral and the kind icons name it.
@@ -54,6 +56,7 @@ impl Tool {
             Tool::Omp => "omp",
             Tool::Amp => "amp",
             Tool::Agy => "agy",
+            Tool::Kimi => "kimi",
         }
     }
 
@@ -65,6 +68,7 @@ impl Tool {
             Tool::Omp => "omp",
             Tool::Amp => "amp",
             Tool::Agy => "agy",
+            Tool::Kimi => "kimi",
         }
     }
 
@@ -77,6 +81,7 @@ impl Tool {
             Tool::Omp => "omp",
             Tool::Amp => "amp",
             Tool::Agy => "agy",
+            Tool::Kimi => "kimi",
         }
     }
 
@@ -92,9 +97,10 @@ impl Tool {
         self == Tool::Agy
     }
 
-    /// Whether corral works with it through a plugin in its own configuration (P5-98, P5-88).
+    /// Whether corral works with it through a plugin in its own configuration (P5-98, P5-88), or a
+    /// block of hooks in a configuration file it shares with the user (kimi, P5-179).
     pub fn has_plugin(self) -> bool {
-        matches!(self, Tool::Amp | Tool::Agy)
+        matches!(self, Tool::Amp | Tool::Agy | Tool::Kimi)
     }
 
     /// Whether a model and effort are chosen for it; the others keep to their own settings. The
@@ -900,7 +906,7 @@ impl Form {
                     asks.extend(["-c".into(), format!("model_reasoning_effort=\"{effort}\"")]);
                 }
             }
-            Tool::Pi | Tool::Omp | Tool::Amp | Tool::Agy => {}
+            Tool::Pi | Tool::Omp | Tool::Amp | Tool::Agy | Tool::Kimi => {}
         }
         words.splice(at..at, asks);
         self.command = shell_words::join(&words);
@@ -1068,9 +1074,23 @@ fn sandbox_refusal(stdout: &[u8]) -> Option<String> {
 }
 
 /// What New Agent warns of when `tool`'s plugin stands so that the agent would stay Starting: not
-/// installed, out of date, or turned off in agy. Starting is not held back.
+/// installed, out of date, or turned off in agy. For a block of hooks (kimi), without which corral
+/// still sees the agent ready on screen but not its turns or replies (ranch R48c), that is said
+/// instead. Starting is not held back.
 pub fn plugin_warning(tool: Tool, install: &crate::integrations::Install) -> Option<String> {
     let kind = tool.kind();
+    if install.block() {
+        return match install.status.as_str() {
+            "same" => None,
+            "overwrite" => Some(format!(
+                "corral's hooks for {kind} have changed; update them in Settings."
+            )),
+            _ => Some(format!(
+                "corral's hooks for {kind} aren't installed; corral won't see {kind} working or \
+                 replying."
+            )),
+        };
+    }
     match install.status.as_str() {
         "same" if install.enabled == Some(false) => Some(format!(
             "The corral plugin is disabled in {kind}; run {kind} plugin enable corral."
@@ -2015,7 +2035,10 @@ mod tests {
         let mut form = Form::new("/tmp/demo".into(), Place::Tab);
         form.pick_tool(Tool::Agy);
         form.regular = true;
-        assert_eq!(Tool::ALL[Tool::ALL.len() - 2..], [Tool::Amp, Tool::Agy]);
+        assert_eq!(
+            Tool::ALL[Tool::ALL.len() - 3..Tool::ALL.len() - 1],
+            [Tool::Amp, Tool::Agy]
+        );
         assert_eq!(
             (form.command.as_str(), form.name.as_str(), form.tool.label()),
             ("agy", "agy-1", "agy")
@@ -2089,6 +2112,7 @@ mod tests {
             path: "/h/p".into(),
             status: status.into(),
             enabled,
+            format: None,
         };
         let warning = |tool, status, enabled| plugin_warning(tool, &install(status, enabled));
         assert_eq!(warning(Tool::Agy, "same", Some(true)), None);
@@ -2112,6 +2136,112 @@ mod tests {
             Some("The corral plugin for amp isn't installed; amp will stay Starting.")
         );
         assert!(Tool::Amp.has_plugin() && Tool::Agy.has_plugin() && !Tool::Claude.has_plugin());
+    }
+
+    #[test]
+    fn kimi_comes_after_agy_and_starts_like_claude_with_or_without_a_first_message() {
+        assert_eq!(Tool::ALL[Tool::ALL.len() - 2..], [Tool::Agy, Tool::Kimi]);
+        let mut form = Form::new("/tmp/demo".into(), Place::Tab);
+        form.pick_tool(Tool::Kimi);
+        form.regular = true;
+        assert_eq!(
+            (form.command.as_str(), form.name.as_str(), form.tool.label()),
+            ("kimi", "kimi-1", "kimi")
+        );
+        assert!(!form.tool.has_models());
+        assert_eq!(
+            (form.model.as_deref(), form.effort.as_deref()),
+            (None, None)
+        );
+        // An empty first message starts it idle.
+        assert!(form.can_start());
+        assert_eq!(
+            form.args().unwrap(),
+            [
+                "start",
+                "demo/kimi-1",
+                "--cwd",
+                "/tmp/demo",
+                "--label",
+                "role=regular",
+                "--",
+                "kimi"
+            ]
+        );
+        form.prompt = "读 HANDOFF.md".into();
+        assert_eq!(
+            form.args().unwrap(),
+            [
+                "start",
+                "demo/kimi-1",
+                "--cwd",
+                "/tmp/demo",
+                "--label",
+                "role=regular",
+                "--prompt",
+                "读 HANDOFF.md",
+                "--",
+                "kimi"
+            ]
+        );
+        assert_eq!(form.first_message(), None);
+        form.pick_tool(Tool::Claude);
+        form.set_command("/Users/u/.kimi-code/bin/kimi".into());
+        assert_eq!(form.tool, Tool::Kimi);
+    }
+
+    #[test]
+    fn a_preset_can_be_kimi() {
+        let dir = std::env::temp_dir().join(format!(
+            "paddock-kimi-preset-{}",
+            crate::control::random_id().unwrap()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        let list = vec![Preset {
+            name: "kimi".into(),
+            kind: Tool::Kimi,
+            model: None,
+            effort: None,
+            role: Role::Regular,
+            sandbox: None,
+        }];
+        save_presets(&path, &list).unwrap();
+        assert!(
+            std::fs::read_to_string(&path)
+                .unwrap()
+                .contains("kind = \"kimi\"")
+        );
+        assert_eq!(presets(&Config::load(&path).unwrap()), list);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn kimi_s_hooks_not_in_place_are_warned_of_for_what_they_cost() {
+        use crate::integrations::Install;
+        let install = |status: &str| Install {
+            path: "/h/.kimi-code/config.toml".into(),
+            status: status.into(),
+            enabled: None,
+            format: Some("marked-block".into()),
+        };
+        let warning = |status| plugin_warning(Tool::Kimi, &install(status));
+        assert!(Tool::Kimi.has_plugin());
+        assert_eq!(warning("same"), None);
+        for status in ["create", "foreign"] {
+            assert_eq!(
+                warning(status).as_deref(),
+                Some(
+                    "corral's hooks for kimi aren't installed; corral won't see kimi working \
+                     or replying."
+                ),
+                "{status}"
+            );
+        }
+        assert_eq!(
+            warning("overwrite").as_deref(),
+            Some("corral's hooks for kimi have changed; update them in Settings.")
+        );
     }
 
     /// A corral whose `wait` answers `wait` (exiting `code`) and whose `send` answers `send`,

@@ -19,8 +19,9 @@ use std::{
 };
 
 /// The kinds offered there, in this order: amp needs its plugin and agy a first message, which the
-/// simple dialog has neither of.
-pub const KINDS: [Tool; 4] = [Tool::Claude, Tool::Codex, Tool::Pi, Tool::Omp];
+/// simple dialog has neither of. kimi starts without its hooks too, shown ready on screen; whether
+/// they are installed there is not asked (P5-179).
+pub const KINDS: [Tool; 5] = [Tool::Claude, Tool::Codex, Tool::Pi, Tool::Omp, Tool::Kimi];
 /// How long looking for the kinds may take.
 const LOOK: Duration = Duration::from_secs(20);
 /// How long `corral start` may take there, as on this Mac.
@@ -708,10 +709,15 @@ mod tests {
         let command = look_command();
         let inner = &shell_words::split(&command).unwrap()[5];
         assert!(command.starts_with("exec \"${SHELL:-/bin/sh}\" -l -i -c '"));
-        assert!(inner.contains("for kind in claude codex pi omp; do"));
+        assert!(inner.contains("for kind in claude codex pi omp kimi; do"));
         assert!(inner.contains("command -v \"$kind\""));
         assert_eq!(found(b"Welcome to 5090\nomp\npi\n"), [Tool::Pi, Tool::Omp]);
         assert_eq!(found(b"codex\nclaude\n"), [Tool::Claude, Tool::Codex]);
+        // kimi comes after omp (P5-179).
+        assert_eq!(
+            found(b"kimi\nomp\nclaude\n"),
+            [Tool::Claude, Tool::Omp, Tool::Kimi]
+        );
         // A path or an alias is not a kind's own line; amp and agy are never offered.
         assert!(found(b"/usr/bin/pi\npip\namp\nagy\n").is_empty());
         assert!(found(b"").is_empty());

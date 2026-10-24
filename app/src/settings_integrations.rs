@@ -1,6 +1,7 @@
 //! Settings › Agents › Integrations (DESIGN §13 P5-94): a row per agent corral supports, read in
 //! the background from `crate::integrations`, and the confirmation before skills are written or a
-//! plugin (amp's, P5-98; agy's, P5-88) is installed or removed.
+//! plugin (amp's, P5-98; agy's, P5-88) or a marked block of hooks (kimi's, P5-179) is installed or
+//! removed.
 use super::*;
 use crate::integrations::{self, Plan, PluginPlan, Row, Skills, Status};
 use std::sync::atomic::AtomicBool;
@@ -76,6 +77,22 @@ const AGY: PluginWords = PluginWords {
     removed: Some("agy started by corral will stay Starting until it is installed again."),
 };
 
+const KIMI: PluginWords = PluginWords {
+    note: Some(
+        "kimi needs corral's hooks, added once as a marked block in its config.toml, a file it \
+         shares with you. They do nothing outside corral.",
+    ),
+    files: &[],
+    says: &[
+        "They only work in kimi started by corral; in your own kimi sessions they record \
+         nothing.",
+    ],
+    removed: Some(
+        "corral will still see kimi it starts get ready, but not its turns or replies, until \
+         they are installed again.",
+    ),
+};
+
 /// An agent paddock has nothing particular to say about: the file and the restart only.
 const PLAIN: PluginWords = PluginWords {
     note: None,
@@ -88,7 +105,39 @@ fn plugin_words(kind: &str) -> &'static PluginWords {
     match kind {
         "amp" => &AMP,
         "agy" => &AGY,
+        "kimi" => &KIMI,
         _ => &PLAIN,
+    }
+}
+
+/// What it is called in the confirmation and the bar: a plugin, or for a marked block in a shared
+/// file (kimi's, P5-179), corral's hooks.
+fn plugin_thing(plan: &PluginPlan) -> String {
+    if plan.block {
+        format!("corral's hooks for {}", plan.name)
+    } else {
+        format!("the corral plugin for {}", plan.name)
+    }
+}
+
+/// What the bar calls it when done: `the amp plugin`, or `corral's hooks for kimi`.
+fn bar_thing(plan: &PluginPlan) -> String {
+    if plan.block {
+        plugin_thing(plan)
+    } else {
+        format!("the {} plugin", plan.name)
+    }
+}
+
+/// What removing it says it deletes: the file or folder, or only corral's block in the shared file.
+fn removes(plan: &PluginPlan) -> String {
+    if plan.block {
+        format!(
+            "Removes only corral's block from {}; the file and everything else in it stay.",
+            tilde(&plan.path)
+        )
+    } else {
+        format!("Deletes {}.", tilde(&plan.path))
     }
 }
 
@@ -102,12 +151,23 @@ fn plugin_notes(report: &integrations::Report) -> Vec<&'static str> {
         .collect()
 }
 
-/// What the plugin confirmation says it writes, and each file with whether it replaces one.
-fn writes(plan: &PluginPlan) -> (String, Vec<(String, bool)>) {
+/// What the plugin confirmation says it writes, and each file with what is done to it: `new`,
+/// `replace`, or for corral's block in a shared file, `add block` or `replace block`.
+fn writes(plan: &PluginPlan) -> (String, Vec<(String, &'static str)>) {
     let update = plan.status == "overwrite";
+    if plan.block {
+        return (
+            "Adds corral's marked block to this shared file; nothing else in it changes:".into(),
+            vec![(
+                tilde(&plan.path),
+                if update { "replace block" } else { "add block" },
+            )],
+        );
+    }
+    let mark = if update { "replace" } else { "new" };
     let files = plugin_words(&plan.kind).files;
     if files.is_empty() {
-        return ("Writes 1 file:".into(), vec![(tilde(&plan.path), update)]);
+        return ("Writes 1 file:".into(), vec![(tilde(&plan.path), mark)]);
     }
     (
         format!(
@@ -115,10 +175,7 @@ fn writes(plan: &PluginPlan) -> (String, Vec<(String, bool)>) {
             count(files.len(), "file"),
             tilde(&plan.path)
         ),
-        files
-            .iter()
-            .map(|file| (file.to_string(), update))
-            .collect(),
+        files.iter().map(|file| (file.to_string(), mark)).collect(),
     )
 }
 
@@ -224,8 +281,8 @@ impl SettingsView {
             }
             Confirm::Plugin(plan) if plan.remove => (
                 "Removing…",
-                format!("Removed the {} plugin", plan.name),
-                format!("Couldn't remove the {} plugin", plan.name),
+                format!("Removed {}", bar_thing(plan)),
+                format!("Couldn't remove {}", bar_thing(plan)),
             ),
             Confirm::Plugin(plan) => {
                 let verb = if plan.status == "create" {
@@ -235,8 +292,8 @@ impl SettingsView {
                 };
                 (
                     "Installing…",
-                    format!("{verb} the {} plugin", plan.name),
-                    format!("Couldn't install the {} plugin", plan.name),
+                    format!("{verb} {}", bar_thing(plan)),
+                    format!("Couldn't install {}", bar_thing(plan)),
                 )
             }
         };
@@ -710,7 +767,7 @@ impl SettingsView {
             self.fg(|t| t.agents_accent),
             self.fg(|t| t.agents_red),
         );
-        let file_list = |files: Vec<(String, bool)>| {
+        let file_list = |files: Vec<(String, &'static str)>| {
             div()
                 .flex()
                 .flex_col()
@@ -721,7 +778,7 @@ impl SettingsView {
                 .bg(self.ground())
                 .font_family(MONO)
                 .text_size(ui.px(12.0))
-                .children(files.into_iter().map(|(shown, replace)| {
+                .children(files.into_iter().map(|(shown, mark)| {
                     div()
                         .flex()
                         .gap(px(10.0))
@@ -733,11 +790,15 @@ impl SettingsView {
                                 .text_ellipsis()
                                 .child(shown),
                         )
-                        .child(if replace {
-                            div().text_color(yellow).child("replace")
-                        } else {
-                            div().text_color(dim).child("new")
-                        })
+                        .child(
+                            div()
+                                .text_color(if mark.starts_with("replace") {
+                                    yellow
+                                } else {
+                                    dim
+                                })
+                                .child(mark),
+                        )
                 }))
         };
         let quiet = |text: String| div().text_size(ui.px(12.0)).text_color(dim).child(text);
@@ -774,7 +835,7 @@ impl SettingsView {
                                     .to_owned(),
                                 None => tilde(path),
                             };
-                            (shown, *replace)
+                            (shown, if *replace { "replace" } else { "new" })
                         })
                         .collect();
                     (
@@ -793,7 +854,7 @@ impl SettingsView {
                     let mut content = vec![
                         div()
                             .text_color(dim)
-                            .child(format!("Deletes {}.", tilde(&plan.path)))
+                            .child(removes(plan))
                             .into_any_element(),
                     ];
                     content.extend(
@@ -802,7 +863,7 @@ impl SettingsView {
                             .map(|line| quiet(line.into()).into_any_element()),
                     );
                     (
-                        format!("Remove the corral plugin for {}?", plan.name),
+                        format!("Remove {}?", plugin_thing(plan)),
                         "Remove",
                         red,
                         content,
@@ -828,13 +889,14 @@ impl SettingsView {
                     }));
                     content.push(
                         quiet(format!(
-                            "{} already open picks it up after a restart.",
-                            plan.name
+                            "{} already open picks {} up after a restart.",
+                            plan.name,
+                            if plan.block { "them" } else { "it" }
                         ))
                         .into_any_element(),
                     );
                     (
-                        format!("{verb} the corral plugin for {}?", plan.name),
+                        format!("{verb} {}?", plugin_thing(plan)),
                         verb,
                         accent,
                         content,
@@ -980,6 +1042,7 @@ mod tests {
             path: path.into(),
             status: status.into(),
             remove: false,
+            block: false,
         }
     }
 
@@ -989,15 +1052,15 @@ mod tests {
         assert_eq!(says, "Writes 1 file:");
         assert_eq!(
             files,
-            [("/x/.config/amp/plugins/corral.ts".to_string(), false)]
+            [("/x/.config/amp/plugins/corral.ts".to_string(), "new")]
         );
         let (says, files) = writes(&plan("agy", "/x/.gemini/config/plugins/corral", "create"));
         assert_eq!(says, "Writes 2 files in /x/.gemini/config/plugins/corral:");
         assert_eq!(
             files,
             [
-                ("hooks.json".to_string(), false),
-                ("plugin.json".to_string(), false)
+                ("hooks.json".to_string(), "new"),
+                ("plugin.json".to_string(), "new")
             ]
         );
         let (_, files) = writes(&plan(
@@ -1005,7 +1068,7 @@ mod tests {
             "/x/.gemini/config/plugins/corral",
             "overwrite",
         ));
-        assert!(files.iter().all(|(_, replace)| *replace));
+        assert!(files.iter().all(|(_, mark)| *mark == "replace"));
         assert_eq!(
             AGY.says,
             [
@@ -1020,6 +1083,74 @@ mod tests {
         );
     }
 
+    #[test]
+    fn kimis_note_shows_only_when_kimi_is_listed() {
+        let kimi = agent("kimi", "global");
+        let shown = plugin_notes(&report(vec![agent("amp", "global"), kimi.clone()]));
+        assert_eq!(
+            shown,
+            [
+                AMP.note.unwrap(),
+                "kimi needs corral's hooks, added once as a marked block in its config.toml, a \
+                 file it shares with you. They do nothing outside corral."
+            ]
+        );
+        assert_eq!(plugin_notes(&report(vec![kimi])).len(), 1);
+        assert!(plugin_notes(&report(vec![agent("claude", "launch")])).is_empty());
+    }
+
+    #[test]
+    fn kimis_confirmation_says_only_corrals_block_in_the_shared_file_changes() {
+        let home = std::env::var("HOME").unwrap();
+        let path = format!("{home}/.kimi-code/config.toml");
+        let mut kimi = plan("kimi", &path, "create");
+        kimi.block = true;
+        assert_eq!(plugin_thing(&kimi), "corral's hooks for kimi");
+        assert_eq!(bar_thing(&kimi), "corral's hooks for kimi");
+        let (says, files) = writes(&kimi);
+        assert_eq!(
+            says,
+            "Adds corral's marked block to this shared file; nothing else in it changes:"
+        );
+        assert_eq!(
+            files,
+            [("~/.kimi-code/config.toml".to_string(), "add block")]
+        );
+        kimi.status = "overwrite".into();
+        assert_eq!(writes(&kimi).1[0].1, "replace block");
+        assert_eq!(
+            KIMI.says,
+            [
+                "They only work in kimi started by corral; in your own kimi sessions they record \
+              nothing."
+            ]
+        );
+        kimi.remove = true;
+        assert_eq!(
+            removes(&kimi),
+            "Removes only corral's block from ~/.kimi-code/config.toml; the file and everything \
+             else in it stay."
+        );
+        assert_eq!(
+            KIMI.removed,
+            Some(
+                "corral will still see kimi it starts get ready, but not its turns or replies, \
+                 until they are installed again."
+            )
+        );
+        // A block is told by the plan, not by the kind's name.
+        let mut other = plan("next", "/x/next.toml", "create");
+        other.block = true;
+        assert_eq!(
+            writes(&other).1,
+            [("/x/next.toml".to_string(), "add block")]
+        );
+        // amp's and agy's as before.
+        let amp = plan("amp", "/x/.config/amp/plugins/corral.ts", "same");
+        assert_eq!(plugin_thing(&amp), "the corral plugin for amp");
+        assert_eq!(bar_thing(&amp), "the amp plugin");
+        assert_eq!(removes(&amp), "Deletes /x/.config/amp/plugins/corral.ts.");
+    }
     #[test]
     fn what_corral_left_behind_is_reported_with_the_rest() {
         assert_eq!(

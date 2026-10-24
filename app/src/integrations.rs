@@ -3,7 +3,8 @@
 //! skills are in the places it reads skills from. Read from `corral integration status`, `ranch
 //! dispatch install-skills --dry-run` and paddock's own skill; installing runs the same commands
 //! with `--target <place> --yes` once the person has confirmed. An agent corral cannot connect at
-//! start (amp, P5-98; agy, P5-88) needs a plugin in its own configuration, installed or removed with `corral
+//! start (amp, P5-98; agy, P5-88) needs a plugin in its own configuration, or a marked block of
+//! hooks in a file it shares with the user (kimi, P5-179), installed or removed with `corral
 //! integration install|uninstall`.
 use serde_json::Value;
 use std::{sync::atomic::AtomicBool, time::Duration};
@@ -27,7 +28,8 @@ pub struct Agent {
     pub targets: Vec<String>,
 }
 
-/// The file or folder corral installs in an agent's own configuration (amp's plugin, agy's).
+/// The file or folder corral installs in an agent's own configuration (amp's plugin, agy's), or
+/// the shared file it adds its block of hooks to (kimi's).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Install {
     pub path: String,
@@ -36,6 +38,17 @@ pub struct Install {
     /// Whether the agent itself has the plugin turned on: only agy says (P5-88); none when it
     /// doesn't say or corral couldn't tell.
     pub enabled: Option<bool>,
+    /// `marked-block` when `path` is a shared file and only corral's marked block in it is
+    /// written or removed (kimi, P5-179); none for a file or folder of corral's own.
+    pub format: Option<String>,
+}
+
+impl Install {
+    /// Whether corral writes only its marked block in a shared file, as `format` says; a format
+    /// paddock doesn't know is not taken for one.
+    pub fn block(&self) -> bool {
+        self.format.as_deref() == Some("marked-block")
+    }
 }
 
 /// The Status column of a row.
@@ -63,6 +76,8 @@ pub struct PluginPlan {
     /// How the file stood when the row was read: `create`, `overwrite` or, to remove it, `same`.
     pub status: String,
     pub remove: bool,
+    /// Whether it is a marked block in a shared file rather than a file or folder of corral's.
+    pub block: bool,
 }
 
 /// Why nothing was done when the plugin no longer stands as the confirmation showed it.
@@ -195,6 +210,7 @@ pub fn parse_status(value: &Value) -> Result<(Vec<Agent>, Vec<File>), String> {
                     path,
                     status,
                     enabled: agent["install"]["enabled"].as_bool(),
+                    format: text(&agent["install"]["format"]),
                 }),
                 _ => None,
             },
@@ -356,7 +372,14 @@ pub fn rows(report: &Report) -> Vec<Row> {
                             Some(format!("Run {} plugin enable corral", agent.kind)),
                         ),
                         "same" => (Some(Status::Installed), None),
+                        "overwrite" if install.block() => {
+                            (Some(Status::Update), Some("corral block changed".into()))
+                        }
                         "overwrite" => (Some(Status::Update), Some("plugin changed".into())),
+                        "foreign" if install.block() => (
+                            Some(Status::NotManaged),
+                            Some(format!("corral block in {file} isn't corral's")),
+                        ),
                         "foreign" => (
                             Some(Status::NotManaged),
                             Some(format!("{file} isn't corral's")),
@@ -484,6 +507,7 @@ pub fn plugin_plan(report: &Report, kind: &str, remove: bool) -> Option<PluginPl
         path: install.path.clone(),
         status: install.status.clone(),
         remove,
+        block: install.block(),
     })
 }
 
@@ -911,6 +935,7 @@ mod tests {
                 path: PLUGIN.into(),
                 status: "create".into(),
                 enabled: None,
+                format: None,
             })
         );
         assert_eq!(report.agents[0].install, None);
@@ -965,6 +990,7 @@ mod tests {
                 path: PLUGIN.into(),
                 status: "create".into(),
                 remove: false,
+                block: false,
             }
         );
         assert_eq!(
@@ -1083,6 +1109,7 @@ mod tests {
                 path: AGY_PLUGIN.into(),
                 status: "same".into(),
                 enabled: Some(false),
+                format: None,
             })
         );
         assert_eq!(agy.targets, ["gemini"]);
@@ -1158,10 +1185,124 @@ mod tests {
                 path: AGY_PLUGIN.into(),
                 status: "same".into(),
                 enabled: Some(false),
+                format: None,
             })
         );
     }
 
+    const KIMI_CONFIG: &str = "/h/.kimi-code/config.toml";
+
+    /// The status with amp, agy and kimi, kimi's block of hooks standing at `install`.
+    fn with_kimi(install: &str) -> Report {
+        let mut report = with_agy("same", json!(true));
+        let (agents, files) = parse_status(&json!({"ok":true,"agents":[
+            {"kind":"kimi","path":"/h/.kimi-code/bin/kimi","version":"2.3.1","hooks":"global",
+             "install":{"path":KIMI_CONFIG,"status":install,"version":1,"format":"marked-block"},
+             "skills":[{"target":"codex","path":"/h/.agents/skills/corral/SKILL.md","status":"same"}]}
+        ]}))
+        .unwrap();
+        report.agents.extend(agents);
+        report.files.extend(files);
+        report
+    }
+
+    #[test]
+    fn kimis_hooks_are_a_block_in_a_shared_file_and_say_so() {
+        let report = with_kimi("same");
+        let kimi = &report.agents[6];
+        assert_eq!(
+            kimi.install,
+            Some(Install {
+                path: KIMI_CONFIG.into(),
+                status: "same".into(),
+                enabled: None,
+                format: Some("marked-block".into()),
+            })
+        );
+        assert!(kimi.install.as_ref().unwrap().block());
+        // amp's and agy's have no format: a file or a folder of corral's own, as before.
+        assert!(!report.agents[4].install.as_ref().unwrap().block());
+        assert!(!report.agents[5].install.as_ref().unwrap().block());
+        // A format paddock doesn't know is not taken for a block.
+        let mut other = kimi.install.clone().unwrap();
+        other.format = Some("something-else".into());
+        assert!(!other.block());
+    }
+
+    #[test]
+    fn kimis_row_follows_amps_rules_and_never_shows_disabled() {
+        let cases = [
+            ("create", Status::Install, None),
+            ("same", Status::Installed, None),
+            ("overwrite", Status::Update, Some("corral block changed")),
+            (
+                "foreign",
+                Status::NotManaged,
+                Some("corral block in config.toml isn't corral's"),
+            ),
+        ];
+        for (install, status, note) in cases {
+            let rows = rows(&with_kimi(install));
+            let kimi = row(&rows, "kimi");
+            assert_eq!(kimi.name, "kimi");
+            assert_eq!(kimi.detail, "2.3.1");
+            assert_eq!(kimi.status.as_ref(), Some(&status), "{install}");
+            assert_eq!(kimi.status_note.as_deref(), note, "{install}");
+            // It reads the codex place, which is up to date here.
+            assert_eq!(kimi.skills, Skills::UpToDate);
+        }
+        // amp's and agy's notes as before.
+        let rows = rows(&with_kimi("same"));
+        assert_eq!(row(&rows, "amp").status, Some(Status::Installed));
+        assert_eq!(row(&rows, "agy").status, Some(Status::Installed));
+    }
+
+    #[test]
+    fn kimis_plan_knows_it_is_a_block_and_runs_corrals_commands_for_kimi() {
+        let plan = plugin_plan(&with_kimi("create"), "kimi", false).unwrap();
+        assert_eq!(
+            plan,
+            PluginPlan {
+                kind: "kimi".into(),
+                name: "kimi".into(),
+                path: KIMI_CONFIG.into(),
+                status: "create".into(),
+                remove: false,
+                block: true,
+            }
+        );
+        assert!(!plugin_plan(&with_kimi("same"), "amp", true).unwrap().block);
+        assert_eq!(plugin_plan(&with_kimi("foreign"), "kimi", false), None);
+        assert_eq!(plugin_plan(&with_kimi("foreign"), "kimi", true), None);
+        let dir = temp();
+        let (corral, log) = plugin_corral(&dir, "create", true);
+        plugin(&corral, &plan, &AtomicBool::new(false)).unwrap();
+        let dir = temp();
+        let (remove_corral, remove_log) = plugin_corral(&dir, "remove", true);
+        let remove = plugin_plan(&with_kimi("same"), "kimi", true).unwrap();
+        plugin(&remove_corral, &remove, &AtomicBool::new(false)).unwrap();
+        let lines = |log| {
+            std::fs::read_to_string(log)
+                .unwrap()
+                .lines()
+                .map(str::to_owned)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            lines(&log),
+            [
+                "integration install --agent kimi --dry-run",
+                "integration install --agent kimi --yes"
+            ]
+        );
+        assert_eq!(
+            lines(&remove_log),
+            [
+                "integration uninstall --agent kimi --dry-run",
+                "integration uninstall --agent kimi --yes"
+            ]
+        );
+    }
     #[test]
     fn nothing_written_is_an_error_with_corrals_reason() {
         let dir = temp();

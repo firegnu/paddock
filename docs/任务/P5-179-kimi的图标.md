@@ -79,3 +79,45 @@
 
 ## 做完
 在本文件末尾追加「## 完成记录」（在你的分支里提交）：做了什么、验证了什么、拿主意的地方、没做的事、踩过的坑，各几句话。踩过的坑指试了不行、换了办法的，工具或环境的行为和预想不一样的；没有就写「没有」，不要凑。回复里只写这几样，加上有没有要主控决定的事。命令都在前台跑完，全部做完后，回复最后一行写 DONE。
+
+## 完成记录
+
+前一个 agent（paddock/dev-kimi-1）做完第一节后机器重启，留下没提交的改动。我（paddock/dev-kimi 接手）看过 diff：kimi.svg、README、kind_icon.rs（认 `kimi`、剪影、本机原图测试）、card.rs、preset.rs（各套主题的 kimi 玫红／粉）、settings.rs（Colours 分组和测试）都对，原样接着用，从第二节做起。
+
+### 做了什么
+- New Agent：`Tool::Kimi` 排在 agy 后，标签、命令 `kimi`，没有模型和强度，预设能存；Prompt 可选，同 claude、codex（空着起成 idle，底部照常 `empty task starts it idle`）。选到 kimi 时读一次 status，不是 `same` 时黄字加 `Open Settings`：`corral's hooks for kimi aren't installed; corral won't see kimi working or replying.`，改过时 `corral's hooks for kimi have changed; update them in Settings.`。
+- Integrations：`Install` 读 `install.format`，`marked-block` 才算一段（`Install::block()`，不按种类名猜，不认识的 format 照文件／目录处理），`PluginPlan` 带 `block`。Status 照 amp 的规则，没有 Disabled；一段时的小字是 `corral block changed`、`corral block in config.toml isn't corral's`。确认框：标题 `Install／Update／Remove corral's hooks for kimi?`；装／更新 `Adds corral's marked block to this shared file; nothing else in it changes:`，列出路径（`~` 缩写），标 `add block`／黄字 `replace block`，再说只在 corral 启动的 kimi 里起作用、开着的 kimi 要重开（`picks them up after a restart`）；卸载 `Removes only corral's block from <路径>; the file and everything else in it stay.`，再说卸了以后 corral 还认得出就绪、看不到每一轮和回复。消息条 `Installed corral's hooks for kimi` 等。卡片下 kimi 一句，名单里有 kimi 才显示。amp、agy 的文字一字没变。
+- Agent shell：替身多 `kimi`；`-V`、`--prompt` 和 `kimi --help`（2.3.1）列的 17 个子命令直接跑真程序。
+- 远程 New Agent：`remote_start::KINDS` 加 kimi，排在 omp 后；一种都没找到时那句改成 `No Claude, Codex, pi, omp or kimi found on <机器>.`。
+- DESIGN：P5-61、P5-94、P5-124 补 kimi，§13 加「集成 kimi（P5-179）」。
+
+### 验证了什么
+- 新加的单元测试：种类列表和顺序、表单参数（有无首句）、预设存读、钩子提醒文字（new_agent）；status 解析 marked-block、Status 列和小字、plan 带 block、install／uninstall 调 `--agent kimi`（integrations，假 corral 脚本）；卡片说明只在名单有 kimi 时出、确认框和卸载文字、按 plan 而不是名字认一段（settings_integrations）；替身直通和托管（agent_shell）；远程找得到 kimi 且排在 omp 后（remote_start）。agent_shell、remote_start 两处先跑到 RED 再实现；New Agent、Integrations 的测试和新字段、新种类一起写，之前没法编译，没有单独看到 RED。
+- `app/` 下 `cargo test --all-targets`（1044 个全过）、`cargo clippy --all-targets -- -D warnings`、`cargo fmt --check` 都过。
+- 没开窗口看界面：确认框、提醒条的排版没有亲眼看过，留给主控和用户实测时看。
+
+### 拿主意的地方
+- 提醒文字：读了 ranch CONTRACT 和 ranch DESIGN 的 R48c：kimi 的编辑器就绪由 corral 读屏认出，钩子没装也会显示就绪；之后的 working、blocked、完成、回复和带首句时的状态都靠钩子。所以没照抄 agy 的 “stay Starting”，写成 corral 看不到它干活和回复。
+- 第 10 条：不装钩子 kimi 也起得来（就绪靠读屏），没有停下问主控，照做了。
+- Agent shell 子命令：任务里写的是 6 个，`kimi --help` 实际列了 17 个（多了 `server`、`rc`／`remote`、`login`、`doctor`、`vis`、`install-desktop`、`app`、`migrate`、`upgrade`／`update`），按跑出来的全列；`fork` 只是非交互地复制会话（看过 `kimi fork --help`），也直通。kimi 的版本参数是 `-V`，补在 kimi 自己的参数里。
+- `instructions::KINDS` 原来直接借 `agent_shell::KINDS`，加了 kimi 后 Settings › Instructions 的名单也会多 kimi（`tests/instructions.rs` 因此失败）。任务说不加 kimi 的说明文件，所以让 Instructions 用自己写明的六家名单，测试原样不动，行为不变。
+- 确认框文件旁的标记从 bool 改成文字（`new`、`replace`、`add block`、`replace block`），`replace` 开头的黄字，技能确认框照旧只出 `new`／`replace`。
+- 品牌色沿用前一个 agent 定的值（暗色多取各主题自带的粉／红，浅色取暗一些的玫红），`every_theme_tells_the_agent_kinds_apart` 过了。
+
+### 没做的事
+- 真实 kimi 实测（idle、回复、blocked）：照任务留给主控合并安装后和用户做。
+- 远端钩子装没装：照任务不查。
+- Settings › Instructions 里 kimi 的说明文件：用户没要。
+
+### 踩过的坑
+- 用 perl 的 `s{…}{…}` 批量改 Rust 代码时，替换文本里的 `{kind}`、`{}` 和分隔符打架，几次报错没改成；改用 Edit 工具或 `#` 分隔符。
+- `instructions::KINDS` 和 Agent shell 共用一份名单，事先没想到，全量测试才发现（见上）。
+
+## 主控审查
+
+- 接续：原 `paddock/dev-kimi-1` 做完第一节、还没提交时机器重启，agent 没了；主控在同一个 worktree 重开 `paddock/dev-kimi-1`（Claude Code，opus[1m] / high），沿用留下的改动做完第二到第六节。
+- 看过 diff：只动了任务列的文件。amp、agy 的确认框和提醒文字照旧；装法按 `install.format` 判断，不看 kind 名。Instructions 改成自己的六家名单，是为了不加 kimi 的说明文件，行为不变，同意。
+- 提醒文字和 ranch CONTRACT 对过：没装钩子时 corral 能从屏幕认出 kimi 就绪，但看不到干活和回复，所以不照搬 agy 的 “stay Starting”，同意。子命令名单按实际跑 `kimi --help` 列的 17 个，同意。
+- 重跑：`cargo test --all-targets` 1044 个通过，clippy `-D warnings`、`fmt --check`、`git diff --check` 都过。
+- 没做：界面排版和真实 kimi 的启动、装卸钩子，等合并安装后和用户一起实测。
+结果：一次过
