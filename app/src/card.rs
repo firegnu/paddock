@@ -8,6 +8,7 @@ use crate::{
     corral::Agent,
     git::{Head, Summary},
     kanban_repos,
+    markdown::{self, Block, Span},
     preset::{Color, Theme},
     workspaces::Workspace,
 };
@@ -156,9 +157,19 @@ pub struct Place {
 impl Place {
     fn new(dir: String, git: Option<&Option<Summary>>) -> Self {
         let summary = git.and_then(Option::as_ref);
+        let branch = branch(git);
+        // A worktree named after its branch: the branch names it once.
+        let dir = match branch
+            .as_deref()
+            .and_then(|b| dir.strip_suffix(b)?.strip_suffix('/'))
+        {
+            Some("") => "/".to_owned(),
+            Some(parent) => parent.to_owned(),
+            None => dir,
+        };
         Self {
             dir,
-            branch: branch(git),
+            branch,
             changes: summary
                 .and_then(|s| s.changes.as_ref())
                 .filter(|c| c.added + c.deleted > 0)
@@ -302,9 +313,30 @@ fn spinner(c: char) -> bool {
 /// The most of a reply a preview keeps; far more than six lines show.
 const OPENING: usize = 800;
 
-/// The start of a reply as one run of text: its lines and spaces each one space.
+/// The start of a reply as one run of text: its words read as Markdown, without the marks (bold,
+/// code, headings, list and quote markers, links by their words), its lines and spaces each one
+/// space.
 fn opening(text: &str) -> String {
-    let words = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let words = |spans: &[Span]| spans.iter().map(|span| span.text.as_str()).collect();
+    let pieces: Vec<String> = markdown::blocks(text)
+        .into_iter()
+        .flat_map(|block| match block {
+            Block::Heading(_, spans) | Block::Paragraph(spans) | Block::Item { spans, .. } => {
+                vec![words(&spans)]
+            }
+            Block::Code(code) => vec![code],
+            Block::Table { head, rows } => head
+                .iter()
+                .chain(rows.iter().flatten())
+                .map(|cell| words(cell))
+                .collect(),
+        })
+        .collect();
+    let words = pieces
+        .join(" ")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
     match words.char_indices().nth(OPENING) {
         Some((at, _)) => words[..at].to_owned(),
         None => words,
@@ -1463,6 +1495,47 @@ mod tests {
     }
 
     #[test]
+    fn a_worktree_named_after_its_branch_names_it_once() {
+        let git = |branch: &str| {
+            Some(Summary {
+                main_repository: None,
+                head: Head::Branch(branch.into()),
+                ahead: Some((3, "origin/main".into())),
+                changes: Some(Changes {
+                    added: 186,
+                    deleted: 14,
+                    binary: 0,
+                }),
+                untracked: Some(0),
+            })
+        };
+        let worktree = Place::new(
+            "~/Developer/personal_projs/canter-worktrees/p1-9-readonly".into(),
+            Some(&git("p1-9-readonly")),
+        );
+        assert_eq!(
+            worktree.text(),
+            "~/Developer/personal_projs/canter-worktrees · ⎇ p1-9-readonly  +186 -14 ↑3"
+        );
+        // Tight, the directory still gives way first and the branch stays whole.
+        let within = |n: usize| move |text: &str| text.chars().count() <= n;
+        assert_eq!(
+            worktree.fit(&within(54)).text(),
+            "~/…/canter-worktrees · ⎇ p1-9-readonly  +186 -14 ↑3"
+        );
+        // A directory named otherwise than its branch reads as before.
+        assert_eq!(
+            Place::new("~/code/canter".into(), Some(&git("main"))).text(),
+            "~/code/canter · ⎇ main  +186 -14 ↑3"
+        );
+        // Only a whole last level counts.
+        assert_eq!(
+            Place::new("~/code/xmain".into(), Some(&git("main"))).text(),
+            "~/code/xmain · ⎇ main  +186 -14 ↑3"
+        );
+    }
+
+    #[test]
     fn long_directories_lose_their_middle_first() {
         let home = Some("/Users/me");
         let path = tilde("/Users/me/Developer/personal_projs/paddock", home);
@@ -1744,6 +1817,39 @@ mod tests {
                 ("silent".into(), None),
             ]
         );
+    }
+
+    #[test]
+    fn a_reply_preview_keeps_the_words_without_their_markdown_marks() {
+        // Bold, inline code, a heading, list items: the marks go, the words they hold stay.
+        assert_eq!(
+            opening("**改完再合并**，再推送。用 `canter/dev-readonly-1` 试过。"),
+            "改完再合并，再推送。用 canter/dev-readonly-1 试过。"
+        );
+        assert_eq!(
+            opening("# 结论\n\n**两条必须**先做：\n\n- 第一条\n- 第二条\n\n1. 合并\n2. 推送"),
+            "结论 两条必须先做： 第一条 第二条 合并 推送"
+        );
+        assert_eq!(
+            opening("*italic* and __bold__ and _also_; > not a quote"),
+            "italic and bold and also; > not a quote"
+        );
+        assert_eq!(
+            opening("> Quoted.\n\n* star item\n\nSee [the docs](https://example.com/a_b)."),
+            "Quoted. star item See the docs."
+        );
+        // A code block keeps its lines, each run on with one space.
+        assert_eq!(
+            opening("Ran:\n\n```\ncargo test\nok\n```"),
+            "Ran: cargo test ok"
+        );
+        // What only looks like a mark stays: `_` in names, `*` in sums, paths.
+        assert_eq!(
+            opening("Edited snake_case_name.rs and ~/a_b/c_d; 2 * 3 * 4 = 24, a*b."),
+            "Edited snake_case_name.rs and ~/a_b/c_d; 2 * 3 * 4 = 24, a*b."
+        );
+        // Still at most a set length.
+        assert_eq!(opening(&"**x** ".repeat(1000)).chars().count(), OPENING);
     }
 
     #[test]
