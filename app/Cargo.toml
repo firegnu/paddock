@@ -118,5 +118,7 @@ objc2-web-kit = { version = "=0.3.2", default-features = false, features = [
 ] }
 
 [dev-dependencies]
+# Exercise application globals and background tasks without opening native windows.
+gpui = { package = "gpui-pre", version = "=0.3.8", features = ["test-support"] }
 # Only for `examples/bundle.rs`, writing the app icon (already in the lock through GPUI).
 png = "0.18"

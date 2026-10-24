@@ -1486,6 +1486,7 @@ impl PaddockWindow {
         cx: &mut Context<Self>,
     ) -> Self {
         let theme = Rc::new(theme);
+        crate::corral_colors::sync(&theme, &options.corral, cx);
         let translucency = Translucency::of(config, &theme);
         let mono = mono_font(&options);
         let sidebar = {
@@ -2433,6 +2434,10 @@ impl PaddockWindow {
             save: self.store.saved.clone(),
             save_off: self.store.protected(),
             startup: cx.try_global::<Startup>().cloned().unwrap_or_default(),
+            terminal_colors: cx
+                .try_global::<crate::corral_colors::Status>()
+                .cloned()
+                .unwrap_or_default(),
             checked: std::time::SystemTime::now(),
             machines: self
                 .machines
@@ -3600,6 +3605,7 @@ impl PaddockWindow {
             }
         }
         if let Ok(theme) = Theme::from_config(config) {
+            crate::corral_colors::sync(&theme, &self.template.corral, cx);
             let theme = Rc::new(theme);
             self.translucency = Translucency::of(config, &theme);
             self.sidebar_width = config.sidebar_width;

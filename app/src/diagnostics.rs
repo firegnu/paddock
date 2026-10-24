@@ -39,6 +39,7 @@ pub struct Report {
     /// for one agent or program.
     pub save_off: bool,
     pub startup: Startup,
+    pub terminal_colors: crate::corral_colors::Status,
     pub checked: SystemTime,
     /// Each other machine in the config, in its order (DESIGN §13 P5-90).
     pub machines: Vec<Machine>,

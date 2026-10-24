@@ -574,7 +574,8 @@ impl RemoteAgentView {
         cx.notify();
         let link = self.link.clone();
         let asked = request.clone();
-        let task = cx.background_spawn(async move { remote_start::start(&link, &asked) });
+        let colors = crate::corral_colors::Colors::of(&self.theme);
+        let task = cx.background_spawn(async move { remote_start::start(&link, &asked, &colors) });
         cx.spawn(async move |this, cx| {
             let result = task.await;
             let _ = this.update(cx, |this, cx| {

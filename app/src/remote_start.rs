@@ -6,6 +6,7 @@
 //! one the user wrote (P5-124c); what started is kept for that machine in [`Commands`]. Nothing
 //! here runs on the UI thread.
 use crate::{
+    corral_colors::Colors,
     new_agent::{Started, Tool, suggest_prefix},
     remote::{Link, command_line, quote},
 };
@@ -233,8 +234,9 @@ impl Request {
     /// The command for ssh: `corral start` through the login shell there, its directory under
     /// `home`, that machine's home, then each word of the command as it was split, a word's
     /// leading `~` that home too, as corral runs the words as they come, with no shell. Only a
-    /// request with no [`Request::problem`] is started.
-    pub fn command(&self, corral: &str, home: &str) -> String {
+    /// request with no [`Request::problem`] is started. First tells the same corral the terminal
+    /// colours; an old corral's error and output are ignored without another SSH round trip.
+    pub fn command(&self, corral: &str, home: &str, colors: &Colors) -> String {
         let mut words = vec![
             corral.to_owned(),
             "start".into(),
@@ -248,7 +250,11 @@ impl Request {
         ];
         let typed = check_command(&self.command).unwrap_or_default();
         words.extend(typed.iter().map(|word| tilde(word, home)));
-        login(&command_line(&words))
+        let set_colors = format!("{} {}", quote(corral), command_line(&colors.args()));
+        login(&format!(
+            "{set_colors} >/dev/null 2>&1 || :; {}",
+            command_line(&words)
+        ))
     }
 }
 
@@ -270,7 +276,7 @@ impl Failure {
 
 /// Runs [`Request::command`] there with the corral and home it found on connecting; blocks, so
 /// call it off the UI thread.
-pub fn start(link: &Link, request: &Request) -> Result<Started, Failure> {
+pub fn start(link: &Link, request: &Request, colors: &Colors) -> Result<Started, Failure> {
     if let Some((field, text)) = request.problem() {
         return Err(Failure {
             text,
@@ -285,7 +291,7 @@ pub fn start(link: &Link, request: &Request) -> Result<Started, Failure> {
     let home = snapshot
         .home
         .ok_or_else(|| Failure::plain(format!("{label} did not say where its home is")))?;
-    let command = request.command(&corral, &home);
+    let command = request.command(&corral, &home, colors);
     let output = link
         .run(&command, START, &AtomicBool::new(false))
         .map_err(|problem| Failure::plain(problem.to_string()))?;
@@ -581,7 +587,58 @@ mod tests {
         assert_eq!(words[..5], ["exec", "${SHELL:-/bin/sh}", "-l", "-i", "-c"]);
         assert_eq!(words.len(), 7, "{command}");
         assert_eq!(words[6], "</dev/null");
-        shell_words::split(&words[5]).unwrap()
+        let (_, start) = words[5].split_once(" || :; ").unwrap();
+        shell_words::split(start).unwrap()
+    }
+
+    fn colors() -> Colors {
+        Colors::of(
+            &crate::theme::Theme::from_config(
+                &crate::config::Config::parse("theme = 'latte'").unwrap(),
+            )
+            .unwrap(),
+        )
+    }
+
+    #[test]
+    fn terminal_colors_precede_start_and_usage_does_not_change_its_answer() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir =
+            std::env::temp_dir().join(format!("paddock-remote-colors-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let corral = dir.join("corral it's $x `literal`");
+        let log = dir.join("args");
+        std::fs::write(&corral, format!(
+            "#!/bin/sh\nprintf '%s\\n' \"$*\" >> {}\nif [ \"$1\" = terminal-colors ]; then\n echo '{{\"ok\":false,\"error\":\"usage\"}}'\n echo usage >&2\n exit 1\nfi\necho '{{\"ok\":true,\"name\":\"test/pi\",\"instance\":\"new\"}}'\n",
+            quote(log.to_str().unwrap()),
+        )).unwrap();
+        std::fs::set_permissions(&corral, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let request = Request {
+            agent: Agent::Kind(Tool::Pi),
+            command: "pi".into(),
+            dir: "~/it's $x".into(),
+            name: "test/pi".into(),
+        };
+        let command = request.command(corral.to_str().unwrap(), "/remote/home", &colors());
+        // Run only the inner command locally: no SSH and no user login files.
+        let shell = shell_words::split(&command).unwrap();
+        let output = crate::command::run(
+            "/bin/sh",
+            &["-c", &shell[5]],
+            None,
+            Duration::from_secs(5),
+            &AtomicBool::new(false),
+        )
+        .unwrap();
+        assert!(output.stderr.is_empty());
+        let started = answer(&output).unwrap();
+        assert_eq!(started.name, "test/pi");
+        assert_eq!(started.instance.as_deref(), Some("new"));
+        assert_eq!(
+            std::fs::read_to_string(&log).unwrap(),
+            "terminal-colors --fg #4c4f69 --bg #eff1f5\nstart test/pi --unique --cwd /remote/home/it's $x --label role=regular -- pi\n"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
@@ -592,7 +649,7 @@ mod tests {
             dir: "~/my dir/it's $(rm -rf ~); `id` \"q\"".into(),
             name: "p/it's;$x".into(),
         };
-        let command = request.command("/home/me/.local/bin/corral", "/home/me");
+        let command = request.command("/home/me/.local/bin/corral", "/home/me", &colors());
         assert!(command.starts_with("exec \"${SHELL:-/bin/sh}\" -l -i -c '"));
         assert_eq!(
             as_run(&command),
@@ -626,9 +683,9 @@ mod tests {
         // That machine's home, whatever this Mac's is.
         let there = "/remote/home/of/someone";
         assert_ne!(std::env::var("HOME").ok().as_deref(), Some(there));
-        let words = as_run(&request("~").command("/c", there));
+        let words = as_run(&request("~").command("/c", there, &colors()));
         assert_eq!(words[5], there);
-        let words = as_run(&request("~/w").command("/c", there));
+        let words = as_run(&request("~/w").command("/c", there, &colors()));
         assert_eq!(words[5], format!("{there}/w"));
     }
 
@@ -657,7 +714,7 @@ mod tests {
                     dir: "~".into(),
                     name: name.into(),
                 }
-                .command("/c", "/h"),
+                .command("/c", "/h", &colors()),
             );
             assert_eq!(words[3], "--unique");
         }
@@ -817,7 +874,7 @@ mod tests {
     #[test]
     fn a_command_is_split_as_a_shell_would_then_each_word_quoted_for_there() {
         let typed = r#"~/bin/my-agent "two words" 'it''s $HOME' a\ b ';' '`id`' "$(touch x)" --cfg ~/c.toml x~/y"#;
-        let words = as_run(&custom(typed).command("/c", "/home/me"));
+        let words = as_run(&custom(typed).command("/c", "/home/me", &colors()));
         assert_eq!(
             words[9..],
             [
@@ -836,7 +893,7 @@ mod tests {
         );
         assert_eq!(words[8], "--");
         // A kind's command as edited goes the same way.
-        let words = as_run(&kind(Tool::Pi, "pi --model 'son net'").command("/c", "/h"));
+        let words = as_run(&kind(Tool::Pi, "pi --model 'son net'").command("/c", "/h", &colors()));
         assert_eq!(words[9..], ["pi", "--model", "son net"]);
     }
 
@@ -882,7 +939,7 @@ mod tests {
             Ok("/nonexistent/s".into()),
         );
         assert_eq!(
-            start(&link, &custom("")),
+            start(&link, &custom(""), &colors()),
             Err(Failure {
                 text: "Command is required".into(),
                 field: Some(Field::Command),

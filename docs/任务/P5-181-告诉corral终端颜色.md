@@ -61,3 +61,19 @@
 
 ## 做完
 在本文件末尾追加「## 完成记录」（在你的分支里提交）：做了什么、验证了什么、拿主意的地方、没做的事、踩过的坑，各几句话。踩过的坑指试了不行、换了办法的，工具或环境的行为和预想不一样的；没有就写「没有」，不要凑。回复里只写这几样，加上有没有要主控决定的事。命令都在前台跑完，全部做完后，回复最后一行写 DONE。
+
+## 完成记录
+
+- 做了什么：新增 `corral_colors`，取 `Theme::own_terminal()` 的前景／背景转小写十六进制；主窗口初始化和应用配置时共用 GPUI 全局去重状态，后台按顺序调用公开命令，每次限时 5 秒。失败只记 Diagnostics，那里显示送出的颜色、时间、发送中／成功／失败原因，并随结果更新。远端启动在同一条 SSH 命令内用连接时找到的 corral 先设颜色，丢弃该段输出、忽略失败，再执行原来的 start。Settings 主题处加英文说明，DESIGN §13 记录用户决定和做法。
+- 验证了什么：先跑针对性测试确认 RED（本机启动未发送颜色；远端记录只有 start），实现后两项均 GREEN。假 corral 验证启动一次、重复窗口／相同颜色／只改字体不重复、换主题发送一次、去色不改变原色、小写格式、usage 失败后后续主题仍可处理；远端假脚本验证颜色先于 start、含引号和 shell 特殊字符的路径正确传入、颜色命令报 usage 仍返回 start 的结果，既有假 SSH 测试也确认每次启动仍只需一次 SSH 命令往返。`app/` 下指定独立编译目录，`cargo test --all-targets`（1049 passed）、`cargo clippy --all-targets -- -D warnings`、`cargo fmt --check` 各跑一次并全部通过；Cargo 仍提示既有依赖 `block 0.1.6` 的 future-incompatibility。命令均在前台等待结束。
+- 拿主意的地方：沿用现有 `corral::Client` 和子进程超时／PATH 机制；本机调用串行，避免较旧的颜色设置晚完成而覆盖新主题。没有超出任务范围的决定，没有需要主控决定的事。
+- 没做的事：没有运行真实 `corral terminal-colors`、连接远端、启动 agent 或 paddock 窗口；没有改 ranch、Saddle 或 P5-149 指定文件。没有加跟随系统深浅，没有合并或推送。新 corral 装好后的 Claude Code／Codex 真机效果留给主控和用户。
+- 踩过的坑：没有。
+- 返工（主控审查，10-24）：修正失败也记作已送出的错误，只有成功才更新去重颜色，去重判断放在前一条调用完成后；全局监听 `Startup.login_path` 变为 Ready，按当前主题补发。原测试只检查手动驱动的去重状态，漏了失败后重试，现在启用固定版本 GPUI 的 `test-support` 开发特性，直接以无窗口测试驱动实际 `sync`、后台任务和 Startup 通知（锁文件新增测试特性的依赖，未升级既有依赖）。两个新增测试先 RED 再 GREEN，覆盖 usage 后同色重试、成功后的排队去重、找不到命令后 PATH Ready 用最新主题重发；本次只跑 `cargo test --lib corral_colors::tests -- --nocapture`（3 passed）、`cargo test --lib launch::tests`（2 passed）、`cargo test --test login_path`（3 passed），未重跑全套及静态检查。DESIGN 同步更正，无须主控另作决定。
+
+## 主控审查
+
+- 第一轮看过 diff：颜色取 `own_terminal()`（没去色的那份）；几个窗口共用一个队列、先后送出，旧主题不会盖掉新主题；远端在 `corral start` 前拼一段 `terminal-colors … >/dev/null 2>&1 || :`，不多一次 ssh，引号照现有写法；Settings 主题下加了那行说明；Diagnostics 有一行 Terminal colors。重跑 `cargo test --all-targets` 1049 个通过，和对方说的一致。
+- 返工 1 次（「怎么算做完」第 1 条在开机场景没达到）：原来失败也记成已送出。开机自动打开时（P5-180 的场景），PATH 还没取到、找不到 corral，这次失败后颜色不变就不再发；旧版 corral 换成新版后也不会补发。交回后改成只有成功才算送出、登录 shell 的 PATH 变成 Ready 时用当前主题补发，加了两条测试。复核：`corral_colors`（3 个）、`remote_start`（19 个）测试通过，clippy `-D warnings`、`fmt --check`、`git diff --check` 都过。
+- 没做：真机效果要等 ranch R50b 部署新版 corral 后，和用户一起开 Claude Code、Codex 看是不是浅色。
+结果：返工 1 次
