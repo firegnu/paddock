@@ -279,8 +279,8 @@ pub struct NewAgentView {
     naming_preset: bool,
     show_command: bool,
     busy: bool,
-    /// How the plugin of the kind chosen stood when last asked (amp P5-98, agy P5-88), and which
-    /// kind was last asked about since the panel opened.
+    /// How the plugin of the kind chosen stood when last asked (amp P5-98, agy P5-88; kimi's block
+    /// of hooks, P5-179), and which kind was last asked about since the panel opened.
     plugin: Option<crate::integrations::Install>,
     plugin_asked: Option<Tool>,
     /// fence's profiles once it has been found (P5-120); none without fence, and while looking.
@@ -734,8 +734,9 @@ impl NewAgentView {
         cx.notify();
     }
 
-    /// With amp or agy chosen, asks once how its plugin stands, to warn before starting one that
-    /// would stay Starting (P5-98, P5-88).
+    /// With amp, agy or kimi chosen, asks once how its plugin or hooks stand, to warn before
+    /// starting one that would stay Starting, or whose turns corral wouldn't see (P5-98, P5-88,
+    /// P5-179).
     fn check_plugin(&mut self, cx: &mut Context<Self>) {
         let tool = self.form.tool;
         if !tool.has_plugin() || self.plugin_asked == Some(tool) {
@@ -3270,7 +3271,14 @@ mod tests {
     #[test]
     fn agy_has_no_empty_task_hint_but_other_kinds_keep_it() {
         assert_eq!(empty_task_hint(Tool::Agy), None);
-        for tool in [Tool::Claude, Tool::Codex, Tool::Pi, Tool::Omp, Tool::Amp] {
+        for tool in [
+            Tool::Claude,
+            Tool::Codex,
+            Tool::Pi,
+            Tool::Omp,
+            Tool::Amp,
+            Tool::Kimi,
+        ] {
             assert_eq!(empty_task_hint(tool), Some("empty task starts it idle"));
         }
     }

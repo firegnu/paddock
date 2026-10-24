@@ -140,7 +140,7 @@ fn group(name: &str) -> &'static str {
         "agent_selected" => GROUPS[1],
         _ if name.starts_with("agents_") => GROUPS[1],
         _ if name.starts_with("agent_") => GROUPS[2],
-        "claude" | "codex" | "pi" | "omp" | "amp" | "agy" => GROUPS[3],
+        "claude" | "codex" | "pi" | "omp" | "amp" | "agy" | "kimi" => GROUPS[3],
         _ => GROUPS[0],
     }
 }
@@ -1153,11 +1153,13 @@ mod tests {
     fn every_colour_has_a_field_in_its_group() {
         let fields = fields();
         let colors: Vec<_> = fields.iter().filter(|f| f.kind == Kind::Color).collect();
-        assert_eq!(colors.len(), 44 + 20);
+        assert_eq!(colors.len(), 45 + 20);
         let groups: Vec<_> = colors.iter().map(|f| f.group).collect();
         let mut order = groups.clone();
         order.dedup();
         assert_eq!(order, GROUPS);
+        let kimi = colors.iter().find(|f| f.key == "colors.kimi").unwrap();
+        assert_eq!(kimi.group, GROUPS[3]);
         let draft = Draft::new(None).unwrap();
         // Every colour shows a value the page can put back.
         for field in &colors {

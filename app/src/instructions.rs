@@ -15,8 +15,9 @@ use std::{
     time::SystemTime,
 };
 
-/// The agents in Settings' order: those paddock hosts.
-pub const KINDS: &[&str] = crate::agent_shell::KINDS;
+/// The agents in Settings' order: those paddock hosts, but kimi, whose file wasn't asked for
+/// (P5-179).
+pub const KINDS: &[&str] = &["claude", "codex", "pi", "omp", "amp", "agy"];
 
 /// Where `kind` reads its global instructions, under `home` or the folder its environment
 /// variable names (`var` looks one up); none for a kind paddock doesn't know.

@@ -896,7 +896,9 @@ impl RemoteAgentView {
                 red,
             ),
             Kinds::Found(kinds) if kinds.is_empty() => (
-                Some(format!("No Claude, Codex, pi or omp found on {label}.")),
+                Some(format!(
+                    "No Claude, Codex, pi, omp or kimi found on {label}."
+                )),
                 branch,
             ),
             Kinds::Found(_) if self.customs.is_empty() => {

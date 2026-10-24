@@ -1,5 +1,5 @@
 //! The small icon drawn for an agent's kind. The originals kept on this machine in
-//! `~/.config/paddock/icons/` (`claude`, `codex`, `pi`, `omp`, `amp` or `agy`, `.svg` or `.png`;
+//! `~/.config/paddock/icons/` (`claude`, `codex`, `pi`, `omp`, `amp`, `agy` or `kimi`, `.svg` or `.png`;
 //! the SVG when both are there) are drawn in their own colours; without one, or when it cannot be
 //! read, the one-colour silhouette compiled in from `assets/kinds/` (where the README says where
 //! each comes from) is drawn in the theme's colour for its kind. The originals are read once, the
@@ -16,7 +16,7 @@ use std::{
 };
 
 /// The kinds with an icon, as the kind colours match them (any case).
-const KINDS: [&str; 6] = ["claude", "codex", "pi", "omp", "amp", "agy"];
+const KINDS: [&str; 7] = ["claude", "codex", "pi", "omp", "amp", "agy", "kimi"];
 
 /// The width an original is measured at to find where its picture lies, in pixels.
 const PROBE: u32 = 256;
@@ -122,7 +122,8 @@ fn silhouette(index: usize) -> KindIcon {
         2 => (include_bytes!("../assets/kinds/pi.svg"), 0.8),
         3 => (include_bytes!("../assets/kinds/omp.svg"), 1.15),
         4 => (include_bytes!("../assets/kinds/amp.svg"), 1.0),
-        _ => (include_bytes!("../assets/kinds/agy.svg"), 1.0),
+        5 => (include_bytes!("../assets/kinds/agy.svg"), 1.0),
+        _ => (include_bytes!("../assets/kinds/kimi.svg"), 1.0),
     };
     KindIcon {
         look: Look::Mask(data),
@@ -436,6 +437,7 @@ mod tests {
         assert_eq!(silhouette_file("OMP"), Some("omp"));
         assert_eq!(silhouette_file("amp"), Some("amp"));
         assert_eq!(silhouette_file("agy"), Some("agy"));
+        assert_eq!(silhouette_file("kimi"), Some("kimi"));
         assert_eq!(of("gemini"), None);
         assert_eq!(of(""), None);
     }
@@ -558,6 +560,15 @@ mod tests {
         assert!(!tile(1), "solid but twice as wide as tall");
         assert!(!tile(2), "a glyph");
         assert!(tile(3), "solid once its margin is cut away");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// kimi's original is found by its name, as the other kinds' are (P5-179).
+    #[test]
+    fn kimi_s_original_is_read_by_its_name() {
+        let dir = folder("kimi", &[("kimi.png", &png())]);
+        let kimi = KINDS.iter().position(|k| *k == "kimi").unwrap();
+        assert!(load(&dir, kimi).is_some());
         std::fs::remove_dir_all(dir).unwrap();
     }
 
