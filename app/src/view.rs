@@ -10,6 +10,7 @@ mod fade;
 mod file_drop;
 mod gauge;
 mod glide;
+mod gutter;
 mod hold;
 pub mod links;
 mod marks;
@@ -194,6 +195,9 @@ pub struct TerminalView {
     origin: Point<Pixels>,
     /// Where the grid was drawn last.
     bounds: Bounds<Pixels>,
+    /// The grid's room from the pane's left edge, as the last frame laid it out: a shell's is
+    /// wider, for its command bars (P5-149b).
+    inset_left: f32,
     theme: Rc<theme::Theme>,
     ime: Composition,
     scroll: Scroll,
@@ -280,7 +284,8 @@ pub struct TerminalView {
     flash: fade::Fade,
 }
 
-/// The grid's room from the pane's edges.
+/// The grid's room from the pane's top, right and bottom edges; a shell's left is wider
+/// ([`gutter::left`], P5-149b).
 const GRID_INSET: f32 = 6.0;
 /// What the mouse over a shell's command says (P5-149).
 const BAR_TIP: &str = "Click the bar to select output";
@@ -423,6 +428,7 @@ impl TerminalView {
             size,
             origin: Point::default(),
             bounds: Bounds::default(),
+            inset_left: GRID_INSET,
             theme,
             ime: Composition::default(),
             scroll: Scroll::default(),
@@ -602,6 +608,12 @@ impl TerminalView {
     /// A shell runs here, or is about to.
     pub fn shell_live(&self) -> bool {
         self.queued_shell.is_some() || self.viewer.shell_live()
+    }
+
+    /// A shell runs here, or is about to: its commands' bars get the wider left margin (P5-149b);
+    /// an attached agent's or a command's pane keeps the narrow one.
+    fn shell_pane(&self) -> bool {
+        self.queued_shell.is_some() || self.viewer.shell.is_some()
     }
 
     /// What runs in this pane's shell besides the shell itself; empty at its prompt and while the
@@ -1572,7 +1584,8 @@ impl TerminalView {
     /// and its bar shown, darker with the mouse on it (P5-149).
     fn hover_block(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
         let block = self.block_at(position).map(|segment| segment.id);
-        let on_bar = block.is_some() && position.x < self.origin.x;
+        let on_bar =
+            block.is_some() && gutter::on_bar(f32::from(position.x), f32::from(self.origin.x));
         if (block, on_bar) != (self.block, self.on_bar) {
             (self.block, self.on_bar) = (block, on_bar);
             cx.notify();
@@ -1583,7 +1596,10 @@ impl TerminalView {
     /// its command line. False for a press anywhere else.
     fn press_bar(&mut self, event: &MouseDownEvent, cx: &mut Context<Self>) -> bool {
         let held = &event.modifiers;
-        if held.platform || held.shift || event.position.x >= self.origin.x {
+        if held.platform
+            || held.shift
+            || !gutter::on_bar(f32::from(event.position.x), f32::from(self.origin.x))
+        {
             return false;
         }
         let Some(segment) = self.block_at(event.position) else {
@@ -1839,7 +1855,15 @@ impl TerminalView {
             self.left(cx);
         }
         // Off the pane, its margins too, no command is lifted (P5-149).
-        if self.block.is_some() && !self.bounds.dilate(px(GRID_INSET)).contains(&event.position) {
+        let left = f32::from(self.bounds.origin.x) - self.inset_left;
+        let margin = Bounds::new(
+            point(px(left), self.bounds.origin.y - px(GRID_INSET)),
+            size(
+                self.bounds.size.width + px(self.inset_left + GRID_INSET),
+                self.bounds.size.height + px(2.0 * GRID_INSET),
+            ),
+        );
+        if self.block.is_some() && !margin.contains(&event.position) {
             (self.block, self.on_bar) = (None, false);
             cx.notify();
         }
@@ -2013,6 +2037,7 @@ impl TerminalView {
         self.origin = bounds.origin;
         self.scale = window.scale_factor();
         self.bounds = bounds;
+        self.inset_left = gutter::left(self.shell_pane(), &crate::fonts::UiFont::get(cx));
         let fits = grid::grid_size(
             f32::from(bounds.size.width),
             f32::from(bounds.size.height),
@@ -2041,6 +2066,7 @@ impl TerminalView {
         let mut frame = Frame {
             metrics,
             origin: bounds.origin,
+            inset_left: self.inset_left,
             theme: *self.theme.terminal(),
             note_color: self.theme.fg(|t| t.danger),
             font: self.font.clone(),
@@ -2466,6 +2492,8 @@ struct Cursor {
 pub struct Frame {
     metrics: Metrics,
     origin: Point<Pixels>,
+    /// The grid's room from the pane's left edge, where a shell's bars go (P5-149b).
+    inset_left: f32,
     theme: Theme,
     note_color: Rgb,
     font: Font,
@@ -2674,9 +2702,9 @@ impl Frame {
         // A shell's commands (P5-149) go into the margins, as far down as the grid.
         let blocks = ContentMask {
             bounds: Bounds::new(
-                point(self.origin.x - px(GRID_INSET), self.origin.y),
+                point(self.origin.x - px(self.inset_left), self.origin.y),
                 size(
-                    px(width + 2.0 * GRID_INSET),
+                    px(width + self.inset_left + GRID_INSET),
                     px(self.rows.len() as f32 * lh),
                 ),
             ),
@@ -2742,7 +2770,7 @@ impl Frame {
             let (y, h) = self.block_span(top, bottom);
             let lift = hsla(self.theme.foreground, 0.06);
             window.paint_quad(
-                self.rect(-GRID_INSET, y, width + GRID_INSET, h, lift)
+                self.rect(-self.inset_left, y, width + self.inset_left, h, lift)
                     .corner_radii(px(4.0)),
             );
         }
@@ -2762,16 +2790,24 @@ impl Frame {
         if let Some((top, bottom, on_bar)) = self.block {
             let (y, h) = self.block_span(top, bottom);
             let color = hsla(self.theme.foreground, if on_bar { 0.7 } else { 0.35 });
+            // Centred in the left margin, 4px wide.
             window.paint_quad(
-                self.rect(-5.0, y + 1.0, 4.0, h - 2.0, color)
+                self.rect(-(self.inset_left + 4.0) / 2.0, y + 1.0, 4.0, h - 2.0, color)
                     .corner_radii(px(2.0)),
             );
         }
         for &(top, bottom) in &self.failed {
             let (y, h) = self.block_span(top, bottom);
+            // Centred in the left margin, 2px wide.
             window.paint_quad(
-                self.rect(-4.0, y + 1.0, 2.0, h - 2.0, hsla(self.danger, 1.0))
-                    .corner_radii(px(1.0)),
+                self.rect(
+                    -(self.inset_left + 2.0) / 2.0,
+                    y + 1.0,
+                    2.0,
+                    h - 2.0,
+                    hsla(self.danger, 1.0),
+                )
+                .corner_radii(px(1.0)),
             );
         }
     }
@@ -3036,6 +3072,7 @@ impl Render for TerminalView {
         // The selection's bar, beside where the mouse let go, while the selection and the keys
         // stay here (P5-148c).
         let ui = crate::fonts::UiFont::get(cx);
+        let inset_left = gutter::left(self.shell_pane(), &ui);
         let selected = self.selected_rows(None).map(|(rows, _)| rows);
         let focused = self.focus.is_focused(window);
         let (bar_shown, bar_moving) = self.toolbar.look(now);
@@ -3070,7 +3107,10 @@ impl Render for TerminalView {
             .relative()
             .size_full()
             .bg(hsla(self.theme.terminal().background, 1.0))
-            .p(px(GRID_INSET))
+            .pl(px(inset_left))
+            .pt(px(GRID_INSET))
+            .pr(px(GRID_INSET))
+            .pb(px(GRID_INSET))
             .track_focus(&self.focus)
             .key_context(menu::TERMINAL)
             .on_key_down(cx.listener(Self::key_down))
@@ -3169,7 +3209,7 @@ impl TerminalView {
         crate::popover::panel(&self.theme, &ui)
             .id("selection-bar")
             .absolute()
-            .left(px(GRID_INSET + x))
+            .left(px(self.inset_left + x))
             .top(px(GRID_INSET + y + rise))
             .w(width)
             .h(height)
