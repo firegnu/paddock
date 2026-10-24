@@ -77,3 +77,8 @@
 - 返工 1 次（「怎么算做完」第 1 条在开机场景没达到）：原来失败也记成已送出。开机自动打开时（P5-180 的场景），PATH 还没取到、找不到 corral，这次失败后颜色不变就不再发；旧版 corral 换成新版后也不会补发。交回后改成只有成功才算送出、登录 shell 的 PATH 变成 Ready 时用当前主题补发，加了两条测试。复核：`corral_colors`（3 个）、`remote_start`（19 个）测试通过，clippy `-D warnings`、`fmt --check`、`git diff --check` 都过。
 - 没做：真机效果要等 ranch R50b 部署新版 corral 后，和用户一起开 Claude Code、Codex 看是不是浅色。
 结果：返工 1 次
+
+## 用户验收
+
+- ranch 主控 10-24 确认：R50b 本机 18:03 已部署（`03c265e`），paddock 的调用方式和约定一致；5090 还是旧版 corral（R14），那边的调用被 `|| :` 跳过，什么时候更新由用户定。ranch 的两条可选建议主控看过不改：启动时只是接回已在跑的 agent、不新开；“送过不再发”只记在内存里，重开 paddock 本来就会再发一次。
+- 用户重开 paddock 后，本机 `corral terminal-colors` 是 Latte 的 fg `#4c4f69`、bg `#eff1f5`。主控在 paddock 主仓库开 `paddock/test-claude`（Claude Code，主题是用户的 `custom:anthropic-warm`）和 `paddock/test-codex`，启动时都没有窗口连着；用户在 paddock 里看过：“都对着呢”（两个都是浅色）。测完已关。
