@@ -498,7 +498,8 @@ impl Panel {
     }
 
     /// The agents as listed: those of the workspaces first, a workspace after another by name
-    /// (P5-89), then those in none; in each by group, and in a group by status or by name.
+    /// (P5-89), then those in none; in each by group, and in a group its controllers first
+    /// (P5-182), among them and the rest by status or by name.
     pub fn ordered(&self, now: f64) -> Vec<&Agent> {
         // Where an agent's workspace comes in their list; after them all for one in none.
         let rank = |agent: &Agent| {
@@ -507,11 +508,13 @@ impl Panel {
                 .and_then(|name| workspaces.iter().position(|w| w.name == name))
                 .unwrap_or(workspaces.len())
         };
+        let controller = |agent: &Agent| agent.role() == Some(crate::corral::Role::Controller);
         let mut agents: Vec<_> = self.agents.iter().map(|a| (rank(a), a)).collect();
         agents.sort_by(|(rank_a, a), (rank_b, b)| {
             rank_a
                 .cmp(rank_b)
                 .then_with(|| self.group(a).cmp(self.group(b)))
+                .then_with(|| (!controller(a)).cmp(&!controller(b)))
                 .then_with(|| {
                     if self.by_name {
                         std::cmp::Ordering::Equal
