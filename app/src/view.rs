@@ -99,8 +99,161 @@ fn note_lines(note: &str, width: f32, mut measure: impl FnMut(&str) -> f32) -> V
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
+
+    pub(crate) fn shell_options() -> Options {
+        let config = crate::config::Config::default();
+        Options {
+            // An idle PTY, without starting a shell or reading its configuration.
+            launch: Launch::Command {
+                argv: vec!["/bin/cat".into()],
+                cwd: None,
+            },
+            corral: String::new(),
+            remote: None,
+            font_family: config.font,
+            fallbacks: config.font_fallbacks,
+            font_size: config.font_size,
+            line_height: config.line_height,
+            blink_cursor: false,
+            animate_cursor: false,
+            smooth_scroll: false,
+            copy_on_select: false,
+            zoom: 0,
+            minimum_contrast: false,
+            stats: false,
+        }
+    }
+
+    /// A shell pane showing one finished command, `first` and `second` its output.
+    fn show_one_command(view: &Entity<TerminalView>, cx: &mut gpui::VisualTestContext) {
+        view.update(cx, |view, cx| {
+            view.viewer.session = view.direct.take();
+            view.viewer.shell = Some(Shell {
+                program: "/bin/cat".into(),
+                cwd: "/".into(),
+                state: "running",
+                exit_code: None,
+                env: Vec::new(),
+                agent_shell: false,
+            });
+            cx.notify();
+        });
+        cx.run_until_parked();
+        // Like p10k: two prompt rows, a right-hand clock, and B after the prompt.
+        view.update(cx, |view, cx| {
+            let mut screen = view.session().unwrap().screen.lock().unwrap();
+            screen.keep_segments();
+            screen.process(
+                concat!(
+                    "\x1b]133;A\x07/project on main\x1b[60G12:34\r\n",
+                    "> \x1b]133;B\x07printf 'first\\nsecond\\n'\r\n",
+                    "\x1b]133;C\x07first\r\nsecond\r\n\x1b]133;D;0\x07",
+                    "\x1b]133;A\x07/project on main\x1b[60G12:35\r\n",
+                    "> \x1b]133;B\x07",
+                )
+                .as_bytes(),
+            );
+            assert_eq!(screen.segments().len(), 1);
+            cx.notify();
+        });
+        cx.run_until_parked();
+    }
+
+    pub(crate) fn check_bar_click(view: Entity<TerminalView>, cx: &mut gpui::VisualTestContext) {
+        show_one_command(&view, cx);
+        for (x, row) in [(0.5, 0.5), (9.0, 1.5), (17.5, 3.5)] {
+            let bar = view.read_with(cx, |view, _| {
+                assert_eq!(view.inset_left, 18.0);
+                point(
+                    view.origin.x - px(18.0) + px(x),
+                    view.origin.y + px(row * view.metrics.unwrap().line_height),
+                )
+            });
+            cx.simulate_mouse_move(bar, None, gpui::Modifiers::none());
+            view.read_with(cx, |view, _| {
+                assert!(view.block.is_some(), "hover must find the finished command");
+                assert!(view.on_bar, "the pointer must be on its left bar");
+            });
+            cx.simulate_mouse_down(bar, MouseButton::Left, gpui::Modifiers::none());
+            view.read_with(cx, |view, _| {
+                assert!(view.bar_press, "mouse down must reach the command bar");
+                assert_eq!(view.selection_text().as_deref(), Some("first\nsecond"));
+                assert_eq!(view.selected_rows(None), Some(((2, 3), false)));
+            });
+            cx.simulate_mouse_up(bar, MouseButton::Left, gpui::Modifiers::none());
+            view.read_with(cx, |view, _| {
+                assert_eq!(view.selection_text().as_deref(), Some("first\nsecond"));
+            });
+            let toolbar_on_release = cx.debug_bounds("selection-bar").is_some();
+            cx.write_to_clipboard(ClipboardItem::new_string("before copy".into()));
+            cx.simulate_keystrokes("cmd-c");
+            assert_eq!(
+                cx.read_from_clipboard()
+                    .and_then(|item| item.text())
+                    .as_deref(),
+                Some("first\nsecond"),
+            );
+            assert!(
+                toolbar_on_release,
+                "the toolbar must appear on mouse release"
+            );
+        }
+    }
+
+    #[gpui::test]
+    fn clicking_a_shell_bar_selects_output_shows_toolbar_and_copies(cx: &mut gpui::TestAppContext) {
+        cx.update(|cx| cx.bind_keys(menu::bindings()));
+        let (view, cx) = cx.add_window_view(|window, cx| {
+            let theme =
+                Rc::new(theme::Theme::from_config(&crate::config::Config::default()).unwrap());
+            TerminalView::new(shell_options(), theme, window, cx)
+        });
+        check_bar_click(view, cx);
+    }
+
+    /// P5-149c: the tip over the lifted command is what the user clicked; it selects the output as
+    /// the bar does.
+    #[gpui::test]
+    fn clicking_the_tip_selects_output_shows_toolbar_and_copies(cx: &mut gpui::TestAppContext) {
+        cx.update(|cx| cx.bind_keys(menu::bindings()));
+        let (view, cx) = cx.add_window_view(|window, cx| {
+            let theme =
+                Rc::new(theme::Theme::from_config(&crate::config::Config::default()).unwrap());
+            TerminalView::new(shell_options(), theme, window, cx)
+        });
+        show_one_command(&view, cx);
+        let output = view.read_with(cx, |view, _| {
+            point(
+                view.origin.x + px(4.0),
+                view.origin.y + px(2.5 * view.metrics.unwrap().line_height),
+            )
+        });
+        cx.simulate_mouse_move(output, None, gpui::Modifiers::none());
+        let tip = cx
+            .debug_bounds("bar-tip")
+            .expect("the lifted command shows its tip")
+            .center();
+        cx.simulate_mouse_move(tip, None, gpui::Modifiers::none());
+        cx.simulate_mouse_down(tip, MouseButton::Left, gpui::Modifiers::none());
+        cx.simulate_mouse_up(tip, MouseButton::Left, gpui::Modifiers::none());
+        view.read_with(cx, |view, _| {
+            assert_eq!(view.selection_text().as_deref(), Some("first\nsecond"));
+        });
+        assert!(
+            cx.debug_bounds("selection-bar").is_some(),
+            "the toolbar must appear on mouse release"
+        );
+        cx.write_to_clipboard(ClipboardItem::new_string("before copy".into()));
+        cx.simulate_keystrokes("cmd-c");
+        assert_eq!(
+            cx.read_from_clipboard()
+                .and_then(|item| item.text())
+                .as_deref(),
+            Some("first\nsecond"),
+        );
+    }
 
     #[test]
     fn empty_note_wraps_at_words_to_fit_the_pane() {
@@ -287,8 +440,8 @@ pub struct TerminalView {
 /// The grid's room from the pane's top, right and bottom edges; a shell's left is wider
 /// ([`gutter::left`], P5-149b).
 const GRID_INSET: f32 = 6.0;
-/// What the mouse over a shell's command says (P5-149).
-const BAR_TIP: &str = "Click the bar to select output";
+/// What the mouse over a shell's command shows; a click on it selects the output (P5-149c).
+const BAR_TIP: &str = "Select output";
 /// The selection's bar, at the base interface size.
 const TOOLBAR_WIDTH: f32 = 204.0;
 const TOOLBAR_HEIGHT: f32 = 28.0;
@@ -1069,6 +1222,8 @@ impl TerminalView {
         };
         if ended {
             self.toolbar_still = crate::reduce_motion::on();
+            // A command-bar press does not go through Act::EndSelect, which normally redraws.
+            cx.notify();
         }
         self.toolbar
             .let_go(ended, rows.is_some(), at, Instant::now());
@@ -1605,15 +1760,38 @@ impl TerminalView {
         let Some(segment) = self.block_at(event.position) else {
             return false;
         };
+        self.select_output(&segment, true, cx)
+    }
+
+    /// A press on the lifted command's tip (P5-149c): as on its bar.
+    fn press_tip(&mut self, _: &MouseDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        cx.stop_propagation();
+        window.focus(&self.focus, cx);
+        self.toolbar.hide();
+        let Some(id) = self.block else {
+            return;
+        };
+        let Some(segment) = self.session().and_then(|session| {
+            let screen = session.screen.lock().unwrap();
+            screen.segments().into_iter().find(|s| s.id == id)
+        }) else {
+            return;
+        };
+        self.select_output(&segment, false, cx);
+    }
+
+    /// `segment`'s output selected, its bar shown pressed (`on_bar`) until the mouse is let go,
+    /// when the selection's toolbar comes up. False without a session.
+    fn select_output(&mut self, segment: &Segment, on_bar: bool, cx: &mut Context<Self>) -> bool {
         let Some(session) = self.session() else {
             return false;
         };
         let mut screen = session.screen.lock().unwrap();
         let columns = screen.term.columns();
-        screen.term.selection = blocks::output_selection(&segment, columns);
+        screen.term.selection = blocks::output_selection(segment, columns);
         drop(screen);
         self.forget_found();
-        (self.block, self.on_bar, self.bar_press) = (Some(segment.id), true, true);
+        (self.block, self.on_bar, self.bar_press) = (Some(segment.id), on_bar, true);
         cx.notify();
         true
     }
@@ -3208,6 +3386,7 @@ impl TerminalView {
         };
         crate::popover::panel(&self.theme, &ui)
             .id("selection-bar")
+            .debug_selector(|| "selection-bar".into())
             .absolute()
             .left(px(self.inset_left + x))
             .top(px(GRID_INSET + y + rise))
@@ -3252,8 +3431,8 @@ impl TerminalView {
             )
     }
 
-    /// What a click on the lifted command's bar does (P5-149), `y` down from the grid's top at its
-    /// right, light on dark like a link's address; the mouse goes through it.
+    /// The lifted command's tip (P5-149), `y` down from the grid's top at its right, light on dark
+    /// like a link's address: a click there selects the output, as on the bar (P5-149c).
     fn bar_tip(&self, y: f32, cx: &mut Context<Self>) -> impl IntoElement {
         let ui = crate::fonts::UiFont::get(cx);
         let colors = self.theme.terminal();
@@ -3267,6 +3446,9 @@ impl TerminalView {
             .text_color(hsla(colors.background, 1.0))
             .text_size(ui.px(11.0))
             .line_height(ui.px(17.0))
+            .debug_selector(|| "bar-tip".into())
+            .cursor(CursorStyle::PointingHand)
+            .on_mouse_down(MouseButton::Left, cx.listener(Self::press_tip))
             .child(BAR_TIP)
     }
 
