@@ -69,3 +69,4 @@
 - 拿主意的地方：沿用现有 `corral::Client` 和子进程超时／PATH 机制；本机调用串行，避免较旧的颜色设置晚完成而覆盖新主题。没有超出任务范围的决定，没有需要主控决定的事。
 - 没做的事：没有运行真实 `corral terminal-colors`、连接远端、启动 agent 或 paddock 窗口；没有改 ranch、Saddle 或 P5-149 指定文件。没有加跟随系统深浅，没有合并或推送。新 corral 装好后的 Claude Code／Codex 真机效果留给主控和用户。
 - 踩过的坑：没有。
+- 返工（主控审查，10-24）：修正失败也记作已送出的错误，只有成功才更新去重颜色，去重判断放在前一条调用完成后；全局监听 `Startup.login_path` 变为 Ready，按当前主题补发。原测试只检查手动驱动的去重状态，漏了失败后重试，现在启用固定版本 GPUI 的 `test-support` 开发特性，直接以无窗口测试驱动实际 `sync`、后台任务和 Startup 通知（锁文件新增测试特性的依赖，未升级既有依赖）。两个新增测试先 RED 再 GREEN，覆盖 usage 后同色重试、成功后的排队去重、找不到命令后 PATH Ready 用最新主题重发；本次只跑 `cargo test --lib corral_colors::tests -- --nocapture`（3 passed）、`cargo test --lib launch::tests`（2 passed）、`cargo test --test login_path`（3 passed），未重跑全套及静态检查。DESIGN 同步更正，无须主控另作决定。
