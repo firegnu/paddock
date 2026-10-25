@@ -700,29 +700,32 @@ fn catppuccin() -> Theme {
 /// Catppuccin), paddock's first light preset (P5-175), by Mocha's roles: base for the terminal,
 /// mantle for the sidebar, surface0–2 for the selected ground, rules and edges, overlay0–2 for the
 /// quiet text, subtext1 for branches, mauve for the accent. Status hues: blue working, green idle,
-/// yellow waiting, peach stalled, red error, lavender starting. Latte's quiet text and most of its
+/// yellow waiting, peach stalled, red error, lavender starting. The terminal's ground, under the
+/// panes and the right sidebar, is not base #eff1f5 but Tokyo Night Day's bg #e1e2e7 (P5-188):
+/// the user found base too white and wanted that cool grey. Latte's quiet text and most of its
 /// hues read under 4.5:1 (3:1 for `agents_dimmer`) on its light grounds, so those that must are
-/// darkened just enough, towards black: muted overlay2 #7c7f93 to #6b6d7f on base; on mantle,
-/// overlay1 #8c8fa1 to #666876 and overlay0 #9ca0b0 to #828593 for the quiet text, green
-/// #40a02b to #307820, red #d20f39 to #d00f39, blue #1e66f5 to #1c5fe5, yellow #df8e1d to
-/// #935d13, teal #179299 to #12747a, peach #fe640b to #b34708 and lavender #7287fd to #5362b8.
-/// The keys nothing reads as text keep Latte's own hues.
+/// darkened just enough, towards black: muted overlay2 #7c7f93 to #626475 on the terminal's
+/// ground; and, both on mantle (the left sidebar) and on that ground (the right sidebar), whichever
+/// is the darker, overlay1 #8c8fa1 to #626472 and overlay0 #9ca0b0 to #7d808e for the quiet text,
+/// green #40a02b to #2e731f, red #d20f39 to #c90e37, blue #1e66f5 to #1b5bdc, yellow #df8e1d to
+/// #8d5912, peach #fe640b to #ac4408; on mantle alone, teal #179299 to #12747a and lavender #7287fd
+/// to #5362b8. The keys nothing reads as text keep Latte's own hues.
 fn latte() -> Theme {
     let rgb = |v: u32| Color::Rgb((v >> 16) as u8, (v >> 8) as u8, v as u8);
     Theme {
-        bg: rgb(0xeff1f5),
+        bg: rgb(0xe1e2e7),
         text: rgb(0x4c4f69),
         selected: rgb(0xbcc0cc),
         agent_selected: rgb(0xccd0da),
         agent_working: rgb(0x1e66f5),
         agent_idle: rgb(0x40a02b),
         agent_blocked: rgb(0xdf8e1d),
-        agent_stalled: rgb(0xb34708),
+        agent_stalled: rgb(0xac4408),
         agent_error: rgb(0xd20f39),
         agent_starting: rgb(0x5362b8),
         border: rgb(0xbcc0cc),
         bright: rgb(0x4c4f69),
-        muted: rgb(0x6b6d7f),
+        muted: rgb(0x626475),
         dim: rgb(0xacb0be),
         focus: rgb(0x8839ef),
         connected: rgb(0x179299),
@@ -738,13 +741,13 @@ fn latte() -> Theme {
         agents_faint: rgb(0xbcc0cc),
         agents_text: rgb(0x4c4f69),
         agents_branch: rgb(0x5c5f77),
-        agents_dim: rgb(0x666876),
-        agents_dimmer: rgb(0x828593),
+        agents_dim: rgb(0x626472),
+        agents_dimmer: rgb(0x7d808e),
         agents_accent: rgb(0x8839ef),
-        agents_green: rgb(0x307820),
-        agents_red: rgb(0xd00f39),
-        agents_blue: rgb(0x1c5fe5),
-        agents_yellow: rgb(0x935d13),
+        agents_green: rgb(0x2e731f),
+        agents_red: rgb(0xc90e37),
+        agents_blue: rgb(0x1b5bdc),
+        agents_yellow: rgb(0x8d5912),
         agents_purple: rgb(0x7287fd),
         agents_sandbox: rgb(0x12747a),
         claude: rgb(0xfe640b),

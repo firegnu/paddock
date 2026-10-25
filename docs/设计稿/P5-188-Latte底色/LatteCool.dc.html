@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>Latte with Tokyo Night Day ground</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+.term{font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:12.5px;line-height:1.6;white-space:pre}
+</style>
+</helmet>
+<div style="width: 1860px; height: 1160px; box-sizing: border-box; padding: 28px 34px; background: #f4f4f6; font-family: -apple-system, 'SF Pro Text', 'Helvetica Neue', sans-serif; color: #4c4f69; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 30px 40px">
+<sc-for list="{{cols}}" as="col" hint-placeholder-count="3">
+<div style="display: flex; flex-direction: column; gap: 10px">
+<div style="display: flex; flex-direction: column; gap: 4px; min-height: 64px">
+<div style="display: flex; align-items: center; gap: 10px">
+<span style="font-size: 14px; font-weight: 600; color: #303246">{{col.head}}</span>
+<span style="display: inline-block; width: 14px; height: 14px; border-radius: 4px; border: 1px solid rgba(76,79,105,0.25); background: {{col.bg}}"></span>
+<span style="font-size: 12px; font-family: ui-monospace, Menlo, monospace; color: #4c4f69">底 {{col.bg}} · 窗格之间 {{col.frame}}</span>
+</div>
+<div style="font-size: 12px; line-height: 1.5; color: #4c4f69">{{col.note}}</div>
+</div>
+<div style="height: 420px; border-radius: 12px; background: {{col.frame}}; padding: 8px; display: flex; gap: 8px; box-sizing: border-box">
+<div style="width: 170px; flex-shrink: 0; border-radius: 9px; background: #ebe6ea; padding: 10px 8px; display: flex; flex-direction: column; gap: 8px; box-sizing: border-box">
+<div style="font-size: 12px; font-weight: 600">Agents  7</div>
+<div style="border-radius: 7px; background: #ffffff; padding: 7px 8px; font-size: 11.5px; line-height: 1.4">main <span style="color: #666876">high</span><br><span style="color: #666876">已经推送到 origin…</span></div>
+<div style="border-radius: 7px; background: #d7cdef; padding: 7px 8px; font-size: 11.5px; line-height: 1.4">main <span style="color: #666876">high</span><br><span style="color: #666876">~/…/paddock · main</span></div>
+<div style="font-size: 11px; color: #666876">左侧栏不变</div>
+</div>
+<div style="flex: 1; min-width: 0; border-radius: 9px; background: {{col.bg}}; padding: 12px 14px; display: flex; flex-direction: column; box-sizing: border-box; color: #4c4f69; overflow: hidden">
+<div class="term" style="color: {{col.brblack}}">❯ 推送吧</div>
+<div class="term"><span style="color: {{col.green}}">●</span> <span style="font-weight: 700">Bash</span>(git push origin main)</div>
+<div class="term" style="color: {{col.brblack}}">  ⎿ f35e30d..1d801aa  main -&gt; main</div>
+<div class="term"><span style="color: {{col.green}}">●</span> 已经推送到 origin，本地和远端一致了。</div>
+<div class="term">  改动在 <span style="color: #1e66f5">docs/任务/P5-111-调研OSC7501.md</span></div>
+<div class="term" style="color: {{col.green}}">  + ### 出处</div>
+<div class="term" style="color: #d20f39">  - 调研结论（待补）</div>
+<div class="term" style="color: {{col.yellow}}">  warning: 2 files changed while running</div>
+<div class="term" style="color: {{col.cyan}}">  corral ls · 3 agents</div>
+<div class="term" style="color: {{col.magenta}}">✻ Crunched for 8s</div>
+<div class="term" style="color: {{col.muted}}">  done 11:54 AM</div>
+<div style="flex: 1"></div>
+<div style="display: flex; gap: 10px; flex-wrap: wrap; font-family: ui-monospace, Menlo, monospace; font-size: 11px">
+<span style="color: {{col.green}}">绿 {{col.green}}</span>
+<span style="color: {{col.yellow}}">黄 {{col.yellow}}</span>
+<span style="color: {{col.magenta}}">品红 {{col.magenta}}</span>
+<span style="color: {{col.cyan}}">青 {{col.cyan}}</span>
+<span style="color: {{col.brblack}}">亮黑 {{col.brblack}}</span>
+<span style="color: {{col.muted}}">提示字 {{col.muted}}</span>
+</div>
+</div>
+<div style="width: 250px; flex-shrink: 0; border-radius: 9px; background: {{col.bg}}; padding: 10px; display: flex; flex-direction: column; gap: 10px; box-sizing: border-box; font-size: 12px">
+<div style="display: flex; gap: 6px; font-size: 11.5px">
+<span style="padding: 3px 8px; border-radius: 6px; background: rgba(76,79,105,0.10)">Kanban</span>
+<span style="padding: 3px 8px; color: {{col.muted}}">Changes</span>
+<span style="padding: 3px 8px; color: {{col.muted}}">Cairn</span>
+</div>
+<div style="border-radius: 9px; background: {{col.face}}; border: 1px solid rgba(76,79,105,0.12); box-shadow: 0 1px 2px rgba(0,0,0,0.05), 0 3px 8px rgba(0,0,0,0.04); display: flex; flex-direction: column; overflow: hidden">
+<div style="padding: 7px 10px; font-weight: 600">Queued  3</div>
+<div style="padding: 6px 10px; border-top: 1px solid rgba(76,79,105,0.07); display: flex; gap: 8px"><span style="color: {{col.muted}}">P5-111</span><span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis">调研 OSC 7501</span></div>
+<div style="padding: 6px 10px; border-top: 1px solid rgba(76,79,105,0.07); display: flex; gap: 8px"><span style="color: {{col.muted}}">P5-54</span><span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Browser 选中元素</span></div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 6px; padding: 0 4px">
+<div style="font-weight: 600">Done  282</div>
+<div style="display: flex; gap: 8px"><span style="color: {{col.muted}}">P5-185</span><span>看板窄列表</span></div>
+<div style="display: flex; gap: 8px"><span style="color: {{col.muted}}">P5-187</span><span>Tokyo Night Day 正文色</span></div>
+</div>
+</div>
+</div>
+</div>
+</sc-for>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1860,"height":1160}}'>
+class Component extends DCLogic {
+renderVals() {
+return {
+cols: [
+{ head: '现在 · Latte base', bg: '#eff1f5', frame: '#dcdee1', face: '#f9fafb', muted: '#6b6d7f', green: '#3f9e2b', yellow: '#c27b19', magenta: '#cd67b2', cyan: '#179299', brblack: '#888b96', note: '终端区和右侧栏都用这一个底色，偏白。' },
+{ head: '甲 · 照搬 Tokyo Night Day 的底', bg: '#e1e2e7', frame: '#cfd0d5', face: '#f0f1f3', muted: '#626475', green: '#3b9328', yellow: '#b47217', magenta: '#be5fa5', cyan: '#178f96', brblack: '#7e818c', note: '和 Tokyo Night Day 一模一样的冷灰底，正文 6.2:1。绿、黄、品红、青、亮黑压深到 3:1，灰的提示字压深到 4.5:1（下面一行是压过的颜色）。' },
+{ head: '乙 · Latte 自己最深的底（crust）', bg: '#dce0e8', frame: '#caced5', face: '#edeff3', muted: '#606272', green: '#3a9128', yellow: '#b27117', magenta: '#bc5ea3', cyan: '#168d94', brblack: '#7c7f89', note: '取 Catppuccin Latte 调色板里本来就有的最深底色，比甲略深、略带一点淡紫蓝，和 Latte 的其他颜色更搭。压深的颜色和甲几乎一样。' }
+]
+};
+}
+}
+</script>
+</body>
+</html>
