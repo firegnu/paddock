@@ -260,10 +260,11 @@ const CATPPUCCIN: Terminal = Terminal {
 /// Catppuccin Latte (https://github.com/catppuccin/alacritty, MIT, Copyright (c) 2021
 /// Catppuccin): the terminal colours as published, with the rosewater cursor and, as for Mocha,
 /// the style guide's selection, overlay2 at 30% over the background. The background is not Latte's
-/// base #eff1f5 but Tokyo Night Day's #e1e2e7 (P5-188, see `preset::latte`), so the selection is
-/// #c3c4ce, and five read under 3:1 on it, darkened just enough, towards black: green #40a02b to
-/// #3b9328, yellow #df8e1d to #b47217, magenta #ea76cb to #be5fa5, teal #179299 to #178f96 (each
-/// the normal and the bright one, which repeat), and bright black (surface2, #acb0be) to #7e818c.
+/// base #eff1f5 but the blue-grey #e5e9f3 (P5-189, see `preset::latte`), so the selection is
+/// #c6c9d6. Five read under 3:1 on P5-188's darker #e1e2e7 and were darkened just enough, towards
+/// black, kept so on this lighter ground: green #40a02b to #3b9328, yellow #df8e1d to #b47217,
+/// magenta #ea76cb to #be5fa5, teal #179299 to #178f96 (each the normal and the bright one, which
+/// repeat), and bright black (surface2, #acb0be) to #7e818c.
 const LATTE: Terminal = Terminal {
     ansi: [
         rgb(0xbcc0cc),
@@ -284,7 +285,7 @@ const LATTE: Terminal = Terminal {
         rgb(0x6c6f85),
     ],
     cursor: rgb(0xdc8a78),
-    selection: rgb(0xc3c4ce),
+    selection: rgb(0xc6c9d6),
 };
 
 /// Tokyo Night, night style (https://github.com/folke/tokyonight.nvim `extras/kitty`, Apache-2.0,
