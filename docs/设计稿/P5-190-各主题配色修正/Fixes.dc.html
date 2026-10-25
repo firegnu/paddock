@@ -1,0 +1,444 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>Theme colour fixes</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+.term{font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:12px;line-height:1.6;white-space:pre}
+</style>
+</helmet>
+<div style="width:1860px;box-sizing:border-box;padding:28px 34px;background:#f0f0f3;font-family:-apple-system,'SF Pro Text','Helvetica Neue',sans-serif;display:flex;flex-direction:column;gap:30px">
+
+<div style="display:flex;flex-direction:column;gap:12px">
+  <div style="font-size:17px;font-weight:700;color:#1d1f2c">一 · Changes 代码高亮、链接（第 1、2、3 条）</div>
+  <div style="font-size:12.5px;color:#45485a;line-height:1.5">只改颜色值，往黑色压到刚好 4.5:1（左右两栏都够）。代码里各类词用哪个颜色不变：关键字＝agents_purple，类型名和链接＝强调色，正文＝agents_branch。</div>
+  <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px">
+<div style="background:#ffffff;border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:10px;box-shadow:0 1px 3px rgba(0,0,0,0.08)">
+  <div style="font-size:14px;font-weight:600;color:#26283a">Catppuccin Latte</div>
+  <div style="display:flex;gap:12px">
+<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:6px">
+  <div style="font-size:11.5px;color:#55586a">现在</div>
+  <div style="border-radius:9px;background:#e5e9f3;padding:10px 12px;border:1px solid rgba(0,0,0,0.06)">
+    <div class="term"><span style="color:#7287fd">fn</span> <span style="color:#1b5bdc">render</span><span style="color:#626472">(</span><span style="color:#5c5f77">cx</span><span style="color:#626472">: &amp;</span><span style="color:#8839ef">Context</span><span style="color:#626472">) -&gt; </span><span style="color:#8839ef">Div</span> <span style="color:#626472">{</span></div>
+    <div class="term">    <span style="color:#7287fd">let</span> <span style="color:#5c5f77">count</span> <span style="color:#626472">=</span> <span style="color:#ac4408">42</span><span style="color:#626472">;</span></div>
+    <div class="term">    <span style="color:#7287fd">let</span> <span style="color:#5c5f77">name</span> <span style="color:#626472">=</span> <span style="color:#8d5912">"paddock"</span><span style="color:#626472">;</span></div>
+    <div class="term">    <span style="color:#7d808e">// 只改颜色值</span></div>
+    <div class="term">    <span style="color:#5c5f77">name.</span><span style="color:#1b5bdc">repeat</span><span style="color:#626472">(</span><span style="color:#5c5f77">count</span><span style="color:#626472">)</span></div>
+    <div class="term"><span style="color:#626472">}</span></div>
+    <div class="term" style="margin-top:6px;color:#626472">链接 <span style="color:#8839ef;text-decoration:underline">docs/任务/P5-190.md</span></div>
+  </div>
+  <div style="border-radius:7px;background:#edf0f7;padding:6px 12px;font-size:12px;color:#626472">左栏底上 <span style="color:#8839ef;font-weight:600">Show all 30</span></div>
+</div>
+<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:6px">
+  <div style="font-size:11.5px;color:#55586a">改后 · 甲</div>
+  <div style="border-radius:9px;background:#e5e9f3;padding:10px 12px;border:1px solid rgba(0,0,0,0.06)">
+    <div class="term"><span style="color:#5362b8">fn</span> <span style="color:#1b5bdc">render</span><span style="color:#626472">(</span><span style="color:#5c5f77">cx</span><span style="color:#626472">: &amp;</span><span style="color:#8739ed">Context</span><span style="color:#626472">) -&gt; </span><span style="color:#8739ed">Div</span> <span style="color:#626472">{</span></div>
+    <div class="term">    <span style="color:#5362b8">let</span> <span style="color:#5c5f77">count</span> <span style="color:#626472">=</span> <span style="color:#ac4408">42</span><span style="color:#626472">;</span></div>
+    <div class="term">    <span style="color:#5362b8">let</span> <span style="color:#5c5f77">name</span> <span style="color:#626472">=</span> <span style="color:#8d5912">"paddock"</span><span style="color:#626472">;</span></div>
+    <div class="term">    <span style="color:#7d808e">// 只改颜色值</span></div>
+    <div class="term">    <span style="color:#5c5f77">name.</span><span style="color:#1b5bdc">repeat</span><span style="color:#626472">(</span><span style="color:#5c5f77">count</span><span style="color:#626472">)</span></div>
+    <div class="term"><span style="color:#626472">}</span></div>
+    <div class="term" style="margin-top:6px;color:#626472">链接 <span style="color:#8739ed;text-decoration:underline">docs/任务/P5-190.md</span></div>
+  </div>
+  <div style="border-radius:7px;background:#edf0f7;padding:6px 12px;font-size:12px;color:#626472">左栏底上 <span style="color:#8739ed;font-weight:600">Show all 30</span></div>
+</div>
+<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:6px">
+  <div style="font-size:11.5px;color:#55586a">改后 · 乙（关键字改粉）</div>
+  <div style="border-radius:9px;background:#e5e9f3;padding:10px 12px;border:1px solid rgba(0,0,0,0.06)">
+    <div class="term"><span style="color:#9b4e87">fn</span> <span style="color:#1b5bdc">render</span><span style="color:#626472">(</span><span style="color:#5c5f77">cx</span><span style="color:#626472">: &amp;</span><span style="color:#8739ed">Context</span><span style="color:#626472">) -&gt; </span><span style="color:#8739ed">Div</span> <span style="color:#626472">{</span></div>
+    <div class="term">    <span style="color:#9b4e87">let</span> <span style="color:#5c5f77">count</span> <span style="color:#626472">=</span> <span style="color:#ac4408">42</span><span style="color:#626472">;</span></div>
+    <div class="term">    <span style="color:#9b4e87">let</span> <span style="color:#5c5f77">name</span> <span style="color:#626472">=</span> <span style="color:#8d5912">"paddock"</span><span style="color:#626472">;</span></div>
+    <div class="term">    <span style="color:#7d808e">// 只改颜色值</span></div>
+    <div class="term">    <span style="color:#5c5f77">name.</span><span style="color:#1b5bdc">repeat</span><span style="color:#626472">(</span><span style="color:#5c5f77">count</span><span style="color:#626472">)</span></div>
+    <div class="term"><span style="color:#626472">}</span></div>
+    <div class="term" style="margin-top:6px;color:#626472">链接 <span style="color:#8739ed;text-decoration:underline">docs/任务/P5-190.md</span></div>
+  </div>
+  <div style="border-radius:7px;background:#edf0f7;padding:6px 12px;font-size:12px;color:#626472">左栏底上 <span style="color:#8739ed;font-weight:600">Show all 30</span></div>
+</div></div>
+  <div style="font-size:12px;line-height:1.5;color:#45485a">关键字 2.62 → 4.54（甲，和“启动中”同一个色）；强调色 4.46 → 4.50，看不出差别。甲压深后关键字和函数名（蓝）挨得近，乙改用压深的粉 #9b4e87（4.51）。</div>
+</div>
+<div style="background:#ffffff;border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:10px;box-shadow:0 1px 3px rgba(0,0,0,0.08)">
+  <div style="font-size:14px;font-weight:600;color:#26283a">Tokyo Night Day</div>
+  <div style="display:flex;gap:12px">
+<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:6px">
+  <div style="font-size:11.5px;color:#55586a">现在</div>
+  <div style="border-radius:9px;background:#e1e2e7;padding:10px 12px;border:1px solid rgba(0,0,0,0.06)">
+    <div class="term"><span style="color:#9854f1">fn</span> <span style="color:#225bab">render</span><span style="color:#555b7d">(</span><span style="color:#6172b0">cx</span><span style="color:#555b7d">: &amp;</span><span style="color:#2668c3">Context</span><span style="color:#555b7d">) -&gt; </span><span style="color:#2668c3">Div</span> <span style="color:#555b7d">{</span></div>
+    <div class="term">    <span style="color:#9854f1">let</span> <span style="color:#6172b0">count</span> <span style="color:#555b7d">=</span> <span style="color:#8f4b00">42</span><span style="color:#555b7d">;</span></div>
+    <div class="term">    <span style="color:#9854f1">let</span> <span style="color:#6172b0">name</span> <span style="color:#555b7d">=</span> <span style="color:#735833">"paddock"</span><span style="color:#555b7d">;</span></div>
+    <div class="term">    <span style="color:#707699">// 只改颜色值</span></div>
+    <div class="term">    <span style="color:#6172b0">name.</span><span style="color:#225bab">repeat</span><span style="color:#555b7d">(</span><span style="color:#6172b0">count</span><span style="color:#555b7d">)</span></div>
+    <div class="term"><span style="color:#555b7d">}</span></div>
+    <div class="term" style="margin-top:6px;color:#555b7d">链接 <span style="color:#2668c3;text-decoration:underline">docs/任务/P5-190.md</span></div>
+  </div>
+  <div style="border-radius:7px;background:#d0d5e3;padding:6px 12px;font-size:12px;color:#555b7d">左栏底上 <span style="color:#2668c3;font-weight:600">Show all 30</span></div>
+</div>
+<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:6px">
+  <div style="font-size:11.5px;color:#55586a">改后</div>
+  <div style="border-radius:9px;background:#e1e2e7;padding:10px 12px;border:1px solid rgba(0,0,0,0.06)">
+    <div class="term"><span style="color:#7440b9">fn</span> <span style="color:#225bab">render</span><span style="color:#555b7d">(</span><span style="color:#4d5a8b">cx</span><span style="color:#555b7d">: &amp;</span><span style="color:#215bab">Context</span><span style="color:#555b7d">) -&gt; </span><span style="color:#215bab">Div</span> <span style="color:#555b7d">{</span></div>
+    <div class="term">    <span style="color:#7440b9">let</span> <span style="color:#4d5a8b">count</span> <span style="color:#555b7d">=</span> <span style="color:#8f4b00">42</span><span style="color:#555b7d">;</span></div>
+    <div class="term">    <span style="color:#7440b9">let</span> <span style="color:#4d5a8b">name</span> <span style="color:#555b7d">=</span> <span style="color:#735833">"paddock"</span><span style="color:#555b7d">;</span></div>
+    <div class="term">    <span style="color:#707699">// 只改颜色值</span></div>
+    <div class="term">    <span style="color:#4d5a8b">name.</span><span style="color:#225bab">repeat</span><span style="color:#555b7d">(</span><span style="color:#4d5a8b">count</span><span style="color:#555b7d">)</span></div>
+    <div class="term"><span style="color:#555b7d">}</span></div>
+    <div class="term" style="margin-top:6px;color:#555b7d">链接 <span style="color:#215bab;text-decoration:underline">docs/任务/P5-190.md</span></div>
+  </div>
+  <div style="border-radius:7px;background:#d0d5e3;padding:6px 12px;font-size:12px;color:#555b7d">左栏底上 <span style="color:#215bab;font-weight:600">Show all 30</span></div>
+</div></div>
+  <div style="font-size:12px;line-height:1.5;color:#45485a">代码正文 3.57 → 5.15（左栏 4.54）；关键字 3.33 → 5.11；强调色 4.22 → 5.16。原本类型名（强调色）和函数名（蓝）就几乎同色，压深后更近，只改颜色值时分不开。</div>
+</div>
+<div style="background:#ffffff;border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:10px;box-shadow:0 1px 3px rgba(0,0,0,0.08)">
+  <div style="font-size:14px;font-weight:600;color:#26283a">Rosé Pine Dawn</div>
+  <div style="display:flex;gap:12px">
+<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:6px">
+  <div style="font-size:11.5px;color:#55586a">现在</div>
+  <div style="border-radius:9px;background:#faf4ed;padding:10px 12px;border:1px solid rgba(0,0,0,0.06)">
+    <div class="term"><span style="color:#907aa9">fn</span> <span style="color:#42717a">render</span><span style="color:#6b6782">(</span><span style="color:#625e82">cx</span><span style="color:#6b6782">: &amp;</span><span style="color:#a86562">Context</span><span style="color:#6b6782">) -&gt; </span><span style="color:#a86562">Div</span> <span style="color:#6b6782">{</span></div>
+    <div class="term">    <span style="color:#907aa9">let</span> <span style="color:#625e82">count</span> <span style="color:#6b6782">=</span> <span style="color:#955a58">42</span><span style="color:#6b6782">;</span></div>
+    <div class="term">    <span style="color:#907aa9">let</span> <span style="color:#625e82">name</span> <span style="color:#6b6782">=</span> <span style="color:#906020">"paddock"</span><span style="color:#6b6782">;</span></div>
+    <div class="term">    <span style="color:#898495">// 只改颜色值</span></div>
+    <div class="term">    <span style="color:#625e82">name.</span><span style="color:#42717a">repeat</span><span style="color:#6b6782">(</span><span style="color:#625e82">count</span><span style="color:#6b6782">)</span></div>
+    <div class="term"><span style="color:#6b6782">}</span></div>
+    <div class="term" style="margin-top:6px;color:#6b6782">链接 <span style="color:#a86562;text-decoration:underline">docs/任务/P5-190.md</span></div>
+  </div>
+  <div style="border-radius:7px;background:#f2e9e1;padding:6px 12px;font-size:12px;color:#6b6782">左栏底上 <span style="color:#a86562;font-weight:600">Show all 30</span></div>
+</div>
+<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:6px">
+  <div style="font-size:11.5px;color:#55586a">改后</div>
+  <div style="border-radius:9px;background:#faf4ed;padding:10px 12px;border:1px solid rgba(0,0,0,0.06)">
+    <div class="term"><span style="color:#746389">fn</span> <span style="color:#42717a">render</span><span style="color:#6b6782">(</span><span style="color:#625e82">cx</span><span style="color:#6b6782">: &amp;</span><span style="color:#955a57">Context</span><span style="color:#6b6782">) -&gt; </span><span style="color:#955a57">Div</span> <span style="color:#6b6782">{</span></div>
+    <div class="term">    <span style="color:#746389">let</span> <span style="color:#625e82">count</span> <span style="color:#6b6782">=</span> <span style="color:#955a58">42</span><span style="color:#6b6782">;</span></div>
+    <div class="term">    <span style="color:#746389">let</span> <span style="color:#625e82">name</span> <span style="color:#6b6782">=</span> <span style="color:#906020">"paddock"</span><span style="color:#6b6782">;</span></div>
+    <div class="term">    <span style="color:#898495">// 只改颜色值</span></div>
+    <div class="term">    <span style="color:#625e82">name.</span><span style="color:#42717a">repeat</span><span style="color:#6b6782">(</span><span style="color:#625e82">count</span><span style="color:#6b6782">)</span></div>
+    <div class="term"><span style="color:#6b6782">}</span></div>
+    <div class="term" style="margin-top:6px;color:#6b6782">链接 <span style="color:#955a57;text-decoration:underline">docs/任务/P5-190.md</span></div>
+  </div>
+  <div style="border-radius:7px;background:#f2e9e1;padding:6px 12px;font-size:12px;color:#6b6782">左栏底上 <span style="color:#955a57;font-weight:600">Show all 30</span></div>
+</div></div>
+  <div style="font-size:12px;line-height:1.5;color:#45485a">关键字 3.47 → 4.94；强调色 4.09 → 4.96。</div>
+</div>
+<div style="background:#ffffff;border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:10px;box-shadow:0 1px 3px rgba(0,0,0,0.08)">
+  <div style="font-size:14px;font-weight:600;color:#26283a">Tide Light</div>
+  <div style="display:flex;gap:12px">
+<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:6px">
+  <div style="font-size:11.5px;color:#55586a">现在</div>
+  <div style="border-radius:9px;background:#eceff4;padding:10px 12px;border:1px solid rgba(0,0,0,0.06)">
+    <div class="term"><span style="color:#9a6e93">fn</span> <span style="color:#4e6b8f">render</span><span style="color:#4c566a">(</span><span style="color:#434c5e">cx</span><span style="color:#4c566a">: &amp;</span><span style="color:#33788d">Context</span><span style="color:#4c566a">) -&gt; </span><span style="color:#33788d">Div</span> <span style="color:#4c566a">{</span></div>
+    <div class="term">    <span style="color:#9a6e93">let</span> <span style="color:#434c5e">count</span> <span style="color:#4c566a">=</span> <span style="color:#98593b">42</span><span style="color:#4c566a">;</span></div>
+    <div class="term">    <span style="color:#9a6e93">let</span> <span style="color:#434c5e">name</span> <span style="color:#4c566a">=</span> <span style="color:#806526">"paddock"</span><span style="color:#4c566a">;</span></div>
+    <div class="term">    <span style="color:#7a869f">// 只改颜色值</span></div>
+    <div class="term">    <span style="color:#434c5e">name.</span><span style="color:#4e6b8f">repeat</span><span style="color:#4c566a">(</span><span style="color:#434c5e">count</span><span style="color:#4c566a">)</span></div>
+    <div class="term"><span style="color:#4c566a">}</span></div>
+    <div class="term" style="margin-top:6px;color:#4c566a">链接 <span style="color:#33788d;text-decoration:underline">docs/任务/P5-190.md</span></div>
+  </div>
+  <div style="border-radius:7px;background:#e5e9f0;padding:6px 12px;font-size:12px;color:#4c566a">左栏底上 <span style="color:#33788d;font-weight:600">Show all 30</span></div>
+</div>
+<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:6px">
+  <div style="font-size:11.5px;color:#55586a">改后</div>
+  <div style="border-radius:9px;background:#eceff4;padding:10px 12px;border:1px solid rgba(0,0,0,0.06)">
+    <div class="term"><span style="color:#835d7d">fn</span> <span style="color:#4e6b8f">render</span><span style="color:#4c566a">(</span><span style="color:#434c5e">cx</span><span style="color:#4c566a">: &amp;</span><span style="color:#307185">Context</span><span style="color:#4c566a">) -&gt; </span><span style="color:#307185">Div</span> <span style="color:#4c566a">{</span></div>
+    <div class="term">    <span style="color:#835d7d">let</span> <span style="color:#434c5e">count</span> <span style="color:#4c566a">=</span> <span style="color:#98593b">42</span><span style="color:#4c566a">;</span></div>
+    <div class="term">    <span style="color:#835d7d">let</span> <span style="color:#434c5e">name</span> <span style="color:#4c566a">=</span> <span style="color:#806526">"paddock"</span><span style="color:#4c566a">;</span></div>
+    <div class="term">    <span style="color:#7a869f">// 只改颜色值</span></div>
+    <div class="term">    <span style="color:#434c5e">name.</span><span style="color:#4e6b8f">repeat</span><span style="color:#4c566a">(</span><span style="color:#434c5e">count</span><span style="color:#4c566a">)</span></div>
+    <div class="term"><span style="color:#4c566a">}</span></div>
+    <div class="term" style="margin-top:6px;color:#4c566a">链接 <span style="color:#307185;text-decoration:underline">docs/任务/P5-190.md</span></div>
+  </div>
+  <div style="border-radius:7px;background:#e5e9f0;padding:6px 12px;font-size:12px;color:#4c566a">左栏底上 <span style="color:#307185;font-weight:600">Show all 30</span></div>
+</div></div>
+  <div style="font-size:12px;line-height:1.5;color:#45485a">关键字 3.63 → 4.76；强调色 4.33 → 4.76。</div>
+</div>
+<div style="background:#ffffff;border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:10px;box-shadow:0 1px 3px rgba(0,0,0,0.08)">
+  <div style="font-size:14px;font-weight:600;color:#26283a">Lagoon Light</div>
+  <div style="display:flex;gap:12px">
+<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:6px">
+  <div style="font-size:11.5px;color:#55586a">现在</div>
+  <div style="border-radius:9px;background:#eef4f0;padding:10px 12px;border:1px solid rgba(0,0,0,0.06)">
+    <div class="term"><span style="color:#b8569a">fn</span> <span style="color:#2c6f94">render</span><span style="color:#566e68">(</span><span style="color:#465f59">cx</span><span style="color:#566e68">: &amp;</span><span style="color:#2a8367">Context</span><span style="color:#566e68">) -&gt; </span><span style="color:#2a8367">Div</span> <span style="color:#566e68">{</span></div>
+    <div class="term">    <span style="color:#b8569a">let</span> <span style="color:#465f59">count</span> <span style="color:#566e68">=</span> <span style="color:#a65219">42</span><span style="color:#566e68">;</span></div>
+    <div class="term">    <span style="color:#b8569a">let</span> <span style="color:#465f59">name</span> <span style="color:#566e68">=</span> <span style="color:#866400">"paddock"</span><span style="color:#566e68">;</span></div>
+    <div class="term">    <span style="color:#758a84">// 只改颜色值</span></div>
+    <div class="term">    <span style="color:#465f59">name.</span><span style="color:#2c6f94">repeat</span><span style="color:#566e68">(</span><span style="color:#465f59">count</span><span style="color:#566e68">)</span></div>
+    <div class="term"><span style="color:#566e68">}</span></div>
+    <div class="term" style="margin-top:6px;color:#566e68">链接 <span style="color:#2a8367;text-decoration:underline">docs/任务/P5-190.md</span></div>
+  </div>
+  <div style="border-radius:7px;background:#e0ece6;padding:6px 12px;font-size:12px;color:#566e68">左栏底上 <span style="color:#2a8367;font-weight:600">Show all 30</span></div>
+</div>
+<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:6px">
+  <div style="font-size:11.5px;color:#55586a">改后</div>
+  <div style="border-radius:9px;background:#eef4f0;padding:10px 12px;border:1px solid rgba(0,0,0,0.06)">
+    <div class="term"><span style="color:#a04b86">fn</span> <span style="color:#2c6f94">render</span><span style="color:#566e68">(</span><span style="color:#465f59">cx</span><span style="color:#566e68">: &amp;</span><span style="color:#26765d">Context</span><span style="color:#566e68">) -&gt; </span><span style="color:#26765d">Div</span> <span style="color:#566e68">{</span></div>
+    <div class="term">    <span style="color:#a04b86">let</span> <span style="color:#465f59">count</span> <span style="color:#566e68">=</span> <span style="color:#a65219">42</span><span style="color:#566e68">;</span></div>
+    <div class="term">    <span style="color:#a04b86">let</span> <span style="color:#465f59">name</span> <span style="color:#566e68">=</span> <span style="color:#866400">"paddock"</span><span style="color:#566e68">;</span></div>
+    <div class="term">    <span style="color:#758a84">// 只改颜色值</span></div>
+    <div class="term">    <span style="color:#465f59">name.</span><span style="color:#2c6f94">repeat</span><span style="color:#566e68">(</span><span style="color:#465f59">count</span><span style="color:#566e68">)</span></div>
+    <div class="term"><span style="color:#566e68">}</span></div>
+    <div class="term" style="margin-top:6px;color:#566e68">链接 <span style="color:#26765d;text-decoration:underline">docs/任务/P5-190.md</span></div>
+  </div>
+  <div style="border-radius:7px;background:#e0ece6;padding:6px 12px;font-size:12px;color:#566e68">左栏底上 <span style="color:#26765d;font-weight:600">Show all 30</span></div>
+</div></div>
+  <div style="font-size:12px;line-height:1.5;color:#45485a">关键字 3.89 → 4.90；强调色 4.15 → 4.92。</div>
+</div>
+<div style="background:#ffffff;border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:10px;box-shadow:0 1px 3px rgba(0,0,0,0.08)">
+  <div style="font-size:14px;font-weight:600;color:#26283a">Dune Light</div>
+  <div style="display:flex;gap:12px">
+<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:6px">
+  <div style="font-size:11.5px;color:#55586a">现在</div>
+  <div style="border-radius:9px;background:#f7f2e6;padding:10px 12px;border:1px solid rgba(0,0,0,0.06)">
+    <div class="term"><span style="color:#8f3f71">fn</span> <span style="color:#076678">render</span><span style="color:#665c54">(</span><span style="color:#504945">cx</span><span style="color:#665c54">: &amp;</span><span style="color:#79740e">Context</span><span style="color:#665c54">) -&gt; </span><span style="color:#79740e">Div</span> <span style="color:#665c54">{</span></div>
+    <div class="term">    <span style="color:#8f3f71">let</span> <span style="color:#504945">count</span> <span style="color:#665c54">=</span> <span style="color:#af3a03">42</span><span style="color:#665c54">;</span></div>
+    <div class="term">    <span style="color:#8f3f71">let</span> <span style="color:#504945">name</span> <span style="color:#665c54">=</span> <span style="color:#8f5d10">"paddock"</span><span style="color:#665c54">;</span></div>
+    <div class="term">    <span style="color:#918274">// 只改颜色值</span></div>
+    <div class="term">    <span style="color:#504945">name.</span><span style="color:#076678">repeat</span><span style="color:#665c54">(</span><span style="color:#504945">count</span><span style="color:#665c54">)</span></div>
+    <div class="term"><span style="color:#665c54">}</span></div>
+    <div class="term" style="margin-top:6px;color:#665c54">链接 <span style="color:#79740e;text-decoration:underline">docs/任务/P5-190.md</span></div>
+  </div>
+  <div style="border-radius:7px;background:#efe7d6;padding:6px 12px;font-size:12px;color:#665c54">左栏底上 <span style="color:#79740e;font-weight:600">Show all 30</span></div>
+</div>
+<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:6px">
+  <div style="font-size:11.5px;color:#55586a">改后</div>
+  <div style="border-radius:9px;background:#f7f2e6;padding:10px 12px;border:1px solid rgba(0,0,0,0.06)">
+    <div class="term"><span style="color:#8f3f71">fn</span> <span style="color:#076678">render</span><span style="color:#665c54">(</span><span style="color:#504945">cx</span><span style="color:#665c54">: &amp;</span><span style="color:#6f6b0d">Context</span><span style="color:#665c54">) -&gt; </span><span style="color:#6f6b0d">Div</span> <span style="color:#665c54">{</span></div>
+    <div class="term">    <span style="color:#8f3f71">let</span> <span style="color:#504945">count</span> <span style="color:#665c54">=</span> <span style="color:#af3a03">42</span><span style="color:#665c54">;</span></div>
+    <div class="term">    <span style="color:#8f3f71">let</span> <span style="color:#504945">name</span> <span style="color:#665c54">=</span> <span style="color:#8f5d10">"paddock"</span><span style="color:#665c54">;</span></div>
+    <div class="term">    <span style="color:#918274">// 只改颜色值</span></div>
+    <div class="term">    <span style="color:#504945">name.</span><span style="color:#076678">repeat</span><span style="color:#665c54">(</span><span style="color:#504945">count</span><span style="color:#665c54">)</span></div>
+    <div class="term"><span style="color:#665c54">}</span></div>
+    <div class="term" style="margin-top:6px;color:#665c54">链接 <span style="color:#6f6b0d;text-decoration:underline">docs/任务/P5-190.md</span></div>
+  </div>
+  <div style="border-radius:7px;background:#efe7d6;padding:6px 12px;font-size:12px;color:#665c54">左栏底上 <span style="color:#6f6b0d;font-weight:600">Show all 30</span></div>
+</div></div>
+  <div style="font-size:12px;line-height:1.5;color:#45485a">强调色 4.35 → 4.97。注意：压深后正好等于 Dune Light 的绿色 #6f6b0d（两者本来就是同一色系的橄榄绿）。</div>
+</div>
+<div style="background:#ffffff;border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:10px;box-shadow:0 1px 3px rgba(0,0,0,0.08)">
+  <div style="font-size:14px;font-weight:600;color:#26283a">Kanagawa Lotus</div>
+  <div style="display:flex;gap:12px">
+<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:6px">
+  <div style="font-size:11.5px;color:#55586a">现在</div>
+  <div style="border-radius:9px;background:#f2ecbc;padding:10px 12px;border:1px solid rgba(0,0,0,0.06)">
+    <div class="term"><span style="color:#624c83">fn</span> <span style="color:#405781">render</span><span style="color:#5a574d">(</span><span style="color:#43436c">cx</span><span style="color:#5a574d">: &amp;</span><span style="color:#6c6739">Context</span><span style="color:#5a574d">) -&gt; </span><span style="color:#6c6739">Div</span> <span style="color:#5a574d">{</span></div>
+    <div class="term">    <span style="color:#624c83">let</span> <span style="color:#43436c">count</span> <span style="color:#5a574d">=</span> <span style="color:#864700">42</span><span style="color:#5a574d">;</span></div>
+    <div class="term">    <span style="color:#624c83">let</span> <span style="color:#43436c">name</span> <span style="color:#5a574d">=</span> <span style="color:#755000">"paddock"</span><span style="color:#5a574d">;</span></div>
+    <div class="term">    <span style="color:#73736b">// 只改颜色值</span></div>
+    <div class="term">    <span style="color:#43436c">name.</span><span style="color:#405781">repeat</span><span style="color:#5a574d">(</span><span style="color:#43436c">count</span><span style="color:#5a574d">)</span></div>
+    <div class="term"><span style="color:#5a574d">}</span></div>
+    <div class="term" style="margin-top:6px;color:#5a574d">链接 <span style="color:#6c6739;text-decoration:underline">docs/任务/P5-190.md</span></div>
+  </div>
+  <div style="border-radius:7px;background:#d5cea3;padding:6px 12px;font-size:12px;color:#5a574d">左栏底上 <span style="color:#6c6739;font-weight:600">Show all 30</span></div>
+</div>
+<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:6px">
+  <div style="font-size:11.5px;color:#55586a">改后</div>
+  <div style="border-radius:9px;background:#f2ecbc;padding:10px 12px;border:1px solid rgba(0,0,0,0.06)">
+    <div class="term"><span style="color:#624c83">fn</span> <span style="color:#405781">render</span><span style="color:#5a574d">(</span><span style="color:#43436c">cx</span><span style="color:#5a574d">: &amp;</span><span style="color:#5d5831">Context</span><span style="color:#5a574d">) -&gt; </span><span style="color:#5d5831">Div</span> <span style="color:#5a574d">{</span></div>
+    <div class="term">    <span style="color:#624c83">let</span> <span style="color:#43436c">count</span> <span style="color:#5a574d">=</span> <span style="color:#864700">42</span><span style="color:#5a574d">;</span></div>
+    <div class="term">    <span style="color:#624c83">let</span> <span style="color:#43436c">name</span> <span style="color:#5a574d">=</span> <span style="color:#755000">"paddock"</span><span style="color:#5a574d">;</span></div>
+    <div class="term">    <span style="color:#73736b">// 只改颜色值</span></div>
+    <div class="term">    <span style="color:#43436c">name.</span><span style="color:#405781">repeat</span><span style="color:#5a574d">(</span><span style="color:#43436c">count</span><span style="color:#5a574d">)</span></div>
+    <div class="term"><span style="color:#5a574d">}</span></div>
+    <div class="term" style="margin-top:6px;color:#5a574d">链接 <span style="color:#5d5831;text-decoration:underline">docs/任务/P5-190.md</span></div>
+  </div>
+  <div style="border-radius:7px;background:#d5cea3;padding:6px 12px;font-size:12px;color:#5a574d">左栏底上 <span style="color:#5d5831;font-weight:600">Show all 30</span></div>
+</div></div>
+  <div style="font-size:12px;line-height:1.5;color:#45485a">只有强调色在左栏偏淡：3.63 → 4.54；右边原来就够。</div>
+</div></div>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:12px">
+  <div style="font-size:17px;font-weight:700;color:#1d1f2c">二 · 终端光标（第 4 条）</div>
+  <div style="font-size:12.5px;color:#45485a;line-height:1.5">光标对底色要 3:1。甲保留原来的色相，乙直接用正文色（Tide Light、Dune Light 等已经是这么做的）。</div>
+  <div style="display:grid;grid-template-columns:repeat(1,minmax(0,1fr));gap:16px">
+<div style="background:#ffffff;border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:10px;box-shadow:0 1px 3px rgba(0,0,0,0.08)">
+  <div style="font-size:14px;font-weight:600;color:#26283a">Catppuccin Latte</div>
+  <div style="display:flex;gap:12px">
+    
+<div style="display:flex;flex-direction:column;gap:5px;flex:1">
+  <div style="font-size:11.5px;color:#55586a">现在 <span style="font-family:ui-monospace,Menlo,monospace">#dc8a78</span> · 2.17:1</div>
+  <div style="border-radius:9px;background:#e5e9f3;padding:12px 14px">
+    <div class="term" style="color:#4c4f69">❯ cargo test --all-targets</div>
+    <div class="term" style="color:#4c4f69">❯ git st<span style="background:#dc8a78;color:#e5e9f3">a</span>tus</div>
+    <div class="term" style="color:#4c4f69">❯ <span style="background:#dc8a78"> </span></div>
+  </div>
+</div>
+    
+<div style="display:flex;flex-direction:column;gap:5px;flex:1">
+  <div style="font-size:11.5px;color:#55586a">甲 · 同色往深／浅走到 3:1 <span style="font-family:ui-monospace,Menlo,monospace">#b97465</span> · 3.01:1</div>
+  <div style="border-radius:9px;background:#e5e9f3;padding:12px 14px">
+    <div class="term" style="color:#4c4f69">❯ cargo test --all-targets</div>
+    <div class="term" style="color:#4c4f69">❯ git st<span style="background:#b97465;color:#e5e9f3">a</span>tus</div>
+    <div class="term" style="color:#4c4f69">❯ <span style="background:#b97465"> </span></div>
+  </div>
+</div>
+    
+<div style="display:flex;flex-direction:column;gap:5px;flex:1">
+  <div style="font-size:11.5px;color:#55586a">乙 · 用正文色 <span style="font-family:ui-monospace,Menlo,monospace">#4c4f69</span> · 6.57:1</div>
+  <div style="border-radius:9px;background:#e5e9f3;padding:12px 14px">
+    <div class="term" style="color:#4c4f69">❯ cargo test --all-targets</div>
+    <div class="term" style="color:#4c4f69">❯ git st<span style="background:#4c4f69;color:#e5e9f3">a</span>tus</div>
+    <div class="term" style="color:#4c4f69">❯ <span style="background:#4c4f69"> </span></div>
+  </div>
+</div>
+  </div>
+</div>
+<div style="background:#ffffff;border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:10px;box-shadow:0 1px 3px rgba(0,0,0,0.08)">
+  <div style="font-size:14px;font-weight:600;color:#26283a">Rosé Pine Dawn</div>
+  <div style="display:flex;gap:12px">
+    
+<div style="display:flex;flex-direction:column;gap:5px;flex:1">
+  <div style="font-size:11.5px;color:#55586a">现在 <span style="font-family:ui-monospace,Menlo,monospace">#cecacd</span> · 1.48:1</div>
+  <div style="border-radius:9px;background:#faf4ed;padding:12px 14px">
+    <div class="term" style="color:#575279">❯ cargo test --all-targets</div>
+    <div class="term" style="color:#575279">❯ git st<span style="background:#cecacd;color:#faf4ed">a</span>tus</div>
+    <div class="term" style="color:#575279">❯ <span style="background:#cecacd"> </span></div>
+  </div>
+</div>
+    
+<div style="display:flex;flex-direction:column;gap:5px;flex:1">
+  <div style="font-size:11.5px;color:#55586a">甲 · 同色往深／浅走到 3:1 <span style="font-family:ui-monospace,Menlo,monospace">#908d8f</span> · 3.01:1</div>
+  <div style="border-radius:9px;background:#faf4ed;padding:12px 14px">
+    <div class="term" style="color:#575279">❯ cargo test --all-targets</div>
+    <div class="term" style="color:#575279">❯ git st<span style="background:#908d8f;color:#faf4ed">a</span>tus</div>
+    <div class="term" style="color:#575279">❯ <span style="background:#908d8f"> </span></div>
+  </div>
+</div>
+    
+<div style="display:flex;flex-direction:column;gap:5px;flex:1">
+  <div style="font-size:11.5px;color:#55586a">乙 · 用正文色 <span style="font-family:ui-monospace,Menlo,monospace">#575279</span> · 6.66:1</div>
+  <div style="border-radius:9px;background:#faf4ed;padding:12px 14px">
+    <div class="term" style="color:#575279">❯ cargo test --all-targets</div>
+    <div class="term" style="color:#575279">❯ git st<span style="background:#575279;color:#faf4ed">a</span>tus</div>
+    <div class="term" style="color:#575279">❯ <span style="background:#575279"> </span></div>
+  </div>
+</div>
+  </div>
+</div>
+<div style="background:#ffffff;border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:10px;box-shadow:0 1px 3px rgba(0,0,0,0.08)">
+  <div style="font-size:14px;font-weight:600;color:#26283a">Rosé Pine</div>
+  <div style="display:flex;gap:12px">
+    
+<div style="display:flex;flex-direction:column;gap:5px;flex:1">
+  <div style="font-size:11.5px;color:#55586a">现在 <span style="font-family:ui-monospace,Menlo,monospace">#524f67</span> · 2.25:1</div>
+  <div style="border-radius:9px;background:#191724;padding:12px 14px">
+    <div class="term" style="color:#e0def4">❯ cargo test --all-targets</div>
+    <div class="term" style="color:#e0def4">❯ git st<span style="background:#524f67;color:#191724">a</span>tus</div>
+    <div class="term" style="color:#e0def4">❯ <span style="background:#524f67"> </span></div>
+  </div>
+</div>
+    
+<div style="display:flex;flex-direction:column;gap:5px;flex:1">
+  <div style="font-size:11.5px;color:#55586a">甲 · 同色往深／浅走到 3:1 <span style="font-family:ui-monospace,Menlo,monospace">#656278</span> · 3.00:1</div>
+  <div style="border-radius:9px;background:#191724;padding:12px 14px">
+    <div class="term" style="color:#e0def4">❯ cargo test --all-targets</div>
+    <div class="term" style="color:#e0def4">❯ git st<span style="background:#656278;color:#191724">a</span>tus</div>
+    <div class="term" style="color:#e0def4">❯ <span style="background:#656278"> </span></div>
+  </div>
+</div>
+    
+<div style="display:flex;flex-direction:column;gap:5px;flex:1">
+  <div style="font-size:11.5px;color:#55586a">乙 · 用正文色 <span style="font-family:ui-monospace,Menlo,monospace">#e0def4</span> · 13.4:1</div>
+  <div style="border-radius:9px;background:#191724;padding:12px 14px">
+    <div class="term" style="color:#e0def4">❯ cargo test --all-targets</div>
+    <div class="term" style="color:#e0def4">❯ git st<span style="background:#e0def4;color:#191724">a</span>tus</div>
+    <div class="term" style="color:#e0def4">❯ <span style="background:#e0def4"> </span></div>
+  </div>
+</div>
+  </div>
+</div></div>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:12px">
+  <div style="font-size:17px;font-weight:700;color:#1d1f2c">三 · 终端选区（第 5 条）</div>
+  <div style="font-size:12.5px;color:#45485a;line-height:1.5">选区色往黑色压到和底色差 1.35 倍（Latte 现在是 1.36），正文在选区上仍远超 4.5:1。</div>
+  <div style="display:grid;grid-template-columns:repeat(1,minmax(0,1fr));gap:16px">
+<div style="background:#ffffff;border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:10px;box-shadow:0 1px 3px rgba(0,0,0,0.08)">
+  <div style="font-size:14px;font-weight:600;color:#26283a">Dune Light</div>
+  <div style="display:flex;gap:12px">
+    
+<div style="display:flex;flex-direction:column;gap:5px;flex:1">
+  <div style="font-size:11.5px;color:#55586a">现在 #ebdbb2 · 和底差 1.23 倍</div>
+  <div style="border-radius:9px;background:#f7f2e6;padding:12px 14px;color:#3c3836">
+    <div class="term">● 已经推送到 origin，本地和远端一致了。</div>
+    <div class="term">  改动在 <span style="background:#ebdbb2">docs/任务/P5-189-Latte底色.md</span></div>
+    <div class="term"><span style="background:#ebdbb2">  合并提交 82252c0，收尾提交 5200f27。</span></div>
+    <div class="term"><span style="background:#ebdbb2">  测试 1092 个全过</span>，clippy、fmt 通过。</div>
+  </div>
+</div>
+    
+<div style="display:flex;flex-direction:column;gap:5px;flex:1">
+  <div style="font-size:11.5px;color:#55586a">改后 #e1d1aa · 和底差 1.35 倍，正文在上面 7.68:1</div>
+  <div style="border-radius:9px;background:#f7f2e6;padding:12px 14px;color:#3c3836">
+    <div class="term">● 已经推送到 origin，本地和远端一致了。</div>
+    <div class="term">  改动在 <span style="background:#e1d1aa">docs/任务/P5-189-Latte底色.md</span></div>
+    <div class="term"><span style="background:#e1d1aa">  合并提交 82252c0，收尾提交 5200f27。</span></div>
+    <div class="term"><span style="background:#e1d1aa">  测试 1092 个全过</span>，clippy、fmt 通过。</div>
+  </div>
+</div>
+  </div>
+</div>
+<div style="background:#ffffff;border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:10px;box-shadow:0 1px 3px rgba(0,0,0,0.08)">
+  <div style="font-size:14px;font-weight:600;color:#26283a">Tide Light</div>
+  <div style="display:flex;gap:12px">
+    
+<div style="display:flex;flex-direction:column;gap:5px;flex:1">
+  <div style="font-size:11.5px;color:#55586a">现在 #d8dee9 · 和底差 1.17 倍</div>
+  <div style="border-radius:9px;background:#eceff4;padding:12px 14px;color:#2e3440">
+    <div class="term">● 已经推送到 origin，本地和远端一致了。</div>
+    <div class="term">  改动在 <span style="background:#d8dee9">docs/任务/P5-189-Latte底色.md</span></div>
+    <div class="term"><span style="background:#d8dee9">  合并提交 82252c0，收尾提交 5200f27。</span></div>
+    <div class="term"><span style="background:#d8dee9">  测试 1092 个全过</span>，clippy、fmt 通过。</div>
+  </div>
+</div>
+    
+<div style="display:flex;flex-direction:column;gap:5px;flex:1">
+  <div style="font-size:11.5px;color:#55586a">改后 #cacfda · 和底差 1.35 倍，正文在上面 8.00:1</div>
+  <div style="border-radius:9px;background:#eceff4;padding:12px 14px;color:#2e3440">
+    <div class="term">● 已经推送到 origin，本地和远端一致了。</div>
+    <div class="term">  改动在 <span style="background:#cacfda">docs/任务/P5-189-Latte底色.md</span></div>
+    <div class="term"><span style="background:#cacfda">  合并提交 82252c0，收尾提交 5200f27。</span></div>
+    <div class="term"><span style="background:#cacfda">  测试 1092 个全过</span>，clippy、fmt 通过。</div>
+  </div>
+</div>
+  </div>
+</div>
+<div style="background:#ffffff;border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:10px;box-shadow:0 1px 3px rgba(0,0,0,0.08)">
+  <div style="font-size:14px;font-weight:600;color:#26283a">Lagoon Light</div>
+  <div style="display:flex;gap:12px">
+    
+<div style="display:flex;flex-direction:column;gap:5px;flex:1">
+  <div style="font-size:11.5px;color:#55586a">现在 #d5e5de · 和底差 1.17 倍</div>
+  <div style="border-radius:9px;background:#eef4f0;padding:12px 14px;color:#3a524c">
+    <div class="term">● 已经推送到 origin，本地和远端一致了。</div>
+    <div class="term">  改动在 <span style="background:#d5e5de">docs/任务/P5-189-Latte底色.md</span></div>
+    <div class="term"><span style="background:#d5e5de">  合并提交 82252c0，收尾提交 5200f27。</span></div>
+    <div class="term"><span style="background:#d5e5de">  测试 1092 个全过</span>，clippy、fmt 通过。</div>
+  </div>
+</div>
+    
+<div style="display:flex;flex-direction:column;gap:5px;flex:1">
+  <div style="font-size:11.5px;color:#55586a">改后 #c7d6cf · 和底差 1.35 倍，正文在上面 5.60:1</div>
+  <div style="border-radius:9px;background:#eef4f0;padding:12px 14px;color:#3a524c">
+    <div class="term">● 已经推送到 origin，本地和远端一致了。</div>
+    <div class="term">  改动在 <span style="background:#c7d6cf">docs/任务/P5-189-Latte底色.md</span></div>
+    <div class="term"><span style="background:#c7d6cf">  合并提交 82252c0，收尾提交 5200f27。</span></div>
+    <div class="term"><span style="background:#c7d6cf">  测试 1092 个全过</span>，clippy、fmt 通过。</div>
+  </div>
+</div>
+  </div>
+</div></div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1860,"height":2700}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>
