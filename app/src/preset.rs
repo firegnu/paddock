@@ -641,7 +641,7 @@ fn lagoon_light() -> Theme {
 }
 
 /// Catppuccin Mocha (https://github.com/catppuccin/catppuccin, MIT, Copyright (c) 2021
-/// Catppuccin) by its roles: base for the terminal, mantle for the sidebar, surface0–2 for the
+/// Catppuccin) by its roles: base for the terminal, a cool blue-grey for the sidebar (P5-189), surface0–2 for the
 /// selected ground, rules and edges, overlay0–2 for the quiet text, subtext1 for branches, mauve
 /// for the accent. Status hues: blue working, green idle, yellow waiting, peach stalled, red
 /// error, lavender starting.
@@ -700,20 +700,23 @@ fn catppuccin() -> Theme {
 /// Catppuccin), paddock's first light preset (P5-175), by Mocha's roles: base for the terminal,
 /// mantle for the sidebar, surface0–2 for the selected ground, rules and edges, overlay0–2 for the
 /// quiet text, subtext1 for branches, mauve for the accent. Status hues: blue working, green idle,
-/// yellow waiting, peach stalled, red error, lavender starting. The terminal's ground, under the
-/// panes and the right sidebar, is not base #eff1f5 but Tokyo Night Day's bg #e1e2e7 (P5-188):
-/// the user found base too white and wanted that cool grey. Latte's quiet text and most of its
-/// hues read under 4.5:1 (3:1 for `agents_dimmer`) on its light grounds, so those that must are
-/// darkened just enough, towards black: muted overlay2 #7c7f93 to #626475 on the terminal's
-/// ground; and, both on mantle (the left sidebar) and on that ground (the right sidebar), whichever
-/// is the darker, overlay1 #8c8fa1 to #626472 and overlay0 #9ca0b0 to #7d808e for the quiet text,
-/// green #40a02b to #2e731f, red #d20f39 to #c90e37, blue #1e66f5 to #1b5bdc, yellow #df8e1d to
-/// #8d5912, peach #fe640b to #ac4408; on mantle alone, teal #179299 to #12747a and lavender #7287fd
-/// to #5362b8. The keys nothing reads as text keep Latte's own hues.
+/// yellow waiting, peach stalled, red error, lavender starting. The two grounds are not Latte's
+/// own (P5-189): the terminal's, under the panes and the right sidebar, is the blue-grey #e5e9f3
+/// the user gave (base #eff1f5 read too white; P5-188 had Tokyo Night Day's #e1e2e7), and the
+/// left sidebar's is #edf0f7, a step lighter in the same hue, where mantle #e6e9ef would match the
+/// terminal and a darker step would leave its teal and the title bar's capsules under 4.5:1.
+/// Latte's quiet text and most of its hues read under 4.5:1 (3:1 for `agents_dimmer`) on its light
+/// grounds, so those that must were darkened just enough, towards black, on the darker grounds of
+/// P5-175 and P5-188 (mantle, #e1e2e7), and are kept on these lighter ones: muted overlay2 #7c7f93
+/// to #626475 on the terminal's ground; on both sidebars, overlay1 #8c8fa1 to #626472 and
+/// overlay0 #9ca0b0 to #7d808e for the quiet text, green #40a02b to #2e731f, red #d20f39 to
+/// #c90e37, blue #1e66f5 to #1b5bdc, yellow #df8e1d to #8d5912, peach #fe640b to #ac4408; on the
+/// left alone, teal #179299 to #12747a and lavender #7287fd to #5362b8. The keys nothing reads as
+/// text keep Latte's own hues.
 fn latte() -> Theme {
     let rgb = |v: u32| Color::Rgb((v >> 16) as u8, (v >> 8) as u8, v as u8);
     Theme {
-        bg: rgb(0xe1e2e7),
+        bg: rgb(0xe5e9f3),
         text: rgb(0x4c4f69),
         selected: rgb(0xbcc0cc),
         agent_selected: rgb(0xccd0da),
@@ -735,7 +738,7 @@ fn latte() -> Theme {
         input_text: rgb(0xdce0e8),
         reply_code: rgb(0xdf8e1d),
         reply_heading: rgb(0x04a5e5),
-        agents_bg: rgb(0xe6e9ef),
+        agents_bg: rgb(0xedf0f7),
         agents_border: rgb(0xacb0be),
         agents_rule: rgb(0xccd0da),
         agents_faint: rgb(0xbcc0cc),
