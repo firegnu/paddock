@@ -522,6 +522,8 @@ fn dune_light() -> Theme {
 /// sandbox to #596e60, orange to #98593b (stalled) and purple to #835d7d (starting); and the
 /// accent, #3b8ba3 to #33788d, so the selected right tab's icon reads at 3:1 on its capsule and
 /// each level of the activity panel stands apart from the last.
+/// For Changes and links on either ground (P5-190), `agents_purple` (keywords) is #835d7d, the
+/// starting purple, and the accent #307185.
 fn tide_light() -> Theme {
     let rgb = |v: u32| Color::Rgb((v >> 16) as u8, (v >> 8) as u8, v as u8);
     Theme {
@@ -555,12 +557,12 @@ fn tide_light() -> Theme {
         agents_branch: rgb(0x434c5e),
         agents_dim: rgb(0x4c566a),
         agents_dimmer: rgb(0x7a869f),
-        agents_accent: rgb(0x33788d),
+        agents_accent: rgb(0x307185),
         agents_green: rgb(0x557142),
         agents_red: rgb(0xa05159),
         agents_blue: rgb(0x4e6b8f),
         agents_yellow: rgb(0x806526),
-        agents_purple: rgb(0x9a6e93),
+        agents_purple: rgb(0x835d7d),
         agents_sandbox: rgb(0x596e60),
         claude: rgb(0xc0704a),
         codex: rgb(0x3b8ba3),
@@ -589,6 +591,8 @@ fn tide_light() -> Theme {
 /// (starting); the terminal's yellow too, to #b28500 (see `theme.rs`); and the accent, #2f9474
 /// to #2a8367, so the selected right tab's icon reads at 3:1 on its capsule and each level of the
 /// activity panel stands apart from the last.
+/// For Changes and links on either ground (P5-190), `agents_purple` (keywords) is #a04b86, the
+/// starting purple, and the accent #26765d.
 fn lagoon_light() -> Theme {
     let rgb = |v: u32| Color::Rgb((v >> 16) as u8, (v >> 8) as u8, v as u8);
     Theme {
@@ -622,12 +626,12 @@ fn lagoon_light() -> Theme {
         agents_branch: rgb(0x465f59),
         agents_dim: rgb(0x566e68),
         agents_dimmer: rgb(0x758a84),
-        agents_accent: rgb(0x2a8367),
+        agents_accent: rgb(0x26765d),
         agents_green: rgb(0x507400),
         agents_red: rgb(0xb93f3d),
         agents_blue: rgb(0x2c6f94),
         agents_yellow: rgb(0x866400),
-        agents_purple: rgb(0xb8569a),
+        agents_purple: rgb(0xa04b86),
         agents_sandbox: rgb(0x507400),
         claude: rgb(0xe06f22),
         codex: rgb(0x2f9474),
@@ -713,6 +717,9 @@ fn catppuccin() -> Theme {
 /// #c90e37, blue #1e66f5 to #1b5bdc, yellow #df8e1d to #8d5912, peach #fe640b to #ac4408; on the
 /// left alone, teal #179299 to #12747a and lavender #7287fd to #5362b8. The keys nothing reads as
 /// text keep Latte's own hues.
+/// Changes' keywords (`agents_purple`) are not lavender but pink #ea76cb darkened to #9b4e87
+/// (P5-190): lavender darkened to 4.5:1 lay beside the functions' blue; the accent, mauve, is
+/// #8739ed, so links read at 4.5:1 on the terminal's ground.
 fn latte() -> Theme {
     let rgb = |v: u32| Color::Rgb((v >> 16) as u8, (v >> 8) as u8, v as u8);
     Theme {
@@ -746,12 +753,12 @@ fn latte() -> Theme {
         agents_branch: rgb(0x5c5f77),
         agents_dim: rgb(0x626472),
         agents_dimmer: rgb(0x7d808e),
-        agents_accent: rgb(0x8839ef),
+        agents_accent: rgb(0x8739ed),
         agents_green: rgb(0x2e731f),
         agents_red: rgb(0xc90e37),
         agents_blue: rgb(0x1b5bdc),
         agents_yellow: rgb(0x8d5912),
-        agents_purple: rgb(0x7287fd),
+        agents_purple: rgb(0x9b4e87),
         agents_sandbox: rgb(0x12747a),
         claude: rgb(0xfe640b),
         codex: rgb(0x179299),
@@ -957,6 +964,8 @@ fn kanagawa() -> Theme {
 /// bright text are not the day style's blue fg #3760bf but #343b58, the text of enkia's own light
 /// style, Tokyo Night Light (P5-187): with links, folders and the cursor blue as well, the blue fg
 /// left the whole terminal blue.
+/// For Changes and links on either ground (P5-190), `agents_branch` (code) is #4d5a8b, not
+/// fg_dark #6172b0; `agents_purple` (keywords) #7440b9, the starting magenta; the accent #215bab.
 fn tokyo_night_day() -> Theme {
     let rgb = |v: u32| Color::Rgb((v >> 16) as u8, (v >> 8) as u8, v as u8);
     Theme {
@@ -987,15 +996,15 @@ fn tokyo_night_day() -> Theme {
         agents_rule: rgb(0xc4c8da),
         agents_faint: rgb(0xa8aecb),
         agents_text: rgb(0x243f7e),
-        agents_branch: rgb(0x6172b0),
+        agents_branch: rgb(0x4d5a8b),
         agents_dim: rgb(0x555b7d),
         agents_dimmer: rgb(0x707699),
-        agents_accent: rgb(0x2668c3),
+        agents_accent: rgb(0x215bab),
         agents_green: rgb(0x4c6431),
         agents_red: rgb(0xb21e49),
         agents_blue: rgb(0x225bab),
         agents_yellow: rgb(0x735833),
-        agents_purple: rgb(0x9854f1),
+        agents_purple: rgb(0x7440b9),
         agents_sandbox: rgb(0x0d6957),
         claude: rgb(0xb15c00),
         codex: rgb(0x118c74),
@@ -1023,6 +1032,8 @@ fn tokyo_night_day() -> Theme {
 /// #575279 to #514d71, so the tabs' names read at 4.5:1 on their capsules over overlay; the
 /// accent, rose #d7827e to #a86562, so the selected right tab's icon reads at 3:1. The keys
 /// nothing reads as text keep dawn's own hues.
+/// For Changes and links on either ground (P5-190), `agents_purple` (keywords) is #746389, the
+/// starting iris, and the accent #955a57.
 fn rose_pine_dawn() -> Theme {
     let rgb = |v: u32| Color::Rgb((v >> 16) as u8, (v >> 8) as u8, v as u8);
     Theme {
@@ -1056,12 +1067,12 @@ fn rose_pine_dawn() -> Theme {
         agents_branch: rgb(0x625e82),
         agents_dim: rgb(0x6b6782),
         agents_dimmer: rgb(0x898495),
-        agents_accent: rgb(0xa86562),
+        agents_accent: rgb(0x955a57),
         agents_green: rgb(0x286983),
         agents_red: rgb(0x9a5569),
         agents_blue: rgb(0x42717a),
         agents_yellow: rgb(0x906020),
-        agents_purple: rgb(0x907aa9),
+        agents_purple: rgb(0x746389),
         agents_sandbox: rgb(0x42717a),
         claude: rgb(0xd7827e),
         codex: rgb(0x56949f),
@@ -1089,6 +1100,7 @@ fn rose_pine_dawn() -> Theme {
 /// sidebar's text, lotusInk1 #545464 to #3b3b46, so the tabs' names read at 4.5:1 on their
 /// capsules over bg_m3; the accent, lotusYellow #77713f to #6c6739, so the selected right tab's
 /// icon reads at 3:1 and each level of the activity panel stands apart from the last. The keys nothing reads as text keep lotus's own hues.
+/// For links on the sidebar (P5-190), the accent is #5d5831.
 fn kanagawa_lotus() -> Theme {
     let rgb = |v: u32| Color::Rgb((v >> 16) as u8, (v >> 8) as u8, v as u8);
     Theme {
@@ -1122,7 +1134,7 @@ fn kanagawa_lotus() -> Theme {
         agents_branch: rgb(0x43436c),
         agents_dim: rgb(0x5a574d),
         agents_dimmer: rgb(0x73736b),
-        agents_accent: rgb(0x6c6739),
+        agents_accent: rgb(0x5d5831),
         agents_green: rgb(0x4c5d35),
         agents_red: rgb(0x9b3240),
         agents_blue: rgb(0x405781),

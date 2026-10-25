@@ -143,6 +143,7 @@ const LAGOON: Terminal = Terminal {
 /// as white and cursor, except that the normal hues take the faded ones as the bright hues do, as
 /// the sample has them (`docs/设计稿/P5-177-Dune-Tide-Lagoon浅色版/`): the neutral ones read under
 /// 3:1 on its light ground. The selection is light1, as the sample has it.
+/// The selection is light1 darkened towards black to #e1d1aa, 1.35:1 on the ground (P5-190).
 const DUNE_LIGHT: Terminal = Terminal {
     ansi: [
         rgb(0xfbf1c7),
@@ -163,7 +164,7 @@ const DUNE_LIGHT: Terminal = Terminal {
         rgb(0x3c3836),
     ],
     cursor: rgb(0x3c3836),
-    selection: rgb(0xebdbb2),
+    selection: rgb(0xe1d1aa),
 };
 
 /// Nord (https://www.nordtheme.com, MIT, Copyright (c) 2016-present Sven Greb) for Tide's light
@@ -173,6 +174,7 @@ const DUNE_LIGHT: Terminal = Terminal {
 /// nord10) as published; green, yellow, magenta and cyan deepened by the sample to read on the
 /// light ground: nord14 to #5f7f4a, nord13 to #9a7a2e, nord15 to #9a6e93, nord8 to #3b8ba3. The
 /// bright colours are the normal ones mixed 25% toward black, the mirror of Tide's.
+/// The selection is nord4 darkened towards black to #cacfda, 1.35:1 on the ground (P5-190).
 const TIDE_LIGHT: Terminal = Terminal {
     ansi: [
         rgb(0xd8dee9),
@@ -193,7 +195,7 @@ const TIDE_LIGHT: Terminal = Terminal {
         rgb(0x2e3440),
     ],
     cursor: rgb(0x2e3440),
-    selection: rgb(0xd8dee9),
+    selection: rgb(0xcacfda),
 };
 
 /// Everforest light (https://github.com/sainnhe/everforest, MIT, Copyright (c) 2019 sainnhe) for
@@ -206,6 +208,7 @@ const TIDE_LIGHT: Terminal = Terminal {
 /// yellow #b88a00 to #b28500, grey2 #829181 to #819080, grey1 #939f91 to #858f83. The bright
 /// colours are the normal ones mixed 25% toward black, the mirror of Lagoon's. The cursor is the
 /// text and the selection paddock's own pale teal, as the sample has them.
+/// The selection is darkened towards black to #c7d6cf, 1.35:1 on the ground (P5-190).
 const LAGOON_LIGHT: Terminal = Terminal {
     ansi: [
         rgb(0xe6e2cc),
@@ -226,7 +229,7 @@ const LAGOON_LIGHT: Terminal = Terminal {
         rgb(0x5c6a72),
     ],
     cursor: rgb(0x3a524c),
-    selection: rgb(0xd5e5de),
+    selection: rgb(0xc7d6cf),
 };
 
 /// Catppuccin Mocha (https://github.com/catppuccin/alacritty, MIT, Copyright (c) 2021
@@ -265,6 +268,7 @@ const CATPPUCCIN: Terminal = Terminal {
 /// black, kept so on this lighter ground: green #40a02b to #3b9328, yellow #df8e1d to #b47217,
 /// magenta #ea76cb to #be5fa5, teal #179299 to #178f96 (each the normal and the bright one, which
 /// repeat), and bright black (surface2, #acb0be) to #7e818c.
+/// The cursor is not rosewater (#dc8a78, 2.2:1 on the ground) but the text colour (P5-190).
 const LATTE: Terminal = Terminal {
     ansi: [
         rgb(0xbcc0cc),
@@ -284,7 +288,7 @@ const LATTE: Terminal = Terminal {
         rgb(0x178f96),
         rgb(0x6c6f85),
     ],
-    cursor: rgb(0xdc8a78),
+    cursor: rgb(0x4c4f69),
     selection: rgb(0xc6c9d6),
 };
 
@@ -318,6 +322,7 @@ const TOKYO_NIGHT: Terminal = Terminal {
 /// Rosé Pine, main variant (https://github.com/rose-pine/alacritty, MIT, Copyright (c) Rosé
 /// Pine): the terminal colours, cursor (highlight high) and selection (highlight med) as
 /// published; its bright colours repeat the normal ones, and every one reaches 3:1 on base.
+/// The cursor is not highlight high (#524f67, 2.3:1 on base) but the text colour (P5-190).
 const ROSE_PINE: Terminal = Terminal {
     ansi: [
         rgb(0x26233a),
@@ -337,7 +342,7 @@ const ROSE_PINE: Terminal = Terminal {
         rgb(0xebbcba),
         rgb(0xe0def4),
     ],
-    cursor: rgb(0x524f67),
+    cursor: rgb(0xe0def4),
     selection: rgb(0x403d52),
 };
 
@@ -402,6 +407,7 @@ const TOKYO_NIGHT_DAY: Terminal = Terminal {
 /// published; its bright colours repeat the normal ones. Three read under 3:1 on its light base,
 /// so they are darkened just enough, towards black: gold #ea9d34 to #bf802b and rose #d7827e to
 /// #c77875 (each the normal and the bright one), and bright black (muted, #9893a5) to #908b9c.
+/// The cursor is not highlight high (#cecacd, 1.5:1 on base) but the text colour (P5-190).
 const ROSE_PINE_DAWN: Terminal = Terminal {
     ansi: [
         rgb(0xf2e9e1),
@@ -421,7 +427,7 @@ const ROSE_PINE_DAWN: Terminal = Terminal {
         rgb(0xc77875),
         rgb(0x575279),
     ],
-    cursor: rgb(0xcecacd),
+    cursor: rgb(0x575279),
     selection: rgb(0xdfdad9),
 };
 
@@ -898,6 +904,56 @@ mod tests {
                 let contrast = contrast(theme.fg(pick), ground);
                 if contrast < least {
                     short.push(format!("{name} {key}: {contrast:.2}:1 < {least}:1"));
+                }
+            }
+        }
+        assert!(short.is_empty(), "{}", short.join("\n"));
+    }
+
+    /// Changes writes its code in `agents_branch`, its keywords in `agents_purple` and its types,
+    /// like the links, in the accent, on either sidebar's ground; a light preset's must read there
+    /// at 4.5:1, and its selection must stand off the terminal's ground. Every preset's cursor
+    /// must stand at 3:1 on its terminal (P5-190). Dune Light's accent is left as it is: darkened
+    /// that far it would be its green.
+    #[test]
+    fn code_links_cursor_and_selection_read_on_their_grounds() {
+        type Pick = fn(&crate::preset::Theme) -> Color;
+        let mut short = Vec::new();
+        for preset in Preset::ALL {
+            let name = preset.name();
+            let theme = theme(&format!("theme = \"{name}\"")).unwrap();
+            let terminal = theme.terminal();
+            let cursor = contrast(terminal.cursor, terminal.background);
+            if cursor < 3.0 {
+                short.push(format!("{name} cursor: {cursor:.2}:1 < 3:1"));
+            }
+            if !theme.is_light() {
+                continue;
+            }
+            let selection = contrast(terminal.selection, terminal.background);
+            if selection < 1.25 {
+                short.push(format!("{name} selection: {selection:.2}:1 < 1.25:1"));
+            }
+            let grounds = [
+                ("right", terminal.background),
+                ("left", theme.bg(|t| t.agents_bg)),
+            ];
+            let code: [(&str, Pick); 3] = [
+                ("agents_branch", |t| t.agents_branch),
+                ("agents_purple", |t| t.agents_purple),
+                ("agents_accent", |t| t.agents_accent),
+            ];
+            for (key, pick) in code {
+                if preset == Preset::DuneLight && key == "agents_accent" {
+                    continue;
+                }
+                for (side, ground) in grounds {
+                    let contrast = contrast(theme.fg(pick), ground);
+                    if contrast < 4.5 {
+                        short.push(format!(
+                            "{name} {key} on the {side}: {contrast:.2}:1 < 4.5:1"
+                        ));
+                    }
                 }
             }
         }
