@@ -8,7 +8,7 @@
 
 ## 本机安装
 
-- 现装：`~/Applications/paddock.app` 是 P5-189 的版本（10-25 从分支提交 `be9a09f` 装，代码与 main 合并提交 `82252c0` 相同，含此前的 P5-185 至 P5-188），本机 Apple Development 证书签名。
+- 现装：`~/Applications/paddock.app` 是 P5-190 的版本（10-25 从分支提交 `2f058eb` 装，代码与 main 合并提交 `9f55295` 相同，含此前的 P5-185 至 P5-189），本机 Apple Development 证书签名。
 - 重新打包安装：在 `app/` 下 `cargo build --release`，再 `cargo run --release --example bundle -- --install`（编译目录 `.target/main`）。默认选本机 Apple Development 身份，可用 `PADDOCK_SIGN_IDENTITY` 指定；退回 ad-hoc 时会提示屏幕录制授权会失效。release 很快结束时，核对产物时间晚于合并再装。
 - 退回：不留旧版。在临时 worktree 检出要退回的提交，照上面打包安装（编译目录用这个 worktree 自己的子目录）。旧版读不了新配置：P5-90 之前不认 `[[machines]]`，P5-120 之前不认预设里的 `sandbox` 字段，退回前先从 `~/.config/paddock/config.toml` 去掉。
 - paddock ctl：`~/.local/bin/paddock` 链到 app 里的程序，重新打包不用重建。技能正文改了要重跑 `paddock install-skills`（装在 `~/.claude/skills/paddock`、`~/.agents/skills/paddock`、`~/.gemini/config/skills/paddock`），开着的 agent 重开才看到。
@@ -55,7 +55,7 @@
 - 远程（P5-90）：断网、断线、重连没测过（不做断网测试）；退出时正在跑的远程查询可能多留最多 15 秒；只读条靠 `attached` 总数判断，多个客户端时可能过早消失。
 - Settings：编辑时直接关窗口，改动不提示就丢；编辑框不自动滚到光标处（P5-119）。Dispatch 换选别的格子时没保存的改动直接丢（P5-161）。
 - 不在前台去色（P5-162）不管 Browser 网页、agent 品牌图标、New Agent／About 小窗。
-- 主题对比度（P5-188 查出）：深色的 Catppuccin Mocha 右侧栏 `agents_dim` 对终端底 4.44:1、Tokyo Night `agents_dimmer` 2.88:1，新测试只查浅色主题；Latte 的强调色当链接用时在终端底 `#e5e9f3` 上约 4.4:1（P5-188、P5-189 定强调色不动）。
+- 主题对比度（P5-188 查出）：深色的 Catppuccin Mocha 右侧栏 `agents_dim` 对终端底 4.44:1、Tokyo Night `agents_dimmer` 2.88:1，新测试只查浅色主题；浅色主题的强调色、代码关键字、光标、选区 P5-190 已修；Dune Light 的强调色仍约 4.0–4.4:1（压深会等于它的绿色）。P5-190 没做的：浅色主题黄色偏棕、Changes 字符串和数字色太近、agent 种类单色图标在浅色卡片上偏淡、Tokyo Night Day 类型名和函数名几乎同色。
 - 标签（P5-165）：终端信号的琥珀内光在标签和面板交界处没让开；从右边那块放大的几帧里标签会短暂画回胶囊。
 - 终端：进度条和响铃让输出多过一遍 VTE 解析（P5-148b）；浮层淡出约 84 ms 内仍接点击；同步输出超时、连字、按窗格字号、终端图片和着色器用户 10-20 定不做（P5-143）。
 - 动效：卡片滑动时分组标题和托盘直接跳（P5-154）；Loop 里 Now 的转圈不跟“减弱动态效果”（P5-158，用户：“先这样”）。
