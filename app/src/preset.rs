@@ -947,12 +947,15 @@ fn kanagawa() -> Theme {
 /// #118c74 to #0d6957, orange #b15c00 to #8f4b00 and magenta #9854f1 to #7440b9; and the
 /// sidebar's text, fg #3760bf to #243f7e, so the tabs' names read at 4.5:1 on their capsules
 /// over bg_dark; the accent, blue #2e7de9 to #2668c3, so the selected right tab's icon reads at
-/// 3:1 on its capsule. The keys nothing reads as text keep the day style's own hues.
+/// 3:1 on its capsule. The keys nothing reads as text keep the day style's own hues. The text and
+/// bright text are not the day style's blue fg #3760bf but #343b58, the text of enkia's own light
+/// style, Tokyo Night Light (P5-187): with links, folders and the cursor blue as well, the blue fg
+/// left the whole terminal blue.
 fn tokyo_night_day() -> Theme {
     let rgb = |v: u32| Color::Rgb((v >> 16) as u8, (v >> 8) as u8, v as u8);
     Theme {
         bg: rgb(0xe1e2e7),
-        text: rgb(0x3760bf),
+        text: rgb(0x343b58),
         selected: rgb(0xb7c1e3),
         agent_selected: rgb(0xb7c1e3),
         agent_working: rgb(0x2e7de9),
@@ -962,7 +965,7 @@ fn tokyo_night_day() -> Theme {
         agent_error: rgb(0xf52a65),
         agent_starting: rgb(0x7440b9),
         border: rgb(0xa8aecb),
-        bright: rgb(0x3760bf),
+        bright: rgb(0x343b58),
         muted: rgb(0x5c6389),
         dim: rgb(0x8990b3),
         focus: rgb(0x2e7de9),

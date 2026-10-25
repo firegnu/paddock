@@ -33,3 +33,9 @@
 - Latte 不动（用户原话）。
 - 左侧栏卡片的正文（`agents_text`，已是深藏青 `#243f7e`）、pi 图标色（`#3760bf`）不改；要改另说。
 - 不加新预设、不改别的主题。
+
+## 完成记录（主控，10-25）
+- 做了什么：Tokyo Night Day 的 `text`、`bright`（`app/src/preset.rs`）和终端第 15 色亮白（`app/src/theme.rs` 的 `TOKYO_NIGHT_DAY`）从 `#3760bf` 改成 `#343b58`；两处的出处说明写了改了什么、为什么。DESIGN P5-176 那条“终端的正文色照官方不变”后补了 P5-187 的例外。样稿存进 `docs/设计稿/P5-187-TokyoNightDay正文色/`（只收 Tokyo Night Day 那张）。
+- 验证：`cargo fmt --check`、`cargo clippy --all-targets -- -D warnings` 通过；`cargo test --all-targets --no-fail-fast` 共 1091 个全过。纯颜色改动，没另造失败测试；最终效果要用户在 Tokyo Night Day 下实际看。已从本分支打包安装到 `~/Applications/paddock.app`（10-25 12:36）。
+- 拿主意的地方：光标仍是蓝 `#3760bf`（样稿三栏都保留蓝光标）；终端默认字色跟着 `text` 走，所以不用单独改。
+- 没做的事：左侧栏卡片正文 `agents_text`（`#243f7e`）、pi 图标色（`#3760bf`）没改；Latte 不动。

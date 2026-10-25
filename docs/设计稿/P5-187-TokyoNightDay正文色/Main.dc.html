@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>Tokyo Night Day text colour</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+.term{font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:12.5px;line-height:1.55;white-space:pre}
+</style>
+</helmet>
+<div style="width: 1400px; height: 660px; box-sizing: border-box; padding: 28px 34px; background: #cfd0d5; font-family: -apple-system, 'SF Pro Text', 'Helvetica Neue', sans-serif; display: flex; gap: 34px">
+<sc-for list="{{cols}}" as="col" hint-placeholder-count="3">
+<div style="display: flex; flex-direction: column; gap: 12px; width: 420px">
+<div style="display: flex; flex-direction: column; gap: 4px; min-height: 92px">
+<div style="font-size: 14px; font-weight: 600; color: #1f2335">{{col.head}}</div>
+<div style="display: flex; align-items: center; gap: 8px; font-size: 12px; color: #3b3f52">
+<span style="display: inline-block; width: 14px; height: 14px; border-radius: 4px; background: {{col.text}}"></span>
+<span style="font-family: ui-monospace, Menlo, monospace">{{col.text}}</span>
+<span>· 在底色上 {{col.ratio}}</span>
+</div>
+<div style="font-size: 12px; line-height: 1.5; color: #3b3f52">{{col.note}}</div>
+</div>
+<div style="border-radius: 10px; background: #e1e2e7; padding: 14px 16px; display: flex; flex-direction: column; color: {{col.text}}">
+<div class="term" style="color: #7c8098">❯ 推送吧</div>
+<div class="term"><span style="color: #587539">●</span> <span style="font-weight: 700">Bash</span>(git push origin main)</div>
+<div class="term" style="color: #7c8098">  ⎿ To https://github.com/firegnu/paddock.git</div>
+<div class="term" style="color: #7c8098">     f35e30d..1d801aa  main -&gt; main</div>
+<div class="term"> </div>
+<div class="term"><span style="color: #587539">●</span> 已经推送到 origin，本地 main 和远端一致了。</div>
+<div class="term">  这次推上去的只有 P5-111 那一条提交（1d801aa）。</div>
+<div class="term"> </div>
+<div class="term">  改动在 <span style="color: #2e7de9">docs/任务/P5-111-调研OSC7501.md</span></div>
+<div class="term"><span style="color: #587539">  + ### 出处</span></div>
+<div class="term"><span style="color: #f52a65">  - 调研结论（待补）</span></div>
+<div class="term">  <span style="font-weight: 700">内容</span>：结论还在任务文件末尾，补了出处。</div>
+<div class="term"> </div>
+<div class="term" style="color: #7c8098">* Crunched for 8s · done 11:54 AM</div>
+<div class="term"><span style="color: #9854f1">❯</span> <span style="display: inline-block; width: 8px; height: 15px; vertical-align: -3px; background: {{col.cursor}}"></span></div>
+</div>
+<div style="border-radius: 10px; background: #e1e2e7; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; font-size: 12.5px">
+<div style="font-weight: 600; color: {{col.text}}">Queued  3</div>
+<div style="display: flex; gap: 10px"><span style="color: #5c6389; width: 44px">P5-111</span><span style="color: {{col.text}}">调研 Ghostty 作者提出的 OSC 7501</span></div>
+<div style="display: flex; gap: 10px"><span style="color: #5c6389; width: 44px">P5-54</span><span style="color: {{col.text}}">Browser 选中元素后送给 agent</span></div>
+</div>
+</div>
+</sc-for>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1400,"height":660}}'>
+class Component extends DCLogic {
+renderVals() {
+return {
+cols: [
+{ head: '现在', text: '#3760bf', cursor: '#3760bf', ratio: '4.5:1', note: '正文、粗体、亮白（white）都是这个蓝，加上目录、链接本来就是蓝，整屏偏蓝。' },
+{ head: '甲 · Tokyo Night Light 的正文色', text: '#343b58', cursor: '#3760bf', ratio: '8.5:1', note: '取自这个主题上游（enkia 的 VS Code 版）浅色版本的正文色：深石板灰，带一点蓝，和主题还是一家。光标、链接、目录、强调色仍是蓝。' },
+{ head: '乙 · 更中性的墨色', text: '#3b3d48', cursor: '#3760bf', ratio: '8.2:1', note: '几乎不带蓝的深灰，蓝色只剩链接、目录、光标和强调色，最“素”。离 Tokyo Night 的味道远一点。' }
+]
+};
+}
+}
+</script>
+</body>
+</html>
