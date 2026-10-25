@@ -259,31 +259,32 @@ const CATPPUCCIN: Terminal = Terminal {
 
 /// Catppuccin Latte (https://github.com/catppuccin/alacritty, MIT, Copyright (c) 2021
 /// Catppuccin): the terminal colours as published, with the rosewater cursor and, as for Mocha,
-/// the style guide's selection, overlay2 at 30% over base. Four read under 3:1 on its light base,
-/// so they are darkened just enough, towards black: green #40a02b to #3f9e2b, yellow #df8e1d to
-/// #c27b19, magenta #ea76cb to #cd67b2 (each the normal and the bright one, which repeat), and
-/// bright black (surface2, #acb0be) to #888b96.
+/// the style guide's selection, overlay2 at 30% over the background. The background is not Latte's
+/// base #eff1f5 but Tokyo Night Day's #e1e2e7 (P5-188, see `preset::latte`), so the selection is
+/// #c3c4ce, and five read under 3:1 on it, darkened just enough, towards black: green #40a02b to
+/// #3b9328, yellow #df8e1d to #b47217, magenta #ea76cb to #be5fa5, teal #179299 to #178f96 (each
+/// the normal and the bright one, which repeat), and bright black (surface2, #acb0be) to #7e818c.
 const LATTE: Terminal = Terminal {
     ansi: [
         rgb(0xbcc0cc),
         rgb(0xd20f39),
-        rgb(0x3f9e2b),
-        rgb(0xc27b19),
+        rgb(0x3b9328),
+        rgb(0xb47217),
         rgb(0x1e66f5),
-        rgb(0xcd67b2),
-        rgb(0x179299),
+        rgb(0xbe5fa5),
+        rgb(0x178f96),
         rgb(0x5c5f77),
-        rgb(0x888b96),
+        rgb(0x7e818c),
         rgb(0xd20f39),
-        rgb(0x3f9e2b),
-        rgb(0xc27b19),
+        rgb(0x3b9328),
+        rgb(0xb47217),
         rgb(0x1e66f5),
-        rgb(0xcd67b2),
-        rgb(0x179299),
+        rgb(0xbe5fa5),
+        rgb(0x178f96),
         rgb(0x6c6f85),
     ],
     cursor: rgb(0xdc8a78),
-    selection: rgb(0xcdcfd8),
+    selection: rgb(0xc3c4ce),
 };
 
 /// Tokyo Night, night style (https://github.com/folke/tokyonight.nvim `extras/kitty`, Apache-2.0,
@@ -867,6 +868,39 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// The right sidebar (Kanban, Changes, Cairn) lies on the terminal's ground, not the left
+    /// sidebar's, and writes its quiet text and status in the same colours (P5-188). Checked for
+    /// the light presets, whose colours were set for it; two dark ones fall a little short.
+    #[test]
+    fn right_sidebar_text_reads_on_the_terminal_ground() {
+        type Pick = fn(&crate::preset::Theme) -> Color;
+        let mut short = Vec::new();
+        for preset in Preset::ALL {
+            let name = preset.name();
+            let theme = theme(&format!("theme = \"{name}\"")).unwrap();
+            if !theme.is_light() {
+                continue;
+            }
+            let ground = theme.terminal().background;
+            let quiet: [(&str, Pick, f64); 7] = [
+                ("agents_dim", |t| t.agents_dim, 4.5),
+                ("agents_dimmer", |t| t.agents_dimmer, 3.0),
+                ("agents_green", |t| t.agents_green, 4.5),
+                ("agents_red", |t| t.agents_red, 4.5),
+                ("agents_blue", |t| t.agents_blue, 4.5),
+                ("agents_yellow", |t| t.agents_yellow, 4.5),
+                ("agent_stalled", |t| t.agent_stalled, 4.5),
+            ];
+            for (key, pick, least) in quiet {
+                let contrast = contrast(theme.fg(pick), ground);
+                if contrast < least {
+                    short.push(format!("{name} {key}: {contrast:.2}:1 < {least}:1"));
+                }
+            }
+        }
+        assert!(short.is_empty(), "{}", short.join("\n"));
     }
 
     /// The hue of `color`, in degrees.

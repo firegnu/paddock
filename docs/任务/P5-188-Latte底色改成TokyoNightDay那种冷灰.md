@@ -36,3 +36,20 @@
 ## 不做
 - 左侧栏、正文色、强调色、状态色不动；不加新预设，原版 Catppuccin Latte 不另留。
 - 不改别的主题。
+
+## 完成记录（主控，10-25）
+- 做了什么：
+  - Latte 的 `bg` 从 `#eff1f5` 改成 `#e1e2e7`（`app/src/preset.rs`）。
+  - 终端色压深到 3:1（`app/src/theme.rs` 的 `LATTE`，普通和亮色各一份）：绿→`#3b9328`、黄→`#b47217`、品红→`#be5fa5`、青→`#178f96`、亮黑→`#7e818c`。选区按新底重算为 `#c3c4ce`。
+  - `muted` 压深到 `#626475`（4.5:1）。
+  - 右侧栏用的侧栏安静字和状态字原本只按左侧栏 mantle 调到 4.5:1，在新底上约 4.2:1，按两个底中更暗的那个压深：`agents_dim`→`#626472`、`agents_dimmer`→`#7d808e`（3:1）、`agents_green`→`#2e731f`、`agents_red`→`#c90e37`、`agents_blue`→`#1b5bdc`、`agents_yellow`→`#8d5912`、`agent_stalled`→`#ac4408`。左侧栏上这几个字会略深一点。
+  - 两处出处说明、DESIGN P5-175 条下补了 P5-188 子条；样稿存进 `docs/设计稿/P5-188-Latte底色/`（只收用户要的冷灰那张）。
+- 验证：
+  - TDD：只改底色时 `preset_ansi_colors_have_at_least_three_to_one_contrast`（Latte ANSI 2 只有 2.65:1）和 `quiet_text_and_status_colors_read_on_their_grounds`（Latte muted 3.94:1）先失败；压深后通过。
+  - 新加测试 `right_sidebar_text_reads_on_the_terminal_ground`：右侧栏用到的安静字和状态字对终端底色要够 4.5:1（dimmer 3:1），先跑出 Latte 7 处不够，压深后通过。
+  - `remote_start` 一条测试的期望值从旧底色改成新底色：paddock 告诉 corral 的终端背景色跟着变成 `#e1e2e7`，这是想要的结果。
+  - `cargo fmt --check`、`cargo clippy --all-targets -- -D warnings` 通过；`cargo test --all-targets --no-fail-fast` 共 1092 个全过。已从本分支打包安装到 `~/Applications/paddock.app`。
+- 拿主意的地方：
+  - 新测试只查浅色主题。全部主题一起查时，深色的 Catppuccin Mocha `agents_dim`（4.44:1）和 Tokyo Night `agents_dimmer`（2.88:1）本来就不够，和这次无关，任务又写明不改别的主题，所以没修，报给用户。
+  - 强调色 mauve 照任务不动，右侧栏里当链接用时在新底上约 4.2:1。
+- 没做的事：左侧栏、正文色、强调色不动；没加新预设，不另留原版 Latte。

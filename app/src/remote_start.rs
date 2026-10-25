@@ -636,7 +636,7 @@ mod tests {
         assert_eq!(started.instance.as_deref(), Some("new"));
         assert_eq!(
             std::fs::read_to_string(&log).unwrap(),
-            "terminal-colors --fg #4c4f69 --bg #eff1f5\nstart test/pi --unique --cwd /remote/home/it's $x --label role=regular -- pi\n"
+            "terminal-colors --fg #4c4f69 --bg #e1e2e7\nstart test/pi --unique --cwd /remote/home/it's $x --label role=regular -- pi\n"
         );
         std::fs::remove_dir_all(dir).unwrap();
     }
