@@ -370,7 +370,8 @@ const KANAGAWA: Terminal = Terminal {
 /// 2018-present Enkia): the terminal colours, cursor and selection as published. Four read under
 /// 3:1 on its light background, so they are darkened just enough, towards black: bright black
 /// #a1a6c5 to #7c8098, bright red #ff4774 to #e8416a, bright blue #358aff to #317feb and bright
-/// magenta #a463ff to #9e5ff5.
+/// magenta #a463ff to #9e5ff5. White, published as the blue fg #3760bf, takes the preset's text
+/// #343b58 instead (P5-187), so bold and bright text are not blue either.
 const TOKYO_NIGHT_DAY: Terminal = Terminal {
     ansi: [
         rgb(0xb4b5b9),
@@ -388,7 +389,7 @@ const TOKYO_NIGHT_DAY: Terminal = Terminal {
         rgb(0x317feb),
         rgb(0x9e5ff5),
         rgb(0x007ea8),
-        rgb(0x3760bf),
+        rgb(0x343b58),
     ],
     cursor: rgb(0x3760bf),
     selection: rgb(0xb7c1e3),
