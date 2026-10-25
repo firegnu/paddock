@@ -4,7 +4,6 @@
 路由：常规 / 交叉审查不要 / 影响面：看得见（主控定：只改一个预设里三处同一个颜色，一眼看得出、随时能改回）
 类型：样式／文案调整
 依据：用户看了样稿（`docs/设计稿/P5-187-TokyoNightDay正文色/Main.dc.html`）选“甲 #343b58”；Latte 维持不变。
-待用户：在 Tokyo Night Day 下重开 paddock 看正文色（已从分支装好）
 执行：主控
 提示：沿用现有视觉和用语约定，聚焦指定的呈现结果。
 
@@ -39,3 +38,6 @@
 - 验证：`cargo fmt --check`、`cargo clippy --all-targets -- -D warnings` 通过；`cargo test --all-targets --no-fail-fast` 共 1091 个全过。纯颜色改动，没另造失败测试；最终效果要用户在 Tokyo Night Day 下实际看。已从本分支打包安装到 `~/Applications/paddock.app`（10-25 12:36）。
 - 拿主意的地方：光标仍是蓝 `#3760bf`（样稿三栏都保留蓝光标）；终端默认字色跟着 `text` 走，所以不用单独改。
 - 没做的事：左侧栏卡片正文 `agents_text`（`#243f7e`）、pi 图标色（`#3760bf`）没改；Latte 不动。
+
+## 用户验收
+- 10-25 重开看过：“看过了，可以，合并吧”。

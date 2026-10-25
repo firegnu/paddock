@@ -8,7 +8,7 @@
 
 ## 本机安装
 
-- 现装：`~/Applications/paddock.app` 是 P5-185 的版本（10-24 从 main 合并提交 `2191fe6` 装，含 P5-186），本机 Apple Development 证书签名。
+- 现装：`~/Applications/paddock.app` 是 P5-187 的版本（10-25 从分支提交 `374dcdd` 装，代码与 main 合并提交 `a49fe6c` 相同，含此前的 P5-185、P5-186），本机 Apple Development 证书签名。
 - 重新打包安装：在 `app/` 下 `cargo build --release`，再 `cargo run --release --example bundle -- --install`（编译目录 `.target/main`）。默认选本机 Apple Development 身份，可用 `PADDOCK_SIGN_IDENTITY` 指定；退回 ad-hoc 时会提示屏幕录制授权会失效。release 很快结束时，核对产物时间晚于合并再装。
 - 退回：不留旧版。在临时 worktree 检出要退回的提交，照上面打包安装（编译目录用这个 worktree 自己的子目录）。旧版读不了新配置：P5-90 之前不认 `[[machines]]`，P5-120 之前不认预设里的 `sandbox` 字段，退回前先从 `~/.config/paddock/config.toml` 去掉。
 - paddock ctl：`~/.local/bin/paddock` 链到 app 里的程序，重新打包不用重建。技能正文改了要重跑 `paddock install-skills`（装在 `~/.claude/skills/paddock`、`~/.agents/skills/paddock`、`~/.gemini/config/skills/paddock`），开着的 agent 重开才看到。
@@ -44,7 +44,6 @@
 ## 还没派的草稿（主仓库工作区里未提交，看板显示 DRAFT，提交时按路径 `git add`）
 
 - `docs/任务/P5-54-选中内容送给agent.md`（优先：低）：Browser 选中元素、Changes 选中 diff 写上要怎么改后送给 agent；主控提议拆成 P5-54a Changes、P5-54b Browser，用户还没表态。
-- `docs/任务/P5-111-调研OSC7501agent状态标准.md`：范围已定 5 条，派出后用户叫停（“有风险，而且收益不行”），退回草稿。
 - `docs/任务/P5-115-用corral和cairn的仓库规矩统一.md`：范围、做法、验收都没定。
 - `docs/任务/P5-146-把终端拆出去做自己的终端.md`（优先：低）：长期想法。
 - `docs/任务/P5-149-终端按命令分段.md`（优先：低）：不排期。
