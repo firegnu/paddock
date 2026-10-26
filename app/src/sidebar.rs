@@ -1732,6 +1732,7 @@ impl Sidebar {
                         .child(
                             svg()
                                 .data(if index == 0 { THIS_MAC } else { OTHER_MACHINE })
+                                .text_color(if machine.shown { accent } else { dim })
                                 .w(ui.px(RAIL_MACHINE_ICON))
                                 .h(ui.px(14.0)),
                         )
