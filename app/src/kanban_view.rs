@@ -307,6 +307,8 @@ pub struct KanbanView {
     folded: Vec<Column>,
     /// DONE lists all its cards, not its last few: until the window closes, not in the layout.
     all_done: bool,
+    /// Queued Needs-you groups opened by their normalized reason, only until the window closes.
+    opened_asks: HashSet<String>,
     /// The latest read, for whichever directory it was.
     read: Option<Read>,
     /// What is drawn from it with the agents, kept to tell when it changes.
@@ -425,6 +427,7 @@ impl KanbanView {
             agents: Vec::new(),
             folded,
             all_done: false,
+            opened_asks: HashSet::new(),
             read: None,
             board: None,
             pending: None,
@@ -2228,7 +2231,11 @@ impl KanbanView {
                 .collect();
             if !shown.is_empty() {
                 // A group's rows in a box; DONE's bare, set in as far so their ids line up.
-                let rows = self.rows(&shown, Place::List, ids, fit, ui, cx);
+                let rows = if column == Column::Queued {
+                    self.queued_rows(&shown, Place::List, ids, fit, ui, cx)
+                } else {
+                    self.rows(&shown, Place::List, ids, fit, ui, cx)
+                };
                 let rows = if column == Column::Done {
                     rows.px(ui.px(BOX_PAD) + px(1.0))
                 } else {
@@ -2273,10 +2280,196 @@ impl KanbanView {
         let mut above = true;
         for card in cards {
             let hovered = self.hovered(card);
-            rows = rows.child(self.card(card, place, ids, !above && !hovered, None, fit, ui, cx));
+            rows = rows.child(self.card(
+                card,
+                place,
+                ids,
+                !above && !hovered,
+                None,
+                false,
+                fit,
+                ui,
+                cx,
+            ));
             above = hovered;
         }
         rows
+    }
+
+    /// Queued rows, with two or more tasks waiting for the same normalized reason folded together.
+    fn queued_rows(
+        &self,
+        cards: &[&Card],
+        place: Place,
+        ids: f32,
+        fit: &Fit,
+        ui: &UiFont,
+        cx: &mut Context<Self>,
+    ) -> Div {
+        let mut rows = div().flex_shrink_0().flex().flex_col();
+        let mut above = true;
+        for entry in queued_groups(cards) {
+            match entry {
+                QueueRow::Card(at) => {
+                    let card = cards[at];
+                    let hovered = self.hovered(card);
+                    rows = rows.child(self.card(
+                        card,
+                        place,
+                        ids,
+                        !above && !hovered,
+                        None,
+                        false,
+                        fit,
+                        ui,
+                        cx,
+                    ));
+                    above = hovered;
+                }
+                QueueRow::Group { reason, members } => {
+                    rows = rows.child(
+                        self.ask_group(&reason, &members, cards, place, ids, !above, fit, ui, cx),
+                    );
+                    above = false;
+                }
+            }
+        }
+        rows
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn ask_group(
+        &self,
+        reason: &str,
+        members: &[usize],
+        cards: &[&Card],
+        place: Place,
+        ids: f32,
+        rule: bool,
+        fit: &Fit,
+        ui: &UiFont,
+        cx: &mut Context<Self>,
+    ) -> Div {
+        let c = self.colors;
+        let open = self.opened_asks.contains(reason);
+        let room = self.room(place, ui);
+        let gap = ui.scale(8.0);
+        let count = members.len().to_string();
+        let count_width = fit.normal(&count, 11.0) + ui.scale(16.0) + 2.0;
+        let reason_room = room
+            - ui.scale(RING)
+            - fit.bold("Needs you", UNDER_SIZE)
+            - count_width
+            - 3.0 * gap
+            - SPARE;
+        let words = asks_words(reason, reason_room, &|cut| fit.normal(cut, UNDER_SIZE));
+        let note = Note::new(format!("Needs you: {reason}").into(), &self.theme, ui);
+        let key = reason.to_owned();
+        let line = div()
+            .flex()
+            .items_center()
+            .gap(px(gap))
+            .min_w(px(0.0))
+            .child(
+                svg()
+                    .data(CHEVRON_DOWN)
+                    .flex_shrink_0()
+                    .size(ui.px(RING))
+                    .text_color(c.yellow)
+                    .when(!open, |arrow| {
+                        arrow.with_transformation(Transformation::rotate(percentage(-0.25)))
+                    }),
+            )
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(c.yellow)
+                    .child("Needs you"),
+            )
+            .child(div().flex_1().min_w(px(0.0)).child(words))
+            .child(
+                pill(ui)
+                    .px(ui.px(7.0))
+                    .bg(c.yellow.opacity(0.16))
+                    .text_size(ui.px(11.0))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(c.yellow)
+                    .child(count),
+            );
+        let mut head = div()
+            .id(SharedString::from(format!("kanban-ask-group-{reason}")))
+            .flex_shrink_0()
+            .flex()
+            .flex_col()
+            .gap(ui.px(5.0))
+            .min_w(px(0.0))
+            .px(ui.px(CARD_RIGHT))
+            .py(ui.px(CARD_Y))
+            .bg(c.yellow.opacity(0.09))
+            .whitespace_nowrap()
+            .text_size(ui.px(UNDER_SIZE))
+            .cursor_pointer()
+            .tooltip(move |_, cx| cx.new(|_| note.clone()).into())
+            .child(line)
+            .on_click(cx.listener(move |view, _: &ClickEvent, _, cx| {
+                if !view.opened_asks.remove(&key) {
+                    view.opened_asks.insert(key.clone());
+                }
+                cx.notify();
+            }));
+        if !open {
+            let titles = members
+                .iter()
+                .map(|at| cards[*at].title.as_str())
+                .collect::<Vec<_>>()
+                .join(" · ");
+            let titles_room = room - ui.scale(RING + RING_GAP) - SPARE;
+            let titles = card::elide(&titles, &|cut| fit.normal(cut, UNDER_SIZE) <= titles_room);
+            head = head.child(
+                div()
+                    .pl(ui.px(RING + RING_GAP))
+                    .text_color(c.muted)
+                    .child(titles),
+            );
+        }
+        let mut group = div()
+            .relative()
+            .flex_shrink_0()
+            .flex()
+            .flex_col()
+            .overflow_hidden()
+            .rounded(ui.px(ROW_RADIUS))
+            .border_1()
+            .border_color(c.yellow.opacity(0.22))
+            .when(rule, |group| {
+                group.child(
+                    div()
+                        .absolute()
+                        .top(px(-1.0))
+                        .left(ui.px(CARD_LEFT))
+                        .right(ui.px(CARD_RIGHT))
+                        .h(px(1.0))
+                        .bg(c.text.opacity(RULE)),
+                )
+            })
+            .child(head);
+        if open {
+            for (at, member) in members.iter().enumerate() {
+                group = group.child(self.card(
+                    cards[*member],
+                    place,
+                    ids,
+                    at > 0,
+                    None,
+                    true,
+                    fit,
+                    ui,
+                    cx,
+                ));
+            }
+        }
+        group
     }
 
     /// A group's header in the narrow list: the arrow that folds it, its colour, its name and how
@@ -2405,7 +2598,11 @@ impl KanbanView {
                 body = body.child(self.loop_group(board, Place::Tile, 0.0, fit, ui, cx));
             }
             let cards = self.listed(board, column);
-            body = body.child(self.rows(&cards, Place::Tile, 0.0, fit, ui, cx));
+            body = body.child(if column == Column::Queued {
+                self.queued_rows(&cards, Place::Tile, 0.0, fit, ui, cx)
+            } else {
+                self.rows(&cards, Place::Tile, 0.0, fit, ui, cx)
+            });
             if column == Column::Done {
                 body = body.children(
                     self.show_all(board, ui, cx)
@@ -2713,7 +2910,7 @@ impl KanbanView {
                     }
                 };
                 let row = Now { agent, needs, rows };
-                self.card(card, place, ids, false, Some(row), fit, ui, cx)
+                self.card(card, place, ids, false, Some(row), false, fit, ui, cx)
                     .into_any_element()
             }),
         };
@@ -2871,6 +3068,7 @@ impl KanbanView {
         ids: f32,
         rule: bool,
         now: Option<Now>,
+        compact: bool,
         fit: &Fit,
         ui: &UiFont,
         cx: &mut Context<Self>,
@@ -2887,7 +3085,7 @@ impl KanbanView {
         };
         // A DONE row keeps its age with the mouse on it; another moves it to its agent's line, or
         // gives it up to the buttons.
-        let age = (!card.age.is_empty() && (done || !hovered)).then(|| {
+        let age = (!compact && !card.age.is_empty() && (done || !hovered)).then(|| {
             div()
                 .flex_shrink_0()
                 .text_size(ui.px(AGE_SIZE))
@@ -2918,6 +3116,23 @@ impl KanbanView {
             .items_center()
             .gap(ui.px(END_GAP))
             .children(looped)
+            .children(
+                (compact && inline)
+                    .then(|| {
+                        card.waits.as_ref().map(|id| {
+                            div()
+                                .flex_shrink_0()
+                                .flex()
+                                .items_center()
+                                .gap(ui.px(3.0))
+                                .text_size(ui.px(11.5))
+                                .text_color(c.muted)
+                                .child(svg().data(LINK).size(ui.px(10.0)).text_color(c.dim))
+                                .child(id.clone())
+                        })
+                    })
+                    .flatten(),
+            )
             .children(tags.into_iter().map(|t| self.tag(t, ui)))
             .children(self.warning(card, ui))
             .children(age);
@@ -2960,7 +3175,8 @@ impl KanbanView {
             div()
                 .flex_1()
                 .min_w(px(0.0))
-                .line_clamp(2)
+                .when(compact, |title| title.whitespace_nowrap())
+                .when(!compact, |title| title.line_clamp(2))
                 .text_ellipsis()
                 .font_weight(FontWeight::MEDIUM)
                 .text_color(if card.draft { c.muted } else { c.text })
@@ -2968,13 +3184,17 @@ impl KanbanView {
         }
         .line_height(ui.px(TITLE_LINE));
         let id = self.id(card, now.as_ref().map(|now| now.needs), ui);
-        let head = if inline {
+        let head = if inline || compact {
             div()
                 .flex()
                 .items_start()
                 .gap(ui.px(ID_GAP))
                 .min_w(px(0.0))
-                .child(div().flex_shrink_0().w(px(ids)).child(id))
+                .child(if inline {
+                    div().flex_shrink_0().w(px(ids)).child(id)
+                } else {
+                    div().flex_shrink_0().child(id)
+                })
                 .child(title)
                 .child(end)
                 .into_any_element()
@@ -3020,8 +3240,10 @@ impl KanbanView {
         } else {
             [
                 self.waits(card, under, fit, ui)
+                    .filter(|_| !compact)
                     .map(IntoElement::into_any_element),
                 self.asks(card, under, fit, ui)
+                    .filter(|_| !compact)
                     .map(IntoElement::into_any_element),
                 self.footer(card, place, hovered, under, ring, fit, ui, cx)
                     .map(IntoElement::into_any_element),
@@ -5811,9 +6033,160 @@ fn tags(column: Column, draft: bool, priority: Option<Priority>) -> Vec<Tag> {
         .collect()
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum QueueRow {
+    Card(usize),
+    Group { reason: String, members: Vec<usize> },
+}
+
+fn queued_groups(cards: &[&Card]) -> Vec<QueueRow> {
+    let reason = |card: &Card| {
+        card.asks
+            .as_deref()
+            .map(|asks| asks.split_whitespace().collect::<Vec<_>>().join(" "))
+    };
+    let mut members: HashMap<String, Vec<usize>> = HashMap::new();
+    for (at, card) in cards.iter().enumerate() {
+        if let Some(reason) = reason(card).filter(|reason| !reason.is_empty()) {
+            members.entry(reason).or_default().push(at);
+        }
+    }
+    let mut rows = Vec::new();
+    let mut grouped = HashSet::new();
+    for (at, card) in cards.iter().enumerate() {
+        if grouped.contains(&at) {
+            continue;
+        }
+        let group = reason(card)
+            .and_then(|reason| members.get(&reason).map(|members| (reason, members)))
+            .filter(|(_, members)| members.len() >= 2);
+        if let Some((reason, members)) = group {
+            grouped.extend(members.iter().copied());
+            rows.push(QueueRow::Group {
+                reason,
+                members: members.clone(),
+            });
+        } else {
+            rows.push(QueueRow::Card(at));
+        }
+    }
+    rows
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn queued_board(tasks: &[(&str, Option<&str>)], drafts: &[(&str, &str)]) -> Board {
+        let task = |id: &str, asks: Option<&str>| {
+            let asks = asks.map_or(String::new(), |asks| format!("待用户：{asks}\n"));
+            kanban::parse(&format!("{id}-task.md"), &format!("# 任务：{id}\n{asks}")).unwrap()
+        };
+        let facts = kanban::Facts {
+            tasks: tasks.iter().map(|(id, asks)| task(id, *asks)).collect(),
+            drafts: drafts
+                .iter()
+                .map(|(id, asks)| {
+                    kanban::draft(
+                        &format!("{id}-task.md"),
+                        &format!("# 任务：{id}\n待用户：{asks}\n"),
+                    )
+                })
+                .collect(),
+            ..Default::default()
+        };
+        kanban::board(&facts, &[], 0.0)
+    }
+
+    fn groups(cards: &[&Card]) -> Vec<QueueRow> {
+        queued_groups(cards)
+    }
+
+    #[test]
+    fn queued_asks_group_only_after_trimming_and_folding_whitespace() {
+        let board = queued_board(
+            &[
+                ("P5-1", Some("  用户   确认 方案 ")),
+                ("P5-2", Some("用户 确认 方案")),
+                ("P5-3", Some("别的理由")),
+            ],
+            &[],
+        );
+        let cards = board.cards(Column::Queued).iter().collect::<Vec<_>>();
+        assert_eq!(
+            groups(&cards),
+            [
+                QueueRow::Group {
+                    reason: "用户 确认 方案".into(),
+                    members: vec![0, 1],
+                },
+                QueueRow::Card(2),
+            ]
+        );
+    }
+
+    #[test]
+    fn queued_asks_keep_punctuation_singletons_and_missing_text_ungrouped() {
+        let board = queued_board(
+            &[
+                ("P5-1", Some("确认，方案")),
+                ("P5-2", Some("确认,方案")),
+                ("P5-3", Some("只有一件")),
+                ("P5-4", None),
+                ("P5-5", None),
+            ],
+            &[],
+        );
+        let cards = board.cards(Column::Queued).iter().collect::<Vec<_>>();
+        assert_eq!(
+            groups(&cards),
+            (0..5).map(QueueRow::Card).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn a_group_takes_its_first_members_place_without_reordering_the_rest() {
+        let board = queued_board(
+            &[
+                ("P5-1", Some("甲")),
+                ("P5-2", Some("同因")),
+                ("P5-3", Some("乙")),
+                ("P5-4", Some("同因")),
+                ("P5-5", Some("丙")),
+                ("P5-6", Some("同因")),
+            ],
+            &[],
+        );
+        let cards = board.cards(Column::Queued).iter().collect::<Vec<_>>();
+        assert_eq!(
+            groups(&cards),
+            [
+                QueueRow::Card(0),
+                QueueRow::Group {
+                    reason: "同因".into(),
+                    members: vec![1, 3, 5],
+                },
+                QueueRow::Card(2),
+                QueueRow::Card(4),
+            ]
+        );
+    }
+
+    #[test]
+    fn queued_drafts_take_part_in_ask_groups() {
+        let board = queued_board(
+            &[("P5-3", Some("同因"))],
+            &[("P5-1", "同因"), ("P5-2", "同因")],
+        );
+        let cards = board.cards(Column::Queued).iter().collect::<Vec<_>>();
+        assert_eq!(
+            groups(&cards),
+            [QueueRow::Group {
+                reason: "同因".into(),
+                members: vec![0, 1, 2],
+            }]
+        );
+    }
 
     #[test]
     fn the_middle_groups_with_nothing_fold_into_one_line_where_the_first_was() {
