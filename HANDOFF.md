@@ -8,7 +8,7 @@
 
 ## 本机安装
 
-- 现装：`~/Applications/paddock.app` 是 P5-190 的版本（10-25 从分支提交 `2f058eb` 装，代码与 main 合并提交 `9f55295` 相同，含此前的 P5-185 至 P5-189），本机 Apple Development 证书签名。
+- 现装：`~/Applications/paddock.app` 是 P5-191 的版本（10-26 从分支提交 `bb71f5f` 装，代码与 main 合并提交 `09a9d24` 相同，含此前的 P5-185 至 P5-190），本机 Apple Development 证书签名。
 - 重新打包安装：在 `app/` 下 `cargo build --release`，再 `cargo run --release --example bundle -- --install`（编译目录 `.target/main`）。默认选本机 Apple Development 身份，可用 `PADDOCK_SIGN_IDENTITY` 指定；退回 ad-hoc 时会提示屏幕录制授权会失效。release 很快结束时，核对产物时间晚于合并再装。
 - 退回：不留旧版。在临时 worktree 检出要退回的提交，照上面打包安装（编译目录用这个 worktree 自己的子目录）。旧版读不了新配置：P5-90 之前不认 `[[machines]]`，P5-120 之前不认预设里的 `sandbox` 字段，退回前先从 `~/.config/paddock/config.toml` 去掉。
 - paddock ctl：`~/.local/bin/paddock` 链到 app 里的程序，重新打包不用重建。技能正文改了要重跑 `paddock install-skills`（装在 `~/.claude/skills/paddock`、`~/.agents/skills/paddock`、`~/.gemini/config/skills/paddock`），开着的 agent 重开才看到。
