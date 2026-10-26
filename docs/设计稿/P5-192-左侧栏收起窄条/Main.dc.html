@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>Collapsed sidebar now</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div style="position: relative; width: 420px; height: 820px; overflow: hidden; background: #d8dae1; font-family: -apple-system, 'SF Pro Text', 'Helvetica Neue', sans-serif; color: #2a2833">
+<div style="position: absolute; left: 14px; top: 14px; display: flex; gap: 8px">
+<span style="width: 12px; height: 12px; border-radius: 50%; background: #ff5f57"></span>
+<span style="width: 12px; height: 12px; border-radius: 50%; background: #febc2e"></span>
+<span style="width: 12px; height: 12px; border-radius: 50%; background: #28c840"></span>
+</div>
+<svg style="position: absolute; left: 76px; top: 13px" width="15" height="14" viewBox="0 0 15 14" aria-hidden="true"><rect x="1" y="1" width="13" height="12" rx="2.5" fill="none" stroke="#6f6c7a" stroke-width="1.3"></rect><line x1="5.5" y1="1" x2="5.5" y2="13" stroke="#6f6c7a" stroke-width="1.3"></line></svg>
+<div style="position: absolute; left: 104px; top: 6px; height: 28px; padding: 0 12px; border-radius: 14px; background: #f3f4f7; display: flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 500">
+<span style="width: 14px; height: 14px; border-radius: 4px; background: #d97757"></span>main<span style="width: 6px; height: 6px; border-radius: 50%; background: #22a06b"></span>
+</div>
+<div style="position: absolute; left: 0; top: 40px; bottom: 0; width: 52px; background: #eef0f5; display: flex; flex-direction: column; align-items: center; padding-top: 8px; box-sizing: border-box">
+<div style="height: 22px; padding: 0 7px; border-radius: 6px; background: #dcdee6; display: flex; align-items: center; font-size: 12.5px; font-weight: 600">Th</div>
+<div style="height: 22px; margin-top: 2px; display: flex; align-items: center; gap: 4px; font-size: 12.5px; color: #6f6c7a">RT<span style="width: 6px; height: 6px; border-radius: 50%; background: #22a06b"></span></div>
+<svg style="margin-top: 10px" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 11 V7.5 a4 4 0 0 1 8 0 V11 l1 1.2 H3 Z M6.6 13.6 a1.5 1.5 0 0 0 2.8 0" fill="none" stroke="#6f6c7a" stroke-width="1.2" stroke-linejoin="round"></path></svg>
+<svg style="margin-top: 14px" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><line x1="6" y1="4" x2="6" y2="12" stroke="#6f6c7a" stroke-width="1.5" stroke-linecap="round"></line><line x1="10" y1="4" x2="10" y2="12" stroke="#6f6c7a" stroke-width="1.5" stroke-linecap="round"></line></svg>
+<svg style="margin-top: 14px" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 6 L8 3 L14 6 L8 9 Z M2 9.5 L8 12.5 L11 11" fill="none" stroke="#6f6c7a" stroke-width="1.2" stroke-linejoin="round"></path><path d="M12.5 9 V14 M10 11.5 H15" stroke="#6f6c7a" stroke-width="1.2" stroke-linecap="round"></path></svg>
+<div style="width: 24px; height: 1px; background: rgba(40,36,52,0.14); margin: 12px 0 6px"></div>
+<sc-for list="{{tiles}}" as="t" hint-placeholder-count="10">
+<sc-if value="{{t.rule}}" hint-placeholder-val="{{ false }}">
+<div style="width: {{t.ruleW}}; height: {{t.ruleH}}; background: {{t.ruleC}}; margin: 7px 0"></div>
+</sc-if>
+<sc-if value="{{t.tile}}" hint-placeholder-val="{{ true }}">
+<div style="position: relative; width: 34px; height: 34px; margin: 3.5px 0; border-radius: 9px; box-sizing: border-box; background: {{t.bg}}; border: {{t.border}}; box-shadow: {{t.plate}}; display: flex; align-items: center; justify-content: center">
+<sc-if value="{{t.claude}}" hint-placeholder-val="{{ true }}"><svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><g stroke="#ffffff" stroke-width="2.6" stroke-linecap="round"><line x1="12" y1="3" x2="12" y2="21"></line><line x1="3" y1="12" x2="21" y2="12"></line><line x1="5.6" y1="5.6" x2="18.4" y2="18.4"></line><line x1="18.4" y1="5.6" x2="5.6" y2="18.4"></line></g></svg></sc-if>
+<sc-if value="{{t.codex}}" hint-placeholder-val="{{ false }}"><svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 L19.8 7.5 V16.5 L12 21 L4.2 16.5 V7.5 Z" fill="none" stroke="#1f1d24" stroke-width="1.8" stroke-linejoin="round"></path><circle cx="12" cy="12" r="3.2" fill="none" stroke="#1f1d24" stroke-width="1.8"></circle></svg></sc-if>
+<sc-if value="{{t.crown}}" hint-placeholder-val="{{ false }}">
+<span style="position: absolute; left: -6px; top: -7px; width: 17px; height: 17px; border-radius: 9px; background: #eef0f5; display: flex; align-items: center; justify-content: center"><svg width="13" height="11" viewBox="0 0 16 13" aria-hidden="true"><path d="M1.5 11 L1 3 L5 6.5 L8 1 L11 6.5 L15 3 L14.5 11 Z" fill="#7c4ddb"></path></svg></span>
+</sc-if>
+<sc-if value="{{t.green}}" hint-placeholder-val="{{ false }}"><span style="position: absolute; right: -3px; bottom: -3px; width: 8px; height: 8px; border-radius: 50%; background: #22a06b; box-shadow: 0 0 0 2px #eef0f5"></span></sc-if>
+<sc-if value="{{t.arc}}" hint-placeholder-val="{{ false }}"><span style="position: absolute; right: -4px; bottom: -4px; width: 7px; height: 7px; border-radius: 50%; border: 2px solid #3b82f6; border-right-color: transparent; background: #eef0f5"></span></sc-if>
+</div>
+</sc-if>
+</sc-for>
+<div style="flex: 1"></div>
+<svg style="margin-bottom: 14px" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4.5 H14 M2 8 H14 M2 11.5 H14" stroke="#6f6c7a" stroke-width="1.2" stroke-linecap="round"></path><circle cx="10" cy="4.5" r="1.6" fill="#eef0f5" stroke="#6f6c7a" stroke-width="1.2"></circle><circle cx="5.5" cy="8" r="1.6" fill="#eef0f5" stroke="#6f6c7a" stroke-width="1.2"></circle><circle cx="9" cy="11.5" r="1.6" fill="#eef0f5" stroke="#6f6c7a" stroke-width="1.2"></circle></svg>
+</div>
+<div style="position: absolute; left: 60px; top: 40px; right: 8px; bottom: 8px; border-radius: 10px; background: #fbfbfd; border: 1px solid rgba(40,36,52,0.08); padding: 16px 18px; box-sizing: border-box; display: flex; flex-direction: column; gap: 10px">
+<div style="font-size: 12px; color: #6f6c7a; font-weight: 600">main · canter/main</div>
+<sc-for list="{{lines}}" as="l" hint-placeholder-count="12"><div style="height: 9px; border-radius: 3px; width: {{l}}; background: rgba(40,36,52,0.08)"></div></sc-for>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":420,"height":820}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const claude = { bg: '#d97757', border: 'none' };
+    const codex = { bg: '#ffffff', border: '1px solid rgba(40,36,52,0.12)' };
+    const tile = (kind, extra) => ({
+      tile: true, claude: kind === 'claude', codex: kind === 'codex', plate: 'none',
+      ...(kind === 'claude' ? claude : codex), ...extra,
+    });
+    const rule = (w, h, c) => ({ rule: true, ruleW: w, ruleH: h, ruleC: c });
+    return {
+      tiles: [
+        tile('claude', { crown: true, green: true, plate: '0 0 0 3px #e3e3ec, 0 0 0 4px rgba(40,36,52,0.22)' }),
+        tile('codex', { arc: true }),
+        rule('16px', '1px', 'rgba(40,36,52,0.14)'),
+        tile('claude', { arc: true }),
+        tile('codex', { arc: true }),
+        tile('claude', { arc: true }),
+        rule('28px', '2px', 'rgba(40,36,52,0.22)'),
+        tile('claude', { crown: true, green: true }),
+        rule('16px', '1px', 'rgba(40,36,52,0.14)'),
+        tile('claude', { crown: true, green: true }),
+        rule('16px', '1px', 'rgba(40,36,52,0.14)'),
+        tile('claude', { crown: true, green: true }),
+      ],
+      lines: ['70%', '55%', '82%', '40%', '76%', '62%', '30%', '85%', '58%', '72%', '45%', '66%'],
+    };
+  }
+}
+</script>
+</body>
+</html>
