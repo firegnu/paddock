@@ -244,6 +244,9 @@ const HEADING_Y: f32 = 4.0;
 /// A working agent's spinner, drawn as a mask: the faint track and the arc that turns.
 const SPIN_TRACK: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12"><circle cx="6" cy="6" r="4.5" fill="none" stroke="#000" stroke-width="2"/></svg>"##;
 const SPIN_ARC: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12"><path d="M6 1.5a4.5 4.5 0 0 1 4.5 4.5" fill="none" stroke="#000" stroke-width="2" stroke-linecap="round"/></svg>"##;
+/// The strip's own line icons for This Mac and another machine (P5-192).
+const THIS_MAC: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 14"><rect x="2.5" y="2" width="11" height="7.5" rx="1.3" fill="none" stroke="#000" stroke-width="1.3"/><path d="M1 11.5H15" fill="none" stroke="#000" stroke-width="1.3" stroke-linecap="round"/></svg>"##;
+const OTHER_MACHINE: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 14"><rect x="2" y="1.5" width="12" height="4.5" rx="1.2" fill="none" stroke="#000" stroke-width="1.2"/><rect x="2" y="8" width="12" height="4.5" rx="1.2" fill="none" stroke="#000" stroke-width="1.2"/><circle cx="4.6" cy="3.75" r="0.8" fill="#000"/><circle cx="4.6" cy="10.25" r="0.8" fill="#000"/></svg>"##;
 
 /// The collapsed strip's width, in points at the base interface size.
 pub const RAIL: f32 = 52.0;
@@ -321,13 +324,18 @@ const MACHINE_MENU: (f32, f32) = (210.0, 320.0);
 const PLACEHOLDERS: [f32; 3] = [1.0, 0.6, 0.3];
 /// What a card asks before pausing an agent in a turn.
 const PAUSE_WORKING: &str = "Working \u{2014} pause anyway?";
-/// An agent's tile in the strip: its side, corners and the room above and below it, and how far
-/// the plate showing its state reaches round a tile its original covers (two plates, a shown
-/// tile's and a hovered neighbour's, just miss).
-const TILE: f32 = 34.0;
-const TILE_RADIUS: f32 = 9.0;
-const TILE_GAP: f32 = 3.5;
-const TILE_PLATE: f32 = 3.0;
+/// An agent's tile in the strip: its side, corners, the room above and below it, its original
+/// picture, status dot and the controller's crown with its frame-coloured outline (P5-192).
+const TILE: f32 = 30.0;
+const TILE_RADIUS: f32 = 8.0;
+const TILE_GAP: f32 = 5.0;
+const TILE_ORIGINAL: f32 = 18.0;
+const TILE_DOT: f32 = 7.0;
+const RAIL_CROWN: f32 = 10.0;
+const RAIL_CROWN_RING: f32 = 2.0;
+/// The narrow machine switcher: its buttons and the icons drawn in them.
+const RAIL_MACHINE: f32 = 28.0;
+const RAIL_MACHINE_ICON: f32 = 16.0;
 /// The strip's bell: its height (and least width), its sides, and the room between the icon and
 /// the count.
 const RAIL_BELL: f32 = 28.0;
@@ -1432,20 +1440,19 @@ impl Sidebar {
     }
 
     /// The collapsed strip: the bell, the button for every agent and `New Workspace…`, then a tile
-    /// for each agent, the projects set apart by short rules, and the menu button at the bottom.
+    /// for each agent, workspaces set apart by one kind of short rule (P5-192), and the menu button.
     fn rail(&mut self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
         let ui = UiFont::get(cx);
         let theme = self.theme.clone();
         let grounds = self.grounds();
-        let rule = |width: f32, y: f32| {
+        let rule = |y: f32| {
             div()
                 .flex_shrink_0()
-                .w(ui.px(width))
+                .w(ui.px(20.0))
                 .h(px(1.0))
                 .my(ui.px(y))
                 .bg(grounds.rule)
         };
-        let edge_rule = hsla(self.theme.fg(|t| t.agents_dimmer), 0.7);
         let lines = self.listing.unfolded(
             self.selected.as_deref(),
             &self.here,
@@ -1463,8 +1470,7 @@ impl Sidebar {
             .items_center()
             .pt(ui.px(4.0))
             .pb(ui.px(4.0));
-        // Between groups a short rule; a longer, brighter one where a workspace starts or the
-        // last one ends.
+        // Workspaces take the same rule as the header; repositories within one take only a gap.
         let mut first = true;
         let mut last: Option<Option<String>> = None;
         for line in lines {
@@ -1480,9 +1486,9 @@ impl Sidebar {
                 Line::Group(heading) => {
                     let edge = last.as_ref().is_some_and(|last| *last != heading.workspace);
                     if !first && edge {
-                        tiles = tiles.child(rule(28.0, 7.0).h(px(2.0)).bg(edge_rule));
+                        tiles = tiles.child(rule(8.0));
                     } else if !first {
-                        tiles = tiles.child(rule(16.0, 6.0));
+                        tiles = tiles.child(div().flex_shrink_0().h(ui.px(8.0)));
                     }
                     last = Some(heading.workspace);
                 }
@@ -1527,7 +1533,7 @@ impl Sidebar {
             .when(self.remote.is_none(), |rail| {
                 rail.child(self.new_workspace_button(cx).mt(ui.px(4.0)))
             })
-            .child(rule(24.0, 0.0).mt(ui.px(8.0)).mb(ui.px(4.0)))
+            .child(rule(0.0).mt(ui.px(8.0)).mb(ui.px(6.0)))
             .child(tiles)
             .child(
                 div()
@@ -1610,8 +1616,8 @@ impl Sidebar {
     /// in line with the workspaces and cards below (P5-139): its name, how many of its agents want
     /// the user, and how its connection stands, why on hover; the machine on show on a faint
     /// accent, no more. Too many for one row, they go on in the next. A click shows that machine,
-    /// and tries one that could not be read again. Narrow, on the strip, a column of each
-    /// machine's first letters. None without other machines.
+    /// and tries one that could not be read again. Narrow, a vertical trough of machine icons
+    /// (P5-192). None without other machines.
     fn switcher(&self, narrow: bool, cx: &mut Context<Self>) -> Option<Div> {
         if self.machines.is_empty() {
             return None;
@@ -1628,10 +1634,15 @@ impl Sidebar {
         );
         let (bright, accent) = (fg(|t| t.bright), fg(|t| t.agents_accent));
         let grounds = self.grounds();
-        let selected = grounds.selected;
         let mut bar = div().flex_shrink_0().flex();
         bar = if narrow {
-            bar.items_center().gap(ui.px(2.0)).flex_col().pb(ui.px(4.0))
+            bar.items_center()
+                .gap(ui.px(2.0))
+                .flex_col()
+                .p(ui.px(2.0))
+                .mb(ui.px(4.0))
+                .rounded(ui.px(9.0))
+                .bg(text.opacity(0.06))
         } else {
             bar.flex_wrap()
                 .items_center()
@@ -1675,40 +1686,71 @@ impl Sidebar {
                     .child(format!("{}{}", attention.kind.mark(), attention.count))
             });
             if narrow {
+                let status = machine.attention.as_ref().map_or_else(
+                    || match machine.status {
+                        None => green,
+                        Some(_) if machine.problem => red,
+                        Some(_) => dim,
+                    },
+                    |attention| match attention.kind {
+                        attention::Kind::Error | attention::Kind::ReadFailed => red,
+                        attention::Kind::Waiting => amber,
+                        attention::Kind::Reply => accent,
+                    },
+                );
                 bar = bar.child(
                     div()
                         .id(("machine", index))
+                        .relative()
                         .flex()
+                        .flex_shrink_0()
                         .items_center()
-                        .gap(ui.px(5.0))
-                        .h(ui.px(24.0))
-                        .px(ui.px(8.0))
-                        .rounded(ui.px(6.0))
+                        .justify_center()
+                        .w(ui.px(RAIL_MACHINE))
+                        .h(ui.px(26.0))
+                        .rounded(ui.px(7.0))
                         .cursor_pointer()
-                        .whitespace_nowrap()
-                        .text_size(ui.px(12.5))
-                        .text_color(if machine.shown { text } else { dim })
+                        .text_color(if machine.shown { accent } else { dim })
                         .when(machine.shown, |tab| {
-                            tab.bg(selected).font_weight(FontWeight::SEMIBOLD)
+                            tab.bg(grounds.tile_selected).shadow(vec![BoxShadow {
+                                color: gpui::black().opacity(self.theme.shade(0.14)),
+                                offset: point(px(0.0), ui.px(1.0)),
+                                blur_radius: ui.px(2.0),
+                                spread_radius: px(0.0),
+                                inset: false,
+                            }])
                         })
-                        .hover(move |style| style.bg(selected))
+                        .when(!machine.shown, |tab| {
+                            tab.hover(move |style| style.bg(grounds.tile_hovered))
+                        })
                         .tooltip(move |_, cx| cx.new(|_| tip.clone()).into())
                         .on_click(on_click)
                         .when_some(press, |tab, press| {
-                            tab.relative().on_mouse_down(MouseButton::Right, press)
+                            tab.on_mouse_down(MouseButton::Right, press)
                         })
                         .children(hanging)
-                        .child(machine.name.chars().take(2).collect::<String>())
-                        // Another machine answering: a dot; not answering, a dot for what stands.
+                        .child(
+                            svg()
+                                .data(if index == 0 { THIS_MAC } else { OTHER_MACHINE })
+                                .w(ui.px(RAIL_MACHINE_ICON))
+                                .h(ui.px(14.0)),
+                        )
+                        // Attention takes the status dot's place; the wide cells keep their counts.
                         .when(index > 0, |tab| {
-                            let color = match machine.status {
-                                None => green,
-                                Some(_) if machine.problem => red,
-                                Some(_) => dim,
-                            };
-                            tab.child(div().size(ui.px(6.0)).rounded_full().bg(color))
-                        })
-                        .children(attention),
+                            tab.child(
+                                div()
+                                    .absolute()
+                                    .right(px(0.0))
+                                    .bottom(px(0.0))
+                                    .size(ui.px(9.0))
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .rounded_full()
+                                    .bg(grounds.frame)
+                                    .child(div().size(ui.px(6.0)).rounded_full().bg(status)),
+                            )
+                        }),
                 );
                 continue;
             }
@@ -3020,12 +3062,19 @@ impl Note {
 struct Grounds {
     /// The column itself: the sidebar's colour, or nothing over the material.
     base: Hsla,
-    /// A selected tile, a lit button; a hovered one takes half of it.
+    /// The window frame under the collapsed strip, also ringing marks that hang over it (P5-192).
+    frame: Hsla,
+    /// A selected lit button.
     selected: Hsla,
     /// What a waiting card adds.
     waiting: Hsla,
     /// The strip's short rules.
     rule: Hsla,
+    /// The strip's translucent tile faces, their bright selected face and faint edge (P5-192).
+    tile: Hsla,
+    tile_hovered: Hsla,
+    tile_selected: Hsla,
+    tile_edge: Hsla,
     /// A card's own face resting, hovered, paused and paused hovered, and a selected card's (P5-51).
     card: Hsla,
     card_hovered: Hsla,
@@ -3050,6 +3099,15 @@ impl Grounds {
                 text.opacity(alpha)
             }
         };
+        let frame = hsla(theme.frame(), 1.0);
+        let tile = face(FACE * 2.0);
+        let tile_hovered = face(FACE_HOVERED * FROSTED_FACE);
+        let tile_selected = if theme.is_light() {
+            gpui::white()
+        } else {
+            over(face(SELECTED_FACE * FROSTED_FACE), frame)
+        };
+        let tile_edge = text.opacity(EDGE);
         if frosted {
             let frost = theme.frost();
             let accent = fg(|t| t.agents_accent).opacity(SELECTED_FACE * FROSTED_FACE);
@@ -3063,9 +3121,14 @@ impl Grounds {
                 let clear = gpui::transparent_black();
                 return Self {
                     base: clear,
+                    frame,
                     selected: text.opacity(frost.lit),
                     waiting: fg(|t| t.agents_yellow).opacity(frost.waiting),
                     rule: text.opacity(frost.lit),
+                    tile,
+                    tile_hovered,
+                    tile_selected,
+                    tile_edge,
                     card: over(face(FACE * FROSTED_FACE), base),
                     card_hovered: over(face(FACE_HOVERED * FROSTED_FACE), base),
                     card_paused: clear,
@@ -3076,9 +3139,14 @@ impl Grounds {
             }
             Self {
                 base: gpui::transparent_black(),
+                frame,
                 selected: text.opacity(frost.lit),
                 waiting: fg(|t| t.agents_yellow).opacity(frost.waiting),
                 rule: text.opacity(frost.lit),
+                tile,
+                tile_hovered,
+                tile_selected,
+                tile_edge,
                 card: face(FACE * FROSTED_FACE),
                 card_hovered: face(FACE_HOVERED * FROSTED_FACE),
                 card_paused: face(FACE_PAUSED * FROSTED_FACE),
@@ -3088,13 +3156,17 @@ impl Grounds {
             }
         } else {
             let base = hsla(theme.bg(|t| t.agents_bg), 1.0);
-            // The preset's own selected colour, as the strip's tile shows it.
             let selected = hsla(theme.bg(|t| t.agent_selected), 1.0);
             Self {
                 base,
+                frame,
                 selected,
                 waiting: fg(|t| t.agents_yellow).opacity(WAITING_TINT),
                 rule: fg(|t| t.agents_rule).opacity(0.8),
+                tile,
+                tile_hovered,
+                tile_selected,
+                tile_edge,
                 card: over(face(FACE), base),
                 card_hovered: over(face(FACE_HOVERED), base),
                 card_paused: over(face(FACE_PAUSED), base),
@@ -4332,10 +4404,26 @@ fn details(theme: &Theme, mono: &Font, ui: &UiFont, card: &Card, buttons: Button
         .children(question)
 }
 
-/// An agent in the collapsed strip: its kind's icon (or letter) as on the card's avatar, with the
-/// card's status mark on the corner; a waiting one on faint amber with a thin amber edge, the one
-/// in the active pane on a lit square with a faint edge, a paused one faded. Hovering shows who it
-/// is.
+/// The strip's one status mark: a solid dot in the status colour, ringed in the frame (P5-192).
+fn rail_badge(theme: &Theme, ui: &UiFont, card: &Card, frame: Hsla) -> AnyElement {
+    let color = hsla(theme.fg(card.look.color), 1.0);
+    div()
+        .absolute()
+        .right(ui.px(-4.0))
+        .bottom(ui.px(-4.0))
+        .size(ui.px(TILE_DOT + 4.0))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded_full()
+        .bg(frame)
+        .child(div().size(ui.px(TILE_DOT)).rounded_full().bg(color))
+        .into_any_element()
+}
+
+/// An agent in the collapsed strip: a small kind mark on a faint bright tile, an original at its
+/// own colours, and one status dot. The selected tile has an accent edge and an opaque bright face;
+/// a controller's crown sits over the middle of its top edge (P5-192).
 #[derive(IntoElement)]
 struct Tile {
     card: Card,
@@ -4349,60 +4437,25 @@ impl RenderOnce for Tile {
     fn render(self, _: &mut Window, cx: &mut App) -> impl IntoElement {
         let ui = UiFont::get(cx);
         let theme = &self.theme;
-        let fg = |pick: Pick| hsla(theme.fg(pick), 1.0);
         let card = &self.card;
         let grounds = self.grounds;
         let tip = self.tip;
-        let waiting = card.status == Status::Waiting;
-        // The tile's ground, as the card's: lit when shown, amber added while waiting.
-        let base = if card.selected {
-            over(grounds.selected, grounds.base)
-        } else {
-            grounds.base
-        };
-        let ground = if waiting {
-            over(grounds.waiting, base)
-        } else {
-            base
-        };
-        let hovered = if card.selected {
-            ground
-        } else {
-            over(grounds.selected.opacity(0.6), ground)
-        };
-        let group = SharedString::from(format!("rail-tile-{}", card.name));
-        let edge = if waiting {
-            fg(|t| t.agents_yellow).opacity(0.22)
-        } else if card.selected {
-            fg(|t| t.agents_border).opacity(0.6)
-        } else {
-            gpui::transparent_black()
-        };
+        let accent = hsla(theme.fg(|t| t.agents_accent), 1.0);
         let color = kind_color(theme, card);
-        let original = original_mark(&ui, card, color, (TILE, TILE_RADIUS));
-        // An original covers the tile, so its ground and edge go on a plate round it instead.
-        let plate = original.is_some().then(|| {
-            let selected = card.selected;
-            div()
-                .absolute()
-                .top(ui.px(-TILE_PLATE))
-                .left(ui.px(-TILE_PLATE))
-                .size(ui.px(TILE + 2.0 * TILE_PLATE))
-                .rounded(ui.px(TILE_RADIUS + TILE_PLATE))
-                .bg(ground)
-                .border_1()
-                .border_color(edge)
-                .when(!selected, |plate| {
-                    plate.group_hover(group.clone(), move |style| style.bg(hovered))
-                })
-        });
-        let (mark, fills) = match original {
-            Some((mark, fills)) => (mark, Some(fills)),
-            None => (kind_mark(&ui, card, color, TILE_SIZE), None),
+        let mark = card
+            .brand
+            .as_ref()
+            .and_then(|brand| kind_icon::of(&brand.kind))
+            .filter(|icon| icon.original())
+            .map(|icon| icon.render(ui.px(TILE_ORIGINAL), color))
+            .unwrap_or_else(|| kind_mark(&ui, card, color, TILE_SIZE));
+        let ground = if card.selected {
+            grounds.tile_selected
+        } else {
+            grounds.tile
         };
         div()
             .id(ElementId::Name(SharedString::from(card.name.clone())))
-            .group(group.clone())
             .relative()
             .flex_shrink_0()
             .size(ui.px(TILE))
@@ -4412,47 +4465,45 @@ impl RenderOnce for Tile {
             .justify_center()
             .rounded(ui.px(TILE_RADIUS))
             .cursor_pointer()
-            .map(|tile| match fills {
-                None => tile
-                    .bg(ground)
-                    .border_1()
-                    .border_color(edge)
-                    .when(!card.selected, |tile| {
-                        tile.hover(move |style| style.bg(hovered))
-                    }),
-                Some(false) => tile.bg(color.opacity(AVATAR_TINT)),
-                Some(true) => tile,
+            .bg(ground)
+            .border(if card.selected { ui.px(1.5) } else { px(1.0) })
+            .border_color(if card.selected {
+                accent
+            } else {
+                grounds.tile_edge
+            })
+            .when(!card.selected, |tile| {
+                tile.hover(move |style| style.bg(grounds.tile_hovered))
             })
             .tooltip(move |_, cx| cx.new(|_| tip.clone()).into())
             .on_click(self.on_click)
             .when(card.status == Status::Paused, |tile| {
                 tile.opacity(PAUSED_OPACITY)
             })
-            .children(plate)
             .child(mark)
-            // The mark hangs over the strip: ringed in the strip's colour. A controller wears the
-            // crown on its top corner (P5-182), ringed the same way.
-            .child(badge(
-                theme,
-                &ui,
-                card,
-                (grounds.base, grounds.base),
-                &group,
-                None,
-            ))
+            .child(rail_badge(theme, &ui, card, grounds.frame))
             .children(card.controller.then(|| {
-                let accent = fg(|t| t.agents_accent);
                 div()
                     .absolute()
-                    .left(ui.px(-CROWN_LEFT))
-                    .top(ui.px(-CROWN_TOP))
-                    .size(ui.px(CROWN_PAD))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .rounded(ui.px(CROWN_PAD_RADIUS))
-                    .bg(grounds.base)
-                    .child(crate::crown::crown(accent, Some(accent), ui.scale(CROWN)))
+                    .left(ui.px((TILE - RAIL_CROWN - RAIL_CROWN_RING) / 2.0))
+                    .top(ui.px(-(RAIL_CROWN + RAIL_CROWN_RING) / 2.0))
+                    .size(ui.px(RAIL_CROWN + RAIL_CROWN_RING))
+                    .child(crate::crown::crown(
+                        grounds.frame,
+                        Some(grounds.frame),
+                        ui.scale(RAIL_CROWN + RAIL_CROWN_RING),
+                    ))
+                    .child(
+                        div()
+                            .absolute()
+                            .left(ui.px(RAIL_CROWN_RING / 2.0))
+                            .top(ui.px(RAIL_CROWN_RING / 2.0))
+                            .child(crate::crown::crown(
+                                accent,
+                                Some(accent),
+                                ui.scale(RAIL_CROWN),
+                            )),
+                    )
             }))
     }
 }
