@@ -307,8 +307,8 @@ pub struct KanbanView {
     folded: Vec<Column>,
     /// DONE lists all its cards, not its last few: until the window closes, not in the layout.
     all_done: bool,
-    /// Queued Needs-you groups opened by their normalized reason, only until the window closes.
-    opened_asks: HashSet<String>,
+    /// Queued's Needs-you group opened, only until the window closes.
+    asks_open: bool,
     /// The latest read, for whichever directory it was.
     read: Option<Read>,
     /// What is drawn from it with the agents, kept to tell when it changes.
@@ -427,7 +427,7 @@ impl KanbanView {
             agents: Vec::new(),
             folded,
             all_done: false,
-            opened_asks: HashSet::new(),
+            asks_open: false,
             read: None,
             board: None,
             pending: None,
@@ -2326,10 +2326,9 @@ impl KanbanView {
                     ));
                     above = hovered;
                 }
-                QueueRow::Group { reason, members } => {
-                    rows = rows.child(
-                        self.ask_group(&reason, &members, cards, place, ids, !above, fit, ui, cx),
-                    );
+                QueueRow::Group { members } => {
+                    rows = rows
+                        .child(self.ask_group(&members, cards, place, ids, !above, fit, ui, cx));
                     above = false;
                 }
             }
@@ -2340,7 +2339,6 @@ impl KanbanView {
     #[allow(clippy::too_many_arguments)]
     fn ask_group(
         &self,
-        reason: &str,
         members: &[usize],
         cards: &[&Card],
         place: Place,
@@ -2351,20 +2349,10 @@ impl KanbanView {
         cx: &mut Context<Self>,
     ) -> Div {
         let c = self.colors;
-        let open = self.opened_asks.contains(reason);
+        let open = self.asks_open;
         let room = self.room(place, ui);
         let gap = ui.scale(8.0);
         let count = members.len().to_string();
-        let count_width = fit.normal(&count, 11.0) + ui.scale(16.0) + 2.0;
-        let reason_room = room
-            - ui.scale(RING)
-            - fit.bold("Needs you", UNDER_SIZE)
-            - count_width
-            - 3.0 * gap
-            - SPARE;
-        let words = asks_words(reason, reason_room, &|cut| fit.normal(cut, UNDER_SIZE));
-        let note = Note::new(format!("Needs you: {reason}").into(), &self.theme, ui);
-        let key = reason.to_owned();
         let line = div()
             .flex()
             .items_center()
@@ -2387,7 +2375,6 @@ impl KanbanView {
                     .text_color(c.yellow)
                     .child("Needs you"),
             )
-            .child(div().flex_1().min_w(px(0.0)).child(words))
             .child(
                 pill(ui)
                     .px(ui.px(7.0))
@@ -2398,7 +2385,7 @@ impl KanbanView {
                     .child(count),
             );
         let mut head = div()
-            .id(SharedString::from(format!("kanban-ask-group-{reason}")))
+            .id("kanban-ask-group")
             .flex_shrink_0()
             .flex()
             .flex_col()
@@ -2410,12 +2397,9 @@ impl KanbanView {
             .whitespace_nowrap()
             .text_size(ui.px(UNDER_SIZE))
             .cursor_pointer()
-            .tooltip(move |_, cx| cx.new(|_| note.clone()).into())
             .child(line)
-            .on_click(cx.listener(move |view, _: &ClickEvent, _, cx| {
-                if !view.opened_asks.remove(&key) {
-                    view.opened_asks.insert(key.clone());
-                }
+            .on_click(cx.listener(|view, _: &ClickEvent, _, cx| {
+                view.asks_open = !view.asks_open;
                 cx.notify();
             }));
         if !open {
@@ -3183,6 +3167,17 @@ impl KanbanView {
                 .child(card.title.clone())
         }
         .line_height(ui.px(TITLE_LINE));
+        // In Queued's Needs-you group, the row has no line of its own for why (P5-193).
+        let title = match card.asks.as_deref().filter(|_| compact) {
+            Some(asks) => {
+                let note = Note::new(format!("Needs you: {asks}").into(), &self.theme, ui);
+                title
+                    .id(SharedString::from(format!("kanban-asks-{}", card.file)))
+                    .tooltip(move |_, cx| cx.new(|_| note.clone()).into())
+                    .into_any_element()
+            }
+            None => title.into_any_element(),
+        };
         let id = self.id(card, now.as_ref().map(|now| now.needs), ui);
         let head = if inline || compact {
             div()
@@ -6036,37 +6031,32 @@ fn tags(column: Column, draft: bool, priority: Option<Priority>) -> Vec<Tag> {
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum QueueRow {
     Card(usize),
-    Group { reason: String, members: Vec<usize> },
+    Group { members: Vec<usize> },
 }
 
+/// Queued's rows (P5-191, P5-193): every task with words in `待用户：` in one group where the
+/// first of them stands, the rest in their place; a group needs two, one alone stays a card.
 fn queued_groups(cards: &[&Card]) -> Vec<QueueRow> {
-    let reason = |card: &Card| {
-        card.asks
-            .as_deref()
-            .map(|asks| asks.split_whitespace().collect::<Vec<_>>().join(" "))
-    };
-    let mut members: HashMap<String, Vec<usize>> = HashMap::new();
-    for (at, card) in cards.iter().enumerate() {
-        if let Some(reason) = reason(card).filter(|reason| !reason.is_empty()) {
-            members.entry(reason).or_default().push(at);
-        }
+    let members = cards
+        .iter()
+        .enumerate()
+        .filter(|(_, card)| {
+            card.asks
+                .as_deref()
+                .is_some_and(|asks| !asks.trim().is_empty())
+        })
+        .map(|(at, _)| at)
+        .collect::<Vec<_>>();
+    if members.len() < 2 {
+        return (0..cards.len()).map(QueueRow::Card).collect();
     }
     let mut rows = Vec::new();
-    let mut grouped = HashSet::new();
-    for (at, card) in cards.iter().enumerate() {
-        if grouped.contains(&at) {
-            continue;
-        }
-        let group = reason(card)
-            .and_then(|reason| members.get(&reason).map(|members| (reason, members)))
-            .filter(|(_, members)| members.len() >= 2);
-        if let Some((reason, members)) = group {
-            grouped.extend(members.iter().copied());
+    for at in 0..cards.len() {
+        if at == members[0] {
             rows.push(QueueRow::Group {
-                reason,
                 members: members.clone(),
             });
-        } else {
+        } else if !members.contains(&at) {
             rows.push(QueueRow::Card(at));
         }
     }
@@ -6103,57 +6093,52 @@ mod tests {
     }
 
     #[test]
-    fn queued_asks_group_only_after_trimming_and_folding_whitespace() {
+    fn queued_asks_group_whatever_their_words() {
         let board = queued_board(
             &[
-                ("P5-1", Some("  用户   确认 方案 ")),
-                ("P5-2", Some("用户 确认 方案")),
-                ("P5-3", Some("别的理由")),
-            ],
-            &[],
-        );
-        let cards = board.cards(Column::Queued).iter().collect::<Vec<_>>();
-        assert_eq!(
-            groups(&cards),
-            [
-                QueueRow::Group {
-                    reason: "用户 确认 方案".into(),
-                    members: vec![0, 1],
-                },
-                QueueRow::Card(2),
-            ]
-        );
-    }
-
-    #[test]
-    fn queued_asks_keep_punctuation_singletons_and_missing_text_ungrouped() {
-        let board = queued_board(
-            &[
-                ("P5-1", Some("确认，方案")),
+                ("P5-1", Some("还没分解，主控补全任务文件")),
                 ("P5-2", Some("确认,方案")),
-                ("P5-3", Some("只有一件")),
-                ("P5-4", None),
-                ("P5-5", None),
+                ("P5-3", Some("  别的   理由 ")),
             ],
             &[],
         );
         let cards = board.cards(Column::Queued).iter().collect::<Vec<_>>();
         assert_eq!(
             groups(&cards),
-            (0..5).map(QueueRow::Card).collect::<Vec<_>>()
+            [QueueRow::Group {
+                members: vec![0, 1, 2],
+            }]
         );
     }
 
     #[test]
-    fn a_group_takes_its_first_members_place_without_reordering_the_rest() {
+    fn a_single_ask_and_missing_text_stay_ungrouped() {
         let board = queued_board(
             &[
-                ("P5-1", Some("甲")),
-                ("P5-2", Some("同因")),
-                ("P5-3", Some("乙")),
-                ("P5-4", Some("同因")),
-                ("P5-5", Some("丙")),
-                ("P5-6", Some("同因")),
+                ("P5-1", Some("只有一件")),
+                ("P5-2", None),
+                ("P5-3", Some("   ")),
+                ("P5-4", None),
+            ],
+            &[],
+        );
+        let cards = board.cards(Column::Queued).iter().collect::<Vec<_>>();
+        assert_eq!(
+            groups(&cards),
+            (0..4).map(QueueRow::Card).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn the_group_takes_its_first_members_place_without_reordering_the_rest() {
+        let board = queued_board(
+            &[
+                ("P5-1", None),
+                ("P5-2", Some("甲")),
+                ("P5-3", None),
+                ("P5-4", Some("乙")),
+                ("P5-5", None),
+                ("P5-6", Some("丙")),
             ],
             &[],
         );
@@ -6163,7 +6148,6 @@ mod tests {
             [
                 QueueRow::Card(0),
                 QueueRow::Group {
-                    reason: "同因".into(),
                     members: vec![1, 3, 5],
                 },
                 QueueRow::Card(2),
@@ -6173,16 +6157,12 @@ mod tests {
     }
 
     #[test]
-    fn queued_drafts_take_part_in_ask_groups() {
-        let board = queued_board(
-            &[("P5-3", Some("同因"))],
-            &[("P5-1", "同因"), ("P5-2", "同因")],
-        );
+    fn queued_drafts_take_part_in_the_ask_group() {
+        let board = queued_board(&[("P5-3", Some("丙"))], &[("P5-1", "甲"), ("P5-2", "乙")]);
         let cards = board.cards(Column::Queued).iter().collect::<Vec<_>>();
         assert_eq!(
             groups(&cards),
             [QueueRow::Group {
-                reason: "同因".into(),
                 members: vec![0, 1, 2],
             }]
         );
