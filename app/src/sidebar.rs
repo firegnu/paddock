@@ -3108,6 +3108,12 @@ impl Grounds {
             over(face(SELECTED_FACE * FROSTED_FACE), frame)
         };
         let tile_edge = text.opacity(EDGE);
+        // Over the material there is no whole frame colour to ring a mark with (P5-192 rework 1).
+        let frame = if frosted {
+            gpui::transparent_black()
+        } else {
+            frame
+        };
         if frosted {
             let frost = theme.frost();
             let accent = fg(|t| t.agents_accent).opacity(SELECTED_FACE * FROSTED_FACE);
