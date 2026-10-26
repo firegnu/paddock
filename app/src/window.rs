@@ -810,10 +810,9 @@ fn background(full_screen: bool) -> WindowBackgroundAppearance {
     }
 }
 
-/// The layers under everything in a window `window` big, by the sidebar's `column`: the sidebar's
-/// colour over its column and the frame elsewhere, over the strip the title bar's whole row. While
-/// the system's sidebar material shows (`frosted`), the column is washed and the frame shaded over
-/// it, a step darker than the sidebar (P5-95c).
+/// The layers under everything in a window `window` big, by the sidebar's `column`: expanded, the
+/// sidebar's colour over its column and the frame beside it; collapsed, one frame under the title
+/// bar, strip and panes alike (P5-192). Over the system's material these are washed or shaded.
 fn under(
     column: Bounds<Pixels>,
     frosted: bool,
@@ -824,21 +823,19 @@ fn under(
     } else {
         (Under::Sidebar, Under::Frame)
     };
-    let mut layers = vec![(sidebar, column)];
     if column.top() > px(0.0) {
-        layers.push((
-            frame,
-            Bounds::new(point(px(0.0), px(0.0)), size(window.width, column.top())),
-        ));
+        return vec![(frame, Bounds::new(point(px(0.0), px(0.0)), window))];
     }
-    layers.push((
-        frame,
-        Bounds::new(
-            point(column.right(), column.top()),
-            size(window.width - column.right(), window.height - column.top()),
+    vec![
+        (sidebar, column),
+        (
+            frame,
+            Bounds::new(
+                point(column.right(), px(0.0)),
+                size(window.width - column.right(), window.height),
+            ),
         ),
-    ));
-    layers
+    ]
 }
 
 /// Where the cards sit across the window, in points from its left edge.
@@ -4605,7 +4602,7 @@ impl PaddockWindow {
     }
 
     /// What lies under everything in a window `window` big, by the sidebar's `column` (see
-    /// [`under`]).
+    /// [`under`]). While it folds, the sidebar's layer fades over the whole frame (P5-192).
     fn ground(&self, column: Bounds<Pixels>, frosted: bool, window: Size<Pixels>) -> Div {
         let sidebar = hsla(self.theme.bg(|t| t.agents_bg), 1.0);
         let frame = hsla(self.theme.frame(), 1.0);
@@ -4613,27 +4610,42 @@ impl PaddockWindow {
             sidebar.opacity(self.translucency.sidebar),
             frame.opacity(self.translucency.frame),
         );
+        let fold = self.sidebar_fold().0;
+        let layers = if fold > 0.0 && fold < 1.0 {
+            let (sidebar, frame) = if frosted {
+                (Under::Wash, Under::Shade)
+            } else {
+                (Under::Sidebar, Under::Frame)
+            };
+            vec![
+                (frame, Bounds::new(point(px(0.0), px(0.0)), window)),
+                (sidebar, column),
+            ]
+        } else {
+            under(column, frosted, window)
+        };
         div()
             .absolute()
             .inset_0()
-            .children(
-                under(column, frosted, window)
-                    .into_iter()
-                    .map(|(layer, bounds)| {
-                        div()
-                            .absolute()
-                            .left(bounds.left())
-                            .top(bounds.top())
-                            .w(bounds.size.width)
-                            .h(bounds.size.height)
-                            .bg(match layer {
-                                Under::Sidebar => sidebar,
-                                Under::Wash => wash,
-                                Under::Frame => frame,
-                                Under::Shade => shade,
-                            })
-                    }),
-            )
+            .children(layers.into_iter().map(|(layer, bounds)| {
+                div()
+                    .absolute()
+                    .left(bounds.left())
+                    .top(bounds.top())
+                    .w(bounds.size.width)
+                    .h(bounds.size.height)
+                    .bg(match layer {
+                        Under::Sidebar => sidebar,
+                        Under::Wash => wash,
+                        Under::Frame => frame,
+                        Under::Shade => shade,
+                    })
+                    .opacity(if matches!(layer, Under::Sidebar | Under::Wash) {
+                        1.0 - fold
+                    } else {
+                        1.0
+                    })
+            }))
     }
 
     /// How a Settings slider shows the ground while dragged; written, it comes back by [`apply`].
@@ -8945,41 +8957,22 @@ mod tests {
         let base = UiFont::default();
         let window = size(px(1200.0), px(800.0));
         let right = Bounds::new(point(px(300.0), px(0.0)), size(px(900.0), px(800.0)));
-        let row = Bounds::new(point(px(0.0), px(0.0)), size(px(1200.0), px(TITLE_BAR)));
-        let beside = Bounds::new(
-            point(px(52.0), px(TITLE_BAR)),
-            size(px(1148.0), px(800.0 - TITLE_BAR)),
-        );
+        let whole = Bounds::new(point(px(0.0), px(0.0)), window);
         // Opaque (full screen): the sidebar's colour over its column, the frame beside it.
         let column = sidebar_column(false, 300.0, TITLE_BAR, window, &base);
         assert_eq!(
             under(column, false, window),
             vec![(Under::Sidebar, column), (Under::Frame, right)]
         );
-        // Collapsed: the title bar's whole row is the frame, over the strip too.
+        // Collapsed: title bar, strip and the seam are all the frame (P5-192).
         let strip = sidebar_column(true, 300.0, TITLE_BAR, window, &base);
-        assert_eq!(
-            under(strip, false, window),
-            vec![
-                (Under::Sidebar, strip),
-                (Under::Frame, row),
-                (Under::Frame, beside)
-            ]
-        );
-        // Frosted: the same pieces, the column washed and the frame shaded over the material, a
-        // step darker than the sidebar (P5-95c).
+        assert_eq!(under(strip, false, window), vec![(Under::Frame, whole)]);
+        // Frosted: expanded keeps the washed column; collapsed is one shaded frame.
         assert_eq!(
             under(column, true, window),
             vec![(Under::Wash, column), (Under::Shade, right)]
         );
-        assert_eq!(
-            under(strip, true, window),
-            vec![
-                (Under::Wash, strip),
-                (Under::Shade, row),
-                (Under::Shade, beside)
-            ]
-        );
+        assert_eq!(under(strip, true, window), vec![(Under::Shade, whole)]);
     }
 
     #[test]

@@ -22,7 +22,7 @@ pub enum Icon {
     NewAgent,
     /// A terminal window with a `>_` prompt.
     NewShell,
-    /// A sheet lying on another, a plus at the bottom right: New Workspace…, as the workspaces'
+    /// Three sheets stacked, a plus at the bottom right: New Workspace…, as the workspaces'
     /// own `LAYERS_PLUS` (`sidebar_workspaces.rs`).
     NewWorkspace,
     /// A filled square.
@@ -220,20 +220,22 @@ fn shapes(icon: Icon, pose: Pose, bounds: Bounds<Pixels>, scale: f32) -> Vec<Pat
             vec![frame, prompt]
         }
         Icon::NewWorkspace => {
+            // Three sheets, the lower two only on their left, where the plus leaves room.
             let mut sheets = stroke();
-            sheets.move_to(at(6.5, 1.75));
-            sheets.line_to(at(11.5, 4.25));
-            sheets.line_to(at(6.5, 6.75));
-            sheets.line_to(at(1.5, 4.25));
+            sheets.move_to(at(6.5, 1.0));
+            sheets.line_to(at(12.0, 3.75));
+            sheets.line_to(at(6.5, 6.5));
+            sheets.line_to(at(1.0, 3.75));
             sheets.close();
-            sheets.move_to(at(1.5, 7.5));
-            sheets.line_to(at(6.5, 10.0));
-            sheets.line_to(at(8.5, 9.0));
+            sheets.move_to(at(1.0, 6.75));
+            sheets.line_to(at(6.5, 9.5));
+            sheets.move_to(at(1.0, 9.75));
+            sheets.line_to(at(6.5, 12.5));
             let mut plus = stroke();
-            plus.move_to(at(11.0, 8.5));
-            plus.line_to(at(11.0, 12.5));
-            plus.move_to(at(9.0, 10.5));
-            plus.line_to(at(13.0, 10.5));
+            plus.move_to(at(11.0, 8.25));
+            plus.line_to(at(11.0, 12.75));
+            plus.move_to(at(8.75, 10.5));
+            plus.line_to(at(13.25, 10.5));
             vec![sheets, plus]
         }
         Icon::Stop => {
