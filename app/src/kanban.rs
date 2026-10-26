@@ -2314,7 +2314,8 @@ pub fn board(facts: &Facts, agents: &[Seen], now: f64) -> Board {
             time: time.unwrap_or(0),
         });
     }
-    // Drafts are not dispatched: no agent, nothing on main to wait on the user.
+    // Drafts are not dispatched and do not count as needing the user; their reason is still read
+    // so Queued can group drafts that say what they wait for (P5-191).
     for task in &facts.drafts {
         columns[Column::Queued as usize].push(Card {
             id: task.id.clone(),
@@ -2329,7 +2330,7 @@ pub fn board(facts: &Facts, agents: &[Seen], now: f64) -> Board {
             lines: None,
             draft: true,
             needs_you: false,
-            asks: None,
+            asks: task.asks.clone(),
             waits: waiting(task),
             dropped: None,
             priority: Some(task.priority),
