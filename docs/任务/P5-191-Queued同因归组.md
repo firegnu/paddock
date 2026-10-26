@@ -66,3 +66,11 @@
 - 拿主意的地方：没有需要主控另定的事；组内成员沿用现有行结构，以紧凑模式去掉 Needs you、Waits for 和时间，保留各视图要求的行尾信息。
 - 没做的事：未开 paddock 窗口、未截图，画面留给主控合并安装后用户实际看；未合并 main、未推送。
 - 踩过的坑：草稿归组测试第一次仍失败，发现 `board` 原先把草稿的 `asks` 固定为 `None`；改为保留 `task.asks`，同时维持 `needs_you: false`，之后测试通过。
+
+## 主控审查
+- 看了 diff：只动了 `kanban_view.rs`、`kanban.rs`（草稿的 `Card` 带上 `asks`）、DESIGN 和本文件，「不要做」里的一件没做。归组是纯函数 `queued_groups`，规范化（`split_whitespace` 再用空格连）、两件起成组、组占最早成员位置、成员保持原顺序，都有测试；窄列表和加宽五列都走 `queued_rows`。
+- 草稿带上 `asks` 的副作用核过：Loop 取活本来排除草稿（`kanban_loop.rs` 的 `!card.draft`），Clear 只给非草稿（`clearable`），草稿的 Needs you 和顶部计数不变。照任务文件，草稿参加归组；所以两件以上草稿写了同一句 `待用户：` 时会出琥珀组头，单件草稿仍不显示理由。记一笔，不返工。
+- 重跑 `cargo test --all-targets --no-fail-fast`（库 908 条，与完成记录一致，全过）、`cargo clippy --all-targets -- -D warnings`、`cargo fmt --check`、`git diff --check`，都过。
+- 取舍：成员行复用现有行结构，用 compact 去掉 Needs you、Waits for 和时间，同意。
+- 画面没看（主控不开窗口），从分支装好留给用户看。
+结果：一次过
