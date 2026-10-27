@@ -459,6 +459,69 @@ const KANAGAWA_LOTUS: Terminal = Terminal {
     selection: rgb(0xc9cbd1),
 };
 
+/// Memphis (P5-194), paddock's own, from the Memphis palette the user gave on 10-27 (see
+/// `preset::memphis`) as the sample has it (`docs/设计稿/P5-194-Memphis主题/`, 丙): the bright hues as
+/// they are, coral red, mint green, yellow, sky cyan, pink magenta, lavender bright magenta, and
+/// cobalt lightened to #7a9bf5 for blue; #7d76a8 bright black, the yellow cursor and an indigo
+/// selection #4a3f8a. As Tide lays them out: the selected card #3a3466 as black, the branches'
+/// #c9c3e6 as white, the warm white text as bright white; the other bright colours are the normal
+/// ones mixed 25% toward white.
+const MEMPHIS: Terminal = Terminal {
+    ansi: [
+        rgb(0x3a3466),
+        rgb(0xff5a5f),
+        rgb(0xa9e6c6),
+        rgb(0xffc93c),
+        rgb(0x7a9bf5),
+        rgb(0xff8db5),
+        rgb(0x8dd3f6),
+        rgb(0xc9c3e6),
+        rgb(0x7d76a8),
+        rgb(0xff8387),
+        rgb(0xbfecd4),
+        rgb(0xffd76d),
+        rgb(0x9bb4f8),
+        rgb(0xd3beff),
+        rgb(0xaadef8),
+        rgb(0xfff8ec),
+    ],
+    cursor: rgb(0xffc93c),
+    selection: rgb(0x4a3f8a),
+};
+
+/// Memphis Light (P5-194), Memphis's light version from the same palette, as the sample has it
+/// (`docs/设计稿/P5-194-Memphis主题/`, 乙): each hue a step deeper to read on the warm white, red
+/// #c8343a, green #2f8f5e, yellow #a87a00, cobalt blue #2e5be6, magenta #c24b87, cyan #2484ba,
+/// bright black #8a859e, and the coral cursor #e0454b. As Tide Light lays them out: the sample's
+/// warm step #e5ddd0 as black, the quiet text #5e5a7a as white, the indigo text as bright white;
+/// bright magenta the starting violet #6d4bd1, the mirror of Memphis's lavender, and the other
+/// bright colours the normal ones mixed 25% toward black. The sample's yellow selection #ffe39a
+/// stands only 1.19:1 off the ground, so it is moved toward the palette's yellow #ffc93c just
+/// enough, a quarter of the way, to #ffdc82 (1.26:1): darkened towards black it turns a dull
+/// khaki.
+const MEMPHIS_LIGHT: Terminal = Terminal {
+    ansi: [
+        rgb(0xe5ddd0),
+        rgb(0xc8343a),
+        rgb(0x2f8f5e),
+        rgb(0xa87a00),
+        rgb(0x2e5be6),
+        rgb(0xc24b87),
+        rgb(0x2484ba),
+        rgb(0x5e5a7a),
+        rgb(0x8a859e),
+        rgb(0x96272c),
+        rgb(0x236b47),
+        rgb(0x7e5c00),
+        rgb(0x2344ad),
+        rgb(0x6d4bd1),
+        rgb(0x1b638c),
+        rgb(0x25214a),
+    ],
+    cursor: rgb(0xe0454b),
+    selection: rgb(0xffdc82),
+};
+
 /// The `[colors]` keys of the terminal colours: the 16 under Saddle's ANSI names, then text,
 /// background, cursor and selection.
 const TERMINAL_KEYS: [&str; 20] = [
@@ -582,6 +645,8 @@ impl Theme {
             Preset::RosePineDawn => &ROSE_PINE_DAWN,
             Preset::Kanagawa => &KANAGAWA,
             Preset::KanagawaLotus => &KANAGAWA_LOTUS,
+            Preset::Memphis => &MEMPHIS,
+            Preset::MemphisLight => &MEMPHIS_LIGHT,
         };
         let mut terminal = palette::Theme {
             ansi: own.ansi,
@@ -1136,6 +1201,8 @@ mod tests {
             ("rosepine-dawn", Preset::RosePineDawn, &ROSE_PINE_DAWN),
             ("kanagawa", Preset::Kanagawa, &KANAGAWA),
             ("kanagawa-lotus", Preset::KanagawaLotus, &KANAGAWA_LOTUS),
+            ("memphis", Preset::Memphis, &MEMPHIS),
+            ("memphis-light", Preset::MemphisLight, &MEMPHIS_LIGHT),
         ] {
             let theme = theme(&format!("theme = \"{name}\"")).unwrap();
             let saddle = preset.theme();
@@ -1223,6 +1290,7 @@ mod tests {
             Preset::TokyoNightDay,
             Preset::RosePineDawn,
             Preset::KanagawaLotus,
+            Preset::MemphisLight,
         ];
         for preset in Preset::ALL {
             let theme = theme(&format!("theme = \"{}\"", preset.name())).unwrap();
@@ -1265,7 +1333,7 @@ mod tests {
                 message.contains(
                     "expected dune, dune-light, tide, tide-light, lagoon, lagoon-light, \
                      catppuccin, latte, tokyonight, tokyonight-day, rosepine, rosepine-dawn, \
-                     kanagawa or kanagawa-lotus"
+                     kanagawa, kanagawa-lotus, memphis or memphis-light"
                 ),
                 "{message}"
             );

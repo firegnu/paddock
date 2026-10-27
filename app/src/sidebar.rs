@@ -4806,7 +4806,12 @@ mod tests {
                 assert_eq!(frosted.card_paused, gpui::transparent_black());
                 assert_eq!(frosted.card_paused_hovered, gpui::transparent_black());
                 assert_eq!(whole.card, over(white.opacity(FACE * LIGHT_FACE), base));
-                assert!(Rgba::from(whole.card).r > Rgba::from(base).r, "{name}");
+                // Lighter as a whole: Memphis Light's cream already has a full red (P5-194).
+                let sum = |c: Hsla| {
+                    let c = Rgba::from(c);
+                    c.r + c.g + c.b
+                };
+                assert!(sum(whole.card) > sum(base), "{name}");
                 assert_eq!(lifts[0].color, white.opacity(RESTING.light * LIGHT_EDGE));
                 assert!(lifts[1].color.a < RESTING.near.2, "{name}");
             } else {

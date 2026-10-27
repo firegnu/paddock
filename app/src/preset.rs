@@ -6,7 +6,8 @@
 //! Mocha, Tokyo Night, Rosé Pine and Kanagawa presets are paddock's own (P5-40), as are their
 //! light versions (P5-175, P5-176), from those palettes' published colours; each names its source.
 //! So are Dune's, Tide's and Lagoon's light versions (P5-177), from a sample and the light
-//! versions of the palettes their terminal colours come from.
+//! versions of the palettes their terminal colours come from. Memphis and Memphis Light (P5-194)
+//! are paddock's own too, from the Memphis palette the user gave and a sample.
 
 /// A configured interface colour: the terminal's default, one of the 16 basic colours, an entry of
 /// the 256-colour palette, or RGB.
@@ -109,10 +110,12 @@ pub enum Preset {
     RosePineDawn,
     Kanagawa,
     KanagawaLotus,
+    Memphis,
+    MemphisLight,
 }
 
 impl Preset {
-    pub const ALL: [Preset; 14] = [
+    pub const ALL: [Preset; 16] = [
         Preset::Dune,
         Preset::DuneLight,
         Preset::Tide,
@@ -127,8 +130,10 @@ impl Preset {
         Preset::RosePineDawn,
         Preset::Kanagawa,
         Preset::KanagawaLotus,
+        Preset::Memphis,
+        Preset::MemphisLight,
     ];
-    /// The light version of a dark preset, where it has one (P5-176, P5-177).
+    /// The light version of a dark preset, where it has one (P5-176, P5-177, P5-194).
     pub fn light(self) -> Option<Preset> {
         match self {
             Preset::Dune => Some(Preset::DuneLight),
@@ -138,6 +143,7 @@ impl Preset {
             Preset::TokyoNight => Some(Preset::TokyoNightDay),
             Preset::RosePine => Some(Preset::RosePineDawn),
             Preset::Kanagawa => Some(Preset::KanagawaLotus),
+            Preset::Memphis => Some(Preset::MemphisLight),
             _ => None,
         }
     }
@@ -169,6 +175,8 @@ impl Preset {
             Preset::RosePineDawn => "rosepine-dawn",
             Preset::Kanagawa => "kanagawa",
             Preset::KanagawaLotus => "kanagawa-lotus",
+            Preset::Memphis => "memphis",
+            Preset::MemphisLight => "memphis-light",
         }
     }
     /// How the theme is shown: the palette's own name for the borrowed ones.
@@ -188,6 +196,8 @@ impl Preset {
             Preset::RosePineDawn => "Rosé Pine Dawn",
             Preset::Kanagawa => "Kanagawa",
             Preset::KanagawaLotus => "Kanagawa Lotus",
+            Preset::Memphis => "Memphis",
+            Preset::MemphisLight => "Memphis Light",
         }
     }
     /// The names as an error message lists them: "dune, tide, … or kanagawa".
@@ -314,6 +324,22 @@ impl Preset {
                 dim: 0.64,
                 dimmer: 0.53,
             },
+            // Memphis (P5-194) lies on a deep indigo like the borrowed dark ones, as Catppuccin
+            // does; Memphis Light as the other light ones.
+            Preset::Memphis => Frost {
+                wash: 0.45,
+                lit: 0.10,
+                waiting: 0.12,
+                dim: 0.62,
+                dimmer: 0.48,
+            },
+            Preset::MemphisLight => Frost {
+                wash: 0.45,
+                lit: 0.10,
+                waiting: 0.14,
+                dim: 0.64,
+                dimmer: 0.53,
+            },
         }
     }
     /// Every color of the theme.
@@ -333,6 +359,8 @@ impl Preset {
             Preset::RosePineDawn => rose_pine_dawn(),
             Preset::Kanagawa => kanagawa(),
             Preset::KanagawaLotus => kanagawa_lotus(),
+            Preset::Memphis => memphis(),
+            Preset::MemphisLight => memphis_light(),
         }
     }
 }
@@ -1152,6 +1180,133 @@ fn kanagawa_lotus() -> Theme {
     }
 }
 
+/// Memphis (P5-194), paddock's own, from the Memphis palette the user gave on 10-27: yellow
+/// #ffc93c, pink #ff8db5, cobalt #2e5be6, coral #ff5a5f, mint #a9e6c6, sky #8dd3f6, lavender
+/// #d3beff and the deep indigo #25214a of its outlines. Grounds, text, quiet text, accent, status
+/// and terminal colours as the sample has them (`docs/设计稿/P5-194-Memphis主题/`, 丙): #1f1b3d for
+/// the terminal, the indigo for the sidebar, #3a3466 for the selected card, warm white #fff8ec
+/// text, #c9c3e6 branches, #9c95c4 and #7d76a8 quiet text. The bright hues read on the indigo as
+/// they are, so they are the status colours: mint idle (and the sandbox), yellow waiting, coral
+/// error, lavender starting, pink stalled; cobalt alone reads too dark there (2.7:1), so working
+/// and the accent are it lightened to #7a9bf5. Rules lie halfway from the sidebar to the selected
+/// card (#302b58), edges a third and a half of the way from the selected card to the quieter text
+/// (#504a7c, #5c5587). Only colours: Memphis's outlines, hard shadows and dots are not a theme's.
+fn memphis() -> Theme {
+    let rgb = |v: u32| Color::Rgb((v >> 16) as u8, (v >> 8) as u8, v as u8);
+    Theme {
+        bg: rgb(0x1f1b3d),
+        text: rgb(0xfff8ec),
+        selected: rgb(0x3a3466),
+        agent_selected: rgb(0x3a3466),
+        agent_working: rgb(0x7a9bf5),
+        agent_idle: rgb(0xa9e6c6),
+        agent_blocked: rgb(0xffc93c),
+        agent_stalled: rgb(0xff8db5),
+        agent_error: rgb(0xff5a5f),
+        agent_starting: rgb(0xd3beff),
+        border: rgb(0x504a7c),
+        bright: rgb(0xfff8ec),
+        muted: rgb(0x9c95c4),
+        dim: rgb(0x7d76a8),
+        focus: rgb(0x7a9bf5),
+        connected: rgb(0x8dd3f6),
+        working: rgb(0x7a9bf5),
+        danger: rgb(0xff5a5f),
+        unread: rgb(0xff8db5),
+        input_text: rgb(0x110f22),
+        reply_code: rgb(0xffc93c),
+        reply_heading: rgb(0x8dd3f6),
+        agents_bg: rgb(0x25214a),
+        agents_border: rgb(0x5c5587),
+        agents_rule: rgb(0x302b58),
+        agents_faint: rgb(0x3a3466),
+        agents_text: rgb(0xfff8ec),
+        agents_branch: rgb(0xc9c3e6),
+        agents_dim: rgb(0x9c95c4),
+        agents_dimmer: rgb(0x7d76a8),
+        agents_accent: rgb(0x7a9bf5),
+        agents_green: rgb(0xa9e6c6),
+        agents_red: rgb(0xff5a5f),
+        agents_blue: rgb(0x7a9bf5),
+        agents_yellow: rgb(0xffc93c),
+        agents_purple: rgb(0xd3beff),
+        agents_sandbox: rgb(0xa9e6c6),
+        claude: rgb(0xff5a5f),
+        codex: rgb(0x7a9bf5),
+        pi: rgb(0xfff8ec),
+        omp: rgb(0xd3beff),
+        amp: rgb(0xffc93c),
+        agy: rgb(0x8dd3f6),
+        kimi: rgb(0xff8db5),
+        ..Theme::default()
+    }
+}
+
+/// Memphis Light (P5-194), Memphis's light version, from the same palette (see [`memphis`]) as
+/// the sample has it (`docs/设计稿/P5-194-Memphis主题/`, 乙): the bright hues lie as large grounds
+/// and the text and status take each a step deeper in its hue. Warm white #fff8ec for the
+/// terminal, the yellow's pale cream #ffe7a6 laid whole over the sidebar, lavender #f1e8ff for the
+/// selected card, the indigo #25214a for text, #5e5a7a and #8a859e quiet text on the terminal's
+/// ground, #5a5470 and #7d76a8 on the sidebar, cobalt #2e5be6 for working and the accent. Status:
+/// green #1e7f52 idle (and the sandbox), ochre #8a6200 waiting, red #c8343a error, violet #6d4bd1
+/// starting, magenta #b83e7a stalled. Rules and the empty cells are the sample's warm step
+/// #e5ddd0, edges halfway from it to the quieter text (#b1aabc), branches a third of the way from
+/// the text to the quiet text (#373257). Those read as text under 4.5:1 on the cream are darkened
+/// just enough, towards black: green #1e7f52 to #1c774d, red #c8343a to #c23338 and magenta
+/// #b83e7a to #b33c77 (stalled). `agents_purple`, for Changes' keywords and a remote machine's
+/// mark, is the starting violet turned a little further from the cobalt accent, #6d4bd1 to
+/// #6f4bd1, so the mark stands 30° apart from it.
+fn memphis_light() -> Theme {
+    let rgb = |v: u32| Color::Rgb((v >> 16) as u8, (v >> 8) as u8, v as u8);
+    Theme {
+        bg: rgb(0xfff8ec),
+        text: rgb(0x25214a),
+        selected: rgb(0xf1e8ff),
+        agent_selected: rgb(0xf1e8ff),
+        agent_working: rgb(0x2e5be6),
+        agent_idle: rgb(0x1e7f52),
+        agent_blocked: rgb(0x8a6200),
+        agent_stalled: rgb(0xb33c77),
+        agent_error: rgb(0xc8343a),
+        agent_starting: rgb(0x6d4bd1),
+        border: rgb(0xb1aabc),
+        bright: rgb(0x25214a),
+        muted: rgb(0x5e5a7a),
+        dim: rgb(0x8a859e),
+        focus: rgb(0x2e5be6),
+        connected: rgb(0x2484ba),
+        working: rgb(0x2e5be6),
+        danger: rgb(0xc8343a),
+        unread: rgb(0xb83e7a),
+        input_text: rgb(0xe5ddd0),
+        reply_code: rgb(0xa87a00),
+        reply_heading: rgb(0x2484ba),
+        agents_bg: rgb(0xffe7a6),
+        agents_border: rgb(0xb1aabc),
+        agents_rule: rgb(0xe5ddd0),
+        agents_faint: rgb(0xe5ddd0),
+        agents_text: rgb(0x25214a),
+        agents_branch: rgb(0x373257),
+        agents_dim: rgb(0x5a5470),
+        agents_dimmer: rgb(0x7d76a8),
+        agents_accent: rgb(0x2e5be6),
+        agents_green: rgb(0x1c774d),
+        agents_red: rgb(0xc23338),
+        agents_blue: rgb(0x2e5be6),
+        agents_yellow: rgb(0x8a6200),
+        agents_purple: rgb(0x6f4bd1),
+        agents_sandbox: rgb(0x1c774d),
+        claude: rgb(0xc8343a),
+        codex: rgb(0x2e5be6),
+        pi: rgb(0x25214a),
+        omp: rgb(0x6d4bd1),
+        amp: rgb(0x8a6200),
+        agy: rgb(0x1c76a8),
+        kimi: rgb(0xb83e7a),
+        ..Theme::default()
+    }
+}
+
 /// The colors in effect. Queue deliberately shares the Agents status accents.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Theme {
@@ -1380,6 +1535,7 @@ mod groups {
                 Preset::TokyoNight,
                 Preset::RosePine,
                 Preset::Kanagawa,
+                Preset::Memphis,
             ]
         );
         assert_eq!(
@@ -1392,9 +1548,10 @@ mod groups {
                 Preset::TokyoNightDay,
                 Preset::RosePineDawn,
                 Preset::KanagawaLotus,
+                Preset::MemphisLight,
             ]
         );
-        // Seven over seven (P5-177): each light version sits right under its dark one.
+        // Eight over eight (P5-177, P5-194): each light version sits right under its dark one.
         assert_eq!(dark.len(), light.len());
         for (dark, light) in dark.iter().zip(&light) {
             assert_eq!(dark.light(), Some(*light), "{}", dark.name());
