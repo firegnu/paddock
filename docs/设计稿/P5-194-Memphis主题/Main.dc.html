@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>Memphis light theme</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+.term{font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:12.5px;line-height:1.7;white-space:pre}
+.card{display:flex;align-items:center;gap:10px;height:48px;padding:0 10px;border-radius:9px;box-sizing:border-box}
+.ic{width:18px;height:18px;border-radius:4.5px;flex-shrink:0;display:flex;align-items:center;justify-content:center;color:#fff}
+.sw{display:flex;flex-direction:column;gap:4px;font-size:11px;font-family:ui-monospace,Menlo,monospace}
+.sw i{display:block;width:44px;height:28px;border-radius:6px;border:1px solid rgba(37,33,74,0.18)}
+</style>
+</helmet>
+<div style="width: 1440px; height: 2000px; box-sizing: border-box; padding: 36px 56px; background: #f3efe6; color: #25214a; font-family: -apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif; display: flex; flex-direction: column; gap: 30px">
+  <div style="display: flex; flex-direction: column; gap: 10px">
+    <h1 style="margin: 0; font-size: 22px; font-weight: 600">Memphis：一套新的浅色主题</h1>
+    <div style="font-size: 13.5px; line-height: 1.6; color: #4a4668; max-width: 1200px">取色来自你给的孟菲斯配色。七个亮色在暖白底上只有钴蓝能直接当字（5.3:1），其余 1.3～2.9:1 看不清，所以：亮色原样用在大块的底上（选中卡片、选区、侧栏），当字、当状态点的用同色相深一档（压到 4.5:1，终端 3:1）。深靛 #25214A 当正文。只换颜色，孟菲斯的描边、硬投影、圆点花纹不在主题能管的范围里。</div>
+    <div style="display: flex; gap: 14px; align-items: flex-end; margin-top: 4px">
+      <sc-for list="{{source}}" as="s" hint-placeholder-count="8">
+        <div class="sw"><i style="background: {{s.c}}"></i><span>{{s.n}}</span><span style="color: #6a6688">{{s.c}}</span></div>
+      </sc-for>
+      <div style="width: 1px; height: 54px; background: rgba(37,33,74,0.2); margin: 0 8px"></div>
+      <sc-for list="{{deep}}" as="s" hint-placeholder-count="6">
+        <div class="sw"><i style="background: {{s.c}}"></i><span>{{s.n}}</span><span style="color: #6a6688">{{s.c}}</span></div>
+      </sc-for>
+    </div>
+  </div>
+
+  <sc-for list="{{opts}}" as="o" hint-placeholder-count="2">
+    <div style="display: flex; flex-direction: column; gap: 10px">
+      <div style="display: flex; align-items: baseline; gap: 14px">
+        <b style="font-size: 17px; font-weight: 600; white-space: nowrap">{{o.title}}</b>
+        <span style="font-size: 13px; color: #4a4668; line-height: 1.5">{{o.note}}</span>
+      </div>
+      <div style="position: relative; width: 1328px; height: 520px; border-radius: 12px; overflow: hidden; background: #ebe4d9; box-shadow: 0 14px 40px rgba(37,33,74,0.16), 0 0 0 1px rgba(37,33,74,0.10)">
+        <div style="position: absolute; left: 0; top: 0; bottom: 0; width: 250px; background: {{o.side}}"></div>
+        <div style="position: absolute; left: 16px; top: 14px; display: flex; gap: 8px"><i style="display: block; width: 12px; height: 12px; border-radius: 50%; background: #ff5f57"></i><i style="display: block; width: 12px; height: 12px; border-radius: 50%; background: #febc2e"></i><i style="display: block; width: 12px; height: 12px; border-radius: 50%; background: #28c840"></i></div>
+        <div style="position: absolute; left: 16px; top: 48px; font-size: 11px; font-weight: 600; letter-spacing: 0.6px; color: {{o.dimmer}}">AGENTS</div>
+        <div style="position: absolute; left: 10px; top: 68px; width: 230px; display: flex; flex-direction: column; gap: 3px">
+          <sc-for list="{{o.cards}}" as="c" hint-placeholder-count="4">
+            <div class="card" style="background: {{c.ground}}">
+              <div class="ic" style="background: {{c.icon}}"><svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M6 1v10M1 6h10M2.5 2.5l7 7M9.5 2.5l-7 7"></path></svg></div>
+              <div style="flex: 1; min-width: 0; display: flex; flex-direction: column">
+                <span style="font-size: 13px; font-weight: 500; color: #25214a">{{c.name}}</span>
+                <span style="font-size: 11.5px; margin-top: 1px; color: {{o.dim}}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{c.sub}}</span>
+              </div>
+              <span style="font-size: 11px; font-weight: 500; color: {{c.state}}">{{c.label}}</span>
+              <span style="width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; background: {{c.state}}"></span>
+            </div>
+          </sc-for>
+        </div>
+        <div style="position: absolute; left: 256px; top: 8px; display: flex; gap: 6px">
+          <span style="height: 26px; padding: 0 12px; border-radius: 8px; display: flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 500; background: #dfe6fb; box-shadow: inset 0 0 0 1px #2e5be6; color: #25214a"><i style="display: block; width: 6px; height: 6px; border-radius: 50%; background: #2e5be6"></i>dev-theme</span>
+          <span style="height: 26px; padding: 0 12px; border-radius: 8px; display: flex; align-items: center; gap: 6px; font-size: 12.5px; background: #f6e7c4; color: #4a4668"><i style="display: block; width: 6px; height: 6px; border-radius: 50%; background: #8a6200"></i>review</span>
+          <span style="height: 26px; padding: 0 12px; border-radius: 8px; display: flex; align-items: center; font-size: 12.5px; background: #e5ddd0; color: #4a4668">zsh</span>
+        </div>
+        <div style="position: absolute; left: 256px; top: 40px; right: 302px; bottom: 6px; border-radius: 10px; background: #fff8ec; padding: 14px 18px; box-sizing: border-box; overflow: hidden; color: #25214a">
+          <div class="term" style="color: #8a859e">❯ 加一个 Memphis 浅色主题</div>
+          <div class="term"><span style="color: #2f8f5e">●</span> <b>Read</b>(app/src/preset.rs)</div>
+          <div class="term" style="color: #8a859e">  ⎿ Read 1442 lines</div>
+          <div class="term"><span style="color: #2f8f5e">●</span> 改动在 <span style="color: #2e5be6">app/src/preset.rs</span>、<span style="color: #2e5be6">app/src/theme.rs</span></div>
+          <div class="term" style="color: #2f8f5e">  + Preset::Memphis =&gt; "memphis",</div>
+          <div class="term" style="color: #c8343a">  - pub const ALL: [Preset; 14] = [</div>
+          <div class="term" style="color: #a87a00">  warning: unused variable `frost`</div>
+          <div class="term" style="color: #2484ba">  corral ls · 4 agents</div>
+          <div class="term" style="color: #c24b87">✻ Crunched for 8s</div>
+          <div class="term"><span style="background: #ffe39a">  选中的这一段文字是选区  </span><span style="display: inline-block; width: 8px; height: 15px; vertical-align: -3px; background: #e0454b; margin-left: 2px"></span></div>
+          <div style="display: flex; gap: 12px; flex-wrap: wrap; margin-top: 10px; font-family: ui-monospace, Menlo, monospace; font-size: 11px">
+            <span style="color: #c8343a">红 #c8343a</span><span style="color: #2f8f5e">绿 #2f8f5e</span><span style="color: #a87a00">黄 #a87a00</span><span style="color: #2e5be6">蓝 #2e5be6</span><span style="color: #c24b87">品红 #c24b87</span><span style="color: #2484ba">青 #2484ba</span><span style="color: #8a859e">亮黑 #8a859e</span><span>光标 #e0454b · 选区 #ffe39a</span>
+          </div>
+        </div>
+        <div style="position: absolute; right: 6px; top: 8px; bottom: 6px; width: 290px; border-radius: 10px; background: #fff8ec; padding: 10px; box-sizing: border-box; display: flex; flex-direction: column; gap: 10px; font-size: 12px">
+          <div style="display: flex; gap: 6px; font-size: 11.5px">
+            <span style="padding: 3px 8px; border-radius: 6px; background: {{o.tab}}; color: #25214a; font-weight: 500">Kanban</span>
+            <span style="padding: 3px 8px; color: #5e5a7a">Changes</span>
+            <span style="padding: 3px 8px; color: #5e5a7a">Cairn</span>
+          </div>
+          <div style="border-radius: 9px; background: #ffffff; border: 1px solid rgba(37,33,74,0.12); box-shadow: 0 1px 2px rgba(37,33,74,0.06), 0 3px 8px rgba(37,33,74,0.05); display: flex; flex-direction: column; overflow: hidden">
+            <div style="padding: 7px 10px; font-weight: 600">Queued  3</div>
+            <div style="padding: 6px 10px; border-top: 1px solid rgba(37,33,74,0.07); display: flex; gap: 8px; align-items: center"><i style="display: block; width: 8px; height: 8px; border-radius: 50%; background: #c8343a"></i><span style="color: #5e5a7a">P5-194</span><span>Memphis 浅色主题</span></div>
+            <div style="padding: 6px 10px; border-top: 1px solid rgba(37,33,74,0.07); display: flex; gap: 8px; align-items: center"><i style="display: block; width: 8px; height: 8px; border-radius: 50%; background: #8a859e"></i><span style="color: #5e5a7a">P5-54</span><span>Browser 选中元素</span></div>
+            <div style="padding: 6px 10px; border-top: 1px solid rgba(37,33,74,0.07); display: flex; gap: 8px; align-items: center"><i style="display: block; width: 8px; height: 8px; border-radius: 50%; border: 1px dashed #8a859e; box-sizing: border-box"></i><span style="color: #5e5a7a">P5-146</span><span>终端拆出去</span></div>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 6px; padding: 0 4px">
+            <div style="font-weight: 600">Done  290</div>
+            <div style="display: flex; gap: 8px"><span style="color: #5e5a7a">P5-193</span><span>Needs you 合成一组</span></div>
+            <div style="display: flex; gap: 8px"><span style="color: #5e5a7a">P5-192</span><span>左侧栏收起窄条</span></div>
+          </div>
+          <div style="display: grid; grid-template-columns: repeat(14, minmax(0, 1fr)); gap: 3px; padding: 4px">
+            <sc-for list="{{grid}}" as="g" hint-placeholder-count="42">
+              <i style="display: block; height: 13px; border-radius: 3px; background: {{g}}"></i>
+            </sc-for>
+          </div>
+        </div>
+      </div>
+    </div>
+  </sc-for>
+
+  <div style="display: flex; flex-direction: column; gap: 10px">
+    <div style="display: flex; align-items: baseline; gap: 14px">
+      <b style="font-size: 17px; font-weight: 600; white-space: nowrap">丙 · Memphis（深色版）</b>
+      <span style="font-size: 13px; color: #4a4668; line-height: 1.5">深靛当底：终端 #1f1b3d，左侧栏就是配色里的深靛 #25214a，选中卡片 #3a3466。正文暖白 #fff8ec。黄、粉、珊瑚、薄荷、天蓝、淡紫在深底上 5～11:1，原样当状态色、终端色用；只有钴蓝太暗（2.7:1），提亮成 #7a9bf5 当强调色。</span>
+    </div>
+    <div style="position: relative; width: 1328px; height: 520px; border-radius: 12px; overflow: hidden; background: #110f22; box-shadow: 0 14px 40px rgba(37,33,74,0.30), 0 0 0 1px rgba(37,33,74,0.25)">
+      <div style="position: absolute; left: 0; top: 0; bottom: 0; width: 250px; background: #25214a"></div>
+      <div style="position: absolute; left: 16px; top: 14px; display: flex; gap: 8px"><i style="display: block; width: 12px; height: 12px; border-radius: 50%; background: #ff5f57"></i><i style="display: block; width: 12px; height: 12px; border-radius: 50%; background: #febc2e"></i><i style="display: block; width: 12px; height: 12px; border-radius: 50%; background: #28c840"></i></div>
+      <div style="position: absolute; left: 16px; top: 48px; font-size: 11px; font-weight: 600; letter-spacing: 0.6px; color: #7d76a8">AGENTS</div>
+      <div style="position: absolute; left: 10px; top: 68px; width: 230px; display: flex; flex-direction: column; gap: 3px">
+        <sc-for list="{{darkCards}}" as="c" hint-placeholder-count="4">
+          <div class="card" style="background: {{c.ground}}">
+            <div class="ic" style="background: {{c.icon}}; color: #25214a"><svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M6 1v10M1 6h10M2.5 2.5l7 7M9.5 2.5l-7 7"></path></svg></div>
+            <div style="flex: 1; min-width: 0; display: flex; flex-direction: column">
+              <span style="font-size: 13px; font-weight: 500; color: #fff8ec">{{c.name}}</span>
+              <span style="font-size: 11.5px; margin-top: 1px; color: #9c95c4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{c.sub}}</span>
+            </div>
+            <span style="font-size: 11px; font-weight: 500; color: {{c.state}}">{{c.label}}</span>
+            <span style="width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; background: {{c.state}}"></span>
+          </div>
+        </sc-for>
+      </div>
+      <div style="position: absolute; left: 256px; top: 8px; display: flex; gap: 6px">
+        <span style="height: 26px; padding: 0 12px; border-radius: 8px; display: flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 500; background: #2f3570; box-shadow: inset 0 0 0 1px #7a9bf5; color: #fff8ec"><i style="display: block; width: 6px; height: 6px; border-radius: 50%; background: #7a9bf5"></i>dev-theme</span>
+        <span style="height: 26px; padding: 0 12px; border-radius: 8px; display: flex; align-items: center; gap: 6px; font-size: 12.5px; background: #3d3448; color: #c9c3e6"><i style="display: block; width: 6px; height: 6px; border-radius: 50%; background: #ffc93c"></i>review</span>
+        <span style="height: 26px; padding: 0 12px; border-radius: 8px; display: flex; align-items: center; font-size: 12.5px; background: #2a2650; color: #c9c3e6">zsh</span>
+      </div>
+      <div style="position: absolute; left: 256px; top: 40px; right: 302px; bottom: 6px; border-radius: 10px; background: #1f1b3d; padding: 14px 18px; box-sizing: border-box; overflow: hidden; color: #fff8ec">
+        <div class="term" style="color: #7d76a8">❯ 加一个 Memphis 深色主题</div>
+        <div class="term"><span style="color: #a9e6c6">●</span> <b>Read</b>(app/src/preset.rs)</div>
+        <div class="term" style="color: #7d76a8">  ⎿ Read 1442 lines</div>
+        <div class="term"><span style="color: #a9e6c6">●</span> 改动在 <span style="color: #7a9bf5">app/src/preset.rs</span>、<span style="color: #7a9bf5">app/src/theme.rs</span></div>
+        <div class="term" style="color: #a9e6c6">  + Preset::Memphis =&gt; "memphis",</div>
+        <div class="term" style="color: #ff5a5f">  - pub const ALL: [Preset; 14] = [</div>
+        <div class="term" style="color: #ffc93c">  warning: unused variable `frost`</div>
+        <div class="term" style="color: #8dd3f6">  corral ls · 4 agents</div>
+        <div class="term" style="color: #ff8db5">✻ Crunched for 8s</div>
+        <div class="term"><span style="background: #4a3f8a">  选中的这一段文字是选区  </span><span style="display: inline-block; width: 8px; height: 15px; vertical-align: -3px; background: #ffc93c; margin-left: 2px"></span></div>
+        <div style="display: flex; gap: 12px; flex-wrap: wrap; margin-top: 10px; font-family: ui-monospace, Menlo, monospace; font-size: 11px">
+          <span style="color: #ff5a5f">红 #ff5a5f</span><span style="color: #a9e6c6">绿 #a9e6c6</span><span style="color: #ffc93c">黄 #ffc93c</span><span style="color: #7a9bf5">蓝 #7a9bf5</span><span style="color: #ff8db5">品红 #ff8db5</span><span style="color: #8dd3f6">青 #8dd3f6</span><span style="color: #d3beff">亮品红 #d3beff</span><span style="color: #7d76a8">亮黑 #7d76a8</span><span>光标 #ffc93c · 选区 #4a3f8a</span>
+        </div>
+      </div>
+      <div style="position: absolute; right: 6px; top: 8px; bottom: 6px; width: 290px; border-radius: 10px; background: #1f1b3d; padding: 10px; box-sizing: border-box; display: flex; flex-direction: column; gap: 10px; font-size: 12px; color: #fff8ec">
+        <div style="display: flex; gap: 6px; font-size: 11.5px">
+          <span style="padding: 3px 8px; border-radius: 6px; background: #3a3466; font-weight: 500">Kanban</span>
+          <span style="padding: 3px 8px; color: #9c95c4">Changes</span>
+          <span style="padding: 3px 8px; color: #9c95c4">Cairn</span>
+        </div>
+        <div style="border-radius: 9px; background: #2a2650; border: 1px solid rgba(255,248,236,0.08); box-shadow: 0 1px 2px rgba(0,0,0,0.25), 0 3px 8px rgba(0,0,0,0.2); display: flex; flex-direction: column; overflow: hidden">
+          <div style="padding: 7px 10px; font-weight: 600">Queued  3</div>
+          <div style="padding: 6px 10px; border-top: 1px solid rgba(255,248,236,0.06); display: flex; gap: 8px; align-items: center"><i style="display: block; width: 8px; height: 8px; border-radius: 50%; background: #ff5a5f"></i><span style="color: #9c95c4">P5-194</span><span>Memphis 主题</span></div>
+          <div style="padding: 6px 10px; border-top: 1px solid rgba(255,248,236,0.06); display: flex; gap: 8px; align-items: center"><i style="display: block; width: 8px; height: 8px; border-radius: 50%; background: #7d76a8"></i><span style="color: #9c95c4">P5-54</span><span>Browser 选中元素</span></div>
+          <div style="padding: 6px 10px; border-top: 1px solid rgba(255,248,236,0.06); display: flex; gap: 8px; align-items: center"><i style="display: block; width: 8px; height: 8px; border-radius: 50%; border: 1px dashed #7d76a8; box-sizing: border-box"></i><span style="color: #9c95c4">P5-146</span><span>终端拆出去</span></div>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 6px; padding: 0 4px">
+          <div style="font-weight: 600">Done  290</div>
+          <div style="display: flex; gap: 8px"><span style="color: #9c95c4">P5-193</span><span>Needs you 合成一组</span></div>
+          <div style="display: flex; gap: 8px"><span style="color: #9c95c4">P5-192</span><span>左侧栏收起窄条</span></div>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(14, minmax(0, 1fr)); gap: 3px; padding: 4px">
+          <sc-for list="{{darkGrid}}" as="g" hint-placeholder-count="42">
+            <i style="display: block; height: 13px; border-radius: 3px; background: {{g}}"></i>
+          </sc-for>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":2000}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const cards = (sel) => [
+      { name: 'dev-theme', sub: 'claude · 改 preset.rs', icon: '#c8343a', state: '#2e5be6', label: 'Working', ground: sel },
+      { name: 'review', sub: 'codex · 看 diff', icon: '#2e5be6', state: '#1e7f52', label: 'Idle', ground: 'transparent' },
+      { name: 'docs', sub: 'kimi · 等你回答', icon: '#b83e7a', state: '#8a6200', label: 'Needs you', ground: 'transparent' },
+      { name: 'build', sub: 'omp · cargo test 失败', icon: '#6d4bd1', state: '#c8343a', label: 'Error', ground: 'transparent' }
+    ];
+    const levels = ['#efe6d6', '#c9d5f6', '#93acf0', '#5b80ea', '#2e5be6', '#1f3fa3'];
+    const grid = [];
+    for (let i = 0; i < 42; i++) grid.push(levels[(i * 7 + (i % 5) * 3) % 6]);
+    const darkLevels = ['#2a2650', '#2f3a78', '#3f55a8', '#5b78d8', '#7a9bf5', '#c3d2fb'];
+    const darkGrid = grid.map((c) => darkLevels[levels.indexOf(c)]);
+    const darkCards = [
+      { name: 'dev-theme', sub: 'claude · 改 preset.rs', icon: '#ff5a5f', state: '#7a9bf5', label: 'Working', ground: '#3a3466' },
+      { name: 'review', sub: 'codex · 看 diff', icon: '#7a9bf5', state: '#a9e6c6', label: 'Idle', ground: 'transparent' },
+      { name: 'docs', sub: 'kimi · 等你回答', icon: '#ff8db5', state: '#ffc93c', label: 'Needs you', ground: 'transparent' },
+      { name: 'build', sub: 'omp · cargo test 失败', icon: '#d3beff', state: '#ff5a5f', label: 'Error', ground: 'transparent' }
+    ];
+    return {
+      darkGrid,
+      darkCards,
+      source: [
+        { n: '黄', c: '#FFC93C' }, { n: '粉', c: '#FF8DB5' }, { n: '钴蓝', c: '#2E5BE6' }, { n: '珊瑚红', c: '#FF5A5F' },
+        { n: '薄荷绿', c: '#A9E6C6' }, { n: '天蓝', c: '#8DD3F6' }, { n: '淡紫', c: '#D3BEFF' }, { n: '深靛', c: '#25214A' }
+      ],
+      deep: [
+        { n: '干活中', c: '#2E5BE6' }, { n: '空闲', c: '#1E7F52' }, { n: '等你', c: '#8A6200' },
+        { n: '出错', c: '#C8343A' }, { n: '启动中', c: '#6D4BD1' }, { n: '卡住', c: '#B83E7A' }
+      ],
+      grid,
+      opts: [
+        { title: '甲 · 克制', note: '左侧栏是比终端深一档的暖白 #fcf1dc，亮色只出现在选中卡片（淡紫 #f1e8ff）、选区（黄）、光标（珊瑚）和标签胶囊上。整体最安静，和现有浅色主题差不多一个路数。',
+          side: '#fcf1dc', dim: '#5e5a7a', dimmer: '#8a859e', tab: '#f1e8ff', cards: cards('#f1e8ff') },
+        { title: '乙 · 大色块（推荐）', note: '左侧栏整块铺奶黄 #ffe7a6（黄 #FFC93C 的浅调），选中卡片淡紫，右边终端仍是暖白。一眼看得出孟菲斯的大色块，又不影响终端读字。状态字在黄底上要再压深一点（实现时按对比度测试调）。',
+          side: '#ffe7a6', dim: '#5a5470', dimmer: '#7d7586', tab: '#ffe7a6', cards: cards('#f1e8ff') }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>
