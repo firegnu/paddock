@@ -50,3 +50,40 @@
 
 ## 做完
 三项检查跑完，在本文件末尾追加「## 完成记录」：做了什么（每套取了哪些色、调了哪些，第 4 条改了哪些地方）、验证了什么、拿主意的地方、没做的事、踩过的坑（试了不行换了办法的、工具或环境的行为和预想不一样的；没有就写「没有」），在你的分支里提交。回复里只写这几样，加上有没有要主控决定的事。命令都在前台跑完，全部做完后，回复最后一行写 DONE。
+
+## 完成记录
+
+### 做了什么
+1. 两套主题：`Preset::Memphis`／`MemphisLight`，配置名 `memphis`、`memphis-light`，显示名 `Memphis`、`Memphis Light`，`Preset::ALL` 里排最后（Memphis 在前），`Preset::light` 配成一对（`preset.rs` 的 `memphis()`、`memphis_light()`，`theme.rs` 的 `MEMPHIS`、`MEMPHIS_LIGHT`）。注释写明出处：用户 10-27 给的孟菲斯配色，paddock 自己的主题。README 主题表、配置示例、主题说明补上，DESIGN §13 补了 P5-194 一条。
+2. 取色（样稿 README 的两张表照抄，其余按同角色从这套配色里挑）：
+   - **Memphis（丙）**：终端底 #1f1b3d、侧栏 #25214a、选中卡片 #3a3466（`selected`、`agent_selected`、`agents_faint`）、正文和亮字 #fff8ec、分支 #c9c3e6、淡字 #9c95c4（`muted`、`agents_dim`）、更淡 #7d76a8（`dim`、`agents_dimmer`）；强调、focus、干活中、蓝 #7a9bf5；空闲和沙箱薄荷 #a9e6c6、等你黄 #ffc93c、出错珊瑚 #ff5a5f、启动中淡紫 #d3beff、卡住粉 #ff8db5；connected 和 reply_heading 天蓝、unread 粉、reply_code 黄、input_text 取样稿窗口外框 #110f22。样稿没列的：线取侧栏到选中卡片一半 #302b58，边框取选中卡片到更淡字的三分之一 #504a7c、一半 #5c5587（`agents_border`）。agent 种类：Claude 珊瑚、Codex #7a9bf5、Kimi 粉、omp 淡紫，pi #fff8ec、amp 黄、agy 天蓝（README 建议值），七种不重复。终端：黑取选中卡片 #3a3466、白取分支 #c9c3e6、亮白正文，常规色照样稿，亮品红淡紫 #d3beff、亮黑 #7d76a8，其余亮色是常规色往白色调 25%（同 Tide、Lagoon）；光标黄、选区 #4a3f8a。深色版所有颜色本来就够，没调颜色。
+   - **Memphis Light（乙）**：终端底 #fff8ec、左侧栏整块奶黄 #ffe7a6、选中卡片淡紫 #f1e8ff、正文 #25214a、终端底上的淡字 #5e5a7a／#8a859e（`muted`／`dim`）、侧栏上 #5a5470／#7d76a8（`agents_dim`／`agents_dimmer`，照 README；样稿 HTML 里乙的更淡写的是 #7d7586，和 README 不一致，照任务说的用 README）；强调、focus、干活中、蓝 #2e5be6；空闲 #1e7f52、等你 #8a6200、出错 #c8343a、启动中 #6d4bd1、卡住 #b83e7a；connected、reply_heading 青 #2484ba，reply_code 终端黄 #a87a00，unread #b83e7a。样稿没列的：线和空格子取样稿的暖灰一档 #e5ddd0（“zsh”标签胶囊的底），边框取它到更淡字一半 #b1aabc，分支取正文到淡字三分之一 #373257，沙箱同空闲绿（同 Lagoon Light）。agent 种类：Claude #c8343a、Codex #2e5be6、Kimi #b83e7a、omp #6d4bd1，pi #25214a、amp #8a6200、agy #1c76a8。终端：黑 #e5ddd0、白 #5e5a7a、亮白正文，常规色照样稿，亮黑 #8a859e，亮品红取启动中的深紫 #6d4bd1（深色版亮品红淡紫的镜像），其余亮色往黑色调 25%（同 Tide Light、Lagoon Light）；光标珊瑚 #e0454b。
+3. 对比度（只调到刚好够，注释写了原值和新值；都是 Memphis Light）：
+   - 奶黄侧栏上：`agents_green` #1e7f52→#1c774d（4.09→4.54:1）、`agents_red` #c8343a→#c23338（4.30→4.51）、`agent_stalled` #b83e7a→#b33c77（4.30→4.50），逐通道往黑色压；`agents_yellow` #8a6200 4.50:1、强调色 4.59:1，不用调。界面上的状态点（`agent_idle`、`agent_error`）、Kimi 色仍用样稿原值。
+   - 终端选区 #ffe39a 和底只差 1.19 倍（测试要 1.25）：往黑色压会成土黄，改成往配色的黄 #ffc93c 挪四分之一，#ffdc82（1.26 倍）。
+   - `agents_purple`（Changes 的关键字、远程机器标记）#6d4bd1→#6f4bd1：原值和钴蓝强调色只差 29.9°，机器标记测试要 30°；挪后 30.8°，两栏对比度仍 4.78:1 以上。
+   - 终端 15 色在两套各自的底上都过 3:1，没调。
+4. 浅色、深色处理：按 `Theme::is_light` 自动生效，按深浅分支的代码没动。改了一个磨砂参数：Memphis 的 `Frost.lit` 用 0.10（同 Dune；其他深色是 0.12），因为 Memphis 正文是很亮的暖白，0.12 时磨砂上活动格子图的“没提交”格子和第一级只差 1.07 倍（测试要 1.15）。`Frost` 本来就是每套一组，不算特例。Memphis Light 用其他浅色主题的那组，一次过。
+5. Settings 8 对 8：只靠 `Preset::light` 的配对，`settings_view.rs` 没改（截图核实 Dark、Light 各 8 张，Memphis、Memphis Light 在最后一格上下对齐）。
+6. 别的不变：diff 里现有 14 套主题的色值一行没动；删掉的行只有 `ALL` 的长度、groups 测试的注释、报错文字和下面这条测试断言。
+
+### 验证了什么
+- 两套加进按名字列举的测试：`presets_by_name`、`terminal_and_unknown_themes_are_errors`（报错列 16 个名字）、`the_light_presets_alone_are_light…`（浅色 8 套）；`groups::the_light_group_follows_the_dark_ones_order` 改成八对八。其余按 `Preset::ALL` 循环的测试自动包含两套。
+- 改了一条测试断言：`sidebar::tests::cards_lift_in_the_text_colour_on_a_dark_theme_and_in_white_on_a_light_one` 原来用红通道判断“浅色主题的白卡面比侧栏亮”，奶黄 #ffe7a6 红通道已是 255，白色叠上去红通道不会再变大（绿、蓝都变亮）。改成比三个通道的和，意思不变，对已有 14 套判断结果一样。
+- `git diff --check` 无输出；`app/` 下 `cargo test --all-targets --no-fail-fast` 全过（32 个目标，1097 条，lib 908 条）、`cargo clippy --all-targets -- -D warnings` 无警告、`cargo fmt --check` 通过。
+- 截图（临时 HOME、`CORRAL_HOME=/tmp/p194corral` 空目录、`--corral` 指只回四个假 agent 的脚本、`PADDOCK_NO_ACTIVATE=1`，记 PID 按 PID 停，只截测试窗口）：Memphis Light 主窗口、Settings Appearance、New Agent；Memphis 的 New Agent（带主窗口）。窗口不在前台，截到的是失焦淡化的样子（奶黄侧栏被冲淡），字都看得清，卡片浮得起来。截图在会话临时目录，没进仓库。截图时临时在 `main.rs` 加过环境变量钩子（启动后打开 Settings 或 New Agent），提交前已删，diff 里没有。
+
+### 拿主意的地方
+- 卡片测试那条断言的改法（见上）。没有放宽：仍要求白面整体比侧栏亮。主控如果觉得应该改颜色而不是改测试，替代办法是把侧栏改成 #fee7a6 这类红通道不满的奶黄，我觉得是在迁就测试，没这么做。
+- 选区不往黑色压，改为往配色的黄挪（任务里允许的“同色相更深”）。
+- Memphis 的 `lit` 0.10（见上），而不是改样稿的强调色或正文色。
+- 终端黑白槽：深色黑取选中卡片色、白取分支色；浅色黑取样稿暖灰 #e5ddd0、白取淡字 #5e5a7a。亮品红两边都用配色里的紫（淡紫／深紫）对齐。
+- `agent_idle`、`agent_error`、Kimi 等只当点和图标用的颜色保留样稿原值，只压了当字读的 `agents_*` 和 `agent_stalled`（测试按字要求它）。
+
+### 没做的事
+- 孟菲斯的描边、硬投影、圆点花纹；跟随系统深浅；Memphis 的 Settings 截图（Settings 里两张卡片已在浅色那张截图里看到）。
+- 没在 Settings 里实际点选切换、没看前台不失焦的样子（不模拟键鼠）；留给用户实际看。
+
+### 踩过的坑
+- P5-177 记的“调试版 New Agent 在 Controller 开着时崩”这次没出现（默认预设、Controller 选中也能打开），说明已经修了或不再触发；没深究。
+- 其余没有。

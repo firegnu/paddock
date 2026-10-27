@@ -93,7 +93,7 @@ Attention：侧栏头部的 `Attention · N`（有等待或出错时黄色，只
 `~/.config/paddock/config.toml`。文件不存在等于全部默认；写了不认识的键会报错并退出。改完重启生效。
 
 ```toml
-theme = "tide"          # dune | dune-light | tide | tide-light | lagoon | lagoon-light | catppuccin | latte | tokyonight | tokyonight-day | rosepine | rosepine-dawn | kanagawa | kanagawa-lotus；不写等于 dune
+theme = "tide"          # dune | dune-light | tide | tide-light | lagoon | lagoon-light | catppuccin | latte | tokyonight | tokyonight-day | rosepine | rosepine-dawn | kanagawa | kanagawa-lotus | memphis | memphis-light；不写等于 dune
 sidebar_width = 380     # 侧栏宽度，单位 pt；默认 380（Agents 面板信息较多，窄于 320 时“哪家”只显示图标、状态只显示动画）
 ui_font = "Avenir Next" # 界面字体（终端以外的全部文字）；不写等于系统界面字体
 ui_font_size = 13       # 界面字号，单位 pt；默认 13，各处字号按它等比缩放
@@ -134,7 +134,7 @@ terminal_blue = "#7aa2f7"
 
 ### 主题
 
-十四套预置主题，七套深色、七套浅色（Settings 的 Appearance 页分 Dark、Light 两组，浅色版排在它深色版正下方，P5-176、P5-177）。Dune、Tide、Lagoon 沿用 Saddle：界面颜色取自 Saddle 提交 `df1c727`，已复制进 `src/preset.rs` 独立维护；它们的浅色版是 paddock 自己的（P5-177），界面的底、侧栏、字、淡字和线照样稿 `docs/设计稿/P5-177-Dune-Tide-Lagoon浅色版/`，其余颜色和终端配色取自它们出处的浅色版。另八套照各家官方色值做（P5-40、P5-175、P5-176），界面颜色和终端配色都按该配色的角色对应到 paddock 的颜色键，没有对应的取最接近的（每处在 `src/preset.rs`、`src/theme.rs` 的注释里写明）。设置窗口 Colors 页的主题列表里，每套显示名字、底色上的正文，以及强调色和三个终端色。
+十六套预置主题，八套深色、八套浅色（Settings 的 Appearance 页分 Dark、Light 两组，浅色版排在它深色版正下方，P5-176、P5-177、P5-194）。Dune、Tide、Lagoon 沿用 Saddle：界面颜色取自 Saddle 提交 `df1c727`，已复制进 `src/preset.rs` 独立维护；它们的浅色版是 paddock 自己的（P5-177），界面的底、侧栏、字、淡字和线照样稿 `docs/设计稿/P5-177-Dune-Tide-Lagoon浅色版/`，其余颜色和终端配色取自它们出处的浅色版。另八套照各家官方色值做（P5-40、P5-175、P5-176），界面颜色和终端配色都按该配色的角色对应到 paddock 的颜色键，没有对应的取最接近的（每处在 `src/preset.rs`、`src/theme.rs` 的注释里写明）。Memphis 和 Memphis Light 是 paddock 自己的（P5-194），界面和终端颜色都取自用户给的孟菲斯配色，照样稿 `docs/设计稿/P5-194-Memphis主题/`。设置窗口 Colors 页的主题列表里，每套显示名字、底色上的正文，以及强调色和三个终端色。
 
 | 写法 | 显示名 | 终端 16 色的来源 |
 | --- | --- | --- |
@@ -152,6 +152,8 @@ terminal_blue = "#7aa2f7"
 | `rosepine-dawn` | Rosé Pine Dawn | Rosé Pine dawn（MIT，同上）的 alacritty 配色。浅色（P5-176） |
 | `kanagawa` | Kanagawa | [kanagawa.nvim](https://github.com/rebelot/kanagawa.nvim) wave（MIT，Copyright (c) 2021 Tommaso Laurenzi）的 alacritty 配色 |
 | `kanagawa-lotus` | Kanagawa Lotus | kanagawa.nvim lotus（MIT，同上）的 alacritty 配色，光标取它 kitty 配色的。浅色（P5-176） |
+| `memphis` | Memphis | 孟菲斯配色的亮色原样，钴蓝提亮成 #7a9bf5，亮色由常规色调亮而来（亮品红是淡紫） |
+| `memphis-light` | Memphis Light | 孟菲斯配色各色同色相深一档，亮色由常规色往黑色调 25% 而来（亮品红是深紫）。浅色（P5-194） |
 
 终端默认字色、底色跟随 Saddle 主题的 `text`、`bg`（Dune 的这两项在 Saddle 里是“跟随外层终端”，paddock 用 Dune 的 `agents_text`、`agents_bg`）。各主题中除黑色外的 15 个基本色在默认底色上的对比度都不低于 3:1：Catppuccin Mocha 和 Tokyo Night 的亮黑达不到，略调亮了；Catppuccin Latte 的绿、黄、品红和亮黑，Tokyo Night Day 的亮黑、亮红、亮蓝、亮品红，Rosé Pine Dawn 的黄、青（rose）和亮黑，Kanagawa Lotus 的亮黑、亮绿、亮蓝，Lagoon Light 的黄和两个灰达不到，略调暗了。
 
