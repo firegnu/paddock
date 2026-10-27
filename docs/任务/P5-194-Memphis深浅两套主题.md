@@ -87,3 +87,11 @@
 ### 踩过的坑
 - P5-177 记的“调试版 New Agent 在 Controller 开着时崩”这次没出现（默认预设、Controller 选中也能打开），说明已经修了或不再触发；没深究。
 - 其余没有。
+
+## 主控审查
+
+- 看了 diff：只动 `preset.rs`、`theme.rs`、`sidebar.rs` 一条测试、README、DESIGN 和本文件；现有 14 套主题色值没动，按深浅分支的代码没动，「不要做」里的一件都没做。Settings 8 对 8 靠 `Preset::light` 配对自动得到。
+- 重跑：`cargo test --all-targets --no-fail-fast` 1097 过、0 失败，和 agent 说的一致；clippy、fmt、`git diff --check` 通过。
+- 取舍表态：`sidebar.rs` 卡片测试从只比红通道改成比三通道之和，同意——原意是“白卡面整体比侧栏亮”，只比红通道是近似写法，奶黄侧栏红通道已满；对已有 14 套结果不变，不是放宽。不为迁就测试把侧栏改成 `#fee7a6`。选区改成往黄挪的 `#ffdc82`、`agents_purple` 转到 `#6f4bd1`、Memphis 磨砂 `lit` 0.10，都同意。样稿 HTML 与 README 的“更淡”色不一致时照 README，同意（HTML 里 `#7d7586` 是笔误）。
+- 主控没起窗口看；已从分支提交 `5a66ff6` 打包装到 `~/Applications/paddock.app`，外观留给用户看。
+- 结果：一次过
