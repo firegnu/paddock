@@ -13,6 +13,7 @@
 - 退回：不留旧版。在临时 worktree 检出要退回的提交，照上面打包安装（编译目录用这个 worktree 自己的子目录）。旧版读不了新配置：P5-90 之前不认 `[[machines]]`，P5-120 之前不认预设里的 `sandbox` 字段，退回前先从 `~/.config/paddock/config.toml` 去掉。
 - paddock ctl：`~/.local/bin/paddock` 链到 app 里的程序，重新打包不用重建。技能正文改了要重跑 `paddock install-skills`（装在 `~/.claude/skills/paddock`、`~/.agents/skills/paddock`、`~/.gemini/config/skills/paddock`），开着的 agent 重开才看到。
 - 本机配置 `~/.config/paddock/config.toml`：写着 `frame_opacity = 2`（默认已是 0，Settings 点 `Reset to 0%` 才跟默认）；有一台 `[[machines]]`（见下面 5090）。
+- paddock 从程序坞打开时用 `$SHELL -l -c` 取 PATH，不读 `~/.zshrc`：只加在 `.zshrc` 里的 PATH，paddock 和它起的 corral 都看不到。kimi 的 `~/.kimi-code/bin` 11-03 已从 `~/.zshrc` 挪到 `~/.zprofile` 末尾（P5-196，两份备份 `*.bak-20261103-171855`）；kimi 升级若又往 `.zshrc` 加这一行，删掉即可。
 - 种类真图标在 `~/.config/paddock/icons/`（来源见同目录 `SOURCES.txt`），不进仓库；没有时退回仓库里的单色剪影。
 
 ## 依赖的外部命令
@@ -47,7 +48,7 @@
 - `docs/任务/P5-115-用corral和cairn的仓库规矩统一.md`：范围、做法、验收都没定。
 - `docs/任务/P5-146-把终端拆出去做自己的终端.md`（优先：低）：长期想法。
 - `docs/任务/P5-149-终端按命令分段.md`（优先：低）：不排期。
-- `docs/任务/P5-196-Settings里canter的几处和kimi找不到.md`：canter 暂停、沙箱按能力显示和 Integrations 一行等 ranch R56a 定约定；Instructions 加不加 canter、kimi，kimi 显示 Not found 怎么办，等用户答。
+- `docs/任务/P5-197-canter暂停沙箱按能力显示和Integrations.md`：canter 需求单第 4、5 条，等 ranch R56a 把约定写进它的 CONTRACT 并送来字段名；corral 部署后和用户、canter、ranch 主控联调。
 
 ## 已知没修的（不主动追，碰到再看）
 
