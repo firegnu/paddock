@@ -54,3 +54,4 @@ m..bbbbbbbbbbcc.
 - 主控画了一匹平滑的小马头（侧脸朝右：栗色头和脖子、深棕鬃毛和刘海、奶油色鼻子、大眼睛带高光、腮红、笑嘴），颜色取 canter `pony()`；满格底色出了奶油、浅绿两版，用 `rsvg-convert` 渲染成对比图给用户看。用户选「浅绿底」。
 - 本机 `~/.config/paddock/icons/canter.svg` 换成浅绿底这版，`SOURCES.txt` 那一行改了。仓库剪影换成同一匹小马的轮廓（头、耳朵、鬃毛、脖子），眼睛挖空；README 记为 paddock 自己画的，DESIGN 那一条改了。像素版不再用。
 - 验证：两张都用 `rsvg-convert` 渲染成 256 px 看过；`kind_icon` 的测试照旧通过。界面上的样子留给用户在 paddock 里看。
+- 用户随后：「不好意思，换成奶油色的吧。」本机图标换成奶油色底那版，`SOURCES.txt` 跟着改；仓库剪影不受影响。
