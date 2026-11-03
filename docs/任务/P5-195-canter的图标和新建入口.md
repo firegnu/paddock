@@ -5,7 +5,6 @@
 类型：功能变更
 依据：canter/main 按用户要求交来的需求单（`/tmp/canter-p2-193/paddock-需求单.md`）第 1～3 条；本轮做不依赖 corral 新接口的部分，用假 corral 测试。第 4、5 条（暂停、沙箱按能力显示，Integrations 的 canter 一行）等 ranch 定了 corral 的接口另开一件（P5-196），本轮不做。照 P5-179 接 kimi 的做法接 canter，不另做花样。
 执行：派出
-待用户：重开 paddock 看 canter 的马蹄铁图标和颜色（New Agent 选 canter）
 提示：围绕已确认的使用目标完成变更，优先沿用现有机制。
 你是被委派的 agent：照本文件做，不要再开别的 agent。
 
@@ -107,3 +106,9 @@
 - 用户 11-03（经 canter/main 转）：远程机器的 New Agent 这次不做选 canter，照主控建议。
 - 主控没起窗口看；从分支打包装到 `~/Applications/paddock.app`，图标和颜色留给用户看。真实 canter 起成 corral agent 要等 ranch R56 部署后联调。
 - 结果：一次过
+
+## 用户验收
+
+- 11-03 装上在 New Agent 里看过：“图标没问题，先合并吧”。
+- 看的时候用户另外发现 Settings › Integrations、Instructions、Dispatch 里都没有 canter，Integrations 里 kimi 显示 Not found；记进新任务 P5-196，不在本件改。
+- 真实 canter 起成 corral agent 还没验：等 ranch R56 部署后联调。
