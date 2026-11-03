@@ -16,13 +16,15 @@ pub struct Request {
     pub ask: Option<String>,
 }
 
-/// An agent corral still runs: any it lists but those that have exited.
+/// An agent the button for every agent reaches: any corral still runs (all it lists but those that
+/// have exited) and can pause, or that is paused.
 fn live(a: &Agent) -> bool {
-    a.state.as_deref() != Some("exited")
+    a.state.as_deref() != Some("exited") && (a.paused || a.can_pause())
 }
 
 /// The one button for every agent, clicked: pause every live agent not paused yet, asking first
 /// when one may be working, or resume them all once all are paused; `None` with no live agent.
+/// Agents whose kind can't pause (canter) are left out, as if not there.
 pub fn every(agents: &[Agent]) -> Option<Request> {
     let pause = all(agents)?;
     let names = targets(agents, pause);
@@ -77,14 +79,16 @@ pub fn question(agents: &[Agent], names: &[String]) -> Option<String> {
 
 /// Pauses (`pause`) or resumes each of `names` in turn with corral: each name, with why it failed.
 pub fn run(corral: &str, names: &[String], pause: bool) -> Vec<(String, Result<(), String>)> {
-    run_with(&Client::local(corral), names, pause)
+    run_with(&Client::local(corral), names, pause, |_| None)
 }
 
-/// [`run`] with any corral: this Mac's or another machine's (DESIGN §13 P5-90).
+/// [`run`] with any corral: this Mac's or another machine's (DESIGN §13 P5-90); `kind` gives an
+/// agent's kind, to say which can't pause.
 pub fn run_with(
     client: &Client,
     names: &[String],
     pause: bool,
+    kind: impl Fn(&str) -> Option<String>,
 ) -> Vec<(String, Result<(), String>)> {
     let op = if pause { "pause" } else { "resume" };
     names
@@ -93,16 +97,23 @@ pub fn run_with(
             let result = client
                 .json(&[op, name], TIMEOUT, &AtomicBool::new(false))
                 .map(drop)
-                .map_err(|error| reason(format!("{error:#}"), &format!("{op} {name}: ")));
+                .map_err(|error| {
+                    reason(format!("{error:#}"), &format!("{op} {name}: "), kind(name))
+                });
             (name.clone(), result)
         })
         .collect()
 }
 
-/// Why corral refused, after `prefix`, the command it answers: its error, in which an agent under
-/// an older corral, which cannot pause, needs `corral upgrade`. Otherwise the whole error.
-fn reason(error: String, prefix: &str) -> String {
+/// Why corral refused, after `prefix`, the command it answers: its error, in which an agent whose
+/// kind (`kind`) can't pause is not supported (`unsupported_kind`, ranch R56), and one under an
+/// older corral, which cannot pause, needs `corral upgrade`. Otherwise the whole error.
+fn reason(error: String, prefix: &str, kind: Option<String>) -> String {
     match error.strip_prefix(prefix) {
+        Some("unsupported_kind") => match kind {
+            Some(kind) => format!("not supported for {kind}"),
+            None => "not supported".into(),
+        },
         Some("unsupported") => "needs corral upgrade".into(),
         Some(why) => why.to_owned(),
         None => error,
@@ -213,6 +224,40 @@ mod tests {
             question(&agents, &names(&["p/unread"])).as_deref(),
             Some("1 agent may be working: p/unread. Pause anyway?")
         );
+    }
+
+    fn canter(name: &str, state: Option<&str>, paused: bool) -> Agent {
+        Agent {
+            kind: Some("canter".into()),
+            unsupported: vec!["pause".into(), "sandbox".into()],
+            ..agent(name, state, paused)
+        }
+    }
+
+    #[test]
+    fn the_one_button_leaves_out_agents_that_cannot_pause() {
+        let mixed = [
+            agent("p/a", Some("idle"), false),
+            canter("p/c", Some("working"), false),
+        ];
+        assert_eq!(all(&mixed), Some(true));
+        assert_eq!(every(&mixed).unwrap().names, ["p/a"]);
+        // No question for it either, working as it is.
+        assert_eq!(every(&mixed).unwrap().ask, None);
+        // The rest paused: the button resumes them, not "some still running".
+        let paused = [
+            agent("p/a", Some("idle"), true),
+            canter("p/c", Some("working"), false),
+        ];
+        assert_eq!(all(&paused), Some(false));
+        assert_eq!(every(&paused).unwrap().names, ["p/a"]);
+        // Only agents that cannot pause: as with no live agent.
+        assert_eq!(all(&[canter("p/c", Some("idle"), false)]), None);
+        assert_eq!(every(&[canter("p/c", Some("idle"), false)]), None);
+        // One paused all the same still resumes.
+        let odd = [canter("p/c", Some("idle"), true)];
+        assert_eq!(all(&odd), Some(false));
+        assert_eq!(every(&odd).unwrap().names, ["p/c"]);
     }
 
     #[test]

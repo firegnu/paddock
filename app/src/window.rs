@@ -3351,7 +3351,7 @@ impl PaddockWindow {
             let _ = this.update(cx, |_, cx| {
                 sidebar.update(cx, |sidebar, cx| {
                     match result {
-                        Ok(()) => sidebar.note(format!("Stopped {name}"), false, cx),
+                        Ok(open) => sidebar.note(new_agent::stopped(&name, &open), false, cx),
                         Err(error) => sidebar.note(format!("{error:#}"), true, cx),
                     }
                     sidebar.refresh();
@@ -3382,6 +3382,11 @@ impl PaddockWindow {
             let detail = there.as_deref();
             window.prompt(PromptLevel::Warning, &ask, detail, &["Pause", "Cancel"], cx)
         });
+        // Each one's kind, for a refusal that its kind can't pause.
+        let kinds: HashMap<String, String> = (self.sidebar.read(cx).agents().into_iter())
+            .filter(|a| names.contains(&a.name))
+            .filter_map(|a| Some((a.name, a.kind?)))
+            .collect();
         // What comes back is told and read again on that machine, whichever is on show by then.
         let sidebar = self.sidebar.clone();
         let client = self.client();
@@ -3400,8 +3405,10 @@ impl PaddockWindow {
             });
             let results = {
                 let names = names.clone();
-                cx.background_spawn(async move { pause::run_with(&client, &names, pause) })
-                    .await
+                cx.background_spawn(async move {
+                    pause::run_with(&client, &names, pause, |name| kinds.get(name).cloned())
+                })
+                .await
             };
             let _ = this.update(cx, |_, cx| {
                 sidebar.update(cx, |sidebar, cx| {
@@ -6379,7 +6386,9 @@ impl PaddockWindow {
             .workspace
             .active_agent()
             .is_some_and(|name| self.sidebar.read(cx).paused(name));
-        let (pause, can_pause) = sidebar::pause_item(self.workspace.active_agent(), paused);
+        let able = (self.workspace.active_agent())
+            .is_none_or(|name| self.sidebar.read(cx).can_pause(name));
+        let (pause, can_pause) = sidebar::pause_item(self.workspace.active_agent(), paused, able);
         let keys = |action: &dyn gpui::Action| popover::keys(theme, &ui, &menu::keys(action));
         let sort = |this: &mut Self, by_name: bool, window: &mut Window, cx: &mut Context<Self>| {
             this.close_popup(window, cx);

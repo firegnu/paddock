@@ -310,6 +310,8 @@ const ARROW_RADIUS: f32 = 5.0;
 const ARROW_ICON: f32 = 0.8;
 /// How strongly a paused agent's card and tile show.
 const PAUSED_OPACITY: f32 = 0.55;
+/// How strongly the Pause button shows on a card whose kind can't pause (ranch R56).
+const PAUSE_OFF_OPACITY: f32 = 0.4;
 /// How bright another machine's cards stay while it cannot be read: as last read, dimmed
 /// (DESIGN §13 P5-90).
 const STALE: f32 = 0.5;
@@ -472,11 +474,12 @@ pub fn stop_item(selected: Option<&str>) -> (String, bool) {
 }
 
 /// The menu's Pause item for the active pane's agent, `paused` or not: what it says, and whether
-/// it can be chosen.
-pub fn pause_item(selected: Option<&str>, paused: bool) -> (String, bool) {
+/// it can be chosen. Off, as the card's button, when its kind can't pause
+/// (`can_pause`, ranch R56) and it isn't paused.
+pub fn pause_item(selected: Option<&str>, paused: bool, can_pause: bool) -> (String, bool) {
     match selected {
         Some(name) if paused => (format!("Resume {name}"), true),
-        Some(name) => (format!("Pause {name}"), true),
+        Some(name) => (format!("Pause {name}"), can_pause),
         None => ("Pause Agent".to_owned(), false),
     }
 }
@@ -1198,6 +1201,15 @@ impl Sidebar {
             .agents
             .iter()
             .any(|a| a.name == name && a.paused)
+    }
+
+    /// Whether corral last said `name`'s kind can pause; one not listed is taken as able.
+    pub fn can_pause(&self, name: &str) -> bool {
+        self.listing
+            .panel
+            .agents
+            .iter()
+            .all(|a| a.name != name || a.can_pause())
     }
 
     /// The header's bell, always there so the Inbox has a way in: how many rows its first two
@@ -4315,6 +4327,35 @@ fn details(theme: &Theme, mono: &Font, ui: &UiFont, card: &Card, buttons: Button
                             scale,
                         ))
                 })
+                .into_any_element()
+            } else if let Some(why) = card.pause_off.clone() {
+                // Its kind can't pause: greyed out and still, a click does nothing, and the hover
+                // says why.
+                let tip = Tip {
+                    text: why.into(),
+                    size: ui.px(NOTE_SIZE),
+                    color: text,
+                    background: hsla(theme.bg(|t| t.agents_bg), 1.0),
+                    border: rule,
+                };
+                div()
+                    .id("pause-off")
+                    .flex_shrink_0()
+                    .size(ui.px(CARD_BUTTON))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded(ui.px(CARD_BUTTON_RADIUS))
+                    .tooltip(move |_, cx| cx.new(|_| tip.clone()).into())
+                    // Not a click on the card either.
+                    .on_click(|_, _, cx| cx.stop_propagation())
+                    .child(footer_icon::posed(
+                        Icon::Pause,
+                        motion::dip(None),
+                        dim.opacity(PAUSE_OFF_OPACITY),
+                        scale,
+                    ))
+                    .into_any_element()
             } else {
                 let button = action("pause", "Pause agent");
                 motion::hover_motion("pause-motion", motion::DIP, move |hover| {
@@ -4327,6 +4368,7 @@ fn details(theme: &Theme, mono: &Font, ui: &UiFont, card: &Card, buttons: Button
                             scale,
                         ))
                 })
+                .into_any_element()
             }
         })
         .child({
@@ -5246,14 +5288,30 @@ mod tests {
     #[test]
     fn pause_names_the_active_agent_and_resumes_a_paused_one() {
         assert_eq!(
-            pause_item(Some("paddock/main"), false),
+            pause_item(Some("paddock/main"), false, true),
             ("Pause paddock/main".to_owned(), true)
         );
         assert_eq!(
-            pause_item(Some("paddock/main"), true),
+            pause_item(Some("paddock/main"), true, true),
             ("Resume paddock/main".to_owned(), true)
         );
-        assert_eq!(pause_item(None, false), ("Pause Agent".to_owned(), false));
+        assert_eq!(
+            pause_item(None, false, true),
+            ("Pause Agent".to_owned(), false)
+        );
+    }
+
+    #[test]
+    fn pause_is_off_for_an_agent_whose_kind_cannot_pause() {
+        // As the card's button: off unless it is paused, which still resumes.
+        assert_eq!(
+            pause_item(Some("p/c"), false, false),
+            ("Pause p/c".to_owned(), false)
+        );
+        assert_eq!(
+            pause_item(Some("p/c"), true, false),
+            ("Resume p/c".to_owned(), true)
+        );
     }
 
     #[test]

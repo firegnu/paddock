@@ -80,3 +80,29 @@
 
 ## 做完
 在本文件末尾追加「## 完成记录」（在你的分支里提交）：做了什么、验证了什么、拿主意的地方、没做的事、踩过的坑，各几句话。踩过的坑指试了不行、换了办法的，工具或环境的行为和预想不一样的；没有就写「没有」，不要凑。回复里只写这几样，加上有没有要主控决定的事。命令都在前台跑完，全部做完后，回复最后一行写 DONE。
+
+## 完成记录
+
+- 做了什么：
+  - `corral.rs`：`Agent` 读 `unsupported`（没有就是空），加 `can_pause()`。远程机器的 agent 走同一个解析，也带上。
+  - 暂停：`card.rs` 给卡片加 `pause_off`（列着 `pause`、没在暂停时是悬停说明 `Pausing isn't supported for <kind>`）；`sidebar.rs` 据此把暂停按钮画成灰色（0.4 透明）、不响应点击、悬停说明，暂停中的照旧显示 Resume。`pause.rs` 的「暂停全部」只算能暂停或正暂停着的活 agent，只剩不能暂停的时按没有活 agent 处理。`corral pause|resume` 报 `unsupported_kind` 时写 `not supported for <kind>`（`window.rs` 从左侧栏的列表查种类传进去；查不到写 `not supported`），`unsupported` 仍写 `needs corral upgrade`。
+  - 停止：`new_agent::stop_with` 返回 `remaining_sessions`，非空时底部写 `Stopped <name>; N canter session(s) may still be open`，不弹框、不标红、仍算停成功。
+  - 沙箱、Integrations、`exiting`／`unknown`：现有代码已经对（canter 不在 fence 的 kinds 里；`hooks:"launch"` 显示 Built in；不认识的状态显示 Unknown、不算在干活），只加测试。
+  - `docs/DESIGN.md`「接 canter（P5-195）」补了本轮一条。
+- 验证了什么：先写测试，读 `unsupported`、单个暂停变灰、暂停全部跳过、`unsupported_kind` 的文字、停止带 `remaining_sessions` 五条先看到断言失败再实现；canter 不带 `--sandbox`、Integrations 的 canter 一行、`exiting`／`unknown` 三条一写就过（现状已对）。`tests/pause.rs` 用假 corral 加一条 `unsupported_kind` 和老 corral `unsupported` 并列的测试。`app/` 下 `cargo test --all-targets`、`cargo clippy --all-targets -- -D warnings`、`cargo fmt --check` 全过。没起窗口、没截图，灰按钮和悬停说明的样子留给用户实际看。
+- 拿主意的地方：
+  - 公开的 `pause::run` 保持三个参数（集成测试在用），不带种类；只有 `run_with` 多一个查种类的参数，窗口用它。
+  - 停止的提示不标红（任务说仍算停成功）；单数写 `1 canter session`。
+  - 种类缺失时灰按钮写 `Pausing isn't supported for this agent`（canter 实际都带 `kind`）。
+- 没做的事：真实 canter 联调等 R56b 部署。
+- 踩过的坑：一开始改了公开的 `pause::run` 签名，`tests/pause.rs` 编不过，改回三个参数，只改 `run_with`。
+- 主控的决定（11-03，第一轮回复后）：窗口菜单里的 Pause 项也要对不能暂停的 agent 变灰、点不动，和卡片按钮同一个判断，别家不变。已做：`sidebar::pause_item` 多一个 `can_pause` 参数（不能暂停、没在暂停时不可选，暂停中的仍是 Resume），窗口从左侧栏的列表读（`Sidebar::can_pause`，列表里没有的当能暂停）；加测试 `pause_is_off_for_an_agent_whose_kind_cannot_pause`，先看到失败再实现。只跑了这条和直接相关的测试（菜单项、卡片按钮、暂停全部、读 `unsupported`），加 `cargo clippy --all-targets -- -D warnings`、`cargo fmt --check`，都过；没再跑全套。DESIGN 里原来写的“窗口菜单的 Pause 项不看能力”同步改了。
+
+## 主控审查
+
+- 看了 diff：只动了任务列的文件；别家不带 `unsupported`，`can_pause()` 为真，暂停、暂停全部、停止的行为不变；`unsupported` 仍写 `needs corral upgrade`。「不要做」里的一件都没做。
+- 主控决定（agent 问）：窗口菜单的 Pause 项也按同一判断变灰，和用户选的“变灰，悬停说明”一致；agent 已改（`da1b8da`）。
+- 取舍表态：`pause::run` 保持三个参数、窗口改用 `run_with` 传种类，同意；停止提示不标红（仍算停成功），同意。
+- 重跑：`cargo test --all-targets` 1111 过、0 失败；clippy `-D warnings`、`fmt --check`、`git diff --check` 通过。
+- 没起窗口看：灰按钮、悬停说明、停止提示要有真 canter agent 才看得到，等 ranch R56b 部署后和用户、canter 主控、ranch 主控联调时看。
+- 结果：一次过

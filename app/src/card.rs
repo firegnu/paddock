@@ -673,6 +673,9 @@ pub struct Card {
     pub paused: bool,
     /// In a turn, as corral says: pausing it from the card asks first.
     pub working: bool,
+    /// Its kind can't be paused and it isn't paused: the Pause button is off, and this says why
+    /// on hover.
+    pub pause_off: Option<String>,
     /// The workspace it is in (P5-89), for the details.
     pub workspace: Option<String>,
     /// The main worktree of the repository it works in, once Git has told: what its details'
@@ -1103,6 +1106,10 @@ fn card(
         cwd: a.cwd.clone(),
         paused: a.paused,
         working: a.state.as_deref() == Some("working"),
+        pause_off: (!a.paused && !a.can_pause()).then(|| {
+            let kind = a.kind.as_deref().unwrap_or("this agent");
+            format!("Pausing isn't supported for {kind}")
+        }),
         workspace: panel.workspace(a).map(str::to_owned),
         repo: panel.repository(a).map(Path::to_path_buf),
         sandbox: sandboxed(panel, a),
@@ -1305,6 +1312,57 @@ mod tests {
                 ahead: 0,
             }
         );
+    }
+
+    #[test]
+    fn a_kind_that_cannot_pause_has_its_button_off_and_says_why() {
+        let canter = |a: Agent| Agent {
+            kind: Some("canter".into()),
+            unsupported: vec!["pause".into(), "sandbox".into()],
+            ..a
+        };
+        let mut panel = panel(vec![
+            canter(agent("p/c", "working")),
+            agent("p/a", "idle"),
+            canter(Agent {
+                paused: true,
+                ..agent("p/old", "idle")
+            }),
+        ]);
+        // fence is there, so a lock would show for an agent in one of its profiles.
+        panel.fence.found = Some(crate::fence::Version {
+            version: "1".into(),
+            contract: "1".into(),
+            srt: None,
+            node: None,
+        });
+        let lines = lines(&panel, None, None, &[], None, 100.0);
+        let cards = cards(&lines);
+        let of = |short: &str| cards.iter().find(|c| c.short == short).unwrap();
+        assert_eq!(
+            of("c").pause_off.as_deref(),
+            Some("Pausing isn't supported for canter")
+        );
+        // No fence lock: corral says nothing of canter's own sandbox.
+        assert!(of("c").sandbox.is_none());
+        assert_eq!(of("a").pause_off, None);
+        // A paused one still resumes.
+        assert_eq!(of("old").pause_off, None);
+    }
+
+    #[test]
+    fn exiting_and_unknown_are_unknown_not_working() {
+        let panel = panel(vec![agent("p/x", "exiting"), agent("p/u", "unknown")]);
+        let lines = lines(&panel, None, None, &[], None, 100.0);
+        for card in cards(&lines) {
+            assert_eq!(card.status, Status::Unknown, "{}", card.name);
+            assert_eq!(card.look.label, "Unknown", "{}", card.name);
+            assert!(!card.working, "{}", card.name);
+            assert!(!card.look.breathing, "{}", card.name);
+        }
+        for a in &panel.agents {
+            assert_eq!(panel.status(a, 100.0), Status::Unknown, "{}", a.name);
+        }
     }
 
     #[test]

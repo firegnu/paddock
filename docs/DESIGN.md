@@ -697,6 +697,13 @@ paddock 与 Saddle 在代码上完全分开：用到的 Saddle 代码迁入 padd
   - Agent shell 的替身多一个 `canter`，经 corral 托管时照用户敲的参数起，不自己加 `--yolo`。非终端、`-h`／`--help`、`-V`／`--version`，和 `canter --help`（0.1.0 · 16fb98c）列的管理和一次性子命令 `serve`、`service`、`upgrade`、`rollback`、`usage`、`exec`、`stats`、`mcp` 直接跑真程序；交互的 `canter`、`canter <首句>`、`--resume`／`-r`、`-c`／`--continue`，以及带 `-m`、`--tag`、`--yolo`、`--add-dir` 等选项的交互启动经 corral 托管。
   - 终端接管照现有 attach，不改。真实 canter 起成 corral agent 要等 ranch 让 corral 认得 canter。
   - 留给 P5-196（等 ranch 定 corral 的接口）：需求单第 4、5 条，暂停、沙箱按能力显示，Settings › Integrations 的 canter 一行。这一版也不做远程机器 New Agent 的 canter（没定）、Settings › Instructions 里 canter 的说明文件；Settings › Instructions 的名单不随替身多出 canter。
+  - 需求单第 4、5 条（P5-197，照 ranch R56 的公开约定；用户 11-03 选：暂停按钮“变灰，悬停说明”，停 canter 有没关掉的会话“底部提示一句”）：
+    - 能力字段：`corral ls`／`status` 的 `unsupported`（canter 是 `["pause","sandbox"]`，别家不带，当作空）读进 `Agent`。列着 `pause` 的、没在暂停的 agent，卡片上的暂停按钮变灰、点不动，悬停写 `Pausing isn't supported for <kind>`；暂停中的照旧能继续。「暂停全部」不算它：不去暂停它、不因它一直显示“还有没暂停的”，只剩它时按没有活 agent 处理。
+    - `corral pause|resume` 报 `unsupported_kind` 时底部写 `Couldn't pause <name>: not supported for <kind>`；老 corral 的 `unsupported` 仍写 `needs corral upgrade`。窗口菜单的 Pause 项和卡片按钮同一个判断：不能暂停、没在暂停的变灰点不动，暂停中的仍是 Resume（主控 11-03 定）。
+    - 沙箱：fence 档案选择器照 `fence profiles` 的 kinds，canter 不在里面，不给档案，带档案的 canter 预设也不带 `--sandbox` 起。canter 自带的沙箱 corral 不报，paddock 不显示；卡片的锁只看 `sandbox`（只指 fence），canter 恒为 null，不出锁。
+    - Integrations：canter 一行照 `hooks:"launch"` 显示 Built in、排在 kimi 后、没有装卸按钮，不加状态来源说明。
+    - 停止：`corral stop` 的回答带非空 `remaining_sessions` 时，底部写 `Stopped <name>; N canter sessions may still be open`，不弹框、仍算停成功。
+    - 状态 `exiting`、`unknown` 照不认识的状态显示成 Unknown，不算在干活。
 - **New Agent 底边把种类和模型·强度分成两块（P5-99，改 P5-43 的合并小块）**（用户 10-14 试 P5-98 后：“我是一直觉得那个地方是选模型和effort的地方”；选甲，看过样稿 `docs/设计稿/P5-99-种类和模型分开/`：“照你的设计作”）：P5-43 把种类、模型、强度合在一块（只有 Claude、Codex 两家时合理）；五家里三家没有模型可选，合在一块时 Claude、Codex 只显示 `模型 · 强度`、别家显示种类名，看着像选模型的地方。现在种类小块写“图标 种类名”，点开只列五家，选了就关；旁边模型小块写 `模型 · 强度`，点开只有 Model、Effort 两排，开着可连着选；种类没有模型时模型小块不显示。切换种类、预设、`edited` 的规则不变。顶上预设那排用户说“暂时不用改”。
 - **New Agent 的模型和强度从配置文件和 Codex 取（P5-100，改 P5-37 起写死的列表）**（用户 10-14 问模型是不是写死的，调研后定：“能否改为从配置文件取？……codex一天一次还是频繁。我觉得一个月一次都可以。……codex娶不到要有回退到写死的fallback。配置文件codex和claude都写，取到就覆盖codex，取不到就fallback到codex的配置文件。”同意取到的另存缓存、不写回配置、加 Refresh；`opus[1m]`：“那是我经常用的”，留着排第一；Settings 样稿 `docs/设计稿/P5-100-模型来源/`，用户：“就放 Settings 里，开始做吧”）：
   - 三层，前一层没有才用后一层。Codex：paddock 自己存的 `codex debug models` 结果（`~/.local/state/paddock/codex-models.json`，旧了也照用）→ `config.toml` 的 `[agent_models.codex]` → 写死的。Claude 没有列模型的办法：`[agent_models.claude]` → 写死的。`[agent_models.<种类>]` 写 `models`、`efforts` 两个列表，第一个模型是默认（Codex 例外，见下）；写错（空、不是字符串、多出的键）照配置出错报。paddock 只读配置，不写回。
