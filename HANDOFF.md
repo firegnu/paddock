@@ -8,7 +8,7 @@
 
 ## 本机安装
 
-- 现装：`~/Applications/paddock.app` 是 P5-194 的版本（10-27 从分支提交 `5a66ff6` 装，代码与 main 合并后相同，含此前的 P5-185 至 P5-193），本机 Apple Development 证书签名。
+- 现装：`~/Applications/paddock.app` 是 P5-195 的版本（11-03 从分支提交 `6060061` 装，代码与 main 合并后相同，含此前的 P5-185 至 P5-194），本机 Apple Development 证书签名。
 - 重新打包安装：在 `app/` 下 `cargo build --release`，再 `cargo run --release --example bundle -- --install`（编译目录 `.target/main`）。默认选本机 Apple Development 身份，可用 `PADDOCK_SIGN_IDENTITY` 指定；退回 ad-hoc 时会提示屏幕录制授权会失效。release 很快结束时，核对产物时间晚于合并再装。
 - 退回：不留旧版。在临时 worktree 检出要退回的提交，照上面打包安装（编译目录用这个 worktree 自己的子目录）。旧版读不了新配置：P5-90 之前不认 `[[machines]]`，P5-120 之前不认预设里的 `sandbox` 字段，退回前先从 `~/.config/paddock/config.toml` 去掉。
 - paddock ctl：`~/.local/bin/paddock` 链到 app 里的程序，重新打包不用重建。技能正文改了要重跑 `paddock install-skills`（装在 `~/.claude/skills/paddock`、`~/.agents/skills/paddock`、`~/.gemini/config/skills/paddock`），开着的 agent 重开才看到。
@@ -47,6 +47,7 @@
 - `docs/任务/P5-115-用corral和cairn的仓库规矩统一.md`：范围、做法、验收都没定。
 - `docs/任务/P5-146-把终端拆出去做自己的终端.md`（优先：低）：长期想法。
 - `docs/任务/P5-149-终端按命令分段.md`（优先：低）：不排期。
+- `docs/任务/P5-196-Settings里canter的几处和kimi找不到.md`：canter 暂停、沙箱按能力显示和 Integrations 一行等 ranch R56a 定约定；Instructions 加不加 canter、kimi，kimi 显示 Not found 怎么办，等用户答。
 
 ## 已知没修的（不主动追，碰到再看）
 
