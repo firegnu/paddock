@@ -56,3 +56,6 @@ m..bbbbbbbbbbcc.
 - 验证：两张都用 `rsvg-convert` 渲染成 256 px 看过；`kind_icon` 的测试照旧通过。界面上的样子留给用户在 paddock 里看。
 - 用户随后：「不好意思，换成奶油色的吧。」本机图标换成奶油色底那版，`SOURCES.txt` 跟着改；仓库剪影不受影响。
 - 用户再改：「底色颜色换成绿色，但是要深一些。」主控出中绿、较深、深绿三档对比图，用户选「较深」（`#7DB466` 到 `#5C9A4A`）。本机图标和 `SOURCES.txt` 换成这版。
+
+## 用户验收
+- 11-03 用户在 paddock 里看过较深绿底的小马：「小马可以」。合并前在分支上重跑 `cargo test --all-targets` 1111 个通过，clippy、fmt、`git diff --check` 通过。
