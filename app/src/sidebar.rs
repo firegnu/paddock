@@ -474,11 +474,12 @@ pub fn stop_item(selected: Option<&str>) -> (String, bool) {
 }
 
 /// The menu's Pause item for the active pane's agent, `paused` or not: what it says, and whether
-/// it can be chosen.
-pub fn pause_item(selected: Option<&str>, paused: bool) -> (String, bool) {
+/// it can be chosen. Off, as the card's button, when its kind can't pause
+/// (`can_pause`, ranch R56) and it isn't paused.
+pub fn pause_item(selected: Option<&str>, paused: bool, can_pause: bool) -> (String, bool) {
     match selected {
         Some(name) if paused => (format!("Resume {name}"), true),
-        Some(name) => (format!("Pause {name}"), true),
+        Some(name) => (format!("Pause {name}"), can_pause),
         None => ("Pause Agent".to_owned(), false),
     }
 }
@@ -1200,6 +1201,15 @@ impl Sidebar {
             .agents
             .iter()
             .any(|a| a.name == name && a.paused)
+    }
+
+    /// Whether corral last said `name`'s kind can pause; one not listed is taken as able.
+    pub fn can_pause(&self, name: &str) -> bool {
+        self.listing
+            .panel
+            .agents
+            .iter()
+            .all(|a| a.name != name || a.can_pause())
     }
 
     /// The header's bell, always there so the Inbox has a way in: how many rows its first two
@@ -5278,14 +5288,30 @@ mod tests {
     #[test]
     fn pause_names_the_active_agent_and_resumes_a_paused_one() {
         assert_eq!(
-            pause_item(Some("paddock/main"), false),
+            pause_item(Some("paddock/main"), false, true),
             ("Pause paddock/main".to_owned(), true)
         );
         assert_eq!(
-            pause_item(Some("paddock/main"), true),
+            pause_item(Some("paddock/main"), true, true),
             ("Resume paddock/main".to_owned(), true)
         );
-        assert_eq!(pause_item(None, false), ("Pause Agent".to_owned(), false));
+        assert_eq!(
+            pause_item(None, false, true),
+            ("Pause Agent".to_owned(), false)
+        );
+    }
+
+    #[test]
+    fn pause_is_off_for_an_agent_whose_kind_cannot_pause() {
+        // As the card's button: off unless it is paused, which still resumes.
+        assert_eq!(
+            pause_item(Some("p/c"), false, false),
+            ("Pause p/c".to_owned(), false)
+        );
+        assert_eq!(
+            pause_item(Some("p/c"), true, false),
+            ("Resume p/c".to_owned(), true)
+        );
     }
 
     #[test]

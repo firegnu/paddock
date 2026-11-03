@@ -6386,7 +6386,9 @@ impl PaddockWindow {
             .workspace
             .active_agent()
             .is_some_and(|name| self.sidebar.read(cx).paused(name));
-        let (pause, can_pause) = sidebar::pause_item(self.workspace.active_agent(), paused);
+        let able = (self.workspace.active_agent())
+            .is_none_or(|name| self.sidebar.read(cx).can_pause(name));
+        let (pause, can_pause) = sidebar::pause_item(self.workspace.active_agent(), paused, able);
         let keys = |action: &dyn gpui::Action| popover::keys(theme, &ui, &menu::keys(action));
         let sort = |this: &mut Self, by_name: bool, window: &mut Window, cx: &mut Context<Self>| {
             this.close_popup(window, cx);

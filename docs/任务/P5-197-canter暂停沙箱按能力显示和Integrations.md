@@ -94,5 +94,6 @@
   - 公开的 `pause::run` 保持三个参数（集成测试在用），不带种类；只有 `run_with` 多一个查种类的参数，窗口用它。
   - 停止的提示不标红（任务说仍算停成功）；单数写 `1 canter session`。
   - 种类缺失时灰按钮写 `Pausing isn't supported for this agent`（canter 实际都带 `kind`）。
-- 没做的事：窗口菜单里的 Pause 项（`pause_item`）不看能力，对 canter 仍可点，点了 corral 报 `unsupported_kind`，底部写 `Couldn't pause <name>: not supported for canter`；任务只点名卡片按钮和暂停全部，没改它。真实 canter 联调等 R56b 部署。
+- 没做的事：真实 canter 联调等 R56b 部署。
 - 踩过的坑：一开始改了公开的 `pause::run` 签名，`tests/pause.rs` 编不过，改回三个参数，只改 `run_with`。
+- 主控的决定（11-03，第一轮回复后）：窗口菜单里的 Pause 项也要对不能暂停的 agent 变灰、点不动，和卡片按钮同一个判断，别家不变。已做：`sidebar::pause_item` 多一个 `can_pause` 参数（不能暂停、没在暂停时不可选，暂停中的仍是 Resume），窗口从左侧栏的列表读（`Sidebar::can_pause`，列表里没有的当能暂停）；加测试 `pause_is_off_for_an_agent_whose_kind_cannot_pause`，先看到失败再实现。只跑了这条和直接相关的测试（菜单项、卡片按钮、暂停全部、读 `unsupported`），加 `cargo clippy --all-targets -- -D warnings`、`cargo fmt --check`，都过；没再跑全套。DESIGN 里原来写的“窗口菜单的 Pause 项不看能力”同步改了。

@@ -699,7 +699,7 @@ paddock 与 Saddle 在代码上完全分开：用到的 Saddle 代码迁入 padd
   - 留给 P5-196（等 ranch 定 corral 的接口）：需求单第 4、5 条，暂停、沙箱按能力显示，Settings › Integrations 的 canter 一行。这一版也不做远程机器 New Agent 的 canter（没定）、Settings › Instructions 里 canter 的说明文件；Settings › Instructions 的名单不随替身多出 canter。
   - 需求单第 4、5 条（P5-197，照 ranch R56 的公开约定；用户 11-03 选：暂停按钮“变灰，悬停说明”，停 canter 有没关掉的会话“底部提示一句”）：
     - 能力字段：`corral ls`／`status` 的 `unsupported`（canter 是 `["pause","sandbox"]`，别家不带，当作空）读进 `Agent`。列着 `pause` 的、没在暂停的 agent，卡片上的暂停按钮变灰、点不动，悬停写 `Pausing isn't supported for <kind>`；暂停中的照旧能继续。「暂停全部」不算它：不去暂停它、不因它一直显示“还有没暂停的”，只剩它时按没有活 agent 处理。
-    - `corral pause|resume` 报 `unsupported_kind` 时底部写 `Couldn't pause <name>: not supported for <kind>`；老 corral 的 `unsupported` 仍写 `needs corral upgrade`。窗口菜单的 Pause 项不看能力，点了走这条。
+    - `corral pause|resume` 报 `unsupported_kind` 时底部写 `Couldn't pause <name>: not supported for <kind>`；老 corral 的 `unsupported` 仍写 `needs corral upgrade`。窗口菜单的 Pause 项和卡片按钮同一个判断：不能暂停、没在暂停的变灰点不动，暂停中的仍是 Resume（主控 11-03 定）。
     - 沙箱：fence 档案选择器照 `fence profiles` 的 kinds，canter 不在里面，不给档案，带档案的 canter 预设也不带 `--sandbox` 起。canter 自带的沙箱 corral 不报，paddock 不显示；卡片的锁只看 `sandbox`（只指 fence），canter 恒为 null，不出锁。
     - Integrations：canter 一行照 `hooks:"launch"` 显示 Built in、排在 kimi 后、没有装卸按钮，不加状态来源说明。
     - 停止：`corral stop` 的回答带非空 `remaining_sessions` 时，底部写 `Stopped <name>; N canter sessions may still be open`，不弹框、仍算停成功。
