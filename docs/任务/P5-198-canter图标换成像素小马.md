@@ -55,3 +55,4 @@ m..bbbbbbbbbbcc.
 - 本机 `~/.config/paddock/icons/canter.svg` 换成浅绿底这版，`SOURCES.txt` 那一行改了。仓库剪影换成同一匹小马的轮廓（头、耳朵、鬃毛、脖子），眼睛挖空；README 记为 paddock 自己画的，DESIGN 那一条改了。像素版不再用。
 - 验证：两张都用 `rsvg-convert` 渲染成 256 px 看过；`kind_icon` 的测试照旧通过。界面上的样子留给用户在 paddock 里看。
 - 用户随后：「不好意思，换成奶油色的吧。」本机图标换成奶油色底那版，`SOURCES.txt` 跟着改；仓库剪影不受影响。
+- 用户再改：「底色颜色换成绿色，但是要深一些。」主控出中绿、较深、深绿三档对比图，用户选「较深」（`#7DB466` 到 `#5C9A4A`）。本机图标和 `SOURCES.txt` 换成这版。
