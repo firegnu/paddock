@@ -8,13 +8,14 @@
 
 ## 本机安装
 
-- 现装：`~/Applications/paddock.app` 是 P5-197 的版本（11-03 从 main 的合并提交 `7df21d4` 装，含此前的 P5-185 至 P5-196），本机 Apple Development 证书签名。
+- 现装：`~/Applications/paddock.app` 是 P5-198 的版本（11-03 从 main 的合并提交 `68d422e` 装，含此前的 P5-185 至 P5-197），本机 Apple Development 证书签名。
 - 重新打包安装：在 `app/` 下 `cargo build --release`，再 `cargo run --release --example bundle -- --install`（编译目录 `.target/main`）。默认选本机 Apple Development 身份，可用 `PADDOCK_SIGN_IDENTITY` 指定；退回 ad-hoc 时会提示屏幕录制授权会失效。release 很快结束时，核对产物时间晚于合并再装。
 - 退回：不留旧版。在临时 worktree 检出要退回的提交，照上面打包安装（编译目录用这个 worktree 自己的子目录）。旧版读不了新配置：P5-90 之前不认 `[[machines]]`，P5-120 之前不认预设里的 `sandbox` 字段，退回前先从 `~/.config/paddock/config.toml` 去掉。
 - paddock ctl：`~/.local/bin/paddock` 链到 app 里的程序，重新打包不用重建。技能正文改了要重跑 `paddock install-skills`（装在 `~/.claude/skills/paddock`、`~/.agents/skills/paddock`、`~/.gemini/config/skills/paddock`），开着的 agent 重开才看到。
 - 本机配置 `~/.config/paddock/config.toml`：写着 `frame_opacity = 2`（默认已是 0，Settings 点 `Reset to 0%` 才跟默认）；有一台 `[[machines]]`（见下面 5090）。
 - paddock 从程序坞打开时用 `$SHELL -l -c` 取 PATH，不读 `~/.zshrc`：只加在 `.zshrc` 里的 PATH，paddock 和它起的 corral 都看不到。kimi 的 `~/.kimi-code/bin` 11-03 已从 `~/.zshrc` 挪到 `~/.zprofile` 末尾（P5-196，两份备份 `*.bak-20261103-171855`）；kimi 升级若又往 `.zshrc` 加这一行，删掉即可。
-- 种类真图标在 `~/.config/paddock/icons/`（来源见同目录 `SOURCES.txt`），不进仓库；没有时退回仓库里的单色剪影。
+- 种类真图标在 `~/.config/paddock/icons/`（来源见同目录 `SOURCES.txt`），不进仓库；没有时退回仓库里的单色剪影。其中 `canter.svg` 是主控为 paddock 画的小马（P5-198，较深绿底）。
+- canter 自带 Seatbelt 沙箱，`--yolo` 不关它，corral 也不报：派给 canter 的活只能写自己的 worktree（编译目录要放进 worktree 里的 `target/`），开不了 PTY（paddock 21 个终端测试在墙内会挂，主控在墙外补跑）。关沙箱只能改全局 `~/.canter/config.json`，已报给 canter/main、ranch/main，等他们定。
 
 ## 依赖的外部命令
 
