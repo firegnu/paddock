@@ -15,7 +15,7 @@
 - 本机配置 `~/.config/paddock/config.toml`：写着 `frame_opacity = 2`（默认已是 0，Settings 点 `Reset to 0%` 才跟默认）；有一台 `[[machines]]`（见下面 5090）。
 - paddock 从程序坞打开时用 `$SHELL -l -c` 取 PATH，不读 `~/.zshrc`：只加在 `.zshrc` 里的 PATH，paddock 和它起的 corral 都看不到。kimi 的 `~/.kimi-code/bin` 11-03 已从 `~/.zshrc` 挪到 `~/.zprofile` 末尾（P5-196，两份备份 `*.bak-20261103-171855`）；kimi 升级若又往 `.zshrc` 加这一行，删掉即可。
 - 种类真图标在 `~/.config/paddock/icons/`（来源见同目录 `SOURCES.txt`），不进仓库；没有时退回仓库里的单色剪影。其中 `canter.svg` 是主控为 paddock 画的小马（P5-198，较深绿底）。
-- canter 自带 Seatbelt 沙箱，`--yolo` 不关它，corral 也不报：派给 canter 的活只能写自己的 worktree（编译目录要放进 worktree 里的 `target/`），开不了 PTY（paddock 21 个终端测试在墙内会挂，主控在墙外补跑）。关沙箱只能改全局 `~/.canter/config.json`，已报给 canter/main、ranch/main，等他们定。
+- canter 自带 Seatbelt 沙箱，corral 不报。canter P2-198（`0df5703`）起，`canter --yolo` 和 `canter exec --yolo` 打开的会话不套这个沙箱，不管 `~/.canter/config.json` 怎么写；不带 `--yolo` 仍按配置（默认开）。paddock New Agent 的 canter 预设就是 `canter --yolo`，派活也用 `--yolo` 起，就能写 worktree 外的编译目录、开 PTY。要装上新版 canter 并重启 canter 服务端才生效；旧版下 `--yolo` 不关沙箱，派出的活只能写自己的 worktree、开不了 PTY（P5-198 时编译目录放进 worktree，终端测试由主控在墙外补跑）。详见 canter `docs/DESIGN.md`「沙箱（P2-123）」allowAll 那条。
 
 ## 依赖的外部命令
 
