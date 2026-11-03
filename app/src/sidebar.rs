@@ -310,6 +310,8 @@ const ARROW_RADIUS: f32 = 5.0;
 const ARROW_ICON: f32 = 0.8;
 /// How strongly a paused agent's card and tile show.
 const PAUSED_OPACITY: f32 = 0.55;
+/// How strongly the Pause button shows on a card whose kind can't pause (ranch R56).
+const PAUSE_OFF_OPACITY: f32 = 0.4;
 /// How bright another machine's cards stay while it cannot be read: as last read, dimmed
 /// (DESIGN §13 P5-90).
 const STALE: f32 = 0.5;
@@ -4315,6 +4317,35 @@ fn details(theme: &Theme, mono: &Font, ui: &UiFont, card: &Card, buttons: Button
                             scale,
                         ))
                 })
+                .into_any_element()
+            } else if let Some(why) = card.pause_off.clone() {
+                // Its kind can't pause: greyed out and still, a click does nothing, and the hover
+                // says why.
+                let tip = Tip {
+                    text: why.into(),
+                    size: ui.px(NOTE_SIZE),
+                    color: text,
+                    background: hsla(theme.bg(|t| t.agents_bg), 1.0),
+                    border: rule,
+                };
+                div()
+                    .id("pause-off")
+                    .flex_shrink_0()
+                    .size(ui.px(CARD_BUTTON))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded(ui.px(CARD_BUTTON_RADIUS))
+                    .tooltip(move |_, cx| cx.new(|_| tip.clone()).into())
+                    // Not a click on the card either.
+                    .on_click(|_, _, cx| cx.stop_propagation())
+                    .child(footer_icon::posed(
+                        Icon::Pause,
+                        motion::dip(None),
+                        dim.opacity(PAUSE_OFF_OPACITY),
+                        scale,
+                    ))
+                    .into_any_element()
             } else {
                 let button = action("pause", "Pause agent");
                 motion::hover_motion("pause-motion", motion::DIP, move |hover| {
@@ -4327,6 +4358,7 @@ fn details(theme: &Theme, mono: &Font, ui: &UiFont, card: &Card, buttons: Button
                             scale,
                         ))
                 })
+                .into_any_element()
             }
         })
         .child({

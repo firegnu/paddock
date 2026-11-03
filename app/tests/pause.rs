@@ -133,3 +133,44 @@ esac
     let calls = std::fs::read_to_string(temp.path().join("calls")).unwrap();
     assert_eq!(calls, "pause p/a\npause p/b\npause q/main\n");
 }
+
+#[test]
+fn a_kind_that_cannot_pause_says_not_supported_not_upgrade() {
+    use paddock::{corral::Client, pause::run_with};
+    let temp = common::tempdir();
+    let program = common::script(
+        temp.path(),
+        "corral",
+        r##"#!/bin/sh
+case "$2" in
+  p/c) echo '{"ok":false,"error":"unsupported_kind","name":"p/c","message":"canter cannot pause"}'; exit 1 ;;
+  p/old) echo '{"ok":false,"error":"unsupported","name":"p/old"}'; exit 9 ;;
+esac
+echo '{"ok":true}'
+"##,
+    );
+    let client = Client::local(program);
+    let kind = |name: &str| (name == "p/c").then(|| "canter".to_owned());
+    let one = run_with(&client, &names(&["p/c"]), true, kind);
+    assert_eq!(
+        summary(&one, true),
+        (
+            "Couldn't pause p/c: not supported for canter".to_owned(),
+            true
+        )
+    );
+    let one = run_with(&client, &names(&["p/c"]), false, kind);
+    assert_eq!(
+        summary(&one, false).0,
+        "Couldn't resume p/c: not supported for canter"
+    );
+    // Its kind not known: still not supported.
+    let one = run(&client.program, &names(&["p/c"]), true);
+    assert_eq!(summary(&one, true).0, "Couldn't pause p/c: not supported");
+    // An older corral that cannot pause at all still needs upgrading, beside it.
+    let both = run_with(&client, &names(&["p/a", "p/c", "p/old"]), true, kind);
+    assert_eq!(
+        summary(&both, true).0,
+        "Paused 1 of 3 agents; not paused: p/c (not supported for canter), p/old (needs corral upgrade)"
+    );
+}

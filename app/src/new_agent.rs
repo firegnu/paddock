@@ -1144,14 +1144,24 @@ pub fn send_first(corral: &str, name: &str, text: &str) -> Result<()> {
 }
 
 /// Runs `corral stop NAME`; blocks, so call it off the UI thread.
-pub fn stop(corral: &str, name: &str) -> Result<()> {
+pub fn stop(corral: &str, name: &str) -> Result<Vec<String>> {
     stop_with(&Client::local(corral), name)
 }
 
 /// [`stop`] with any corral: this Mac's or another machine's (DESIGN §13 P5-90).
-pub fn stop_with(client: &Client, name: &str) -> Result<()> {
-    client.json(&["stop", name], CORRAL_TIMEOUT, &AtomicBool::new(false))?;
-    Ok(())
+pub fn stop_with(client: &Client, name: &str) -> Result<Vec<String>> {
+    let value = client.json(&["stop", name], CORRAL_TIMEOUT, &AtomicBool::new(false))?;
+    Ok(serde_json::from_value(value["remaining_sessions"].clone()).unwrap_or_default())
+}
+
+/// The footer's note once `name` has stopped, with how many canter sessions corral couldn't
+/// confirm closed (`remaining_sessions`, ranch R56); it still stopped.
+pub fn stopped(name: &str, remaining: &[String]) -> String {
+    match remaining.len() {
+        0 => format!("Stopped {name}"),
+        1 => format!("Stopped {name}; 1 canter session may still be open"),
+        n => format!("Stopped {name}; {n} canter sessions may still be open"),
+    }
 }
 
 #[cfg(test)]
@@ -2372,6 +2382,73 @@ mod tests {
             (Tool::Canter, "canter --yolo")
         );
         assert!(form.matches(&list[0]));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn canter_never_starts_in_a_fence_profile() {
+        let sandboxed = |form: &Form| form.args().unwrap().contains(&"--sandbox".to_owned());
+        let preset = Preset {
+            name: "canter".into(),
+            kind: Tool::Canter,
+            model: None,
+            effort: None,
+            role: Role::Regular,
+            sandbox: Some("dev".into()),
+        };
+        // fence's kinds leave canter out, as `fence profiles` does.
+        let mut form = Form::new("/tmp/demo".into(), Place::Tab);
+        form.set_offer(Some(offer(&["dev"])));
+        form.apply(&preset);
+        assert!(!form.can_sandbox());
+        assert_eq!(form.sandbox, None);
+        assert!(!sandboxed(&form));
+        form.set_sandbox(Some("dev".into()));
+        assert!(!sandboxed(&form));
+        // Picked before fence answered: still none once it does.
+        let mut form = Form::new("/tmp/demo".into(), Place::Tab);
+        form.apply(&preset);
+        form.set_offer(Some(offer(&["dev"])));
+        assert_eq!(form.sandbox, None);
+        assert!(!form.sandbox_pending());
+        assert!(!sandboxed(&form));
+        assert_eq!(
+            form.args().unwrap().last().map(String::as_str),
+            Some("--yolo")
+        );
+    }
+
+    #[test]
+    fn stopping_tells_of_sessions_left_open() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!(
+            "paddock-stop-{}",
+            crate::control::random_id().unwrap()
+        ));
+        std::fs::create_dir(&dir).unwrap();
+        let corral = dir.join("corral");
+        let answer = |json: &str| {
+            std::fs::write(&corral, format!("#!/bin/sh\necho '{json}'\n")).unwrap();
+            std::fs::set_permissions(&corral, std::fs::Permissions::from_mode(0o755)).unwrap();
+            stop(&corral.display().to_string(), "p/c").unwrap()
+        };
+        let open = answer(r#"{"ok":true,"name":"p/c","remaining_sessions":["s-1","s-2"]}"#);
+        assert_eq!(open, ["s-1", "s-2"]);
+        assert_eq!(
+            stopped("p/c", &open),
+            "Stopped p/c; 2 canter sessions may still be open"
+        );
+        let one = answer(r#"{"ok":true,"name":"p/c","remaining_sessions":["s-1"]}"#);
+        assert_eq!(
+            stopped("p/c", &one),
+            "Stopped p/c; 1 canter session may still be open"
+        );
+        // Empty, or no field (every other kind): as before.
+        let none = answer(r#"{"ok":true,"name":"p/c","remaining_sessions":[]}"#);
+        assert_eq!(stopped("p/c", &none), "Stopped p/c");
+        let none = answer(r#"{"ok":true,"name":"p/a"}"#);
+        assert!(none.is_empty());
+        assert_eq!(stopped("p/a", &none), "Stopped p/a");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

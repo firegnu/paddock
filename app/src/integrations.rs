@@ -679,6 +679,42 @@ mod tests {
     }
 
     #[test]
+    fn canter_is_built_in_after_kimi_and_the_other_rows_stay_as_they_were() {
+        let before = rows(&report(("same", "same"), "same"));
+        let mut value = status();
+        let agents = value["agents"].as_array_mut().unwrap();
+        agents.push(json!({"kind":"kimi","path":"/bin/kimi","version":"1.0","hooks":"global",
+            "install":{"path":"/h/.kimi/config.toml","status":"same","format":"marked-block"},
+            "skills":[{"target":"codex","path":"/h/.agents/skills/corral/SKILL.md","status":"same"}]}));
+        agents.push(json!({"kind":"canter","path":"/bin/canter","version":"canter 0.3.0",
+            "hooks":"launch","unsupported":["pause","sandbox"],
+            "skills":[{"target":"codex","path":"/h/.agents/skills/corral/SKILL.md","status":"same"}]}));
+        let (agents, mut files) = parse_status(&value).unwrap();
+        files.extend(parse_plan("corral-dispatch", &dispatch("same")).unwrap());
+        files.extend(parse_plan("paddock", &plan_json("same", "same")).unwrap());
+        let report = Report {
+            agents,
+            files,
+            ranch: Ranch::Answered,
+        };
+        let rows = rows(&report);
+        let kinds: Vec<&str> = rows.iter().map(|row| row.kind.as_str()).collect();
+        assert_eq!(kinds, ["claude", "codex", "pi", "omp", "kimi", "canter"]);
+        let canter = row(&rows, "canter");
+        assert_eq!(canter.name, "canter");
+        assert_eq!(canter.detail, "canter 0.3.0");
+        assert_eq!(canter.status, Some(Status::BuiltIn));
+        assert_eq!(canter.status_note, None);
+        assert_eq!(canter.skills, Skills::UpToDate);
+        // Nothing of its own to install or remove.
+        assert_eq!(plugin_plan(&report, "canter", false), None);
+        assert_eq!(plugin_plan(&report, "canter", true), None);
+        assert_eq!(plan(&report, "canter"), None);
+        assert_eq!(row(&rows, "kimi").status, Some(Status::Installed));
+        assert_eq!(&rows[..4], &before[..]);
+    }
+
+    #[test]
     fn a_changed_skill_in_a_shared_place_asks_every_agent_reading_it_to_update() {
         let rows = rows(&report(("same", "overwrite"), "same"));
         assert_eq!(row(&rows, "claude").skills, Skills::UpToDate);

@@ -48,6 +48,9 @@ pub struct Agent {
     /// when corral is too old to say, `Some(None)` when it starts them outside.
     #[serde(deserialize_with = "present")]
     pub child_sandbox: Option<Option<Sandbox>>,
+    /// What corral can't do for its kind (canter: `pause`, `sandbox`; ranch R56); empty for every
+    /// other kind, which leaves the field out.
+    pub unsupported: Vec<String>,
 }
 
 /// A field that is there, `null` or not: told apart from one left out, which `#[serde(default)]`
@@ -85,6 +88,11 @@ pub enum Role {
 }
 
 impl Agent {
+    /// Whether corral can pause it: not when it lists `pause` as unsupported.
+    pub fn can_pause(&self) -> bool {
+        !self.unsupported.iter().any(|what| what == "pause")
+    }
+
     pub fn role(&self) -> Option<Role> {
         match self.labels.get("role")?.as_str()? {
             "controller" => Some(Role::Controller),
@@ -531,6 +539,31 @@ mod tests {
                 profile: "dev".into()
             }))
         );
+    }
+
+    #[test]
+    fn what_an_agent_cannot_do_is_read_and_none_without_the_field() {
+        let parse = |json: &str| serde_json::from_str::<Agent>(json).unwrap();
+        let canter = parse(
+            r#"{"name":"p/c","kind":"canter","unsupported":["pause","sandbox"],"sandbox":null}"#,
+        );
+        assert_eq!(canter.unsupported, ["pause", "sandbox"]);
+        assert!(!canter.can_pause());
+        assert_eq!(canter.sandbox, None);
+        // Every other kind leaves it out: it can do everything.
+        let claude = parse(r#"{"name":"p/a","kind":"claude"}"#);
+        assert!(claude.unsupported.is_empty());
+        assert!(claude.can_pause());
+        // `corral status` taken in keeps it.
+        let mut agent = Agent {
+            name: "p/c".into(),
+            ..Agent::default()
+        };
+        merge(
+            &mut agent,
+            Ok(serde_json::json!({"kind": "canter", "unsupported": ["pause", "sandbox"]})),
+        );
+        assert!(!agent.can_pause());
     }
 
     #[test]
