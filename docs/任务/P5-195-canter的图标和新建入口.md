@@ -5,6 +5,7 @@
 类型：功能变更
 依据：canter/main 按用户要求交来的需求单（`/tmp/canter-p2-193/paddock-需求单.md`）第 1～3 条；本轮做不依赖 corral 新接口的部分，用假 corral 测试。第 4、5 条（暂停、沙箱按能力显示，Integrations 的 canter 一行）等 ranch 定了 corral 的接口另开一件（P5-196），本轮不做。照 P5-179 接 kimi 的做法接 canter，不另做花样。
 执行：派出
+待用户：重开 paddock 看 canter 的马蹄铁图标和颜色（New Agent 选 canter）
 提示：围绕已确认的使用目标完成变更，优先沿用现有机制。
 你是被委派的 agent：照本文件做，不要再开别的 agent。
 
@@ -97,3 +98,12 @@
 ### 踩过的坑
 - 一条命令里误写了没有输入的 `cat > 文件`，等标准输入卡住，停掉后重写；只留下一个空文件，随后被正式内容覆盖。
 - 本机 ImageMagick 读不了 PNG，拼不了对照图，改为逐张看 `rsvg-convert` 的输出。
+
+## 主控审查
+
+- 看了 diff：只动了任务列的文件；现有七家的命令、顺序、颜色、直通规则没变；远程 New Agent 的名单没加 canter；暂停、沙箱、Integrations 没碰。「不要做」里的一件都没做。
+- 重跑：`cargo test --all-targets` 1102 过、0 失败，和 agent 说的一致；clippy `-D warnings`、`fmt --check`、`git diff --check` 通过。
+- 取舍表态：两条旧测试从“在最后”改成按固定位置断言，检查的顺序不变，同意。远程自定义命令叫 `canter` 时显示 canter 图标是现有按名字认图标的规则，同意不改。
+- 用户 11-03（经 canter/main 转）：远程机器的 New Agent 这次不做选 canter，照主控建议。
+- 主控没起窗口看；从分支打包装到 `~/Applications/paddock.app`，图标和颜色留给用户看。真实 canter 起成 corral agent 要等 ranch R56 部署后联调。
+- 结果：一次过
