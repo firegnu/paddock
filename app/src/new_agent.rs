@@ -15,6 +15,8 @@ use std::{
 };
 
 pub const CODEX_COMMAND: &str = "codex --yolo";
+/// canter started from paddock never asks for permission (user 11-03, P5-195).
+pub const CANTER_COMMAND: &str = "canter --yolo";
 pub const CLAUDE_COMMAND: &str = "claude";
 /// The prefix when the directory gives none, as in Saddle.
 const FALLBACK_PREFIX: &str = "agents";
@@ -33,11 +35,12 @@ pub enum Tool {
     Amp,
     Agy,
     Kimi,
+    Canter,
 }
 
 impl Tool {
     /// In the order the form offers them.
-    pub const ALL: [Tool; 7] = [
+    pub const ALL: [Tool; 8] = [
         Tool::Claude,
         Tool::Codex,
         Tool::Pi,
@@ -45,6 +48,7 @@ impl Tool {
         Tool::Amp,
         Tool::Agy,
         Tool::Kimi,
+        Tool::Canter,
     ];
 
     /// The kind as corral and the kind icons name it.
@@ -57,6 +61,7 @@ impl Tool {
             Tool::Amp => "amp",
             Tool::Agy => "agy",
             Tool::Kimi => "kimi",
+            Tool::Canter => "canter",
         }
     }
 
@@ -69,6 +74,7 @@ impl Tool {
             Tool::Amp => "amp",
             Tool::Agy => "agy",
             Tool::Kimi => "kimi",
+            Tool::Canter => "canter",
         }
     }
 
@@ -82,6 +88,7 @@ impl Tool {
             Tool::Amp => "amp",
             Tool::Agy => "agy",
             Tool::Kimi => "kimi",
+            Tool::Canter => CANTER_COMMAND,
         }
     }
 
@@ -906,7 +913,7 @@ impl Form {
                     asks.extend(["-c".into(), format!("model_reasoning_effort=\"{effort}\"")]);
                 }
             }
-            Tool::Pi | Tool::Omp | Tool::Amp | Tool::Agy | Tool::Kimi => {}
+            Tool::Pi | Tool::Omp | Tool::Amp | Tool::Agy | Tool::Kimi | Tool::Canter => {}
         }
         words.splice(at..at, asks);
         self.command = shell_words::join(&words);
@@ -2035,10 +2042,7 @@ mod tests {
         let mut form = Form::new("/tmp/demo".into(), Place::Tab);
         form.pick_tool(Tool::Agy);
         form.regular = true;
-        assert_eq!(
-            Tool::ALL[Tool::ALL.len() - 3..Tool::ALL.len() - 1],
-            [Tool::Amp, Tool::Agy]
-        );
+        assert_eq!(Tool::ALL[4..6], [Tool::Amp, Tool::Agy]);
         assert_eq!(
             (form.command.as_str(), form.name.as_str(), form.tool.label()),
             ("agy", "agy-1", "agy")
@@ -2140,7 +2144,7 @@ mod tests {
 
     #[test]
     fn kimi_comes_after_agy_and_starts_like_claude_with_or_without_a_first_message() {
-        assert_eq!(Tool::ALL[Tool::ALL.len() - 2..], [Tool::Agy, Tool::Kimi]);
+        assert_eq!(Tool::ALL[5..7], [Tool::Agy, Tool::Kimi]);
         let mut form = Form::new("/tmp/demo".into(), Place::Tab);
         form.pick_tool(Tool::Kimi);
         form.regular = true;
@@ -2242,6 +2246,133 @@ mod tests {
             warning("overwrite").as_deref(),
             Some("corral's hooks for kimi have changed; update them in Settings.")
         );
+    }
+
+    #[test]
+    fn canter_comes_after_kimi_and_starts_with_yolo_with_or_without_a_first_message() {
+        assert_eq!(Tool::ALL[Tool::ALL.len() - 2..], [Tool::Kimi, Tool::Canter]);
+        let mut form = Form::new("/tmp/demo".into(), Place::Tab);
+        form.pick_tool(Tool::Canter);
+        form.regular = true;
+        assert_eq!(
+            (form.command.as_str(), form.name.as_str(), form.tool.label()),
+            ("canter --yolo", "canter-1", "canter")
+        );
+        assert_eq!(form.tool.kind(), "canter");
+        // canter keeps to its own model; no hooks or plugin to warn of.
+        assert!(!form.tool.has_models() && !form.tool.has_plugin());
+        assert_eq!(
+            (form.model.as_deref(), form.effort.as_deref()),
+            (None, None)
+        );
+        // An empty first message starts it idle.
+        assert!(form.can_start());
+        assert_eq!(
+            form.args().unwrap(),
+            [
+                "start",
+                "demo/canter-1",
+                "--cwd",
+                "/tmp/demo",
+                "--label",
+                "role=regular",
+                "--",
+                "canter",
+                "--yolo"
+            ]
+        );
+        // The first message goes to corral, which puts it where canter takes it.
+        form.prompt = "读 HANDOFF.md".into();
+        assert_eq!(
+            form.args().unwrap(),
+            [
+                "start",
+                "demo/canter-1",
+                "--cwd",
+                "/tmp/demo",
+                "--label",
+                "role=regular",
+                "--prompt",
+                "读 HANDOFF.md",
+                "--",
+                "canter",
+                "--yolo"
+            ]
+        );
+        assert_eq!(form.first_message(), None);
+    }
+
+    #[test]
+    fn a_command_typed_for_canter_is_read_back_as_canter_and_starts_as_typed() {
+        for command in [
+            "canter",
+            "/Users/u/.local/bin/canter --yolo",
+            "canter -m some-model --tag task=1",
+        ] {
+            let mut form = Form::new("/tmp/demo".into(), Place::Tab);
+            form.pick_tool(Tool::Claude);
+            form.regular = true;
+            form.set_command(command.into());
+            assert_eq!(form.tool, Tool::Canter, "{command}");
+            assert_eq!(
+                (form.model.as_deref(), form.effort.as_deref()),
+                (None, None)
+            );
+            let args = form.args().unwrap();
+            let at = args.iter().position(|arg| arg == "--").unwrap();
+            assert_eq!(
+                args[at + 1..],
+                shell_words::split(command).unwrap()[..],
+                "{command}"
+            );
+            // canter's model is its own, not a label paddock reads.
+            assert!(
+                !args.iter().any(|arg| arg.starts_with("model=")),
+                "{command}"
+            );
+        }
+        // `--yolo` taken out by hand stays out, as with codex.
+        let mut form = Form::new("/tmp/demo".into(), Place::Tab);
+        form.pick_tool(Tool::Canter);
+        form.set_command("canter".into());
+        assert_eq!((form.tool, form.command.as_str()), (Tool::Canter, "canter"));
+        assert_eq!(
+            form.args().unwrap().last().map(String::as_str),
+            Some("canter")
+        );
+    }
+
+    #[test]
+    fn a_preset_can_be_canter() {
+        let dir = std::env::temp_dir().join(format!(
+            "paddock-canter-preset-{}",
+            crate::control::random_id().unwrap()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        let list = vec![Preset {
+            name: "canter".into(),
+            kind: Tool::Canter,
+            model: None,
+            effort: None,
+            role: Role::Regular,
+            sandbox: None,
+        }];
+        save_presets(&path, &list).unwrap();
+        assert!(
+            std::fs::read_to_string(&path)
+                .unwrap()
+                .contains("kind = \"canter\"")
+        );
+        assert_eq!(presets(&Config::load(&path).unwrap()), list);
+        let mut form = Form::new("/tmp/demo".into(), Place::Tab);
+        form.apply(&list[0]);
+        assert_eq!(
+            (form.tool, form.command.as_str()),
+            (Tool::Canter, "canter --yolo")
+        );
+        assert!(form.matches(&list[0]));
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     /// A corral whose `wait` answers `wait` (exiting `code`) and whose `send` answers `send`,

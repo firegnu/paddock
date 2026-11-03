@@ -1,9 +1,9 @@
 //! The small icon drawn for an agent's kind. The originals kept on this machine in
-//! `~/.config/paddock/icons/` (`claude`, `codex`, `pi`, `omp`, `amp`, `agy` or `kimi`, `.svg` or `.png`;
-//! the SVG when both are there) are drawn in their own colours; without one, or when it cannot be
-//! read, the one-colour silhouette compiled in from `assets/kinds/` (where the README says where
-//! each comes from) is drawn in the theme's colour for its kind. The originals are read once, the
-//! first time an icon is asked for, and drawn at each size from memory.
+//! `~/.config/paddock/icons/` (`claude`, `codex`, `pi`, `omp`, `amp`, `agy`, `kimi` or `canter`,
+//! `.svg` or `.png`; the SVG when both are there) are drawn in their own colours; without one, or
+//! when it cannot be read, the one-colour silhouette compiled in from `assets/kinds/` (where the
+//! README says where each comes from) is drawn in the theme's colour for its kind. The originals
+//! are read once, the first time an icon is asked for, and drawn at each size from memory.
 use gpui::{
     AnyElement, App, Bounds, Corners, DevicePixels, Hsla, IntoElement, Pixels, RenderImage, Rgba,
     Styled, SvgRenderer, SvgSize, Transformation, canvas, px, radians, size, svg,
@@ -16,7 +16,9 @@ use std::{
 };
 
 /// The kinds with an icon, as the kind colours match them (any case).
-const KINDS: [&str; 7] = ["claude", "codex", "pi", "omp", "amp", "agy", "kimi"];
+const KINDS: [&str; 8] = [
+    "claude", "codex", "pi", "omp", "amp", "agy", "kimi", "canter",
+];
 
 /// The width an original is measured at to find where its picture lies, in pixels.
 const PROBE: u32 = 256;
@@ -123,7 +125,8 @@ fn silhouette(index: usize) -> KindIcon {
         3 => (include_bytes!("../assets/kinds/omp.svg"), 1.15),
         4 => (include_bytes!("../assets/kinds/amp.svg"), 1.0),
         5 => (include_bytes!("../assets/kinds/agy.svg"), 1.0),
-        _ => (include_bytes!("../assets/kinds/kimi.svg"), 1.0),
+        6 => (include_bytes!("../assets/kinds/kimi.svg"), 1.0),
+        _ => (include_bytes!("../assets/kinds/canter.svg"), 1.0),
     };
     KindIcon {
         look: Look::Mask(data),
@@ -438,6 +441,7 @@ mod tests {
         assert_eq!(silhouette_file("amp"), Some("amp"));
         assert_eq!(silhouette_file("agy"), Some("agy"));
         assert_eq!(silhouette_file("kimi"), Some("kimi"));
+        assert_eq!(silhouette_file("Canter"), Some("canter"));
         assert_eq!(of("gemini"), None);
         assert_eq!(of(""), None);
     }
@@ -569,6 +573,15 @@ mod tests {
         let dir = folder("kimi", &[("kimi.png", &png())]);
         let kimi = KINDS.iter().position(|k| *k == "kimi").unwrap();
         assert!(load(&dir, kimi).is_some());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// canter's original is found by its name too (P5-195).
+    #[test]
+    fn canter_s_original_is_read_by_its_name() {
+        let dir = folder("canter", &[("canter.png", &png())]);
+        let canter = KINDS.iter().position(|k| *k == "canter").unwrap();
+        assert!(load(&dir, canter).is_some());
         std::fs::remove_dir_all(dir).unwrap();
     }
 

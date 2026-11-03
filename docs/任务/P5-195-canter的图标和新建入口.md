@@ -68,3 +68,47 @@
 
 ## 做完
 在本文件末尾追加「## 完成记录」（在你的分支里提交）：做了什么、验证了什么、拿主意的地方、没做的事、踩过的坑，各几句话。踩过的坑指试了不行、换了办法的，工具或环境的行为和预想不一样的；没有就写「没有」，不要凑。回复里只写这几样，加上有没有要主控决定的事。命令都在前台跑完，全部做完后，回复最后一行写 DONE。
+
+## 完成记录
+
+### 做了什么
+- 图标：`app/assets/kinds/canter.svg` 是自画的单色马蹄铁（开口朝下），和另外七家的形状都不像；README 记 “Original drawing for paddock.”，认的名字加 `canter`。`kind_icon.rs` 认 `canter`，本机 `~/.config/paddock/icons/canter.svg|png` 有时画它，没有时画剪影。
+- 品牌色：主题多 `canter`（`[colors]` 键 `canter`，Settings › Colours 的 Agent kinds 组里可改，卡片按它着色）。另外七家没用绿，每套取自己的绿；Rosé Pine、Rosé Pine Dawn 调色板里没有绿，取灰绿 `#b0c88f`、橄榄绿 `#5f7f3e`。
+- New Agent：`Tool::Canter` 排在 kimi 后，标签 `canter`，命令 `canter --yolo`（`CANTER_COMMAND`），没有模型和强度、没有插件或钩子提醒，Prompt 可选（空着起成 idle，有字走 `corral start --prompt`），预设能存。手改的 `canter`、带路径的、带别的参数的读回成 canter；删掉 `--yolo` 照改的起；canter 的 `-m` 不读成模型、不打 `model=` 标签。
+- Agent shell：替身多 `canter`，照敲的参数经 corral 起，不自己加 `--yolo`。`-V` 和 `canter --help`（0.1.0 · 16fb98c）列的 `serve`、`service`、`upgrade`、`rollback`、`usage`、`exec`、`stats`、`mcp` 直通真程序（非终端、`-h`／`--help`、`--version` 本来就直通）。
+- DESIGN：P5-61 补 canter；§13 加「接 canter（P5-195）」，写明需求单第 4、5 条留给 P5-196。
+
+### 验证了什么
+- 新加单元测试：替身直通和托管（agent_shell，先跑到 RED 再实现）；种类顺序、`canter --yolo` 和有无首句的 corral 参数、手改命令读回 canter 且照原样起、删 `--yolo` 保留、预设存读后表单对得上（new_agent）；剪影文件名、本机原图按名字读到（kind_icon，先 RED）；品牌色分得开、卡片着色、Colours 分组和计数（preset、card、settings）；`empty task starts it idle` 名单加 canter。New Agent 和颜色的测试和新变体、新字段一起写，之前编译不过，没有单独看到 RED。
+- `app/` 下 `cargo test --all-targets`（1102 个全过）、`cargo clippy --all-targets -- -D warnings`、`cargo fmt --check`、`git diff --check` 都过。
+- 用 `rsvg-convert` 把剪影渲染成 128px 和 14px 看过，小尺寸认得出是马蹄铁。没开 paddock 窗口看界面。
+
+### 拿主意的地方
+- 图标画马蹄铁：canter 是马的一种步法，形状也和弯月（kimi）、折角（agy）等分得开。
+- 颜色取绿：另外七家分别占了橙、青、白／灰、紫、黄、蓝、粉，只剩绿。
+- 两个旧测试原来按“排在最后”断言（amp、agy 是倒数两个；agy、kimi 是倒数两个），加了 canter 后改成按绝对位置 `Tool::ALL[4..6]`、`[5..7]`，检查的顺序不变。
+- 远程 New Agent 的名单（`remote_start::KINDS`）没加 canter；远程自定义命令名字恰好是 `canter` 时会带上 canter 的图标，这是现有“名字等于种类就用它的图标”的规则，没改。
+- Settings › Instructions 用自己的名单，不随替身多出 canter，没动。
+
+### 没做的事
+- 暂停、沙箱、Integrations 的 canter 一行（P5-196）；远程 New Agent 的 canter；Instructions 里 canter 的说明文件。
+- 真实 canter 起成 corral agent 的联调：等 ranch 让 corral 认得 canter，主控合并安装后做。
+
+### 踩过的坑
+- 一条命令里误写了没有输入的 `cat > 文件`，等标准输入卡住，停掉后重写；只留下一个空文件，随后被正式内容覆盖。
+- 本机 ImageMagick 读不了 PNG，拼不了对照图，改为逐张看 `rsvg-convert` 的输出。
+
+## 主控审查
+
+- 看了 diff：只动了任务列的文件；现有七家的命令、顺序、颜色、直通规则没变；远程 New Agent 的名单没加 canter；暂停、沙箱、Integrations 没碰。「不要做」里的一件都没做。
+- 重跑：`cargo test --all-targets` 1102 过、0 失败，和 agent 说的一致；clippy `-D warnings`、`fmt --check`、`git diff --check` 通过。
+- 取舍表态：两条旧测试从“在最后”改成按固定位置断言，检查的顺序不变，同意。远程自定义命令叫 `canter` 时显示 canter 图标是现有按名字认图标的规则，同意不改。
+- 用户 11-03（经 canter/main 转）：远程机器的 New Agent 这次不做选 canter，照主控建议。
+- 主控没起窗口看；从分支打包装到 `~/Applications/paddock.app`，图标和颜色留给用户看。真实 canter 起成 corral agent 要等 ranch R56 部署后联调。
+- 结果：一次过
+
+## 用户验收
+
+- 11-03 装上在 New Agent 里看过：“图标没问题，先合并吧”。
+- 看的时候用户另外发现 Settings › Integrations、Instructions、Dispatch 里都没有 canter，Integrations 里 kimi 显示 Not found；记进新任务 P5-196，不在本件改。
+- 真实 canter 起成 corral agent 还没验：等 ranch R56 部署后联调。

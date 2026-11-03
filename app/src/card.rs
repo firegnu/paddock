@@ -61,6 +61,7 @@ pub fn brand(kind: &str) -> Brand {
         "amp" => |t| t.amp,
         "agy" => |t| t.agy,
         "kimi" => |t| t.kimi,
+        "canter" => |t| t.canter,
         _ => |t| t.agents_dim,
     };
     Brand {
@@ -1120,6 +1121,7 @@ mod tests {
         let colour = |kind| (brand(kind).color)(&theme);
         assert_eq!(colour("agy"), theme.agy);
         assert_eq!(colour("Kimi"), theme.kimi);
+        assert_eq!(colour("canter"), theme.canter);
         assert_eq!(colour("AMP"), theme.amp);
         assert_eq!(colour("other"), theme.agents_dim);
     }
