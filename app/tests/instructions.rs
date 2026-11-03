@@ -20,10 +20,14 @@ fn each_agent_reads_its_one_file_under_home() {
     assert_eq!(path("omp"), home.join(".omp/agent/AGENTS.md"));
     assert_eq!(path("amp"), home.join(".config/amp/AGENTS.md"));
     assert_eq!(path("agy"), home.join(".gemini/GEMINI.md"));
+    assert_eq!(path("kimi"), home.join(".kimi-code/AGENTS.md"));
+    assert_eq!(path("canter"), home.join(".canter/AGENTS.md"));
     // Every agent paddock hosts has one, in its order; nothing else does.
     assert_eq!(
         instructions::KINDS,
-        ["claude", "codex", "pi", "omp", "amp", "agy"]
+        [
+            "claude", "codex", "pi", "omp", "amp", "agy", "kimi", "canter"
+        ]
     );
     assert_eq!(instructions::path("zsh", home, unset), None);
 }
@@ -31,12 +35,14 @@ fn each_agent_reads_its_one_file_under_home() {
 #[test]
 fn an_agents_own_folder_variable_moves_its_file() {
     let home = Path::new("/h");
-    // Every variable set: only Claude Code's, Codex's and pi's own count.
+    // Every variable set: only Claude Code's, Codex's, pi's, kimi's and canter's own count.
     let set = |name: &str| {
         Some(OsString::from(match name {
             "CLAUDE_CONFIG_DIR" => "/claude",
             "CODEX_HOME" => "/codex",
             "PI_CODING_AGENT_DIR" => "/pi",
+            "KIMI_CODE_HOME" => "/kimi",
+            "CANTER_HOME" => "/canter",
             _ => "/elsewhere",
         }))
     };
@@ -47,6 +53,8 @@ fn an_agents_own_folder_variable_moves_its_file() {
     assert_eq!(path("omp"), home.join(".omp/agent/AGENTS.md"));
     assert_eq!(path("amp"), home.join(".config/amp/AGENTS.md"));
     assert_eq!(path("agy"), home.join(".gemini/GEMINI.md"));
+    assert_eq!(path("kimi"), Path::new("/kimi/AGENTS.md"));
+    assert_eq!(path("canter"), Path::new("/canter/AGENTS.md"));
     // Set but empty is as good as unset.
     let empty = |_: &str| Some(OsString::new());
     assert_eq!(
