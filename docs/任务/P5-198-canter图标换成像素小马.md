@@ -41,3 +41,10 @@ m..bbbbbbbbbbcc.
 ## 怎么算做完
 - 用户在 paddock 里看到 canter 的图标是小马。
 - `kind_icon` 的测试照旧通过；合并前照项目规矩跑全套检查。
+
+## 完成记录
+- 做了什么：仓库剪影 `app/assets/kinds/canter.svg` 换成小马轮廓：照像素图每行连续的不透明像素拼成一条路径，放在 16×16 画布的第 4～11 行，`shape-rendering="crispEdges"`。用户本机放了彩色版 `~/.config/paddock/icons/canter.svg`：每段同色像素一个方块，颜色照 canter 的 `pony()`，16×8，同样不平滑；`SOURCES.txt` 记了一行。两份都用 awk 从同一份像素图生成，不手抄坐标。README 的 canter 一行和那段说明、DESIGN 的 P5-195 图标一条改成小马，写明出处和 Apache-2.0。品牌色没动。
+- 验证了什么：`cargo test --all-targets` 1111 个通过，`cargo clippy --all-targets -- -D warnings`、`cargo fmt --check`、`git diff --check` 通过。界面上的样子留给用户重开 paddock 看。
+- 拿主意的地方：剪影把眼睛、高光也填上，只留轮廓（任务写的是不透明像素全填）。
+- 没做的事：没有截图验看。本机有彩色版，所以这台机器上看不到仓库的剪影，只有没放真图标的机器才会显示它。
+- 踩过的坑：没有。
