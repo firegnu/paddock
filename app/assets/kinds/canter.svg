@@ -1,4 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
-  <!-- Original drawing for paddock (canter has no mark of its own): a horseshoe, heels down. -->
-  <path d="M4.56 13.22A6 6 0 1 1 11.44 13.22L10.07 11.25A3.6 3.6 0 1 0 5.93 11.25Z"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 100 100">
+  <!-- A pony's head drawn for paddock, the eye left open (canter's own picture is a pixel pony in its welcome header). -->
+  <path d="M27 56 C22 72 20 88 19 100 L62 100 C60 88 58 76 56 66 Z"/>
+  <path d="M30 32 C29 22 31 13 35 8 C40 14 43 22 42 30 Z"/>
+  <path d="M42 28 C42 18 45 10 50 5 C55 12 57 20 54 28 Z"/>
+  <path d="M40 24 C46 16 56 17 58 25 C52 22 47 25 46 31 C42 28 37 30 35 36 C31 32 26 34 25 42 C21 52 19 64 15 74 C13 80 16 88 20 92 C15 76 24 70 27 58 C29 50 33 44 40 41 C36 36 37 28 40 24 Z"/>
+  <path fill-rule="evenodd" d="M24 46 C24 30 36 21 50 22 C63 23 70 33 73 42 C76 50 84 54 86 62 C88 71 81 77 72 77 C63 77 57 73 52 70 C44 72 34 70 29 63 C26 58 24 52 24 46 Z M51.8 44 a5.2 6.6 0 1 0 10.4 0 a5.2 6.6 0 1 0 -10.4 0 Z"/>
 </svg>

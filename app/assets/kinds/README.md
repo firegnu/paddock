@@ -18,7 +18,7 @@ repository.
 | `amp.svg` | Original drawing for paddock, not the official mark. | Part of paddock. |
 | `agy.svg` | Original drawing for paddock, not the official mark. | Part of paddock. |
 | `kimi.svg` | Original drawing for paddock, not the official mark. | Part of paddock. |
-| `canter.svg` | Original drawing for paddock. | Part of paddock. |
+| `canter.svg` | Original drawing for paddock: a pony's head, the eye left open. | Part of paddock. |
 
 `claude.svg`, `codex.svg`, `amp.svg`, `agy.svg` and `kimi.svg` are original drawings for paddock,
 not the official marks; Claude and Codex are trademarks of Anthropic and OpenAI, Amp of its
@@ -26,7 +26,7 @@ makers, Antigravity of Google, Kimi of Moonshot AI. They borrow only the kinds' 
 spark, a terminal prompt, an amplifier's level bars, a chevron lifting off the ground, a crescent
 moon and a star), not the shapes of any of their logos.
 
-`canter.svg` is a horseshoe drawn for paddock; canter, the user's own agent, has no mark of its
-own.
+`canter.svg` is a pony's head drawn for paddock; canter, the user's own agent, has no logo, and the
+only picture it has is a pixel pony in its welcome header.
 
 These icons must be reviewed again before paddock is distributed.
