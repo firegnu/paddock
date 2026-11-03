@@ -3239,6 +3239,7 @@ mod tests {
             Tool::Omp,
             Tool::Amp,
             Tool::Kimi,
+            Tool::Canter,
         ] {
             assert_eq!(empty_task_hint(tool), Some("empty task starts it idle"));
         }

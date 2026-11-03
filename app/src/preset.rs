@@ -414,6 +414,7 @@ fn tide() -> Theme {
         amp: rgb(0xe3cb73),
         agy: rgb(0x6aa6f2),
         kimi: rgb(0xf07ab0),
+        canter: rgb(0xa7cf80),
         ..Theme::default()
     }
 }
@@ -467,6 +468,7 @@ fn lagoon() -> Theme {
         amp: rgb(0xe3cb73),
         agy: rgb(0x6aa6f2),
         kimi: rgb(0xf07ab0),
+        canter: rgb(0xa7cf80),
         ..Theme::default()
     }
 }
@@ -530,6 +532,7 @@ fn dune_light() -> Theme {
         amp: rgb(0xb57614),
         agy: rgb(0x076678),
         kimi: rgb(0xb4245d),
+        canter: rgb(0x79740e),
         ..Theme::default()
     }
 }
@@ -599,6 +602,7 @@ fn tide_light() -> Theme {
         amp: rgb(0x9a7a2e),
         agy: rgb(0x5e81ac),
         kimi: rgb(0xb04a7a),
+        canter: rgb(0x5f7f4a),
         ..Theme::default()
     }
 }
@@ -668,6 +672,7 @@ fn lagoon_light() -> Theme {
         amp: rgb(0xb28500),
         agy: rgb(0x3a94c5),
         kimi: rgb(0xd0344f),
+        canter: rgb(0x5f8a00),
         ..Theme::default()
     }
 }
@@ -724,6 +729,7 @@ fn catppuccin() -> Theme {
         amp: rgb(0xf9e2af),
         agy: rgb(0x89b4fa),
         kimi: rgb(0xf38ba8),
+        canter: rgb(0xa6e3a1),
         ..Theme::default()
     }
 }
@@ -795,6 +801,7 @@ fn latte() -> Theme {
         amp: rgb(0xdf8e1d),
         agy: rgb(0x1e66f5),
         kimi: rgb(0xea76cb),
+        canter: rgb(0x40a02b),
         ..Theme::default()
     }
 }
@@ -854,6 +861,7 @@ fn tokyo_night() -> Theme {
         amp: rgb(0xe0af68),
         agy: rgb(0x7aa2f7),
         kimi: rgb(0xf7768e),
+        canter: rgb(0x9ece6a),
         ..Theme::default()
     }
 }
@@ -913,6 +921,7 @@ fn rose_pine() -> Theme {
         amp: rgb(0xf6c177),
         agy: rgb(0x3e8fb0),
         kimi: rgb(0xeb6f92),
+        canter: rgb(0xb0c88f),
         ..Theme::default()
     }
 }
@@ -971,6 +980,7 @@ fn kanagawa() -> Theme {
         amp: rgb(0xdca561),
         agy: rgb(0x7e9cd8),
         kimi: rgb(0xd27e99),
+        canter: rgb(0x98bb6c),
         ..Theme::default()
     }
 }
@@ -1041,6 +1051,7 @@ fn tokyo_night_day() -> Theme {
         amp: rgb(0x8c6c3e),
         agy: rgb(0x2e7de9),
         kimi: rgb(0xf52a65),
+        canter: rgb(0x587539),
         ..Theme::default()
     }
 }
@@ -1109,6 +1120,7 @@ fn rose_pine_dawn() -> Theme {
         amp: rgb(0xea9d34),
         agy: rgb(0x286983),
         kimi: rgb(0xb4637a),
+        canter: rgb(0x5f7f3e),
         ..Theme::default()
     }
 }
@@ -1176,6 +1188,7 @@ fn kanagawa_lotus() -> Theme {
         amp: rgb(0xde9800),
         agy: rgb(0x4d699b),
         kimi: rgb(0xb35b79),
+        canter: rgb(0x6f894e),
         ..Theme::default()
     }
 }
@@ -1238,6 +1251,7 @@ fn memphis() -> Theme {
         amp: rgb(0xffc93c),
         agy: rgb(0x8dd3f6),
         kimi: rgb(0xff8db5),
+        canter: rgb(0xa9e6c6),
         ..Theme::default()
     }
 }
@@ -1303,6 +1317,7 @@ fn memphis_light() -> Theme {
         amp: rgb(0x8a6200),
         agy: rgb(0x1c76a8),
         kimi: rgb(0xb83e7a),
+        canter: rgb(0x1e7f52),
         ..Theme::default()
     }
 }
@@ -1356,6 +1371,7 @@ pub struct Theme {
     pub amp: Color,
     pub agy: Color,
     pub kimi: Color,
+    pub canter: Color,
 }
 
 impl Default for Theme {
@@ -1406,6 +1422,7 @@ impl Default for Theme {
             amp: Color::Rgb(0xe5, 0xcf, 0x6f),
             agy: Color::Rgb(0x5b, 0x9c, 0xf2),
             kimi: Color::Rgb(0xec, 0x7a, 0xa8),
+            canter: Color::Rgb(0xa3, 0xc9, 0x6b),
         }
     }
 }
@@ -1465,7 +1482,7 @@ pub fn parse_color(value: &str) -> Result<Color, String> {
 
 impl Theme {
     /// Every configurable color by its `[colors]` key.
-    pub fn named_mut(&mut self) -> [(&'static str, &mut Color); 45] {
+    pub fn named_mut(&mut self) -> [(&'static str, &mut Color); 46] {
         [
             ("bg", &mut self.bg),
             ("overlay", &mut self.overlay),
@@ -1512,6 +1529,7 @@ impl Theme {
             ("amp", &mut self.amp),
             ("agy", &mut self.agy),
             ("kimi", &mut self.kimi),
+            ("canter", &mut self.canter),
         ]
     }
 }
@@ -1578,7 +1596,9 @@ mod kind_colours {
     fn every_theme_tells_the_agent_kinds_apart() {
         for preset in Preset::ALL {
             let mut theme = preset.theme();
-            let kinds = ["claude", "codex", "pi", "omp", "amp", "agy", "kimi"];
+            let kinds = [
+                "claude", "codex", "pi", "omp", "amp", "agy", "kimi", "canter",
+            ];
             let colours: Vec<Color> = theme
                 .named_mut()
                 .into_iter()

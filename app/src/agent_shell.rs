@@ -11,7 +11,9 @@ use std::{
     process::{Command, Stdio},
 };
 
-pub const KINDS: &[&str] = &["claude", "codex", "pi", "omp", "amp", "agy", "kimi"];
+pub const KINDS: &[&str] = &[
+    "claude", "codex", "pi", "omp", "amp", "agy", "kimi", "canter",
+];
 
 pub struct Setup {
     pub command: Vec<String>,
@@ -461,12 +463,18 @@ pub fn passthrough(kind: &str, args: &[OsString], stdin: bool, stdout: bool) -> 
         "update",
     ];
     const KIMI_FLAGS: &[&str] = &["-V", "--prompt"];
+    // canter's managing and one-shot commands as `canter --help` lists them (P5-195).
+    const CANTER: &[&str] = &[
+        "serve", "service", "upgrade", "rollback", "usage", "exec", "stats", "mcp",
+    ];
+    const CANTER_FLAGS: &[&str] = &["-V"];
     let (commands, flags) = match kind {
         "claude" => (CLAUDE, &[][..]),
         "codex" => (CODEX, &[][..]),
         "amp" => (AMP, AMP_FLAGS),
         "agy" => (AGY, AGY_FLAGS),
         "kimi" => (KIMI, KIMI_FLAGS),
+        "canter" => (CANTER, CANTER_FLAGS),
         _ => (&[][..], &[][..]),
     };
     let words: Vec<Option<&str>> = args.iter().map(|arg| arg.to_str()).collect();
@@ -668,5 +676,50 @@ mod tests {
         }
         assert!(passthrough("kimi", &[], false, true));
         assert!(passthrough("kimi", &[], true, false));
+    }
+    #[test]
+    fn canter_is_hosted_but_its_one_shot_and_managing_commands_run_as_they_are() {
+        assert!(KINDS.contains(&"canter"));
+        let args = |words: &[&str]| words.iter().map(OsString::from).collect::<Vec<_>>();
+        for words in [
+            &["--version"][..],
+            &["-V"],
+            &["--help"],
+            &["-h"],
+            &["serve"],
+            &["serve", "--replace"],
+            &["service", "install"],
+            &["upgrade", "--now"],
+            &["rollback"],
+            &["usage"],
+            &["exec", "hi"],
+            &["exec", "--last", "hi"],
+            &["stats", "--all"],
+            &["mcp", "list"],
+        ] {
+            assert!(passthrough("canter", &args(words), true, true), "{words:?}");
+        }
+        for words in [
+            &[][..],
+            &["fix the tests"],
+            &["--resume"],
+            &["--resume", "s-1"],
+            &["-r"],
+            &["-c"],
+            &["--continue"],
+            &["-m", "x"],
+            &["--model", "x"],
+            &["--tag", "task=1"],
+            &["--yolo"],
+            &["--yolo", "fix the tests"],
+            &["--add-dir", "/tmp"],
+        ] {
+            assert!(
+                !passthrough("canter", &args(words), true, true),
+                "{words:?}"
+            );
+        }
+        assert!(passthrough("canter", &[], false, true));
+        assert!(passthrough("canter", &[], true, false));
     }
 }
