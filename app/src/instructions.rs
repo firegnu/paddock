@@ -15,9 +15,10 @@ use std::{
     time::SystemTime,
 };
 
-/// The agents in Settings' order: those paddock hosts, but kimi, whose file wasn't asked for
-/// (P5-179).
-pub const KINDS: &[&str] = &["claude", "codex", "pi", "omp", "amp", "agy"];
+/// The agents in Settings' order: those paddock hosts (kimi and canter from P5-196).
+pub const KINDS: &[&str] = &[
+    "claude", "codex", "pi", "omp", "amp", "agy", "kimi", "canter",
+];
 
 /// Where `kind` reads its global instructions, under `home` or the folder its environment
 /// variable names (`var` looks one up); none for a kind paddock doesn't know.
@@ -34,6 +35,8 @@ pub fn path(kind: &str, home: &Path, var: impl Fn(&str) -> Option<OsString>) -> 
         "omp" => home.join(".omp/agent/AGENTS.md"),
         "amp" => home.join(".config/amp/AGENTS.md"),
         "agy" => home.join(".gemini/GEMINI.md"),
+        "kimi" => dir("KIMI_CODE_HOME", ".kimi-code").join("AGENTS.md"),
+        "canter" => dir("CANTER_HOME", ".canter").join("AGENTS.md"),
         _ => return None,
     })
 }

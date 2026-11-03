@@ -27,3 +27,11 @@
 - Settings › Instructions 有 canter、kimi，各自显示、编辑它的全局说明文件。
 - 重开 paddock 后 Integrations 里 kimi 不再是 Not found。
 - 验证：`tests/instructions.rs` 先改断言看到失败，再实现；`app/` 下 `cargo test --all-targets`、`cargo clippy --all-targets -- -D warnings`、`cargo fmt --check` 各一次。界面留给用户重开看。
+
+## 完成记录
+
+- 做了什么：`instructions::KINDS` 在 agy 后加 kimi、canter；路径 `$KIMI_CODE_HOME/AGENTS.md`（默认 `~/.kimi-code/AGENTS.md`）、`$CANTER_HOME/AGENTS.md`（默认 `~/.canter/AGENTS.md`）；kimi 卡片下一句 `It also reads ~/.agents/AGENTS.md.`；DESIGN P5-119 的表补两行。kimi 的 PATH：`~/.zshrc` 的 `# kimi-code` 和 `export PATH="/Users/firegnu/.kimi-code/bin:$PATH"` 两行删掉，`~/.zprofile` 末尾加同一行（写成 `$HOME/.kimi-code/bin`），两个文件先各备份成 `*.bak-20261103-171855`。
+- 验证了什么：`tests/instructions.rs` 先改断言（名单八家、两家默认路径、两家环境变量），跑到失败（`path` 对 kimi、canter 返回 None），实现后通过。`cargo test --all-targets` 1102 过、0 失败；clippy `-D warnings`、`fmt --check`、`git diff --check` 通过。`env -i … zsh -l -c 'command -v kimi'` 和交互 zsh 都找到 `~/.kimi-code/bin/kimi`。界面没开窗口看。
+- 拿主意的地方：kimi 的路径官网定制页写 `~/.kimi-code` 以外的 `~/.kimi/AGENTS.md`，本机装的 2.4.1 自带说明写 `$KIMI_CODE_HOME/AGENTS.md`，以装着的为准。kimi 还读 `~/.agents/AGENTS.md`，只在卡片下说明，不另开一格（和 omp、agy 一样只管主文件）。
+- 没做的事：Instructions 顶上的胶囊从六个变八个，Settings 窄的时候排不排得下没看，留给用户重开看。
+- 踩过的坑：没有。

@@ -731,6 +731,10 @@ paddock 与 Saddle 在代码上完全分开：用到的 Saddle 代码迁入 padd
     | omp | `~/.omp/agent/AGENTS.md` | 无 |
     | amp | `~/.config/amp/AGENTS.md` | 无 |
     | agy | `~/.gemini/GEMINI.md` | 无 |
+    | kimi | `~/.kimi-code/AGENTS.md` | `KIMI_CODE_HOME` |
+    | canter | `~/.canter/AGENTS.md` | `CANTER_HOME` |
+
+    kimi、canter 是 P5-196 加的（用户 11-03：“1、2 都加”）：名单从此是 `instructions::KINDS` 自己写明的八家，排在 agy 后，和 New Agent 一样。kimi 的路径以本机装的 kimi 2.4.1 自带说明为准（官网定制页写的 `~/.kimi/AGENTS.md` 是旧版布局），它还读 `~/.agents/AGENTS.md`，卡片下写一句；canter 照 canter `docs/DESIGN.md` 第 20 条，只读这一份。
 
   - 看：顶上一排六家胶囊，有文件的带绿色实心点，没有的带空圈，选中的强调色淡底细边；点哪家下面换成哪家（编辑中其余几家变淡、点不动，免得丢了改动）。下面一张卡：头上主文件路径（家目录写 `~`，是软链接的后面淡色写 `→ <指向的文件>`）、大小（`3.7 KB`，按 1000 算，空文件 `Empty`）和 `changed Oct 15`（不是今年的带年份），右上 `Edit`；正文照 Markdown 画（`markdown_view`），只读，在卡里滚动；空文件写 `This file is empty.`；读不出来的（权限、不是 UTF-8）写原因，不给 `Edit`。卡下面一行：`<名字> reads this file when a session starts.`，omp 接一句 `It also reads other agents' global files, such as ~/.claude/CLAUDE.md and ~/.codex/AGENTS.md.`，agy 接一句 `Gemini CLI reads this file too.`，最后 `Changes apply to sessions started after you save; agents already running keep what they read.`（编辑中和没有文件时只留最后一句）。这一页不放进可滚动的列表，卡片占满剩下的高度；底部消息条出现时给它留出位置，不盖住卡片的按钮。
   - 改：点 `Edit` 先重读文件，正文换成等宽的多行编辑框（`TextInput::wrapping(true)`，原文，不渲染），头上黄色 `Editing`；底下左边一句改了几行（`1 line added`、`2 lines added, 1 removed`、`No changes`），右边 `Cancel`（丢掉改动）和 `Review changes…`（没改动时变淡、点不动）。

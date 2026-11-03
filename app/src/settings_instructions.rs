@@ -62,6 +62,7 @@ fn also(kind: &str) -> Option<&'static str> {
              ~/.codex/AGENTS.md.",
         ),
         "agy" => Some("Gemini CLI reads this file too."),
+        "kimi" => Some("It also reads ~/.agents/AGENTS.md."),
         _ => None,
     }
 }
