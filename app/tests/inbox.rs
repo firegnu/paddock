@@ -5,7 +5,7 @@ use paddock::{
     agents::{Panel, Status},
     attention::{self, Urgency},
     corral::{Agent, Client, Reply},
-    inbox::{self, Group, Open, Row, Sent},
+    inbox::{self, Group, Open, Outcome, Row, Sent, Way},
 };
 use std::sync::atomic::AtomicBool;
 
@@ -169,15 +169,16 @@ fn while_open_a_row_keeps_its_group_and_new_replies_still_come_in() {
 
 #[test]
 fn only_an_idle_agent_can_be_replied_to_and_the_box_says_why_not() {
-    assert_eq!(inbox::composer(Some(Status::Idle)), Ok(()));
+    // Without steering (an older corral): only while it idles.
+    assert_eq!(inbox::composer(Some(Status::Idle), false), Ok(Way::Reply));
     for (status, why) in [
         (
             Status::Working,
-            "Working… you can reply when this turn ends",
+            "Working… you can reply when this turn ends (upgrade it to reply while it works)",
         ),
         (
             Status::Stalled,
-            "Working… you can reply when this turn ends",
+            "Working… you can reply when this turn ends (upgrade it to reply while it works)",
         ),
         (Status::Paused, "Paused… resume it to reply"),
         (
@@ -188,10 +189,35 @@ fn only_an_idle_agent_can_be_replied_to_and_the_box_says_why_not() {
         (Status::Starting, "Starting… you can reply once it is ready"),
         (Status::Exited, "It's no longer running"),
     ] {
-        assert_eq!(inbox::composer(Some(status)), Err(why), "{status:?}");
+        assert_eq!(inbox::composer(Some(status), false), Err(why), "{status:?}");
     }
     // No longer listed at all.
-    assert_eq!(inbox::composer(None), Err("It's no longer running"));
+    assert_eq!(inbox::composer(None, false), Err("It's no longer running"));
+    assert_eq!(inbox::composer(None, true), Err("It's no longer running"));
+
+    // It can steer (P5-199): an idle one is replied to as before, a working one gets the words
+    // added to its turn; everything else is as before.
+    assert_eq!(inbox::composer(Some(Status::Idle), true), Ok(Way::Reply));
+    assert_eq!(inbox::composer(Some(Status::Working), true), Ok(Way::Steer));
+    assert_eq!(inbox::composer(Some(Status::Stalled), true), Ok(Way::Steer));
+    for status in [
+        Status::Paused,
+        Status::Waiting,
+        Status::Error,
+        Status::Starting,
+        Status::Exited,
+    ] {
+        assert_eq!(
+            inbox::composer(Some(status), true),
+            inbox::composer(Some(status), false),
+            "{status:?}"
+        );
+    }
+    assert_eq!(inbox::placeholder("p/main", Way::Reply), "Reply to p/main…");
+    assert_eq!(
+        inbox::placeholder("p/main", Way::Steer),
+        "Add to its current turn…"
+    );
 
     // As the cards show it: a paused agent takes nothing, whatever it was doing.
     let panel = panel();
@@ -276,6 +302,111 @@ fn a_reply_goes_to_corral_send_as_typed_and_a_refusal_says_why() {
     let missing = Client::local(temp.path().join("nowhere").to_str().unwrap());
     let none = inbox::refusal(&missing.send("p/main", "hello", &cancel).unwrap_err());
     assert!(!none.is_empty() && !none.contains("hello"), "{none}");
+}
+
+/// A fake corral answering `send NAME TEXT --steer` as ranch R57b does, by the agent's name, and
+/// writing down what it was given.
+fn steering_corral(dir: &std::path::Path) -> String {
+    common::script(
+        dir,
+        "corral",
+        r##"#!/bin/sh
+out="$(dirname "$0")/args"
+printf '%s\n' "$#" > "$out"
+for arg in "$@"; do printf '[%s]\n' "$arg" >> "$out"; done
+case "$2" in
+  p/main) echo '{"ok":true,"name":"p/main","instance":"123","request_id":"r1","confirmed":true,"merged_with_draft":false}' ;;
+  p/draft) echo '{"ok":false,"error":"draft_not_submitted","message":"text was written but the submit key was withheld; inspect the draft, do not resend","reason":"state_changed","written":true}'; exit 3 ;;
+  p/lost) echo '{"ok":false,"error":"not_delivered","message":"no input event matched","request_id":"r2"}'; exit 3 ;;
+  p/prompt) echo '{"ok":false,"error":"not_idle","message":"p/prompt is blocked","state":"blocked"}'; exit 7 ;;
+  p/changed) echo '{"ok":false,"error":"state_changed","message":"state changed before input"}'; exit 7 ;;
+  p/typing) echo '{"ok":false,"error":"human_active","message":"someone typed in an attached window recently"}'; exit 8 ;;
+  p/pi) echo '{"ok":false,"error":"unsupported_steer","message":"pi does not support working input"}'; exit 9 ;;
+  p/old-pen) echo '{"ok":false,"error":"unsupported","message":"this pen does not support --steer; wait for idle and use ordinary send"}'; exit 9 ;;
+  p/slash) echo '{"ok":false,"error":"usage","message":"working input must be ordinary text, without command prefixes or control keys"}'; exit 1 ;;
+  p/old-cli) echo '{"ok":false,"error":"usage","message":"unrecognized argument --steer"}'; exit 1 ;;
+  p/busy) echo '{"ok":false,"error":"not_idle","message":"p/busy is not idle","state":"working"}'; exit 7 ;;
+  *) echo 'not json'; exit 1 ;;
+esac
+"##,
+    )
+}
+
+#[test]
+fn a_reply_to_a_working_agent_is_added_to_its_turn_and_what_corral_says_is_kept_apart() {
+    let temp = common::tempdir();
+    let client = Client::local(steering_corral(temp.path()));
+    let cancel = AtomicBool::new(false);
+    let text = "use the other branch\n  --force 第二行";
+    assert_eq!(client.steer("p/main", text, &cancel), Ok(()));
+    // `send`, the full name, the text as one argument untouched, then `--steer`; no `--force`.
+    let args = std::fs::read_to_string(temp.path().join("args")).unwrap();
+    assert_eq!(args, format!("4\n[send]\n[p/main]\n[{text}]\n[--steer]\n"));
+    // A reply to an idle one is the plain send it always was.
+    assert_eq!(client.send("p/main", "hello", &cancel), Ok(()));
+    let args = std::fs::read_to_string(temp.path().join("args")).unwrap();
+    assert_eq!(args, "3\n[send]\n[p/main]\n[hello]\n");
+
+    let steered =
+        |name: &str| inbox::outcome(client.steer(name, "hello", &cancel), Way::Steer, true);
+    assert_eq!(steered("p/main"), Outcome::Taken);
+    // Written but not submitted: never left in the box to go again.
+    assert_eq!(steered("p/draft"), Outcome::Unsent);
+    let kept = |name: &str| match steered(name) {
+        Outcome::Refused(why) => why,
+        other => panic!("{name}: {other:?}"),
+    };
+    // Sent but not confirmed: as a plain send's, corral's own words.
+    assert_eq!(kept("p/lost"), "no input event matched");
+    assert_eq!(
+        kept("p/prompt"),
+        "It can't take input right now — try again when it's ready"
+    );
+    assert_eq!(
+        kept("p/changed"),
+        "It changed state as this went — nothing was sent, try again"
+    );
+    assert_eq!(
+        kept("p/typing"),
+        "You typed in its pane a moment ago — try again shortly"
+    );
+    assert_eq!(
+        kept("p/pi"),
+        "This agent can't take a message while it works yet — send it when this turn ends"
+    );
+    assert_eq!(
+        kept("p/old-pen"),
+        "It can't take a message while it works until it is upgraded — send it when this turn ends"
+    );
+    assert_eq!(
+        kept("p/slash"),
+        "While it works, a message can't start with / or ! — send it when this turn ends"
+    );
+    assert_eq!(
+        kept("p/old-cli"),
+        "This corral is too old to add to a turn — send it when this turn ends"
+    );
+
+    // A plain reply that found it had just started working: send again and it goes into the turn.
+    assert_eq!(
+        inbox::outcome(client.send("p/busy", "hello", &cancel), Way::Reply, true),
+        Outcome::Refused("It just started working — send again to add this to its turn".into())
+    );
+    // One that can't take it while it works: as before.
+    assert_eq!(
+        inbox::outcome(client.send("p/busy", "hello", &cancel), Way::Reply, false),
+        Outcome::Refused("It's busy — try again when this turn ends".into())
+    );
+    assert_eq!(
+        inbox::outcome(client.send("p/main", "hello", &cancel), Way::Reply, true),
+        Outcome::Taken
+    );
+    // Not a word of the reply in what is said.
+    let garbled = kept("p/odd");
+    assert!(
+        !garbled.is_empty() && !garbled.contains("hello"),
+        "{garbled}"
+    );
 }
 
 #[test]

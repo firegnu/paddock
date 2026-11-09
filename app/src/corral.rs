@@ -51,6 +51,9 @@ pub struct Agent {
     /// What corral can't do for its kind (canter: `pause`, `sandbox`; ranch R56); empty for every
     /// other kind, which leaves the field out.
     pub unsupported: Vec<String>,
+    /// What its pen can do, from `corral status` (ranch R57b: `steer`); empty from `corral ls` and
+    /// an older corral.
+    pub capabilities: serde_json::Map<String, Value>,
 }
 
 /// A field that is there, `null` or not: told apart from one left out, which `#[serde(default)]`
@@ -91,6 +94,12 @@ impl Agent {
     /// Whether corral can pause it: not when it lists `pause` as unsupported.
     pub fn can_pause(&self) -> bool {
         !self.unsupported.iter().any(|what| what == "pause")
+    }
+
+    /// Whether a message can be added to its turn while it works: `capabilities.steer` is 1 (ranch
+    /// R57b). Whether its kind takes one is corral's to say when it is sent.
+    pub fn can_steer(&self) -> bool {
+        self.capabilities.get("steer").and_then(Value::as_u64) == Some(1)
     }
 
     pub fn role(&self) -> Option<Role> {
@@ -246,17 +255,29 @@ impl Client {
         self.deliver(name, text, cancel).map(|_| ())
     }
 
+    /// Adds `text` to the turn `name` is working on (DESIGN §13 P5-199): `corral send <name> <text>
+    /// --steer`, the text one argument and untouched, never forced. While it idles corral sends it
+    /// as a plain send.
+    pub fn steer(&self, name: &str, text: &str, cancel: &AtomicBool) -> Result<(), Refused> {
+        self.sent(&["send", name, text, "--steer"], cancel)
+            .map(|_| ())
+    }
+
     /// [`Client::send`], and what corral said of a send it took: whether text already in the
     /// agent's input box went in with it (`merged_with_draft`, the Kanban Loop's reminder, DESIGN
     /// §13 P5-106).
     pub fn deliver(&self, name: &str, text: &str, cancel: &AtomicBool) -> Result<Taken, Refused> {
+        self.sent(&["send", name, text], cancel)
+    }
+
+    /// `corral` with `args`, a send of some kind, and what it said.
+    fn sent(&self, args: &[&str], cancel: &AtomicBool) -> Result<Taken, Refused> {
         let unanswered = |message: String| Refused {
             code: None,
             message,
         };
-        let args = ["send", name, text];
         let output = self
-            .output(&args, SEND_TIMEOUT, cancel)
+            .output(args, SEND_TIMEOUT, cancel)
             // Not the command line, which has the whole reply in it: only what went wrong.
             .map_err(|error| match error.chain().nth(1) {
                 _ if self.remote.is_some() => unanswered(format!("{error}")),
@@ -564,6 +585,29 @@ mod tests {
             Ok(serde_json::json!({"kind": "canter", "unsupported": ["pause", "sandbox"]})),
         );
         assert!(!agent.can_pause());
+    }
+
+    #[test]
+    fn steering_is_read_from_status_and_only_a_1_counts() {
+        let parse = |json: &str| serde_json::from_str::<Agent>(json).unwrap();
+        assert!(parse(r#"{"name":"p/a","capabilities":{"pause":1,"steer":1}}"#).can_steer());
+        // An older corral leaves it out, or says something else.
+        assert!(!parse(r#"{"name":"p/a"}"#).can_steer());
+        assert!(!parse(r#"{"name":"p/a","capabilities":{"pause":1}}"#).can_steer());
+        assert!(!parse(r#"{"name":"p/a","capabilities":{"steer":0}}"#).can_steer());
+        assert!(!parse(r#"{"name":"p/a","capabilities":{"steer":"1"}}"#).can_steer());
+        assert!(!parse(r#"{"name":"p/a","capabilities":{"steer":true}}"#).can_steer());
+        // `corral ls` doesn't say; `corral status` taken in does.
+        let mut agent = Agent {
+            name: "p/a".into(),
+            ..Agent::default()
+        };
+        assert!(!agent.can_steer());
+        merge(
+            &mut agent,
+            Ok(serde_json::json!({"capabilities": {"steer": 1}})),
+        );
+        assert!(agent.can_steer());
     }
 
     #[test]

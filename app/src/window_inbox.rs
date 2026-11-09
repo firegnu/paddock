@@ -5,7 +5,7 @@
 use super::*;
 use crate::{
     corral::{Client, Reply},
-    inbox::{self, Group},
+    inbox::{self, Group, Outcome, Way},
     markdown, markdown_view,
 };
 use gpui::Subscription;
@@ -59,6 +59,10 @@ pub(super) struct Inbox {
     refused: HashMap<Who, String>,
     /// The agents a reply is on its way to.
     sending: HashSet<Who>,
+    /// The agents, by instance, a reply was written into but not submitted (P5-199): their box
+    /// stays shut until their pane is opened from here, since corral submits that text with the
+    /// next send.
+    unsent: HashMap<Who, Option<String>>,
 }
 
 pub(super) struct Open {
@@ -67,6 +71,8 @@ pub(super) struct Open {
     input: Entity<TextInput>,
     /// The row on show, by its agent, whose draft the box holds; `None` before the first.
     on: Option<Option<Who>>,
+    /// The box's grey words now.
+    placeholder: String,
     /// Has the keys while no reply can be typed, so that they never reach a terminal.
     focus: FocusHandle,
     rows: ScrollHandle,
@@ -144,6 +150,10 @@ struct Reading {
     sent: Option<inbox::Sent>,
     sending: bool,
     refused: Option<String>,
+    /// Whether a reply can be added to its turn while it works.
+    steerable: bool,
+    /// A reply was written into its input box and not submitted (P5-199).
+    held: bool,
     /// What the box holds.
     draft: String,
 }
@@ -237,6 +247,7 @@ impl PaddockWindow {
             list,
             input,
             on: None,
+            placeholder: String::new(),
             focus: cx.focus_handle(),
             rows: ScrollHandle::new(),
             reply: ScrollHandle::new(),
@@ -296,6 +307,19 @@ impl PaddockWindow {
             shown
         });
         self.inbox.sent = sent;
+        // Held only while the same run of the agent is listed.
+        let mut unsent = std::mem::take(&mut self.inbox.unsent);
+        unsent.retain(|who, instance| {
+            self.machine_sidebar(who.0.as_deref())
+                .is_some_and(|sidebar| {
+                    let panel = sidebar.read(cx).panel();
+                    panel
+                        .agents
+                        .iter()
+                        .any(|a| a.name == who.1 && a.instance == *instance)
+                })
+        });
+        self.inbox.unsent = unsent;
         let Some(mut open) = self.inbox.open.take() else {
             return;
         };
@@ -338,6 +362,9 @@ impl PaddockWindow {
             return;
         }
         match self.inbox_agent(cx) {
+            Some((who, agent, _)) if self.inbox_held(&who, &agent) => {
+                self.open_inbox_pane(window, cx)
+            }
             Some((_, _, Status::Waiting | Status::Error)) => self.open_inbox_pane(window, cx),
             Some(_) => self.send_inbox(window, cx),
             None => {}
@@ -354,11 +381,23 @@ impl PaddockWindow {
         Some((who, agent.clone(), status))
     }
 
-    /// Whether a reply can be typed for the selected row now.
-    fn inbox_typing(&self, cx: &gpui::App) -> bool {
-        self.inbox_agent(cx).is_some_and(|(who, _, status)| {
-            inbox::composer(Some(status)).is_ok() && !self.inbox.sending.contains(&who)
-        })
+    /// How a reply to the selected row would go now; `None` when none can be typed: not for its
+    /// status, not while one is on its way, and not while a reply written into its input box and
+    /// not submitted waits to be looked at (P5-199).
+    fn inbox_way(&self, cx: &gpui::App) -> Option<Way> {
+        let (who, agent, status) = self.inbox_agent(cx)?;
+        let way = inbox::composer(Some(status), agent.can_steer()).ok()?;
+        let free = !self.inbox.sending.contains(&who) && !self.inbox_held(&who, &agent);
+        free.then_some(way)
+    }
+
+    /// Whether a reply to `agent` was written into its input box and not submitted, and its pane
+    /// not opened from here since.
+    fn inbox_held(&self, who: &Who, agent: &Agent) -> bool {
+        self.inbox
+            .unsent
+            .get(who)
+            .is_some_and(|instance| *instance == agent.instance)
     }
 
     /// Shows the selected row: its draft in the box and its reply from the top when the row is
@@ -368,17 +407,29 @@ impl PaddockWindow {
         if self.popup != Some(Popup::Attention) {
             return;
         }
+        let way = self
+            .inbox_agent(cx)
+            .and_then(|(_, agent, status)| inbox::composer(Some(status), agent.can_steer()).ok())
+            .unwrap_or(Way::Reply);
         let Inbox { open, drafts, .. } = &mut self.inbox;
         let Some(open) = open else {
             return;
         };
         let row = open.list.selected().cloned();
         let agent = row.as_ref().and_then(who);
+        let placeholder = agent
+            .as_ref()
+            .map(|(_, name)| inbox::placeholder(name, way))
+            .unwrap_or_default();
+        if open.placeholder != placeholder {
+            open.input.update(cx, |input, cx| {
+                input.set_placeholder(placeholder.clone(), cx)
+            });
+            open.placeholder = placeholder;
+        }
         if open.on.as_ref() != Some(&agent) {
             let draft = agent.as_ref().and_then(|who| drafts.get(who)).cloned();
-            let placeholder = agent.as_ref().map(|(_, name)| format!("Reply to {name}…"));
             open.input.update(cx, |input, cx| {
-                input.set_placeholder(placeholder.unwrap_or_default(), cx);
                 input.set_text(draft.unwrap_or_default(), cx);
             });
             open.reply.set_offset(point(px(0.0), px(0.0)));
@@ -387,7 +438,11 @@ impl PaddockWindow {
             open.on = Some(agent);
         }
         let (field, panel) = (open.input.read(cx).focus_handle(cx), open.focus.clone());
-        let focus = if self.inbox_typing(cx) { field } else { panel };
+        let focus = if self.inbox_way(cx).is_some() {
+            field
+        } else {
+            panel
+        };
         if !focus.is_focused(window) {
             window.focus(&focus, cx);
         }
@@ -402,12 +457,15 @@ impl PaddockWindow {
     /// `Open pane`: the Inbox closes, the agent's machine comes on show and its pane to the
     /// front, as a click on its card brings it.
     fn open_inbox_pane(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(((machine, name), _, _)) = self.inbox_agent(cx) else {
+        let Some((who, _, _)) = self.inbox_agent(cx) else {
             return;
         };
-        let Some(seat) = self.machine_seat(machine.as_deref()) else {
+        let Some(seat) = self.machine_seat(who.0.as_deref()) else {
             return;
         };
+        // Its pane is looked at: what was left unsubmitted there is the person's to deal with.
+        self.inbox.unsent.remove(&who);
+        let name = who.1;
         self.popup = None;
         self.inbox.open = None;
         self.switch(seat, window, cx);
@@ -416,13 +474,15 @@ impl PaddockWindow {
     }
 
     /// Sends what the box holds to the selected agent with its machine's `corral send`, in the
-    /// background: only to an agent that idles, nothing blank, and the text as typed. Taken, the
-    /// box empties and the text stays on show under the agent's reply; refused, it stays in the
-    /// box with the reason under it. Either way its corral is read again at once.
+    /// background: to an agent that idles, or added to the turn of one that works and can be
+    /// steered (`--steer`, P5-199); nothing blank, and the text as typed. Taken, the box empties
+    /// and the text stays on show under the agent's reply; written but not submitted, the box
+    /// empties and stays shut until its pane is opened; refused, the text stays in the box with
+    /// the reason under it. Either way its corral is read again at once.
     fn send_inbox(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.inbox_typing(cx) {
+        let Some(way) = self.inbox_way(cx) else {
             return;
-        }
+        };
         let Some((who, agent, _)) = self.inbox_agent(cx) else {
             return;
         };
@@ -436,6 +496,7 @@ impl PaddockWindow {
         let Some(seat) = self.machine_seat(who.0.as_deref()) else {
             return;
         };
+        let steerable = agent.can_steer();
         let instance = agent.instance;
         self.inbox.sending.insert(who.clone());
         self.inbox.refused.remove(&who);
@@ -448,25 +509,38 @@ impl PaddockWindow {
         cx.spawn_in(window, async move |this, cx| {
             let (to, words) = (who.1.clone(), text.clone());
             let result = cx
-                .background_spawn(async move { client.send(&to, &words, &AtomicBool::new(false)) })
+                .background_spawn(async move {
+                    let cancel = AtomicBool::new(false);
+                    match way {
+                        Way::Reply => client.send(&to, &words, &cancel),
+                        Way::Steer => client.steer(&to, &words, &cancel),
+                    }
+                })
                 .await;
             let _ = this.update_in(cx, |this, window, cx| {
                 this.inbox.sending.remove(&who);
-                match result {
-                    Ok(()) => {
-                        this.inbox.drafts.remove(&who);
-                        if let Some(open) = &this.inbox.open
-                            && open.on.as_ref() == Some(&Some(who.clone()))
-                        {
-                            open.input.update(cx, |input, cx| input.set_text("", cx));
-                            // What was sent is on show, under the reply.
-                            open.reply.scroll_to_bottom();
-                        }
+                let outcome = inbox::outcome(result, way, steerable);
+                if !matches!(outcome, Outcome::Refused(_)) {
+                    // Taken, or written into its input box: not to go again from here.
+                    this.inbox.drafts.remove(&who);
+                    if let Some(open) = &this.inbox.open
+                        && open.on.as_ref() == Some(&Some(who.clone()))
+                    {
+                        open.input.update(cx, |input, cx| input.set_text("", cx));
+                        // What was sent, if it was, is on show under the reply.
+                        open.reply.scroll_to_bottom();
+                    }
+                }
+                match outcome {
+                    Outcome::Taken => {
                         let sent = inbox::Sent { text, at, instance };
                         this.inbox.sent.insert(who, sent);
                     }
-                    Err(refused) => {
-                        this.inbox.refused.insert(who, inbox::refusal(&refused));
+                    Outcome::Unsent => {
+                        this.inbox.unsent.insert(who, instance);
+                    }
+                    Outcome::Refused(why) => {
+                        this.inbox.refused.insert(who, why);
                     }
                 }
                 sidebar.read(cx).refresh();
@@ -943,6 +1017,8 @@ impl PaddockWindow {
             sent: sent.cloned(),
             sending: self.inbox.sending.contains(&who),
             refused: self.inbox.refused.get(&who).cloned(),
+            steerable: agent.can_steer(),
+            held: self.inbox_held(&who, agent),
             draft: open.input.read(cx).text().to_owned(),
         }))
     }
@@ -1115,7 +1191,9 @@ impl PaddockWindow {
                 return column
                     .child(head(name, avatar(None, dimmer), None))
                     .child(div().flex_grow(1.0))
-                    .child(foot().child(closed(inbox::composer(None).err().unwrap_or_default())));
+                    .child(foot().child(closed(
+                        inbox::composer(None, false).err().unwrap_or_default(),
+                    )));
             }
             Showing::Notice(notice) => {
                 let ink = if notice.needs { amber } else { accent };
@@ -1360,8 +1438,8 @@ impl PaddockWindow {
             .children(said)
             .children(sent);
 
-        let composer = inbox::composer(Some(reading.status));
-        let typing = composer.is_ok() && !reading.sending;
+        let composer = inbox::composer(Some(reading.status), reading.steerable);
+        let typing = composer.is_ok() && !reading.sending && !reading.held;
         let field = open.input.read(cx).focus_handle(cx);
         let frame = || {
             div()
@@ -1405,12 +1483,47 @@ impl PaddockWindow {
                 ui.scale(14.0),
             ));
         let reply_box = match composer {
+            // Written into its input box, not submitted: corral would submit it with the next
+            // send, so nothing goes from here until its pane has been looked at (P5-199).
+            _ if reading.held => well(false)
+                .items_center()
+                .child(
+                    div()
+                        .flex_1()
+                        .min_h(ui.px(BOX_MIN))
+                        .flex()
+                        .items_center()
+                        .text_size(ui.px(12.5))
+                        .text_color(amber)
+                        .child(inbox::UNSENT),
+                )
+                .child(
+                    div()
+                        .id("inbox-open-unsent")
+                        .flex_shrink_0()
+                        .h(ui.px(26.0))
+                        .px(ui.px(10.0))
+                        .flex()
+                        .items_center()
+                        .rounded(ui.px(7.0))
+                        .bg(amber)
+                        .text_color(ground)
+                        .text_size(ui.px(12.0))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .whitespace_nowrap()
+                        .cursor_pointer()
+                        .hover(|style| style.opacity(0.9))
+                        .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                            this.open_inbox_pane(window, cx)
+                        }))
+                        .child("Open pane ↩"),
+                ),
             Err(why) => closed(why),
             // On its way: as typed, and not to be changed.
-            Ok(()) if reading.sending => well(false)
+            Ok(_) if reading.sending => well(false)
                 .child(frame().text_color(dim).child(reading.draft.clone()))
                 .child(button),
-            Ok(()) => well(field.is_focused(window))
+            Ok(_) => well(field.is_focused(window))
                 .child(frame().cursor_text().child(open.input.clone()))
                 .child(
                     div()

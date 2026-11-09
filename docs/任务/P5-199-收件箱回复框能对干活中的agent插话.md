@@ -54,3 +54,20 @@
 - 只调 PATH 上的 `corral`（远程机器照现有的远程调用）、读它的 JSON，不读 `~/.corral`。
 - 失败不退回普通 send、不改用 `corral keys`、不加 `--force`、不自动重发。
 - pony（Slack）的插话不归这件。
+
+## 完成记录（主控，11-09）
+- 做了什么：
+  - `corral.rs`：`Agent` 多读 `capabilities`，`can_steer()` 只认 `steer` 为数字 1；新加 `Client::steer`（`corral send <全名> <文字> --steer`），和 `send`／`deliver` 共用同一段读结果的代码。
+  - `inbox.rs`：`composer(status, steerable)` 改为返回发送方式 `Way`（Reply／Steer），在干活且能插话时可用，不能插话时说明多一句 `(upgrade it to reply while it works)`；`placeholder` 在插话时给 `Add to its current turn…`；`outcome` 把 corral 的返回分成 `Taken`／`Unsent`（`draft_not_submitted`）／`Refused(说明)`，需求表里每种返回各有英文说明。
+  - `window_inbox.rs`：按 `Way` 调 `send` 或 `steer`；`Unsent` 时框清空、按实例记下，这个 agent 的回复框换成琥珀色说明和 `Open pane ↩`（↩ 也是它），在收件箱里点它的 `Open pane` 才解开；agent 重启或不在了自动作废。灰字提示随状态变。
+  - `DESIGN.md`：§13 加 P5-199 一条，P5-87 回复框一条和依赖表注明。
+- 验证：
+  - 先写测试：`tests/inbox.rs` 改了 `composer` 的测试、加了一个假 corral 走 `--steer` 各种返回的测试，`corral.rs` 加了 `capabilities.steer` 读法的测试；放上只有旧行为的空壳接口时三个测试按预期失败（说明文字不对、没带 `--steer`、读不出能力），实现后通过。
+  - 真 corral 实测（自己开的 `paddock/test-steer`，Claude Code，`--label role=test`）：让它跑 `sleep 40`，干活中 `corral send … --steer` 返回 0，它最后回的是插话要的 `STEERED`；以 `/` 开头的插话返回 1 `usage`、message 为 `working input must be ordinary text…`，和测试里假 corral 的格式一致。用完已 `corral stop`。
+  - `app/` 下 `cargo test --all-targets --no-fail-fast` 1113 个通过、0 失败；`cargo clippy --all-targets -- -D warnings`、`cargo fmt --check`、`git diff --check` 通过。
+- 拿主意的地方：
+  - 不按 agent 种类预先拦（pi、kimi 等），能力是 1 就让框可用，由 corral 返回 `unsupported_steer` 时说明；种类名单会随 ranch 变。
+  - 以为对方空闲、普通 send 被 `not_idle` 拒绝时，能插话的 agent 说明写“它刚开始干活，再发一次就插进这一轮”；插话被 `not_idle` 拒绝（对方弹框或启动中）写“现在不能输入，等它好了再试”。
+  - `usage` 按 corral 的 message 区分“旧 corral 不认 `--steer`”和“以 `/`、`!` 开头”，别的 usage 照旧显示 corral 原话。
+  - 同一个 agent 连续插话，`You · sent` 只留最后一句（沿用原来每个 agent 一条的做法）。
+- 没做的：没开窗口、没截图，回复框的样子和插话的手感留给用户实际试。
