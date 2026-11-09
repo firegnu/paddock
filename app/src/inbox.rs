@@ -309,12 +309,24 @@ pub fn status(panel: &Panel, a: &Agent, sent: Option<&Sent>, now: f64) -> Status
     }
 }
 
-/// Whether a reply can be typed for an agent in `status` (`None`: no longer listed): only while it
-/// idles. Otherwise what the box says in its place.
-pub fn composer(status: Option<Status>) -> Result<(), &'static str> {
+/// How a reply goes: as a plain `corral send` to an agent that idles, or added to the turn of one
+/// that works (`--steer`, DESIGN §13 P5-199).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Way {
+    Reply,
+    Steer,
+}
+
+/// Whether a reply can be typed for an agent in `status` (`None`: no longer listed), and how it
+/// goes: while it idles, and while it works when it can be steered (`steerable`). Otherwise what
+/// the box says in its place.
+pub fn composer(status: Option<Status>, steerable: bool) -> Result<Way, &'static str> {
     Err(match status {
-        Some(Status::Idle) => return Ok(()),
-        Some(Status::Working | Status::Stalled) => "Working… you can reply when this turn ends",
+        Some(Status::Idle) => return Ok(Way::Reply),
+        Some(Status::Working | Status::Stalled) if steerable => return Ok(Way::Steer),
+        Some(Status::Working | Status::Stalled) => {
+            "Working… you can reply when this turn ends (upgrade it to reply while it works)"
+        }
         Some(Status::Starting) => "Starting… you can reply once it is ready",
         Some(Status::Paused) => "Paused… resume it to reply",
         Some(Status::Waiting) => "Can't reply here while a prompt is showing",
@@ -333,6 +345,67 @@ pub fn refusal(refused: &Refused) -> String {
         Some("not_found") => "It's no longer running".into(),
         _ => refused.message.clone(),
     }
+}
+
+/// What the reply box says in its place after a reply was written into the agent's input box and
+/// not submitted (`draft_not_submitted`, P5-199).
+pub const UNSENT: &str = "Written into its input box but not submitted — check it in its pane";
+
+/// The reply box's grey words before anything is typed.
+pub fn placeholder(name: &str, way: Way) -> String {
+    match way {
+        Way::Reply => format!("Reply to {name}…"),
+        Way::Steer => "Add to its current turn…".into(),
+    }
+}
+
+/// What became of a reply sent from the Inbox.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Outcome {
+    /// corral took it.
+    Taken,
+    /// Written into the agent's input box but not submitted (`draft_not_submitted`): never to be
+    /// sent again from the box, and nothing more sent until its pane has been looked at.
+    Unsent,
+    /// Not taken, or not known to be: why, the text left in the box.
+    Refused(String),
+}
+
+/// What became of a reply that went `way` to an agent that can be steered or not (`steerable`),
+/// from what corral answered.
+pub fn outcome(result: Result<(), Refused>, way: Way, steerable: bool) -> Outcome {
+    let Err(refused) = result else {
+        return Outcome::Taken;
+    };
+    let wait = "send it when this turn ends";
+    let why = match (refused.code.as_deref(), way) {
+        (Some("draft_not_submitted"), _) => return Outcome::Unsent,
+        // It had just started working: sent again, it goes into the turn.
+        (Some("not_idle"), Way::Reply) if steerable => {
+            "It just started working — send again to add this to its turn".into()
+        }
+        // A prompt showing, or starting: nothing was written.
+        (Some("not_idle"), Way::Steer) => {
+            "It can't take input right now — try again when it's ready".into()
+        }
+        (Some("state_changed"), _) => {
+            "It changed state as this went — nothing was sent, try again".into()
+        }
+        (Some("unsupported_steer"), _) => {
+            format!("This agent can't take a message while it works yet — {wait}")
+        }
+        (Some("unsupported"), Way::Steer) => {
+            format!("It can't take a message while it works until it is upgraded — {wait}")
+        }
+        (Some("usage"), Way::Steer) if refused.message.contains("--steer") => {
+            format!("This corral is too old to add to a turn — {wait}")
+        }
+        (Some("usage"), Way::Steer) if refused.message.starts_with("working input") => {
+            format!("While it works, a message can't start with / or ! — {wait}")
+        }
+        _ => refusal(&refused),
+    };
+    Outcome::Refused(why)
 }
 
 /// How a row's line or a pill is coloured.
