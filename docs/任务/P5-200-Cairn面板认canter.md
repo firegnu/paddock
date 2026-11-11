@@ -87,3 +87,23 @@
 - 不读 canter 的状态目录、配置文件，也不查 `canter` 命令在不在；只看 `cairn status --json`。
 - 不改 cairn、canter 仓库。
 - 不加安装、卸载钩子的按钮（P5-55 定的不做照旧）。
+
+## 完成记录（主控，11-11）
+
+做了什么：
+- `app/src/cairn.rs`：`cairn status --json` 多读可选的 `agents.canter`。`Found` 加 `canter: Option<bool>`（`None` 是旧版 cairn 没说）和 `canter_fired`（照 P5-78 的 `fired` 算）。三家都没装钩子才是 `NoHooks`。`by` 加 `canter` → `Canter`，记录列表、点开的 `By`、账的“谁加的”都走它。
+- `app/src/cairn_view.rs`：标签头在 Codex 后画 `Canter`，不知道时不画。采用卡片在 canter 装了钩子时写 `Claude, Codex and Canter sessions`。没装钩子时的提示和命令没动。
+- 标签头这一行改成放不下就折行：最窄的右侧栏是 426pt，三家都带时间、未收取数又是黄底时，估算这一行要 440pt 左右。宽的时候和原来一样。
+- `Read::Found` 改成 `Box<Found>`：`Found` 多了两个字段后，clippy 报 `large_enum_variant`（248 对 24 字节）。按字段解构 `Read::Found` 的四处界面代码、三处测试跟着改，行为不变。
+- `docs/DESIGN.md`：§3 cairn 一行补上 `agents.canter`，§13 在 P5-78 后加 P5-200 一条。
+
+验证了什么：
+- 先写测试 `canter_is_a_third_agent_and_a_cairn_that_does_not_name_it_does_not_know_it`（`app/tests/cairn.rs`，假 `cairn` 脚本加合成 JSON），先加空字段让它编译过，确认它因“只装 canter 时读成不知道”失败，再写实现。它覆盖：只装 canter 时照装了读（记录、账照常），canter 的时间和 `never`；记录和账写 `Canter`，会话取前 8 位；cairn 报 canter 没装时照没装处理，另两家也没装就是 `NoHooks`、不读账；旧版 cairn 没有 `agents.canter` 时是不知道、不报错，Claude、Codex 照旧。
+- `cargo test --all-targets --no-fail-fast`：1114 通过，0 失败。`cargo clippy --all-targets -- -D warnings`、`cargo fmt --check`、`git diff --check` 通过。
+
+拿主意的地方：
+- 不知道（旧版 cairn）和没装分开：前者不画，后者画淡色短横（用户 11-11 同意的第 1 条）。
+- 标签头放不下时折行，是因为多画了一项才要做的，任务文件里没写。
+
+没做的事：
+- 没在真窗口里看。本机 cairn 还是 0.7.1，不报 `agents.canter`，现在打开 Cairn 标签和以前完全一样。等 cairn 主控装好新版、用户装上 canter 钩子后，由用户看标签头的 `Canter`、窄侧栏下的折行，以及 canter 存的记录写 `Canter`。

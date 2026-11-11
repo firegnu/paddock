@@ -38,7 +38,7 @@ pub enum Read {
     /// A command failed, timed out, or said something the tab cannot read: the first line of why,
     /// after the command's name.
     Failed(String),
-    Found(Found),
+    Found(Box<Found>),
 }
 
 /// cairn as it stands in a directory.
@@ -56,9 +56,12 @@ pub struct Found {
     /// Whether each agent's hooks are installed.
     pub claude: bool,
     pub codex: bool,
+    /// `None` from a cairn before it knew canter (cairn P1-27), which does not say.
+    pub canter: Option<bool>,
     /// When each agent's hooks last ran here.
     pub claude_fired: Fired,
     pub codex_fired: Fired,
+    pub canter_fired: Fired,
     /// The records agents have saved that cairn has not yet taken into its database.
     pub uncollected: u64,
     pub body: Body,
@@ -82,7 +85,7 @@ pub enum Fired {
 /// What the tab shows under its header.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Body {
-    /// Hooks are installed for neither agent: nothing is recorded, adopted or not.
+    /// Hooks are installed for none of the agents: nothing is recorded, adopted or not.
     NoHooks,
     /// Not adopted, in the repository whose main worktree this is: Adopt is offered.
     NotAdopted(PathBuf),
@@ -147,9 +150,11 @@ pub struct Note {
     pub day: Option<String>,
     /// For one saved today, how long before the read: `2m ago`.
     pub ago: Option<String>,
-    /// What cairn calls the agent that saved it: `claude`, `codex`, `local`, or one to come.
+    /// What cairn calls the agent that saved it: `claude`, `codex`, `canter`, `local`, or one to
+    /// come.
     pub agent: String,
-    /// Who saved it: `Claude`, `Codex`, `Manual` for none of the agents, or what cairn calls it.
+    /// Who saved it: `Claude`, `Codex`, `Canter`, `Manual` for none of the agents, or what cairn
+    /// calls it.
     pub by: String,
     pub branch: Option<String>,
     /// Its one line, as the agent wrote it; empty without one.
@@ -215,7 +220,7 @@ pub struct Entry {
     pub day: String,
     /// When it was last changed, written as `added`, if ever since.
     pub updated: Option<String>,
-    /// Who added it: `You`, `Claude`, `Codex`, or what cairn calls the agent.
+    /// Who added it: `You`, `Claude`, `Codex`, `Canter`, or what cairn calls the agent.
     pub by: String,
     /// The first eight characters of the agent's session, for one an agent added.
     pub session: Option<String>,
@@ -253,6 +258,8 @@ struct Status {
 struct Agents {
     claude: Agent,
     codex: Agent,
+    /// From cairn P1-27; one before it does not name canter.
+    canter: Option<Agent>,
 }
 
 #[derive(Deserialize)]
@@ -362,6 +369,7 @@ pub fn read(
         status.agents.claude.installed,
         status.agents.codex.installed,
     );
+    let canter = status.agents.canter.as_ref().map(|agent| agent.installed);
     let (name, branch, repo) = match git::repository(git, cwd, cancel) {
         Some((top, common)) => {
             let repo = main_worktree(&top, &common);
@@ -378,7 +386,7 @@ pub fn read(
         }
         None => (last_part(Path::new(cwd)), None, None),
     };
-    let (body, ledger) = if !claude && !codex {
+    let (body, ledger) = if !claude && !codex && canter != Some(true) {
         (Body::NoHooks, None)
     } else if adopted {
         match records(program, cwd, limit, now, offset, cancel) {
@@ -394,7 +402,7 @@ pub fn read(
     } else {
         (repo.clone().map_or(Body::Outside, Body::NotAdopted), None)
     };
-    Read::Found(Found {
+    Read::Found(Box::new(Found {
         cwd: cwd.to_owned(),
         name,
         repo,
@@ -404,10 +412,16 @@ pub fn read(
         codex,
         claude_fired: fired(&status.agents.claude, adopted, now),
         codex_fired: fired(&status.agents.codex, adopted, now),
+        canter,
+        canter_fired: status
+            .agents
+            .canter
+            .as_ref()
+            .map_or(Fired::Unknown, |agent| fired(agent, adopted, now)),
         uncollected: status.spool.pending_json,
         body,
         ledger,
-    })
+    }))
 }
 
 /// When `agent`'s hooks last ran before `now`: the latest of its events.
@@ -909,6 +923,7 @@ fn by(agent: &str) -> String {
     match agent {
         "claude" => "Claude",
         "codex" => "Codex",
+        "canter" => "Canter",
         "local" => "Manual",
         other => other,
     }

@@ -149,7 +149,7 @@ fn the_two_commands_tell_the_seven_states() {
     put("status.out", &status(false, false, "not_adopted", 0));
     assert_eq!(
         at(&repo),
-        Read::Found(Found {
+        Read::Found(Box::new(Found {
             cwd: dir(&repo).to_owned(),
             name: "ranch".into(),
             repo: Some(repo.clone()),
@@ -159,10 +159,12 @@ fn the_two_commands_tell_the_seven_states() {
             codex: false,
             claude_fired: Fired::Unknown,
             codex_fired: Fired::Unknown,
+            canter: None,
+            canter_fired: Fired::Unknown,
             uncollected: 0,
             body: Body::NoHooks,
             ledger: None,
-        })
+        }))
     );
     put("status.out", &status(false, false, "adopted", 0));
     let adopted = found(&repo);
@@ -325,14 +327,14 @@ fn the_notes_are_listed_by_the_day_they_were_saved_on_the_newest_first() {
     let (bin, repo, program) = adopted(temp.path(), &["01A", "01D"]);
     let none = AtomicBool::new(false);
     let notes = |limit: usize| match read(&program, "git", dir(&repo), limit, now(), &east, &none) {
-        Read::Found(Found {
-            body: Body::Records(Records { text, notes }),
-            ..
-        }) => {
-            // The text the next session is given is kept beside them.
-            assert_eq!(text, shown(TEXT));
-            notes.unwrap()
-        }
+        Read::Found(found) => match found.body {
+            Body::Records(Records { text, notes }) => {
+                // The text the next session is given is kept beside them.
+                assert_eq!(text, shown(TEXT));
+                notes.unwrap()
+            }
+            other => panic!("{other:?}"),
+        },
         other => panic!("{other:?}"),
     };
     let checkpoint = |id: &str, at: &str, agent: &str, branch: Option<&str>, summary: &str| {
@@ -552,12 +554,12 @@ fn the_notes_are_shown_one_line_for_each_session_that_saved_them() {
     let (bin, repo, program) = adopted(temp.path(), &["01M"]);
     let none = AtomicBool::new(false);
     let notes = || match read(&program, "git", dir(&repo), PAGE, now(), &east, &none) {
-        Read::Found(Found {
-            body: Body::Records(Records {
+        Read::Found(found) => match found.body {
+            Body::Records(Records {
                 notes: Some(notes), ..
-            }),
-            ..
-        }) => notes,
+            }) => notes,
+            other => panic!("{other:?}"),
+        },
         other => panic!("{other:?}"),
     };
     let saved = |id: &str, at: &str, agent: &str, source: Option<&str>, session: Option<&str>| {
@@ -1644,4 +1646,139 @@ fn each_agents_hooks_tell_how_long_ago_they_last_ran_in_an_adopted_repository() 
             (Fired::Unknown, Fired::Never)
         );
     }
+}
+
+/// `cairn status --json` from a cairn that knows canter (cairn P1-27), in an adopted project: each
+/// agent as given, `(installed, last_seen)`.
+fn with_canter(
+    claude: (bool, serde_json::Value),
+    codex: (bool, serde_json::Value),
+    canter: (bool, serde_json::Value),
+) -> String {
+    let agent = |(installed, seen): (bool, serde_json::Value)| serde_json::json!({ "installed": installed, "last_seen": seen });
+    serde_json::json!({
+        "agents": { "claude": agent(claude), "codex": agent(codex), "canter": agent(canter) },
+        "project": { "status": "adopted" },
+        "spool": { "pending_json": 0 },
+    })
+    .to_string()
+}
+
+#[test]
+fn canter_is_a_third_agent_and_a_cairn_that_does_not_name_it_does_not_know_it() {
+    let temp = common::tempdir();
+    let (bin, repo, program) = adopted(temp.path(), &["01A"]);
+    let none = AtomicBool::new(false);
+    let at = || match read(&program, "git", dir(&repo), PAGE, now(), &east, &none) {
+        Read::Found(found) => found,
+        other => panic!("{other:?}"),
+    };
+    let put = |file: &str, text: &str| fs::write(bin.join(file), text).unwrap();
+    let never = serde_json::json!({
+        "SessionStart": null, "UserPromptSubmit": null, "Stop": null, "SessionEnd": null,
+    });
+    let recent = serde_json::json!({
+        "SessionStart": "2026-10-10T09:40:00.000Z", "UserPromptSubmit": null,
+        "Stop": "2026-10-10T09:42:55.004Z", "SessionEnd": null,
+    });
+    put(
+        "list.out",
+        &list(
+            1,
+            &[record(
+                "01A",
+                "2026-10-10T09:44:15.999Z",
+                "canter",
+                Some("main"),
+                "checkpoint",
+                "canter 存的",
+            )],
+        ),
+    );
+    put(
+        "ledger.out",
+        &ledger(
+            9,
+            &[item(
+                "L1",
+                1,
+                "state",
+                "canter 加的",
+                None,
+                ("2026-10-16T02:12:01.000Z", "2026-10-16T02:12:01.000Z"),
+                "canter:7a8b9c0d-1111-2222",
+            )],
+        ),
+    );
+
+    // Only canter's hooks: the project is read as having hooks, and canter is shown as the
+    // other two are.
+    put(
+        "status.out",
+        &with_canter(
+            (false, never.clone()),
+            (false, never.clone()),
+            (true, recent.clone()),
+        ),
+    );
+    let found = at();
+    assert_eq!(
+        (found.claude, found.codex, found.canter),
+        (false, false, Some(true))
+    );
+    assert_eq!(found.canter_fired, Fired::Ago("2m".into()));
+    // What canter saved and added is by Canter, as Claude's is by Claude.
+    let Body::Records(Records { notes, .. }) = &found.body else {
+        panic!("{:?}", found.body);
+    };
+    let notes = notes.as_ref().unwrap();
+    assert_eq!(notes.next[0].note.agent, "canter");
+    assert_eq!(notes.next[0].note.by, "Canter");
+    let Some(Ledger::Groups(groups)) = &found.ledger else {
+        panic!("{:?}", found.ledger);
+    };
+    assert_eq!(groups[0].entries[0].by, "Canter");
+    assert_eq!(groups[0].entries[0].session.as_deref(), Some("7a8b9c0d"));
+
+    // Installed and never run is said, as for the other two.
+    put(
+        "status.out",
+        &with_canter(
+            (true, recent.clone()),
+            (false, never.clone()),
+            (true, never.clone()),
+        ),
+    );
+    let found = at();
+    assert_eq!(found.canter_fired, Fired::Never);
+    assert_eq!(found.claude_fired, Fired::Ago("2m".into()));
+
+    // cairn says canter is not installed (no canter on the machine looks the same): shown as not
+    // installed, and with neither of the others the project has no hooks, as before.
+    put(
+        "status.out",
+        &with_canter(
+            (false, never.clone()),
+            (false, never.clone()),
+            (false, recent.clone()),
+        ),
+    );
+    let found = at();
+    assert_eq!(found.canter, Some(false));
+    assert_eq!(found.canter_fired, Fired::Unknown);
+    assert_eq!(found.body, Body::NoHooks);
+    assert_eq!(found.ledger, None);
+
+    // A cairn from before canter does not name it: not known, nothing fails, and Claude and
+    // Codex read as they did.
+    put("status.out", &status(true, false, "adopted", 0));
+    let found = at();
+    assert_eq!(
+        (found.claude, found.codex, found.canter),
+        (true, false, None)
+    );
+    assert_eq!(found.canter_fired, Fired::Unknown);
+    assert!(matches!(found.body, Body::Records(_)));
+    put("status.out", &status(false, false, "adopted", 0));
+    assert_eq!(at().body, Body::NoHooks);
 }
