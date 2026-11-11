@@ -324,10 +324,10 @@ impl CairnView {
             }
         }
         let repo = match &read {
-            Read::Found(Found {
-                body: Body::NotAdopted(repo),
-                ..
-            }) => Some(repo.as_path()),
+            Read::Found(found) => match &found.body {
+                Body::NotAdopted(repo) => Some(repo.as_path()),
+                _ => None,
+            },
             _ => None,
         };
         let closed = self.adopting.follow(repo);
@@ -340,11 +340,10 @@ impl CairnView {
 
     /// What the empty filters say: how many entries and lessons there are to filter.
     fn placeholders(&mut self, cx: &mut Context<Self>) {
-        let Some(Read::Found(Found {
-            ledger: Some(Ledger::Groups(groups)),
-            ..
-        })) = &self.read
-        else {
+        let Some(Read::Found(found)) = &self.read else {
+            return;
+        };
+        let Some(Ledger::Groups(groups)) = &found.ledger else {
             return;
         };
         let (book, lessons) = split(groups);
@@ -375,11 +374,10 @@ impl CairnView {
 
     /// The filter of the page shown, where it is drawn: on a page with entries to filter.
     fn shown_filter(&self) -> Option<&Entity<TextInput>> {
-        let Some(Read::Found(Found {
-            ledger: Some(Ledger::Groups(groups)),
-            ..
-        })) = &self.read
-        else {
+        let Some(Read::Found(found)) = &self.read else {
+            return None;
+        };
+        let Some(Ledger::Groups(groups)) = &found.ledger else {
             return None;
         };
         let (book, lessons) = split(groups);
@@ -432,15 +430,13 @@ impl CairnView {
     /// Adopt on the confirmation card: `cairn adopt` in the directory shown, in the background,
     /// and whatever comes of it, cairn read again at once.
     fn adopt(&mut self, cx: &mut Context<Self>) {
-        let Some(Read::Found(Found {
-            cwd,
-            body: Body::NotAdopted(repo),
-            ..
-        })) = &self.read
-        else {
+        let Some(Read::Found(found)) = &self.read else {
             return;
         };
-        let (cwd, repo) = (cwd.clone(), repo.clone());
+        let Body::NotAdopted(repo) = &found.body else {
+            return;
+        };
+        let (cwd, repo) = (found.cwd.clone(), repo.clone());
         if !self.adopting.confirm() {
             return;
         }
@@ -743,7 +739,11 @@ impl CairnView {
             .flex_shrink_0()
             .flex()
             .items_center()
-            .gap(ui.px(12.0))
+            // With three agents' times and the count it can outgrow the narrowest sidebar: then
+            // what does not fit goes under, rather than out of sight.
+            .flex_wrap()
+            .gap_x(ui.px(12.0))
+            .gap_y(ui.px(4.0))
             .px(ui.px(14.0))
             .pb(ui.px(11.0))
             .border_b_1()
@@ -752,6 +752,13 @@ impl CairnView {
             .child(div().flex_shrink_0().text_color(c.dim).child("Hooks"))
             .child(agent("Claude", found.claude, &found.claude_fired))
             .child(agent("Codex", found.codex, &found.codex_fired))
+            // A cairn from before canter does not say: not drawn, rather than drawn as not
+            // installed.
+            .children(
+                found
+                    .canter
+                    .map(|installed| agent("Canter", installed, &found.canter_fired)),
+            )
             .child(div().flex_1())
             .children(waiting)
     }
@@ -2015,9 +2022,17 @@ impl CairnView {
             )
             .child(div().flex().child(self.place(repo, ui)))
             .child(words(
-                "This takes effect right away. cairn summarizes the Claude and Codex sessions you \
-                 talk to in this repository in the background, the open ones included from their \
-                 next turn, and new sessions start from those summaries.",
+                &format!(
+                    "This takes effect right away. cairn summarizes the {sessions} sessions you talk \
+                     to in this repository in the background, the open ones included from their \
+                     next turn, and new sessions start from those summaries.",
+                    // Canter only where it has the hooks: no change on a Mac without it.
+                    sessions = if found.canter == Some(true) {
+                        "Claude, Codex and Canter"
+                    } else {
+                        "Claude and Codex"
+                    },
+                ),
                 c.bright,
             ))
             .child(words(
