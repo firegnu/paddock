@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>One empty slot</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+button{font:inherit;color:inherit;cursor:pointer;background:none;border:0;padding:0;text-align:left}
+</style>
+</helmet>
+<div style="width: 368px; height: 420px; position: relative; overflow: hidden; box-sizing: border-box; background: linear-gradient(180deg, #20272d 0%, #1b1f24 100%); font-family: -apple-system, 'SF Pro Text', 'Helvetica Neue', sans-serif; color: #e4eaec; font-size: 13px; padding: 16px 7px; display: flex; flex-direction: column">
+  <div style="display: flex; flex-direction: column; gap: 6px; padding: 6px 7px 8px; border-radius: 16px; background: radial-gradient(140% 70% at 0% 0%, rgba(217,138,160,0.11), rgba(217,138,160,0) 60%), rgba(0,0,0,0.34); border: 1px solid rgba(228,234,236,0.13); box-shadow: inset 0 1px 0 rgba(255,255,255,0.05)">
+    <button aria-label="Collapse My-Harness" style="display: flex; align-items: center; gap: 9px; height: 34px; padding: 0 6px">
+      <span style="width: 22px; height: 22px; border-radius: 7px; background: rgba(217,138,160,0.20); color: #e8b0c0; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; box-shadow: inset 0 0 0 1px rgba(217,138,160,0.25)">MH</span>
+      <span style="font-size: 13.5px; font-weight: 650">My-Harness</span>
+      <span style="flex: 1"></span>
+      <span style="font-size: 11px; font-weight: 600; color: #9eaab0">2 agents</span>
+      <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="#7d8a90" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 3.75 L5 6.25 L7.5 3.75"></path></svg>
+    </button>
+    <button aria-label="New Agent in cairn" style="display: flex; align-items: center; gap: 10px; height: 34px; padding: 0 10px 0 16px; border-radius: 10px">
+      <svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true" style="flex-shrink: 0"><circle cx="11" cy="11" r="10" fill="none" stroke="rgba(228,234,236,0.24)" stroke-width="1.2" stroke-dasharray="2.6 2.4"></circle><path d="M11 7.2v7.6M7.2 11h7.6" stroke="rgba(228,234,236,0.32)" stroke-width="1.5" stroke-linecap="round"></path></svg>
+      <span style="font-size: 12.5px; font-weight: 600; color: #8a969c">cairn</span>
+      <span style="font-size: 11px; color: #56626a">no agents</span>
+    </button>
+    <div style="display: flex; align-items: center; gap: 7px; padding: 2px 4px 0">
+      <span style="font-size: 11.5px; font-weight: 600; color: #9eaab0">paddock</span>
+      <span style="font-size: 10.5px; font-weight: 600; color: #7d8a90; padding: 0 5px; border-radius: 5px; background: rgba(228,234,236,0.07)">2</span>
+      <span style="flex: 1; height: 1px; background: rgba(228,234,236,0.07)"></span>
+      <span style="width: 10px; height: 3px; border-radius: 2px; background: #7fa6e0"></span><span style="width: 10px; height: 3px; border-radius: 2px; background: #93c79a"></span>
+    </div>
+    <div style="display: flex; gap: 10px; padding: 10px 12px 10px 10px; border-radius: 12px; background: #1d3532; border: 1px solid #3c8e78">
+      <span style="width: 34px; height: 34px; border-radius: 9px; background: #e07a52; flex-shrink: 0"></span>
+      <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px">
+        <div style="display: flex; align-items: center; gap: 6px"><span style="font-size: 14px; font-weight: 600">main</span><span style="font-size: 11.5px; color: #9eaab0">high</span><span style="flex: 1"></span><span style="font-size: 11.5px; color: #9eaab0">1m</span></div>
+        <div style="font-size: 11.5px; color: #9eaab0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">~/…/paddock · main</div>
+      </div>
+    </div>
+    <div style="display: flex; gap: 10px; padding: 10px 12px 10px 10px; border-radius: 12px; background: rgba(255,255,255,0.03); border: 1px solid rgba(228,234,236,0.08)">
+      <span style="width: 34px; height: 34px; border-radius: 9px; background: #e07a52; flex-shrink: 0"></span>
+      <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px">
+        <div style="display: flex; align-items: center; gap: 6px"><span style="font-size: 14px; font-weight: 600; color: #c3ccd0">dev-ws-polish-1</span><span style="font-size: 11.5px; color: #7d8a90">xhigh</span><span style="flex: 1"></span><span style="font-size: 11.5px; color: #7d8a90">2m</span></div>
+        <div style="font-size: 11.5px; color: #7d8a90; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">…/paddock-worktrees · p5-201-workspace-polish</div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":368,"height":420}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>
