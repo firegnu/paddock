@@ -1,11 +1,13 @@
 # 任务：workspace 里没开 agent 的仓库重画成虚线空位，整行能点
 
-2026-11-24，paddock/main。
+2026-11-24，paddock/main 交给 paddock/dev-vacant-slots（Claude Code，`opus[1m]` / high）。
+路由：常规 / 交叉审查不要 / 影响面：改行为（路由：常规（置信 0.97）、不要、改行为）
 类型：样式／文案调整
 提示：沿用现有视觉和用语约定，聚焦指定的呈现结果。
 依据：用户嫌有 agent 的 workspace 里 `No agents` 那块不好看，要求只改界面、不动业务逻辑。主控画了 A（虚线空位）和 B（一排胶囊），用户：“按 A 来，整行能点，写任务文件吧”。只改 `vacancies`、`vacant` 两处画法和能点的范围；哪些仓库算没开、什么时候合成一行、展开收起及其存盘都不动。
-执行：主控
-（理由：只动 `sidebar_workspaces.rs` 的两个函数，这些行不参与侧栏的量高；主控刚读过这段代码、画了样稿，派出加审查的成本高过自己做。）
+执行：派出
+（理由：主控本想自己做，用户：“派吧。”样子已定，只是照样稿实现，按「中／界面和设计」读表：Claude Code `opus[1m]` high。）
+你是被委派的 agent：照本文件做，不要再开别的 agent。
 
 ## 用户原话
 - “还有这个地方要精细调整一下。如果一个workspace中有多个repo，但是没有全部开。图中红框框住的No agents部分我觉得不好看。你看看能否重新设计一下，但是不要改动任何业务逻辑，也就是是说只是界面部分的调整”
@@ -18,6 +20,7 @@
 
 ## 在哪里干活
 - worktree：`/Users/firegnu/Developer/personal_projs/paddock-worktrees/p5-202-vacant-slots`，分支 `p5-202-vacant-slots`（已从 main 建好）。
+- 编译：`CARGO_TARGET_DIR=$HOME/Developer/personal_projs/paddock-worktrees/.target/p5-202-vacant-slots`（从 `.target/main` 克隆的）。
 - 只动 `app/src/sidebar_workspaces.rs`、`docs/DESIGN.md` 和本文件；不加依赖，不加主题颜色键。
 
 ## 要做的（颜色一律从主题取，样稿色值只是示意）
@@ -34,9 +37,15 @@
 
 ## 怎么算做完
 - 用户原话照抄：“不要改动任何业务逻辑，也就是是说只是界面部分的调整”；“按 A 来，整行能点”。
-- 验证：`git diff --check`；`app/` 下 `cargo test --all-targets`、`cargo clippy --all-targets -- -D warnings`、`cargo fmt --check`；打包装上，用户重开看。
+- 验证只做这些：`git diff --check`；`app/` 下 `cargo test --all-targets`、`cargo clippy --all-targets -- -D warnings`、`cargo fmt --check` 各跑一次。不录屏、不截图、不打包安装（主控装好后由用户重开看）。觉得不够，在回复里说，不要自己加。
 
 ## 不要做
 - 不改 `card.rs` 出行的规则、`Folds` 和它的存盘、`workspaces.json`。
 - 不按 hover／group_hover 切换 display（P5-201 返工 1 的闪退），悬停时出现的东西用 `invisible()`／`visible()` 或透明度。
-- 不按名字批量杀进程；不截全屏，不模拟鼠标键盘。
+- 不按名字批量杀进程（`pkill -f paddock` 这类）；不截屏，不模拟鼠标键盘，不起 paddock 窗口。
+- 不读、不改用户真实的 `~/.config/paddock/`、`~/.local/state/paddock/`；不碰 `corral ls` 里的任何 agent。
+- 碰到要拿主意的事（例如样稿在 GPUI 里做不出、整行能点和别的点击冲突），停下来，在回复里写清问题、可选办法和你的建议，然后结束这一轮，等主控回复再接着做；不在自己窗口里问用户，不自己换别的办法。主控的决定写进完成记录。
+- 不合并到 main，不推送。只在 `p5-202-vacant-slots` 上提交。
+
+## 做完
+在本文件末尾追加「## 完成记录」（在你的分支里提交）：做了什么、验证了什么、拿主意的地方、没做的事、踩过的坑，各几句话。踩过的坑指试了不行、换了办法的，工具或环境的行为和预想不一样的；没有就写「没有」，不要凑。回复里只写这几样，加上有没有要主控决定的事。命令都在前台跑完，全部做完后，回复最后一行写 DONE。
