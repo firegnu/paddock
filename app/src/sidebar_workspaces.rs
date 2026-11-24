@@ -95,6 +95,21 @@ pub(super) const RULE: f32 = 0.07;
 /// The line of a workspace's repositories with no agent, before the pointer is on it (P5-134;
 /// fainter since P5-201).
 const VACANCIES: f32 = 0.8;
+/// A repository with no agent beside agents (P5-202): a dashed slot with a plus, centred on the
+/// cards' avatars' column; its line's height and corners; at rest the slot as a share of the
+/// text colour, and under the pointer the line's face and edge and the slot's face as shares of
+/// the accent.
+const SLOT: f32 = 22.0;
+const SLOT_LINE: f32 = 32.0;
+const SLOT_RADIUS: f32 = 10.0;
+const SLOT_REST: f32 = 0.28;
+const SLOT_LIT_FACE: f32 = 0.07;
+const SLOT_LIT_EDGE: f32 = 0.18;
+const SLOT_LIT_FILL: f32 = 0.12;
+/// The folded composite line's two slots, the second over the first (P5-202): how high they are,
+/// and how wide together (as `SLOTS_SVG` lies).
+const SLOTS: f32 = 16.0;
+const SLOTS_WIDE: f32 = SLOTS * 34.0 / 22.0;
 /// The menus, and the panel.
 const GROUP_MENU: f32 = 232.0;
 const AGENT_MENU: f32 = 216.0;
@@ -118,6 +133,10 @@ const MAGNIFIER: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0
 const CROSS: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><path d="M2 2l6 6M8 2L2 8" fill="none" stroke="#000" stroke-width="1.8" stroke-linecap="round"/></svg>"##;
 /// A plus, small: a new agent in a workspace, or in one of its repositories.
 const PLUS: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><path d="M5 1.5v7M1.5 5h7" fill="none" stroke="#000" stroke-width="1.6" stroke-linecap="round"/></svg>"##;
+/// A repository with no agent (P5-202): a dashed circle with a plus in it.
+const SLOT_SVG: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 22 22"><circle cx="11" cy="11" r="10" fill="none" stroke="#000" stroke-width="1.2" stroke-dasharray="2.6 2.4"/><path d="M11 7.2v7.6M7.2 11h7.6" fill="none" stroke="#000" stroke-width="1.5" stroke-linecap="round"/></svg>"##;
+/// Several (P5-202): two dashed circles, the second over the first and a plus in it.
+const SLOTS_SVG: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 34 22"><mask id="under"><rect width="34" height="22" fill="#fff"/><circle cx="23" cy="11" r="11.6" fill="#000"/></mask><circle cx="11" cy="11" r="10" fill="none" stroke="#000" stroke-width="1.5" stroke-dasharray="2.6 2.4" mask="url(#under)"/><circle cx="23" cy="11" r="10" fill="none" stroke="#000" stroke-width="1.5" stroke-dasharray="2.6 2.4"/><path d="M23 7.2v7.6M19.2 11h7.6" fill="none" stroke="#000" stroke-width="1.8" stroke-linecap="round"/></svg>"##;
 /// Down into a tray: an opened workspace with no agent put back on the Idle shelf.
 const PUT_BACK: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M8 2v7M5 6.5L8 9.5 11 6.5M2.5 10v3.5h11V10" fill="none" stroke="#000" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>"##;
 /// A workspace: sheets lying on one another.
@@ -1675,10 +1694,11 @@ impl Sidebar {
             .into_any_element()
     }
 
-    /// The repositories of `workspace` with no agent, in one faint line after its groups: their
-    /// names, ` · ` between, `No agents`, a rule, and the arrow at the right end (P5-134,
-    /// P5-201). Opened out, the line says `No agents` and how many instead, and its repositories
-    /// follow a line each, their names alone (P5-164). A click opens them out, or puts them back.
+    /// The repositories of `workspace` with no agent, in one faint line after its groups (P5-134):
+    /// two dashed slots one over the other, their names with ` · ` between, `no agents` and the
+    /// arrow right after (P5-202). Opened out, the line says `No agents`, how many and the arrow,
+    /// and its repositories follow a line each, their names alone (P5-164). A click opens them
+    /// out, or puts them back.
     pub(super) fn vacancies(
         &self,
         workspace: &str,
@@ -1698,8 +1718,6 @@ impl Sidebar {
             .id(SharedString::from(format!("vacancies-{workspace}")))
             .flex()
             .items_center()
-            .gap(ui.px(7.0))
-            .px(px(4.0))
             .py(px(2.0))
             .rounded(px(6.0))
             .cursor_pointer()
@@ -1708,43 +1726,62 @@ impl Sidebar {
             .on_click(on_click)
             .text_size(ui.px(GROUP_NAME_SIZE));
         let row = if open {
-            row.child(
-                div()
-                    .flex_shrink_0()
-                    .whitespace_nowrap()
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(dimmer)
-                    .child("No agents"),
-            )
-            .child(count_chip(&self.theme, &ui, repos.len()))
+            row.gap(ui.px(6.0))
+                .px(px(6.0))
+                .child(
+                    div()
+                        .flex_shrink_0()
+                        .whitespace_nowrap()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(dimmer)
+                        .child("No agents"),
+                )
+                .child(
+                    div()
+                        .flex_shrink_0()
+                        .text_size(ui.px(GROUP_COUNT_SIZE))
+                        .text_color(dimmer.opacity(0.8))
+                        .child(repos.len().to_string()),
+                )
         } else {
-            row.child(
-                div()
-                    .flex_shrink(1.0)
-                    .min_w(px(0.0))
-                    .overflow_hidden()
-                    .whitespace_nowrap()
-                    .text_ellipsis()
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(dimmer)
-                    .child(repos.join(" · ")),
-            )
-            .child(
-                div()
-                    .flex_shrink_0()
-                    .whitespace_nowrap()
-                    .text_size(ui.px(GROUP_COUNT_SIZE))
-                    .text_color(dimmer.opacity(0.6))
-                    .child("No agents"),
-            )
+            let slots = svg()
+                .data(SLOTS_SVG)
+                .flex_shrink_0()
+                .w(ui.px(SLOTS_WIDE))
+                .h(ui.px(SLOTS))
+                .text_color(fg(|t| t.agents_text).opacity(SLOT_REST));
+            // The two slots centred on the cards' avatars' column, as one slot's line has it.
+            row.gap(ui.px(8.0))
+                .pl(px(1.0 + CARD_LEFT) + ui.px((AVATAR - SLOTS_WIDE) / 2.0))
+                .pr(px(6.0))
+                .child(slots)
+                .child(
+                    div()
+                        .flex_shrink(1.0)
+                        .min_w(px(0.0))
+                        .overflow_hidden()
+                        .whitespace_nowrap()
+                        .text_ellipsis()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(dimmer)
+                        .child(repos.join(" · ")),
+                )
+                .child(
+                    div()
+                        .flex_shrink_0()
+                        .whitespace_nowrap()
+                        .text_size(ui.px(GROUP_COUNT_SIZE))
+                        .text_color(dimmer.opacity(0.6))
+                        .child("no agents"),
+                )
         };
-        row.child(rule(&self.theme))
-            .child(mask(
-                if open { CHEVRON_DOWN } else { CHEVRON_RIGHT },
-                ui.px(CHEVRON),
-                dimmer,
-            ))
-            .into_any_element()
+        // Right after the words, as the Idle shelf's title has it (P5-202).
+        row.child(mask(
+            if open { CHEVRON_DOWN } else { CHEVRON_RIGHT },
+            ui.px(CHEVRON),
+            dimmer,
+        ))
+        .into_any_element()
     }
 
     /// Inside a workspace opened with no agent (P5-201): `Nothing running here`, and a capsule
@@ -1850,10 +1887,12 @@ impl Sidebar {
     }
 
     /// A whole repository of `workspace` with no agent now, or (`None`) a workspace with nothing
-    /// to list: a faint line, and a way to start an agent there (P5-93): for the repository a `+`
-    /// while the pointer is on the line, for the empty workspace a `New Agent` button. `grouped`,
-    /// it is one of those under the workspace's opened composite line (P5-164): its name alone,
-    /// set in under that line's arrow, without `No agents`.
+    /// to list: a faint line, and a way to start an agent there (P5-93). For the repository
+    /// (P5-202): a dashed slot with a plus on the cards' avatars' column and its name, then
+    /// `no agents`; under the pointer the line is lit in the accent, the slot too, the name
+    /// brighter, and `New Agent` at its end; a click anywhere on it starts an agent there.
+    /// `grouped`, it is one of those under the workspace's opened composite line (P5-164),
+    /// without `no agents`. For the empty workspace, `No agents` and a `New Agent` button.
     pub(super) fn vacant(
         &self,
         workspace: &str,
@@ -1863,9 +1902,9 @@ impl Sidebar {
     ) -> AnyElement {
         let ui = UiFont::get(cx);
         let fg = |pick: Pick| hsla(self.theme.fg(pick), 1.0);
+        let text = fg(|t| t.agents_text);
         let dimmer = fg(|t| t.agents_dimmer);
         let accent = fg(|t| t.agents_accent);
-        let lit = accent.opacity(0.18);
         let hover: SharedString =
             format!("vacant-{workspace}-{}", repo.as_deref().unwrap_or_default()).into();
         let path = repo.as_ref().and_then(|repo| {
@@ -1881,38 +1920,19 @@ impl Sidebar {
                 this.new_agent_in(&workspace, path.clone(), window, cx)
             })
         };
-        let button = div()
-            .id(SharedString::from(format!("{hover}-new-agent")))
-            .flex_shrink_0()
-            .flex()
-            .items_center()
-            .justify_center()
-            .h(ui.px(20.0))
-            .rounded(ui.px(5.0))
-            .cursor_pointer()
-            .hover(move |style| style.bg(lit))
-            .on_click(on_click);
-        let button = match &repo {
-            Some(repo) => {
-                let tip = Tip {
-                    text: format!("New Agent in {repo}").into(),
-                    size: ui.px(NOTE_SIZE),
-                    color: fg(|t| t.agents_text),
-                    background: hsla(self.theme.bg(|t| t.agents_bg), 1.0),
-                    border: fg(|t| t.agents_rule),
-                };
-                button
-                    .w(ui.px(20.0))
-                    .tooltip(move |_, cx| cx.new(|_| tip.clone()).into())
-                    .opacity(0.0)
-                    .group_hover(hover.clone(), |style| style.opacity(1.0))
-                    .child(footer_icon::icon(
-                        Icon::Plus,
-                        accent,
-                        ui.scale(12.0 / footer_icon::SIZE),
-                    ))
-            }
-            None => button
+        let Some(repo) = repo else {
+            let lit = accent.opacity(0.18);
+            let button = div()
+                .id(SharedString::from(format!("{hover}-new-agent")))
+                .flex_shrink_0()
+                .flex()
+                .items_center()
+                .justify_center()
+                .h(ui.px(20.0))
+                .rounded(ui.px(5.0))
+                .cursor_pointer()
+                .hover(move |style| style.bg(lit))
+                .on_click(on_click)
                 .gap(ui.px(4.0))
                 .px(ui.px(6.0))
                 .text_color(accent)
@@ -1921,38 +1941,98 @@ impl Sidebar {
                     accent,
                     ui.scale(12.0 / footer_icon::SIZE),
                 ))
-                .child("New Agent"),
-        };
-        div()
-            .group(hover)
-            .flex()
-            .items_center()
-            .gap(ui.px(6.0))
-            .when(grouped, |line| {
-                // In under the opened line's arrow: its left padding, the arrow, and the gap, as
-                // the line sizes them.
-                line.pl(px(4.0) + ui.px(CHEVRON + 6.0)).pr(px(4.0))
-            })
-            .when(!grouped, |line| line.px(px(4.0)))
-            .py(px(2.0))
-            .text_size(ui.px(GROUP_NAME_SIZE))
-            .children(repo.map(|repo| {
-                div()
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(dimmer)
-                    .child(repo)
-            }))
-            .when(!grouped, |line| {
-                line.child(
+                .child("New Agent");
+            return div()
+                .group(hover)
+                .flex()
+                .items_center()
+                .gap(ui.px(6.0))
+                .px(px(4.0))
+                .py(px(2.0))
+                .text_size(ui.px(GROUP_NAME_SIZE))
+                .child(
                     div()
                         .text_size(ui.px(GROUP_COUNT_SIZE))
                         .text_color(dimmer.opacity(0.6))
                         .child("No agents"),
                 )
+                .child(div().flex_1())
+                // No taller than the line's words: the button lies over it, not in it.
+                .child(div().h(px(0.0)).flex().items_center().child(button))
+                .into_any_element();
+        };
+        let slot = div()
+            .flex_shrink_0()
+            .size(ui.px(SLOT))
+            .rounded_full()
+            .group_hover(hover.clone(), move |style| {
+                style.bg(accent.opacity(SLOT_LIT_FILL))
+            })
+            .child(
+                svg()
+                    .data(SLOT_SVG)
+                    .size(ui.px(SLOT))
+                    .text_color(text.opacity(SLOT_REST))
+                    .group_hover(hover.clone(), move |style| style.text_color(accent)),
+            );
+        div()
+            .id(hover.clone())
+            .group(hover.clone())
+            .flex()
+            .items_center()
+            .gap(ui.px(10.0))
+            .h(ui.px(SLOT_LINE))
+            // The slot centred on the cards' avatars' column: the line's edge stands where a
+            // card's does.
+            .pl(px(CARD_LEFT) + ui.px((AVATAR - SLOT) / 2.0))
+            .pr(ui.px(10.0))
+            .rounded(ui.px(SLOT_RADIUS))
+            .border_1()
+            .border_color(gpui::transparent_black())
+            .cursor_pointer()
+            .hover(move |style| {
+                style
+                    .bg(accent.opacity(SLOT_LIT_FACE))
+                    .border_color(accent.opacity(SLOT_LIT_EDGE))
+            })
+            .on_click(on_click)
+            .text_size(ui.px(GROUP_NAME_SIZE))
+            .child(slot)
+            .child(
+                div()
+                    .flex_shrink(1.0)
+                    .min_w(px(0.0))
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .text_ellipsis()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(dimmer)
+                    .group_hover(hover.clone(), move |style| style.text_color(text))
+                    .child(repo),
+            )
+            .when(!grouped, |line| {
+                line.child(
+                    div()
+                        .flex_shrink_0()
+                        .whitespace_nowrap()
+                        .text_size(ui.px(GROUP_COUNT_SIZE))
+                        .text_color(dimmer.opacity(0.6))
+                        .child("no agents"),
+                )
             })
             .child(div().flex_1())
-            // No taller than the line's words: the button lies over it, not in it.
-            .child(div().h(px(0.0)).flex().items_center().child(button))
+            // Shown by its opacity, not its display (P5-201 rework 1).
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .whitespace_nowrap()
+                    .text_size(ui.px(GROUP_COUNT_SIZE))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(accent)
+                    .opacity(0.0)
+                    .group_hover(hover, |style| style.opacity(1.0))
+                    .child("New Agent"),
+            )
             .into_any_element()
     }
 
@@ -3006,7 +3086,7 @@ fn sunk(shares: [f32; 2], base: Hsla, light: bool) -> Hsla {
     over(gpui::black().opacity(shares[usize::from(light)]), base)
 }
 
-/// How many, as a small chip after a repository's heading or a workspace's `No agents` (P5-201).
+/// How many, as a small chip after a repository's heading (P5-201).
 pub(super) fn count_chip(theme: &Theme, ui: &UiFont, count: usize) -> Div {
     let text = hsla(theme.fg(|t| t.agents_text), 1.0);
     div()
