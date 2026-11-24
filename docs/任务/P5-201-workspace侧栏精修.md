@@ -158,3 +158,24 @@
 - 重跑 `app/` 下 `cargo test --all-targets`：1123 个全过，和 agent 说的一致。
 - 取舍：刚开时等 Git 读全再起算、第一次不记——同意（否则按前缀暂分组会误记）；淡光用斜向线性渐变、亮线用内阴影——同意；过滤框外层接 ⌘↵ 不改 `menu.rs`——同意；“行有焦点时直接打字”没做、`STARRED`／`RECENT` 没拉字距（GPUI 不支持）——同意，任务里本来写了做不到就只做按钮。
 - 已从分支提交 `620e98b` 打包装到 `~/Applications/paddock.app`，等用户重开看。
+
+## 返工 1
+
+主控转来：用户装上后，鼠标一移到 Idle 行 paddock 就闪退（主线程 paint 里 panic，GPUI 的 "must call prepaint before paint"）。原因是 `idle_row` 按 group_hover 切换 display：时间 `.group_hover(.., |s| s.hidden())`、按钮 `.hidden().group_hover(.., |s| s.flex())`。GPUI 的 Div 在 prepaint 时遇到 display:none 跳过子元素，paint 时又按 hover 重新判断，两次判断不一致时没 prepaint 的子元素被 paint。
+
+### 做了什么
+- `idle_row`：时间（或选中时的 `↵`）和 `+`／`⋯` 改成按 hover 切换 visibility：时间 `group_hover(.., |s| s.invisible())`，按钮 `.invisible().group_hover(.., |s| s.visible())`，同 `changes.rs`、`new_agent_view.rs` 的做法。菜单开着时照旧不看 hover：时间 `invisible()`，按钮一直显示。GPUI 对 visibility:hidden 照常 prepaint，只是 paint 时不画、也不接鼠标。
+- 两者占行尾同一个位置：外层 `corner` 是 relative、至少按钮那么宽（`IDLE_BUTTONS` = 22 + 2 + 22）、靠右排；时间正常排版，按钮 absolute 叠在右边、上下撑满居中。悬停时名字和仓库名不挪。
+- `sidebar.rs` 量仓库名可用宽度时，扣的是这个位置的宽度（按钮宽和时间宽取大的）加间距，不再只扣时间。
+- 查了这个分支里所有按 hover／group_hover 改样式的地方，只有上面这两处改 display；别的都是改底色、边色、字色、透明度或显隐。
+- `docs/DESIGN.md` 的 P5-201 一条补了一句：时间和按钮占同一个位置，悬停切换的是显隐。顺手改了 `IDLE_BUTTON` 的注释（它现在只给放大镜和 `Put back` 用）。
+
+### 验证了什么
+- `app/` 下 `cargo test --lib sidebar`（51 个过）、`cargo test --test workspaces --test repo_groups`（26、6 个过）；`cargo clippy --all-targets -- -D warnings` 无告警；`cargo fmt --check` 通过；`git diff --check` 无输出。
+- 没有能复现这次闪退的自动测试：现有测试不画侧栏，也不模拟鼠标悬停。闪退修没修好要用户装上后把鼠标移到 Idle 行上确认。
+
+### 拿主意的地方
+- 行尾位置至少按钮那么宽，平时时间靠右放在里面：仓库名平时少一点地方（约 46pt 减时间宽），换来悬停时不挪字、按钮不压住仓库名。
+
+### 踩过的坑
+- 没有。

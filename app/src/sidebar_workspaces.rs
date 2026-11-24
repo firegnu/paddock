@@ -81,8 +81,12 @@ const IDLE_LABEL: f32 = 9.5;
 pub(super) const IDLE_LEFT: f32 = 6.0;
 pub(super) const IDLE_RIGHT: f32 = 8.0;
 pub(super) const IDLE_GAP: f32 = 9.0;
-/// A line's buttons while the pointer is on it, and the Idle title's magnifier.
+/// The Idle title's magnifier, and `Put back` on an opened workspace's title.
 const IDLE_BUTTON: f32 = 24.0;
+/// A line's `+` and `⋯`, 22 each, and the room between them: the place they share with the time
+/// at its right end.
+const IDLE_BUTTONS_GAP: f32 = 2.0;
+pub(super) const IDLE_BUTTONS: f32 = 2.0 * 22.0 + IDLE_BUTTONS_GAP;
 /// A starred workspace's capsule on the folded shelf (P5-201).
 const CAPSULE: f32 = 28.0;
 /// The repository heading's count, as a chip (P5-201), and the rule after it.
@@ -1296,11 +1300,13 @@ impl Sidebar {
                     .child(age)
             })
         };
+        // Hidden, not taken out, under the pointer: GPUI lays out and paints by the pointer at two
+        // moments, and a child left out of one of them must not be painted (P5-201 返工 1).
         let resting = div().flex_shrink_0().children(resting).map(|resting| {
             if menu_open {
-                resting.hidden()
+                resting.invisible()
             } else {
-                resting.group_hover(hover.clone(), |style| style.hidden())
+                resting.group_hover(hover.clone(), |style| style.invisible())
             }
         });
         let plus = {
@@ -1328,19 +1334,34 @@ impl Sidebar {
                 .on_click(new_agent)
                 .child(mask(PLUS, ui.px(10.0), accent))
         };
-        // Under the pointer, or while its menu is open, in place of the time.
+        // Under the pointer, or while its menu is open, over the time's place at the right end.
         let buttons = div()
-            .flex_shrink_0()
+            .absolute()
+            .top_0()
+            .bottom_0()
+            .right_0()
             .flex()
             .items_center()
-            .gap(ui.px(2.0))
+            .gap(ui.px(IDLE_BUTTONS_GAP))
             .child(plus)
             .child(self.options_button(name, &hover, menu_open, &ui, true, cx))
             .when(!menu_open, |buttons| {
                 buttons
-                    .hidden()
-                    .group_hover(hover.clone(), |style| style.flex())
+                    .invisible()
+                    .group_hover(hover.clone(), |style| style.visible())
             });
+        // The time and the buttons share one place, as wide as the buttons at least, so nothing
+        // moves when they change over.
+        let corner = div()
+            .relative()
+            .flex_shrink_0()
+            .min_w(ui.px(IDLE_BUTTONS))
+            .h_full()
+            .flex()
+            .items_center()
+            .justify_end()
+            .child(resting)
+            .child(buttons);
         let raise = {
             let name = name.to_owned();
             cx.listener(move |this, _: &ClickEvent, window, cx| {
@@ -1373,8 +1394,7 @@ impl Sidebar {
             .on_click(raise)
             .child(self.sign(name, Sign::Row, &ui))
             .child(words)
-            .child(resting)
-            .child(buttons)
+            .child(corner)
             .when(menu_open, |row| {
                 row.child(Self::hung(self.workspace_menu(name, &ui, cx), false))
             })

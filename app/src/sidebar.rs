@@ -2641,23 +2641,22 @@ impl Sidebar {
                 (text, whole, note.problem, opacity)
             });
             // Each idle workspace's repositories, cut to the room its line leaves them beside its
-            // tile and how long since it was in use (P5-201).
+            // tile and the place at its right end the time shares with its buttons (P5-201).
             let mut holds = HashMap::new();
             for line in &lines {
                 let Line::IdleWorkspace(idler) = line else {
                     continue;
                 };
                 let age = (idler.used).map(|used| card::short_time(Some(now - used as f64)));
-                let age = age.map_or(0.0, |age| {
-                    ui.scale(workspaces_view::IDLE_GAP) + normal(&age, workspaces_view::IDLE_NOTE)
-                });
+                let age = age.map_or(0.0, |age| normal(&age, workspaces_view::IDLE_NOTE));
+                let corner = ui.scale(workspaces_view::IDLE_BUTTONS).max(age);
                 let room = self.width
                     - 2.0 * PAD
                     - 2.0 * (workspaces_view::TRAY_X + 1.0)
                     - workspaces_view::IDLE_LEFT
                     - workspaces_view::IDLE_RIGHT
-                    - ui.scale(workspaces_view::SIGN + workspaces_view::IDLE_GAP)
-                    - age;
+                    - ui.scale(workspaces_view::SIGN + 2.0 * workspaces_view::IDLE_GAP)
+                    - corner;
                 let fits = |text: &str| normal(text, workspaces_view::IDLE_NOTE) <= room;
                 holds.insert(idler.name.clone(), card::holds(&idler.repos, &fits));
             }
