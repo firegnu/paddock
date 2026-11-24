@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Palette finds workspaces</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+button{font:inherit;color:inherit;cursor:pointer;background:none;border:0;padding:0;text-align:left}
+input{font:inherit;color:inherit;background:none;border:0;outline:none;padding:0}
+</style>
+</helmet>
+<div style="width: 600px; height: 420px; box-sizing: border-box; padding: 24px; background: #15191d; font-family: -apple-system, 'SF Pro Text', 'Helvetica Neue', sans-serif; color: #e4eaec; font-size: 13px">
+  <div style="border-radius: 12px; background: #232a30; border: 1px solid rgba(228,234,236,0.14); overflow: hidden">
+    <div style="display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 14px; border-bottom: 1px solid rgba(228,234,236,0.08)">
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#9eaab0" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="7" cy="7" r="4.5"></circle><path d="M10.5 10.5 L14 14"></path></svg>
+      <label for="palette-q" style="position: absolute; left: -9999px">Search</label>
+      <input id="palette-q" value="harn" style="flex: 1; font-size: 14px">
+    </div>
+    <div style="padding: 6px 6px 8px">
+      <div style="display: flex; gap: 8px; padding: 6px 8px 4px; font-size: 11px; font-weight: 600; color: #7d8a90"><span>Workspaces</span><span style="color: #5f6b71">1</span></div>
+      <div style="display: flex; align-items: center; gap: 10px; height: 34px; padding: 0 8px; border-radius: 7px; background: rgba(114,214,192,0.14)">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#72d6c0" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true"><path d="M8 2 L14 5 L8 8 L2 5 Z"></path><path d="M2 8 L8 11 L14 8"></path><path d="M2 11 L8 14 L14 11"></path></svg>
+        <span style="font-weight: 600">My-<span style="color: #72d6c0">Harn</span>ess</span>
+        <svg width="10" height="10" viewBox="0 0 16 16" aria-label="Starred" role="img"><path d="M8 1.5l1.9 4.1 4.5.5-3.3 3.1.9 4.4L8 11.4l-3.9 2.2.9-4.4L1.6 6.1l4.5-.5z" fill="#8a969c"></path></svg>
+        <span style="flex: 1; font-size: 12px; color: #7d8a90">cairn, paddock, ranch · Idle</span>
+        <span style="font-size: 11px; color: #9eaab0">Open</span>
+      </div>
+      <div style="display: flex; gap: 8px; padding: 10px 8px 4px; font-size: 11px; font-weight: 600; color: #7d8a90"><span>Commands</span></div>
+      <div style="display: flex; align-items: center; gap: 10px; height: 30px; padding: 0 8px; border-radius: 7px">
+        <span style="width: 14px"></span>
+        <span style="color: #c3ccd0">New Agent in My-Harness…</span>
+        <span style="flex: 1"></span>
+      </div>
+      <div style="display: flex; gap: 14px; padding: 12px 8px 0; font-size: 11px; color: #6b777d; border-top: 1px solid rgba(228,234,236,0.06); margin-top: 8px">
+        <span>↵ open (idle ones come up from the Idle shelf)</span><span>⌘↵ new agent in it</span>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":600,"height":420}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>
