@@ -150,3 +150,11 @@
 - macOS 的 sed 不认 `\b`，第一次批量改名没改全；换成 `[[:<:]]`／`[[:>:]]`。
 - 签色的类型起名 `Tile` 和 `sidebar.rs` 里已有的 `Tile`、`TILE` 撞名，改叫 `Monogram`（主题）和 `Sign`（侧栏）。
 - clippy 的 `single_range_in_vec_init` 不让 `[6..10]` 这种单个区间的数组当期望，测试里改成比较 `(start, end)`。
+
+## 主控审查
+
+2026-11-24，paddock/main。
+- 看了 diff：只动了任务列的 `workspaces.rs`、`agents.rs`、`card.rs`、`sidebar_workspaces.rs`、`sidebar.rs`、`search.rs`、`theme.rs`，加上 `window.rs`（命令面板分派和画 ★，属于 ⌘P 那一节）和测试、DESIGN；没加依赖、没加主题键（签色是 `theme.rs` 里的常量，从终端色取），`workspaces.json` 只多 `starred`、`used`，成员和归属规则没动。“不要做”里的都没做。
+- 重跑 `app/` 下 `cargo test --all-targets`：1123 个全过，和 agent 说的一致。
+- 取舍：刚开时等 Git 读全再起算、第一次不记——同意（否则按前缀暂分组会误记）；淡光用斜向线性渐变、亮线用内阴影——同意；过滤框外层接 ⌘↵ 不改 `menu.rs`——同意；“行有焦点时直接打字”没做、`STARRED`／`RECENT` 没拉字距（GPUI 不支持）——同意，任务里本来写了做不到就只做按钮。
+- 已从分支提交 `620e98b` 打包装到 `~/Applications/paddock.app`，等用户重开看。
