@@ -135,7 +135,7 @@ fn search_matches_the_repository_group_and_the_original_full_name() {
     repository(&mut panel, "/trees/generation", "/repos/jb-finetune");
     let rows = search::agents(&panel, 100.0, None);
     for query in ["jb-finetune", "jbfinetune", "jbfinetune/dev"] {
-        let found = search::everything(&rows, &[], &[], &[], query);
+        let found = search::everything(&rows, &[], &[], &[], &[], query);
         assert_eq!(found.len(), 1, "{query}");
         assert_eq!(
             found[0].rows[0].target,
@@ -153,7 +153,7 @@ fn search_detail_omits_the_group_when_the_name_prefix_already_says_it() {
     assert_eq!(rows[0].title, "paddock/main");
     assert_eq!(rows[0].detail, "Working · ~/…/paddock");
     for query in ["paddock", "paddock/main"] {
-        let found = search::everything(&rows, &[], &[], &[], query);
+        let found = search::everything(&rows, &[], &[], &[], &[], query);
         assert_eq!(found.len(), 1, "{query}");
         assert_eq!(
             found[0].rows[0].target,

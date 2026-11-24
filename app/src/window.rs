@@ -6737,8 +6737,10 @@ impl PaddockWindow {
                 let agents = self.sidebar.read(cx).agents();
                 let now = now();
                 let home = self.home();
+                let panel = self.sidebar.read(cx).panel();
                 let groups = search::everything(
-                    &search::agents(self.sidebar.read(cx).panel(), now, home.as_deref()),
+                    &search::agents(panel, now, home.as_deref()),
+                    &search::workspaces(panel),
                     &self.tab_rows(&agents, now, cx),
                     &search::settings(),
                     &palette.commands,
@@ -6801,6 +6803,10 @@ impl PaddockWindow {
                 let metadata = self.sidebar.read(cx).metadata(&name);
                 self.show_agent(&name, metadata, window, cx);
             }
+            // Up from the Idle shelf, or opened where it is, and in view (P5-201).
+            Target::Workspace(name) => self
+                .sidebar
+                .update(cx, |sidebar, cx| sidebar.reveal_workspace(&name, cx)),
             Target::Tab(index) => self.select_tab(index, window, cx),
             // After this update: opening Settings reads this window.
             Target::Settings(page) => cx.defer(move |cx| windows::open_settings_at(page, cx)),
@@ -7096,7 +7102,16 @@ impl PaddockWindow {
             let hovered = ground.blend(highlight.opacity(0.5));
             (SharedString::from(PALETTE_ROW), hovered)
         });
+        // A starred workspace's name is followed by a small star (P5-201).
+        let starred = matches!(row.lead, Lead::Workspace { starred: true });
         let lead = match row.lead {
+            Lead::Workspace { .. } => Some(
+                gpui::svg()
+                    .data(crate::sidebar::LAYERS)
+                    .size(ui.px(14.0))
+                    .text_color(self.fg(|t| t.agents_accent))
+                    .into_any_element(),
+            ),
             Lead::Dot {
                 color,
                 breathing,
@@ -7156,6 +7171,15 @@ impl PaddockWindow {
                         .text_color(self.fg(|t| t.agents_text))
                         .child(row.title),
                 )
+                .when(starred, |body| {
+                    body.child(
+                        gpui::svg()
+                            .data(crate::sidebar::STAR)
+                            .flex_shrink_0()
+                            .size(ui.px(10.0))
+                            .text_color(self.fg(|t| t.agents_dim)),
+                    )
+                })
                 .child(
                     div()
                         .min_w(px(0.0))

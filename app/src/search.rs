@@ -57,6 +57,8 @@ pub fn mode(query: &str) -> (Mode, &str) {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Target {
     Agent(String),
+    /// A workspace, by name (P5-201): brought up from the Idle shelf, or opened where it is.
+    Workspace(String),
     /// The tab at this index.
     Tab(usize),
     Settings(Page),
@@ -81,6 +83,10 @@ pub enum Lead {
     },
     /// A Settings page, by its own icon.
     Settings(Page),
+    /// A workspace, by the sheets; `starred`, a small star after its name (P5-201).
+    Workspace {
+        starred: bool,
+    },
     Command,
     /// Nothing: a line of terminal text.
     Nothing,
@@ -150,6 +156,45 @@ pub fn agents(panel: &Panel, now: f64, home: Option<&str>) -> Vec<Row> {
                 keys: Vec::new(),
                 hit: None,
                 also: panel.workspace(agent).unwrap_or_default().to_owned(),
+            }
+        })
+        .collect()
+}
+
+/// The workspaces by name (P5-201): each its name, and after it its repositories' names, by name,
+/// and whether it is idle or how many agents it has, ` · ` between. Searched by its name and its
+/// repositories' names alone.
+pub fn workspaces(panel: &Panel) -> Vec<Row> {
+    (panel.workspaces.list().iter())
+        .map(|workspace| {
+            let name = workspace.name.as_str();
+            let mut repos: Vec<String> = (workspace.repos.iter())
+                .map(|repo| crate::kanban_repos::name(repo))
+                .collect();
+            repos.sort();
+            repos.dedup();
+            let agents = (panel.agents.iter())
+                .filter(|agent| panel.workspace(agent) == Some(name))
+                .count();
+            let state = match agents {
+                0 => "Idle".to_owned(),
+                count => crate::workspaces::agents(count),
+            };
+            let detail = if repos.is_empty() {
+                format!("Empty · {state}")
+            } else {
+                format!("{} · {state}", repos.join(" · "))
+            };
+            Row {
+                target: Target::Workspace(name.to_owned()),
+                lead: Lead::Workspace {
+                    starred: workspace.starred,
+                },
+                title: name.to_owned(),
+                detail,
+                keys: Vec::new(),
+                hit: None,
+                also: repos.join(" "),
             }
         })
         .collect()
@@ -255,7 +300,15 @@ pub fn line(pane: PaneId, index: usize, line: &str, hit: Range<usize>) -> Row {
 /// Every word of `needle` in the row's title or detail, or in what it is searched by besides,
 /// ignoring case.
 fn matches(row: &Row, needle: &str) -> bool {
-    let text = format!("{} {} {}", row.title, row.detail, row.also).to_lowercase();
+    words_in(
+        &format!("{} {} {}", row.title, row.detail, row.also),
+        needle,
+    )
+}
+
+/// Every word of `needle` in `text`, ignoring case.
+fn words_in(text: &str, needle: &str) -> bool {
+    let text = text.to_lowercase();
     needle
         .split_whitespace()
         .all(|word| text.contains(&word.to_lowercase()))
@@ -264,6 +317,15 @@ fn matches(row: &Row, needle: &str) -> bool {
 fn filter(rows: &[Row], needle: &str) -> Vec<Row> {
     rows.iter()
         .filter(|row| matches(row, needle))
+        .cloned()
+        .collect()
+}
+
+/// The workspaces with every word of `needle` in their name or their repositories' names, not in
+/// what their rows say besides (P5-201).
+fn filter_workspaces(rows: &[Row], needle: &str) -> Vec<Row> {
+    rows.iter()
+        .filter(|row| words_in(&format!("{} {}", row.title, row.also), needle))
         .cloned()
         .collect()
 }
@@ -281,16 +343,23 @@ fn groups(groups: impl IntoIterator<Item = (&'static str, String, Vec<Row>)>) ->
         .collect()
 }
 
-/// Typed plainly: agents, tabs, Settings pages and commands with every word of `needle` in their
-/// title or detail; before anything is typed, only a few common commands.
+/// Typed plainly: agents, workspaces, tabs, Settings pages and commands with every word of
+/// `needle` in their title or detail (a workspace in its name or its repositories' names); before
+/// anything is typed, no workspaces (P5-201) and only a few common commands.
 pub fn everything(
     agents: &[Row],
+    workspaces: &[Row],
     tabs: &[Row],
     settings: &[Row],
     commands: &[Row],
     needle: &str,
 ) -> Vec<Group> {
     let agents = filter(agents, needle);
+    let workspaces = if needle.trim().is_empty() {
+        Vec::new()
+    } else {
+        filter_workspaces(workspaces, needle)
+    };
     let (commands, hint) = if needle.is_empty() {
         let common = COMMON.iter().filter_map(|name| {
             commands
@@ -303,6 +372,7 @@ pub fn everything(
     };
     groups([
         ("Agents", agents.len().to_string(), agents),
+        ("Workspaces", workspaces.len().to_string(), workspaces),
         ("Tabs", String::new(), filter(tabs, needle)),
         ("Settings", String::new(), filter(settings, needle)),
         ("Commands", hint.to_owned(), commands),
@@ -451,7 +521,7 @@ mod tests {
             0.0,
             None,
         );
-        let find = |needle| titles(&everything(&agents, &[], &[], &[], needle), "Agents");
+        let find = |needle| titles(&everything(&agents, &[], &[], &[], &[], needle), "Agents");
         assert_eq!(find("SHOP"), ["web/main"]);
         assert_eq!(find(mode(" api ").1), ["api/main", "api/review"]);
         assert_eq!(find("review"), ["api/review"]);
@@ -464,7 +534,7 @@ mod tests {
             agents[2].detail
         );
         assert!(matches!(agents[0].lead, Lead::Dot { .. }));
-        let groups = everything(&agents, &[], &[], &[], "");
+        let groups = everything(&agents, &[], &[], &[], &[], "");
         assert_eq!(groups[0].label, "Agents");
         assert_eq!(groups[0].note, "3");
     }
@@ -520,7 +590,7 @@ mod tests {
         let tabs = rows(&["zsh · colors", "main"]);
         let settings = settings();
         let commands = commands(&menu::commands());
-        let found = everything(&agents, &tabs, &settings, &commands, "colors");
+        let found = everything(&agents, &[], &tabs, &settings, &commands, "colors");
         assert_eq!(labels(&found), ["Agents", "Tabs", "Settings"]);
         assert_eq!(titles(&found, "Settings"), ["Appearance"]);
         assert_eq!(found[2].rows[0].target, Target::Settings(Page::Appearance));
@@ -531,18 +601,24 @@ mod tests {
         ));
         // Settings pages match on what they hold, and all of them on "settings".
         assert_eq!(
-            titles(&everything(&[], &[], &settings, &[], "font"), "Settings"),
+            titles(
+                &everything(&[], &[], &[], &settings, &[], "font"),
+                "Settings"
+            ),
             ["General"]
         );
         assert_eq!(
-            titles(&everything(&[], &[], &settings, &[], "refresh"), "Settings"),
+            titles(
+                &everything(&[], &[], &[], &settings, &[], "refresh"),
+                "Settings"
+            ),
             ["Agents"]
         );
-        let all = everything(&[], &[], &settings, &commands, "settings");
+        let all = everything(&[], &[], &[], &settings, &commands, "settings");
         assert_eq!(titles(&all, "Settings").len(), 9);
         assert_eq!(titles(&all, "Commands"), ["Settings…"]);
         // Nothing typed: everything, but only a few common commands, saying how to see all.
-        let start = everything(&agents, &tabs, &settings, &commands, "");
+        let start = everything(&agents, &[], &tabs, &settings, &commands, "");
         assert_eq!(labels(&start), ["Agents", "Tabs", "Settings", "Commands"]);
         assert_eq!(
             titles(&start, "Commands"),
@@ -551,7 +627,7 @@ mod tests {
         assert_eq!(start[3].note, "type > for all");
         assert_eq!(start[1].note, "");
         // Typed: every command that matches, without the hint.
-        let split = everything(&agents, &tabs, &settings, &commands, "split");
+        let split = everything(&agents, &[], &tabs, &settings, &commands, "split");
         assert_eq!(labels(&split), ["Commands"]);
         assert_eq!(split[0].rows.len(), 4);
         assert_eq!(split[0].note, "");
@@ -664,5 +740,84 @@ mod tests {
         assert_eq!(child(&groups, 0), 0);
         assert_eq!(child(&groups, 1), 2);
         assert_eq!(child(&groups, 2), 3);
+    }
+
+    /// Git has told that `cwd` is the repository `cwd`.
+    fn repository(panel: &mut Panel, cwd: &str) {
+        panel.absorb_git(vec![(
+            cwd.into(),
+            Some(crate::git::Summary {
+                main_repository: Some(cwd.into()),
+                head: crate::git::Head::Branch("main".into()),
+                ahead: None,
+                changes: None,
+                untracked: None,
+            }),
+        )]);
+    }
+
+    /// The command palette finds workspaces by their name or their repositories' names once
+    /// something is typed, after the agents, each saying its repositories and how many agents it
+    /// has, or `Idle` (P5-201).
+    #[test]
+    fn workspaces_are_found_by_name_or_repository_once_something_is_typed() {
+        let mut panel = panel(vec![
+            agent("paddock/main", "/w/paddock"),
+            agent("paddock/dev", "/w/paddock"),
+        ]);
+        repository(&mut panel, "/w/paddock");
+        let all = &mut panel.workspaces;
+        for (name, repos) in [
+            ("Tools", &["/w/paddock", "/w/cairn"][..]),
+            ("Docs", &["/w/notes"][..]),
+            ("Spare", &[][..]),
+        ] {
+            let name = all.create(name).unwrap();
+            for repo in repos {
+                all.add_repo(&name, std::path::Path::new(repo));
+            }
+        }
+        all.star("Tools", true);
+        let workspaces = workspaces(&panel);
+        let agents = rows(&["paddock/main"]);
+        let find = |needle: &str| everything(&agents, &workspaces, &[], &[], &[], needle);
+        // Nothing typed, or only spaces: no workspaces.
+        assert!(!labels(&find("")).contains(&"Workspaces"));
+        assert!(!labels(&find("  ")).contains(&"Workspaces"));
+        // After the agents.
+        assert_eq!(labels(&find("paddock"))[..2], ["Agents", "Workspaces"]);
+        // By name, by a repository's, every word, whatever the case.
+        assert_eq!(titles(&find("tool"), "Workspaces"), ["Tools"]);
+        assert_eq!(titles(&find("NOTES"), "Workspaces"), ["Docs"]);
+        assert_eq!(titles(&find("cairn Paddock"), "Workspaces"), ["Tools"]);
+        assert_eq!(
+            titles(&find("cairn notes"), "Workspaces"),
+            Vec::<String>::new()
+        );
+        // Not by what the row says besides.
+        assert_eq!(titles(&find("idle"), "Workspaces"), Vec::<String>::new());
+        // The row: its repositories, then how many agents, or `Idle`; starred or not.
+        let row = |needle: &str| {
+            let groups = find(needle);
+            let group = groups
+                .into_iter()
+                .find(|g| g.label == "Workspaces")
+                .unwrap();
+            group.rows.into_iter().next().unwrap()
+        };
+        let tools = row("tools");
+        assert_eq!(tools.detail, "cairn · paddock · 2 agents");
+        assert!(matches!(tools.lead, Lead::Workspace { starred: true }));
+        assert_eq!(tools.target, Target::Workspace("Tools".into()));
+        let docs = row("docs");
+        assert_eq!(docs.detail, "notes · Idle");
+        assert!(matches!(docs.lead, Lead::Workspace { starred: false }));
+        assert_eq!(row("spare").detail, "Empty · Idle");
+        // How many it found beside its label.
+        let found = find("paddock");
+        assert_eq!(
+            found.iter().find(|g| g.label == "Workspaces").unwrap().note,
+            "1"
+        );
     }
 }
