@@ -758,6 +758,85 @@ pub struct Tray {
     /// Up and open with no agent, as it was opened from the list's foot or just made: a click on
     /// its title sends it back there rather than folding it (P5-134).
     pub opened: bool,
+    /// Starred: a small star after its name (P5-201).
+    pub starred: bool,
+}
+
+/// A workspace with no agent on the Idle shelf (P5-134, P5-164, P5-201): its name, the names of
+/// the repositories it holds, by name, whether it is starred, and when it was last in use, Unix
+/// seconds.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Idler {
+    pub name: String,
+    pub repos: Vec<String>,
+    pub starred: bool,
+    pub used: Option<u64>,
+}
+
+/// The workspaces with no agent but those opened (P5-134), as the Idle shelf lists them
+/// (P5-201): the starred first, by name; then the rest, the one in use last first, and those
+/// never in use last of all, by name.
+pub fn idle(panel: &Panel) -> Vec<Idler> {
+    let mut idle: Vec<Idler> = (panel.workspaces.list().iter())
+        .filter(|workspace| {
+            let name = workspace.name.as_str();
+            !panel.opened(name)
+                && !panel
+                    .agents
+                    .iter()
+                    .any(|a| panel.workspace(a) == Some(name))
+        })
+        .map(|workspace| {
+            let mut repos: Vec<String> = (workspace.repos.iter())
+                .map(|repo| kanban_repos::name(repo))
+                .collect();
+            repos.sort();
+            repos.dedup();
+            Idler {
+                name: workspace.name.clone(),
+                repos,
+                starred: workspace.starred,
+                used: workspace.used,
+            }
+        })
+        .collect();
+    let by_name = |a: &Idler, b: &Idler| a.name.to_lowercase().cmp(&b.name.to_lowercase());
+    idle.sort_by(|a, b| {
+        use std::cmp::Ordering::{Greater, Less};
+        match (a.starred, b.starred, a.used, b.used) {
+            (true, false, ..) => Less,
+            (false, true, ..) => Greater,
+            (false, false, Some(_), None) => Less,
+            (false, false, None, Some(_)) => Greater,
+            (false, false, Some(at), Some(bt)) => bt.cmp(&at).then_with(|| by_name(a, b)),
+            _ => by_name(a, b),
+        }
+    });
+    idle
+}
+
+/// A workspace's repositories as its line on the Idle shelf says them (P5-201): ` · ` between
+/// them, as many as `fits` takes, then ` · +N` for the rest; `Empty` for none. When not even
+/// the first and the rest fit, that, for the drawing to cut.
+pub fn holds(repos: &[String], fits: &dyn Fn(&str) -> bool) -> String {
+    let Some(first) = repos.first() else {
+        return "Empty".to_owned();
+    };
+    let all = repos.join(" · ");
+    if fits(&all) {
+        return all;
+    }
+    (1..repos.len())
+        .rev()
+        .map(|shown| {
+            let rest = repos.len() - shown;
+            format!("{} · +{rest}", repos[..shown].join(" · "))
+        })
+        .find(|line| fits(line))
+        .unwrap_or_else(|| match repos.len() {
+            1 => first.clone(),
+            count => format!("{first} · +{}", count - 1),
+        })
 }
 
 /// The most cards a folded workspace's title or a folded group's heading stacks, as a split tab's
@@ -805,17 +884,14 @@ pub enum Line {
     Empty(String),
     Agent(Box<Card>),
     /// The heading of the group at the list's foot of the workspaces with no agent (P5-134), how
-    /// many; their lines follow unless it is folded.
+    /// many; their lines follow, in [`idle`]'s order, or, folded, the starred ones alone, to be
+    /// drawn as capsules (P5-201).
     Idle {
         count: usize,
         folded: bool,
     },
-    /// A workspace with no agent in that group: its name and the names of the repositories it
-    /// holds, by name.
-    IdleWorkspace {
-        name: String,
-        repos: Vec<String>,
-    },
+    /// A workspace with no agent in that group.
+    IdleWorkspace(Idler),
 }
 
 /// Where a status goes in a group's bar.
@@ -938,7 +1014,6 @@ fn listed(
     // `ordered` has the workspaces' agents first, a workspace after another.
     let mut rest = &ordered[..];
     // The workspaces with no agent, but those opened, lie at the list's foot (P5-134).
-    let mut idle = Vec::new();
     for workspace in panel.workspaces.list() {
         let name = workspace.name.as_str();
         let count = rest
@@ -949,17 +1024,6 @@ fn listed(
         rest = after;
         let opened = agents.is_empty() && panel.opened(name);
         if agents.is_empty() && !opened {
-            let mut repos: Vec<String> = workspace
-                .repos
-                .iter()
-                .map(|repo| kanban_repos::name(repo))
-                .collect();
-            repos.sort();
-            repos.dedup();
-            idle.push(Line::IdleWorkspace {
-                name: name.to_owned(),
-                repos,
-            });
             continue;
         }
         // Opened, it is open whatever is kept of it.
@@ -972,6 +1036,7 @@ fn listed(
             showing: showing(agents),
             stack: stacked(agents, selected),
             opened,
+            starred: workspace.starred,
         }));
         if folded && folds {
             continue;
@@ -1023,15 +1088,19 @@ fn listed(
     for agents in rest.chunk_by(same_group) {
         section(&mut lines, agents, None);
     }
+    let idle = idle(panel);
     if !idle.is_empty() {
-        let folded = panel.folded.idle;
+        // Filtered, it is open whatever is kept of it (P5-201).
+        let folded = panel.folded.idle && !panel.filtering;
         lines.push(Line::Idle {
             count: idle.len(),
             folded,
         });
-        if !folded || !folds {
-            lines.extend(idle);
-        }
+        // Folded, the starred are still there, as capsules (P5-201).
+        let shown = idle
+            .into_iter()
+            .filter(|idler| !folded || !folds || idler.starred);
+        lines.extend(shown.map(Line::IdleWorkspace));
     }
     lines
 }

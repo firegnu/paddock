@@ -31,6 +31,12 @@ pub struct Panel {
     /// from there or just made (P5-134). Each goes back once its title is clicked, or once it
     /// has had agents and they have stopped. Kept in memory alone.
     opened: Vec<String>,
+    /// The workspaces that had agents as last settled, by name, for telling which come to have
+    /// agents or to have none (P5-201): `None` till first settled, as paddock has just opened.
+    busy: Option<HashSet<String>>,
+    /// The Idle shelf is being filtered (P5-201): open whatever is kept, with every workspace on
+    /// it, till the filter ends. In memory alone.
+    pub filtering: bool,
     pub show_reply: bool,
     pub reply_top: usize,
     pub top: usize,
@@ -252,7 +258,8 @@ impl Panel {
         up
     }
 
-    /// A workspace has a new name: what is folded, opened out or up of it stays so.
+    /// A workspace has a new name: what is folded, opened out or up of it stays so, and whether
+    /// it had agents.
     pub fn rename_workspace(&mut self, from: &str, to: &str) {
         self.folded.rename_workspace(from, to);
         for name in &mut self.opened {
@@ -260,12 +267,64 @@ impl Panel {
                 to.clone_into(name);
             }
         }
+        if let Some(busy) = &mut self.busy
+            && busy.remove(from)
+        {
+            busy.insert(to.to_owned());
+        }
     }
 
     /// A workspace is gone, and what was kept of it.
     pub fn forget_workspace(&mut self, name: &str) {
         self.folded.forget_workspace(name);
         self.lower(name);
+        if let Some(busy) = &mut self.busy {
+            busy.remove(name);
+        }
+    }
+
+    /// The workspaces that have come to have agents, or to have none, since this last settled
+    /// (P5-201), by name: they were in use then. It settles once Git has told of every agent's
+    /// directory, as agents go by their repositories; till then it names none and keeps what it
+    /// had. The first time it settles it names none either: paddock has just opened.
+    pub fn turned(&mut self) -> Vec<String> {
+        let read = (self.agents.iter())
+            .all(|a| (a.cwd.as_ref()).is_none_or(|cwd| self.git.contains_key(cwd)));
+        if !read {
+            return Vec::new();
+        }
+        let busy: HashSet<String> = (self.agents.iter())
+            .filter_map(|agent| self.workspace(agent).map(str::to_owned))
+            .collect();
+        let Some(before) = self.busy.replace(busy.clone()) else {
+            return Vec::new();
+        };
+        (self.workspaces.list().iter())
+            .map(|workspace| &workspace.name)
+            .filter(|name| before.contains(*name) != busy.contains(*name))
+            .cloned()
+            .collect()
+    }
+
+    /// A workspace with no agent brought up from the Idle shelf or the command palette, or just
+    /// made: up, as [`Panel::raise`] has it, and in use at `at` (P5-201), kept as
+    /// [`Panel::mark_used`] keeps it.
+    pub fn bring_up(&mut self, path: Option<&Path>, name: &str, at: u64) -> io::Result<()> {
+        self.raise(name);
+        self.mark_used(path, &[name.to_owned()], at)
+    }
+
+    /// The workspaces named were in use at `at`, Unix seconds (P5-201): kept at `path` (in
+    /// memory alone with none) as any change to them is, the list read again first.
+    pub fn mark_used(&mut self, path: Option<&Path>, names: &[String], at: u64) -> io::Result<()> {
+        if names.is_empty() {
+            return Ok(());
+        }
+        self.edit_workspaces(path, |workspaces| {
+            for name in names {
+                workspaces.mark_used(name, at);
+            }
+        })
     }
 
     /// An opened workspace that has agents is up as any is: it goes down once they stop.

@@ -17,6 +17,23 @@ use anyhow::{Result, anyhow, bail};
 const FRAME: f32 = 0.55;
 const FRAME_LIGHT: f32 = 0.92;
 
+/// A workspace's tile (P5-201): the terminal colours its tints are, by index (blue, magenta,
+/// cyan, green, red, bright blue, bright magenta); how much of its tint its ground takes over a
+/// dark sidebar and over a light one; and how far apart its letters stand from that ground.
+const MONOGRAM_TINTS: [u8; 7] = [4, 5, 6, 2, 1, 12, 13];
+pub const MONOGRAM: f32 = 0.20;
+pub const MONOGRAM_LIGHT: f32 = 0.13;
+pub const MONOGRAM_CONTRAST: f32 = 4.5;
+
+/// A workspace's tile's colours ([`Theme::monogram`]): its tint, the share of it its ground takes over
+/// the sidebar's, and its letters.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Monogram {
+    pub hue: Rgb,
+    pub share: f32,
+    pub ink: Rgb,
+}
+
 /// How much of a shadow's or a dimming's darkness stays on a light theme (P5-175): black stands
 /// out far more against a light ground, where as dark a shadow reads as a smudge.
 const SHADE_LIGHT: f32 = 0.5;
@@ -777,6 +794,48 @@ impl Theme {
         }
     }
 
+    /// A workspace's tile in tint `tint` of [`crate::workspaces::TINTS`] (P5-201): the terminal's
+    /// blue, magenta, cyan, green, red, bright blue or bright magenta (never yellow: amber says
+    /// something wants the user). Its ground is that colour over the sidebar's at [`MONOGRAM`]'s
+    /// share, [`MONOGRAM_LIGHT`]'s on a light sidebar; its letters are that colour, drawn towards
+    /// `agents_text` just far enough to stand [`MONOGRAM_CONTRAST`] apart from that ground. Every
+    /// theme has its own, with no key of their own; faded as these are.
+    pub fn monogram(&self, tint: usize) -> Monogram {
+        let hue = self
+            .terminal()
+            .indexed(MONOGRAM_TINTS[tint % MONOGRAM_TINTS.len()]);
+        let column = self.bg(|t| t.agents_bg);
+        let share = if palette::light(column) {
+            MONOGRAM_LIGHT
+        } else {
+            MONOGRAM
+        };
+        let mix = |from: Rgb, to: Rgb, t: f32| {
+            let step =
+                |a: u8, b: u8| (f32::from(a) + (f32::from(b) - f32::from(a)) * t).round() as u8;
+            (step(from.0, to.0), step(from.1, to.1), step(from.2, to.2))
+        };
+        let ground = mix(column, hue, share);
+        let text = self.fg(|t| t.agents_text);
+        // The least step towards the text colour that is far enough; all the way when even that
+        // is not.
+        let ink = if palette::contrast(hue, ground) >= MONOGRAM_CONTRAST {
+            hue
+        } else {
+            let (mut near, mut enough) = (0.0, 1.0);
+            for _ in 0..12 {
+                let t = (near + enough) / 2.0;
+                if palette::contrast(mix(hue, text, t), ground) >= MONOGRAM_CONTRAST {
+                    enough = t;
+                } else {
+                    near = t;
+                }
+            }
+            mix(hue, text, enough)
+        };
+        Monogram { hue, share, ink }
+    }
+
     /// The window's ground around and between the panes' panels: the terminal's background a
     /// step darker, so each panel stands off it (DESIGN §13 P5-59); a smaller step on a light
     /// theme ([`FRAME_LIGHT`]).
@@ -894,6 +953,30 @@ mod tests {
         }
         let (a, b) = (luminance(a), luminance(b));
         (a.max(b) + 0.05) / (a.min(b) + 0.05)
+    }
+
+    /// A workspace's tile (P5-201): its letters read on its tint over the sidebar, in every
+    /// preset and every tint, lifted towards the text colour where the tint alone would not.
+    #[test]
+    fn tile_letters_read_on_their_tint_in_every_preset() {
+        for preset in Preset::ALL {
+            let name = preset.name();
+            let theme = theme(&format!("theme = \"{name}\"")).unwrap();
+            let column = theme.bg(|t| t.agents_bg);
+            for tint in 0..crate::workspaces::TINTS {
+                let monogram = theme.monogram(tint);
+                let mix = |channel: fn(Rgb) -> u8| {
+                    let (from, to) = (f32::from(channel(column)), f32::from(channel(monogram.hue)));
+                    (from + (to - from) * monogram.share).round() as u8
+                };
+                let ground = (mix(|c| c.0), mix(|c| c.1), mix(|c| c.2));
+                let contrast = contrast(monogram.ink, ground);
+                assert!(
+                    contrast >= f64::from(MONOGRAM_CONTRAST) - 0.01,
+                    "{name} tint {tint}: {contrast:.2}:1"
+                );
+            }
+        }
     }
 
     #[test]

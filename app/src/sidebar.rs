@@ -28,9 +28,9 @@ use anyhow::Result;
 use gpui::{
     Animation, AnimationExt, AnyElement, App, BoxShadow, ClickEvent, ClipboardItem, Context, Div,
     ElementId, Entity, EventEmitter, Font, FontFeatures, FontWeight, HighlightStyle, Hsla,
-    MouseButton, MouseDownEvent, Pixels, Render, RenderOnce, Rgba, SharedString, StyledText,
-    TextRun, Transformation, Window, div, ease_in_out, percentage, point, prelude::*, px, relative,
-    svg,
+    MouseButton, MouseDownEvent, Pixels, Render, RenderOnce, Rgba, ScrollHandle, SharedString,
+    StyledText, TextRun, Transformation, Window, div, ease_in_out, percentage, point, prelude::*,
+    px, relative, svg,
 };
 use std::{
     collections::HashMap,
@@ -42,6 +42,7 @@ use std::{
 #[path = "sidebar_workspaces.rs"]
 mod workspaces_view;
 use workspaces_view::Floating;
+pub(crate) use workspaces_view::{LAYERS, STAR};
 
 #[path = "sidebar_sandbox.rs"]
 mod sandbox_view;
@@ -713,6 +714,12 @@ pub struct Sidebar {
     dismissed: Option<(gpui::Point<Pixels>, String)>,
     /// The cards sliding, fading in or out and ringing (P5-154), shared with what draws them.
     cards: Rc<std::cell::RefCell<CardMotion>>,
+    /// The Idle shelf's filter while it is open (P5-201).
+    idle_filter: Option<workspaces_view::Filter>,
+    /// The list's scrolling, to bring a workspace the command palette names into view (P5-201).
+    list_scroll: ScrollHandle,
+    /// That workspace, until the list is next drawn.
+    reveal: Option<String>,
     _floating_out: gpui::Subscription,
 }
 
@@ -819,6 +826,9 @@ impl Sidebar {
             floating_back: None,
             dismissed: None,
             cards: Rc::default(),
+            idle_filter: None,
+            list_scroll: ScrollHandle::new(),
+            reveal: None,
             _floating_out: floating_out,
         }
     }
@@ -2205,6 +2215,12 @@ impl Sidebar {
         }
         if changed && self.remote.is_none() {
             self.adopt_named(cx);
+            // A workspace that came to have agents, or to have none, was in use now (P5-201);
+            // none before corral has been read, nor the first time it settles.
+            if self.read_at.is_some() {
+                let turned = self.listing.panel.turned();
+                self.mark_used(&turned, cx);
+            }
         }
         changed |= self.listing.absorb_replies(&self.replies);
         // Working agents' ages tick; their dots breathe by themselves.
@@ -2273,7 +2289,7 @@ impl Sidebar {
             .child(
                 div()
                     .flex()
-                    .items_baseline()
+                    .items_center()
                     .gap(ui.px(6.0))
                     .text_size(ui.px(GROUP_NAME_SIZE))
                     .font_weight(FontWeight::SEMIBOLD)
@@ -2283,12 +2299,8 @@ impl Sidebar {
                             .group_hover(hover.clone(), move |style| style.text_color(dim))
                             .child(title.trim_end_matches('/').to_owned()),
                     )
-                    .child(
-                        div()
-                            .text_size(ui.px(GROUP_COUNT_SIZE))
-                            .text_color(dimmer.opacity(0.6))
-                            .child(count.to_string()),
-                    ),
+                    // How many, on a small chip (P5-201).
+                    .child(workspaces_view::count_chip(&self.theme, &ui, count)),
             )
             .child(
                 svg()
@@ -2313,7 +2325,8 @@ impl Sidebar {
                         .border_color(fg(|t| t.agents_accent)),
                 )
             })
-            .child(div().flex_1())
+            // A faint rule on to the bar (P5-201).
+            .child(workspaces_view::rule(&self.theme))
             .children(button)
             // How the group's agents are doing, a short stroke each.
             .child(workspaces_view::bar_of(&self.theme, &ui, bar))
@@ -2472,7 +2485,7 @@ impl Sidebar {
         } else if self.note.as_ref().is_some_and(|note| note.fading(instant)) {
             window.request_animation_frame();
         }
-        let (lines, mut places, note) = {
+        let (lines, mut places, note, holds) = {
             // Measured in the interface font: GPUI's own ellipsis misjudges text that shares a
             // row, so every one-line text of a card is cut here to the room it has, and never
             // wraps. Only the preview wraps, and GPUI cuts it, alone on its lines.
@@ -2627,7 +2640,28 @@ impl Sidebar {
                 let whole = (text != note.text).then(|| note.text.clone());
                 (text, whole, note.problem, opacity)
             });
-            (lines, places, note)
+            // Each idle workspace's repositories, cut to the room its line leaves them beside its
+            // tile and how long since it was in use (P5-201).
+            let mut holds = HashMap::new();
+            for line in &lines {
+                let Line::IdleWorkspace(idler) = line else {
+                    continue;
+                };
+                let age = (idler.used).map(|used| card::short_time(Some(now - used as f64)));
+                let age = age.map_or(0.0, |age| {
+                    ui.scale(workspaces_view::IDLE_GAP) + normal(&age, workspaces_view::IDLE_NOTE)
+                });
+                let room = self.width
+                    - 2.0 * PAD
+                    - 2.0 * (workspaces_view::TRAY_X + 1.0)
+                    - workspaces_view::IDLE_LEFT
+                    - workspaces_view::IDLE_RIGHT
+                    - ui.scale(workspaces_view::SIGN + workspaces_view::IDLE_GAP)
+                    - age;
+                let fits = |text: &str| normal(text, workspaces_view::IDLE_NOTE) <= room;
+                holds.insert(idler.name.clone(), card::holds(&idler.repos, &fits));
+            }
+            (lines, places, note, holds)
         };
         // The cards as drawn now, against last frame: which slide, come, go or ring (P5-154).
         {
@@ -2657,7 +2691,7 @@ impl Sidebar {
         let loaded = self.listing.loaded;
         let listed =
             agents > 0 || loaded && lines.iter().any(|line| matches!(line, Line::Workspace(_)));
-        let idle = |line: &Line| matches!(line, Line::Idle { .. } | Line::IdleWorkspace { .. });
+        let idle = |line: &Line| matches!(line, Line::Idle { .. } | Line::IdleWorkspace(_));
         let shelf = loaded && lines.iter().any(idle);
 
         // The list runs on under the activity panel, and ends the panel's height below its last
@@ -2675,8 +2709,13 @@ impl Sidebar {
             workspaces_view::well(&theme, grounds.base, false),
             hsla(theme.bg(|t| t.agents_bg), 1.0),
         );
+        // The cards whose agents have gone, fading out where they were, under the rest.
+        let leaving = self.leaving_cards(stale, grounds, in_well);
+        // How many the list holds so far, to scroll to a workspace by its place (P5-201).
+        let mut items = leaving.len();
         let mut list = div()
             .id("agents")
+            .track_scroll(&self.list_scroll)
             .flex_1()
             .min_h(px(0.0))
             .overflow_y_scroll()
@@ -2686,14 +2725,15 @@ impl Sidebar {
             .px(px(PAD))
             .pt(px(2.0))
             .pb(px(end))
-            // The cards whose agents have gone, fading out where they were, under the rest.
-            .children(self.leaving_cards(stale, grounds, in_well));
+            .children(leaving);
         // Another machine that cannot be read: the banner over its list, in place of the error's
         // line; not read yet, grey cards (P5-122).
         if let (Some(error), Some(_)) = (&self.listing.error, &self.remote) {
             list = list.child(self.banner(error, now, cx));
+            items += 1;
         } else if self.remote.is_some() && !self.listing.loaded {
             list = list.child(self.connecting(cx));
+            items += 1;
         }
         if self.remote.is_none()
             && let Some(note) = cx
@@ -2709,6 +2749,7 @@ impl Sidebar {
                     .text_color(fg(|t| t.agents_red))
                     .child(note),
             );
+            items += 1;
         }
         if !listed && self.listing.loaded && !stale {
             // Nothing listed: why, or how to start one, in the middle of the list.
@@ -2754,6 +2795,7 @@ impl Sidebar {
                     grounds.selected,
                 ),
             };
+            items += 1;
             list = if shelf {
                 // In the middle of the room the idle workspaces leave above them.
                 list.child(
@@ -2779,6 +2821,10 @@ impl Sidebar {
                 Line::Workspace(tray) => (Some(tray), None),
                 line => (None, Some(line)),
             };
+            // Opened with no agent, its repositories, for the capsules inside it (P5-201).
+            let mut raised = (tray.as_ref())
+                .filter(|tray| tray.opened)
+                .map(|_| Vec::new());
             // Its own line outside a tray; in one, every line up to the next workspace's or the
             // first that is in none.
             loop {
@@ -2791,7 +2837,7 @@ impl Sidebar {
                         Line::Error(_)
                         | Line::Workspace(_)
                         | Line::Idle { .. }
-                        | Line::IdleWorkspace { .. } => false,
+                        | Line::IdleWorkspace(_) => false,
                     }),
                     None => None,
                 };
@@ -2820,6 +2866,13 @@ impl Sidebar {
                         self.heading(heading, index, above, cx)
                     }
                     Line::Workspace(_) => continue,
+                    // Opened with no agent, its tray says so and offers its repositories
+                    // (P5-201).
+                    Line::Vacant { repo, .. } if raised.is_some() => {
+                        raised.iter_mut().for_each(|repos| repos.push(repo.clone()));
+                        continue;
+                    }
+                    Line::Empty(_) if raised.is_some() => continue,
                     Line::Vacant {
                         workspace,
                         repo,
@@ -2834,15 +2887,20 @@ impl Sidebar {
                     // The shelf draws its own lines, every workspace with no agent in it
                     // (P5-164).
                     Line::Idle { count, folded } => {
-                        let mut rows = Vec::new();
-                        while let Some((_, Line::IdleWorkspace { name, repos })) =
-                            lines.next_if(|(_, line)| matches!(line, Line::IdleWorkspace { .. }))
+                        let mut idlers = Vec::new();
+                        while let Some((_, Line::IdleWorkspace(idler))) =
+                            lines.next_if(|(_, line)| matches!(line, Line::IdleWorkspace(_)))
                         {
-                            rows.push(self.idle_workspace(&name, &repos, cx));
+                            idlers.push(idler);
                         }
-                        self.idle_shelf(count, folded, rows, index == 0, cx)
+                        self.idle_shelf(count, folded, idlers, &holds, now, index == 0, cx)
                     }
-                    Line::IdleWorkspace { name, repos } => self.idle_workspace(&name, &repos, cx),
+                    Line::IdleWorkspace(idler) => {
+                        let holds = card::holds(&idler.repos, &|_| true);
+                        let age =
+                            (idler.used).map(|used| card::short_time(Some(now - used as f64)));
+                        self.idle_row(&idler, &holds, age, None, cx)
+                    }
                     Line::Agent(card) => {
                         let on_click = {
                             let card = card.clone();
@@ -2905,10 +2963,24 @@ impl Sidebar {
                 }
             }
             match tray {
-                Some(tray) => list = list.child(self.tray(tray, inside, index == 0, cx)),
-                None => list = list.children(inside),
+                Some(tray) => {
+                    if let Some(repos) = raised {
+                        inside = vec![self.raised_body(&tray.name, &repos, cx)];
+                    }
+                    // The workspace the command palette named, brought into view (P5-201).
+                    if self.reveal.as_deref() == Some(tray.name.as_str()) {
+                        self.list_scroll.scroll_to_item(items);
+                    }
+                    list = list.child(self.tray(tray, inside, index == 0, cx));
+                    items += 1;
+                }
+                None => {
+                    items += inside.len();
+                    list = list.children(inside);
+                }
             }
         }
+        self.reveal = None;
         let editor = self.editor(window, cx);
 
         let note = note.map(|(text, whole, problem, opacity)| {

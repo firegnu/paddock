@@ -8,7 +8,7 @@ use paddock::{
     corral::Agent,
     git::{Head, Summary},
     search,
-    workspaces::{Listed, NameError, Picks, Workspace, Workspaces},
+    workspaces::{self, Listed, NameError, Picks, Workspace, Workspaces},
 };
 use std::path::{Path, PathBuf};
 
@@ -120,7 +120,7 @@ fn shown(panel: &Panel, selected: Option<&str>) -> Vec<String> {
             Line::Empty(_) => "  - No agents".to_owned(),
             Line::Agent(card) => format!("{}{}", inset(&card.workspace), card.name),
             Line::Idle { count, folded } => marks(format!("Idle {count}"), folded, false),
-            Line::IdleWorkspace { name, repos } => {
+            Line::IdleWorkspace(card::Idler { name, repos, .. }) => {
                 let names = if repos.is_empty() {
                     "Empty".to_owned()
                 } else {
@@ -338,16 +338,19 @@ fn names_an_older_paddock_recorded_give_way_to_their_running_agents_repositories
                 name: "My-Harness".into(),
                 repos: vec!["/w/paddock".into()],
                 agents: vec![],
+                ..Workspace::default()
             },
             Workspace {
                 name: "Other".into(),
                 repos: vec!["/w/cairn".into()],
                 agents: vec![],
+                ..Workspace::default()
             },
             Workspace {
                 name: "Third".into(),
                 repos: vec![],
                 agents: vec![],
+                ..Workspace::default()
             },
         ]
     );
@@ -761,11 +764,13 @@ fn the_list_is_read_back_as_written_and_a_bad_file_is_no_workspaces() {
                 name: "Empty".into(),
                 repos: vec![],
                 agents: vec![],
+                ..Workspace::default()
             },
             Workspace {
                 name: "Tools".into(),
                 repos: vec!["/w/paddock".into(), "/w/ranch".into()],
                 agents: vec![],
+                ..Workspace::default()
             },
         ]
     );
@@ -846,11 +851,13 @@ fn the_panel_ticks_whole_repositories_and_lists_none_for_agents_that_go_by_a_pre
                 name: "Other".into(),
                 repos: vec!["/w/solo".into()],
                 agents: vec![],
+                ..Workspace::default()
             },
             Workspace {
                 name: "Tuning".into(),
                 repos: vec!["/w/jb".into(), "/w/new".into()],
                 agents: vec![],
+                ..Workspace::default()
             },
         ]
     );
@@ -940,7 +947,7 @@ fn search_finds_agents_by_their_workspaces_name_and_shows_the_group_as_before() 
         &["/Users/me/code/paddock"],
     );
     let rows = search::agents(&panel, 100.0, Some("/Users/me"));
-    let found = search::everything(&rows, &[], &[], &[], "agent tools");
+    let found = search::everything(&rows, &[], &[], &[], &[], "agent tools");
     assert_eq!(found.len(), 1);
     assert_eq!(found[0].rows.len(), 1);
     assert_eq!(
@@ -1197,4 +1204,275 @@ fn repositories_with_no_agent_beside_agents_are_one_line_when_two_or_more() {
             "  paddock/main",
         ]
     );
+}
+
+/// A workspace's star and when it was last in use are kept in its entry only when it has them,
+/// so an older paddock's list reads as it did; a new name keeps them and a removed workspace
+/// takes them with it (P5-201).
+#[test]
+fn star_and_last_use_are_kept_only_when_set_and_go_with_the_workspace() {
+    let temp = common::tempdir();
+    let path = temp.path().join("workspaces.json");
+    let mut all = Workspaces::default();
+    workspace(&mut all, "Tools", &["/w/paddock"]);
+    workspace(&mut all, "Docs", &["/w/notes"]);
+    all.star("Tools", true);
+    all.mark_used("Docs", 1_700_000_000);
+    all.save(&path).unwrap();
+    let text = std::fs::read_to_string(&path).unwrap();
+    assert_eq!(text.matches("\"starred\"").count(), 1, "{text}");
+    assert_eq!(text.matches("\"used\"").count(), 1, "{text}");
+    let kept = Workspaces::load(&path);
+    assert_eq!(kept, all);
+    let (tools, docs) = (kept.get("Tools").unwrap(), kept.get("Docs").unwrap());
+    assert!(tools.starred && tools.used.is_none());
+    assert!(!docs.starred && docs.used == Some(1_700_000_000));
+    // An older paddock's list, with neither.
+    let older = older(
+        temp.path(),
+        r#"[{"name": "Old", "repos": ["/w/old"], "agents": []}]"#,
+    );
+    let old = older.get("Old").unwrap();
+    assert!(!old.starred && old.used.is_none());
+    // Renamed, it keeps them; removed, they go with it.
+    all.rename("Tools", "Kit").unwrap();
+    assert!(all.get("Kit").unwrap().starred);
+    all.rename("Docs", "Notes").unwrap();
+    assert_eq!(all.get("Notes").unwrap().used, Some(1_700_000_000));
+    all.remove("Kit");
+    all.remove("Notes");
+    all.save(&path).unwrap();
+    let text = std::fs::read_to_string(&path).unwrap();
+    assert!(
+        !text.contains("starred") && !text.contains("used"),
+        "{text}"
+    );
+    // Unstarred, it is as if never starred.
+    workspace(&mut all, "Again", &[]);
+    all.star("Again", true);
+    all.star("Again", false);
+    all.save(&path).unwrap();
+    assert!(!std::fs::read_to_string(&path).unwrap().contains("starred"));
+}
+
+/// A workspace's tile says the first letters of the first two parts of its name, split at `-`,
+/// `_`, `.` and spaces, in capitals; one part, one letter; Chinese as any (P5-201).
+#[test]
+fn a_tile_takes_the_first_letters_of_the_first_two_parts_of_the_name() {
+    let cases = [
+        ("paddock", "P"),
+        ("my-harness", "MH"),
+        ("ai_tools.v2", "AT"),
+        ("web app beta", "WA"),
+        ("  spaced   out  ", "SO"),
+        ("a--b", "AB"),
+        ("前端", "前"),
+        ("工具-集合", "工集"),
+        ("", ""),
+    ];
+    for (name, initials) in cases {
+        assert_eq!(workspaces::initials(name), initials, "{name:?}");
+    }
+}
+
+/// A workspace's tint is picked by its name, whatever the case, the same every time, among
+/// [`workspaces::TINTS`] (P5-201).
+#[test]
+fn a_name_takes_the_same_tint_every_time_whatever_its_case() {
+    for name in ["Tools", "paddock", "my-harness", "前端", ""] {
+        let tint = workspaces::tint(name);
+        assert!(tint < workspaces::TINTS);
+        assert_eq!(workspaces::tint(&name.to_uppercase()), tint, "{name:?}");
+        assert_eq!(workspaces::tint(&name.to_lowercase()), tint, "{name:?}");
+    }
+    // Pinned: a tint does not change from one paddock to the next.
+    let pinned: Vec<usize> = ["Tools", "paddock", "my-harness", "Docs"]
+        .iter()
+        .map(|name| workspaces::tint(name))
+        .collect();
+    assert_eq!(pinned, PINNED_TINTS);
+    // Names spread over the tints.
+    let names = ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l"];
+    let mut used: Vec<usize> = names.iter().map(|name| workspaces::tint(name)).collect();
+    used.sort();
+    used.dedup();
+    assert!(used.len() >= 4, "{used:?}");
+}
+const PINNED_TINTS: [usize; 4] = [3, 4, 1, 4];
+
+/// No agent: the starred first by name, then the rest by when they were last in use, latest
+/// first, then those never used by name; their repositories by name (P5-201).
+#[test]
+fn the_idle_shelf_lists_the_starred_by_name_then_by_last_use_then_the_rest_by_name() {
+    let mut panel = Panel::default();
+    read(&mut panel, &[]);
+    let all = &mut panel.workspaces;
+    for name in ["zeta", "alpha", "Beta", "gamma", "Delta", "omega", "eta"] {
+        workspace(all, name, &[]);
+    }
+    workspace(all, "kappa", &["/w/ranch", "/w/cairn", "/x/cairn"]);
+    all.mark_used("zeta", 100);
+    all.mark_used("gamma", 300);
+    all.mark_used("eta", 300);
+    all.mark_used("Delta", 500);
+    all.mark_used("kappa", 200);
+    all.star("Beta", true);
+    all.star("Delta", true);
+    let idle = card::idle(&panel);
+    let names: Vec<&str> = idle.iter().map(|idler| idler.name.as_str()).collect();
+    assert_eq!(
+        names,
+        [
+            "Beta", "Delta", "eta", "gamma", "kappa", "zeta", "alpha", "omega"
+        ]
+    );
+    let kappa = idle.iter().find(|idler| idler.name == "kappa").unwrap();
+    assert_eq!(kappa.repos, ["cairn", "ranch"]);
+    assert_eq!(kappa.used, Some(200));
+    assert!(idle[0].starred && idle[1].starred && !idle[2].starred);
+    // An opened one is up, not on the shelf.
+    panel.raise("eta");
+    assert!(!card::idle(&panel).iter().any(|idler| idler.name == "eta"));
+}
+
+/// Folded, the shelf keeps its starred workspaces, as capsules; with none starred, its title
+/// alone. Filtered, it is open whatever is kept of it (P5-201).
+#[test]
+fn folded_the_idle_shelf_keeps_only_its_starred_workspaces() {
+    let mut panel = Panel::default();
+    read(&mut panel, &[]);
+    workspace(&mut panel.workspaces, "Tools", &["/w/paddock"]);
+    workspace(&mut panel.workspaces, "Docs", &[]);
+    workspace(&mut panel.workspaces, "Kit", &["/w/kit"]);
+    panel.folded.idle = true;
+    assert_eq!(shown(&panel, None), ["Idle 3 folded"]);
+    panel.workspaces.star("Kit", true);
+    panel.workspaces.star("Docs", true);
+    assert_eq!(
+        shown(&panel, None),
+        ["Idle 3 folded", "~ Docs Empty", "~ Kit kit"]
+    );
+    panel.filtering = true;
+    assert_eq!(
+        shown(&panel, None),
+        ["Idle 3", "~ Docs Empty", "~ Kit kit", "~ Tools paddock"]
+    );
+    // The filter over, the shelf is folded as it was.
+    panel.filtering = false;
+    assert!(panel.folded.idle);
+    assert_eq!(shown(&panel, None).len(), 3);
+}
+
+/// A workspace was in use when it came to have agents or to have none, seen once Git has told
+/// where every agent works; not the first time that is seen, as paddock has just opened. It is
+/// in use too when brought up from the shelf or the palette, or just made. Each is kept in the
+/// file (P5-201).
+#[test]
+fn last_use_is_kept_when_agents_come_or_go_and_when_brought_up_not_on_the_first_read() {
+    let temp = common::tempdir();
+    let path = temp.path().join("workspaces.json");
+    let mut panel = panel(&[("paddock/main", "/w/paddock", "idle")]);
+    workspace(&mut panel.workspaces, "Tools", &["/w/paddock"]);
+    workspace(&mut panel.workspaces, "Docs", &["/w/notes"]);
+    workspace(&mut panel.workspaces, "Spare", &[]);
+    panel.workspaces.save(&path).unwrap();
+    // Before Git has told where the agent works, nothing; the first time it has, nothing either.
+    assert_eq!(panel.turned(), Vec::<String>::new());
+    repository(&mut panel, "/w/paddock", "/w/paddock");
+    assert_eq!(panel.turned(), Vec::<String>::new());
+    assert_eq!(panel.turned(), Vec::<String>::new());
+    // An agent in Docs: once Git has told, Docs.
+    let both = [
+        ("paddock/main", "/w/paddock", "idle"),
+        ("notes/main", "/w/notes", "working"),
+    ];
+    read(&mut panel, &both);
+    assert_eq!(panel.turned(), Vec::<String>::new());
+    repository(&mut panel, "/w/notes", "/w/notes");
+    assert_eq!(panel.turned(), ["Docs"]);
+    // Another agent in Tools changes nothing: it had one.
+    read(
+        &mut panel,
+        &[
+            ("paddock/main", "/w/paddock", "idle"),
+            ("paddock/dev", "/w/paddock", "idle"),
+            ("notes/main", "/w/notes", "working"),
+        ],
+    );
+    assert_eq!(panel.turned(), Vec::<String>::new());
+    // Tools' agents stop: Tools.
+    read(&mut panel, &[("notes/main", "/w/notes", "working")]);
+    let turned = panel.turned();
+    assert_eq!(turned, ["Tools"]);
+    // Kept, the list read again first: what another window changed meanwhile stays.
+    let mut other = Workspaces::load(&path);
+    other.star("Spare", true);
+    other.save(&path).unwrap();
+    panel.mark_used(Some(&path), &turned, 1_000).unwrap();
+    let kept = Workspaces::load(&path);
+    assert_eq!(kept.get("Tools").unwrap().used, Some(1_000));
+    assert_eq!(kept.get("Docs").unwrap().used, None);
+    assert!(kept.get("Spare").unwrap().starred);
+    // Brought up from the shelf, or just made: up, and in use.
+    panel.bring_up(Some(&path), "Spare", 2_000).unwrap();
+    assert!(panel.opened("Spare"));
+    assert_eq!(
+        Workspaces::load(&path).get("Spare").unwrap().used,
+        Some(2_000)
+    );
+    panel
+        .edit_workspaces(Some(&path), |all| {
+            all.create("New").unwrap();
+        })
+        .unwrap();
+    panel.bring_up(Some(&path), "New", 3_000).unwrap();
+    assert_eq!(
+        Workspaces::load(&path).get("New").unwrap().used,
+        Some(3_000)
+    );
+    // Opening one changes nothing else; nor does a read that changes nothing.
+    assert_eq!(panel.turned(), Vec::<String>::new());
+    // Renamed, what it was is known by its new name; removed, forgotten.
+    panel.rename_workspace("Docs", "Notes");
+    panel.workspaces.rename("Docs", "Notes").unwrap();
+    assert_eq!(panel.turned(), Vec::<String>::new());
+    read(&mut panel, &[]);
+    assert_eq!(panel.turned(), ["Notes"]);
+}
+
+/// The Idle shelf's filter keeps the workspaces with every word typed in their name or one of
+/// their repositories' names, whatever the case, and marks where (P5-201).
+#[test]
+fn the_idle_filter_keeps_workspaces_with_every_word_in_their_names_or_repositories() {
+    let repos = ["paddock".to_owned(), "cairn".to_owned()];
+    let keeps = |needle: &str| workspaces::matches("Agent-Tools", &repos, needle);
+    assert!(keeps(""));
+    assert!(keeps("tools"));
+    assert!(keeps("TOOLS"));
+    assert!(keeps("cairn"));
+    assert!(keeps("agent PAD"));
+    assert!(keeps("  cai  tool "));
+    assert!(!keeps("ranch"));
+    assert!(!keeps("tools ranch"));
+    // Each word is in the name or in one repository's whole.
+    assert!(!keeps("paddockcairn"));
+    // Where, by bytes, merged where they touch.
+    let hits = |text: &str, needle: &str| -> Vec<(usize, usize)> {
+        (workspaces::hits(text, needle).into_iter())
+            .map(|hit| (hit.start, hit.end))
+            .collect()
+    };
+    assert_eq!(hits("Agent-Tools", "tool"), [(6, 10)]);
+    assert_eq!(hits("Agent-Tools", "AG en"), [(0, 4)]);
+    assert_eq!(hits("paddock · cairn", "d"), [(2, 4)]);
+    assert_eq!(hits("前端-tools", "端"), [(3, 6)]);
+    assert!(hits("Agent-Tools", "ranch").is_empty());
+    // A line's repositories as they fit it, the rest counted.
+    let three = ["cairn".to_owned(), "paddock".to_owned(), "ranch".to_owned()];
+    assert_eq!(card::holds(&three, &|_| true), "cairn · paddock · ranch");
+    let short = |line: &str| line.chars().count() <= 20;
+    assert_eq!(card::holds(&three, &short), "cairn · paddock · +1");
+    assert_eq!(card::holds(&three, &|_| false), "cairn · +2");
+    assert_eq!(card::holds(&three[..1], &|_| false), "cairn");
+    assert_eq!(card::holds(&[], &|_| true), "Empty");
 }

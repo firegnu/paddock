@@ -17,12 +17,28 @@ use std::{
 
 // Sizes, in points at the base interface size.
 /// The tray: its corners, the room it keeps at its sides and foot, and above its title.
-const TRAY_RADIUS: f32 = 14.0;
+const TRAY_RADIUS: f32 = 16.0;
 pub(super) const TRAY_X: f32 = 6.0;
 const TRAY_TOP: f32 = 2.0;
-/// The title's height in an open tray, and a folded tray's.
-const TITLE: f32 = 30.0;
-const FOLDED: f32 = 34.0;
+/// The title's height in an open tray, and a folded tray's; the Idle shelf's title's.
+const TITLE: f32 = 34.0;
+const FOLDED: f32 = 38.0;
+const SHELF_TITLE: f32 = 32.0;
+/// A workspace's tile (P5-201): on its title and its line on the Idle shelf, and on its capsule
+/// there; how much of the tint the ring inside a title's takes, and how much fainter an opened
+/// one with no agent is.
+pub(super) const SIGN: f32 = 22.0;
+const CAPSULE_SIGN: f32 = 20.0;
+const SIGN_RING: f32 = 0.25;
+const SIGN_FAINT: f32 = 0.7;
+/// The glow of a tray's tint in its top left corner, fading towards the bottom right, on a dark
+/// sidebar and on a light one; where it is gone; and the faint light line inside its top edge
+/// (P5-201).
+const GLOW: [f32; 2] = [0.10, 0.08];
+const GLOW_END: f32 = 0.6;
+const SHEEN: [f32; 2] = [0.05, 0.35];
+/// The edge of an opened workspace with no agent, dashed (P5-201).
+const RAISED_EDGE: f32 = 0.20;
 /// Open, the tray is a well sunk in the column (P5-91): how much black darkens its face on a dark
 /// sidebar and on a light one, and its edge as a share of the text colour; lit while the pointer
 /// is over it or its menu is open.
@@ -30,9 +46,11 @@ const WELL: [f32; 2] = [0.26, 0.07];
 const WELL_LIT: [f32; 2] = [0.21, 0.055];
 const WELL_EDGE: f32 = 0.17;
 const WELL_EDGE_LIT: f32 = 0.22;
+/// Opened with no agent, its face is a step fainter than the well (P5-201).
+const RAISED: [f32; 2] = [0.20, 0.055];
 /// Folded, it is a pile (P5-91): the top card's corners; how much of its foot each card under it
 /// shows, how far in it stands at each side, and how high it is.
-const PILE_RADIUS: f32 = 12.0;
+const PILE_RADIUS: f32 = 14.0;
 const PILE_STEP: f32 = 5.0;
 const PILE_INSET: f32 = 8.0;
 const PILE_UNDER: f32 = 18.0;
@@ -43,15 +61,36 @@ const PILE_EDGE: [f32; 3] = [0.18, 0.13, 0.10];
 const PILE_FACE_LIT: f32 = 0.085;
 const PILE_EDGE_LIT: f32 = 0.24;
 const NAME: f32 = 13.0;
+/// A workspace's name on its title (P5-201).
+const TITLE_NAME: f32 = 13.5;
 const COUNT: f32 = 11.0;
 /// The idle shelf at the list's foot (P5-164): its face over the column, darker than an open
-/// workspace's, and its edge, both a step fainter; the height of a line in it.
+/// workspace's, and its edge, both a step fainter.
 const SHELF: [f32; 2] = [0.14, 0.04];
 const SHELF_EDGE: f32 = 0.09;
-/// A line of the shelf is this high, its name at the size of a repository's heading.
-const IDLE_ROW: f32 = 26.0;
-/// The line of a workspace's repositories with no agent, before the pointer is on it (P5-134).
-const VACANCIES: f32 = 0.75;
+/// A line of the shelf is this high, in two lines (P5-201): its name, and under it its
+/// repositories; its corners.
+pub(super) const IDLE_ROW: f32 = 38.0;
+const IDLE_ROW_RADIUS: f32 = 9.0;
+/// The line's sizes: its name, its repositories and when it was last in use, and the labels over
+/// the starred and the rest.
+const IDLE_NAME: f32 = 12.5;
+pub(super) const IDLE_NOTE: f32 = 10.5;
+const IDLE_LABEL: f32 = 9.5;
+/// The line's room left and right of what it says, and between its tile and its words.
+pub(super) const IDLE_LEFT: f32 = 6.0;
+pub(super) const IDLE_RIGHT: f32 = 8.0;
+pub(super) const IDLE_GAP: f32 = 9.0;
+/// A line's buttons while the pointer is on it, and the Idle title's magnifier.
+const IDLE_BUTTON: f32 = 24.0;
+/// A starred workspace's capsule on the folded shelf (P5-201).
+const CAPSULE: f32 = 28.0;
+/// The repository heading's count, as a chip (P5-201), and the rule after it.
+pub(super) const COUNT_CHIP: f32 = 10.5;
+pub(super) const RULE: f32 = 0.07;
+/// The line of a workspace's repositories with no agent, before the pointer is on it (P5-134;
+/// fainter since P5-201).
+const VACANCIES: f32 = 0.8;
 /// The menus, and the panel.
 const GROUP_MENU: f32 = 232.0;
 const AGENT_MENU: f32 = 216.0;
@@ -66,8 +105,19 @@ const PANEL_REST: f32 = 340.0;
 /// How long the folder a repository is in may run, beside its name when another has that name.
 const TWIN_PATH: usize = 24;
 
+/// A star, filled: a starred workspace (P5-201); and hollow, to star one.
+pub(crate) const STAR: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M8 1.5l1.9 4.1 4.5.5-3.3 3.1.9 4.4L8 11.4l-3.9 2.2.9-4.4L1.6 6.1l4.5-.5z"/></svg>"##;
+const STAR_HOLLOW: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M8 1.5l1.9 4.1 4.5.5-3.3 3.1.9 4.4L8 11.4l-3.9 2.2.9-4.4L1.6 6.1l4.5-.5z" fill="none" stroke="#000" stroke-width="1.4" stroke-linejoin="round"/></svg>"##;
+/// A magnifier: the Idle shelf's filter.
+const MAGNIFIER: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.5" fill="none" stroke="#000" stroke-width="1.6"/><path d="M10.5 10.5L14 14" fill="none" stroke="#000" stroke-width="1.6" stroke-linecap="round"/></svg>"##;
+/// A cross, small: clears the filter.
+const CROSS: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><path d="M2 2l6 6M8 2L2 8" fill="none" stroke="#000" stroke-width="1.8" stroke-linecap="round"/></svg>"##;
+/// A plus, small: a new agent in a workspace, or in one of its repositories.
+const PLUS: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><path d="M5 1.5v7M1.5 5h7" fill="none" stroke="#000" stroke-width="1.6" stroke-linecap="round"/></svg>"##;
+/// Down into a tray: an opened workspace with no agent put back on the Idle shelf.
+const PUT_BACK: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M8 2v7M5 6.5L8 9.5 11 6.5M2.5 10v3.5h11V10" fill="none" stroke="#000" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>"##;
 /// A workspace: sheets lying on one another.
-const LAYERS: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M8 2L14 5 8 8 2 5ZM2 8L8 11 14 8M2 11L8 14 14 11" fill="none" stroke="#000" stroke-width="1.4" stroke-linejoin="round"/></svg>"##;
+pub(crate) const LAYERS: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M8 2L14 5 8 8 2 5ZM2 8L8 11 14 8M2 11L8 14 14 11" fill="none" stroke="#000" stroke-width="1.4" stroke-linejoin="round"/></svg>"##;
 /// A folded workspace with no agent: the sheets, the top one filled.
 const LAYERS_FILLED: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M8 2L14 5 8 8 2 5Z" stroke="#000" stroke-width="1.4" stroke-linejoin="round"/><path d="M2 8L8 11 14 8M2 11L8 14 14 11" fill="none" stroke="#000" stroke-width="1.4" stroke-linejoin="round"/></svg>"##;
 /// Into a workspace: the sheets and a plus.
@@ -154,6 +204,28 @@ pub(super) struct Editor {
     /// Why the folder chosen was not added.
     note: Option<SharedString>,
     _changed: Option<Subscription>,
+}
+
+/// How a workspace's tile is drawn (P5-201).
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum Sign {
+    /// On its line on the Idle shelf.
+    Row,
+    /// On its title, with a ring of its tint inside its edge.
+    Title,
+    /// On the title of one opened with no agent: fainter.
+    Raised,
+    /// On its capsule on the folded shelf: round, and smaller.
+    Capsule,
+}
+
+/// The Idle shelf's filter while it is open (P5-201): the field, the line selected among those it
+/// keeps, and what had the keys before it.
+pub(super) struct Filter {
+    input: Entity<TextInput>,
+    selected: usize,
+    back: Option<gpui::FocusHandle>,
+    _changed: Subscription,
 }
 
 /// A press on a button that opens a menu.
@@ -412,10 +484,88 @@ impl Sidebar {
         tab_stack::stack(&faces, inks, ui.scale(1.0)).into_any_element()
     }
 
+    /// Whether the column is light: its tiles, glows and wells take another share.
+    fn light_column(&self) -> bool {
+        hsla(self.theme.bg(|t| t.agents_bg), 1.0).l >= 0.5
+    }
+
+    /// A workspace's tile (P5-201): its initials on its own tint, as `kind` says to draw it.
+    pub(super) fn sign(&self, name: &str, kind: Sign, ui: &UiFont) -> Div {
+        let monogram = self.theme.monogram(workspaces::tint(name));
+        let hue = hsla(monogram.hue, 1.0);
+        let faint = if kind == Sign::Raised {
+            SIGN_FAINT
+        } else {
+            1.0
+        };
+        let (size, round) = match kind {
+            Sign::Capsule => (CAPSULE_SIGN, true),
+            Sign::Row | Sign::Title | Sign::Raised => (SIGN, false),
+        };
+        // A title's has a ring of its tint inside its edge.
+        let ring = matches!(kind, Sign::Title | Sign::Raised).then(|| BoxShadow {
+            color: hue.opacity(SIGN_RING * faint),
+            offset: point(px(0.0), px(0.0)),
+            blur_radius: px(0.0),
+            spread_radius: px(1.0),
+            inset: true,
+        });
+        div()
+            .flex_shrink_0()
+            .size(ui.px(size))
+            .flex()
+            .items_center()
+            .justify_center()
+            .map(|tile| {
+                if round {
+                    tile.rounded_full()
+                } else {
+                    tile.rounded(ui.px(7.0))
+                }
+            })
+            .bg(hue.opacity(monogram.share * faint))
+            .when_some(ring, |tile, ring| tile.shadow(vec![ring]))
+            .text_size(ui.px(size * 10.0 / SIGN))
+            .font_weight(FontWeight::BOLD)
+            .text_color(hsla(monogram.ink, 1.0))
+            .child(workspaces::initials(name))
+    }
+
+    /// The glow of the workspace's tint over a tray's top left corner, fading towards its bottom
+    /// right (P5-201): laid first in the tray, under all it holds; `radius`, the tray's corners.
+    fn glow(&self, name: &str, radius: Pixels) -> Div {
+        let hue = hsla(self.theme.monogram(workspaces::tint(name)).hue, 1.0);
+        let share = GLOW[usize::from(self.light_column())];
+        div()
+            .absolute()
+            .inset_0()
+            // Inside its edge.
+            .rounded(radius - px(1.0))
+            .bg(gpui::linear_gradient(
+                135.0,
+                gpui::linear_color_stop(hue.opacity(share), 0.0),
+                gpui::linear_color_stop(hue.opacity(0.0), GLOW_END),
+            ))
+    }
+
+    /// The faint light line inside a tray's top edge (P5-201).
+    fn sheen(&self) -> BoxShadow {
+        BoxShadow {
+            color: gpui::white().opacity(SHEEN[usize::from(self.light_column())]),
+            offset: point(px(0.0), px(1.0)),
+            blur_radius: px(0.0),
+            spread_radius: px(0.0),
+            inset: true,
+        }
+    }
+
     /// A workspace: its title and under it `inside`, its groups' lines, in a tray sunk in the
     /// column; folded, the title alone with the bar of all its agents, on the top card of a pile
     /// and led by its agents' cards stacked (P5-91). A click on the title folds it or opens it.
-    /// `first` when nothing is above it in the list.
+    /// Its title: its tile, name and star, and at the right how many agents and the arrow; folded,
+    /// the bar, the count and the arrow; both with its tint's glow (P5-201). Opened with no agent,
+    /// its tray is dashed and fainter, `Put back` on its title, and `inside` says nothing runs
+    /// there. `first` when nothing is above it in the list.
     pub(super) fn tray(
         &self,
         tray: card::Tray,
@@ -439,6 +589,7 @@ impl Sidebar {
             showing,
             stack,
             opened,
+            starred,
         } = tray;
         let hover: SharedString = format!("workspace-{name}").into();
         let menu_open = self.workspace_menu_open(&name);
@@ -462,53 +613,49 @@ impl Sidebar {
                 .overflow_hidden()
                 .whitespace_nowrap()
                 .text_ellipsis()
-                .text_size(ui.px(NAME))
+                .text_size(ui.px(TITLE_NAME))
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(text)
                 .child(name.clone())
                 .into_any_element(),
         };
+        let named = div()
+            .flex_shrink(1.0)
+            .min_w(px(0.0))
+            .flex()
+            .items_center()
+            .gap(ui.px(5.0))
+            .child(label)
+            .when(starred, |named| named.child(mask(STAR, ui.px(10.0), dim)));
         // Folded, its agents' cards stacked as a split tab's, with no status dot (the bar says);
-        // with none, the sheets with the top one filled. Open, the sheets.
+        // with none, the sheets with the top one filled. Open, its tile (P5-201).
         let mark = if !folded {
-            mask(LAYERS, ui.px(14.0), accent).into_any_element()
+            let kind = if opened { Sign::Raised } else { Sign::Title };
+            self.sign(&name, kind, &ui).into_any_element()
         } else if stack.is_empty() {
             mask(LAYERS_FILLED, ui.px(14.0), accent).into_any_element()
         } else {
             self.stack_mark(&stack, &ui)
         };
-        // Open, the arrow a step brighter, as the well is a step darker.
-        let chevron = if folded {
-            dim
-        } else {
-            dim.blend(text.opacity(0.5))
-        };
+        let chevron = mask(
+            if folded { CHEVRON_RIGHT } else { CHEVRON_DOWN },
+            ui.px(10.0),
+            dimmer,
+        );
         let title = div()
             .id(ElementId::Name(hover.clone()))
             .group(hover.clone())
             .relative()
             .flex()
             .items_center()
-            .gap(ui.px(7.0))
+            .gap(ui.px(9.0))
             .h(ui.px(if folded { FOLDED } else { TITLE }))
-            .px(px(2.0))
+            .pl(px(4.0))
+            .pr(px(2.0))
             .cursor_pointer()
             .on_click(fold)
-            .child(mask(
-                if folded { CHEVRON_RIGHT } else { CHEVRON_DOWN },
-                ui.px(10.0),
-                chevron,
-            ))
             .child(mark)
-            .child(label)
-            .child(
-                div()
-                    .flex_shrink_0()
-                    .text_size(ui.px(COUNT))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(dimmer)
-                    .child(count.to_string()),
-            )
+            .child(named)
             // Hollow, as on a folded group: the agent the active pane shows is folded away.
             .when(folded && showing, |title| {
                 title.child(
@@ -520,26 +667,57 @@ impl Sidebar {
                         .border_color(accent),
                 )
             })
-            .child(div().flex_1())
-            .child(self.options_button(&name, &hover, menu_open, &ui, false, cx))
-            // Folded, how all its agents are doing; open, its groups' bars say.
-            .when(folded, |title| title.child(bar_of(&self.theme, &ui, bar)))
-            .when(menu_open, |title| {
-                title.child(Self::hung(self.workspace_menu(&name, &ui, cx), false))
-            });
+            .child(div().flex_1());
+        let count_text = |words: String| {
+            div()
+                .flex_shrink_0()
+                .text_size(ui.px(COUNT))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(dim)
+                .child(words)
+        };
+        let title = if opened {
+            title
+                .child(self.put_back(&name, &ui, cx))
+                .child(self.options_button(&name, &hover, menu_open, &ui, true, cx))
+        } else if folded {
+            // How all its agents are doing, then how many, then the arrow at the far right.
+            title
+                .child(self.options_button(&name, &hover, menu_open, &ui, false, cx))
+                .child(bar_of(&self.theme, &ui, bar))
+                .child(count_text(count.to_string()))
+                .child(chevron)
+        } else {
+            title
+                .child(self.options_button(&name, &hover, menu_open, &ui, false, cx))
+                .child(count_text(workspaces::agents(count)))
+                .child(chevron)
+        };
+        let title = title.when(menu_open, |title| {
+            title.child(Self::hung(self.workspace_menu(&name, &ui, cx), false))
+        });
         // A little off what is above it; closer to the top for the first, as a heading is.
         let above = px(if first { 8.0 } else { 4.0 });
         if folded {
-            return self.pile(title, stack.len(), menu_open, above);
+            return self.pile(&name, title, stack.len(), menu_open, above);
         }
         let base = self.grounds().base;
-        let (face, edge) = if menu_open {
-            (well(&self.theme, base, true), WELL_EDGE_LIT)
+        let light = self.light_column();
+        let (face, edge, lit, lit_edge) = if opened {
+            // Fainter than one in use, and dashed (P5-201).
+            let face = sunk(RAISED, base, light);
+            (face, RAISED_EDGE, face, RAISED_EDGE + 0.05)
         } else {
-            (well(&self.theme, base, false), WELL_EDGE)
+            let lit = sunk(WELL_LIT, base, light);
+            if menu_open {
+                (lit, WELL_EDGE_LIT, lit, WELL_EDGE_LIT)
+            } else {
+                (sunk(WELL, base, light), WELL_EDGE, lit, WELL_EDGE_LIT)
+            }
         };
-        let lit = well(&self.theme, base, true);
+        let radius = px(TRAY_RADIUS);
         div()
+            .relative()
             .flex()
             .flex_col()
             .gap(px(CARD_GAP))
@@ -547,21 +725,57 @@ impl Sidebar {
             .px(px(TRAY_X))
             .pt(px(TRAY_TOP))
             .pb(px(TRAY_X))
-            .rounded(px(TRAY_RADIUS))
+            .rounded(radius)
             .border_1()
+            .when(opened, |tray| tray.border_dashed())
             .border_color(text.opacity(edge))
             .bg(face)
-            .hover(move |tray| tray.bg(lit).border_color(text.opacity(WELL_EDGE_LIT)))
+            .when(!opened, |tray| tray.shadow(vec![self.sheen()]))
+            .hover(move |tray| tray.bg(lit).border_color(text.opacity(lit_edge)))
+            .child(self.glow(&name, radius))
             .child(title)
             .children(inside)
             .into_any_element()
     }
 
+    /// `Put back` on the title of a workspace opened with no agent (P5-201): it goes back to the
+    /// Idle shelf, as a click elsewhere on the title sends it.
+    fn put_back(&self, name: &str, ui: &UiFont, cx: &mut Context<Self>) -> gpui::Stateful<Div> {
+        let fg = |pick: Pick| hsla(self.theme.fg(pick), 1.0);
+        let (text, dim) = (fg(|t| t.agents_text), fg(|t| t.agents_dim));
+        let lower = {
+            let name = name.to_owned();
+            cx.listener(move |this, _: &ClickEvent, _, cx| {
+                cx.stop_propagation();
+                this.lower_workspace(&name, cx);
+            })
+        };
+        div()
+            .id("put-back")
+            .flex_shrink_0()
+            .flex()
+            .items_center()
+            .gap(ui.px(5.0))
+            .h(ui.px(IDLE_BUTTON))
+            .px(ui.px(9.0))
+            .rounded(ui.px(7.0))
+            .bg(text.opacity(0.06))
+            .hover(move |button| button.bg(text.opacity(0.11)))
+            .cursor_pointer()
+            .text_size(ui.px(COUNT))
+            .text_color(dim)
+            .on_click(lower)
+            .child(mask(PUT_BACK, ui.px(11.0), dim))
+            .child("Put back")
+    }
+
     /// A folded workspace's `title` on the top card of a pile, whole colours that hide what is
     /// under them; under it the feet of one card more for each of its agents after the first,
     /// two at most, each further in and nearer the column's colour. The feet are in its height.
+    /// The top card wears the workspace's glow and the light line inside its top edge (P5-201).
     fn pile(
         &self,
+        name: &str,
         title: gpui::Stateful<Div>,
         agents: usize,
         lit: bool,
@@ -598,7 +812,9 @@ impl Sidebar {
             .border_1()
             .border_color(top_edge)
             .bg(top_face)
+            .shadow(vec![self.sheen()])
             .hover(move |card| card.bg(lit_face).border_color(lit_edge))
+            .child(self.glow(name, px(PILE_RADIUS)))
             .child(title);
         div()
             .relative()
@@ -631,15 +847,15 @@ impl Sidebar {
 
     /// A workspace's `⋯` (`Workspace options`), shown while the pointer is over what `hover`
     /// names, or lit while its menu is open: on its title, and on its line among the idle ones.
-    /// `compact` keeps no room for it: the line's repositories run to the edge until the pointer
-    /// is over the line, which gives them the room back (P5-164).
+    /// `always` shows it whatever the pointer does: on an opened workspace's title, and among a
+    /// line's buttons, which show together (P5-201).
     fn options_button(
         &self,
         name: &str,
         hover: &SharedString,
         menu_open: bool,
         ui: &UiFont,
-        compact: bool,
+        always: bool,
         cx: &mut Context<Self>,
     ) -> gpui::Stateful<Div> {
         let text = hsla(self.theme.fg(|t| t.agents_text), 1.0);
@@ -654,22 +870,14 @@ impl Sidebar {
                 this.press_menu(menu, event, window, cx);
             })
         };
-        let tip = Tip {
-            text: "Workspace options".into(),
-            size: ui.px(NOTE_SIZE),
-            color: text,
-            background: hsla(self.theme.bg(|t| t.agents_bg), 1.0),
-            border: hsla(self.theme.fg(|t| t.agents_rule), 1.0),
-        };
+        let tip = self.tip("Workspace options", ui);
         let lit = text.opacity(0.12);
         let hover = hover.clone();
         let width = ui.px(22.0);
         div()
             .id("workspace-options")
             .flex_shrink_0()
-            .h(width)
-            .when(compact, |button| button.w(px(0.0)).overflow_hidden())
-            .when(!compact, |button| button.w(width))
+            .size(width)
             .flex()
             .items_center()
             .justify_center()
@@ -680,9 +888,9 @@ impl Sidebar {
             .on_mouse_down(MouseButton::Left, options)
             .map(|button| {
                 if menu_open {
-                    button.w(width).bg(lit)
-                } else if compact {
-                    button.group_hover(hover, move |style| style.w(width))
+                    button.bg(lit)
+                } else if always {
+                    button
                 } else {
                     button
                         .opacity(0.0)
@@ -692,11 +900,27 @@ impl Sidebar {
             .child(mask(DOTS, ui.px(14.0), text))
     }
 
+    /// A hover note in the sidebar's look.
+    fn tip(&self, text: impl Into<SharedString>, ui: &UiFont) -> Tip {
+        Tip {
+            text: text.into(),
+            size: ui.px(NOTE_SIZE),
+            color: hsla(self.theme.fg(|t| t.agents_text), 1.0),
+            background: hsla(self.theme.bg(|t| t.agents_bg), 1.0),
+            border: hsla(self.theme.fg(|t| t.agents_rule), 1.0),
+        }
+    }
+
     // The workspaces with no agent (P5-134).
 
-    /// A workspace with no agent opened from the list's foot: up, and open.
+    /// A workspace with no agent brought up from the list's foot or the command palette: up, and
+    /// open, and in use now (P5-201).
     fn raise_workspace(&mut self, name: &str, cx: &mut Context<Self>) {
-        self.listing.panel.raise(name);
+        let path = self.workspaces_path.clone();
+        if let Err(error) = (self.listing.panel).bring_up(path.as_deref(), name, now() as u64) {
+            self.note(format!("Workspaces not saved: {error}"), true, cx);
+        }
+        self.follow_editor();
         self.folds_changed(cx);
     }
 
@@ -706,62 +930,141 @@ impl Sidebar {
         cx.notify();
     }
 
-    /// The shelf at the list's foot (P5-134), a tray of its own since P5-164: a faint tray whose
-    /// title looks as a workspace's, its hollow sheets dim, `Idle` and how many, and under it
-    /// `inside`, a line for each workspace with no agent. A click on the title folds it to the
-    /// title alone, still in the tray.
+    /// The workspaces named were in use now (P5-201): kept as any change to them is, this Mac's
+    /// alone.
+    pub(super) fn mark_used(&mut self, names: &[String], cx: &mut Context<Self>) {
+        if names.is_empty() || self.remote.is_some() {
+            return;
+        }
+        let path = self.workspaces_path.clone();
+        let at = now() as u64;
+        if let Err(error) = self.listing.panel.mark_used(path.as_deref(), names, at) {
+            self.note(format!("Workspaces not saved: {error}"), true, cx);
+        }
+        self.follow_editor();
+        cx.notify();
+    }
+
+    /// Stars the workspace, or takes its star off, as the list kept has it (P5-201).
+    fn toggle_star(&mut self, name: &str, cx: &mut Context<Self>) {
+        self.edit_workspaces(cx, |all| {
+            let starred = all.get(name).is_some_and(|workspace| workspace.starred);
+            all.star(name, !starred);
+        });
+    }
+
+    /// The command palette's workspace (P5-201): one with no agent comes up as from the Idle
+    /// shelf, and is in use now; one with agents opens, if folded; either is scrolled into view.
+    pub fn reveal_workspace(&mut self, name: &str, cx: &mut Context<Self>) {
+        self.reload_workspaces();
+        let panel = &self.listing.panel;
+        if panel.workspaces.get(name).is_none() {
+            return;
+        }
+        let busy = (panel.agents.iter()).any(|agent| panel.workspace(agent) == Some(name));
+        if !busy {
+            self.raise_workspace(name, cx);
+        } else if panel.folded.workspace(name) {
+            self.listing.panel.folded.open_workspace(name);
+            self.folds_changed(cx);
+        }
+        self.reveal = Some(name.to_owned());
+        cx.notify();
+    }
+
+    /// The shelf at the list's foot (P5-134), a tray of its own since P5-164, redrawn in P5-201.
+    /// Its title: the hollow sheets, `Idle`, how many and the arrow, and the magnifier that
+    /// filters it. Under it a line for each workspace with no agent, `idle` in its order, the
+    /// starred under `STARRED` and the rest under `RECENT` when any is starred; folded, the
+    /// starred alone, as capsules. Filtered, the title is the field and the lines those it keeps,
+    /// without labels, the selected one marked, and the keys at the foot. `holds` is each line's
+    /// repositories as they fit it, by name; `now` tells how long since each was in use. A click
+    /// on the title folds it, or opens it.
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn idle_shelf(
         &self,
         count: usize,
         folded: bool,
-        inside: Vec<AnyElement>,
+        idle: Vec<card::Idler>,
+        holds: &HashMap<String, String>,
+        now: f64,
         first: bool,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let ui = UiFont::get(cx);
         let fg = |pick: Pick| hsla(self.theme.fg(pick), 1.0);
-        let (text, dim, dimmer) = (
-            fg(|t| t.agents_text),
-            fg(|t| t.agents_dim),
-            fg(|t| t.agents_dimmer),
-        );
-        let title = div()
-            .id("idle-shelf")
-            .flex()
-            .items_center()
-            .gap(ui.px(7.0))
-            .h(ui.px(TITLE))
-            .px(px(2.0))
-            .rounded(px(7.0))
-            .cursor_pointer()
-            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.fold_idle(cx)))
-            .child(mask(
-                if folded { CHEVRON_RIGHT } else { CHEVRON_DOWN },
-                ui.px(10.0),
-                dimmer,
-            ))
-            .child(mask(LAYERS, ui.px(14.0), dimmer))
-            .child(
-                div()
-                    .text_size(ui.px(NAME))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(dim)
-                    .child("Idle"),
-            )
-            .child(
-                div()
-                    .flex_shrink_0()
-                    .text_size(ui.px(COUNT))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(dimmer)
-                    .child(count.to_string()),
-            );
+        let (text, dimmer) = (fg(|t| t.agents_text), fg(|t| t.agents_dimmer));
+        let holds_of = |idler: &card::Idler| {
+            (holds.get(&idler.name).cloned())
+                .unwrap_or_else(|| card::holds(&idler.repos, &|_| true))
+        };
+        let age = |idler: &card::Idler| {
+            (idler.used).map(|used| card::short_time(Some(now - used as f64)))
+        };
+        let mut inside: Vec<AnyElement> = Vec::new();
+        match &self.idle_filter {
+            Some(filter) => {
+                let needle = filter.input.read(cx).text().to_owned();
+                let kept: Vec<&card::Idler> = (idle.iter())
+                    .filter(|idler| workspaces::matches(&idler.name, &idler.repos, &needle))
+                    .collect();
+                let selected = filter.selected.min(kept.len().saturating_sub(1));
+                inside.push(
+                    self.filter_bar(filter, kept.len(), count, cx)
+                        .into_any_element(),
+                );
+                if kept.is_empty() {
+                    inside.push(
+                        div()
+                            .px(px(8.0))
+                            .py(ui.px(10.0))
+                            .text_size(ui.px(COUNT))
+                            .text_color(dimmer)
+                            .child(format!("No idle workspace matches “{}”", needle.trim()))
+                            .into_any_element(),
+                    );
+                }
+                for (at, idler) in kept.into_iter().enumerate() {
+                    let marks = Some((needle.as_str(), at == selected));
+                    inside.push(self.idle_row(idler, &holds_of(idler), age(idler), marks, cx));
+                }
+                inside.push(self.filter_keys(&ui));
+            }
+            None => {
+                inside.push(self.idle_title(count, folded, cx).into_any_element());
+                if folded && !idle.is_empty() {
+                    inside.push(
+                        div()
+                            .flex()
+                            .flex_wrap()
+                            .gap(ui.px(6.0))
+                            .pt(px(2.0))
+                            .px(px(4.0))
+                            .pb(px(2.0))
+                            .children(idle.iter().map(|idler| self.idle_capsule(idler, cx)))
+                            .into_any_element(),
+                    );
+                } else if !folded {
+                    // Labelled only when some are starred.
+                    let labelled = idle.iter().any(|idler| idler.starred);
+                    let mut last = None;
+                    for idler in &idle {
+                        if labelled && last != Some(idler.starred) {
+                            let label = if idler.starred { "STARRED" } else { "RECENT" };
+                            inside.push(self.idle_label(label, last.is_none(), &ui));
+                        }
+                        last = Some(idler.starred);
+                        inside.push(self.idle_row(idler, &holds_of(idler), age(idler), None, cx));
+                    }
+                }
+            }
+        }
         // As far above as a workspace's tray is from what is above it; a little off the top for
         // the first, as a heading is.
         div()
             .flex()
             .flex_col()
-            .gap(px(2.0))
+            .gap(px(1.0))
             .mt(px(if first { 8.0 } else { 4.0 }))
             .px(px(TRAY_X))
             .pt(px(TRAY_TOP))
@@ -770,22 +1073,13 @@ impl Sidebar {
             .border_1()
             .border_color(text.opacity(SHELF_EDGE))
             .bg(shelf(&self.theme, self.grounds().base))
-            .child(title)
             .children(inside)
             .into_any_element()
     }
 
-    /// A workspace with no agent on the shelf: its name as a repository's heading, at its left,
-    /// and at the right its repositories by name, faint, or `Empty` (P5-164); lit under the
-    /// pointer, its name and repositories each a step brighter and its `⋯` (the title's menu,
-    /// `Rename` in this line) where the repositories give it room. It keeps no room for the `⋯`
-    /// otherwise, so they run to the edge. A click brings the workspace up, open.
-    pub(super) fn idle_workspace(
-        &self,
-        name: &str,
-        repos: &[String],
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
+    /// The shelf's title (P5-201): the hollow sheets, `Idle`, how many and the arrow, which a
+    /// click folds or opens; at the right the magnifier that filters it.
+    fn idle_title(&self, count: usize, folded: bool, cx: &mut Context<Self>) -> Div {
         let ui = UiFont::get(cx);
         let fg = |pick: Pick| hsla(self.theme.fg(pick), 1.0);
         let (text, dim, dimmer) = (
@@ -793,9 +1087,120 @@ impl Sidebar {
             fg(|t| t.agents_dim),
             fg(|t| t.agents_dimmer),
         );
-        let lit = text.opacity(0.06);
+        let tip = self.tip("Filter idle workspaces", &ui);
+        let magnifier = div()
+            .id("idle-filter-button")
+            .flex_shrink_0()
+            .w(ui.px(26.0))
+            .h(ui.px(IDLE_BUTTON))
+            .rounded(ui.px(7.0))
+            .flex()
+            .items_center()
+            .justify_center()
+            .bg(text.opacity(0.05))
+            .hover(move |button| button.bg(text.opacity(0.10)))
+            .cursor_pointer()
+            .tooltip(move |_, cx| cx.new(|_| tip.clone()).into())
+            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.start_filter(window, cx)))
+            .child(mask(MAGNIFIER, ui.px(12.0), dim));
+        // The sheets over the lines' tiles, centre on centre.
+        div()
+            .flex()
+            .items_center()
+            .gap(ui.px(8.0))
+            .h(ui.px(SHELF_TITLE))
+            .pl(px(IDLE_LEFT) + ui.px((SIGN - 14.0) / 2.0))
+            .pr(px(3.0))
+            .child(
+                div()
+                    .id("idle-shelf")
+                    .flex_1()
+                    .h_full()
+                    .flex()
+                    .items_center()
+                    .gap(ui.px(8.0))
+                    .cursor_pointer()
+                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.fold_idle(cx)))
+                    .child(mask(LAYERS, ui.px(14.0), dimmer))
+                    .child(
+                        div()
+                            .text_size(ui.px(NAME))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(dim)
+                            .child("Idle"),
+                    )
+                    .child(
+                        div()
+                            .flex_shrink_0()
+                            .text_size(ui.px(COUNT))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(dimmer)
+                            .child(count.to_string()),
+                    )
+                    .child(mask(
+                        if folded { CHEVRON_RIGHT } else { CHEVRON_DOWN },
+                        ui.px(CHEVRON),
+                        dimmer,
+                    )),
+            )
+            .child(magnifier)
+    }
+
+    /// The small capitals over the starred lines, or the rest (P5-201); `first` right under the
+    /// title.
+    fn idle_label(&self, label: &'static str, first: bool, ui: &UiFont) -> AnyElement {
+        let dimmer = hsla(self.theme.fg(|t| t.agents_dimmer), 1.0);
+        div()
+            .pt(ui.px(if first { 4.0 } else { 6.0 }))
+            .pb(ui.px(2.0))
+            .px(px(IDLE_LEFT + 2.0))
+            .text_size(ui.px(IDLE_LABEL))
+            .font_weight(FontWeight::BOLD)
+            .text_color(dimmer.opacity(0.8))
+            .child(label)
+            .into_any_element()
+    }
+
+    /// A workspace with no agent on the shelf (P5-201): its tile; its name, after it a star when
+    /// starred, and under it `holds`, its repositories; at the right `age`, how long since it was
+    /// in use. Under the pointer the line is lit and its words a step brighter, a star after its
+    /// name to click (filled when starred), and in place of the time `+` (a new agent in it, as
+    /// its menu's `New Agent…`) and `⋯` (its menu, `Rename` in this line); while its menu is open
+    /// it stays so. A click brings it up, open. `filter`, the words filtering the shelf, marked
+    /// where they are in it, and whether the line is selected: lit in the accent, `↵` in place of
+    /// the time.
+    pub(super) fn idle_row(
+        &self,
+        idler: &card::Idler,
+        holds: &str,
+        age: Option<String>,
+        filter: Option<(&str, bool)>,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let ui = UiFont::get(cx);
+        let fg = |pick: Pick| hsla(self.theme.fg(pick), 1.0);
+        let (text, dim, dimmer, accent) = (
+            fg(|t| t.agents_text),
+            fg(|t| t.agents_dim),
+            fg(|t| t.agents_dimmer),
+            fg(|t| t.agents_accent),
+        );
+        let name = idler.name.as_str();
         let hover: SharedString = format!("idle-{name}").into();
         let menu_open = self.workspace_menu_open(name);
+        let selected = filter.is_some_and(|(_, selected)| selected);
+        let lit = text.opacity(0.06);
+        // What the filter's words are in, in the accent.
+        let marked = |words: &str| {
+            let hits = filter.map(|(needle, _)| workspaces::hits(words, needle));
+            let style = HighlightStyle {
+                color: Some(accent),
+                ..Default::default()
+            };
+            StyledText::new(words.to_owned())
+                .with_highlights(hits.into_iter().flatten().map(|hit| (hit, style)))
+        };
+        let bright = selected || menu_open;
         let label = match self.renaming(name) {
             Some(input) => self.rename_field(name, input, &ui, cx).into_any_element(),
             None => div()
@@ -804,66 +1209,456 @@ impl Sidebar {
                 .overflow_hidden()
                 .whitespace_nowrap()
                 .text_ellipsis()
-                .text_size(ui.px(GROUP_NAME_SIZE))
+                .text_size(ui.px(IDLE_NAME))
                 .font_weight(FontWeight::SEMIBOLD)
-                .text_color(dim)
+                .text_color(if bright { text } else { dim })
                 .group_hover(hover.clone(), move |style| style.text_color(text))
-                .child(name.to_owned())
+                .child(marked(name))
                 .into_any_element(),
         };
-        let raise = {
-            let name = name.to_owned();
-            cx.listener(move |this, _: &ClickEvent, _, cx| this.raise_workspace(&name, cx))
+        let star = {
+            let starred = idler.starred;
+            let toggle = {
+                let name = name.to_owned();
+                cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    cx.stop_propagation();
+                    this.toggle_star(&name, cx);
+                })
+            };
+            let tip = self.tip(if starred { "Unstar" } else { "Star" }, &ui);
+            div()
+                .id("idle-star")
+                .flex_shrink_0()
+                .size(ui.px(14.0))
+                .flex()
+                .items_center()
+                .justify_center()
+                .cursor_pointer()
+                .tooltip(move |_, cx| cx.new(|_| tip.clone()).into())
+                .on_click(toggle)
+                .map(|star| {
+                    if starred {
+                        star.child(mask(STAR, ui.px(9.0), dim))
+                    } else {
+                        let star = star.child(mask(STAR_HOLLOW, ui.px(10.0), dim));
+                        if menu_open {
+                            star
+                        } else {
+                            star.opacity(0.0)
+                                .group_hover(hover.clone(), |style| style.opacity(1.0))
+                        }
+                    }
+                })
         };
-        let holds = if repos.is_empty() {
-            "Empty".to_owned()
-        } else {
-            repos.join(", ")
-        };
-        let holds = div()
+        let words = div()
             .flex_1()
             .min_w(px(0.0))
-            .overflow_hidden()
-            .whitespace_nowrap()
-            .text_ellipsis()
-            .text_right()
-            .text_size(ui.px(COUNT))
-            .text_color(dimmer)
-            .group_hover(hover.clone(), move |style| style.text_color(dim))
-            .child(holds);
+            .flex()
+            .flex_col()
+            .gap(px(1.0))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(ui.px(5.0))
+                    .min_w(px(0.0))
+                    .child(label)
+                    .child(star),
+            )
+            .child(
+                div()
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .text_ellipsis()
+                    .text_size(ui.px(IDLE_NOTE))
+                    .text_color(if bright { dim } else { dimmer })
+                    .group_hover(hover.clone(), move |style| style.text_color(dim))
+                    .child(marked(holds)),
+            );
+        // At rest: how long since it was in use, or, selected, `↵`.
+        let resting = if selected {
+            Some(
+                div()
+                    .px(ui.px(6.0))
+                    .py(ui.px(2.0))
+                    .rounded(ui.px(5.0))
+                    .bg(accent.opacity(0.14))
+                    .text_size(ui.px(10.0))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(accent)
+                    .child("↵"),
+            )
+        } else {
+            age.map(|age| {
+                div()
+                    .text_size(ui.px(IDLE_NOTE))
+                    .text_color(dimmer.opacity(0.75))
+                    .child(age)
+            })
+        };
+        let resting = div().flex_shrink_0().children(resting).map(|resting| {
+            if menu_open {
+                resting.hidden()
+            } else {
+                resting.group_hover(hover.clone(), |style| style.hidden())
+            }
+        });
+        let plus = {
+            let tip = self.tip(format!("New Agent in {name}"), &ui);
+            let new_agent = {
+                let name = name.to_owned();
+                cx.listener(move |this, _: &ClickEvent, window, cx| {
+                    cx.stop_propagation();
+                    this.end_filter(window, cx);
+                    this.new_agent_in(&name, None, window, cx);
+                })
+            };
+            div()
+                .id("idle-new-agent")
+                .flex_shrink_0()
+                .size(ui.px(22.0))
+                .rounded(ui.px(6.0))
+                .flex()
+                .items_center()
+                .justify_center()
+                .bg(accent.opacity(0.16))
+                .hover(move |button| button.bg(accent.opacity(0.26)))
+                .cursor_pointer()
+                .tooltip(move |_, cx| cx.new(|_| tip.clone()).into())
+                .on_click(new_agent)
+                .child(mask(PLUS, ui.px(10.0), accent))
+        };
+        // Under the pointer, or while its menu is open, in place of the time.
+        let buttons = div()
+            .flex_shrink_0()
+            .flex()
+            .items_center()
+            .gap(ui.px(2.0))
+            .child(plus)
+            .child(self.options_button(name, &hover, menu_open, &ui, true, cx))
+            .when(!menu_open, |buttons| {
+                buttons
+                    .hidden()
+                    .group_hover(hover.clone(), |style| style.flex())
+            });
+        let raise = {
+            let name = name.to_owned();
+            cx.listener(move |this, _: &ClickEvent, window, cx| {
+                this.end_filter(window, cx);
+                this.raise_workspace(&name, cx);
+            })
+        };
         div()
             .id(ElementId::Name(hover.clone()))
             .group(hover.clone())
             .relative()
+            .flex_shrink_0()
             .flex()
             .items_center()
+            .gap(ui.px(IDLE_GAP))
             .h(ui.px(IDLE_ROW))
-            .px(px(4.0))
-            .rounded(px(7.0))
+            .pl(px(IDLE_LEFT))
+            .pr(px(IDLE_RIGHT))
+            .rounded(px(IDLE_ROW_RADIUS))
             .cursor_pointer()
-            .hover(move |style| style.bg(lit))
-            .when(menu_open, |row| row.bg(lit))
+            .map(|row| {
+                if selected {
+                    row.bg(accent.opacity(0.12))
+                } else if menu_open {
+                    row.bg(lit)
+                } else {
+                    row.hover(move |style| style.bg(lit))
+                }
+            })
             .on_click(raise)
-            // The gap to the repositories, which keeps none for the `⋯` before it is shown.
-            .child(
-                div()
-                    .flex_shrink(1.0)
-                    .min_w(px(0.0))
-                    .mr(ui.px(10.0))
-                    .child(label),
-            )
-            .child(holds)
-            .child(self.options_button(name, &hover, menu_open, &ui, true, cx))
+            .child(self.sign(name, Sign::Row, &ui))
+            .child(words)
+            .child(resting)
+            .child(buttons)
             .when(menu_open, |row| {
                 row.child(Self::hung(self.workspace_menu(name, &ui, cx), false))
             })
             .into_any_element()
     }
 
-    /// The repositories of `workspace` with no agent, in one faint line after its groups:
-    /// an arrow, their names, `No agents` (P5-134). Opened out, the line says `No agents` and
-    /// how many instead, and its repositories follow a line each, their names alone (P5-164).
-    /// A click opens them out, or puts them back.
+    /// A starred workspace on the folded shelf (P5-201): a capsule, its round tile and its name;
+    /// lit under the pointer, its repositories in its hover note. A click brings it up, open.
+    fn idle_capsule(&self, idler: &card::Idler, cx: &mut Context<Self>) -> AnyElement {
+        let ui = UiFont::get(cx);
+        let fg = |pick: Pick| hsla(self.theme.fg(pick), 1.0);
+        let (text, dim) = (fg(|t| t.agents_text), fg(|t| t.agents_dim));
+        let name = idler.name.as_str();
+        let hover: SharedString = format!("capsule-{name}").into();
+        let holds = if idler.repos.is_empty() {
+            "Empty".to_owned()
+        } else {
+            idler.repos.join(" · ")
+        };
+        let tip = self.tip(holds, &ui);
+        let raise = {
+            let name = name.to_owned();
+            cx.listener(move |this, _: &ClickEvent, _, cx| this.raise_workspace(&name, cx))
+        };
+        div()
+            .id(ElementId::Name(hover.clone()))
+            .group(hover.clone())
+            .max_w_full()
+            .flex()
+            .items_center()
+            .gap(ui.px(7.0))
+            .h(ui.px(CAPSULE))
+            .pl(ui.px(4.0))
+            .pr(ui.px(11.0))
+            .rounded_full()
+            .bg(text.opacity(0.05))
+            .border_1()
+            .border_color(text.opacity(0.08))
+            .hover(move |capsule| {
+                capsule
+                    .bg(text.opacity(0.10))
+                    .border_color(text.opacity(0.16))
+            })
+            .cursor_pointer()
+            .tooltip(move |_, cx| cx.new(|_| tip.clone()).into())
+            .on_click(raise)
+            .child(self.sign(name, Sign::Capsule, &ui))
+            .child(
+                div()
+                    .min_w(px(0.0))
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .text_ellipsis()
+                    .text_size(ui.px(12.0))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(dim)
+                    .group_hover(hover, move |style| style.text_color(text))
+                    .child(name.to_owned()),
+            )
+            .into_any_element()
+    }
+
+    // The Idle shelf's filter (P5-201).
+
+    /// The magnifier: the shelf's title becomes a field with the keys, a folded shelf open with
+    /// every line till the filter ends.
+    fn start_filter(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(filter) = &self.idle_filter {
+            window.focus(&filter.input.read(cx).focus_handle(cx), cx);
+            return;
+        }
+        let colors = input_colors(&self.theme);
+        let input = cx.new(|cx| TextInput::new("", "Filter idle workspaces", colors, cx));
+        // New words: the first line they keep is selected.
+        let changed = cx.subscribe(&input, |this, _, _: &Changed, cx| {
+            if let Some(filter) = &mut this.idle_filter {
+                filter.selected = 0;
+            }
+            cx.notify();
+        });
+        let back = window.focused(cx);
+        window.focus(&input.read(cx).focus_handle(cx), cx);
+        self.idle_filter = Some(Filter {
+            input,
+            selected: 0,
+            back,
+            _changed: changed,
+        });
+        self.listing.panel.filtering = true;
+        cx.notify();
+    }
+
+    /// The filter ends, its words forgotten: the shelf's title again, the shelf folded or not as
+    /// it was, and the keys back where they were.
+    fn end_filter(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(filter) = self.idle_filter.take() else {
+            return;
+        };
+        self.listing.panel.filtering = false;
+        if filter
+            .input
+            .read(cx)
+            .focus_handle(cx)
+            .contains_focused(window, cx)
+        {
+            match filter.back {
+                Some(back) => window.focus(&back, cx),
+                None => window.blur(cx),
+            }
+        }
+        cx.notify();
+    }
+
+    /// The workspaces the filter keeps, in the shelf's order.
+    fn filtered(&self, cx: &App) -> Vec<card::Idler> {
+        let Some(filter) = &self.idle_filter else {
+            return Vec::new();
+        };
+        let needle = filter.input.read(cx).text().to_owned();
+        (card::idle(&self.listing.panel).into_iter())
+            .filter(|idler| workspaces::matches(&idler.name, &idler.repos, &needle))
+            .collect()
+    }
+
+    /// The selected line's workspace, while the filter keeps any.
+    fn filter_selected(&self, cx: &App) -> Option<String> {
+        let filter = self.idle_filter.as_ref()?;
+        let kept = self.filtered(cx);
+        let at = filter.selected.min(kept.len().checked_sub(1)?);
+        Some(kept[at].name.clone())
+    }
+
+    /// ↑ or ↓ in the field: the line above or below is selected, stopping at either end.
+    fn step_filter(&mut self, by: isize, cx: &mut Context<Self>) {
+        let count = self.filtered(cx).len();
+        if let Some(filter) = &mut self.idle_filter {
+            filter.selected = crate::search::step(filter.selected, count, by);
+        }
+        cx.notify();
+    }
+
+    /// ↵ in the field: the selected line's workspace comes up, and the filter ends.
+    fn open_filtered(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(name) = self.filter_selected(cx) {
+            self.end_filter(window, cx);
+            self.raise_workspace(&name, cx);
+        }
+    }
+
+    /// ⌘↵ in the field: a new agent in the selected line's workspace, as its `+`, and the filter
+    /// ends.
+    fn new_agent_filtered(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(name) = self.filter_selected(cx) {
+            self.end_filter(window, cx);
+            self.new_agent_in(&name, None, window, cx);
+        }
+    }
+
+    /// The filter's field in place of the shelf's title: the magnifier, the words, how many of
+    /// the shelf's `total` it keeps, and the button that clears it, edged and lit in the accent.
+    /// ↑↓ select a line, ↵ brings it up, ⌘↵ starts an agent in it, Esc clears.
+    fn filter_bar(
+        &self,
+        filter: &Filter,
+        kept: usize,
+        total: usize,
+        cx: &mut Context<Self>,
+    ) -> gpui::Stateful<Div> {
+        let ui = UiFont::get(cx);
+        let fg = |pick: Pick| hsla(self.theme.fg(pick), 1.0);
+        let (text, dim, dimmer, accent) = (
+            fg(|t| t.agents_text),
+            fg(|t| t.agents_dim),
+            fg(|t| t.agents_dimmer),
+            fg(|t| t.agents_accent),
+        );
+        let tip = self.tip("Clear filter", &ui);
+        let clear = div()
+            .id("idle-filter-clear")
+            .flex_shrink_0()
+            .size(ui.px(18.0))
+            .rounded_full()
+            .flex()
+            .items_center()
+            .justify_center()
+            .bg(text.opacity(0.10))
+            .hover(move |button| button.bg(text.opacity(0.16)))
+            .cursor_pointer()
+            .tooltip(move |_, cx| cx.new(|_| tip.clone()).into())
+            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.end_filter(window, cx)))
+            .child(mask(CROSS, ui.px(7.0), dim));
+        let ring = BoxShadow {
+            color: accent.opacity(0.10),
+            offset: point(px(0.0), px(0.0)),
+            blur_radius: px(0.0),
+            spread_radius: px(3.0),
+            inset: false,
+        };
+        div()
+            .id("idle-filter")
+            .key_context(menu::DIALOG)
+            .flex()
+            .items_center()
+            .gap(ui.px(8.0))
+            .h(ui.px(SHELF_TITLE))
+            .mx(px(2.0))
+            .mt(px(2.0))
+            .mb(px(6.0))
+            .pl(ui.px(10.0))
+            .pr(ui.px(6.0))
+            .rounded(px(10.0))
+            .bg(well(&self.theme, self.grounds().base, false))
+            .border_1()
+            .border_color(accent.opacity(0.45))
+            .shadow(vec![ring])
+            .on_action(
+                cx.listener(|this, _: &menu::Cancel, window, cx| this.end_filter(window, cx)),
+            )
+            .on_action(cx.listener(|this, _: &menu::SelectNext, _, cx| this.step_filter(1, cx)))
+            .on_action(
+                cx.listener(|this, _: &menu::SelectPrevious, _, cx| this.step_filter(-1, cx)),
+            )
+            .on_action(cx.listener(|this, _: &menu::OpenSelected, window, cx| {
+                this.open_filtered(window, cx)
+            }))
+            .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, window, cx| {
+                let keys = &event.keystroke;
+                if keys.key == "enter" && keys.modifiers.platform {
+                    cx.stop_propagation();
+                    this.new_agent_filtered(window, cx);
+                }
+            }))
+            .child(mask(MAGNIFIER, ui.px(12.0), accent))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w(px(0.0))
+                    .text_size(ui.px(IDLE_NAME))
+                    .child(filter.input.clone()),
+            )
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .text_size(ui.px(IDLE_NOTE))
+                    .text_color(dimmer)
+                    .child(format!("{kept} of {total}")),
+            )
+            .child(clear)
+    }
+
+    /// The keys the filter takes, in a line at the shelf's foot, each key a step brighter.
+    fn filter_keys(&self, ui: &UiFont) -> AnyElement {
+        let fg = |pick: Pick| hsla(self.theme.fg(pick), 1.0);
+        let (dim, dimmer) = (fg(|t| t.agents_dim), fg(|t| t.agents_dimmer));
+        let keys = [
+            ("↑↓", "select"),
+            ("↵", "open"),
+            ("⌘↵", "new agent"),
+            ("esc", "clear"),
+        ];
+        div()
+            .flex()
+            .flex_wrap()
+            .justify_center()
+            .gap(ui.px(14.0))
+            .pt(ui.px(10.0))
+            .px(px(6.0))
+            .pb(ui.px(4.0))
+            .text_size(ui.px(IDLE_NOTE))
+            .text_color(dimmer)
+            .children(keys.into_iter().map(|(key, does)| {
+                div()
+                    .flex()
+                    .gap(ui.px(4.0))
+                    .child(div().text_color(dim).child(key))
+                    .child(does)
+            }))
+            .into_any_element()
+    }
+
+    /// The repositories of `workspace` with no agent, in one faint line after its groups: their
+    /// names, ` · ` between, `No agents`, a rule, and the arrow at the right end (P5-134,
+    /// P5-201). Opened out, the line says `No agents` and how many instead, and its repositories
+    /// follow a line each, their names alone (P5-164). A click opens them out, or puts them back.
     pub(super) fn vacancies(
         &self,
         workspace: &str,
@@ -883,7 +1678,7 @@ impl Sidebar {
             .id(SharedString::from(format!("vacancies-{workspace}")))
             .flex()
             .items_center()
-            .gap(ui.px(6.0))
+            .gap(ui.px(7.0))
             .px(px(4.0))
             .py(px(2.0))
             .rounded(px(6.0))
@@ -891,12 +1686,7 @@ impl Sidebar {
             .opacity(VACANCIES)
             .hover(move |style| style.bg(lit).opacity(1.0))
             .on_click(on_click)
-            .text_size(ui.px(GROUP_NAME_SIZE))
-            .child(mask(
-                if open { CHEVRON_DOWN } else { CHEVRON_RIGHT },
-                ui.px(CHEVRON),
-                dimmer,
-            ));
+            .text_size(ui.px(GROUP_NAME_SIZE));
         let row = if open {
             row.child(
                 div()
@@ -906,14 +1696,7 @@ impl Sidebar {
                     .text_color(dimmer)
                     .child("No agents"),
             )
-            .child(
-                div()
-                    .flex_shrink_0()
-                    .whitespace_nowrap()
-                    .text_size(ui.px(GROUP_COUNT_SIZE))
-                    .text_color(dimmer.opacity(0.6))
-                    .child(repos.len().to_string()),
-            )
+            .child(count_chip(&self.theme, &ui, repos.len()))
         } else {
             row.child(
                 div()
@@ -924,7 +1707,7 @@ impl Sidebar {
                     .text_ellipsis()
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(dimmer)
-                    .child(repos.join(", ")),
+                    .child(repos.join(" · ")),
             )
             .child(
                 div()
@@ -935,7 +1718,115 @@ impl Sidebar {
                     .child("No agents"),
             )
         };
-        row.into_any_element()
+        row.child(rule(&self.theme))
+            .child(mask(
+                if open { CHEVRON_DOWN } else { CHEVRON_RIGHT },
+                ui.px(CHEVRON),
+                dimmer,
+            ))
+            .into_any_element()
+    }
+
+    /// Inside a workspace opened with no agent (P5-201): `Nothing running here`, and a capsule
+    /// for each of its repositories, `repos` by name, that starts an agent there, as their lines'
+    /// `+` did (P5-93); with none, one that starts an agent in the workspace, as its `New Agent`
+    /// did.
+    pub(super) fn raised_body(
+        &self,
+        workspace: &str,
+        repos: &[String],
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let ui = UiFont::get(cx);
+        let fg = |pick: Pick| hsla(self.theme.fg(pick), 1.0);
+        let (text, dim, dimmer, accent) = (
+            fg(|t| t.agents_text),
+            fg(|t| t.agents_dim),
+            fg(|t| t.agents_dimmer),
+            fg(|t| t.agents_accent),
+        );
+        let members = (self.listing.panel.workspaces.get(workspace))
+            .map(|workspace| workspace.repos.clone())
+            .unwrap_or_default();
+        let ink = accent.blend(text.opacity(0.35));
+        let capsule = |id: SharedString, label: String, path: Option<PathBuf>| {
+            let on_click = {
+                let workspace = workspace.to_owned();
+                cx.listener(move |this, _: &ClickEvent, window, cx| {
+                    this.new_agent_in(&workspace, path.clone(), window, cx)
+                })
+            };
+            div()
+                .id(id)
+                .flex()
+                .items_center()
+                .gap(ui.px(6.0))
+                .h(ui.px(CAPSULE))
+                .pl(ui.px(9.0))
+                .pr(ui.px(12.0))
+                .rounded_full()
+                .bg(accent.opacity(0.08))
+                .border_1()
+                .border_color(accent.opacity(0.28))
+                .hover(move |capsule| {
+                    capsule
+                        .bg(accent.opacity(0.20))
+                        .border_color(accent.opacity(0.55))
+                })
+                .cursor_pointer()
+                .text_size(ui.px(12.0))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(ink)
+                .on_click(on_click)
+                .child(mask(PLUS, ui.px(9.0), accent))
+                .child(label)
+        };
+        let (says, capsules): (&str, Vec<_>) = if repos.is_empty() {
+            let new_agent = capsule("raised-new-agent".into(), "New Agent".to_owned(), None);
+            ("Add a repository or start an agent.", vec![new_agent])
+        } else {
+            let capsules = repos.iter().map(|repo| {
+                let path = (members.iter())
+                    .find(|path| kanban_repos::name(path) == *repo)
+                    .cloned();
+                capsule(format!("raised-{repo}").into(), repo.clone(), path)
+            });
+            (
+                "Start an agent in one of its repositories.",
+                capsules.collect(),
+            )
+        };
+        div()
+            .flex()
+            .flex_col()
+            .items_center()
+            .pt(ui.px(10.0))
+            .pb(ui.px(4.0))
+            .child(
+                div()
+                    .text_size(ui.px(IDLE_NAME))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(dim)
+                    .child("Nothing running here"),
+            )
+            .child(
+                div()
+                    .mt(ui.px(4.0))
+                    .text_size(ui.px(COUNT))
+                    .text_color(dimmer)
+                    .child(says),
+            )
+            .child(
+                div()
+                    .mt(ui.px(12.0))
+                    .flex()
+                    .flex_wrap()
+                    .justify_center()
+                    .gap(ui.px(6.0))
+                    .px(px(6.0))
+                    .children(capsules),
+            )
+            .into_any_element()
     }
 
     /// A whole repository of `workspace` with no agent now, or (`None`) a workspace with nothing
@@ -1401,6 +2292,20 @@ impl Sidebar {
                 .child(icon)
         };
         let pencil = mask(PENCIL, ui.px(footer_icon::SIZE), fg(|t| t.agents_dim));
+        // Starred or not, as the list kept has it (P5-201).
+        let starred = (self.listing.panel.workspaces.get(name)).is_some_and(|w| w.starred);
+        let star_icon = mask(
+            if starred { STAR } else { STAR_HOLLOW },
+            ui.px(footer_icon::SIZE - 1.0),
+            fg(|t| t.agents_dim),
+        );
+        let star = {
+            let name = name.to_owned();
+            cx.listener(move |this, _: &ClickEvent, window, cx| {
+                this.close_floating(window, cx);
+                this.toggle_star(&name, cx);
+            })
+        };
         self.floated(popover::panel(theme, ui), "workspace-menu", cx)
             .w(ui.px(WORKSPACE_MENU))
             .mt(ui.px(4.0))
@@ -1414,6 +2319,15 @@ impl Sidebar {
                     popover::Tone::Plain,
                 )
                 .on_click(new_agent),
+            )
+            .child(
+                popover::lead_row(theme, ui, "workspace-star", star_icon, false)
+                    .child(
+                        div()
+                            .flex_1()
+                            .child(if starred { "Unstar" } else { "Star" }),
+                    )
+                    .on_click(star),
             )
             .child(
                 popover::lead_row(theme, ui, "workspace-rename", pencil, false)
@@ -2055,23 +2969,45 @@ impl Sidebar {
 /// An open workspace's face, resting or `lit`, over the column's `base` (P5-91): a step darker,
 /// on a light sidebar too, so it reads as a well.
 pub(super) fn well(theme: &Theme, base: Hsla, lit: bool) -> Hsla {
-    let dark = hsla(theme.bg(|t| t.agents_bg), 1.0).l < 0.5;
-    let [on_dark, on_light] = if lit { WELL_LIT } else { WELL };
-    over(
-        gpui::black().opacity(if dark { on_dark } else { on_light }),
-        base,
-    )
+    let light = hsla(theme.bg(|t| t.agents_bg), 1.0).l >= 0.5;
+    sunk(if lit { WELL_LIT } else { WELL }, base, light)
 }
 
 /// The idle shelf's face over the column's `base` (P5-164): fainter than an open workspace's, so
 /// it reads as laid aside rather than in use, on a light sidebar too.
 fn shelf(theme: &Theme, base: Hsla) -> Hsla {
-    let dark = hsla(theme.bg(|t| t.agents_bg), 1.0).l < 0.5;
-    let [on_dark, on_light] = SHELF;
-    over(
-        gpui::black().opacity(if dark { on_dark } else { on_light }),
-        base,
-    )
+    let light = hsla(theme.bg(|t| t.agents_bg), 1.0).l >= 0.5;
+    sunk(SHELF, base, light)
+}
+
+/// The column's `base` darkened by black at the share `shares` gives a dark sidebar, or a
+/// `light` one.
+fn sunk(shares: [f32; 2], base: Hsla, light: bool) -> Hsla {
+    over(gpui::black().opacity(shares[usize::from(light)]), base)
+}
+
+/// How many, as a small chip after a repository's heading or a workspace's `No agents` (P5-201).
+pub(super) fn count_chip(theme: &Theme, ui: &UiFont, count: usize) -> Div {
+    let text = hsla(theme.fg(|t| t.agents_text), 1.0);
+    div()
+        .flex_shrink_0()
+        .px(ui.px(5.0))
+        .rounded(ui.px(5.0))
+        .bg(text.opacity(RULE))
+        .text_size(ui.px(COUNT_CHIP))
+        .font_weight(FontWeight::SEMIBOLD)
+        .text_color(hsla(theme.fg(|t| t.agents_dimmer), 1.0))
+        .child(count.to_string())
+}
+
+/// The faint rule from a heading's words on to what is at its right end (P5-201).
+pub(super) fn rule(theme: &Theme) -> Div {
+    let text = hsla(theme.fg(|t| t.agents_text), 1.0);
+    div()
+        .flex_1()
+        .min_w(px(8.0))
+        .h(px(1.0))
+        .bg(text.opacity(RULE))
 }
 
 /// How agents are doing, a short stroke each: a group's bar, or a folded workspace's.

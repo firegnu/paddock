@@ -29,6 +29,15 @@ pub struct Workspace {
     /// in the workspace.
     #[serde(default, serialize_with = "written_empty")]
     pub agents: Vec<String>,
+    /// Starred (P5-201): first on the Idle shelf, and on it still while it is folded. Left out of
+    /// the file while not, as files from before it have it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub starred: bool,
+    /// When it was last in use, in Unix seconds (P5-201): as it came to have agents or to have
+    /// none, was brought up from the Idle shelf or the command palette, or was made. The Idle
+    /// shelf lists the rest after the starred by it. Left out while never.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub used: Option<u64>,
 }
 
 /// The agents' names as a workspace is kept now: none.
@@ -87,8 +96,9 @@ impl Workspaces {
         all
     }
 
-    /// Writes the list to `path`: names and repositories' paths, nothing else; an older paddock's
-    /// agents' names are left out, as they no longer do anything.
+    /// Writes the list to `path`: names and repositories' paths, and whether each is starred and
+    /// when it was last in use where it has been (P5-201); an older paddock's agents' names are
+    /// left out, as they no longer do anything.
     pub fn save(&self, path: &Path) -> io::Result<()> {
         if let Some(dir) = path.parent() {
             fs::create_dir_all(dir)?;
@@ -161,6 +171,20 @@ impl Workspaces {
     /// The workspace is gone; its members are in none.
     pub fn remove(&mut self, name: &str) {
         self.list.retain(|workspace| workspace.name != name);
+    }
+
+    /// Stars the workspace, or takes its star off (P5-201).
+    pub fn star(&mut self, name: &str, starred: bool) {
+        if let Some(workspace) = self.get_mut(name) {
+            workspace.starred = starred;
+        }
+    }
+
+    /// The workspace was in use at `at`, Unix seconds (P5-201).
+    pub fn mark_used(&mut self, name: &str, at: u64) {
+        if let Some(workspace) = self.get_mut(name) {
+            workspace.used = Some(at);
+        }
     }
 
     /// The whole repository is in `workspace`, and in no other; left where it is when there is
@@ -327,6 +351,79 @@ impl Picks {
             count => format!("{count} repositories"),
         }
     }
+}
+
+/// The letters on a workspace's tile (P5-201): the first character of each of the first two
+/// parts of its name, split at `-`, `_`, `.` and blanks, in capitals; of a name in one part, its
+/// first character alone. Any script: `中文` gives `中`.
+pub fn initials(name: &str) -> String {
+    let parts = name
+        .split(|c: char| matches!(c, '-' | '_' | '.') || c.is_whitespace())
+        .filter(|part| !part.is_empty());
+    parts
+        .take(2)
+        .filter_map(|part| part.chars().next())
+        .flat_map(char::to_uppercase)
+        .collect()
+}
+
+/// How many tints a workspace's tile picks among (P5-201).
+pub const TINTS: usize = 7;
+
+/// The tint a workspace's tile takes, of [`TINTS`] (P5-201): by its name whatever the case, the
+/// same every time (FNV-1a over its lowercase bytes), so a renamed one may take another.
+pub fn tint(name: &str) -> usize {
+    let mut hash: u32 = 0x811c_9dc5;
+    for byte in name.to_lowercase().bytes() {
+        hash ^= u32::from(byte);
+        hash = hash.wrapping_mul(0x0100_0193);
+    }
+    hash as usize % TINTS
+}
+
+/// Whether every word of `needle` is in the workspace's name or in one of its repositories'
+/// names, ignoring case (P5-201): what the Idle shelf's filter keeps. Nothing typed keeps all.
+pub fn matches(name: &str, repos: &[String], needle: &str) -> bool {
+    needle.split_whitespace().all(|word| {
+        let word = word.to_lowercase();
+        let mut names = std::iter::once(name).chain(repos.iter().map(String::as_str));
+        names.any(|text| text.to_lowercase().contains(&word))
+    })
+}
+
+/// Where the words of `needle` are in `text`, ignoring case, as byte ranges in order, those that
+/// touch or overlap as one (P5-201): what the filter marks in a name or its repositories.
+pub fn hits(text: &str, needle: &str) -> Vec<std::ops::Range<usize>> {
+    let mut hits: Vec<std::ops::Range<usize>> = Vec::new();
+    for word in needle.split_whitespace() {
+        let word: Vec<char> = word.chars().flat_map(char::to_lowercase).collect();
+        for (start, _) in text.char_indices() {
+            let mut rest = text[start..].char_indices().flat_map(|(at, c)| {
+                let end = start + at + c.len_utf8();
+                c.to_lowercase().map(move |lower| (lower, end))
+            });
+            let mut end = start;
+            let whole = word.iter().all(|want| match rest.next() {
+                Some((lower, to)) if lower == *want => {
+                    end = to;
+                    true
+                }
+                _ => false,
+            });
+            if whole {
+                hits.push(start..end);
+            }
+        }
+    }
+    hits.sort_by_key(|hit| hit.start);
+    let mut merged: Vec<std::ops::Range<usize>> = Vec::new();
+    for hit in hits {
+        match merged.last_mut() {
+            Some(last) if hit.start <= last.end => last.end = last.end.max(hit.end),
+            _ => merged.push(hit),
+        }
+    }
+    merged
 }
 
 /// How many agents, in words: `No agents`, `1 agent`, `3 agents`.
